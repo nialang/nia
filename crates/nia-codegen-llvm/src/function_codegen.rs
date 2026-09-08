@@ -1518,7 +1518,7 @@ fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCall
         FunctionCallee::DynamicTraitMethod { .. } => false,
         FunctionCallee::TraitMethod { .. }
         | FunctionCallee::TraitAssociatedFunction { .. }
-        | FunctionCallee::BuiltinPlaceMethod { .. }
+        | FunctionCallee::BuiltinTraitMethodCall { .. }
         | FunctionCallee::BuiltinMethod { .. }
         | FunctionCallee::BuiltinOperator(_) => false,
     }

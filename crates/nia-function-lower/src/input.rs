@@ -495,7 +495,7 @@ impl BodyInputValidator<'_, '_> {
             | TypedCallee::TraitMethod { receiver, .. }
             | TypedCallee::DynamicTraitMethod { receiver, .. }
             | TypedCallee::BuiltinMethod { receiver, .. }
-            | TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod { receiver, .. })
+            | TypedCallee::BuiltinTraitMethodCall(BuiltinTraitMethodCall { receiver, .. })
             | TypedCallee::Callable(receiver)
             | TypedCallee::FunctionPointer(receiver) => self.validate_value_expr(receiver),
             TypedCallee::Function(_)

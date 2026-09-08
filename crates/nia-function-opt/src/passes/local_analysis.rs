@@ -265,7 +265,7 @@ impl<'a> LocalUseCollector<'a> {
             | FunctionCallee::Method { receiver, .. }
             | FunctionCallee::TraitMethod { receiver, .. }
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
-            | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+            | FunctionCallee::BuiltinTraitMethodCall { receiver, .. }
             | FunctionCallee::BuiltinMethod { receiver, .. }
             | FunctionCallee::Callable(receiver)
             | FunctionCallee::FunctionPointer(receiver) => self.collect_expr(receiver),

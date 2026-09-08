@@ -94,6 +94,7 @@ pub(crate) fn builtin_trait_method_symbol(name: SymbolId) -> Option<BuiltinTrait
         known::SLICE_MUT => Some(BuiltinTraitMethod::SliceMut),
         known::ITER_METHOD => Some(BuiltinTraitMethod::IterableIter),
         known::NEXT => Some(BuiltinTraitMethod::IteratorNext),
+        known::INTO_ERROR => Some(BuiltinTraitMethod::IntoError),
         _ => None,
     }
 }

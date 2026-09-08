@@ -659,23 +659,19 @@ pub struct TypedClosureCapture {
     pub value: TypedExpr,
 }
 
-/// Error conversion metadata attached to a try expression.
+/// Builtin error conversion metadata attached to a try expression.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedTryErrorConversion {
-    /// Trait supplying the conversion method.
-    pub trait_id: GlobalDefId,
-    /// Conversion method identity.
-    pub method_id: GlobalDefId,
-    /// Method name for diagnostics.
-    pub method_name: SymbolId,
+    /// Canonical builtin trait supplying the conversion method.
+    pub trait_id: BuiltinTrait,
+    /// Canonical builtin conversion method.
+    pub method: BuiltinTraitMethod,
     /// Source error type.
     pub source_ty: InternedTyId,
     /// Converted target error type.
     pub target_ty: InternedTyId,
     /// Trait type arguments.
     pub trait_args: Vec<InternedTyId>,
-    /// Receiver passing mode.
-    pub receiver_kind: ReceiverKind,
 }
 
 /// Pointer relocation embedded in a union byte image.
@@ -1073,8 +1069,8 @@ pub enum TypedCallee {
     },
     /// Builtin operator dispatch.
     BuiltinOperator(BuiltinOperator),
-    /// Builtin place method dispatch.
-    BuiltinPlaceMethod(BuiltinPlaceMethod),
+    /// Builtin trait method dispatch.
+    BuiltinTraitMethodCall(BuiltinTraitMethodCall),
     /// Callable fat-pointer call.
     Callable(Box<TypedExpr>),
     /// Function-pointer call.
@@ -1099,9 +1095,9 @@ impl BuiltinOperator {
     }
 }
 
-/// Builtin method requiring an addressable receiver.
+/// Method dispatch through a builtin trait implementation.
 #[derive(Debug, Clone, PartialEq)]
-pub struct BuiltinPlaceMethod {
+pub struct BuiltinTraitMethodCall {
     /// Builtin trait identity.
     pub trait_id: BuiltinTrait,
     /// Builtin method identity.

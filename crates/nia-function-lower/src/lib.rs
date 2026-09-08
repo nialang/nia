@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use nia_ast::{BinaryOp, UnaryOp};
 use nia_body_ir::{
-    AsmOption, BuiltinConst, BuiltinMethod, BuiltinPlaceMethod, PlaceBase, PlaceElem,
+    AsmOption, BuiltinConst, BuiltinMethod, BuiltinTraitMethodCall, PlaceBase, PlaceElem,
     TypedArrayElements, TypedAtomic, TypedBinding, TypedBody, TypedCallee, TypedExpr,
     TypedExprKind, TypedForIn, TypedIfPattern, TypedInlineAsm, TypedLocal, TypedLocalKind,
     TypedLoop, TypedMatch, TypedMatchArmBody, TypedMemoryIntrinsicSource,

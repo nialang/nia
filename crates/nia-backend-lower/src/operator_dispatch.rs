@@ -511,13 +511,13 @@ impl<'a> ModuleLowerer<'a> {
                         FunctionCallee::BuiltinOperator(operator) => {
                             self.dispatch_builtin_operator_call(operator, args)
                         }
-                        FunctionCallee::BuiltinPlaceMethod {
+                        FunctionCallee::BuiltinTraitMethodCall {
                             trait_id,
                             method,
                             self_ty,
                             trait_args,
                             receiver,
-                        } => self.dispatch_builtin_place_method_call(
+                        } => self.dispatch_builtin_trait_method_call(
                             trait_id, method, self_ty, trait_args, *receiver, args,
                         ),
                         FunctionCallee::BuiltinMethod {
@@ -868,13 +868,13 @@ impl<'a> ModuleLowerer<'a> {
                 self_ty,
                 receiver: Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver)),
             },
-            FunctionCallee::BuiltinPlaceMethod {
+            FunctionCallee::BuiltinTraitMethodCall {
                 trait_id,
                 method,
                 self_ty,
                 trait_args,
                 receiver,
-            } => FunctionCallee::BuiltinPlaceMethod {
+            } => FunctionCallee::BuiltinTraitMethodCall {
                 trait_id,
                 method,
                 self_ty,
@@ -1102,7 +1102,7 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn dispatch_builtin_place_method_call(
+    fn dispatch_builtin_trait_method_call(
         &mut self,
         trait_id: BuiltinTrait,
         method: BuiltinTraitMethod,
@@ -1112,7 +1112,7 @@ impl<'a> ModuleLowerer<'a> {
         args: Vec<FunctionExpr>,
     ) -> FunctionExprKind {
         if let Some((def_id, method_args)) =
-            self.resolve_builtin_place_impl_method(trait_id, &trait_args, method, self_ty)
+            self.resolve_builtin_trait_impl_method(trait_id, &trait_args, method, self_ty)
         {
             FunctionExprKind::Call {
                 callee: FunctionCallee::Method {
@@ -1128,7 +1128,7 @@ impl<'a> ModuleLowerer<'a> {
             }
         } else {
             FunctionExprKind::Call {
-                callee: FunctionCallee::BuiltinPlaceMethod {
+                callee: FunctionCallee::BuiltinTraitMethodCall {
                     trait_id,
                     method,
                     self_ty,
@@ -1230,7 +1230,7 @@ impl<'a> ModuleLowerer<'a> {
         candidate
     }
 
-    fn resolve_builtin_place_impl_method(
+    fn resolve_builtin_trait_impl_method(
         &mut self,
         trait_id: BuiltinTrait,
         trait_args: &[InternedTyId],

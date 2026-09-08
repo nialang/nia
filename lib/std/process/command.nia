@@ -1,4 +1,5 @@
 using pkg::collections;
+using pkg::builtin;
 using pkg::error;
 using pkg::fs;
 using pkg::mem;
@@ -489,7 +490,7 @@ extend[T] os::Error!T {
     }
 }
 
-extend mem::Error : error::IntoError[Error] {
+extend mem::Error : builtin::IntoError[Error] {
     const fn intoError(self) Error {
         Error::Allocation(self)
     }

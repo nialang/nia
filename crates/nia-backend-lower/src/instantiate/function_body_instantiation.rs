@@ -545,7 +545,7 @@ impl<'a> ModuleLowerer<'a> {
                         .map(|arg| self.instantiate_expr(arg, substitutions))
                         .collect::<Vec<_>>();
                     let callee = self.instantiate_callee(callee, substitutions);
-                    if let FunctionCallee::BuiltinPlaceMethod {
+                    if let FunctionCallee::BuiltinTraitMethodCall {
                         trait_id,
                         method,
                         self_ty,
@@ -554,7 +554,7 @@ impl<'a> ModuleLowerer<'a> {
                         ..
                     } = &callee
                         && let Some(intrinsic_expr) = self
-                            .lower_intrinsic_builtin_place_method_call(
+                            .lower_intrinsic_builtin_trait_method_call(
                                 *trait_id,
                                 *method,
                                 *self_ty,
@@ -565,7 +565,7 @@ impl<'a> ModuleLowerer<'a> {
                     {
                         return intrinsic_expr;
                     }
-                    if let FunctionCallee::BuiltinPlaceMethod {
+                    if let FunctionCallee::BuiltinTraitMethodCall {
                         trait_id,
                         method,
                         self_ty,
@@ -577,7 +577,7 @@ impl<'a> ModuleLowerer<'a> {
                             self.resolve_builtin_trait_goal(self_ty, trait_id, trait_args.clone());
                         match resolution {
                             TraitResolution::User(_) => {
-                                let resolved = self.resolve_builtin_place_method_impl(
+                                let resolved = self.resolve_builtin_trait_method_call_impl(
                                     trait_id,
                                     &trait_args,
                                     method,
@@ -611,7 +611,7 @@ impl<'a> ModuleLowerer<'a> {
                                     span,
                                     ty,
                                     kind: FunctionExprKind::Call {
-                                        callee: FunctionCallee::BuiltinPlaceMethod {
+                                        callee: FunctionCallee::BuiltinTraitMethodCall {
                                             trait_id,
                                             method,
                                             self_ty,
@@ -627,7 +627,7 @@ impl<'a> ModuleLowerer<'a> {
                                     span,
                                     ty,
                                     kind: FunctionExprKind::Call {
-                                        callee: FunctionCallee::BuiltinPlaceMethod {
+                                        callee: FunctionCallee::BuiltinTraitMethodCall {
                                             trait_id,
                                             method,
                                             self_ty,
@@ -657,7 +657,7 @@ impl<'a> ModuleLowerer<'a> {
                             span,
                             ty,
                             kind: FunctionExprKind::Call {
-                                callee: FunctionCallee::BuiltinPlaceMethod {
+                                callee: FunctionCallee::BuiltinTraitMethodCall {
                                     trait_id,
                                     method,
                                     self_ty,
@@ -1096,7 +1096,7 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 }
             }
-            FunctionCallee::BuiltinPlaceMethod {
+            FunctionCallee::BuiltinTraitMethodCall {
                 trait_id,
                 method,
                 self_ty,
@@ -1109,7 +1109,7 @@ impl<'a> ModuleLowerer<'a> {
                     .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
                     .collect::<Vec<_>>();
                 let receiver = Box::new(self.instantiate_expr(*receiver, substitutions));
-                FunctionCallee::BuiltinPlaceMethod {
+                FunctionCallee::BuiltinTraitMethodCall {
                     trait_id,
                     method,
                     self_ty,

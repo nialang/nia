@@ -1,4 +1,5 @@
 using pkg::cmp;
+using pkg::builtin;
 using pkg::error;
 using pkg::hash;
 using pkg::iter::range;
@@ -734,7 +735,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 }
 
-extend os::Error : error::IntoError[HashMapInitError] {
+extend os::Error : builtin::IntoError[HashMapInitError] {
     const fn intoError(self) HashMapInitError {
         HashMapInitError::fromOs(self)
     }

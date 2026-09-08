@@ -473,6 +473,7 @@ impl TraitSolver<'_> {
                         }) if *lanes <= 64
                     )
             }
+            BuiltinTrait::IntoError => false,
         }
     }
 

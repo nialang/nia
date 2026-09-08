@@ -841,7 +841,8 @@ impl<'a> TypeResolver<'a> {
                 .insert(ty.node_key.site().clone(), global);
             return Some(TypeNameResolution::External(global));
         }
-        builtin_trait_for_symbol(type_segment_name(segment)?).map(TypeNameResolution::BuiltinTrait)
+        builtin_trait_for_unqualified_symbol(type_segment_name(segment)?)
+            .map(TypeNameResolution::BuiltinTrait)
     }
 
     fn visit_assoc_binding_key(&mut self, key: &AssocBindingKey) {
@@ -1181,7 +1182,7 @@ impl<'a> TypeResolver<'a> {
         {
             return TypeNameResolution::Error;
         }
-        if let Some(trait_id) = builtin_trait_for_symbol(&name) {
+        if let Some(trait_id) = builtin_trait_for_unqualified_symbol(&name) {
             return TypeNameResolution::BuiltinTrait(trait_id);
         }
         self.diagnostics.push(Diagnostic::user_error_at(
@@ -1325,6 +1326,11 @@ fn builtin_trait_for_symbol(name: &SymbolId) -> Option<BuiltinTrait> {
         known::ITERATOR_TRAIT => BuiltinTrait::Iterator,
         known::SIMD_TRAIT => BuiltinTrait::Simd,
         known::SIMD_MASK_TRAIT => BuiltinTrait::SimdMask,
+        known::INTO_ERROR_TRAIT => BuiltinTrait::IntoError,
         _ => return None,
     })
+}
+
+fn builtin_trait_for_unqualified_symbol(name: &SymbolId) -> Option<BuiltinTrait> {
+    builtin_trait_for_symbol(name).filter(|trait_id| *trait_id != BuiltinTrait::IntoError)
 }

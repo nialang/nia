@@ -128,6 +128,7 @@ where
             BuiltinTrait::Iterator => false,
             BuiltinTrait::Simd => self.can_be_simd(self_ty),
             BuiltinTrait::SimdMask => self.can_be_simd_mask(self_ty),
+            BuiltinTrait::IntoError => false,
         }
     }
 

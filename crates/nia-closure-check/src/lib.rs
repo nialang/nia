@@ -1144,8 +1144,9 @@ impl<'a> Analyzer<'a> {
                 self.apply_unknown_call(&operands, call.span, call.ty)
             }
             TypedCallee::BuiltinMethod { receiver, .. }
-            | TypedCallee::BuiltinPlaceMethod(nia_body_ir::BuiltinPlaceMethod {
-                receiver, ..
+            | TypedCallee::BuiltinTraitMethodCall(nia_body_ir::BuiltinTraitMethodCall {
+                receiver,
+                ..
             }) => {
                 let mut result = self.analyze_expr(receiver, env).all();
                 let args = self.analyze_call_args(args, env);

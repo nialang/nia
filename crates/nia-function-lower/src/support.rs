@@ -1268,7 +1268,9 @@ impl FunctionLowerer<'_> {
                 | TypedCallee::TraitMethod { receiver, .. }
                 | TypedCallee::DynamicTraitMethod { receiver, .. }
                 | TypedCallee::BuiltinMethod { receiver, .. }
-                | TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod { receiver, .. })
+                | TypedCallee::BuiltinTraitMethodCall(BuiltinTraitMethodCall {
+                    receiver, ..
+                })
                 | TypedCallee::Callable(receiver)
                 | TypedCallee::FunctionPointer(receiver) => {
                     visit_expr(receiver, max_id);

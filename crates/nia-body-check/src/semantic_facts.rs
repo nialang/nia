@@ -81,12 +81,17 @@ impl<'a> BodyChecker<'a> {
                     "builtin method `{}` is not available during const evaluation",
                     method.name()
                 ),
-                ResolvedCall::BuiltinPlaceMethod {
+                ResolvedCall::BuiltinTraitMethodCall {
                     method: BuiltinTraitMethod::IteratorNext,
                     ..
                 } => "`Iterator::next` trait witness used during const evaluation must be declared `const fn`"
                     .to_string(),
-                ResolvedCall::BuiltinPlaceMethod { method, .. } => format!(
+                ResolvedCall::BuiltinTraitMethodCall {
+                    method: BuiltinTraitMethod::IntoError,
+                    ..
+                } => "automatic `IntoError` conversion during const evaluation requires `intoError` to be declared `const fn`"
+                    .to_string(),
+                ResolvedCall::BuiltinTraitMethodCall { method, .. } => format!(
                     "builtin method `{}` is not available during const evaluation",
                     method.name()
                 ),
@@ -140,14 +145,21 @@ impl<'a> BodyChecker<'a> {
                         || self.builtin_trait_witness_is_const_capable(
                             *self_ty,
                             BuiltinTraitMethod::IterableIter,
+                            &[],
                         ));
             }
-            ResolvedCall::BuiltinPlaceMethod {
-                method, self_ty, ..
+            ResolvedCall::BuiltinTraitMethodCall {
+                method,
+                self_ty,
+                trait_args,
+                ..
             } => {
                 return method.is_const_capable()
-                    && (!matches!(method, BuiltinTraitMethod::IteratorNext)
-                        || self.builtin_trait_witness_is_const_capable(*self_ty, *method));
+                    && (!matches!(
+                        method,
+                        BuiltinTraitMethod::IteratorNext | BuiltinTraitMethod::IntoError
+                    ) || self
+                        .builtin_trait_witness_is_const_capable(*self_ty, *method, trait_args));
             }
         };
         self.resolved_function_signature(def_id)
@@ -158,10 +170,11 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         self_ty: InternedTyId,
         method: BuiltinTraitMethod,
+        trait_args: &[InternedTyId],
     ) -> bool {
         let trait_id = nia_ty::TraitId::Builtin(method.trait_id());
         let resolution =
-            self.current_context_resolve_trait_obligation(self_ty, trait_id, Vec::new());
+            self.current_context_resolve_trait_obligation(self_ty, trait_id, trait_args.to_vec());
         let nia_trait_solve::TraitResolution::User(user_impl) = resolution else {
             // Ordinary trait checking owns unsatisfied and ambiguous diagnostics.
             // Intrinsic and assumed obligations have no concrete user witness.
@@ -172,16 +185,30 @@ impl<'a> BodyChecker<'a> {
         };
         let impl_module_id = impl_signature.module_id;
         let impl_id = impl_signature.impl_id;
-        let method_id = self
-            .with_visible_extensions(|extensions| {
-                extensions.all_trait_witnesses_named(&method.symbol_id())
-            })
-            .into_iter()
-            .find_map(|(_, witness)| {
+        let methods = self.with_visible_extensions(|extensions| {
+            let witnesses = extensions.all_trait_witnesses_named(&method.symbol_id());
+            if witnesses.is_empty() {
+                extensions.all_methods_named(&method.symbol_id())
+            } else {
+                witnesses
+            }
+        });
+        let method_id = methods
+            .iter()
+            .filter_map(|(_, witness)| {
                 (witness.def_id.module_id == impl_module_id
                     && witness.impl_id == impl_id
                     && witness.trait_id == Some(trait_id))
                 .then_some(witness.def_id)
+            })
+            .next()
+            .or_else(|| {
+                methods.into_iter().find_map(|(_, witness)| {
+                    (witness.def_id.module_id == impl_module_id
+                        && witness.impl_id == impl_id
+                        && witness.trait_id.is_none())
+                    .then_some(witness.def_id)
+                })
             });
         method_id
             .and_then(|method_id| self.resolved_function_signature(method_id))
@@ -221,7 +248,7 @@ impl<'a> BodyChecker<'a> {
             | ResolvedCall::BuiltinFunction { .. }
             | ResolvedCall::BuiltinTraitMethod { .. }
             | ResolvedCall::BuiltinMethod { .. }
-            | ResolvedCall::BuiltinPlaceMethod { .. }
+            | ResolvedCall::BuiltinTraitMethodCall { .. }
             | ResolvedCall::Closure
             | ResolvedCall::Callable
             | ResolvedCall::FunctionPointer => return,

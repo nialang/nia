@@ -5,7 +5,7 @@ use nia_ast::{
     SliceRange, Stmt, StmtKind, UnaryOp,
 };
 use nia_body_ir::{
-    AtomicOrder, AtomicRmwOp, BuiltinConst, BuiltinMethod, BuiltinOperator, BuiltinPlaceMethod,
+    AtomicOrder, AtomicRmwOp, BuiltinConst, BuiltinMethod, BuiltinOperator, BuiltinTraitMethodCall,
     LocalName, MemoryIntrinsicOp, TypedArrayElements, TypedAtomic, TypedBinding, TypedBody,
     TypedCallee, TypedClosureCapture, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn,
     TypedIfPattern, TypedIfPatternChain, TypedIfPatternClause, TypedLocal, TypedLocalKind,
@@ -1191,25 +1191,20 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Try { expr: inner } => {
                 let error_conversion = match self.resolved_call(expr) {
-                    Some(ResolvedCall::TraitMethod {
+                    Some(ResolvedCall::BuiltinTraitMethodCall {
                         trait_id,
-                        method_id,
-                        method_name,
+                        method,
                         self_ty,
                         trait_args,
-                        receiver_kind,
-                        ..
                     }) => trait_args
                         .first()
                         .copied()
                         .map(|target_ty| TypedTryErrorConversion {
                             trait_id,
-                            method_id,
-                            method_name,
+                            method,
                             source_ty: self_ty,
                             target_ty,
                             trait_args,
-                            receiver_kind,
                         }),
                     _ => None,
                 };
@@ -1301,7 +1296,7 @@ impl<'a> BodyChecker<'a> {
                     self.resolved_call(expr)
                 {
                     self.lower_builtin_function_call(expr, builtin, type_arg, args)
-                } else if let Some(ResolvedCall::BuiltinPlaceMethod {
+                } else if let Some(ResolvedCall::BuiltinTraitMethodCall {
                     trait_id,
                     method,
                     self_ty,
@@ -1312,14 +1307,16 @@ impl<'a> BodyChecker<'a> {
                     let (receiver, lowered_args) =
                         self.lower_builtin_call_receiver(callee, args, Some(receiver_ty));
                     TypedExprKind::Call {
-                        callee: TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
+                        callee: TypedCallee::BuiltinTraitMethodCall(BuiltinTraitMethodCall {
                             trait_id,
                             method,
                             self_ty,
                             trait_args,
-                            receiver: Box::new(self.lower_typed_builtin_place_method_receiver(
-                                &receiver, self_ty, method,
-                            )),
+                            receiver: Box::new(
+                                self.lower_typed_builtin_trait_method_call_receiver(
+                                    &receiver, self_ty, method,
+                                ),
+                            ),
                         }),
                         args: lowered_args,
                     }

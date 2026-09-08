@@ -528,7 +528,7 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    pub(super) fn resolve_builtin_place_method_impl(
+    pub(super) fn resolve_builtin_trait_method_call_impl(
         &mut self,
         trait_id: BuiltinTrait,
         trait_args: &[InternedTyId],
@@ -545,7 +545,7 @@ impl<'a> ModuleLowerer<'a> {
         let candidates = candidates
             .iter()
             .filter_map(|candidate| {
-                self.builtin_place_impl_method_for_candidate(candidate, trait_args, self_ty)
+                self.builtin_trait_impl_method_for_candidate(candidate, trait_args, self_ty)
             })
             .collect::<Vec<_>>();
         match candidates.as_slice() {
@@ -554,7 +554,7 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    pub(super) fn builtin_place_impl_method_for_candidate(
+    pub(super) fn builtin_trait_impl_method_for_candidate(
         &mut self,
         candidate: &ExtensionTraitMethodCandidate,
         trait_args: &[InternedTyId],
@@ -570,7 +570,7 @@ impl<'a> ModuleLowerer<'a> {
         Some((candidate.method_def_id, args))
     }
 
-    pub(super) fn lower_intrinsic_builtin_place_method_call(
+    pub(super) fn lower_intrinsic_builtin_trait_method_call(
         &mut self,
         trait_id: BuiltinTrait,
         method: BuiltinTraitMethod,

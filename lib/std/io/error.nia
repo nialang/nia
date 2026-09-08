@@ -1,4 +1,4 @@
-using pkg::error;
+using pkg::builtin;
 using pkg::os;
 
 pub enum SystemError: i32 {
@@ -34,7 +34,7 @@ pub enum Error {
     System(SystemError),
 }
 
-extend os::Error : error::IntoError[SystemError] {
+extend os::Error : builtin::IntoError[SystemError] {
     const fn intoError(self) SystemError {
         match self {
             .PermissionDenied => .PermissionDenied,
@@ -63,7 +63,7 @@ extend os::Error : error::IntoError[SystemError] {
     }
 }
 
-extend os::Error : error::IntoError[Error] {
+extend os::Error : builtin::IntoError[Error] {
     const fn intoError(self) Error {
         match self {
             .PermissionDenied => .System(SystemError::PermissionDenied),

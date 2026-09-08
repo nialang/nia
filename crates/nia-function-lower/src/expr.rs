@@ -488,16 +488,11 @@ impl FunctionLowerer<'_> {
                 span: expr.span,
                 ty: conversion.target_ty,
                 kind: FunctionExprKind::Call {
-                    callee: FunctionCallee::TraitMethod {
+                    callee: FunctionCallee::BuiltinTraitMethodCall {
                         trait_id: conversion.trait_id,
-                        method_id: conversion.method_id,
-                        method_name: conversion.method_name,
+                        method: conversion.method,
                         self_ty: conversion.source_ty,
                         trait_args: conversion.trait_args.clone(),
-                        trait_const_args: Vec::new(),
-                        args: Vec::new(),
-                        const_args: Vec::new(),
-                        receiver_kind: conversion.receiver_kind,
                         receiver: Box::new(receiver),
                     },
                     args: Vec::new(),
@@ -1552,13 +1547,13 @@ impl FunctionLowerer<'_> {
                 self_ty: *self_ty,
                 receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
             },
-            TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
+            TypedCallee::BuiltinTraitMethodCall(BuiltinTraitMethodCall {
                 trait_id,
                 method,
                 self_ty,
                 trait_args,
                 receiver,
-            }) => FunctionCallee::BuiltinPlaceMethod {
+            }) => FunctionCallee::BuiltinTraitMethodCall {
                 trait_id: *trait_id,
                 method: *method,
                 self_ty: *self_ty,

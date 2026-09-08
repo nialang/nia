@@ -174,7 +174,7 @@ fn lowers_for_in_iterator_next_payload_and_edges() {
                     && matches!(
                         binding.value.as_ref().map(|value| &value.kind),
                         Some(FunctionExprKind::Call {
-                            callee: FunctionCallee::BuiltinPlaceMethod {
+                            callee: FunctionCallee::BuiltinTraitMethodCall {
                                 trait_id: nia_ids::BuiltinTrait::Iterator,
                                 method: nia_ids::BuiltinTraitMethod::IteratorNext,
                                 ..

@@ -890,7 +890,7 @@ impl FunctionLowerer<'_> {
             span,
             ty: optional_item_ty,
             kind: FunctionExprKind::Call {
-                callee: FunctionCallee::BuiltinPlaceMethod {
+                callee: FunctionCallee::BuiltinTraitMethodCall {
                     trait_id: BuiltinTrait::Iterator,
                     method: BuiltinTraitMethod::IteratorNext,
                     self_ty: receiver_ty,

@@ -1061,198 +1061,84 @@ impl<'a> BodyChecker<'a> {
         source_ty: InternedTyId,
         target_ty: InternedTyId,
     ) -> Result<Option<ResolvedCall>, ()> {
-        let mut trait_ids = self
-            .program_signature_scope
-            .trait_ids_with_method_named(&known::INTO_ERROR);
-        if let Some(def_id) = self.defs.module_scope.types.get(&known::INTO_ERROR_TRAIT)
-            && self
-                .defs
-                .defs
-                .get(def_id)
-                .is_some_and(|def| def.kind == DefKind::Trait)
-        {
-            trait_ids.push(GlobalDefId {
-                module_id: self.defs.module_id,
-                def_id,
-            });
-        }
-        trait_ids.sort_unstable();
-        trait_ids.dedup();
-
-        let mut matches = Vec::new();
-        let mut ambiguous = false;
-        let mut has_named_protocol = false;
-        let mut has_valid_protocol = false;
-        let mut has_malformed_protocol = false;
-        for trait_id in trait_ids {
-            if self.definition_name(trait_id) != Some(known::INTO_ERROR_TRAIT) {
-                continue;
+        let trait_args = vec![target_ty];
+        match self.current_context_resolve_trait_obligation(
+            source_ty,
+            TraitId::Builtin(BuiltinTrait::IntoError),
+            trait_args.clone(),
+        ) {
+            nia_trait_solve::TraitResolution::User(_)
+            | nia_trait_solve::TraitResolution::Assumed(_) => {
+                Ok(Some(ResolvedCall::BuiltinTraitMethodCall {
+                    trait_id: BuiltinTrait::IntoError,
+                    method: nia_ids::BuiltinTraitMethod::IntoError,
+                    self_ty: source_ty,
+                    trait_args,
+                }))
             }
-            has_named_protocol = true;
-            let Some(signature) = self.resolved_trait_signature(trait_id) else {
-                has_malformed_protocol = true;
-                continue;
-            };
-            if signature.generics.len() != 1 {
-                has_malformed_protocol = true;
-                continue;
+            nia_trait_solve::TraitResolution::Ambiguous => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    format!(
+                        "ambiguous error propagation conversion from `{}` to `{}`",
+                        self.ty_name(source_ty),
+                        self.ty_name(target_ty)
+                    ),
+                ));
+                Err(())
             }
-            let Some(method) = signature
-                .methods
-                .iter()
-                .find(|method| method.name == known::INTO_ERROR)
-            else {
-                has_malformed_protocol = true;
-                continue;
-            };
-            if !method.signature.generic_params.is_empty()
-                || method.signature.params.len() != 1
-                || method.signature.params[0].receiver != Some(nia_ids::ReceiverKind::Value)
-                || method.signature.is_variadic
+            nia_trait_solve::TraitResolution::Intrinsic(_) => Ok(None),
+            nia_trait_solve::TraitResolution::Unsatisfied
+                if self.has_into_error_chain(source_ty, target_ty) =>
             {
-                has_malformed_protocol = true;
-                continue;
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    format!(
+                        "error propagation does not chain `IntoError` conversions from `{}` to `{}`",
+                        self.ty_name(source_ty),
+                        self.ty_name(target_ty)
+                    ),
+                ));
+                Err(())
             }
-            has_valid_protocol = true;
-            let receiver_kind = nia_ids::ReceiverKind::Value;
-            let trait_args = vec![target_ty];
-            let (substitutions, const_substitutions) =
-                self.generic_substitutions_and_consts_for_def(trait_id, &trait_args, &[]);
-            let method_return = self.substitute_generics_and_consts_with_self(
-                method.signature.return_type,
-                &substitutions,
-                &const_substitutions,
-                source_ty,
-            );
-            let method_return = self.normalize_projection(method_return);
-            if !self.types_match(method_return, target_ty) {
-                continue;
-            }
-            match self.current_context_resolve_trait_obligation(
-                source_ty,
-                TraitId::Source(trait_id),
-                trait_args.clone(),
-            ) {
-                nia_trait_solve::TraitResolution::User(_)
-                | nia_trait_solve::TraitResolution::Assumed(_) => {
-                    matches.push(ResolvedCall::TraitMethod {
-                        trait_id,
-                        method_id: GlobalDefId {
-                            module_id: trait_id.module_id,
-                            def_id: method.def_id,
-                        },
-                        method_name: method.name,
-                        self_ty: source_ty,
-                        trait_args,
-                        trait_const_args: Vec::new(),
-                        args: Vec::new(),
-                        const_args: Vec::new(),
-                        receiver_kind,
-                    });
-                }
-                nia_trait_solve::TraitResolution::Ambiguous => ambiguous = true,
-                nia_trait_solve::TraitResolution::Intrinsic(_)
-                | nia_trait_solve::TraitResolution::Unsatisfied => {}
-            }
+            nia_trait_solve::TraitResolution::Unsatisfied => Ok(None),
         }
-
-        if ambiguous || matches.len() > 1 {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                format!(
-                    "ambiguous error propagation conversion from `{}` to `{}`",
-                    self.ty_name(source_ty),
-                    self.ty_name(target_ty)
-                ),
-            ));
-            return Err(());
-        }
-        if matches.is_empty() && has_named_protocol && has_malformed_protocol && !has_valid_protocol
-        {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                format!(
-                    "malformed `IntoError` protocol while propagating `{}` to `{}`: expected `intoError(self) Target`",
-                    self.ty_name(source_ty),
-                    self.ty_name(target_ty)
-                ),
-            ));
-            return Err(());
-        }
-        if matches.is_empty()
-            && has_valid_protocol
-            && self.has_into_error_chain(source_ty, target_ty)
-        {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                format!(
-                    "error propagation does not chain `IntoError` conversions from `{}` to `{}`",
-                    self.ty_name(source_ty),
-                    self.ty_name(target_ty)
-                ),
-            ));
-            return Err(());
-        }
-        Ok(matches.pop())
     }
 
     fn has_into_error_chain(&mut self, source_ty: InternedTyId, target_ty: InternedTyId) -> bool {
-        let mut trait_ids = self
-            .program_signature_scope
-            .trait_ids_with_method_named(&known::INTO_ERROR);
-        if let Some(def_id) = self.defs.module_scope.types.get(&known::INTO_ERROR_TRAIT)
-            && self
-                .defs
-                .defs
-                .get(def_id)
-                .is_some_and(|def| def.kind == DefKind::Trait)
-        {
-            trait_ids.push(GlobalDefId {
-                module_id: self.defs.module_id,
-                def_id,
-            });
-        }
-        trait_ids.sort_unstable();
-        trait_ids.dedup();
-        trait_ids.into_iter().any(|trait_id| {
-            if self.definition_name(trait_id) != Some(known::INTO_ERROR_TRAIT) {
-                return false;
-            }
-            let trait_id = nia_ty::TraitId::Source(trait_id);
-            self.program_trait_impls
-                .iter()
-                .filter(|implementation| implementation.trait_id == trait_id)
-                .filter_map(|implementation| implementation.trait_args.first().copied())
-                .any(|middle_ty| {
-                    if self.types_match(middle_ty, target_ty) {
-                        return false;
-                    }
-                    let first = self.current_context_resolve_trait_obligation(
-                        source_ty,
+        let trait_id = nia_ty::TraitId::Builtin(BuiltinTrait::IntoError);
+        self.program_trait_impls
+            .iter()
+            .filter(|implementation| implementation.trait_id == trait_id)
+            .filter_map(|implementation| implementation.trait_args.first().copied())
+            .any(|middle_ty| {
+                if self.types_match(middle_ty, target_ty) {
+                    return false;
+                }
+                let first = self.current_context_resolve_trait_obligation(
+                    source_ty,
+                    trait_id,
+                    vec![middle_ty],
+                );
+                if !matches!(
+                    first,
+                    nia_trait_solve::TraitResolution::User(_)
+                        | nia_trait_solve::TraitResolution::Assumed(_)
+                ) {
+                    return false;
+                }
+                matches!(
+                    self.current_context_resolve_trait_obligation(
+                        middle_ty,
                         trait_id,
-                        vec![middle_ty],
-                    );
-                    if !matches!(
-                        first,
-                        nia_trait_solve::TraitResolution::User(_)
-                            | nia_trait_solve::TraitResolution::Assumed(_)
-                    ) {
-                        return false;
-                    }
-                    matches!(
-                        self.current_context_resolve_trait_obligation(
-                            middle_ty,
-                            trait_id,
-                            vec![target_ty],
-                        ),
-                        nia_trait_solve::TraitResolution::User(_)
-                            | nia_trait_solve::TraitResolution::Assumed(_)
-                    )
-                })
-        })
+                        vec![target_ty],
+                    ),
+                    nia_trait_solve::TraitResolution::User(_)
+                        | nia_trait_solve::TraitResolution::Assumed(_)
+                )
+            })
     }
 
     fn check_range_expr(

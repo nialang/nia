@@ -459,7 +459,7 @@ impl CompilerBuiltinCollector {
             | FunctionCallee::TraitMethod { receiver, .. }
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::BuiltinMethod { receiver, .. }
-            | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+            | FunctionCallee::BuiltinTraitMethodCall { receiver, .. }
             | FunctionCallee::Callable(receiver)
             | FunctionCallee::FunctionPointer(receiver) => self.collect_expr(index, receiver),
             FunctionCallee::Function(_)

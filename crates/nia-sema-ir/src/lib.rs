@@ -1235,8 +1235,8 @@ pub enum ResolvedCall {
         /// Concrete receiver type.
         self_ty: InternedTyId,
     },
-    /// Compiler intrinsic place method backed by a builtin trait.
-    BuiltinPlaceMethod {
+    /// Statically dispatched method belonging to a builtin trait.
+    BuiltinTraitMethodCall {
         /// Builtin trait providing the operation.
         trait_id: BuiltinTrait,
         /// Selected builtin trait method.
@@ -1435,7 +1435,8 @@ impl BuiltinOperatorOp {
             | BuiltinTraitMethod::Slice
             | BuiltinTraitMethod::SliceMut
             | BuiltinTraitMethod::IterableIter
-            | BuiltinTraitMethod::IteratorNext => None,
+            | BuiltinTraitMethod::IteratorNext
+            | BuiltinTraitMethod::IntoError => None,
         }
     }
 }

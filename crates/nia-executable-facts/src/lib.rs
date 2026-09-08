@@ -292,6 +292,7 @@ fn builtin_trait_method_symbol(method: BuiltinTraitMethod) -> SymbolId {
         BuiltinTraitMethod::SliceMut => known::SLICE_MUT,
         BuiltinTraitMethod::IterableIter => known::ITER_METHOD,
         BuiltinTraitMethod::IteratorNext => known::NEXT,
+        BuiltinTraitMethod::IntoError => known::INTO_ERROR,
     }
 }
 
@@ -575,7 +576,7 @@ fn collect_resolved_call_refs(
                 );
             }
         }
-        ResolvedCall::BuiltinPlaceMethod {
+        ResolvedCall::BuiltinTraitMethodCall {
             trait_id,
             method,
             self_ty,
@@ -1090,7 +1091,7 @@ fn collect_typed_callee_refs(
                     .insert_trait(TraitId::Builtin(operator.trait_id));
             }
         }
-        TypedCallee::BuiltinPlaceMethod(method) => {
+        TypedCallee::BuiltinTraitMethodCall(method) => {
             refs.trait_refs.insert_method(
                 module.module_id,
                 TraitId::Builtin(method.trait_id),

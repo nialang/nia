@@ -1,6 +1,6 @@
 using pkg::cstring;
+using pkg::builtin;
 using pkg::io;
-using pkg::error;
 using pkg::result;
 using pkg::test;
 using pkg::fmt;
@@ -11,7 +11,7 @@ using pkg::process::types;
 
 using types::{Error, ExitCode, SpawnError, SystemError};
 
-extend test::Error : error::IntoError[ExitCode] {
+extend test::Error : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         match self {
             .AssertionFailed(_), .ValuesEqual(_), .ValuesNotEqual(_) => exit(1),
@@ -19,7 +19,7 @@ extend test::Error : error::IntoError[ExitCode] {
     }
 }
 
-extend io::DebugPrintError : error::IntoError[ExitCode] {
+extend io::DebugPrintError : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         match self {
             .Format(cause) => cause.asExitCode(),
@@ -40,7 +40,7 @@ extend[T] io::DebugPrintError!T {
     }
 }
 
-extend cstring::CStringBuildError : error::IntoError[ExitCode] {
+extend cstring::CStringBuildError : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         match self {
             .ContainsNul => exit(22),
@@ -61,7 +61,7 @@ extend[T] cstring::CStringBuildError!T {
     }
 }
 
-extend fs::Error : error::IntoError[ExitCode] {
+extend fs::Error : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         self as i32 as ExitCode
     }
@@ -73,7 +73,7 @@ extend fs::Error {
     }
 }
 
-extend fs::PathError : error::IntoError[ExitCode] {
+extend fs::PathError : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         match self {
             .ContainsNul, .Absolute, .ParentTraversal, .MissingTerminator => exit(22),
@@ -89,7 +89,7 @@ extend fs::PathError {
     }
 }
 
-extend fs::OperationError : error::IntoError[ExitCode] {
+extend fs::OperationError : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         match self {
             .Path { operation: _, cause } => {
@@ -112,7 +112,7 @@ pub const fn exit(code: i32) ExitCode {
     code as ExitCode
 }
 
-extend io::SystemError : error::IntoError[ExitCode] {
+extend io::SystemError : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         self as i32 as ExitCode
     }
@@ -124,7 +124,7 @@ extend io::SystemError {
     }
 }
 
-extend SystemError : error::IntoError[ExitCode] {
+extend SystemError : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         self as i32 as ExitCode
     }
@@ -136,7 +136,7 @@ extend SystemError {
     }
 }
 
-extend io::Error : error::IntoError[ExitCode] {
+extend io::Error : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         match self {
             .EndOfStream => exit(5),
@@ -159,7 +159,7 @@ extend[T] io::Error!T {
     }
 }
 
-extend Error : error::IntoError[ExitCode] {
+extend Error : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         match self {
             .Allocation(cause) => cause.asExitCode(),
@@ -182,7 +182,7 @@ extend Error : error::IntoError[ExitCode] {
     }
 }
 
-extend SpawnError : error::IntoError[ExitCode] {
+extend SpawnError : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         match self {
             .Setup(cause) => cause.asExitCode(),
@@ -230,7 +230,7 @@ extend[T] fs::OperationError!T {
     }
 }
 
-extend fmt::Error : error::IntoError[ExitCode] {
+extend fmt::Error : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         match self {
             .Write => exit(5),
@@ -254,7 +254,7 @@ extend[T] fmt::Error!T {
     }
 }
 
-extend io::BufferError : error::IntoError[ExitCode] {
+extend io::BufferError : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         match self {
             .NoSpace => exit(2),
@@ -277,7 +277,7 @@ extend[T] io::BufferError!T {
     }
 }
 
-extend mem::Error : error::IntoError[ExitCode] {
+extend mem::Error : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         match self {
             .Invalid => exit(22),

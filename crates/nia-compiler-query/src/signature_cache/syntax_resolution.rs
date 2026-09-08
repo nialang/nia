@@ -290,6 +290,7 @@ pub(crate) fn builtin_trait_tag(value: BuiltinTrait) -> u8 {
         BuiltinTrait::Iterator => 29,
         BuiltinTrait::Simd => 30,
         BuiltinTrait::SimdMask => 31,
+        BuiltinTrait::IntoError => 32,
     }
 }
 
@@ -322,6 +323,7 @@ pub(crate) fn read_builtin_trait(cursor: &mut Cursor<&[u8]>) -> Option<BuiltinTr
         29 => BuiltinTrait::Iterator,
         30 => BuiltinTrait::Simd,
         31 => BuiltinTrait::SimdMask,
+        32 => BuiltinTrait::IntoError,
         _ => return None,
     })
 }

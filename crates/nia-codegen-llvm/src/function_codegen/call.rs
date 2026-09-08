@@ -717,7 +717,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 out_ptr,
                 caller_location,
             }),
-            FunctionCallee::BuiltinPlaceMethod { .. } => Err(self.error(
+            FunctionCallee::BuiltinTraitMethodCall { .. } => Err(self.error(
                 expr.span,
                 "unresolved builtin place method call reached LLVM codegen",
             )),
