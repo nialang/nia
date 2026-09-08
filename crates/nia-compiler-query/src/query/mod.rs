@@ -626,6 +626,7 @@ impl CompilerDatabase {
             if let Some(templates) = interface.templates() {
                 for record in &templates.records {
                     if record.definition.module.package != *package
+                        || interface.definition(&record.definition).is_none()
                         || records
                             .insert(record.definition.clone(), record.clone())
                             .is_some()
