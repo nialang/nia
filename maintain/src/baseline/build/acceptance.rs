@@ -27,6 +27,8 @@ pub(super) fn validate_workload(results: &[BuildResult]) -> MaintainResult<()> {
         "corrupt_cache",
         "recovered_warm",
         "failed_action",
+        "runner_only_clean",
+        "runner_only_warm",
     ];
     if results
         .iter()
@@ -56,20 +58,17 @@ pub(super) fn validate_workload(results: &[BuildResult]) -> MaintainResult<()> {
             ));
         }
     }
-    if counter(
-        results.last().expect("validated workload"),
-        "build.action_failures",
-    )? != 1
-    {
+    let failed_action = &results[8];
+    if counter(failed_action, "build.action_failures")? != 1 {
         return Err("failed action state did not report exactly one action failure".to_owned());
     }
     Ok(())
 }
 
-/// Validates all nine ordered workload states and returns counter-level evidence.
+/// Validates all ordered workload states and returns counter-level evidence.
 pub fn workload_acceptance(results: &[BuildResult]) -> MaintainResult<AcceptanceReport> {
-    if results.len() != 9 {
-        return Err("acceptance requires all nine build workload states".to_owned());
+    if results.len() != 11 {
+        return Err("acceptance requires all eleven build workload states".to_owned());
     }
     let [
         clean,
@@ -81,6 +80,8 @@ pub fn workload_acceptance(results: &[BuildResult]) -> MaintainResult<Acceptance
         corrupt_cache,
         recovered_warm,
         failed_action,
+        runner_only_clean,
+        runner_only_warm,
     ] = results
     else {
         unreachable!()
@@ -393,6 +394,19 @@ pub fn workload_acceptance(results: &[BuildResult]) -> MaintainResult<Acceptance
         "build.action_failures",
         1,
     )?;
+    for (state, result) in [
+        ("runner_only_clean", runner_only_clean),
+        ("runner_only_warm", runner_only_warm),
+    ] {
+        exact(&mut checks, state, result, "build.runner_compilations", 1)?;
+        exact(&mut checks, state, result, "build.runner_executions", 1)?;
+        // Even an empty build plan executes its single aggregate step. This
+        // keeps runner-only measurements honest while excluding application
+        // actions and cache lookups from the isolated workload.
+        exact(&mut checks, state, result, "build.actions_executed", 1)?;
+        exact(&mut checks, state, result, "build.action_cache_lookups", 0)?;
+        positive(&mut checks, state, result, "query.executions")?;
+    }
     Ok(AcceptanceReport {
         passed: checks.iter().all(|check| check.passed),
         checks,

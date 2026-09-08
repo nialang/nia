@@ -110,6 +110,14 @@ are persistent.
 A normal build emits all non-allocation timing data with this command;
 allocation counters are present only in the instrumented build above.
 
+The build baseline also measures a runner-only package in independent clean and
+warm processes. Its build plan contains one aggregate step and no actions, so
+`build_compile_runner`, `build_run_runner`, query work, and peak RSS expose the
+fixed cost of compiling and executing `build.nia` without application codegen
+or action-cache work. The representative fixture continues to cover clean,
+warm, source-edit, module-map-edit, corruption recovery, clean-equivalent
+artifacts, and failed-action behavior.
+
 Diagnostics and the JSON record both use stderr, but the JSON record is one
 complete line beginning with `{"schema_version":1`; the baseline runner selects
 that record structurally rather than parsing diagnostic or timing prose.

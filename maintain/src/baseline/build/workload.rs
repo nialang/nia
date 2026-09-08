@@ -175,6 +175,15 @@ fn copy_tree(source: &Path, destination: &Path) -> MaintainResult<()> {
     {
         let entry =
             entry.map_err(|error| format!("failed to inspect {}: {error}", source.display()))?;
+        // Never carry invocation products from a developer checkout into a
+        // supposedly clean baseline workspace. These directories are created
+        // by the measured compiler and must start absent for every repetition.
+        if matches!(
+            entry.file_name().to_str(),
+            Some(".nia-build" | ".nia-cache")
+        ) {
+            continue;
+        }
         let target = destination.join(entry.file_name());
         let file_type = entry
             .file_type()
@@ -238,13 +247,16 @@ pub(super) fn run_workload(
     nia: &Path,
     resource_root: &Path,
     fixture: &Path,
+    runner_fixture: &Path,
     timeout_seconds: u64,
 ) -> MaintainResult<(Vec<BuildResult>, TemporaryDirectory)> {
     let temporary = TemporaryDirectory::new("nia-build-baseline-")?;
     let workspace = temporary.path().join("representative");
     let source_edit_clean_workspace = temporary.path().join("source-edit-clean");
     let module_map_edit_clean_workspace = temporary.path().join("module-map-edit-clean");
+    let runner_workspace = temporary.path().join("runner-only");
     copy_tree(fixture, &workspace)?;
+    copy_tree(runner_fixture, &runner_workspace)?;
 
     // Each transition is observed before applying the next mutation. Reusing
     // one workspace is what makes warm reuse, typed invalidation, corruption
@@ -357,6 +369,24 @@ pub(super) fn run_workload(
         Some("fail"),
         false,
     )?);
+    results.push(run_state(
+        nia,
+        resource_root,
+        &runner_workspace,
+        "runner_only_clean",
+        timeout_seconds,
+        None,
+        true,
+    )?);
+    results.push(run_state(
+        nia,
+        resource_root,
+        &runner_workspace,
+        "runner_only_warm",
+        timeout_seconds,
+        None,
+        true,
+    )?);
     validate_workload(&results)?;
     Ok((results, temporary))
 }
@@ -383,5 +413,32 @@ mod tests {
         contents.pop();
         fs::write(&right, &contents).unwrap();
         assert!(!streams_match(&left, &right).unwrap());
+    }
+
+    #[test]
+    fn fixture_copy_excludes_build_and_cache_products() {
+        let directory = TestDirectory::new("build-fixture-copy");
+        let source = directory.path().join("source");
+        let destination = directory.path().join("destination");
+        fs::create_dir_all(source.join("src")).unwrap();
+        fs::create_dir_all(source.join(".nia-build")).unwrap();
+        fs::create_dir_all(source.join(".nia-cache")).unwrap();
+        fs::write(source.join("build.nia"), "source").unwrap();
+        fs::write(source.join("src/main.nia"), "source").unwrap();
+        fs::write(source.join(".nia-build/output"), "generated").unwrap();
+        fs::write(source.join(".nia-cache/entry"), "cached").unwrap();
+
+        copy_tree(&source, &destination).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(destination.join("build.nia")).unwrap(),
+            "source"
+        );
+        assert_eq!(
+            fs::read_to_string(destination.join("src/main.nia")).unwrap(),
+            "source"
+        );
+        assert!(!destination.join(".nia-build").exists());
+        assert!(!destination.join(".nia-cache").exists());
     }
 }

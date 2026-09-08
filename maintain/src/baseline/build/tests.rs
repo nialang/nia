@@ -146,6 +146,24 @@ fn passing_results() -> Vec<BuildResult> {
                 ("build.action_failures", 1),
             ]),
         ),
+        result(
+            "runner_only_clean",
+            values(&[
+                ("build.runner_compilations", 1),
+                ("build.runner_executions", 1),
+                ("build.actions_executed", 1),
+                ("query.executions", 100),
+            ]),
+        ),
+        result(
+            "runner_only_warm",
+            values(&[
+                ("build.runner_compilations", 1),
+                ("build.runner_executions", 1),
+                ("build.actions_executed", 1),
+                ("query.executions", 50),
+            ]),
+        ),
     ];
     results[2].artifact_equivalence = Some(ArtifactEquivalence {
         clean_state: "source_edit_clean".to_owned(),
@@ -310,8 +328,8 @@ fn acceptance_requires_distinct_processes_for_each_state() {
     assert!(acceptance.checks.iter().any(|check| {
         check.state == "workload"
             && check.counter == "baseline.distinct_state_processes"
-            && check.expected == ExpectedValue::Exact(9)
-            && check.found == 8
+            && check.expected == ExpectedValue::Exact(11)
+            && check.found == 10
             && !check.passed
     }));
 }
