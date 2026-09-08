@@ -188,8 +188,7 @@ impl PublicSurfaceSection {
             }
             if module.modules.windows(2).any(|w| w[0].0 >= w[1].0)
                 || module.exports.windows(2).any(|w| {
-                    (w[0].name.as_str(), w[0].namespace, &w[0].target)
-                        >= (w[1].name.as_str(), w[1].namespace, &w[1].target)
+                    (w[0].name.as_str(), w[0].namespace) >= (w[1].name.as_str(), w[1].namespace)
                 })
             {
                 return Err(MetadataError::InvalidManifest);
@@ -2145,6 +2144,25 @@ mod tests {
         invalid.modules[0].exports.push(duplicate);
         assert_eq!(
             encode_public_surface(&invalid),
+            Err(MetadataError::InvalidManifest)
+        );
+        let mut conflicting = section;
+        conflicting.modules[0].exports.push(PublicSurfaceExport {
+            name: "run".into(),
+            namespace: 0,
+            target: DefinitionId {
+                module: module,
+                name: "other".into(),
+                kind: 2,
+            },
+            parent_enum: None,
+            source: 0,
+        });
+        conflicting.modules[0]
+            .exports
+            .sort_by(|a, b| (a.name.as_str(), a.namespace).cmp(&(b.name.as_str(), b.namespace)));
+        assert_eq!(
+            encode_public_surface(&conflicting),
             Err(MetadataError::InvalidManifest)
         );
     }
