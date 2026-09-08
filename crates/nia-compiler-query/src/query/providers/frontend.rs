@@ -1,6 +1,126 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+/// Materializes public declaration facts directly from a selected package
+/// artifact. No source node or synthetic module identity is introduced.
+pub(in crate::query) fn provide_artifact_public_surface_facts(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<Option<PublicSurfaceModuleFacts>> {
+    let Some(identity) = db
+        .context()
+        .loader_facts()
+        .compiled_package_module_identity(module_id)?
+    else {
+        return Ok(None);
+    };
+    let index = db.get(CompiledPackageInterfaceIndexQuery)?;
+    let Some(interface) = index.package(&identity.package) else {
+        return Err(db.invalid_input(
+            &CompiledPackageInterfaceIndexQuery,
+            format!("artifact module owner is not selected: {identity:?}"),
+        ));
+    };
+    let symbols = db.context().symbols();
+    let mut defs = Vec::new();
+    let mut modules = Vec::new();
+    let mut types = Vec::new();
+    let mut values = Vec::new();
+    for record in interface.module_records(&identity.path) {
+        let declaration =
+            nia_package_metadata::decode_declaration(&record.declaration).map_err(|error| {
+                db.invalid_input(&CompiledPackageInterfaceIndexQuery, error.to_string())
+            })?;
+        if declaration.visibility != 3 || record.definition.module != identity {
+            return Err(db.invalid_input(
+                &CompiledPackageInterfaceIndexQuery,
+                format!(
+                    "artifact declaration is not public or belongs to another module: {:?}",
+                    record.definition
+                ),
+            ));
+        }
+        let kind = def_kind_from_tag(record.definition.kind).ok_or_else(|| {
+            db.invalid_input(
+                &CompiledPackageInterfaceIndexQuery,
+                format!(
+                    "artifact declaration has unknown definition kind: {}",
+                    record.definition.kind
+                ),
+            )
+        })?;
+        let name = symbols.intern(&record.definition.name).map_err(|error| {
+            db.invalid_input(&CompiledPackageInterfaceIndexQuery, error.to_string())
+        })?;
+        let id = nia_defs::stable_top_level_def_id(kind, name);
+        defs.push(nia_defs::PublicSurfaceDefFact {
+            id,
+            name,
+            kind,
+            parent: None,
+            visibility: nia_defs::Visibility::Public,
+            span: Span::default(),
+        });
+        match kind {
+            nia_defs::DefKind::Module => modules.push((name, id)),
+            nia_defs::DefKind::Function | nia_defs::DefKind::Global | nia_defs::DefKind::Const => {
+                values.push((name, id))
+            }
+            nia_defs::DefKind::Struct
+            | nia_defs::DefKind::Union
+            | nia_defs::DefKind::Trait
+            | nia_defs::DefKind::Enum
+            | nia_defs::DefKind::TypeAlias => types.push((name, id)),
+            _ => {
+                return Err(db.invalid_input(
+                    &CompiledPackageInterfaceIndexQuery,
+                    format!(
+                        "artifact declaration is not top-level: {:?}",
+                        record.definition
+                    ),
+                ));
+            }
+        }
+    }
+    defs.sort_by_key(|fact| fact.id);
+    modules.sort_unstable();
+    types.sort_unstable();
+    values.sort_unstable();
+    Ok(Some(PublicSurfaceModuleFacts {
+        defs,
+        module_scope: nia_defs::PublicSurfaceModuleScopeFacts {
+            modules,
+            types,
+            values,
+        },
+        enum_scopes: Vec::new(),
+        module_usings: Vec::new(),
+    }))
+}
+
+fn def_kind_from_tag(tag: u8) -> Option<nia_defs::DefKind> {
+    use nia_defs::DefKind;
+    Some(match tag {
+        1 => DefKind::Module,
+        2 => DefKind::Function,
+        3 => DefKind::Global,
+        4 => DefKind::Const,
+        5 => DefKind::Struct,
+        6 => DefKind::StructField,
+        7 => DefKind::Union,
+        8 => DefKind::UnionField,
+        9 => DefKind::Trait,
+        10 => DefKind::TraitAssociatedType,
+        11 => DefKind::TraitMethod,
+        12 => DefKind::Method,
+        13 => DefKind::Enum,
+        14 => DefKind::EnumVariant,
+        15 => DefKind::EnumVariantField,
+        16 => DefKind::TypeAlias,
+        _ => return None,
+    })
+}
+
 pub(super) fn provide_parse_ok_module_ids(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<StableModuleSequence> {

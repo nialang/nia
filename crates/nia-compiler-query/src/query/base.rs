@@ -1104,6 +1104,9 @@ impl QueryKey<CompilerContext> for PublicSurfaceModuleFactsQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        if let Some(facts) = provide_artifact_public_surface_facts(db, self.0)? {
+            return Ok(facts);
+        }
         db.context()
             .loader_facts()
             .module_public_surface_facts(self.0)?

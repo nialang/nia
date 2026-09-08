@@ -778,6 +778,26 @@ pub enum DefKind {
     TypeAlias,
 }
 
+/// Computes the canonical id for a top-level definition.
+///
+/// Package metadata carries the module, name, and kind of public definitions,
+/// while the in-session definition map uses [`DefId`].  Keeping this
+/// conversion here ensures artifact-backed facts and source collection use
+/// exactly the same identity algorithm.
+pub fn stable_top_level_def_id(kind: DefKind, name: SymbolId) -> DefId {
+    let namespace = match kind {
+        DefKind::Module => DefNamespace::Module,
+        DefKind::Function | DefKind::Global | DefKind::Const => DefNamespace::Value,
+        DefKind::Struct | DefKind::Union | DefKind::Trait | DefKind::Enum | DefKind::TypeAlias => {
+            DefNamespace::Type
+        }
+        _ => {
+            panic!("top-level definition kind cannot be represented: {kind:?}");
+        }
+    };
+    DefId(stable_def_id(&DefIdentity::top(namespace, kind, &name)))
+}
+
 /// Top-level names partitioned by language namespace.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ModuleScope {
