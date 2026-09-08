@@ -570,6 +570,43 @@ fn main() usize {
 }
 
 #[test]
+fn zero_length_slice_storage_dominates_repeated_defer_expansions() {
+    let root = temp_dir("zero_length_slice_storage_dominates_repeated_defer_expansions");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn consume(values: &[&i32]) () {
+    _ = values;
+}
+
+fn main(flag: bool) i32 {
+    defer consume(&[]);
+    if flag {
+        return 1;
+    }
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    let storage = ir
+        .find("%zst.local = alloca i8")
+        .expect("ZST identity storage");
+    let defer_entry = ir.find("defer.entry:").expect("defer entry block");
+    let defer_entry1 = ir.find("defer.entry1:").expect("second defer entry block");
+    assert!(storage < defer_entry && storage < defer_entry1, "{ir}");
+    assert_eq!(ir.matches("call void").count(), 2, "{ir}");
+}
+
+#[test]
 fn emits_global_string_pointer_call() {
     let root = temp_dir("emits_global_string_pointer_call");
     let main = root.join("main.nia");
