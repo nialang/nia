@@ -353,6 +353,28 @@ impl CompiledPackageTemplates {
     ) -> impl Iterator<Item = (&DefinitionId, &nia_package_metadata::TemplateRecord)> {
         self.records.iter()
     }
+
+    /// Decodes the canonical semantic summary for one published template.
+    /// Summary decoding is kept at the compiler boundary so downstream
+    /// analyses never reinterpret opaque artifact bytes.
+    pub fn summary(
+        &self,
+        definition: &DefinitionId,
+    ) -> QueryResult<Option<nia_package_metadata::TemplateSummary>> {
+        let Some(record) = self.records.get(definition) else {
+            return Ok(None);
+        };
+        nia_package_metadata::decode_template_summary(&record.summary)
+            .map(Some)
+            .map_err(|error| QueryError::InvalidInput {
+                query: QueryFrame {
+                    name: "compiled_package_templates",
+                    key: format!("{definition:?}"),
+                    description: "compiled_package_templates.summary".to_string(),
+                },
+                message: error.to_string(),
+            })
+    }
 }
 
 impl CompiledPackageModuleInterface {
