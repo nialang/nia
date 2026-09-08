@@ -601,9 +601,25 @@ impl CompilerDatabase {
             resolver,
             indexes: HashMap::new(),
             visiting: HashSet::new(),
+            key_cache: HashMap::new(),
+            key_visiting: HashSet::new(),
+            canonical_indexes: HashMap::new(),
             nodes: Vec::new(),
         };
-        let roots = roots
+        // Session-local type handles are intentionally not part of the
+        // published ordering. Sort roots by their structural, relocation-
+        // independent key before assigning graph indices.
+        let mut keyed_roots = roots
+            .iter()
+            .map(|root| Ok((*root, encoder.canonical_key(*root)?)))
+            .collect::<QueryResult<Vec<_>>>()?;
+        keyed_roots.sort_by(|left, right| left.1.cmp(&right.1));
+        keyed_roots.dedup_by(|left, right| left.1 == right.1);
+        let ordered_roots = keyed_roots
+            .into_iter()
+            .map(|(root, _)| root)
+            .collect::<Vec<_>>();
+        let roots = ordered_roots
             .iter()
             .map(|root| encoder.encode(*root))
             .collect::<QueryResult<Vec<_>>>()?;
@@ -626,13 +642,45 @@ impl CompilerDatabase {
     /// continues to consume the tracked source queries. The returned section is
     /// canonical and can be embedded in a [`nia_package_metadata::PackageArtifact`].
     pub fn package_interface_section(&self, package: PackageId) -> QueryResult<InterfaceSection> {
-        self.package_interface_and_type_graph(package)
+        let package_for_resolver = package.clone();
+        let resolver = |def_id: GlobalDefId| {
+            let graph = self.db.get(ModuleGraphQuery)?;
+            let Some(entry_root) = graph.current_package_root(graph.entry()) else {
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "entry module has no package root; provide an external definition resolver"
+                        .to_string(),
+                ));
+            };
+            if graph.current_package_root(def_id.module_id) != Some(entry_root) {
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "nominal type belongs to an external package; provide an external definition resolver"
+                        .to_string(),
+                ));
+            }
+            Ok(package_for_resolver.clone())
+        };
+        self.package_interface_and_type_graph(package, &resolver)
+            .map(|(interface, _)| interface)
+    }
+
+    /// Publishes an interface using an explicit resolver for every nominal
+    /// definition. This is the required API when signatures reference
+    /// dependency packages.
+    pub fn package_interface_section_with_resolver(
+        &self,
+        package: PackageId,
+        resolver: &dyn StableDefinitionPackageResolver,
+    ) -> QueryResult<InterfaceSection> {
+        self.package_interface_and_type_graph(package, resolver)
             .map(|(interface, _)| interface)
     }
 
     fn package_interface_and_type_graph(
         &self,
         package: PackageId,
+        resolver: &dyn StableDefinitionPackageResolver,
     ) -> QueryResult<(InterfaceSection, StableTypeGraph)> {
         let graph = self.db.get(ModuleGraphQuery)?;
         let symbols = self.db.context().loader_facts().symbols();
@@ -678,26 +726,8 @@ impl CompilerDatabase {
             .collect::<Vec<_>>();
         all_roots.sort_unstable();
         all_roots.dedup();
-        let resolver = |def_id: GlobalDefId| {
-            let package = package.clone();
-            let graph = self.db.get(ModuleGraphQuery)?;
-            let Some(entry_root) = graph.current_package_root(graph.entry()) else {
-                return Err(self.db.invalid_input(
-                    &ModuleGraphQuery,
-                    "entry module has no package root".to_string(),
-                ));
-            };
-            if graph.current_package_root(def_id.module_id) != Some(entry_root) {
-                return Err(self.db.invalid_input(
-                    &ModuleGraphQuery,
-                    "nominal type belongs to an external package; package resolver is required"
-                        .to_string(),
-                ));
-            }
-            Ok(package)
-        };
         let (type_graph, indexes) =
-            self.stable_type_graph_for_roots_with_resolver_and_indexes(&all_roots, &resolver)?;
+            self.stable_type_graph_for_roots_with_resolver_and_indexes(&all_roots, resolver)?;
         let mut records = pending
             .into_iter()
             .map(|(mut record, roots)| {
@@ -731,7 +761,37 @@ impl CompilerDatabase {
         &self,
         package: PackageId,
     ) -> QueryResult<crate::PackageArtifactPublication> {
-        let (interface, type_graph) = self.package_interface_and_type_graph(package.clone())?;
+        let package_for_resolver = package.clone();
+        let resolver = |def_id: GlobalDefId| {
+            let graph = self.db.get(ModuleGraphQuery)?;
+            let Some(entry_root) = graph.current_package_root(graph.entry()) else {
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "entry module has no package root; provide an external definition resolver"
+                        .to_string(),
+                ));
+            };
+            if graph.current_package_root(def_id.module_id) != Some(entry_root) {
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "nominal type belongs to an external package; provide an external definition resolver"
+                        .to_string(),
+                ));
+            }
+            Ok(package_for_resolver.clone())
+        };
+        self.publish_package_artifact_with_resolver(package, &resolver)
+    }
+
+    /// Produces a package artifact with an explicit nominal-definition
+    /// resolver, allowing public signatures to refer to dependencies.
+    pub fn publish_package_artifact_with_resolver(
+        &self,
+        package: PackageId,
+        resolver: &dyn StableDefinitionPackageResolver,
+    ) -> QueryResult<crate::PackageArtifactPublication> {
+        let (interface, type_graph) =
+            self.package_interface_and_type_graph(package.clone(), resolver)?;
         let interface_bytes = nia_package_metadata::encode_interface(&interface)
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
         let graph = self.db.get(ModuleGraphQuery)?;
@@ -1124,7 +1184,13 @@ impl CompilerDatabase {
                 .lock()
                 .expect("compiler graph observation lock poisoned") = new_graph;
         }
-        invalidation.extend(self.db.invalidate(CompiledPackageInterfaceIndexQuery));
+        // The compiled-interface index is an input-derived semantic query.
+        // Retire it only when the loaded module graph changes; option-only or
+        // content-identical updates must preserve the query graph and reuse
+        // the existing index.
+        if graph_changed {
+            invalidation.extend(self.db.invalidate(CompiledPackageInterfaceIndexQuery));
+        }
         Ok(invalidation)
     }
 
@@ -1188,6 +1254,9 @@ struct StableTypeGraphEncoder<'db> {
     resolver: &'db dyn StableDefinitionPackageResolver,
     indexes: HashMap<nia_ids::InternedTyId, u32>,
     visiting: HashSet<nia_ids::InternedTyId>,
+    key_cache: HashMap<nia_ids::InternedTyId, Vec<u8>>,
+    key_visiting: HashSet<nia_ids::InternedTyId>,
+    canonical_indexes: HashMap<Vec<u8>, u32>,
     nodes: Vec<StableTypeNode>,
 }
 
@@ -1196,6 +1265,7 @@ impl StableTypeGraphEncoder<'_> {
         if let Some(index) = self.indexes.get(&ty) {
             return Ok(*index);
         }
+        let key = self.canonical_key(ty)?;
         if !self.visiting.insert(ty) {
             return Err(self.db.invalid_input(
                 &ModuleGraphQuery,
@@ -1275,6 +1345,10 @@ impl StableTypeGraphEncoder<'_> {
             _ => return Err(self.unsupported("type form has no stable package encoding")),
         };
         self.visiting.remove(&ty);
+        if let Some(index) = self.canonical_indexes.get(&key) {
+            self.indexes.insert(ty, *index);
+            return Ok(*index);
+        }
         let index = u32::try_from(self.nodes.len()).map_err(|_| {
             self.db.invalid_input(
                 &ModuleGraphQuery,
@@ -1283,7 +1357,102 @@ impl StableTypeGraphEncoder<'_> {
         })?;
         self.nodes.push(node);
         self.indexes.insert(ty, index);
+        self.canonical_indexes.insert(key, index);
         Ok(index)
+    }
+
+    /// Computes a relocation-independent structural key.  This key is used
+    /// solely for graph ordering/deduplication; it never contains session
+    /// handles such as `InternedTyId` or `DefId`.
+    fn canonical_key(&mut self, ty: nia_ids::InternedTyId) -> QueryResult<Vec<u8>> {
+        if let Some(key) = self.key_cache.get(&ty) {
+            return Ok(key.clone());
+        }
+        if !self.key_visiting.insert(ty) {
+            return Err(self.db.invalid_input(
+                &ModuleGraphQuery,
+                "recursive session type graph has no stable package representation".to_string(),
+            ));
+        }
+        let kind = self
+            .db
+            .context()
+            .type_store
+            .get(ty)
+            .cloned()
+            .ok_or_else(|| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "type root belongs to a different compiler session".to_string(),
+                )
+            })?;
+        let mut key = Vec::new();
+        match kind {
+            nia_ty::TyKind::Primitive(primitive) => {
+                key.extend_from_slice(&[1, primitive as u8]);
+            }
+            nia_ty::TyKind::Tuple(elements) if elements.is_empty() => key.push(2),
+            nia_ty::TyKind::Tuple(elements) => {
+                key.push(3);
+                append_len(&mut key, elements.len());
+                for element in elements {
+                    append_bytes(&mut key, &self.canonical_key(element)?);
+                }
+            }
+            nia_ty::TyKind::Pointer { is_readonly, elem } => {
+                key.extend_from_slice(&[4, u8::from(is_readonly)]);
+                append_bytes(&mut key, &self.canonical_key(elem)?);
+            }
+            nia_ty::TyKind::Array { len, elem } => {
+                let nia_ty::ArrayLenTy::ConstValue(length) = len else {
+                    return Err(self.unsupported("array length is not a stable constant"));
+                };
+                key.push(5);
+                key.extend_from_slice(&length.to_le_bytes());
+                append_bytes(&mut key, &self.canonical_key(elem)?);
+            }
+            nia_ty::TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic: false,
+            } => {
+                key.push(6);
+                append_len(&mut key, params.len());
+                for parameter in params {
+                    append_bytes(&mut key, &self.canonical_key(parameter)?);
+                }
+                append_bytes(&mut key, &self.canonical_key(return_type)?);
+            }
+            nia_ty::TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } => {
+                let definition = self.definition(def_id)?;
+                key.push(if args.is_empty() && const_args.is_empty() {
+                    7
+                } else {
+                    8
+                });
+                append_definition_key(&mut key, &definition);
+                append_len(&mut key, args.len());
+                for argument in args {
+                    append_bytes(&mut key, &self.canonical_key(argument)?);
+                }
+                append_len(&mut key, const_args.len());
+                for argument in &const_args {
+                    append_const_arg_key(&mut key, argument);
+                }
+            }
+            nia_ty::TyKind::GenericParam(name) => {
+                key.push(9);
+                key.extend_from_slice(&name.raw().to_le_bytes());
+            }
+            _ => return Err(self.unsupported("type form has no stable package encoding")),
+        }
+        self.key_visiting.remove(&ty);
+        self.key_cache.insert(ty, key.clone());
+        Ok(key)
     }
 
     fn definition(&self, def_id: nia_ids::GlobalDefId) -> QueryResult<DefinitionId> {
@@ -1365,6 +1534,46 @@ fn primitive_type_node(primitive: nia_ty::PrimitiveTy) -> QueryResult<StableType
         PrimitiveTy::Bool => StableTypeNode::Primitive(15),
         PrimitiveTy::Char => StableTypeNode::Primitive(16),
     })
+}
+
+fn append_len(bytes: &mut Vec<u8>, len: usize) {
+    bytes.extend_from_slice(
+        &(u64::try_from(len).expect("type graph length exceeds u64")).to_le_bytes(),
+    );
+}
+
+fn append_bytes(bytes: &mut Vec<u8>, value: &[u8]) {
+    append_len(bytes, value.len());
+    bytes.extend_from_slice(value);
+}
+
+fn append_definition_key(bytes: &mut Vec<u8>, definition: &DefinitionId) {
+    append_bytes(bytes, definition.package.namespace.as_bytes());
+    append_bytes(bytes, definition.package.name.as_bytes());
+    append_bytes(bytes, definition.package.version.as_bytes());
+    append_bytes(bytes, definition.module.as_bytes());
+    append_bytes(bytes, definition.name.as_bytes());
+    bytes.push(definition.kind);
+}
+
+fn append_const_arg_key(bytes: &mut Vec<u8>, argument: &nia_ty::ConstGenericArg) {
+    match &argument.value {
+        nia_ty::ConstGenericValue::GenericParam(name) => {
+            bytes.push(1);
+            bytes.extend_from_slice(&name.raw().to_le_bytes());
+        }
+        nia_ty::ConstGenericValue::Int(value) => {
+            bytes.push(2);
+            bytes.extend_from_slice(&value.bits().to_le_bytes());
+            bytes.push(u8::from(value.is_signed()));
+        }
+        nia_ty::ConstGenericValue::Bool(value) => bytes.extend_from_slice(&[3, u8::from(*value)]),
+        nia_ty::ConstGenericValue::Char(value) => {
+            bytes.push(4);
+            bytes.extend_from_slice(&u32::from(*value).to_le_bytes());
+        }
+        nia_ty::ConstGenericValue::ConstExpr(_) => bytes.push(5),
+    }
 }
 
 fn declaration_signature(def: &nia_defs::Def) -> Vec<u8> {
