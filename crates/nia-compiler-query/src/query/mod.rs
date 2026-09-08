@@ -60,7 +60,7 @@ use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, RwLock},
 };
@@ -121,6 +121,8 @@ const EXTENSION_PROVIDER_MODULE_ELIGIBILITY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.compiler.extension-provider-module-eligibility.v1");
 const PROVIDER_SUMMARY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.compiler.provider-summary.v1");
+const COMPILED_INTERFACE_INDEX_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.compiled-interface-index.v1");
 mod resolve;
 mod static_init_queries;
 mod types;
@@ -165,6 +167,79 @@ type VisibleTraitImplsValue = VisibleTraitImplsForModule;
 /// infer ownership from declaration spelling or physical source paths.
 pub trait StableDefinitionPackageResolver {
     fn package_for_definition(&self, def_id: GlobalDefId) -> QueryResult<PackageId>;
+}
+
+/// Compiler-owned index of validated compiled package interfaces.
+///
+/// The index deliberately retains stable metadata identities. It does not
+/// manufacture session-local module or definition handles; provider
+/// installation must perform that remapping explicitly at a later boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompiledPackageInterfaceIndex {
+    packages: BTreeMap<PackageId, nia_package_metadata::CompiledPackageInterface>,
+    definitions: BTreeMap<DefinitionId, (PackageId, usize)>,
+}
+
+impl CompiledPackageInterfaceIndex {
+    pub fn from_interfaces(
+        interfaces: Vec<nia_package_metadata::CompiledPackageInterface>,
+    ) -> Result<Self, String> {
+        let mut packages = BTreeMap::new();
+        let mut definitions = BTreeMap::new();
+        for interface in interfaces {
+            let package = interface.manifest().package.clone();
+            if packages.insert(package.clone(), interface).is_some() {
+                return Err("duplicate compiled interface for one package".to_string());
+            }
+        }
+        for (package, interface) in &packages {
+            for (index, record) in interface.records().iter().enumerate() {
+                if definitions
+                    .insert(record.definition.clone(), (package.clone(), index))
+                    .is_some()
+                {
+                    return Err("duplicate compiled definition identity".to_string());
+                }
+            }
+        }
+        Ok(Self {
+            packages,
+            definitions,
+        })
+    }
+
+    /// Returns all selected package interfaces in stable package order.
+    pub fn packages(
+        &self,
+    ) -> impl Iterator<Item = (&PackageId, &nia_package_metadata::CompiledPackageInterface)> {
+        self.packages.iter()
+    }
+
+    /// Looks up one package interface by stable package identity.
+    pub fn package(
+        &self,
+        package: &PackageId,
+    ) -> Option<&nia_package_metadata::CompiledPackageInterface> {
+        self.packages.get(package)
+    }
+
+    /// Resolves one stable definition without loading dependency source.
+    pub fn definition(
+        &self,
+        definition: &DefinitionId,
+    ) -> Option<&nia_package_metadata::InterfaceRecord> {
+        let (package, index) = self.definitions.get(definition)?;
+        self.packages.get(package)?.records().get(*index)
+    }
+
+    /// Returns one package's declarations for a stable module path.
+    pub fn module_records(
+        &self,
+        package: &PackageId,
+        module: &str,
+    ) -> Option<Vec<&nia_package_metadata::InterfaceRecord>> {
+        Some(self.packages.get(package)?.module_records(module).collect())
+    }
 }
 
 impl<F> StableDefinitionPackageResolver for F
@@ -266,6 +341,13 @@ impl CompilerDatabase {
             .context()
             .loader_facts()
             .compiled_package_interfaces()
+    }
+
+    /// Returns the query-tracked index of selected compiled interfaces.
+    pub fn compiled_package_interface_index(&self) -> QueryResult<CompiledPackageInterfaceIndex> {
+        self.db
+            .get(CompiledPackageInterfaceIndexQuery)
+            .map(Arc::unwrap_or_clone)
     }
 
     /// Converts session-owned type roots into a package-stable type graph.
@@ -375,11 +457,11 @@ impl CompilerDatabase {
                     continue;
                 };
                 let definition = DefinitionId {
-                        package: package.clone(),
-                        module: module_path.clone(),
-                        name: name.to_string(),
-                        kind: def_kind_tag(def.kind),
-                    };
+                    package: package.clone(),
+                    module: module_path.clone(),
+                    name: name.to_string(),
+                    kind: def_kind_tag(def.kind),
+                };
                 let roots = self
                     .db
                     .get(ItemSignaturesQuery(module.id))?
@@ -420,8 +502,8 @@ impl CompilerDatabase {
             }
             Ok(package)
         };
-        let (type_graph, indexes) = self
-            .stable_type_graph_for_roots_with_resolver_and_indexes(&all_roots, &resolver)?;
+        let (type_graph, indexes) =
+            self.stable_type_graph_for_roots_with_resolver_and_indexes(&all_roots, &resolver)?;
         let mut records = pending
             .into_iter()
             .map(|(mut record, roots)| {
@@ -848,6 +930,7 @@ impl CompilerDatabase {
                 .lock()
                 .expect("compiler graph observation lock poisoned") = new_graph;
         }
+        invalidation.extend(self.db.invalidate(CompiledPackageInterfaceIndexQuery));
         Ok(invalidation)
     }
 
@@ -1553,6 +1636,33 @@ fn bool_query_fingerprint(domain: FingerprintDomain, value: bool) -> QueryFinger
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_u8(u8::from(value));
     builder.finish()
+}
+
+fn compiled_interface_index_fingerprint(
+    index: &CompiledPackageInterfaceIndex,
+) -> Option<QueryFingerprint> {
+    let mut builder = QueryFingerprintBuilder::new(COMPILED_INTERFACE_INDEX_DOMAIN);
+    builder.write_u64(index.packages.len() as u64);
+    for (package, interface) in &index.packages {
+        builder.write_str(&package.namespace);
+        builder.write_str(&package.name);
+        builder.write_str(&package.version);
+        builder.write_u64(interface.records().len() as u64);
+        for record in interface.records() {
+            builder.write_str(&record.definition.module);
+            builder.write_str(&record.definition.name);
+            builder.write_u8(record.definition.kind);
+            builder.write_bytes(&record.declaration);
+            builder.write_u64(record.type_roots.len() as u64);
+            for root in &record.type_roots {
+                builder.write_u64(u64::from(*root));
+            }
+        }
+        let graph = interface.type_graph()?;
+        let graph_bytes = nia_package_metadata::encode_type_graph(graph).ok()?;
+        builder.write_bytes(&graph_bytes);
+    }
+    Some(builder.finish())
 }
 
 impl CompilerContext {
