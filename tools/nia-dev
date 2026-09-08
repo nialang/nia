@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run the release compiler built from this checkout with its matching sources.
+script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+repo_root="$(cd "$(dirname "${script_path}")/.." && pwd)"
+binary="${repo_root}/target/release/nia"
+resource_root="${repo_root}/lib"
+
+if [[ ! -x "${binary}" ]]; then
+    printf 'development compiler is missing: %s\n' "${binary}" >&2
+    printf 'run: cargo build --release -p nia-cli\n' >&2
+    exit 1
+fi
+if [[ ! -f "${resource_root}/toolchain.meta" ]]; then
+    printf 'development resources are missing: %s\n' "${resource_root}" >&2
+    exit 1
+fi
+
+exec "${binary}" --resource-root "${resource_root}" "$@"

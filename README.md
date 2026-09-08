@@ -105,6 +105,17 @@ cargo build --release -p nia-cli
 target/release/nia --resource-root "$PWD/lib" --version
 ```
 
+To use the latest compiler built from this checkout without repeating the
+resource-root option, run the development launcher:
+
+```sh
+cargo build --release -p nia-cli
+tools/nia-dev check examples/hello.nia --runtime freestanding
+```
+
+The launcher always pairs `target/release/nia` with this checkout's `lib`
+resources, so it is suitable for testing changes before the next release.
+
 ## Install A Release
 
 Linux x86_64 release archives are published on the
