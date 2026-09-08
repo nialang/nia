@@ -1557,7 +1557,7 @@ impl CompilerDatabase {
             let module_path = stable_key.source_identity().normalized_path().to_owned();
             let defs = self.db.get(FullModuleDefsQuery(module.id))?;
             for (def_id, def) in defs.semantic.defs.iter() {
-                if def.parent.is_some() || def.visibility != nia_defs::Visibility::Public {
+                if def.visibility != nia_defs::Visibility::Public {
                     continue;
                 }
                 let global = GlobalDefId {

@@ -160,6 +160,30 @@ fn package_interface_publication_is_canonical_and_stable() {
 }
 
 #[test]
+fn package_interface_publication_includes_public_member_identity() {
+    let fixture = LoadedProgramFixture::new(
+        "src/main.nia",
+        "pub enum User { Value }",
+    );
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "members".into(),
+        version: "1.0.0".into(),
+    };
+    let interface = database.package_interface_section(package.clone()).unwrap();
+    let member = interface
+        .records
+        .iter()
+        .find(|record| record.definition.name == "Value")
+        .expect("public enum variant must be published");
+    let owner = member.definition.owner.as_deref().expect("field owner");
+    assert_eq!(owner.name, "User");
+    assert_eq!(owner.kind, 13);
+    assert_eq!(member.definition.module.package, package);
+}
+
+#[test]
 fn package_artifact_publication_round_trips_manifest_and_interface() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
     let database = fixture.database();
