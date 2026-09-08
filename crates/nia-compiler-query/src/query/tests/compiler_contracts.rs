@@ -476,7 +476,7 @@ fn rehydrate_compiled_interface_type_roots_is_empty_without_selected_artifacts()
 }
 
 #[test]
-fn compiled_package_type_roots_use_typed_query_publication_boundary() {
+fn compiled_package_type_roots_reject_unselected_packages() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "fn main() () {}");
     let database = fixture.database();
     let package = nia_package_metadata::PackageId {
@@ -493,9 +493,12 @@ fn compiled_package_type_roots_use_typed_query_publication_boundary() {
     let mut roots = std::collections::BTreeMap::new();
     roots.insert(identity.clone(), Vec::new());
     let _ = database.compiled_package_interface_index().unwrap();
-    database.publish_compiled_package_type_roots(package.clone(), roots);
-    let published = database.compiled_package_type_roots(&package).unwrap();
-    assert!(published.contains_key(&identity));
+    assert!(
+        database
+            .publish_compiled_package_type_roots(package.clone(), roots)
+            .is_err()
+    );
+    assert!(database.compiled_package_type_roots(&package).is_err());
 }
 
 #[test]
