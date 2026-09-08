@@ -1,0 +1,6 @@
+// Error propagation builtin trait.
+
+@[builtin("IntoError")]
+pub trait IntoError[Target] {
+    const fn intoError(self) Target;
+}

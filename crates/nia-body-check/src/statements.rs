@@ -196,7 +196,7 @@ impl<'a> BodyChecker<'a> {
         self_ty: InternedTyId,
         method: BuiltinTraitMethod,
     ) {
-        if self.builtin_trait_witness_is_const_capable(self_ty, method) {
+        if self.builtin_trait_witness_is_const_capable(self_ty, method, &[]) {
             return;
         }
         self.diagnostics.push(Diagnostic::user_error_at(

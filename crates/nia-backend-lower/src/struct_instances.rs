@@ -598,7 +598,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instance_ty(*arg, seen, out);
                 }
             }
-            FunctionCallee::BuiltinPlaceMethod {
+            FunctionCallee::BuiltinTraitMethodCall {
                 self_ty,
                 trait_args,
                 receiver,
@@ -1303,7 +1303,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instance_ty(*arg, seen, out);
                 }
             }
-            FunctionCallee::BuiltinPlaceMethod {
+            FunctionCallee::BuiltinTraitMethodCall {
                 self_ty,
                 trait_args,
                 receiver,

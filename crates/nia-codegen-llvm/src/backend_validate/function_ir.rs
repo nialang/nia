@@ -3445,7 +3445,7 @@ impl BackendValidator<'_> {
                 }
                 self.validate_builtin_method_call(*method, *self_ty, call_result_ty, span);
             }
-            FunctionCallee::BuiltinPlaceMethod {
+            FunctionCallee::BuiltinTraitMethodCall {
                 trait_id,
                 method,
                 self_ty,
@@ -3808,7 +3808,7 @@ impl BackendValidator<'_> {
             | FunctionCallee::ClosureEntry { .. }
             | FunctionCallee::TraitMethod { .. }
             | FunctionCallee::TraitAssociatedFunction { .. }
-            | FunctionCallee::BuiltinPlaceMethod { .. }
+            | FunctionCallee::BuiltinTraitMethodCall { .. }
             | FunctionCallee::BuiltinMethod { .. }
             | FunctionCallee::BuiltinOperator(_)
             | FunctionCallee::Callable(_)

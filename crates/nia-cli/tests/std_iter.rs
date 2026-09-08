@@ -120,6 +120,7 @@ fn emit_exe_std_iterator_try_fold_preserves_error_and_stops_consuming() {
         &main,
         r#"
 using std::error;
+using std::builtin;
 using std::process;
 
 enum FoldError: i32 {
@@ -127,7 +128,7 @@ enum FoldError: i32 {
     _,
 }
 
-extend FoldError : error::IntoError[process::ExitCode] {
+extend FoldError : builtin::IntoError[process::ExitCode] {
     const fn intoError(self) process::ExitCode {
         match self {
             FoldError::Rejected => {},

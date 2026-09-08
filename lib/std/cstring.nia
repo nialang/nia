@@ -1,5 +1,5 @@
 using pkg::collections;
-using pkg::error;
+using pkg::builtin;
 using pkg::fmt;
 using pkg::math;
 using pkg::mem;
@@ -17,7 +17,7 @@ pub enum CStringBuildError {
     Allocation(mem::Error),
 }
 
-extend mem::Error : error::IntoError[CStringBuildError] {
+extend mem::Error : builtin::IntoError[CStringBuildError] {
     const fn intoError(self) CStringBuildError {
         CStringBuildError::Allocation(self)
     }

@@ -1,10 +1,10 @@
-using pkg::error;
+using pkg::builtin;
 using pkg::fs::types;
 using pkg::os;
 
 using types::{DirEntry, Error, FileKind, Metadata, Operation, OperationError, PathError, Timestamp};
 
-extend os::Error : error::IntoError[Error] {
+extend os::Error : builtin::IntoError[Error] {
     const fn intoError(self) Error {
         match self {
             .PermissionDenied => .PermissionDenied,

@@ -1256,7 +1256,7 @@ impl<'a> Encoder<'a> {
                 self.ty(*self_ty);
                 self.expr(receiver);
             }
-            FunctionCallee::BuiltinPlaceMethod {
+            FunctionCallee::BuiltinTraitMethodCall {
                 trait_id,
                 method,
                 self_ty,

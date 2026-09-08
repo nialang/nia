@@ -5,7 +5,7 @@
 // Ordinary build errors propagate explicitly; `Internal` is reserved for a
 // violated build-library invariant.
 
-using pkg::error;
+using pkg::builtin;
 using pkg::result;
 using pkg::fmt;
 using pkg::fs;
@@ -129,7 +129,7 @@ extend[T] Error!T {
     }
 }
 
-extend Error : error::IntoError[process::ExitCode] {
+extend Error : builtin::IntoError[process::ExitCode] {
     const fn intoError(self) process::ExitCode {
         self.asExitCode()
     }

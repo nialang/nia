@@ -54,6 +54,9 @@ impl<'a> BodyChecker<'a> {
                 intrinsic,
             );
         }
+        if method == BuiltinTraitMethod::IntoError {
+            return self.check_builtin_into_error_method_call(call);
+        }
         let op = BuiltinOperatorOp::from_method(method)?;
         let trait_id = method.trait_id();
         let Some(trait_args) = self.check_builtin_trait_method_value_args(
@@ -97,6 +100,37 @@ impl<'a> BodyChecker<'a> {
             },
         );
         Some(output)
+    }
+
+    fn check_builtin_into_error_method_call(
+        &mut self,
+        call: &MethodCall<'_>,
+    ) -> Option<InternedTyId> {
+        let target_ty = call.expected.or_else(|| {
+            self.unique_visible_builtin_trait_arg_candidate(
+                call.receiver_ty,
+                BuiltinTrait::IntoError,
+            )
+        })?;
+        let trait_args = vec![target_ty];
+        if !self.current_context_proves_trait_obligation(
+            call.receiver_ty,
+            TraitId::Builtin(BuiltinTrait::IntoError),
+            trait_args.clone(),
+        ) {
+            return Some(self.error());
+        }
+        self.record_resolved_node_call(
+            call.span,
+            call.node_key,
+            ResolvedCall::BuiltinTraitMethodCall {
+                trait_id: BuiltinTrait::IntoError,
+                method: BuiltinTraitMethod::IntoError,
+                self_ty: call.receiver_ty,
+                trait_args,
+            },
+        );
+        Some(target_ty)
     }
 
     pub(in crate::calls::methods) fn check_builtin_trait_associated_method_call(
@@ -340,7 +374,7 @@ impl<'a> BodyChecker<'a> {
         self.record_resolved_node_call(
             call.span,
             call.node_key,
-            ResolvedCall::BuiltinPlaceMethod {
+            ResolvedCall::BuiltinTraitMethodCall {
                 trait_id,
                 method,
                 self_ty,
@@ -400,7 +434,7 @@ impl<'a> BodyChecker<'a> {
         self.record_resolved_node_call(
             call.span,
             call.node_key,
-            ResolvedCall::BuiltinPlaceMethod {
+            ResolvedCall::BuiltinTraitMethodCall {
                 trait_id,
                 method: call.method,
                 self_ty: call.target_ty,
@@ -518,6 +552,12 @@ impl<'a> BodyChecker<'a> {
         trait_id: BuiltinTrait,
         trait_args: Vec<InternedTyId>,
     ) -> InternedTyId {
+        if matches!(trait_id, BuiltinTrait::IntoError) {
+            return trait_args
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| self.error());
+        }
         if matches!(trait_id, BuiltinTrait::Iterable) {
             let iter = self.interner.intern(TyKind::Projection {
                 self_ty,

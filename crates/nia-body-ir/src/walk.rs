@@ -296,7 +296,7 @@ fn walk_callee<'a>(callee: &'a TypedCallee, visit: &mut impl FnMut(&'a TypedBody
         | TypedCallee::TraitMethod { receiver, .. }
         | TypedCallee::DynamicTraitMethod { receiver, .. }
         | TypedCallee::BuiltinMethod { receiver, .. }
-        | TypedCallee::BuiltinPlaceMethod(crate::BuiltinPlaceMethod { receiver, .. }) => {
+        | TypedCallee::BuiltinTraitMethodCall(crate::BuiltinTraitMethodCall { receiver, .. }) => {
             walk_expr(receiver, visit)
         }
         TypedCallee::Function(_)

@@ -331,9 +331,10 @@ fn collect_callee_closures<'a>(
         | TypedCallee::TraitMethod { receiver, .. }
         | TypedCallee::DynamicTraitMethod { receiver, .. }
         | TypedCallee::BuiltinMethod { receiver, .. }
-        | TypedCallee::BuiltinPlaceMethod(nia_body_ir::BuiltinPlaceMethod { receiver, .. }) => {
-            collect_expr_closures(receiver, callables)
-        }
+        | TypedCallee::BuiltinTraitMethodCall(nia_body_ir::BuiltinTraitMethodCall {
+            receiver,
+            ..
+        }) => collect_expr_closures(receiver, callables),
         TypedCallee::Function(_)
         | TypedCallee::FunctionInstance { .. }
         | TypedCallee::TraitAssociatedFunction { .. }

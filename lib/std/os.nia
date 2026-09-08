@@ -2,7 +2,7 @@ pub(pkg) module linux;
 
 @[if os == "linux"]
 using pkg::os::linux as platform;
-using pkg::error;
+using pkg::builtin;
 
 pub(pkg) const maxPathBytes: usize = platform::maxPathBytes;
 
@@ -284,7 +284,7 @@ pub(pkg) fn exit(code: i32) () {
     platform::exit(code);
 }
 
-extend platform::Errno : error::IntoError[Error] {
+extend platform::Errno : builtin::IntoError[Error] {
     const fn intoError(self) Error {
         match self {
             .PermissionDenied => .PermissionDenied,
@@ -316,7 +316,7 @@ extend platform::Errno : error::IntoError[Error] {
     }
 }
 
-extend platform::SpawnError : error::IntoError[SpawnError] {
+extend platform::SpawnError : builtin::IntoError[SpawnError] {
     const fn intoError(self) SpawnError {
         match self {
             .Setup(cause) => .Setup(cause.intoError()),

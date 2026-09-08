@@ -14,6 +14,7 @@ fn emit_exe_std_error_map_error_maps_only_failure_arm() {
         &main,
         r#"
 using std::error;
+using std::builtin;
 using std::result;
 using std::process;
 
@@ -359,6 +360,7 @@ fn emit_exe_std_into_error_is_const_propagation_protocol() {
         &main,
         r#"
 using std::error;
+using std::builtin;
 using std::fs;
 using std::process;
 
@@ -373,7 +375,7 @@ enum TargetError: i32 {
     _,
 }
 
-extend SourceError : error::IntoError[TargetError] {
+extend SourceError : builtin::IntoError[TargetError] {
     const fn intoError(self) TargetError {
         match self {
             SourceError::Missing => TargetError::Wrapped,

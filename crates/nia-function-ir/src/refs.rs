@@ -623,7 +623,7 @@ fn collect_function_refs_from_callee(
             refs.types.extend(params.iter().copied());
             collect_function_refs_from_expr(receiver, types, refs);
         }
-        FunctionCallee::BuiltinPlaceMethod {
+        FunctionCallee::BuiltinTraitMethodCall {
             self_ty,
             trait_args,
             receiver,

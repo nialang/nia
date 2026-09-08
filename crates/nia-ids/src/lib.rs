@@ -418,6 +418,8 @@ pub enum BuiltinTrait {
     Simd,
     /// SIMD mask trait.
     SimdMask,
+    /// Error conversion protocol used by postfix propagation.
+    IntoError,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -799,6 +801,8 @@ pub enum BuiltinTraitMethod {
     IterableIter,
     /// Iterator protocol method.
     IteratorNext,
+    /// Error conversion method used by postfix propagation.
+    IntoError,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -918,7 +922,7 @@ pub struct BuiltinTraitMethodDescriptor {
 
 impl BuiltinTraitMethod {
     /// All builtin trait methods in canonical registry order.
-    pub const ALL: [Self; 27] = [
+    pub const ALL: [Self; 28] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -946,6 +950,7 @@ impl BuiltinTraitMethod {
         Self::SliceMut,
         Self::IterableIter,
         Self::IteratorNext,
+        Self::IntoError,
     ];
 
     const DESCRIPTORS: &'static [(Self, BuiltinTraitMethodDescriptor)] = &[
@@ -1104,6 +1109,15 @@ impl BuiltinTraitMethod {
                 None,
             ),
         ),
+        (
+            Self::IntoError,
+            BuiltinTraitMethodDescriptor::method(
+                "intoError",
+                BuiltinTrait::IntoError,
+                1,
+                ReceiverKind::Value,
+            ),
+        ),
     ];
 
     /// Returns the complete signature descriptor for this method.
@@ -1187,7 +1201,8 @@ impl BuiltinTraitMethod {
             | Self::Slice
             | Self::SliceMut
             | Self::IterableIter
-            | Self::IteratorNext => true,
+            | Self::IteratorNext
+            | Self::IntoError => true,
             Self::DerefMut => false,
         }
     }
@@ -1289,6 +1304,7 @@ impl BuiltinTrait {
     const SLICE_MUT_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::SliceMut];
     const ITERABLE_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IterableIter];
     const ITERATOR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IteratorNext];
+    const INTO_ERROR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IntoError];
     const OUTPUT_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Output];
     const TARGET_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Target];
     const ITEM_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Item];
@@ -1317,7 +1333,7 @@ impl BuiltinTrait {
     const NO_SUPERTRAITS: [BuiltinSupertrait; 0] = [];
 
     /// All builtin traits in canonical registry order.
-    pub const ALL: [Self; 27] = [
+    pub const ALL: [Self; 28] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -1345,6 +1361,7 @@ impl BuiltinTrait {
         Self::Iterator,
         Self::Simd,
         Self::SimdMask,
+        Self::IntoError,
     ];
 
     const DESCRIPTORS: &'static [(Self, BuiltinTraitDescriptor)] = &[
@@ -1563,6 +1580,14 @@ impl BuiltinTrait {
             &Self::NO_ASSOC_TYPES,
             &Self::NO_METHODS,
             &Self::SIMD_MASK_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::IntoError,
+            "IntoError",
+            1,
+            &Self::NO_ASSOC_TYPES,
+            &Self::INTO_ERROR_METHODS,
+            &Self::NO_SUPERTRAITS,
         ),
     ];
 

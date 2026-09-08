@@ -566,6 +566,7 @@ impl ToSymbolId for nia_ids::BuiltinTraitMethod {
             Self::SliceMut => known::SLICE_MUT,
             Self::IterableIter => known::ITER_METHOD,
             Self::IteratorNext => known::NEXT,
+            Self::IntoError => known::INTO_ERROR,
         }
     }
 }
@@ -600,6 +601,7 @@ impl ToSymbolId for nia_ids::BuiltinTrait {
             Self::Iterator => known::ITERATOR_TRAIT,
             Self::Simd => known::SIMD_TRAIT,
             Self::SimdMask => known::SIMD_MASK_TRAIT,
+            Self::IntoError => known::INTO_ERROR_TRAIT,
         }
     }
 }

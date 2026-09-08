@@ -10254,7 +10254,7 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
 }
 
 #[test]
-fn validates_backend_ir_unresolved_builtin_place_method_before_llvm() {
+fn validates_backend_ir_unresolved_builtin_trait_method_call_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
@@ -10293,7 +10293,7 @@ fn validates_backend_ir_unresolved_builtin_place_method_before_llvm() {
                         span,
                         ty: i32_ty,
                         kind: FunctionExprKind::Call {
-                            callee: FunctionCallee::BuiltinPlaceMethod {
+                            callee: FunctionCallee::BuiltinTraitMethodCall {
                                 trait_id: BuiltinTrait::SliceMut,
                                 method: BuiltinTraitMethod::SliceMut,
                                 self_ty: i32_ty,

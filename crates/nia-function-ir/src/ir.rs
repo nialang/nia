@@ -1103,8 +1103,8 @@ pub enum FunctionCallee {
         /// Receiver expression.
         receiver: Box<FunctionExpr>,
     },
-    /// Builtin method requiring an addressable receiver.
-    BuiltinPlaceMethod {
+    /// Method dispatch through a builtin trait implementation.
+    BuiltinTraitMethodCall {
         /// Builtin trait containing the method.
         trait_id: BuiltinTrait,
         /// Builtin method identity.
@@ -1113,7 +1113,7 @@ pub enum FunctionCallee {
         self_ty: InternedTyId,
         /// Trait type arguments.
         trait_args: Vec<InternedTyId>,
-        /// Receiver place expression.
+        /// Receiver expression.
         receiver: Box<FunctionExpr>,
     },
     /// Operator dispatched through a builtin trait.

@@ -288,7 +288,7 @@ fn collect_resolved_call_owner_modules(
             }
             type_ids.push(*self_ty);
         }
-        nia_sema_ir::ResolvedCall::BuiltinPlaceMethod {
+        nia_sema_ir::ResolvedCall::BuiltinTraitMethodCall {
             trait_id,
             method,
             self_ty,
@@ -503,6 +503,7 @@ pub(super) fn builtin_trait_method_symbol(method: BuiltinTraitMethod) -> Option<
         BuiltinTraitMethod::SliceMut => Some(known::SLICE_MUT),
         BuiltinTraitMethod::IteratorNext => Some(known::NEXT),
         BuiltinTraitMethod::IterableIter => Some(known::ITER_METHOD),
+        BuiltinTraitMethod::IntoError => Some(known::INTO_ERROR),
     }
 }
 

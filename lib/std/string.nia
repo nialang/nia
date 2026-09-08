@@ -7,6 +7,7 @@
 pub(pkg) module hash;
 
 using pkg::collections;
+using pkg::builtin;
 using pkg::error;
 using pkg::fmt;
 using pkg::io;
@@ -354,13 +355,13 @@ extend TextFormatWriter : io::Writer {
     }
 }
 
-extend mem::Error : error::IntoError[TextError] {
+extend mem::Error : builtin::IntoError[TextError] {
     const fn intoError(self) TextError {
         TextError::Allocation(self)
     }
 }
 
-extend TextError : error::IntoError[TextFormatError] {
+extend TextError : builtin::IntoError[TextFormatError] {
     const fn intoError(self) TextFormatError {
         match self {
             .InvalidUtf8(error) => .InvalidUtf8(error),

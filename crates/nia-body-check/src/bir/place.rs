@@ -2,7 +2,7 @@
 use crate::BodyChecker;
 use nia_ast::{Expr, ExprKind, IndexArg, SliceRange, UnaryOp};
 use nia_body_ir::{
-    BuiltinPlaceMethod, PlaceBase, PlaceElem, TypedCallee, TypedExpr, TypedExprKind, TypedPlace,
+    BuiltinTraitMethodCall, PlaceBase, PlaceElem, TypedCallee, TypedExpr, TypedExprKind, TypedPlace,
 };
 use nia_ids::{BuiltinTraitMethod, ReceiverKind, TraitId};
 use nia_local_resolve::LocalUse;
@@ -178,12 +178,12 @@ impl<'a> BodyChecker<'a> {
             span: receiver.span,
             ty: pointer_ty,
             kind: TypedExprKind::Call {
-                callee: TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
+                callee: TypedCallee::BuiltinTraitMethodCall(BuiltinTraitMethodCall {
                     trait_id,
                     method,
                     self_ty: receiver_ty,
                     trait_args: Vec::new(),
-                    receiver: Box::new(self.lower_builtin_place_method_receiver(
+                    receiver: Box::new(self.lower_builtin_trait_method_call_receiver(
                         receiver,
                         receiver_ty,
                         method,
@@ -229,12 +229,12 @@ impl<'a> BodyChecker<'a> {
             span: receiver.span,
             ty: pointer_ty,
             kind: TypedExprKind::Call {
-                callee: TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
+                callee: TypedCallee::BuiltinTraitMethodCall(BuiltinTraitMethodCall {
                     trait_id: BuiltinTrait::Index,
                     method: BuiltinTraitMethod::Index,
                     self_ty: receiver_ty,
                     trait_args,
-                    receiver: Box::new(self.lower_builtin_place_method_receiver(
+                    receiver: Box::new(self.lower_builtin_trait_method_call_receiver(
                         receiver,
                         receiver_ty,
                         BuiltinTraitMethod::Index,
@@ -286,12 +286,12 @@ impl<'a> BodyChecker<'a> {
             span: receiver.span,
             ty: pointer_ty,
             kind: TypedExprKind::Call {
-                callee: TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
+                callee: TypedCallee::BuiltinTraitMethodCall(BuiltinTraitMethodCall {
                     trait_id,
                     method,
                     self_ty: receiver_ty,
                     trait_args,
-                    receiver: Box::new(self.lower_builtin_place_method_receiver(
+                    receiver: Box::new(self.lower_builtin_trait_method_call_receiver(
                         receiver,
                         receiver_ty,
                         method,
@@ -377,12 +377,14 @@ impl<'a> BodyChecker<'a> {
             };
         }
         TypedExprKind::Call {
-            callee: TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
+            callee: TypedCallee::BuiltinTraitMethodCall(BuiltinTraitMethodCall {
                 trait_id,
                 method,
                 self_ty: lhs_ty,
                 trait_args: vec![range_ty],
-                receiver: Box::new(self.lower_builtin_place_method_receiver(lhs, lhs_ty, method)),
+                receiver: Box::new(
+                    self.lower_builtin_trait_method_call_receiver(lhs, lhs_ty, method),
+                ),
             }),
             args: vec![self.lower_range_as_expr(range, range_ty, expr_span)],
         }
@@ -413,7 +415,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn lower_builtin_place_method_receiver(
+    fn lower_builtin_trait_method_call_receiver(
         &mut self,
         receiver: &Expr,
         receiver_ty: nia_ids::InternedTyId,
@@ -458,7 +460,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(super) fn lower_typed_builtin_place_method_receiver(
+    pub(super) fn lower_typed_builtin_trait_method_call_receiver(
         &mut self,
         receiver: &TypedExpr,
         receiver_ty: nia_ids::InternedTyId,

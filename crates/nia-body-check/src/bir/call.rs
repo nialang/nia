@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{BodyChecker, generic_inst_base};
 use nia_ast::{Expr, ExprKind, UnaryOp};
-use nia_body_ir::{BuiltinOperator, BuiltinPlaceMethod, TypedCallee, TypedExpr, TypedExprKind};
+use nia_body_ir::{BuiltinOperator, BuiltinTraitMethodCall, TypedCallee, TypedExpr, TypedExprKind};
 use nia_ids::{GlobalDefId, InternedTyId, ReceiverKind};
 use nia_sema_ir::{BracketSuffixResolution, ResolvedCall};
 use nia_symbol::{SymbolId, SymbolMap};
@@ -114,7 +114,7 @@ impl<'a> BodyChecker<'a> {
                 | ResolvedCall::BuiltinFunction { .. }
                 | ResolvedCall::BuiltinTraitMethod { .. }
                 | ResolvedCall::BuiltinMethod { .. }
-                | ResolvedCall::BuiltinPlaceMethod { .. }
+                | ResolvedCall::BuiltinTraitMethodCall { .. }
         ) && !self.callee_has_receiver_lhs(callee)
     }
 
@@ -660,7 +660,7 @@ impl<'a> BodyChecker<'a> {
                     receiver: Box::new(receiver),
                 }
             }
-            ResolvedCall::BuiltinPlaceMethod {
+            ResolvedCall::BuiltinTraitMethodCall {
                 trait_id,
                 method,
                 self_ty,
@@ -669,14 +669,14 @@ impl<'a> BodyChecker<'a> {
                 let receiver = self
                     .lower_receiver_expr(callee)
                     .unwrap_or_else(|| self.lower_expr(callee));
-                TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
+                TypedCallee::BuiltinTraitMethodCall(BuiltinTraitMethodCall {
                     trait_id,
                     method,
                     self_ty,
                     trait_args,
-                    receiver: Box::new(
-                        self.lower_typed_builtin_place_method_receiver(&receiver, self_ty, method),
-                    ),
+                    receiver: Box::new(self.lower_typed_builtin_trait_method_call_receiver(
+                        &receiver, self_ty, method,
+                    )),
                 })
             }
             ResolvedCall::Closure => TypedCallee::Closure(Box::new(self.lower_expr(callee))),

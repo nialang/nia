@@ -405,10 +405,12 @@ where S: Slice[..] {
         .find_map(|tail| match &tail.kind {
             nia_body_ir::TypedExprKind::Call {
                 callee:
-                    nia_body_ir::TypedCallee::BuiltinPlaceMethod(nia_body_ir::BuiltinPlaceMethod {
-                        method: nia_ids::BuiltinTraitMethod::Slice,
-                        ..
-                    }),
+                    nia_body_ir::TypedCallee::BuiltinTraitMethodCall(
+                        nia_body_ir::BuiltinTraitMethodCall {
+                            method: nia_ids::BuiltinTraitMethod::Slice,
+                            ..
+                        },
+                    ),
                 args,
             } => args.first(),
             _ => None,

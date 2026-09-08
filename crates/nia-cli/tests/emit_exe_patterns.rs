@@ -242,7 +242,7 @@ fn emit_exe_error_propagation_converts_with_into_error() {
     std::fs::write(
         &main,
         r#"
-using std::error;
+using std::builtin;
 using std::process;
 
 enum SourceError: i32 {
@@ -262,7 +262,7 @@ struct EmptyTargetError {}
 static mut conversionCount: i32 = 0;
 static mut sourceCount: i32 = 0;
 
-extend SourceError : error::IntoError[TargetError] {
+extend SourceError : builtin::IntoError[TargetError] {
     fn intoError(self) TargetError {
         conversionCount += 1;
         match self {
@@ -272,7 +272,7 @@ extend SourceError : error::IntoError[TargetError] {
     }
 }
 
-extend EmptySourceError : error::IntoError[EmptyTargetError] {
+extend EmptySourceError : builtin::IntoError[EmptyTargetError] {
     fn intoError(self) EmptyTargetError {
         conversionCount += 1;
         {}
@@ -308,7 +308,7 @@ fn source(succeed: bool) SourceError!i32 {
 }
 
 fn propagate[Source, Target](value: Source!i32) Target!i32
-where Source: error::IntoError[Target]
+where Source: builtin::IntoError[Target]
 {
     !(value.? + 1)
 }

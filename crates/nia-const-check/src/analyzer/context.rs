@@ -706,58 +706,75 @@ impl Analyzer<'_> {
         else {
             return ResolvedConstCalleeSelection::NoMatch;
         };
-        let witnesses =
-            visible_extensions.all_trait_witnesses_named(&nia_symbol::known::INTO_ERROR);
-        let mut trait_ids = witnesses
-            .iter()
-            .filter_map(|(_, witness)| match witness.trait_id {
-                Some(TraitId::Source(trait_id)) => Some(trait_id),
-                Some(TraitId::Builtin(_)) | None => None,
-            })
-            .filter(|trait_id| {
-                self.global_defs(trait_id.module_id)
-                    .and_then(|defs| defs.as_ref().defs.get(trait_id.def_id).cloned())
-                    .is_some_and(|def| {
-                        def.kind == DefKind::Trait
-                            && def.name == nia_symbol::known::INTO_ERROR_TRAIT
-                    })
-            })
-            .collect::<Vec<_>>();
-        trait_ids.sort_unstable();
-        trait_ids.dedup();
-
-        let mut candidates = Vec::new();
-        for trait_id in trait_ids {
-            let trait_ty = TraitId::Source(trait_id);
-            let resolution = self.resolve_trait_obligation(source_ty, trait_ty, vec![target_ty]);
-            let TraitResolution::User(user_impl) = resolution else {
-                continue;
+        let trait_id = TraitId::Builtin(nia_ty::BuiltinTrait::IntoError);
+        let resolution = self.resolve_trait_obligation(source_ty, trait_id, vec![target_ty]);
+        let TraitResolution::User(user_impl) = resolution else {
+            return match resolution {
+                TraitResolution::Ambiguous => ResolvedConstCalleeSelection::Ambiguous,
+                TraitResolution::Intrinsic(_)
+                | TraitResolution::Assumed(_)
+                | TraitResolution::Unsatisfied => ResolvedConstCalleeSelection::NoMatch,
+                TraitResolution::User(_) => unreachable!(),
             };
-            let Some(solver_module_id) = self.ensure_trait_solver_module(source_ty, &[target_ty])
-            else {
-                continue;
-            };
-            let Some(impl_signature) = self
-                .trait_impls_for_solver_module(solver_module_id)
-                .get(user_impl.impl_index)
-                .cloned()
-            else {
-                continue;
-            };
-            if impl_signature.trait_id != trait_ty {
-                continue;
+        };
+        let Some(solver_module_id) = self.ensure_trait_solver_module(source_ty, &[target_ty])
+        else {
+            return ResolvedConstCalleeSelection::NoMatch;
+        };
+        let Some(impl_signature) = self
+            .trait_impls_for_solver_module(solver_module_id)
+            .get(user_impl.impl_index)
+            .cloned()
+        else {
+            return ResolvedConstCalleeSelection::NoMatch;
+        };
+        if impl_signature.trait_id != trait_id {
+            return ResolvedConstCalleeSelection::NoMatch;
+        }
+        let methods = {
+            let witnesses =
+                visible_extensions.all_trait_witnesses_named(&nia_symbol::known::INTO_ERROR);
+            if witnesses.is_empty() {
+                visible_extensions.all_methods_named(&nia_symbol::known::INTO_ERROR)
+            } else {
+                witnesses
             }
-            let Some((_, witness)) = witnesses.iter().find(|(_, witness)| {
+        };
+        let witness = methods
+            .iter()
+            .find(|(_, witness)| {
                 witness.def_id.module_id == impl_signature.module_id
                     && witness.impl_id == impl_signature.impl_id
-                    && witness.trait_id == Some(trait_ty)
+                    && witness.trait_id == Some(trait_id)
+            })
+            .map(|(_, witness)| witness)
+            .or_else(|| {
+                methods
+                    .iter()
+                    .find(|(_, witness)| {
+                        witness.def_id.module_id == impl_signature.module_id
+                            && witness.impl_id == impl_signature.impl_id
+                            && witness.trait_id.is_none()
+                    })
+                    .map(|(_, witness)| witness)
+            })
+            .or_else(|| {
+                methods
+                    .iter()
+                    .find(|(_, witness)| {
+                        witness.def_id.module_id == impl_signature.module_id
+                            && witness.impl_id == impl_signature.impl_id
+                    })
+                    .map(|(_, witness)| witness)
+            });
+        let Some(witness) = witness else {
+            let Some((_, fallback)) = methods.iter().find(|(_, candidate)| {
+                candidate.def_id.module_id == impl_signature.module_id
+                    && candidate.impl_id == impl_signature.impl_id
             }) else {
-                continue;
+                return ResolvedConstCalleeSelection::NoMatch;
             };
-            if witness.trait_args.len() != 1 {
-                continue;
-            }
-            let function_id = witness.def_id;
+            let function_id = fallback.def_id;
             let Some(signature) = self
                 .function_signatures_for_module(function_id.module_id)
                 .and_then(|signatures| {
@@ -768,53 +785,57 @@ impl Analyzer<'_> {
                         .cloned()
                 })
             else {
-                continue;
+                return ResolvedConstCalleeSelection::NoMatch;
             };
-            if signature.params.len() != 1
-                || signature.params[0].receiver != Some(nia_ids::ReceiverKind::Value)
-                || signature.is_variadic
-            {
-                continue;
+            if !signature.is_const {
+                return ResolvedConstCalleeSelection::NoMatch;
             }
-            let instantiation = ConstGenericInstantiation {
-                type_substitutions: user_impl.substitutions,
-                const_substitutions: user_impl.const_substitutions,
-            };
-            let Some(witness_target_ty) = self.const_expected_param_type(
-                function_id.module_id,
-                witness.trait_args[0],
-                &instantiation.type_substitutions,
-                &instantiation.const_substitutions,
-            ) else {
-                continue;
-            };
-            let Some(return_ty) = self.const_expected_param_type(
-                function_id.module_id,
-                signature.return_type,
-                &instantiation.type_substitutions,
-                &instantiation.const_substitutions,
-            ) else {
-                continue;
-            };
-            let witness_target_ty = self.normalize_projection(witness_target_ty);
-            let return_ty = self.normalize_projection(return_ty);
-            if !self.const_function_types_match(witness_target_ty, target_ty)
-                || !self.const_function_types_match(return_ty, target_ty)
-            {
-                continue;
-            }
-            candidates.push(ResolvedConstCallee {
+            return ResolvedConstCalleeSelection::Unique(ResolvedConstCallee {
                 function_id,
                 receiver: None,
-                target_instantiation: instantiation,
+                target_instantiation: ConstGenericInstantiation::default(),
             });
+        };
+        let function_id = witness.def_id;
+        let Some(signature) = self
+            .function_signatures_for_module(function_id.module_id)
+            .and_then(|signatures| {
+                signatures
+                    .as_ref()
+                    .functions
+                    .get(&function_id.def_id)
+                    .cloned()
+            })
+        else {
+            return ResolvedConstCalleeSelection::NoMatch;
+        };
+        if signature.params.len() != 1
+            || signature.params[0].receiver != Some(nia_ids::ReceiverKind::Value)
+            || signature.is_variadic
+        {
+            return ResolvedConstCalleeSelection::NoMatch;
         }
-
-        match candidates.len() {
-            0 => ResolvedConstCalleeSelection::NoMatch,
-            1 => ResolvedConstCalleeSelection::Unique(candidates.remove(0)),
-            _ => ResolvedConstCalleeSelection::Ambiguous,
+        let instantiation = ConstGenericInstantiation {
+            type_substitutions: user_impl.substitutions,
+            const_substitutions: user_impl.const_substitutions,
+        };
+        let Some(return_ty) = self.const_expected_param_type(
+            function_id.module_id,
+            signature.return_type,
+            &instantiation.type_substitutions,
+            &instantiation.const_substitutions,
+        ) else {
+            return ResolvedConstCalleeSelection::NoMatch;
+        };
+        let return_ty = self.normalize_projection(return_ty);
+        if !self.const_function_types_match(return_ty, target_ty) {
+            return ResolvedConstCalleeSelection::NoMatch;
         }
+        ResolvedConstCalleeSelection::Unique(ResolvedConstCallee {
+            function_id,
+            receiver: None,
+            target_instantiation: instantiation,
+        })
     }
 
     pub(super) fn resolved_const_enum_variant(

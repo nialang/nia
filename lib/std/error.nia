@@ -1,6 +1,5 @@
-// Typed error conversion and cleanup operations.
+// Typed error cleanup operations.
 //
-// `IntoError` is an infallible cause-preserving conversion used by `.?`.
 // `cleanupAfter` combines an already-produced result with eagerly evaluated
 // cleanup while keeping the operation failure primary.
 
@@ -9,10 +8,6 @@ pub module cleanup;
 using pkg::error::cleanup;
 
 pub using cleanup::CleanupAccumulator;
-
-pub trait IntoError[Target] {
-    const fn intoError(self) Target;
-}
 
 extend[Value, Failure] Failure!Value {
     // Combine a primary operation with cleanup that runs in either case.
