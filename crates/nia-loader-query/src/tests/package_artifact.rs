@@ -210,6 +210,10 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
         .install_compiled_package_module_interfaces()
         .unwrap();
     assert_eq!(installed, modules);
+    let installed_again = compiler
+        .install_compiled_package_module_interfaces()
+        .unwrap();
+    assert_eq!(installed_again, modules);
     let fact = compiler
         .compiled_package_module_interface(modules[0].clone())
         .unwrap();
