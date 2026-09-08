@@ -25,6 +25,8 @@ const TYPE_GRAPH_SCHEMA: u32 = 2;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
 const TEMPLATE_SCHEMA: u32 = 1;
+const NATIVE_MAGIC: &[u8; 8] = b"NIANAT01";
+const NATIVE_SCHEMA: u32 = 1;
 
 /// Relocation-independent identity of one package.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -98,6 +100,55 @@ pub struct TemplateRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TemplateSection {
     pub records: Vec<TemplateRecord>,
+}
+
+/// Explicit target identity attached to target-specific native products.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NativeTarget {
+    pub arch: String,
+    pub vendor: String,
+    pub os: String,
+    pub env: String,
+    pub abi: String,
+    pub endian: String,
+    pub pointer_width: u32,
+}
+
+/// One target/profile-specific native object retained by a package artifact.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeObject {
+    pub key: String,
+    pub bytes: Vec<u8>,
+}
+
+/// Canonical target-native package payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSection {
+    pub target: NativeTarget,
+    pub profile: u8,
+    pub optimization: u8,
+    pub objects: Vec<NativeObject>,
+}
+
+impl NativeSection {
+    pub fn validate(&self) -> Result<(), MetadataError> {
+        validate_target(&self.target)?;
+        if self.objects.len() > MAX_ITEMS {
+            return Err(MetadataError::TooManyItems);
+        }
+        for object in &self.objects {
+            validate_string(&object.key)?;
+            validate_bytes(&object.bytes)?;
+        }
+        if self
+            .objects
+            .windows(2)
+            .any(|pair| pair[0].key >= pair[1].key)
+        {
+            return Err(MetadataError::InvalidManifest);
+        }
+        Ok(())
+    }
 }
 
 impl TemplateSection {
@@ -667,6 +718,13 @@ impl PackageArtifact {
             .map(decode_templates)
             .transpose()
     }
+
+    /// Decodes the optional target-specific native section.
+    pub fn native(&self) -> Result<Option<NativeSection>, MetadataError> {
+        self.section(SectionKind::Native)?
+            .map(decode_native)
+            .transpose()
+    }
 }
 
 /// Encodes a manifest-only package artifact.
@@ -854,6 +912,59 @@ pub fn decode_templates(bytes: &[u8]) -> Result<TemplateSection, MetadataError> 
         return Err(MetadataError::InvalidManifest);
     }
     let section = TemplateSection { records };
+    section.validate()?;
+    Ok(section)
+}
+
+/// Encodes a canonical target-native section.
+pub fn encode_native(section: &NativeSection) -> Result<Vec<u8>, MetadataError> {
+    section.validate()?;
+    let mut output = Vec::new();
+    output.extend_from_slice(NATIVE_MAGIC);
+    put_u32(&mut output, NATIVE_SCHEMA);
+    put_target(&mut output, &section.target)?;
+    output.push(section.profile);
+    output.push(section.optimization);
+    put_list_len(&mut output, section.objects.len())?;
+    for object in &section.objects {
+        put_string(&mut output, &object.key)?;
+        put_bytes(&mut output, &object.bytes)?;
+    }
+    Ok(output)
+}
+
+/// Decodes and validates a canonical target-native section.
+pub fn decode_native(bytes: &[u8]) -> Result<NativeSection, MetadataError> {
+    let mut cursor = Cursor::new(bytes);
+    let mut magic = [0; NATIVE_MAGIC.len()];
+    read_exact(&mut cursor, &mut magic)?;
+    if magic != *NATIVE_MAGIC {
+        return Err(MetadataError::InvalidManifest);
+    }
+    let schema = get_u32(&mut cursor)?;
+    if schema != NATIVE_SCHEMA {
+        return Err(MetadataError::Schema(schema));
+    }
+    let target = get_target(&mut cursor)?;
+    let profile = read_u8(&mut cursor)?;
+    let optimization = read_u8(&mut cursor)?;
+    let count = bounded_count(get_u32(&mut cursor)?)?;
+    let mut objects = Vec::with_capacity(count);
+    for _ in 0..count {
+        objects.push(NativeObject {
+            key: get_string(&mut cursor)?,
+            bytes: get_bytes(&mut cursor)?,
+        });
+    }
+    if cursor.position() != bytes.len() as u64 {
+        return Err(MetadataError::InvalidManifest);
+    }
+    let section = NativeSection {
+        target,
+        profile,
+        optimization,
+        objects,
+    };
     section.validate()?;
     Ok(section)
 }
@@ -1098,6 +1209,42 @@ fn validate_id(id: &PackageId) -> Result<(), MetadataError> {
     validate_string(&id.name)?;
     validate_string(&id.version)
 }
+fn validate_target(target: &NativeTarget) -> Result<(), MetadataError> {
+    validate_string(&target.arch)?;
+    validate_string(&target.vendor)?;
+    validate_string(&target.os)?;
+    validate_optional_string(&target.env)?;
+    validate_optional_string(&target.abi)?;
+    validate_string(&target.endian)?;
+    if !matches!(target.pointer_width, 8 | 16 | 32 | 64 | 128) {
+        return Err(MetadataError::InvalidManifest);
+    }
+    Ok(())
+}
+fn put_target(output: &mut Vec<u8>, target: &NativeTarget) -> Result<(), MetadataError> {
+    validate_target(target)?;
+    put_string(output, &target.arch)?;
+    put_string(output, &target.vendor)?;
+    put_string(output, &target.os)?;
+    put_optional_string(output, &target.env)?;
+    put_optional_string(output, &target.abi)?;
+    put_string(output, &target.endian)?;
+    put_u32(output, target.pointer_width);
+    Ok(())
+}
+fn get_target(cursor: &mut Cursor<&[u8]>) -> Result<NativeTarget, MetadataError> {
+    let target = NativeTarget {
+        arch: get_string(cursor)?,
+        vendor: get_string(cursor)?,
+        os: get_string(cursor)?,
+        env: get_optional_string(cursor)?,
+        abi: get_optional_string(cursor)?,
+        endian: get_string(cursor)?,
+        pointer_width: get_u32(cursor)?,
+    };
+    validate_target(&target)?;
+    Ok(target)
+}
 fn validate_definition(definition: &DefinitionId) -> Result<(), MetadataError> {
     validate_id(&definition.module.package)?;
     validate_string(&definition.module.path)?;
@@ -1111,6 +1258,13 @@ fn validate_string(value: &str) -> Result<(), MetadataError> {
         Err(MetadataError::InvalidString)
     } else {
         Ok(())
+    }
+}
+fn validate_optional_string(value: &str) -> Result<(), MetadataError> {
+    if value.is_empty() {
+        Ok(())
+    } else {
+        validate_string(value)
     }
 }
 fn put_id(output: &mut Vec<u8>, id: &PackageId) -> Result<(), MetadataError> {
@@ -1158,6 +1312,15 @@ fn put_string(output: &mut Vec<u8>, value: &str) -> Result<(), MetadataError> {
     output.extend_from_slice(value.as_bytes());
     Ok(())
 }
+fn put_optional_string(output: &mut Vec<u8>, value: &str) -> Result<(), MetadataError> {
+    validate_optional_string(value)?;
+    put_u32(
+        output,
+        u32::try_from(value.len()).map_err(|_| MetadataError::TooLarge)?,
+    );
+    output.extend_from_slice(value.as_bytes());
+    Ok(())
+}
 fn validate_bytes(value: &[u8]) -> Result<(), MetadataError> {
     if value.len() > MAX_STRING_BYTES {
         Err(MetadataError::TooLarge)
@@ -1185,6 +1348,12 @@ fn get_string(cursor: &mut Cursor<&[u8]>) -> Result<String, MetadataError> {
     if length == 0 {
         return Err(MetadataError::InvalidString);
     }
+    let mut bytes = vec![0; length];
+    read_exact(cursor, &mut bytes)?;
+    String::from_utf8(bytes).map_err(|_| MetadataError::InvalidString)
+}
+fn get_optional_string(cursor: &mut Cursor<&[u8]>) -> Result<String, MetadataError> {
+    let length = bounded_len(get_u32(cursor)?)?;
     let mut bytes = vec![0; length];
     read_exact(cursor, &mut bytes)?;
     String::from_utf8(bytes).map_err(|_| MetadataError::InvalidString)
@@ -1315,6 +1484,35 @@ mod tests {
             interface_hash: [1; 32],
         });
         assert_eq!(encode(&manifest), Err(MetadataError::InvalidManifest));
+    }
+
+    #[test]
+    fn native_section_round_trips_target_identity_and_objects() {
+        let section = NativeSection {
+            target: NativeTarget {
+                arch: "x86_64".into(),
+                vendor: "unknown".into(),
+                os: "linux".into(),
+                env: "gnu".into(),
+                abi: "".into(),
+                endian: "little".into(),
+                pointer_width: 64,
+            },
+            profile: 1,
+            optimization: 2,
+            objects: vec![NativeObject {
+                key: "unit-0".into(),
+                bytes: vec![0, 1, 2, 3],
+            }],
+        };
+        let bytes = encode_native(&section).unwrap();
+        assert_eq!(decode_native(&bytes).unwrap(), section);
+        let mut trailing = bytes;
+        trailing.push(0);
+        assert_eq!(
+            decode_native(&trailing),
+            Err(MetadataError::InvalidManifest)
+        );
     }
 
     #[test]
