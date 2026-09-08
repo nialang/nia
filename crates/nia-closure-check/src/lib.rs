@@ -35,6 +35,65 @@ pub struct ClosureEscapeSummary {
     pub escaping_captured_address_parameters: BTreeSet<usize>,
 }
 
+/// Stable summary facts imported from a compiled package artifact. Unlike
+/// [`ClosureEscapeSummary`], this representation has no session-local ids and
+/// can therefore be persisted or remapped at the compiler boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ImportedClosureEscapeSummary {
+    pub returned_parameters: BTreeSet<usize>,
+    pub escaping_parameters: BTreeSet<usize>,
+    pub returned_captured_address_parameters: BTreeSet<usize>,
+    pub escaping_captured_address_parameters: BTreeSet<usize>,
+}
+
+impl ImportedClosureEscapeSummary {
+    pub fn from_parameter_sets(
+        returned_parameters: impl IntoIterator<Item = u32>,
+        escaping_parameters: impl IntoIterator<Item = u32>,
+        returned_captured_address_parameters: impl IntoIterator<Item = u32>,
+        escaping_captured_address_parameters: impl IntoIterator<Item = u32>,
+    ) -> Result<Self, &'static str> {
+        fn convert(values: impl IntoIterator<Item = u32>) -> Result<BTreeSet<usize>, &'static str> {
+            values
+                .into_iter()
+                .map(|value| {
+                    usize::try_from(value).map_err(|_| "summary parameter index overflows usize")
+                })
+                .collect()
+        }
+        Ok(Self {
+            returned_parameters: convert(returned_parameters)?,
+            escaping_parameters: convert(escaping_parameters)?,
+            returned_captured_address_parameters: convert(returned_captured_address_parameters)?,
+            escaping_captured_address_parameters: convert(escaping_captured_address_parameters)?,
+        })
+    }
+}
+
+#[cfg(test)]
+mod imported_summary_tests {
+    use super::*;
+
+    #[test]
+    fn imported_summary_converts_stable_indices() {
+        let summary =
+            ImportedClosureEscapeSummary::from_parameter_sets([0, 2], [1], [], [3]).unwrap();
+        assert!(summary.returned_parameters.contains(&2));
+        assert!(summary.escaping_parameters.contains(&1));
+        let callable = CallableSummary::from_imported(&summary);
+        assert!(
+            callable
+                .returned_inputs
+                .contains(&Provenance::Input(InputSource::parameter(2)))
+        );
+        assert!(
+            callable
+                .escaping_inputs
+                .contains(&Provenance::Input(InputSource::parameter(1)))
+        );
+    }
+}
+
 /// Closure escape summaries and diagnostics for one checked program graph.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClosureCheck {
@@ -220,6 +279,31 @@ struct CallableSummary {
     escaping_captured_addresses: Provenances,
 }
 
+impl CallableSummary {
+    fn from_imported(summary: &ImportedClosureEscapeSummary) -> Self {
+        let inputs = |indexes: &BTreeSet<usize>| {
+            indexes
+                .iter()
+                .map(|index| Provenance::Input(InputSource::parameter(*index)))
+                .collect()
+        };
+        let captured = |indexes: &BTreeSet<usize>| {
+            indexes
+                .iter()
+                .map(|index| Provenance::CapturedInputAddress(InputSource::parameter(*index)))
+                .collect()
+        };
+        Self {
+            returned_inputs: inputs(&summary.returned_parameters),
+            returned_error_inputs: Provenances::new(),
+            escaping_inputs: inputs(&summary.escaping_parameters),
+            returned_captured_addresses: captured(&summary.returned_captured_address_parameters),
+            returned_error_captured_addresses: Provenances::new(),
+            escaping_captured_addresses: captured(&summary.escaping_captured_address_parameters),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum EscapeKind {
     Return,
@@ -252,6 +336,23 @@ pub fn check_closure_safety_with_support(
     support_functions: &[ClosureCheckFunction<'_>],
     type_store: &TypeStore,
 ) -> ClosureCheck {
+    check_closure_safety_with_support_and_summaries(
+        functions,
+        support_functions,
+        &HashMap::new(),
+        type_store,
+    )
+}
+
+/// Checks closure safety while accepting already-validated summaries for
+/// functions whose bodies are unavailable. Local/support bodies remain
+/// authoritative when a definition is present in both inputs.
+pub fn check_closure_safety_with_support_and_summaries(
+    functions: &[ClosureCheckFunction<'_>],
+    support_functions: &[ClosureCheckFunction<'_>],
+    imported_summaries: &HashMap<GlobalDefId, ImportedClosureEscapeSummary>,
+    type_store: &TypeStore,
+) -> ClosureCheck {
     let mut callables = HashMap::new();
     for function in support_functions.iter().chain(functions) {
         callables.insert(
@@ -276,11 +377,21 @@ pub fn check_closure_safety_with_support(
         .map(|function| function.def_id)
         .collect::<HashSet<_>>();
 
-    let mut summaries = callables
-        .keys()
-        .copied()
-        .map(|key| (key, CallableSummary::default()))
+    let mut summaries = imported_summaries
+        .iter()
+        .map(|(def_id, summary)| {
+            (
+                CallableKey::Function(*def_id),
+                CallableSummary::from_imported(summary),
+            )
+        })
         .collect::<HashMap<_, _>>();
+    summaries.extend(
+        callables
+            .keys()
+            .copied()
+            .map(|key| (key, CallableSummary::default())),
+    );
     // Summaries form a finite domain over callable inputs and widened aggregate
     // paths. Replaying every body to stability handles recursive and mutually
     // recursive calls without depending on discovery or hash iteration order.
