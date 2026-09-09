@@ -1036,16 +1036,17 @@ impl CompilerDatabase {
                         })?);
                     }
                     for definition in &record.referenced_definitions {
-                        context
-                            .definitions
-                            .push(self.resolve_loaded_definition(definition, package)?);
+                        context.definitions.push(
+                            self.resolve_template_definition(definition, package, interface)?,
+                        );
                     }
                     for module in &record.referenced_modules {
                         context
                             .modules
                             .push(self.resolve_compiled_module_identity(module)?);
                     }
-                    let owner = self.resolve_loaded_definition(&record.definition, package)?;
+                    let owner =
+                        self.resolve_template_definition(&record.definition, package, interface)?;
                     let body =
                         decode_checked_function_body(&record.body, &context).map_err(|error| {
                             self.db.invalid_input(
@@ -2040,6 +2041,29 @@ impl CompilerDatabase {
             &CompiledPackageInterfaceIndexQuery,
             format!("compiled template module is not loaded: {identity:?}"),
         ))
+    }
+
+    fn resolve_template_definition(
+        &self,
+        identity: &DefinitionId,
+        package: &PackageId,
+        interface: &nia_package_metadata::CompiledPackageInterface,
+    ) -> QueryResult<GlobalDefId> {
+        if &identity.module.package != package {
+            return Err(self.db.invalid_input(
+                &CompiledPackageInterfaceIndexQuery,
+                "compiled template relocation belongs to a different package",
+            ));
+        }
+        if interface.definition(identity).is_some() {
+            if let Ok(module_id) = self.resolve_compiled_module_identity(&identity.module) {
+                return Ok(GlobalDefId {
+                    module_id,
+                    def_id: DefId(identity.disambiguator),
+                });
+            }
+        }
+        self.resolve_loaded_definition(identity, package)
     }
 
     /// Converts session-owned type roots into a package-stable type graph.
