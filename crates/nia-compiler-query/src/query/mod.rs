@@ -1320,12 +1320,8 @@ impl CompilerDatabase {
             let module_path = stable_key.source_identity().normalized_path().to_owned();
             let facts = self.db.get(FullModuleDefsQuery(module.id))?;
             for (def_id, def) in facts.semantic.defs.iter() {
-                // Artifact identities describe the public package surface;
-                // private members are excluded, while public nested members
-                // retain their canonical owner chain for remapping.
-                if def.visibility != nia_defs::Visibility::Public {
-                    continue;
-                }
+                // The remap index includes private definitions as well: public
+                // aggregate layout and enum payloads may depend on them.
                 let Some(name) = symbols.resolve(def.name) else {
                     continue;
                 };
@@ -1797,7 +1793,9 @@ impl CompilerDatabase {
         if index.package(&package).is_none() {
             return Err(self.db.invalid_input(
                 &CompiledPackageInterfaceIndexQuery,
-                format!("cannot publish compiled type graph for an unselected package: {package:?}"),
+                format!(
+                    "cannot publish compiled type graph for an unselected package: {package:?}"
+                ),
             ));
         }
         let key = CompiledPackageTypeGraphQuery(package.clone());
@@ -1838,11 +1836,10 @@ impl CompilerDatabase {
                     self.db
                         .invalid_input(&CompiledPackageInterfaceIndexQuery, error.to_string())
                 })?;
-            if declaration.kind != record.definition.kind || declaration.visibility != 3 {
+            if declaration.kind != record.definition.kind {
                 return Err(self.db.invalid_input(
                     &CompiledPackageInterfaceIndexQuery,
-                    "compiled declaration identity or public visibility is inconsistent"
-                        .to_string(),
+                    "compiled declaration identity is inconsistent".to_string(),
                 ));
             }
             declarations.insert(record.definition.clone(), declaration);
@@ -2022,7 +2019,6 @@ impl CompilerDatabase {
             .map(|root| Ok((*root, encoder.canonical_key(*root)?)))
             .collect::<QueryResult<Vec<_>>>()?;
         keyed_roots.sort_by(|left, right| left.1.cmp(&right.1));
-        keyed_roots.dedup_by(|left, right| left.1 == right.1);
         let ordered_roots = keyed_roots
             .into_iter()
             .map(|(root, _)| root)
@@ -2415,6 +2411,7 @@ impl CompilerDatabase {
         let symbols = self.db.context().loader_facts().symbols();
         let entry_package_root = graph.current_package_root(graph.entry());
         let mut pending = Vec::new();
+        let mut module_signature_roots = Vec::new();
         for module in graph.modules() {
             if entry_package_root.is_some()
                 && graph.current_package_root(module.id) != entry_package_root
@@ -2426,8 +2423,27 @@ impl CompilerDatabase {
             };
             let module_path = stable_key.source_identity().normalized_path().to_owned();
             let defs = self.db.get(FullModuleDefsQuery(module.id))?;
+            module_signature_roots.extend(
+                self.db
+                    .get(ItemSignaturesQuery(module.id))?
+                    .semantic
+                    .type_roots(),
+            );
             for (def_id, def) in defs.semantic.defs.iter() {
-                if def.visibility != nia_defs::Visibility::Public {
+                let mut include = def.visibility == nia_defs::Visibility::Public;
+                let mut parent = def.parent;
+                while !include {
+                    let Some(parent_id) = parent else { break };
+                    let Some(parent_def) = defs.semantic.defs.get(parent_id) else {
+                        return Err(self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "definition parent is missing from module facts".to_string(),
+                        ));
+                    };
+                    include = parent_def.visibility == nia_defs::Visibility::Public;
+                    parent = parent_def.parent;
+                }
+                if !include {
                     continue;
                 }
                 let global = GlobalDefId {
@@ -2505,6 +2521,7 @@ impl CompilerDatabase {
         let mut all_roots = pending
             .iter()
             .flat_map(|(_, roots)| roots.iter().copied())
+            .chain(module_signature_roots)
             .collect::<Vec<_>>();
         // Public extension records carry roots which are not necessarily
         // attached to a public item declaration (notably associated types and

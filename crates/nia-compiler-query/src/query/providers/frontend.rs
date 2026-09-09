@@ -31,7 +31,10 @@ pub(in crate::query) fn provide_artifact_public_surface_facts(
             nia_package_metadata::decode_declaration(&record.declaration).map_err(|error| {
                 db.invalid_input(&CompiledPackageInterfaceIndexQuery, error.to_string())
             })?;
-        if declaration.visibility != 3 || record.definition.module != identity {
+        if declaration.visibility != 3 {
+            continue;
+        }
+        if record.definition.module != identity {
             return Err(db.invalid_input(
                 &CompiledPackageInterfaceIndexQuery,
                 format!(
@@ -1064,7 +1067,7 @@ pub(super) fn provide_item_signatures(
         .loader_facts()
         .compiled_package_module_identity(module_id)?
     {
-        if let Some(signatures) = provide_artifact_item_signatures(db, module_id, &identity)? {
+        if let Some(signatures) = provide_artifact_item_signatures(db, &identity)? {
             return Ok(signatures);
         }
     }
@@ -1089,7 +1092,6 @@ pub(super) fn provide_item_signatures(
 
 fn provide_artifact_item_signatures(
     db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
     identity: &nia_package_metadata::ModuleId,
 ) -> QueryResult<Option<ModuleItemSignatures>> {
     let package = db.get(CompiledPackageSignaturesQuery(identity.package.clone()))?;
@@ -1375,7 +1377,6 @@ fn provide_artifact_item_signatures(
     if !complete {
         return Ok(None);
     }
-    let _ = module_id;
     Ok(Some(ModuleItemSignatures {
         semantic: Arc::new(result),
         diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
