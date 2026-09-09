@@ -3,7 +3,39 @@ use nia_package_metadata::{
     DefinitionId, InterfaceRecord, InterfaceSection, PackageId, PackageManifest, SectionKind,
     encode, encode_artifact, encode_interface, interface_module_hash,
 };
-use std::fs;
+use std::{
+    fs,
+    sync::atomic::{AtomicUsize, Ordering},
+    sync::Arc,
+};
+
+fn temporary_toolchain(name: &str) -> Arc<nia_toolchain::ToolchainLayout> {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let id = NEXT.fetch_add(1, Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!(
+        "nia-loader-std-artifact-{name}-{}-{id}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    let executable = root.join("bin/nia");
+    let resources = root.join("lib");
+    fs::create_dir_all(resources.join("std")).unwrap();
+    fs::create_dir_all(executable.parent().unwrap()).unwrap();
+    fs::write(&executable, b"compiler").unwrap();
+    fs::write(
+        resources.join(nia_toolchain::RESOURCE_MANIFEST_NAME),
+        nia_compat::toolchain_manifest(),
+    )
+    .unwrap();
+    fs::write(resources.join("std/pkg.nia"), "pub module start;").unwrap();
+    fs::write(resources.join("std/start.nia"), "").unwrap();
+    Arc::new(
+        nia_toolchain::ToolchainLayout::resolve(
+            nia_toolchain::ToolchainLayoutRequest::explicit(&executable, resources),
+        )
+        .unwrap(),
+    )
+}
 
 fn temp_artifact(name: &str) -> std::path::PathBuf {
     let root =
@@ -19,6 +51,10 @@ fn manifest() -> PackageManifest {
         name: "demo".into(),
         version: "1.0.0".into(),
     })
+}
+
+fn standard_library_manifest() -> PackageManifest {
+    PackageManifest::current(PackageId::standard_library())
 }
 
 #[test]
@@ -50,16 +86,35 @@ fn optional_artifact_loads_and_preserves_relocation_independent_identity() {
 
 #[test]
 fn toolchain_standard_library_artifact_is_discovered_automatically() {
-    let toolchain = test_toolchain_layout();
+    let toolchain = temporary_toolchain("valid");
     let artifact_path = toolchain.std_package_artifact();
     fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
-    fs::write(&artifact_path, encode(&manifest()).unwrap()).unwrap();
+    fs::write(&artifact_path, encode(&standard_library_manifest()).unwrap()).unwrap();
     let loader = LoaderDatabase::new(
         LoadRequest::new("main.nia").with_toolchain_layout(toolchain),
     );
     assert!(matches!(
         loader.package_artifact().unwrap(),
         Some(PackageArtifactLoad::Loaded { .. })
+    ));
+}
+
+#[test]
+fn automatic_standard_library_artifact_rejects_nonstandard_package_identity() {
+    let toolchain = temporary_toolchain("reject");
+    let artifact_path = toolchain.std_package_artifact();
+    fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
+    fs::write(&artifact_path, encode(&manifest()).unwrap()).unwrap();
+    let loader = LoaderDatabase::new(
+        LoadRequest::new("main.nia").with_toolchain_layout(toolchain),
+    );
+    let selection = loader.package_artifact().unwrap();
+    assert!(matches!(
+        selection,
+        Some(PackageArtifactLoad::SourceFallback {
+            reason: PackageArtifactFallback::Incompatible(PackageArtifactMismatch::Package { .. }),
+            ..
+        })
     ));
 }
 

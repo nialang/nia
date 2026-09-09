@@ -250,6 +250,11 @@ impl LoaderDatabase {
             .as_ref()
             .map(|toolchain| toolchain.std_package_artifact())
             .filter(|path| path.is_file());
+        let auto_std_artifact = request.package_artifact.is_none() && toolchain_std_artifact.is_some();
+        let expected_package = request.expected_package.clone().or_else(|| {
+            auto_std_artifact
+                .then(|| request.toolchain.as_ref().expect("std artifact has toolchain").std_package_id())
+        });
         let entry_path = request.entry_path;
         let package_roots_with_used_paths = if request.package_root_used_paths {
             request.module_map.entries().map(|(name, _)| name).collect()
@@ -360,7 +365,7 @@ impl LoaderDatabase {
             package_artifact: request
                 .package_artifact
                 .or_else(|| toolchain_std_artifact.map(PackageArtifactRequest::Optional)),
-            expected_package: request.expected_package,
+            expected_package,
             artifact_compatibility,
             artifact_selection_cache: Arc::new(Mutex::new(None)),
         }
