@@ -30,8 +30,8 @@ use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_package_metadata::{
     DefinitionId, InterfaceRecord, InterfaceSection, ModuleId as StableModuleId, ModuleInterface,
     PackageId, PackageManifest, PublicSurfaceExport, PublicSurfaceModule, PublicSurfaceSection,
-    SectionKind, StableAssociatedTypeBinding, StableConstArg, StableConstValue, StableDeclaration,
-    StableTraitId, StableTypeGraph, StableTypeNode,
+    SectionKind, StableArrayLength, StableAssociatedTypeBinding, StableConstArg, StableConstValue,
+    StableDeclaration, StableTraitId, StableTypeGraph, StableTypeNode,
 };
 use nia_parser::ParseError;
 use nia_program_signatures::{
@@ -1362,7 +1362,14 @@ impl CompilerDatabase {
                 )),
                 StableTypeNode::Array { element, length } => append.intern(nia_ty::TyKind::Array {
                     elem: types[usize::try_from(*element).unwrap()],
-                    len: nia_ty::ArrayLenTy::ConstValue(*length),
+                    len: match length {
+                        StableArrayLength::ConstValue(value) => {
+                            nia_ty::ArrayLenTy::ConstValue(*value)
+                        }
+                        StableArrayLength::GenericParam(hash) => {
+                            nia_ty::ArrayLenTy::GenericParam(SymbolId::from_stable_hash(*hash))
+                        }
+                    },
                 }),
                 StableTypeNode::Function { parameters, result } => {
                     append.intern(nia_ty::TyKind::FunctionPointer {
@@ -2302,7 +2309,7 @@ impl CompilerDatabase {
         let mut records = pending
             .into_iter()
             .map(|(mut record, roots)| {
-                record.type_roots = roots
+                let mut type_roots = roots
                     .into_iter()
                     .map(|root| {
                         indexes.get(&root).copied().ok_or_else(|| {
@@ -2313,6 +2320,9 @@ impl CompilerDatabase {
                         })
                     })
                     .collect::<QueryResult<Vec<_>>>()?;
+                type_roots.sort_unstable();
+                type_roots.dedup();
+                record.type_roots = type_roots;
                 Ok(record)
             })
             .collect::<QueryResult<Vec<_>>>()?;
@@ -3411,15 +3421,10 @@ impl StableTypeGraphEncoder<'_> {
                     .collect::<QueryResult<Vec<_>>>()?,
                 name: name.raw(),
             },
-            nia_ty::TyKind::Array { len, elem } => {
-                let nia_ty::ArrayLenTy::ConstValue(length) = len else {
-                    return Err(self.unsupported("array length is not a stable constant"));
-                };
-                StableTypeNode::Array {
-                    element: self.encode(elem)?,
-                    length,
-                }
-            }
+            nia_ty::TyKind::Array { len, elem } => StableTypeNode::Array {
+                element: self.encode(elem)?,
+                length: self.encode_array_length(&len)?,
+            },
             nia_ty::TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -3660,11 +3665,17 @@ impl StableTypeGraphEncoder<'_> {
                 key.extend_from_slice(&name.raw().to_le_bytes());
             }
             nia_ty::TyKind::Array { len, elem } => {
-                let nia_ty::ArrayLenTy::ConstValue(length) = len else {
-                    return Err(self.unsupported("array length is not a stable constant"));
-                };
                 key.push(5);
-                key.extend_from_slice(&length.to_le_bytes());
+                match self.encode_array_length(&len)? {
+                    StableArrayLength::ConstValue(length) => {
+                        key.push(0);
+                        key.extend_from_slice(&length.to_le_bytes());
+                    }
+                    StableArrayLength::GenericParam(hash) => {
+                        key.push(1);
+                        key.extend_from_slice(&hash.to_le_bytes());
+                    }
+                }
                 append_bytes(&mut key, &self.canonical_key(elem)?);
             }
             nia_ty::TyKind::FunctionPointer {
@@ -3876,6 +3887,30 @@ impl StableTypeGraphEncoder<'_> {
             ty: self.encode(argument.ty)?,
             value,
         })
+    }
+
+    fn encode_array_length(&self, length: &nia_ty::ArrayLenTy) -> QueryResult<StableArrayLength> {
+        match length {
+            nia_ty::ArrayLenTy::ConstValue(value) => Ok(StableArrayLength::ConstValue(*value)),
+            nia_ty::ArrayLenTy::GenericParam(name) => {
+                Ok(StableArrayLength::GenericParam(name.raw()))
+            }
+            nia_ty::ArrayLenTy::ConstExpr(id) => {
+                let values = self.db.get(ConstArrayLengthsQuery(id.module_id))?;
+                values
+                    .values
+                    .get(id)
+                    .copied()
+                    .map(StableArrayLength::ConstValue)
+                    .ok_or_else(|| {
+                        self.unsupported(
+                            "array length const expression is not evaluated in the published package",
+                        )
+                    })
+            }
+            nia_ty::ArrayLenTy::Builtin { .. } | nia_ty::ArrayLenTy::Infer => Err(self
+                .unsupported("array length depends on contextual or target-dependent inference")),
+        }
     }
 
     fn stable_trait_id(&self, trait_id: nia_ty::TraitId) -> QueryResult<StableTraitId> {

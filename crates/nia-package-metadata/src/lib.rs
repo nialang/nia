@@ -109,6 +109,13 @@ pub struct StableAssociatedTypeBinding {
     pub ty: u32,
 }
 
+/// Canonical array length expression accepted by package interfaces.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum StableArrayLength {
+    ConstValue(u64),
+    GenericParam(u64),
+}
+
 /// One package dependency and the interface section it consumed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageDependency {
@@ -753,7 +760,10 @@ pub enum StableTypeNode {
     /// Tuple whose elements refer to earlier nodes.
     Tuple(Vec<u32>),
     /// Array with a bounded constant length.
-    Array { element: u32, length: u64 },
+    Array {
+        element: u32,
+        length: StableArrayLength,
+    },
     /// Function signature with parameter and result node references.
     Function { parameters: Vec<u32>, result: u32 },
     /// Borrow/reference to an earlier node.
@@ -869,7 +879,12 @@ impl StableTypeGraph {
                     references.extend(const_arguments.iter().map(|argument| &argument.ty));
                 }
                 StableTypeNode::Tuple(elements) => references.extend(elements),
-                StableTypeNode::Array { element, .. } => references.push(element),
+                StableTypeNode::Array { element, length } => {
+                    references.push(element);
+                    if let StableArrayLength::GenericParam(_) = length {
+                        // Generic parameter identities are self-contained.
+                    }
+                }
                 StableTypeNode::Function { parameters, result } => {
                     references.extend(parameters);
                     references.push(result);
@@ -2303,7 +2318,16 @@ pub fn encode_type_graph(graph: &StableTypeGraph) -> Result<Vec<u8>, MetadataErr
             StableTypeNode::Array { element, length } => {
                 output.push(6);
                 put_u32(&mut output, *element);
-                output.extend_from_slice(&length.to_le_bytes());
+                match length {
+                    StableArrayLength::ConstValue(value) => {
+                        output.push(0);
+                        output.extend_from_slice(&value.to_le_bytes());
+                    }
+                    StableArrayLength::GenericParam(hash) => {
+                        output.push(1);
+                        output.extend_from_slice(&hash.to_le_bytes());
+                    }
+                }
             }
             StableTypeNode::Function { parameters, result } => {
                 output.push(7);
@@ -2495,7 +2519,11 @@ pub fn decode_type_graph(bytes: &[u8]) -> Result<StableTypeGraph, MetadataError>
             5 => StableTypeNode::Tuple(read_refs(&mut cursor)?),
             6 => StableTypeNode::Array {
                 element: get_u32(&mut cursor)?,
-                length: get_u64(&mut cursor)?,
+                length: match read_u8(&mut cursor)? {
+                    0 => StableArrayLength::ConstValue(get_u64(&mut cursor)?),
+                    1 => StableArrayLength::GenericParam(get_u64(&mut cursor)?),
+                    _ => return Err(MetadataError::InvalidManifest),
+                },
             },
             7 => StableTypeNode::Function {
                 parameters: read_refs(&mut cursor)?,
