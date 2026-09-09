@@ -798,7 +798,7 @@ mod tests {
         let executable = write_layout(&root);
         fs::write(
             root.join("lib/toolchain.meta"),
-            "resource-layout-schema=2\ncompiler-version=incompatible\nstd-schema=1\nbuild-protocol-schema=3\npackage-metadata-schema=3\n",
+            "resource-layout-schema=2\ncompiler-version=incompatible\nstd-schema=1\nbuild-protocol-schema=3\npackage-metadata-schema=4\n",
         )
         .expect("replace manifest");
         let error = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
@@ -815,7 +815,7 @@ mod tests {
     fn malformed_numeric_manifest_field_reports_its_source_line() {
         let path = PathBuf::from("toolchain.meta");
         let manifest = format!(
-            "# identity\ncompiler-version={COMPILER_VERSION}\nresource-layout-schema=invalid\nstd-schema=1\nbuild-protocol-schema=3\npackage-metadata-schema=3\n"
+            "# identity\ncompiler-version={COMPILER_VERSION}\nresource-layout-schema=invalid\nstd-schema=1\nbuild-protocol-schema=3\npackage-metadata-schema=4\n"
         );
         let error = parse_manifest(&path, &manifest).expect_err("invalid numeric schema");
 
