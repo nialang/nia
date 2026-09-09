@@ -925,6 +925,10 @@ impl Driver {
         // incremental requests either retain a live payload or republish a
         // consumed slot for the current artifact generation.
         database.install_compiled_package_module_interfaces()?;
+        let stable_resolver = |definition: &nia_package_metadata::DefinitionId| {
+            database.resolve_loaded_definition(definition, &definition.module.package)
+        };
+        database.install_compiled_interface_type_roots(&stable_resolver)?;
         database.install_compiled_package_declarations()?;
         database.install_compiled_package_templates()?;
         database.install_compiled_package_signatures()?;
