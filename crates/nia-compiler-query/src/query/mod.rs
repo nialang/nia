@@ -1576,9 +1576,12 @@ impl CompilerDatabase {
         let definition_index = self.stable_definition_index(resolver)?;
         let mut records = Vec::with_capacity(interface.records.len());
         let mut trait_records = Vec::new();
+        let mut extension_records = Vec::new();
+        let mut stable_by_global = HashMap::new();
         let mut members = BTreeMap::<DefinitionId, Vec<nia_package_metadata::SignatureMember>>::new();
         for item in &interface.records {
             let global = definition_index.definition_for_identity(&item.definition)?;
+            stable_by_global.insert(global, item.definition.clone());
             let kind = item.definition.kind;
             let facts = self.db.get(ItemSignaturesQuery(global.module_id))?;
             let flags = signature_flags_for_definition(global.def_id, kind, &facts.semantic);
@@ -1616,6 +1619,26 @@ impl CompilerDatabase {
             }
             records.push((item.definition.clone(), kind, flags, item.type_roots.clone(), generic_params, where_predicates));
         }
+        let module_graph = self.db.get(ModuleGraphQuery)?;
+        let entry_root = module_graph.current_package_root(module_graph.entry());
+        for module in module_graph.modules() {
+            if entry_root.is_some() && module_graph.current_package_root(module.id) != entry_root { continue; }
+            let facts = self.db.get(ItemSignaturesQuery(module.id))?;
+            for implementation in &facts.semantic.trait_impls {
+                let target_root = match type_indexes.get(&implementation.target_ty) { Some(root) => *root, None => continue };
+                let trait_root = implementation.trait_ty.map(|ty| type_indexes.get(&ty).copied()).flatten();
+                let mut extension_members = Vec::new();
+                for method in &implementation.methods {
+                    if method.visibility != nia_ids::Visibility::Public { continue; }
+                    if let Some(definition) = stable_by_global.get(&GlobalDefId { module_id: module.id, def_id: method.def_id }) {
+                        if let Some(item) = interface.records.iter().find(|item| &item.definition == definition) {
+                            extension_members.push(nia_package_metadata::SignatureMember { definition: definition.clone(), name: definition.name.clone(), kind: definition.kind, flags: signature_flags_for_definition(method.def_id, definition.kind, &facts.semantic), type_roots: item.type_roots.clone() });
+                        }
+                    }
+                }
+                extension_records.push(nia_package_metadata::SignatureExtensionRecord { impl_id: implementation.impl_id.0, target_root, trait_root, generic_params: Vec::new(), where_roots: Vec::new(), members: extension_members });
+            }
+        }
         let records = records
             .into_iter()
             .map(|(definition, kind, flags, type_roots, generic_params, where_predicates)| nia_package_metadata::SignatureRecord {
@@ -1631,7 +1654,7 @@ impl CompilerDatabase {
         let section = nia_package_metadata::SignatureSection {
             records,
             traits: trait_records,
-            extensions: Vec::new(),
+            extensions: extension_records,
         };
         section
             .validate()
