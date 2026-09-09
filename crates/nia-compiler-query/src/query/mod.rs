@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use crate::template_body_codec::{TemplateBodyDecodeContext, decode_checked_function_body};
 use crate::{
     ActiveModuleItemTreeFactKind, CheckedModule, CheckedProgram, CheckedProgramAnalysis,
     CodegenPreparation, CodegenProgram, FrontendCheckInputFingerprint, FrontendCheckScope,
@@ -447,10 +448,38 @@ pub struct CompiledPackageModuleInterface {
 }
 
 /// Checked downstream templates selected from one compiled package.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CompiledPackageTemplates {
     package: PackageId,
-    records: BTreeMap<DefinitionId, nia_package_metadata::TemplateRecord>,
+    records: BTreeMap<DefinitionId, CompiledTemplate>,
+}
+
+/// One validated, session-remapped checked template body.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompiledTemplate {
+    pub definition: GlobalDefId,
+    pub body: nia_function_ir::FunctionBody,
+    pub summary: nia_package_metadata::TemplateSummary,
+}
+
+struct TemplateDecodeContext {
+    types: Vec<InternedTyId>,
+    definitions: Vec<GlobalDefId>,
+    modules: Vec<ModuleId>,
+}
+
+impl TemplateBodyDecodeContext for TemplateDecodeContext {
+    fn type_at(&self, index: u32) -> Option<InternedTyId> {
+        self.types.get(index as usize).copied()
+    }
+
+    fn definition_at(&self, index: u32) -> Option<GlobalDefId> {
+        self.definitions.get(index as usize).copied()
+    }
+
+    fn module_at(&self, index: u32) -> Option<ModuleId> {
+        self.modules.get(index as usize).copied()
+    }
 }
 
 /// Target-independent signature facts selected from one compiled package.
@@ -539,13 +568,11 @@ impl CompiledPackageTemplates {
         &self.package
     }
 
-    pub fn get(&self, definition: &DefinitionId) -> Option<&nia_package_metadata::TemplateRecord> {
+    pub fn get(&self, definition: &DefinitionId) -> Option<&CompiledTemplate> {
         self.records.get(definition)
     }
 
-    pub fn iter(
-        &self,
-    ) -> impl Iterator<Item = (&DefinitionId, &nia_package_metadata::TemplateRecord)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&DefinitionId, &CompiledTemplate)> {
         self.records.iter()
     }
 
@@ -559,16 +586,7 @@ impl CompiledPackageTemplates {
         let Some(record) = self.records.get(definition) else {
             return Ok(None);
         };
-        nia_package_metadata::decode_template_summary(&record.summary)
-            .map(Some)
-            .map_err(|error| QueryError::InvalidInput {
-                query: QueryFrame {
-                    name: "compiled_package_templates",
-                    key: format!("{definition:?}"),
-                    description: "compiled_package_templates.summary".to_string(),
-                },
-                message: error.to_string(),
-            })
+        Ok(Some(record.summary.clone()))
     }
 }
 
@@ -979,6 +997,7 @@ impl CompilerDatabase {
     pub fn install_compiled_package_templates(&self) -> QueryResult<Vec<PackageId>> {
         let index = self.compiled_package_interface_index()?;
         let mut installed = Vec::new();
+        let mut prepared = Vec::new();
         for (package, interface) in index.packages() {
             let mut records = BTreeMap::new();
             if let Some(templates) = interface.templates() {
@@ -988,9 +1007,6 @@ impl CompilerDatabase {
                             .records()
                             .iter()
                             .any(|item| item.definition == record.definition)
-                        || records
-                            .insert(record.definition.clone(), record.clone())
-                            .is_some()
                     {
                         return Err(self.db.invalid_input(
                             &CompiledPackageInterfaceIndexQuery,
@@ -1000,23 +1016,84 @@ impl CompilerDatabase {
                             ),
                         ));
                     }
+                    let type_graph = self.compiled_package_type_graph(package).map_err(|_| {
+                        self.db.invalid_input(
+                            &CompiledPackageInterfaceIndexQuery,
+                            "compiled template requires a rehydrated package type graph",
+                        )
+                    })?;
+                    let mut context = TemplateDecodeContext {
+                        types: Vec::with_capacity(record.type_roots.len()),
+                        definitions: Vec::with_capacity(record.referenced_definitions.len()),
+                        modules: Vec::with_capacity(record.referenced_modules.len()),
+                    };
+                    for root in &record.type_roots {
+                        context.types.push(type_graph.get(*root).ok_or_else(|| {
+                            self.db.invalid_input(
+                                &CompiledPackageInterfaceIndexQuery,
+                                "compiled template type root is outside its graph",
+                            )
+                        })?);
+                    }
+                    for definition in &record.referenced_definitions {
+                        context
+                            .definitions
+                            .push(self.resolve_loaded_definition(definition, package)?);
+                    }
+                    for module in &record.referenced_modules {
+                        context
+                            .modules
+                            .push(self.resolve_compiled_module_identity(module)?);
+                    }
+                    let owner = self.resolve_loaded_definition(&record.definition, package)?;
+                    let body =
+                        decode_checked_function_body(&record.body, &context).map_err(|error| {
+                            self.db.invalid_input(
+                                &CompiledPackageInterfaceIndexQuery,
+                                format!("invalid checked template body: {error}"),
+                            )
+                        })?;
+                    let summary = nia_package_metadata::decode_template_summary(&record.summary)
+                        .map_err(|error| {
+                            self.db.invalid_input(
+                                &CompiledPackageInterfaceIndexQuery,
+                                format!("invalid checked template summary: {error}"),
+                            )
+                        })?;
+                    if records
+                        .insert(
+                            record.definition.clone(),
+                            CompiledTemplate {
+                                definition: owner,
+                                body,
+                                summary,
+                            },
+                        )
+                        .is_some()
+                    {
+                        return Err(self.db.invalid_input(
+                            &CompiledPackageInterfaceIndexQuery,
+                            "duplicate compiled template identity",
+                        ));
+                    }
                 }
             }
-            if !self
+            prepared.push((package.clone(), records));
+        }
+        for (package, records) in prepared {
+            if self
                 .db
                 .can_publish_owned(CompiledPackageTemplatesQuery(package.clone()))
             {
-                installed.push(package.clone());
-                continue;
+                self.db.publish_owned(
+                    CompiledPackageTemplatesQuery(package.clone()),
+                    CompiledPackageTemplates {
+                        package: package.clone(),
+                        records,
+                    },
+                    &CompiledPackageInterfaceIndexQuery,
+                );
             }
-            self.db.publish_owned(
-                CompiledPackageTemplatesQuery(package.clone()),
-                CompiledPackageTemplates {
-                    package: package.clone(),
-                    records,
-                },
-                &CompiledPackageInterfaceIndexQuery,
-            );
             installed.push(package.clone());
         }
         Ok(installed)
@@ -1943,6 +2020,26 @@ impl CompilerDatabase {
         package: &PackageId,
     ) -> QueryResult<GlobalDefId> {
         resolve_loaded_definition_in_query(&self.db, definition, package)
+    }
+
+    fn resolve_compiled_module_identity(&self, identity: &StableModuleId) -> QueryResult<ModuleId> {
+        let graph = self.db.get(ModuleGraphQuery)?;
+        for module in graph.modules() {
+            if self
+                .db
+                .context()
+                .loader_facts()
+                .compiled_package_module_identity(module.id)?
+                .as_ref()
+                == Some(identity)
+            {
+                return Ok(module.id);
+            }
+        }
+        Err(self.db.invalid_input(
+            &CompiledPackageInterfaceIndexQuery,
+            format!("compiled template module is not loaded: {identity:?}"),
+        ))
     }
 
     /// Converts session-owned type roots into a package-stable type graph.
