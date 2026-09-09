@@ -226,20 +226,15 @@ fn package_artifact_publication_embeds_validated_signatures() {
         .find(|record| record.definition.name == "greet")
         .unwrap()
         .definition;
-    let signatures = nia_package_metadata::SignatureSection {
-        records: vec![nia_package_metadata::SignatureRecord {
-            definition,
-            kind: 2,
-            flags: nia_package_metadata::SIGNATURE_FLAG_HAS_BODY,
-            type_roots: Vec::new(),
-            members: Vec::new(),
-            generic_params: Vec::new(),
-            where_predicates: Vec::new(),
-            payload: None,
-        }],
-        traits: Vec::new(),
-        extensions: Vec::new(),
-    };
+    let signatures = database
+        .package_signature_section_with_resolver(package.clone(), &|_| Ok(package.clone()))
+        .unwrap();
+    assert!(
+        signatures
+            .records
+            .iter()
+            .any(|record| record.definition == definition)
+    );
     let publication = database
         .publish_package_artifact_with_resolver_and_products_and_signatures(
             package.clone(),
@@ -317,10 +312,12 @@ type Item;
 }
 
 pub trait Measure {
+const SCALE: i32;
 fn measure(&self, scale: i32) i32;
 }
 
 extend Record : Measure {
+pub const SCALE: i32 = 1;
 pub fn measure(&self, scale: i32) i32 {
 self.value * scale
 }
@@ -390,7 +387,7 @@ pub fn probe(&self) usize;
     assert_eq!(signatures.semantic.structs.len(), 1);
     assert_eq!(signatures.semantic.enums.len(), 1);
     assert_eq!(signatures.semantic.type_aliases.len(), 1);
-    assert_eq!(signatures.semantic.consts.len(), 2);
+    assert_eq!(signatures.semantic.consts.len(), 3);
     assert_eq!(signatures.semantic.globals.len(), 1);
     assert_eq!(signatures.semantic.traits.len(), 5);
     assert_eq!(signatures.semantic.trait_impls.len(), 3);
@@ -455,6 +452,19 @@ pub fn probe(&self) usize;
         .expect("artifact builtin trait signature");
     assert_eq!(iterator.associated_types.len(), 1);
     let defs = database.db.expect_get(FullModuleDefsQuery(module_id));
+    let measure = signatures
+        .semantic
+        .traits
+        .iter()
+        .find_map(|(def_id, signature)| {
+            defs.semantic
+                .defs
+                .get(*def_id)
+                .is_some_and(|definition| definition.name == sym("Measure"))
+                .then_some(signature)
+        })
+        .expect("artifact measure trait signature");
+    assert_eq!(measure.associated_values.len(), 1);
     let child = signatures
         .semantic
         .traits
@@ -510,6 +520,12 @@ pub fn probe(&self) usize;
             .expect_get(SignatureItemSignaturesQuery(module_id, set));
         assert!(projected.diagnostics.is_empty());
     }
+    let const_signatures = database
+        .db
+        .expect_get(SignatureConstItemSignaturesQuery(module_id));
+    assert!(const_signatures.globals.is_empty());
+    assert!(const_signatures.traits.is_empty());
+    assert_eq!(const_signatures.consts.len(), 3);
     let trace = database.query_trace();
     assert!(
         trace
@@ -518,6 +534,14 @@ pub fn probe(&self) usize;
             .filter(|query| query.frame.name == "signature_item_tree")
             .all(|query| query.stats.executions == 0),
         "artifact signature projections must not execute source item-tree queries"
+    );
+    assert!(
+        trace
+            .queries
+            .iter()
+            .filter(|query| query.frame.name == "signature_const_item_tree")
+            .all(|query| query.stats.executions == 0),
+        "artifact const-signature projection must not execute source item-tree queries"
     );
 }
 
@@ -528,17 +552,20 @@ fn complete_signature_projection_matches_source_subset_collection() {
         r#"
 struct Record { value: i32 }
 fn top(value: i32) i32 { value }
+const fn compile(value: i32) i32 { value }
 static mut STATE: i32 = 0;
 const ANSWER: i32 = 42;
 trait Measure {
 type Output;
 const DEFAULT: i32;
 fn measure(&self) i32;
+const fn cached(&self) i32;
 }
 extend Record : Measure {
 type Output = i32;
 const DEFAULT: i32 = 1;
 fn measure(&self) i32 { self.value }
+const fn cached(&self) i32 { self.value }
 }
 "#,
     );
@@ -562,6 +589,11 @@ fn measure(&self) i32 { self.value }
             "projection mismatch for {set:?}"
         );
     }
+    let source = database
+        .db
+        .expect_get(SignatureConstItemSignaturesQuery(module_id));
+    let projected = project_const_item_signatures(&complete.semantic, &defs.semantic);
+    assert_eq!(*source, projected, "const-signature projection mismatch");
 }
 
 #[test]
