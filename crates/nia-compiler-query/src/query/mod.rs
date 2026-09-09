@@ -2509,6 +2509,7 @@ impl CompilerDatabase {
                 referenced_modules: modules,
                 type_roots,
                 body,
+                ctfe_body: Vec::new(),
                 summary,
             });
         }
