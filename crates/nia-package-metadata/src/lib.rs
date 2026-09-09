@@ -22,7 +22,7 @@ const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT01";
 // Version 5 adds canonical owner identities to definitions.
 const INTERFACE_SCHEMA: u32 = 5;
 const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
-const TYPE_GRAPH_SCHEMA: u32 = 2;
+const TYPE_GRAPH_SCHEMA: u32 = 3;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG01";
 const SIGNATURE_SCHEMA: u32 = 3;
@@ -78,11 +78,35 @@ pub struct DefinitionId {
 
 /// Stable const-generic argument used by applied nominal type nodes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum StableConstArg {
+pub struct StableConstArg {
+    pub ty: u32,
+    pub value: StableConstValue,
+}
+
+/// Relocation-independent value of a const-generic argument.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum StableConstValue {
     GenericParam(u64),
     Integer { bits: u128, signed: bool },
     Bool(bool),
     Char(char),
+}
+
+/// Stable identity of a source-defined or compiler-provided trait.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum StableTraitId {
+    Source(DefinitionId),
+    Builtin(u8),
+}
+
+/// Associated type binding carried by a stable trait object or projection.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StableAssociatedTypeBinding {
+    pub trait_id: Option<StableTraitId>,
+    pub trait_arguments: Vec<u32>,
+    pub trait_const_arguments: Vec<StableConstArg>,
+    pub name: u64,
+    pub ty: u32,
 }
 
 /// One package dependency and the interface section it consumed.
@@ -774,6 +798,29 @@ pub enum StableTypeNode {
     BuiltinType(u8),
     /// Compiler-provided builtin trait application.
     BuiltinTrait { trait_id: u8, arguments: Vec<u32> },
+    /// Sized trait-object value.
+    TraitObject {
+        readonly: bool,
+        trait_id: StableTraitId,
+        trait_arguments: Vec<u32>,
+        trait_const_arguments: Vec<StableConstArg>,
+        associated_type_bindings: Vec<StableAssociatedTypeBinding>,
+    },
+    /// Unsized trait-object pointee.
+    TraitObjectPointee {
+        trait_id: StableTraitId,
+        trait_arguments: Vec<u32>,
+        trait_const_arguments: Vec<StableConstArg>,
+        associated_type_bindings: Vec<StableAssociatedTypeBinding>,
+    },
+    /// Associated type projection before normalization.
+    Projection {
+        self_ty: u32,
+        trait_id: StableTraitId,
+        trait_arguments: Vec<u32>,
+        trait_const_arguments: Vec<StableConstArg>,
+        name: u64,
+    },
 }
 
 /// Canonical, bounded type graph for cross-package signature use.
@@ -818,9 +865,8 @@ impl StableTypeGraph {
                 } => {
                     validate_definition(definition)?;
                     references.extend(arguments);
-                    if const_arguments.len() > MAX_ITEMS {
-                        return Err(MetadataError::TooManyItems);
-                    }
+                    validate_stable_const_arguments(const_arguments)?;
+                    references.extend(const_arguments.iter().map(|argument| &argument.ty));
                 }
                 StableTypeNode::Tuple(elements) => references.extend(elements),
                 StableTypeNode::Array { element, .. } => references.push(element),
@@ -867,6 +913,54 @@ impl StableTypeGraph {
                     }
                     references.extend(arguments);
                 }
+                StableTypeNode::TraitObject {
+                    trait_id,
+                    trait_arguments,
+                    trait_const_arguments,
+                    associated_type_bindings,
+                    ..
+                }
+                | StableTypeNode::TraitObjectPointee {
+                    trait_id,
+                    trait_arguments,
+                    trait_const_arguments,
+                    associated_type_bindings,
+                } => {
+                    validate_stable_trait_id(trait_id)?;
+                    references.extend(trait_arguments);
+                    validate_stable_const_arguments(trait_const_arguments)?;
+                    references.extend(trait_const_arguments.iter().map(|argument| &argument.ty));
+                    if associated_type_bindings.len() > MAX_ITEMS {
+                        return Err(MetadataError::TooManyItems);
+                    }
+                    for binding in associated_type_bindings {
+                        if let Some(trait_id) = &binding.trait_id {
+                            validate_stable_trait_id(trait_id)?;
+                        }
+                        references.extend(&binding.trait_arguments);
+                        validate_stable_const_arguments(&binding.trait_const_arguments)?;
+                        references.extend(
+                            binding
+                                .trait_const_arguments
+                                .iter()
+                                .map(|argument| &argument.ty),
+                        );
+                        references.push(&binding.ty);
+                    }
+                }
+                StableTypeNode::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_arguments,
+                    trait_const_arguments,
+                    ..
+                } => {
+                    validate_stable_trait_id(trait_id)?;
+                    references.push(self_ty);
+                    references.extend(trait_arguments);
+                    validate_stable_const_arguments(trait_const_arguments)?;
+                    references.extend(trait_const_arguments.iter().map(|argument| &argument.ty));
+                }
                 StableTypeNode::GenericParam(_) => {}
             }
             if references.iter().any(|reference| **reference >= index) {
@@ -876,6 +970,22 @@ impl StableTypeGraph {
                 return Err(MetadataError::TooManyItems);
             }
         }
+        Ok(())
+    }
+}
+
+fn validate_stable_trait_id(trait_id: &StableTraitId) -> Result<(), MetadataError> {
+    match trait_id {
+        StableTraitId::Source(definition) => validate_definition(definition),
+        StableTraitId::Builtin(tag) if *tag <= 27 => Ok(()),
+        StableTraitId::Builtin(_) => Err(MetadataError::InvalidManifest),
+    }
+}
+
+fn validate_stable_const_arguments(arguments: &[StableConstArg]) -> Result<(), MetadataError> {
+    if arguments.len() > MAX_ITEMS {
+        Err(MetadataError::TooManyItems)
+    } else {
         Ok(())
     }
 }
@@ -2178,25 +2288,7 @@ pub fn encode_type_graph(graph: &StableTypeGraph) -> Result<Vec<u8>, MetadataErr
                 }
                 put_list_len(&mut output, const_arguments.len())?;
                 for argument in const_arguments {
-                    match argument {
-                        StableConstArg::GenericParam(hash) => {
-                            output.push(0);
-                            output.extend_from_slice(&hash.to_le_bytes());
-                        }
-                        StableConstArg::Integer { bits, signed } => {
-                            output.push(1);
-                            output.extend_from_slice(&bits.to_le_bytes());
-                            output.push(u8::from(*signed));
-                        }
-                        StableConstArg::Bool(value) => {
-                            output.push(2);
-                            output.push(u8::from(*value));
-                        }
-                        StableConstArg::Char(value) => {
-                            output.push(3);
-                            output.extend_from_slice(&u32::from(*value).to_le_bytes());
-                        }
-                    }
+                    put_stable_const_arg(&mut output, argument);
                 }
             }
             StableTypeNode::Unit => output.push(3),
@@ -2314,6 +2406,46 @@ pub fn encode_type_graph(graph: &StableTypeGraph) -> Result<Vec<u8>, MetadataErr
                     put_u32(&mut output, *argument);
                 }
             }
+            StableTypeNode::TraitObject {
+                readonly,
+                trait_id,
+                trait_arguments,
+                trait_const_arguments,
+                associated_type_bindings,
+            } => {
+                output.push(27);
+                output.push(u8::from(*readonly));
+                put_stable_trait_id(&mut output, trait_id)?;
+                put_refs(&mut output, trait_arguments)?;
+                put_stable_const_args(&mut output, trait_const_arguments)?;
+                put_stable_associated_bindings(&mut output, associated_type_bindings)?;
+            }
+            StableTypeNode::TraitObjectPointee {
+                trait_id,
+                trait_arguments,
+                trait_const_arguments,
+                associated_type_bindings,
+            } => {
+                output.push(28);
+                put_stable_trait_id(&mut output, trait_id)?;
+                put_refs(&mut output, trait_arguments)?;
+                put_stable_const_args(&mut output, trait_const_arguments)?;
+                put_stable_associated_bindings(&mut output, associated_type_bindings)?;
+            }
+            StableTypeNode::Projection {
+                self_ty,
+                trait_id,
+                trait_arguments,
+                trait_const_arguments,
+                name,
+            } => {
+                output.push(29);
+                put_u32(&mut output, *self_ty);
+                put_stable_trait_id(&mut output, trait_id)?;
+                put_refs(&mut output, trait_arguments)?;
+                put_stable_const_args(&mut output, trait_const_arguments)?;
+                output.extend_from_slice(&name.to_le_bytes());
+            }
         }
     }
     if output.len() > MAX_PACKAGE_BYTES {
@@ -2354,26 +2486,7 @@ pub fn decode_type_graph(bytes: &[u8]) -> Result<StableTypeGraph, MetadataError>
                 const_arguments: {
                     let count = bounded_count(get_u32(&mut cursor)?)?;
                     (0..count)
-                        .map(|_| match read_u8(&mut cursor)? {
-                            0 => Ok(StableConstArg::GenericParam(get_u64(&mut cursor)?)),
-                            1 => Ok(StableConstArg::Integer {
-                                bits: get_u128(&mut cursor)?,
-                                signed: match read_u8(&mut cursor)? {
-                                    0 => false,
-                                    1 => true,
-                                    _ => return Err(MetadataError::InvalidManifest),
-                                },
-                            }),
-                            2 => Ok(StableConstArg::Bool(match read_u8(&mut cursor)? {
-                                0 => false,
-                                1 => true,
-                                _ => return Err(MetadataError::InvalidManifest),
-                            })),
-                            3 => char::from_u32(get_u32(&mut cursor)?)
-                                .map(StableConstArg::Char)
-                                .ok_or(MetadataError::InvalidManifest),
-                            _ => Err(MetadataError::InvalidManifest),
-                        })
+                        .map(|_| read_stable_const_arg(&mut cursor))
                         .collect::<Result<Vec<_>, _>>()?
                 },
             },
@@ -2476,6 +2589,30 @@ pub fn decode_type_graph(bytes: &[u8]) -> Result<StableTypeGraph, MetadataError>
                     tag
                 },
                 arguments: read_refs(&mut cursor)?,
+            },
+            27 => StableTypeNode::TraitObject {
+                readonly: match read_u8(&mut cursor)? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(MetadataError::InvalidManifest),
+                },
+                trait_id: read_stable_trait_id(&mut cursor)?,
+                trait_arguments: read_refs(&mut cursor)?,
+                trait_const_arguments: read_stable_const_args(&mut cursor)?,
+                associated_type_bindings: read_stable_associated_bindings(&mut cursor)?,
+            },
+            28 => StableTypeNode::TraitObjectPointee {
+                trait_id: read_stable_trait_id(&mut cursor)?,
+                trait_arguments: read_refs(&mut cursor)?,
+                trait_const_arguments: read_stable_const_args(&mut cursor)?,
+                associated_type_bindings: read_stable_associated_bindings(&mut cursor)?,
+            },
+            29 => StableTypeNode::Projection {
+                self_ty: get_u32(&mut cursor)?,
+                trait_id: read_stable_trait_id(&mut cursor)?,
+                trait_arguments: read_refs(&mut cursor)?,
+                trait_const_arguments: read_stable_const_args(&mut cursor)?,
+                name: get_u64(&mut cursor)?,
             },
             _ => return Err(MetadataError::InvalidManifest),
         });
@@ -2667,6 +2804,145 @@ fn put_refs(output: &mut Vec<u8>, refs: &[u32]) -> Result<(), MetadataError> {
         put_u32(output, *reference);
     }
     Ok(())
+}
+
+fn put_stable_const_arg(output: &mut Vec<u8>, argument: &StableConstArg) {
+    put_u32(output, argument.ty);
+    match &argument.value {
+        StableConstValue::GenericParam(hash) => {
+            output.push(0);
+            output.extend_from_slice(&hash.to_le_bytes());
+        }
+        StableConstValue::Integer { bits, signed } => {
+            output.push(1);
+            output.extend_from_slice(&bits.to_le_bytes());
+            output.push(u8::from(*signed));
+        }
+        StableConstValue::Bool(value) => {
+            output.push(2);
+            output.push(u8::from(*value));
+        }
+        StableConstValue::Char(value) => {
+            output.push(3);
+            output.extend_from_slice(&u32::from(*value).to_le_bytes());
+        }
+    }
+}
+
+fn put_stable_const_args(
+    output: &mut Vec<u8>,
+    arguments: &[StableConstArg],
+) -> Result<(), MetadataError> {
+    put_list_len(output, arguments.len())?;
+    for argument in arguments {
+        put_stable_const_arg(output, argument);
+    }
+    Ok(())
+}
+
+fn read_stable_const_arg(cursor: &mut Cursor<&[u8]>) -> Result<StableConstArg, MetadataError> {
+    let ty = get_u32(cursor)?;
+    let value = match read_u8(cursor)? {
+        0 => StableConstValue::GenericParam(get_u64(cursor)?),
+        1 => StableConstValue::Integer {
+            bits: get_u128(cursor)?,
+            signed: match read_u8(cursor)? {
+                0 => false,
+                1 => true,
+                _ => return Err(MetadataError::InvalidManifest),
+            },
+        },
+        2 => StableConstValue::Bool(match read_u8(cursor)? {
+            0 => false,
+            1 => true,
+            _ => return Err(MetadataError::InvalidManifest),
+        }),
+        3 => char::from_u32(get_u32(cursor)?)
+            .map(StableConstValue::Char)
+            .ok_or(MetadataError::InvalidManifest)?,
+        _ => return Err(MetadataError::InvalidManifest),
+    };
+    Ok(StableConstArg { ty, value })
+}
+
+fn read_stable_const_args(
+    cursor: &mut Cursor<&[u8]>,
+) -> Result<Vec<StableConstArg>, MetadataError> {
+    let count = bounded_count(get_u32(cursor)?)?;
+    (0..count).map(|_| read_stable_const_arg(cursor)).collect()
+}
+
+fn put_stable_trait_id(
+    output: &mut Vec<u8>,
+    trait_id: &StableTraitId,
+) -> Result<(), MetadataError> {
+    match trait_id {
+        StableTraitId::Source(definition) => {
+            output.push(0);
+            put_definition(output, definition)?;
+        }
+        StableTraitId::Builtin(tag) => {
+            output.push(1);
+            output.push(*tag);
+        }
+    }
+    Ok(())
+}
+
+fn read_stable_trait_id(cursor: &mut Cursor<&[u8]>) -> Result<StableTraitId, MetadataError> {
+    match read_u8(cursor)? {
+        0 => Ok(StableTraitId::Source(read_definition(cursor)?)),
+        1 => {
+            let tag = read_u8(cursor)?;
+            (tag <= 27)
+                .then_some(StableTraitId::Builtin(tag))
+                .ok_or(MetadataError::InvalidManifest)
+        }
+        _ => Err(MetadataError::InvalidManifest),
+    }
+}
+
+fn put_stable_associated_bindings(
+    output: &mut Vec<u8>,
+    bindings: &[StableAssociatedTypeBinding],
+) -> Result<(), MetadataError> {
+    put_list_len(output, bindings.len())?;
+    for binding in bindings {
+        match &binding.trait_id {
+            Some(trait_id) => {
+                output.push(1);
+                put_stable_trait_id(output, trait_id)?;
+            }
+            None => output.push(0),
+        }
+        put_refs(output, &binding.trait_arguments)?;
+        put_stable_const_args(output, &binding.trait_const_arguments)?;
+        output.extend_from_slice(&binding.name.to_le_bytes());
+        put_u32(output, binding.ty);
+    }
+    Ok(())
+}
+
+fn read_stable_associated_bindings(
+    cursor: &mut Cursor<&[u8]>,
+) -> Result<Vec<StableAssociatedTypeBinding>, MetadataError> {
+    let count = bounded_count(get_u32(cursor)?)?;
+    (0..count)
+        .map(|_| {
+            let trait_id = match read_u8(cursor)? {
+                0 => None,
+                1 => Some(read_stable_trait_id(cursor)?),
+                _ => return Err(MetadataError::InvalidManifest),
+            };
+            Ok(StableAssociatedTypeBinding {
+                trait_id,
+                trait_arguments: read_refs(cursor)?,
+                trait_const_arguments: read_stable_const_args(cursor)?,
+                name: get_u64(cursor)?,
+                ty: get_u32(cursor)?,
+            })
+        })
+        .collect()
 }
 
 fn put_generic_params(
@@ -3058,23 +3334,29 @@ mod tests {
     fn applied_nominal_type_graph_round_trips_const_arguments() {
         let package = sample().package;
         let graph = StableTypeGraph {
-            nodes: vec![StableTypeNode::NamedApplied {
-                definition: DefinitionId {
-                    module: ModuleId {
-                        package,
-                        path: "m".into(),
+            nodes: vec![
+                StableTypeNode::Primitive(12),
+                StableTypeNode::NamedApplied {
+                    definition: DefinitionId {
+                        module: ModuleId {
+                            package,
+                            path: "m".into(),
+                        },
+                        name: "Array".into(),
+                        kind: 5,
+                        owner: None,
                     },
-                    name: "Array".into(),
-                    kind: 5,
-                    owner: None,
+                    arguments: Vec::new(),
+                    const_arguments: vec![StableConstArg {
+                        ty: 0,
+                        value: StableConstValue::Integer {
+                            bits: 4,
+                            signed: false,
+                        },
+                    }],
                 },
-                arguments: Vec::new(),
-                const_arguments: vec![StableConstArg::Integer {
-                    bits: 4,
-                    signed: false,
-                }],
-            }],
-            roots: vec![0],
+            ],
+            roots: vec![1],
         };
         assert_eq!(
             decode_type_graph(&encode_type_graph(&graph).unwrap()).unwrap(),
@@ -3673,6 +3955,38 @@ mod tests {
                 StableTypeNode::Opaque,
             ],
             roots: vec![4, 5, 7, 9, 10, 11],
+        };
+        let bytes = encode_type_graph(&graph).unwrap();
+        assert_eq!(decode_type_graph(&bytes).unwrap(), graph);
+    }
+
+    #[test]
+    fn stable_type_graph_round_trips_trait_object_and_projection_forms() {
+        let graph = StableTypeGraph {
+            nodes: vec![
+                StableTypeNode::Primitive(3),
+                StableTypeNode::TraitObject {
+                    readonly: false,
+                    trait_id: StableTraitId::Builtin(24),
+                    trait_arguments: vec![0],
+                    trait_const_arguments: vec![],
+                    associated_type_bindings: vec![StableAssociatedTypeBinding {
+                        trait_id: None,
+                        trait_arguments: vec![],
+                        trait_const_arguments: vec![],
+                        name: 42,
+                        ty: 0,
+                    }],
+                },
+                StableTypeNode::Projection {
+                    self_ty: 0,
+                    trait_id: StableTraitId::Builtin(24),
+                    trait_arguments: vec![],
+                    trait_const_arguments: vec![],
+                    name: 42,
+                },
+            ],
+            roots: vec![1, 2],
         };
         let bytes = encode_type_graph(&graph).unwrap();
         assert_eq!(decode_type_graph(&bytes).unwrap(), graph);
