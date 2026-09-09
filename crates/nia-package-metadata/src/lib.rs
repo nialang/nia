@@ -740,6 +740,40 @@ pub enum StableTypeNode {
     /// declaration name. Symbol identities are content-addressed and do not
     /// contain session-local handles.
     GenericParam(u64),
+    /// Error recovery type.
+    Error,
+    /// Compile-time-only type.
+    ConstOnly,
+    /// Opaque type with intentionally hidden representation.
+    Opaque,
+    /// Volatile pointer to an earlier node.
+    VolatilePointer { target: u32, readonly: bool },
+    /// Fat slice value.
+    Slice { target: u32, readonly: bool },
+    /// Unsized slice pointee.
+    SlicePointee { target: u32 },
+    /// Fixed-width SIMD vector (primitive lane tag plus lane count).
+    Vector { element: u8, lanes: u32 },
+    /// Range value with an optional bound node.
+    Range { kind: u8, bound: Option<u32> },
+    /// Optional value wrapper.
+    Optional { element: u32 },
+    /// Error/value union wrapper.
+    ErrorUnion { error: u32, value: u32 },
+    /// Readonly or mutable callable closure view.
+    Callable {
+        parameters: Vec<u32>,
+        result: u32,
+        readonly: bool,
+    },
+    /// Unsized callable state pointee.
+    CallablePointee { parameters: Vec<u32>, result: u32 },
+    /// Unresolved `Self` parameter.
+    SelfParam,
+    /// Compiler-provided builtin nominal type.
+    BuiltinType(u8),
+    /// Compiler-provided builtin trait application.
+    BuiltinTrait { trait_id: u8, arguments: Vec<u32> },
 }
 
 /// Canonical, bounded type graph for cross-package signature use.
@@ -768,7 +802,14 @@ impl StableTypeGraph {
                 StableTypeNode::Primitive(tag) if *tag == 0 => {
                     return Err(MetadataError::InvalidManifest);
                 }
-                StableTypeNode::Primitive(_) | StableTypeNode::Unit | StableTypeNode::Never => {}
+                StableTypeNode::Primitive(_)
+                | StableTypeNode::Unit
+                | StableTypeNode::Never
+                | StableTypeNode::Error
+                | StableTypeNode::ConstOnly
+                | StableTypeNode::Opaque
+                | StableTypeNode::SelfParam
+                | StableTypeNode::BuiltinType(_) => {}
                 StableTypeNode::Named(definition) => validate_definition(definition)?,
                 StableTypeNode::NamedApplied {
                     definition,
@@ -789,6 +830,43 @@ impl StableTypeGraph {
                 }
                 StableTypeNode::Reference { target, .. } => references.push(target),
                 StableTypeNode::Pointer { target, .. } => references.push(target),
+                StableTypeNode::VolatilePointer { target, .. }
+                | StableTypeNode::Slice { target, .. }
+                | StableTypeNode::SlicePointee { target }
+                | StableTypeNode::Optional { element: target } => references.push(target),
+                StableTypeNode::ErrorUnion { error, value } => {
+                    references.push(error);
+                    references.push(value);
+                }
+                StableTypeNode::Range { kind, bound } => {
+                    if *kind > 5 {
+                        return Err(MetadataError::InvalidManifest);
+                    }
+                    if let Some(bound) = bound {
+                        references.push(bound);
+                    }
+                }
+                StableTypeNode::Vector { element, lanes } => {
+                    if !(1..=16).contains(element) || *lanes == 0 {
+                        return Err(MetadataError::InvalidManifest);
+                    }
+                }
+                StableTypeNode::Callable {
+                    parameters, result, ..
+                }
+                | StableTypeNode::CallablePointee { parameters, result } => {
+                    references.extend(parameters);
+                    references.push(result);
+                }
+                StableTypeNode::BuiltinTrait {
+                    trait_id,
+                    arguments,
+                } => {
+                    if *trait_id == 255 {
+                        return Err(MetadataError::InvalidManifest);
+                    }
+                    references.extend(arguments);
+                }
                 StableTypeNode::GenericParam(_) => {}
             }
             if references.iter().any(|reference| **reference >= index) {
@@ -2157,6 +2235,85 @@ pub fn encode_type_graph(graph: &StableTypeGraph) -> Result<Vec<u8>, MetadataErr
                 output.push(10);
                 output.extend_from_slice(&index.to_le_bytes());
             }
+            StableTypeNode::Error => output.push(12),
+            StableTypeNode::ConstOnly => output.push(13),
+            StableTypeNode::Opaque => output.push(14),
+            StableTypeNode::VolatilePointer { target, readonly } => {
+                output.push(15);
+                put_u32(&mut output, *target);
+                output.push(u8::from(*readonly));
+            }
+            StableTypeNode::Slice { target, readonly } => {
+                output.push(16);
+                put_u32(&mut output, *target);
+                output.push(u8::from(*readonly));
+            }
+            StableTypeNode::SlicePointee { target } => {
+                output.push(17);
+                put_u32(&mut output, *target);
+            }
+            StableTypeNode::Vector { element, lanes } => {
+                output.push(18);
+                output.push(*element);
+                put_u32(&mut output, *lanes);
+            }
+            StableTypeNode::Range { kind, bound } => {
+                output.push(19);
+                output.push(*kind);
+                match bound {
+                    Some(bound) => {
+                        output.push(1);
+                        put_u32(&mut output, *bound);
+                    }
+                    None => output.push(0),
+                }
+            }
+            StableTypeNode::Optional { element } => {
+                output.push(20);
+                put_u32(&mut output, *element);
+            }
+            StableTypeNode::ErrorUnion { error, value } => {
+                output.push(21);
+                put_u32(&mut output, *error);
+                put_u32(&mut output, *value);
+            }
+            StableTypeNode::Callable {
+                parameters,
+                result,
+                readonly,
+            } => {
+                output.push(22);
+                put_list_len(&mut output, parameters.len())?;
+                for parameter in parameters {
+                    put_u32(&mut output, *parameter);
+                }
+                put_u32(&mut output, *result);
+                output.push(u8::from(*readonly));
+            }
+            StableTypeNode::CallablePointee { parameters, result } => {
+                output.push(23);
+                put_list_len(&mut output, parameters.len())?;
+                for parameter in parameters {
+                    put_u32(&mut output, *parameter);
+                }
+                put_u32(&mut output, *result);
+            }
+            StableTypeNode::SelfParam => output.push(24),
+            StableTypeNode::BuiltinType(tag) => {
+                output.push(25);
+                output.push(*tag);
+            }
+            StableTypeNode::BuiltinTrait {
+                trait_id,
+                arguments,
+            } => {
+                output.push(26);
+                output.push(*trait_id);
+                put_list_len(&mut output, arguments.len())?;
+                for argument in arguments {
+                    put_u32(&mut output, *argument);
+                }
+            }
         }
     }
     if output.len() > MAX_PACKAGE_BYTES {
@@ -2248,6 +2405,78 @@ pub fn decode_type_graph(bytes: &[u8]) -> Result<StableTypeGraph, MetadataError>
                 },
             },
             10 => StableTypeNode::GenericParam(get_u64(&mut cursor)?),
+            12 => StableTypeNode::Error,
+            13 => StableTypeNode::ConstOnly,
+            14 => StableTypeNode::Opaque,
+            15 => StableTypeNode::VolatilePointer {
+                target: get_u32(&mut cursor)?,
+                readonly: match read_u8(&mut cursor)? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(MetadataError::InvalidManifest),
+                },
+            },
+            16 => StableTypeNode::Slice {
+                target: get_u32(&mut cursor)?,
+                readonly: match read_u8(&mut cursor)? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(MetadataError::InvalidManifest),
+                },
+            },
+            17 => StableTypeNode::SlicePointee {
+                target: get_u32(&mut cursor)?,
+            },
+            18 => StableTypeNode::Vector {
+                element: read_u8(&mut cursor)?,
+                lanes: get_u32(&mut cursor)?,
+            },
+            19 => StableTypeNode::Range {
+                kind: read_u8(&mut cursor)?,
+                bound: match read_u8(&mut cursor)? {
+                    0 => None,
+                    1 => Some(get_u32(&mut cursor)?),
+                    _ => return Err(MetadataError::InvalidManifest),
+                },
+            },
+            20 => StableTypeNode::Optional {
+                element: get_u32(&mut cursor)?,
+            },
+            21 => StableTypeNode::ErrorUnion {
+                error: get_u32(&mut cursor)?,
+                value: get_u32(&mut cursor)?,
+            },
+            22 => StableTypeNode::Callable {
+                parameters: read_refs(&mut cursor)?,
+                result: get_u32(&mut cursor)?,
+                readonly: match read_u8(&mut cursor)? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(MetadataError::InvalidManifest),
+                },
+            },
+            23 => StableTypeNode::CallablePointee {
+                parameters: read_refs(&mut cursor)?,
+                result: get_u32(&mut cursor)?,
+            },
+            24 => StableTypeNode::SelfParam,
+            25 => {
+                let tag = read_u8(&mut cursor)?;
+                if tag > 2 {
+                    return Err(MetadataError::InvalidManifest);
+                }
+                StableTypeNode::BuiltinType(tag)
+            }
+            26 => StableTypeNode::BuiltinTrait {
+                trait_id: {
+                    let tag = read_u8(&mut cursor)?;
+                    if tag > 27 {
+                        return Err(MetadataError::InvalidManifest);
+                    }
+                    tag
+                },
+                arguments: read_refs(&mut cursor)?,
+            },
             _ => return Err(MetadataError::InvalidManifest),
         });
     }
@@ -3058,7 +3287,11 @@ mod tests {
             roots: vec![0, 1, 2],
         };
         section.validate_type_roots(&graph).unwrap();
-        assert!(section.trait_record(&section.traits[0].definition).is_some());
+        assert!(
+            section
+                .trait_record(&section.traits[0].definition)
+                .is_some()
+        );
         assert_eq!(section.extensions_for_target_root(0).count(), 1);
         assert_eq!(section.extensions_for_trait_root(2).count(), 1);
     }
@@ -3401,6 +3634,48 @@ mod tests {
             encode_type_graph(&invalid),
             Err(MetadataError::InvalidManifest)
         );
+    }
+
+    #[test]
+    fn stable_type_graph_round_trips_builtin_and_container_forms() {
+        let graph = StableTypeGraph {
+            nodes: vec![
+                StableTypeNode::Primitive(3),
+                StableTypeNode::VolatilePointer {
+                    target: 0,
+                    readonly: true,
+                },
+                StableTypeNode::Slice {
+                    target: 0,
+                    readonly: false,
+                },
+                StableTypeNode::Optional { element: 2 },
+                StableTypeNode::ErrorUnion { error: 0, value: 3 },
+                StableTypeNode::Vector {
+                    element: 3,
+                    lanes: 4,
+                },
+                StableTypeNode::Range {
+                    kind: 5,
+                    bound: None,
+                },
+                StableTypeNode::Callable {
+                    parameters: vec![0, 1],
+                    result: 3,
+                    readonly: true,
+                },
+                StableTypeNode::BuiltinType(0),
+                StableTypeNode::BuiltinTrait {
+                    trait_id: 24,
+                    arguments: vec![0],
+                },
+                StableTypeNode::SelfParam,
+                StableTypeNode::Opaque,
+            ],
+            roots: vec![4, 5, 7, 9, 10, 11],
+        };
+        let bytes = encode_type_graph(&graph).unwrap();
+        assert_eq!(decode_type_graph(&bytes).unwrap(), graph);
     }
 
     #[test]
