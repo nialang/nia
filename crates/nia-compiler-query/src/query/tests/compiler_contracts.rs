@@ -357,8 +357,13 @@ pub fn probe(&self) usize;
         .find(|identity| identity.path == "src/lib.nia")
         .expect("published module identity");
 
-    let artifact_fixture = LoadedProgramFixture::new("src/lib.nia", "");
-    let module_id = artifact_fixture.entry_id();
+    let mut artifact_fixture = LoadedProgramFixture::new("src/main.nia", "fn main() () {}");
+    let module_id = artifact_fixture.add_child(
+        artifact_fixture.entry_id(),
+        "dependency",
+        "src/dependency.nia",
+        "",
+    );
     let loader = TestLoaderFacts::new(
         artifact_fixture.program(),
         crate::ProviderFactSnapshot::empty(crate::ProviderFactRevision::default()),
@@ -526,12 +531,76 @@ pub fn probe(&self) usize;
     assert!(const_signatures.globals.is_empty());
     assert!(const_signatures.traits.is_empty());
     assert_eq!(const_signatures.consts.len(), 3);
+    for set in [
+        nia_item_tree::SignatureItemSet::Functions,
+        nia_item_tree::SignatureItemSet::ExtensionFunctions,
+        nia_item_tree::SignatureItemSet::Values,
+        nia_item_tree::SignatureItemSet::Types,
+        nia_item_tree::SignatureItemSet::Traits,
+    ] {
+        assert!(
+            *database
+                .db
+                .expect_get(ProgramSignatureModuleEligibilityQuery(module_id, set))
+        );
+        let facts = database
+            .db
+            .expect_get(ModuleProgramSignatureFactsQuery(module_id, set));
+        assert_eq!(
+            facts.functions.is_empty()
+                && facts.globals.is_empty()
+                && facts.consts.is_empty()
+                && facts.structs.is_empty()
+                && facts.unions.is_empty()
+                && facts.enums.is_empty()
+                && facts.traits.is_empty()
+                && facts.type_aliases.is_empty()
+                && facts.trait_impls.is_empty(),
+            false,
+            "artifact program facts must be populated for {set:?}"
+        );
+    }
+    let abi_facts = database
+        .db
+        .expect_get(ModuleAbiSignatureFactsQuery(module_id));
+    assert_eq!(abi_facts.structs.len(), 1);
+    assert_eq!(abi_facts.enums.len(), 1);
+    assert!(
+        database
+            .db
+            .expect_get(AbiCheckQuery(module_id))
+            .diagnostics
+            .is_empty()
+    );
+    let layouts = database.db.expect_get(SignatureLayoutsQuery(module_id));
+    assert!(layouts.diagnostics.is_empty());
+    let provider_summary = database
+        .db
+        .expect_get(ExtensionProviderSummaryQuery(module_id));
+    assert!(provider_summary.has_providers());
+    assert!(
+        provider_summary
+            .method_index_names()
+            .contains(&sym("measure"))
+    );
+    let provider_facts = database
+        .db
+        .expect_get(ExtensionProviderModuleFactsQuery(module_id));
+    assert!(provider_facts.associated_value_diagnostics.is_empty());
+    let trait_solving = database
+        .db
+        .expect_get(ExtensionTraitSolvingModuleFactsQuery(module_id));
+    assert!(!trait_solving.trait_impls.is_empty());
     let trace = database.query_trace();
+    let dependency_query_key = format!("{module_id:?}");
     assert!(
         trace
             .queries
             .iter()
-            .filter(|query| query.frame.name == "signature_item_tree")
+            .filter(|query| {
+                query.frame.name == "signature_item_tree"
+                    && query.frame.description.contains(&dependency_query_key)
+            })
             .all(|query| query.stats.executions == 0),
         "artifact signature projections must not execute source item-tree queries"
     );
@@ -539,10 +608,30 @@ pub fn probe(&self) usize;
         trace
             .queries
             .iter()
-            .filter(|query| query.frame.name == "signature_const_item_tree")
+            .filter(|query| {
+                query.frame.name == "signature_const_item_tree"
+                    && query.frame.description.contains(&dependency_query_key)
+            })
             .all(|query| query.stats.executions == 0),
         "artifact const-signature projection must not execute source item-tree queries"
     );
+    for query_name in [
+        "signature_type_resolution",
+        "signature_const_type_resolution",
+        "signature_const_module",
+    ] {
+        assert!(
+            trace
+                .queries
+                .iter()
+                .filter(|query| {
+                    query.frame.name == query_name
+                        && query.frame.description.contains(&dependency_query_key)
+                })
+                .all(|query| query.stats.executions == 0),
+            "artifact semantic consumers must not execute source query `{query_name}`"
+        );
+    }
 }
 
 #[test]
