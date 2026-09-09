@@ -184,11 +184,33 @@ pub(in crate::query) fn provide_artifact_public_surface(
             })?;
             let parent_global = GlobalDefId {
                 module_id: parent_module,
-                def_id: nia_defs::stable_top_level_def_id(parent_kind, parent_name),
+                def_id: if parent.disambiguator == 0 {
+                    nia_defs::stable_top_level_def_id(parent_kind, parent_name)
+                } else {
+                    let defs = db.get(FullModuleDefsQuery(parent_module))?;
+                    defs.semantic
+                        .defs
+                        .iter()
+                        .find(|(id, def)| {
+                            id.0 == parent.disambiguator
+                                && def.name == parent_name
+                                && def.kind == parent_kind
+                        })
+                        .map(|(id, _)| id)
+                        .ok_or_else(|| {
+                            db.invalid_input(
+                                &CompiledPackageInterfaceIndexQuery,
+                                "artifact enum parent disambiguator is not present",
+                            )
+                        })?
+                },
             };
             let defs = db.get(FullModuleDefsQuery(target_module))?;
-            if let Some((def_id, _)) = defs.semantic.defs.iter().find(|(_, def)| {
-                def.name == name && def.kind == kind && def.parent == Some(parent_global.def_id)
+            if let Some((def_id, _)) = defs.semantic.defs.iter().find(|(id, def)| {
+                def.name == name
+                    && def.kind == kind
+                    && def.parent == Some(parent_global.def_id)
+                    && (target.disambiguator == 0 || id.0 == target.disambiguator)
             }) {
                 return Ok(GlobalDefId {
                     module_id: target_module,
@@ -200,9 +222,27 @@ pub(in crate::query) fn provide_artifact_public_surface(
                 "artifact nested export definition is not present".to_string(),
             ));
         }
+        let def_id = if target.disambiguator == 0 {
+            nia_defs::stable_top_level_def_id(kind, name)
+        } else {
+            let defs = db.get(FullModuleDefsQuery(target_module))?;
+            defs.semantic
+                .defs
+                .iter()
+                .find(|(id, def)| {
+                    id.0 == target.disambiguator && def.name == name && def.kind == kind
+                })
+                .map(|(id, _)| id)
+                .ok_or_else(|| {
+                    db.invalid_input(
+                        &CompiledPackageInterfaceIndexQuery,
+                        "artifact definition disambiguator is not present",
+                    )
+                })?
+        };
         Ok(GlobalDefId {
             module_id: target_module,
-            def_id: nia_defs::stable_top_level_def_id(kind, name),
+            def_id,
         })
     };
     let mut surface = ModulePublicSurface::new(module_id);

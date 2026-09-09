@@ -19,21 +19,21 @@ const MAX_DEFINITION_DEPTH: usize = 256;
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4;
 const SECTION_ENTRY_BYTES: usize = 1 + 8 + 8 + 32;
 const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT01";
-// Version 5 adds canonical owner identities to definitions.
-const INTERFACE_SCHEMA: u32 = 5;
+// Version 6 adds a stable declaration disambiguator for overloads.
+const INTERFACE_SCHEMA: u32 = 6;
 const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
-const TYPE_GRAPH_SCHEMA: u32 = 3;
+const TYPE_GRAPH_SCHEMA: u32 = 4;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG01";
-const SIGNATURE_SCHEMA: u32 = 3;
+const SIGNATURE_SCHEMA: u32 = 4;
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
-const TEMPLATE_SCHEMA: u32 = 2;
+const TEMPLATE_SCHEMA: u32 = 3;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
 const TEMPLATE_SUMMARY_SCHEMA: u32 = 1;
 const NATIVE_MAGIC: &[u8; 8] = b"NIANAT01";
 const NATIVE_SCHEMA: u32 = 2;
 const PUBLIC_SURFACE_MAGIC: &[u8; 8] = b"NIAPUB01";
-const PUBLIC_SURFACE_SCHEMA: u32 = 1;
+const PUBLIC_SURFACE_SCHEMA: u32 = 2;
 
 /// Relocation-independent identity of one package.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -50,11 +50,7 @@ impl PackageId {
         Self {
             namespace: "nia".into(),
             name: "std".into(),
-            version: format!(
-                "{}+std{}",
-                COMPILER_VERSION,
-                toolchain::STANDARD_LIBRARY
-            ),
+            version: format!("{}+std{}", COMPILER_VERSION, toolchain::STANDARD_LIBRARY),
         }
     }
 }
@@ -72,6 +68,10 @@ pub struct DefinitionId {
     pub module: ModuleId,
     pub name: String,
     pub kind: u8,
+    /// Stable session-independent declaration token. Definitions with the
+    /// same module/name/kind/owner (for example overloaded methods) retain
+    /// distinct identities through this field.
+    pub disambiguator: u64,
     /// Canonical containing definition for nested members.
     pub owner: Option<Box<DefinitionId>>,
 }
@@ -295,18 +295,8 @@ impl SignatureSection {
         if self.records.len() > MAX_ITEMS {
             return Err(MetadataError::TooManyItems);
         }
-        let definitions = self
-            .records
-            .iter()
-            .map(|record| &record.definition)
-            .collect::<std::collections::BTreeSet<_>>();
         for record in &self.records {
             validate_definition(&record.definition)?;
-            if let Some(owner) = &record.definition.owner
-                && !definitions.contains(owner.as_ref())
-            {
-                return Err(MetadataError::InvalidManifest);
-            }
             if !(1..=16).contains(&record.kind)
                 || record.flags & !SIGNATURE_FLAGS_MASK != 0
                 || record.kind != record.definition.kind
@@ -681,7 +671,8 @@ impl TemplateSection {
         if self
             .records
             .windows(2)
-            .any(|pair| pair[0].definition >= pair[1].definition)
+            .find(|pair| pair[0].definition >= pair[1].definition)
+            .is_some()
         {
             return Err(MetadataError::InvalidManifest);
         }
@@ -1011,18 +1002,8 @@ impl InterfaceSection {
         if self.records.len() > MAX_ITEMS {
             return Err(MetadataError::TooManyItems);
         }
-        let definitions = self
-            .records
-            .iter()
-            .map(|record| &record.definition)
-            .collect::<std::collections::BTreeSet<_>>();
         for record in &self.records {
             validate_definition(&record.definition)?;
-            if let Some(owner) = &record.definition.owner
-                && !definitions.contains(owner.as_ref())
-            {
-                return Err(MetadataError::InvalidManifest);
-            }
             validate_bytes(&record.declaration)?;
             if record.type_roots.windows(2).any(|pair| pair[0] >= pair[1]) {
                 return Err(MetadataError::InvalidManifest);
@@ -1031,7 +1012,8 @@ impl InterfaceSection {
         if self
             .records
             .windows(2)
-            .any(|pair| pair[0].definition >= pair[1].definition)
+            .find(|pair| pair[0].definition >= pair[1].definition)
+            .is_some()
         {
             return Err(MetadataError::InvalidManifest);
         }
@@ -2785,6 +2767,7 @@ fn put_definition(output: &mut Vec<u8>, definition: &DefinitionId) -> Result<(),
     put_string(output, &definition.module.path)?;
     put_string(output, &definition.name)?;
     output.push(definition.kind);
+    output.extend_from_slice(&definition.disambiguator.to_le_bytes());
     match &definition.owner {
         Some(owner) => {
             output.push(1);
@@ -2812,6 +2795,7 @@ fn read_definition_with_depth(
         },
         name: get_string(cursor)?,
         kind: read_u8(cursor)?,
+        disambiguator: get_u64(cursor)?,
         owner: match read_u8(cursor)? {
             0 => None,
             1 => Some(Box::new(read_definition_with_depth(cursor, depth + 1)?)),
@@ -3372,6 +3356,7 @@ mod tests {
                         },
                         name: "Array".into(),
                         kind: 5,
+                        disambiguator: 0,
                         owner: None,
                     },
                     arguments: Vec::new(),
@@ -3404,6 +3389,7 @@ mod tests {
                     },
                     name: "write".into(),
                     kind: 2,
+                    disambiguator: 0,
                     owner: None,
                 },
                 parameter_count: 0,
@@ -3437,6 +3423,7 @@ mod tests {
                 },
                 name: "f".into(),
                 kind: 2,
+                disambiguator: 0,
                 owner: None,
             },
             kind: 2,
@@ -3476,6 +3463,7 @@ mod tests {
             },
             name: "f".into(),
             kind: 2,
+            disambiguator: 0,
             owner: None,
         };
         let invalid = SignatureSection {
@@ -3513,12 +3501,14 @@ mod tests {
             },
             name: "User".into(),
             kind: 5,
+            disambiguator: 0,
             owner: None,
         };
         let child = DefinitionId {
             module: parent.module.clone(),
             name: "field".into(),
             kind: 6,
+            disambiguator: 0,
             owner: Some(Box::new(parent.clone())),
         };
         let section = SignatureSection {
@@ -3561,6 +3551,7 @@ mod tests {
             },
             name: "Display".into(),
             kind: 9,
+            disambiguator: 0,
             owner: None,
         };
         let section = SignatureSection {
@@ -3630,6 +3621,7 @@ mod tests {
                     },
                     name: "missing".into(),
                     kind: 2,
+                    disambiguator: 0,
                     owner: None,
                 },
                 kind: 2,
@@ -3684,6 +3676,7 @@ mod tests {
                     },
                     name: "generic".into(),
                     kind: 2,
+                    disambiguator: 0,
                     owner: None,
                 },
                 parameter_count: 0,
@@ -3703,6 +3696,7 @@ mod tests {
             },
             name: "generic".into(),
             kind: 2,
+            disambiguator: 0,
             owner: None,
         };
         let summary = encode_template_summary(&TemplateSummary {
@@ -3775,6 +3769,7 @@ mod tests {
                     },
                     name: "write".into(),
                     kind: 2,
+                    disambiguator: 0,
                     owner: None,
                 },
                 declaration: b"fn(Text) Unit".to_vec(),
@@ -3810,6 +3805,7 @@ mod tests {
                 },
                 name: "a".into(),
                 kind: 2,
+                disambiguator: 0,
                 owner: None,
             },
             declaration: vec![1],
@@ -3823,6 +3819,7 @@ mod tests {
                 },
                 name: "a".into(),
                 kind: 2,
+                disambiguator: 0,
                 owner: None,
             },
             declaration: vec![2],
@@ -3843,7 +3840,7 @@ mod tests {
     }
 
     #[test]
-    fn interface_section_rejects_unknown_parent_identity() {
+    fn interface_section_accepts_unpublished_parent_identity() {
         let package = sample().package;
         let child = DefinitionId {
             module: ModuleId {
@@ -3852,6 +3849,7 @@ mod tests {
             },
             name: "field".into(),
             kind: 6,
+            disambiguator: 0,
             owner: Some(Box::new(DefinitionId {
                 module: ModuleId {
                     package: package.clone(),
@@ -3859,6 +3857,7 @@ mod tests {
                 },
                 name: "Missing".into(),
                 kind: 5,
+                disambiguator: 0,
                 owner: None,
             })),
         };
@@ -3869,7 +3868,7 @@ mod tests {
                 type_roots: Vec::new(),
             }],
         };
-        assert_eq!(section.validate(), Err(MetadataError::InvalidManifest));
+        assert_eq!(section.validate(), Ok(()));
     }
 
     #[test]
@@ -3885,6 +3884,7 @@ mod tests {
                 module: module.clone(),
                 name: format!("T{index}"),
                 kind: 5,
+                disambiguator: index as u64,
                 owner,
             }));
         }
@@ -3892,6 +3892,7 @@ mod tests {
             module,
             name: "field".into(),
             kind: 6,
+            disambiguator: 0,
             owner,
         };
         assert_eq!(
@@ -3910,6 +3911,7 @@ mod tests {
             },
             name: "Text".into(),
             kind: 5,
+            disambiguator: 0,
             owner: None,
         };
         let graph = StableTypeGraph {
@@ -4077,6 +4079,7 @@ mod tests {
             module: module.clone(),
             name: "run".into(),
             kind: 2,
+            disambiguator: 0,
             owner: None,
         };
         let section = PublicSurfaceSection {
@@ -4110,6 +4113,7 @@ mod tests {
                 module: module,
                 name: "other".into(),
                 kind: 2,
+                disambiguator: 0,
                 owner: None,
             },
             parent_enum: None,

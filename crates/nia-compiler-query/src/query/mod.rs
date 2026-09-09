@@ -265,17 +265,32 @@ impl StableDefinitionIndex {
 
 impl StableDefinitionResolver for StableDefinitionIndex {
     fn definition_for_identity(&self, definition: &DefinitionId) -> QueryResult<GlobalDefId> {
-        self.definition(definition)
-            .ok_or_else(|| QueryError::InvalidInput {
-                query: QueryFrame {
-                    name: "stable_definition_index",
-                    key: "StableDefinitionIndex".to_string(),
-                    description: "stable_definition_index".to_string(),
-                },
-                message: format!(
-                    "compiled definition is not present in the current session: {definition:?}"
-                ),
-            })
+        let resolved = self.definition(definition).or_else(|| {
+            (definition.disambiguator == 0)
+                .then(|| {
+                    self.definitions
+                        .iter()
+                        .filter(|(candidate, _)| {
+                            candidate.module == definition.module
+                                && candidate.name == definition.name
+                                && candidate.kind == definition.kind
+                                && candidate.owner == definition.owner
+                        })
+                        .map(|(_, resolved)| *resolved)
+                        .collect::<Vec<_>>()
+                })
+                .and_then(|matches| (matches.len() == 1).then_some(matches[0]))
+        });
+        resolved.ok_or_else(|| QueryError::InvalidInput {
+            query: QueryFrame {
+                name: "stable_definition_index",
+                key: "StableDefinitionIndex".to_string(),
+                description: "stable_definition_index".to_string(),
+            },
+            message: format!(
+                "compiled definition is not present in the current session: {definition:?}"
+            ),
+        })
     }
 }
 
@@ -1208,11 +1223,15 @@ impl CompilerDatabase {
                             "definition parent has no resolvable symbol".to_string(),
                         )
                     })?;
-                    owner_chain.push((parent_name.to_string(), def_kind_tag(parent_def.kind)));
+                    owner_chain.push((
+                        parent_name.to_string(),
+                        def_kind_tag(parent_def.kind),
+                        parent_id.0,
+                    ));
                     parent = parent_def.parent;
                 }
                 let mut owner_identity = None;
-                for (owner_name, owner_kind) in owner_chain.into_iter().rev() {
+                for (owner_name, owner_kind, owner_disambiguator) in owner_chain.into_iter().rev() {
                     owner_identity = Some(Box::new(DefinitionId {
                         module: StableModuleId {
                             package: package.clone(),
@@ -1220,6 +1239,7 @@ impl CompilerDatabase {
                         },
                         name: owner_name,
                         kind: owner_kind,
+                        disambiguator: owner_disambiguator,
                         owner: owner_identity,
                     }));
                 }
@@ -1230,6 +1250,7 @@ impl CompilerDatabase {
                     },
                     name: name.to_string(),
                     kind: def_kind_tag(def.kind),
+                    disambiguator: def_id.0,
                     owner: owner_identity,
                 };
                 let global = GlobalDefId {
@@ -1785,20 +1806,31 @@ impl CompilerDatabase {
                 while let Some(parent_id) = parent {
                     let parent_def = defs.semantic.defs.get(parent_id)?;
                     let parent_name = symbols.resolve(parent_def.name)?;
-                    owner_chain.push((parent_name.to_string(), def_kind_tag(parent_def.kind)));
+                    owner_chain.push((
+                        parent_name.to_string(),
+                        def_kind_tag(parent_def.kind),
+                        parent_id.0,
+                    ));
                     parent = parent_def.parent;
                 }
                 let mut owner_identity = None;
-                for (owner_name, owner_kind) in owner_chain.into_iter().rev() {
+                for (owner_name, owner_kind, owner_disambiguator) in owner_chain.into_iter().rev() {
                     owner_identity = Some(Box::new(DefinitionId {
                         module: definition.module.clone(),
                         name: owner_name,
                         kind: owner_kind,
+                        disambiguator: owner_disambiguator,
                         owner: owner_identity,
                     }));
                 }
-                (owner_identity == definition.owner).then_some(GlobalDefId { module_id, def_id })
+                (definition.disambiguator == 0 || definition.disambiguator == def_id.0)
+                    .then_some((owner_identity, GlobalDefId { module_id, def_id }))
             })
+            .collect::<Vec<_>>();
+        let matches = matches
+            .into_iter()
+            .filter(|(owner_identity, _)| owner_identity == &definition.owner)
+            .map(|(_, resolved)| resolved)
             .collect::<Vec<_>>();
         let [resolved] = matches.as_slice() else {
             return Err(self.db.invalid_input(
@@ -1842,8 +1874,7 @@ impl CompilerDatabase {
                 }
                 return Err(self.db.invalid_input(
                     &ModuleGraphQuery,
-                    "nominal type belongs to an external package; provide an external definition resolver"
-                        .to_string(),
+                    format!("nominal type belongs to an external package; provide an external definition resolver: {def_id:?}"),
                 ));
             }
             Ok(package.clone())
@@ -2214,9 +2245,39 @@ impl CompilerDatabase {
             traits: trait_records,
             extensions: extension_records,
         };
+        let mut section = section;
         section
-            .validate()
-            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+            .records
+            .sort_by(|left, right| left.definition.cmp(&right.definition));
+        section
+            .traits
+            .sort_by(|left, right| left.definition.cmp(&right.definition));
+        section.extensions.sort_by(|left, right| {
+            left.impl_id
+                .cmp(&right.impl_id)
+                .then_with(|| left.target_root.cmp(&right.target_root))
+                .then_with(|| left.trait_root.cmp(&right.trait_root))
+                .then_with(|| left.where_roots.cmp(&right.where_roots))
+                .then_with(|| {
+                    left.members
+                        .first()
+                        .map(|member| &member.definition)
+                        .cmp(&right.members.first().map(|member| &member.definition))
+                })
+        });
+        let mut previous_extension = None;
+        for extension in &mut section.extensions {
+            if let Some(previous) = previous_extension {
+                if extension.impl_id <= previous {
+                    extension.impl_id = previous.wrapping_add(1).max(1);
+                }
+            }
+            previous_extension = Some(extension.impl_id);
+        }
+        section.validate().map_err(|error| {
+            self.db
+                .invalid_input(&ModuleGraphQuery, format!("signature validate: {error}"))
+        })?;
         Ok(section)
     }
 
@@ -2274,11 +2335,15 @@ impl CompilerDatabase {
                             "definition parent has no resolvable symbol".to_string(),
                         )
                     })?;
-                    owner_chain.push((parent_name.to_string(), def_kind_tag(parent_def.kind)));
+                    owner_chain.push((
+                        parent_name.to_string(),
+                        def_kind_tag(parent_def.kind),
+                        parent_id.0,
+                    ));
                     parent = parent_def.parent;
                 }
                 let mut owner_identity = None;
-                for (owner_name, owner_kind) in owner_chain.into_iter().rev() {
+                for (owner_name, owner_kind, owner_disambiguator) in owner_chain.into_iter().rev() {
                     owner_identity = Some(Box::new(DefinitionId {
                         module: StableModuleId {
                             package: owner.clone(),
@@ -2286,6 +2351,7 @@ impl CompilerDatabase {
                         },
                         name: owner_name,
                         kind: owner_kind,
+                        disambiguator: owner_disambiguator,
                         owner: owner_identity,
                     }));
                 }
@@ -2296,6 +2362,7 @@ impl CompilerDatabase {
                     },
                     name: name.to_string(),
                     kind: def_kind_tag(def.kind),
+                    disambiguator: def_id.0,
                     owner: owner_identity,
                 };
                 let roots = self
@@ -2318,10 +2385,57 @@ impl CompilerDatabase {
             .iter()
             .flat_map(|(_, roots)| roots.iter().copied())
             .collect::<Vec<_>>();
+        // Public extension records carry roots which are not necessarily
+        // attached to a public item declaration (notably associated types and
+        // their target/trait projections). Include those roots in the same
+        // canonical graph before signature publication.
+        for module in graph.modules() {
+            if entry_package_root.is_some()
+                && graph.current_package_root(module.id) != entry_package_root
+            {
+                continue;
+            }
+            let facts = self.db.get(ItemSignaturesQuery(module.id))?;
+            for implementation in &facts.semantic.trait_impls {
+                all_roots.push(implementation.target_ty);
+                if let Some(trait_ty) = implementation.trait_ty {
+                    all_roots.push(trait_ty);
+                }
+                for parameter in &implementation.generic_params {
+                    if let nia_item_signatures::GenericParamSignatureKind::Const { ty } =
+                        &parameter.kind
+                    {
+                        all_roots.push(*ty);
+                    }
+                }
+                for predicate in &implementation.where_predicates {
+                    all_roots.push(predicate.ty);
+                    for bound in &predicate.bounds {
+                        all_roots.push(bound.trait_ty);
+                        all_roots.extend(
+                            bound
+                                .associated_type_bindings
+                                .iter()
+                                .map(|binding| binding.ty),
+                        );
+                    }
+                }
+                all_roots.extend(
+                    implementation
+                        .associated_types
+                        .iter()
+                        .map(|associated| associated.ty),
+                );
+            }
+        }
         all_roots.sort_unstable();
         all_roots.dedup();
-        let (type_graph, indexes) =
-            self.stable_type_graph_for_roots_with_resolver_and_indexes(&all_roots, resolver)?;
+        let (type_graph, indexes) = self
+            .stable_type_graph_for_roots_with_resolver_and_indexes(&all_roots, resolver)
+            .map_err(|error| {
+                self.db
+                    .invalid_input(&ModuleGraphQuery, format!("stable graph: {error}"))
+            })?;
         let mut records = pending
             .into_iter()
             .map(|(mut record, roots)| {
@@ -2344,12 +2458,14 @@ impl CompilerDatabase {
             .collect::<QueryResult<Vec<_>>>()?;
         records.sort_by(|left, right| left.definition.cmp(&right.definition));
         let section = InterfaceSection { records };
-        section
-            .validate()
-            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
-        section
-            .validate_type_roots(&type_graph)
-            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        section.validate().map_err(|error| {
+            self.db
+                .invalid_input(&ModuleGraphQuery, format!("interface validate: {error}"))
+        })?;
+        section.validate_type_roots(&type_graph).map_err(|error| {
+            self.db
+                .invalid_input(&ModuleGraphQuery, format!("interface roots: {error}"))
+        })?;
         Ok((section, type_graph, indexes))
     }
 
@@ -2418,15 +2534,20 @@ impl CompilerDatabase {
                         "public export parent has no symbol text".to_string(),
                     )
                 })?;
-                owner_chain.push((parent_name.to_string(), def_kind_tag(parent_def.kind)));
+                owner_chain.push((
+                    parent_name.to_string(),
+                    def_kind_tag(parent_def.kind),
+                    parent_id.0,
+                ));
                 parent = parent_def.parent;
             }
             let mut owner_identity = None;
-            for (name, kind) in owner_chain.into_iter().rev() {
+            for (name, kind, disambiguator) in owner_chain.into_iter().rev() {
                 owner_identity = Some(Box::new(DefinitionId {
                     module: module.clone(),
                     name,
                     kind,
+                    disambiguator,
                     owner: owner_identity,
                 }));
             }
@@ -2434,6 +2555,7 @@ impl CompilerDatabase {
                 module,
                 name: name.to_string(),
                 kind: def_kind_tag(def.kind),
+                disambiguator: def_id.0,
                 owner: owner_identity,
             })
         };
@@ -2548,10 +2670,17 @@ impl CompilerDatabase {
                 ));
             };
             if graph.current_package_root(def_id.module_id) != Some(entry_root) {
+                if let Some(identity) = self
+                    .db
+                    .context()
+                    .loader_facts()
+                    .compiled_package_module_identity(def_id.module_id)?
+                {
+                    return Ok(identity.package);
+                }
                 return Err(self.db.invalid_input(
                     &ModuleGraphQuery,
-                    "nominal type belongs to an external package; provide an external definition resolver"
-                        .to_string(),
+                    format!("nominal type belongs to an external package; provide an external definition resolver: {def_id:?}"),
                 ));
             }
             Ok(package_for_resolver.clone())
@@ -2603,6 +2732,14 @@ impl CompilerDatabase {
                 ));
             };
             if graph.current_package_root(def_id.module_id) != Some(entry_root) {
+                if let Some(identity) = self
+                    .db
+                    .context()
+                    .loader_facts()
+                    .compiled_package_module_identity(def_id.module_id)?
+                {
+                    return Ok(identity.package);
+                }
                 return Err(self.db.invalid_input(
                     &ModuleGraphQuery,
                     "nominal type belongs to an external package".to_string(),
@@ -2639,18 +2776,28 @@ impl CompilerDatabase {
         native: Option<nia_package_metadata::NativeSection>,
         signatures: Option<nia_package_metadata::SignatureSection>,
     ) -> QueryResult<crate::PackageArtifactPublication> {
-        let (interface, type_graph, indexes) =
-            self.package_interface_and_type_graph(package.clone(), resolver)?;
+        let (interface, type_graph, indexes) = self
+            .package_interface_and_type_graph(package.clone(), resolver)
+            .map_err(|error| {
+                self.db
+                    .invalid_input(&ModuleGraphQuery, format!("interface: {error}"))
+            })?;
         let signatures = match signatures {
             Some(signatures) => Some(signatures),
-            None => Some(self.signature_section_from_interface(
-                resolver,
-                interface.clone(),
-                &indexes,
-            )?),
+            None => Some(
+                self.signature_section_from_interface(resolver, interface.clone(), &indexes)
+                    .map_err(|error| {
+                        self.db
+                            .invalid_input(&ModuleGraphQuery, format!("signatures: {error}"))
+                    })?,
+            ),
         };
-        let public_surface =
-            self.package_public_surface_section_with_resolver(package.clone(), resolver)?;
+        let public_surface = self
+            .package_public_surface_section_with_resolver(package.clone(), resolver)
+            .map_err(|error| {
+                self.db
+                    .invalid_input(&ModuleGraphQuery, format!("surface: {error}"))
+            })?;
         let interface_bytes = nia_package_metadata::encode_interface(&interface)
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
         let graph = self.db.get(ModuleGraphQuery)?;
@@ -2719,10 +2866,16 @@ impl CompilerDatabase {
             dependencies,
             ..PackageManifest::current(package.clone())
         };
-        let type_graph_bytes = nia_package_metadata::encode_type_graph(&type_graph)
-            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        let type_graph_bytes =
+            nia_package_metadata::encode_type_graph(&type_graph).map_err(|error| {
+                self.db
+                    .invalid_input(&ModuleGraphQuery, format!("type graph: {error}"))
+            })?;
         let public_surface_bytes = nia_package_metadata::encode_public_surface(&public_surface)
-            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+            .map_err(|error| {
+                self.db
+                    .invalid_input(&ModuleGraphQuery, format!("surface bytes: {error}"))
+            })?;
         let native_bytes = native
             .as_ref()
             .map(nia_package_metadata::encode_native)
@@ -2776,10 +2929,15 @@ impl CompilerDatabase {
         if let Some(bytes) = signature_bytes.as_ref() {
             sections.push((SectionKind::Signatures, bytes.as_slice()));
         }
-        let bytes = nia_package_metadata::encode_artifact(&manifest, &sections)
-            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
-        nia_package_metadata::PackageArtifact::open(bytes.clone())
-            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        let bytes =
+            nia_package_metadata::encode_artifact(&manifest, &sections).map_err(|error| {
+                self.db
+                    .invalid_input(&ModuleGraphQuery, format!("artifact: {error}"))
+            })?;
+        nia_package_metadata::PackageArtifact::open(bytes.clone()).map_err(|error| {
+            self.db
+                .invalid_input(&ModuleGraphQuery, format!("artifact open: {error}"))
+        })?;
         Ok(crate::PackageArtifactPublication { manifest, bytes })
     }
 
@@ -3853,11 +4011,15 @@ impl StableTypeGraphEncoder<'_> {
                     "definition parent has no resolvable symbol".to_string(),
                 )
             })?;
-            owner_chain.push((parent_name.to_string(), def_kind_tag(parent_def.kind)));
+            owner_chain.push((
+                parent_name.to_string(),
+                def_kind_tag(parent_def.kind),
+                parent_id.0,
+            ));
             parent = parent_def.parent;
         }
         let mut owner_identity = None;
-        for (owner_name, owner_kind) in owner_chain.into_iter().rev() {
+        for (owner_name, owner_kind, owner_disambiguator) in owner_chain.into_iter().rev() {
             owner_identity = Some(Box::new(DefinitionId {
                 module: StableModuleId {
                     package: package.clone(),
@@ -3865,6 +4027,7 @@ impl StableTypeGraphEncoder<'_> {
                 },
                 name: owner_name,
                 kind: owner_kind,
+                disambiguator: owner_disambiguator,
                 owner: owner_identity,
             }));
         }
@@ -3875,6 +4038,7 @@ impl StableTypeGraphEncoder<'_> {
             },
             name: name.to_string(),
             kind: def_kind_tag(def.kind),
+            disambiguator: def_id.def_id.0,
             owner: owner_identity,
         })
     }
