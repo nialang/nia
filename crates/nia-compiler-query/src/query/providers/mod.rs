@@ -70,7 +70,7 @@ pub(in crate::query) use self::executable_reachability::{
 use self::extension_providers::*;
 use self::frontend::*;
 pub(in crate::query) use self::frontend::{
-    provide_artifact_public_surface, provide_artifact_public_surface_facts,
+    project_item_signatures, provide_artifact_public_surface, provide_artifact_public_surface_facts,
 };
 use self::layout_roots::*;
 use self::module_checks::*;
