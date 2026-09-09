@@ -30,7 +30,7 @@ const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
 // Version 4 adds explicit stable definition/module/type relocations for the
 // checked Function IR body. There is intentionally no legacy decode path:
 // bodies without relocation tables are not executable package products.
-const TEMPLATE_SCHEMA: u32 = 4;
+const TEMPLATE_SCHEMA: u32 = 5;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
 const TEMPLATE_SUMMARY_SCHEMA: u32 = 1;
 const NATIVE_MAGIC: &[u8; 8] = b"NIANAT01";
@@ -796,6 +796,9 @@ pub struct TemplateRecord {
     pub type_roots: Vec<u32>,
     /// Compiler-owned checked template payload.
     pub body: Vec<u8>,
+    /// Compiler-owned resolved const-evaluation payload. Empty for definitions
+    /// which are not callable during compile-time evaluation.
+    pub ctfe_body: Vec<u8>,
     /// Compositional semantic summary used before body materialization.
     pub summary: Vec<u8>,
 }
@@ -987,8 +990,10 @@ impl TemplateSection {
                 validate_module_id(module)?;
             }
             validate_bytes(&record.body)?;
+            validate_bytes(&record.ctfe_body)?;
             validate_bytes(&record.summary)?;
-            if record.body.is_empty() || record.summary.is_empty() {
+            if (record.body.is_empty() && record.ctfe_body.is_empty()) || record.summary.is_empty()
+            {
                 return Err(MetadataError::InvalidManifest);
             }
             let summary = decode_template_summary(&record.summary)?;
@@ -2544,6 +2549,7 @@ pub fn encode_templates(section: &TemplateSection) -> Result<Vec<u8>, MetadataEr
         }
         put_refs(&mut output, &record.type_roots)?;
         put_bytes(&mut output, &record.body)?;
+        put_bytes(&mut output, &record.ctfe_body)?;
         put_bytes(&mut output, &record.summary)?;
     }
     if output.len() > MAX_PACKAGE_BYTES {
@@ -2590,6 +2596,7 @@ pub fn decode_templates(bytes: &[u8]) -> Result<TemplateSection, MetadataError> 
             referenced_modules,
             type_roots,
             body: get_bytes(&mut cursor)?,
+            ctfe_body: get_bytes(&mut cursor)?,
             summary: get_bytes(&mut cursor)?,
         });
     }
@@ -4005,11 +4012,16 @@ mod tests {
                 referenced_modules: Vec::new(),
                 type_roots: Vec::new(),
                 body: vec![1, 2, 3],
+                ctfe_body: Vec::new(),
                 summary: encode_template_summary(&TemplateSummary::default()).unwrap(),
             }],
         };
         let bytes = encode_templates(&section).unwrap();
         assert_eq!(decode_templates(&bytes).unwrap(), section);
+        let mut ctfe_only = section.clone();
+        ctfe_only.records[0].ctfe_body = std::mem::take(&mut ctfe_only.records[0].body);
+        let bytes = encode_templates(&ctfe_only).unwrap();
+        assert_eq!(decode_templates(&bytes).unwrap(), ctfe_only);
         let mut invalid = section.clone();
         invalid.records.push(invalid.records[0].clone());
         assert_eq!(
@@ -4387,6 +4399,7 @@ mod tests {
                 referenced_modules: Vec::new(),
                 type_roots: Vec::new(),
                 body: vec![1],
+                ctfe_body: Vec::new(),
                 summary: b"opaque summary".to_vec(),
             }],
         };
@@ -4418,6 +4431,7 @@ mod tests {
                 referenced_modules: Vec::new(),
                 type_roots: Vec::new(),
                 body: vec![1],
+                ctfe_body: Vec::new(),
                 summary,
             }],
         };
