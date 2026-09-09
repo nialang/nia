@@ -2670,6 +2670,33 @@ impl Drop for TempDir {
 #[cfg(test)]
 mod streamed_output_tests {
     use super::*;
+    use nia_toolchain::ToolchainLayoutRequest;
+    use std::sync::Arc;
+
+    #[test]
+    fn standard_library_publication_accepts_overloads_and_associated_types() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .unwrap();
+        let layout = Arc::new(
+            ToolchainLayout::resolve(ToolchainLayoutRequest::explicit(
+                std::env::current_exe().unwrap(),
+                workspace.join("lib"),
+            ))
+            .unwrap(),
+        );
+        let request = CheckRequest::new(layout.std_module().to_string_lossy());
+        let driver = Driver::new(Arc::clone(&layout));
+        let database = driver.compiler_database(&request).unwrap();
+        let package = layout.std_package_id();
+        let publication = database
+            .publish_package_artifact_with_resolver(package.clone(), &|_| Ok(package.clone()))
+            .unwrap();
+        let artifact = nia_package_metadata::PackageArtifact::open(publication.bytes).unwrap();
+        assert_eq!(artifact.manifest().package, package);
+        assert!(artifact.signatures().unwrap().is_some());
+    }
 
     #[test]
     fn native_object_keys_are_unambiguous_across_package_fields() {
