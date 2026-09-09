@@ -309,7 +309,12 @@ impl ResolvedConstFunction {
         resolve_function(function)
     }
 
-    pub(crate) fn from_parts(
+    /// Creates a resolved const function from an already validated payload.
+    ///
+    /// This is the persistence boundary used when a compiled-package template
+    /// is rehydrated. Callers must preserve the local-id and type-resolution
+    /// invariants documented by this IR.
+    pub fn from_parts(
         span: Span,
         params: Vec<ResolvedConstParam>,
         body: ResolvedConstBlock,
