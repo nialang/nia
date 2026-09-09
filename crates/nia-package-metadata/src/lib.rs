@@ -182,12 +182,16 @@ impl SignatureSection {
             {
                 return Err(MetadataError::InvalidManifest);
             }
+            if record.members.len() > MAX_ITEMS {
+                return Err(MetadataError::TooManyItems);
+            }
             for member in &record.members {
                 validate_definition(&member.definition)?;
                 validate_string(&member.name)?;
                 if member.kind != member.definition.kind
                     || member.flags & !SIGNATURE_FLAGS_MASK != 0
                     || member.type_roots.windows(2).any(|pair| pair[0] >= pair[1])
+                    || member.type_roots.len() > MAX_ITEMS
                     || member.name != member.definition.name
                     || member.definition.owner.as_deref() != Some(&record.definition)
                 {
