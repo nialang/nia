@@ -188,7 +188,7 @@ pub mod formats {
         PersistedFormat::new("archive-result", b"NIAARC01", 1);
     /// Compiled package metadata container.
     pub const PACKAGE_METADATA: PersistedFormat =
-        PersistedFormat::new("package-metadata", b"NIAPKG01", 5);
+        PersistedFormat::new("package-metadata", b"NIAPKG01", 6);
 
     /// Complete payload registry used for uniqueness checks and audits.
     pub const ALL: &[PersistedFormat] = &[

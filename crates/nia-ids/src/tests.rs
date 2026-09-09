@@ -82,6 +82,31 @@ fn builtin_function_const_capabilities_are_explicit() {
 }
 
 #[test]
+fn package_metadata_builtin_tags_are_explicit_and_round_trip() {
+    for builtin in BuiltinFunction::ALL {
+        assert_eq!(
+            BuiltinFunction::from_stable_tag(builtin.stable_tag()),
+            Some(builtin)
+        );
+    }
+    for builtin in BuiltinConstValue::ALL {
+        assert_eq!(
+            BuiltinConstValue::from_stable_tag(builtin.stable_tag()),
+            Some(builtin)
+        );
+    }
+    for builtin in BuiltinTrait::ALL {
+        assert_eq!(
+            BuiltinTrait::from_stable_tag(builtin.stable_tag()),
+            Some(builtin)
+        );
+    }
+    assert_eq!(BuiltinFunction::from_stable_tag(0), None);
+    assert_eq!(BuiltinConstValue::from_stable_tag(0), None);
+    assert_eq!(BuiltinTrait::from_stable_tag(0), None);
+}
+
+#[test]
 fn builtin_name_registries_are_exhaustive_unique_and_bidirectional() {
     assert_name_registry(&BuiltinType::ALL, BuiltinType::name, BuiltinType::from_name);
     assert_name_registry(

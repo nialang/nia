@@ -25,7 +25,7 @@ const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 4;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG01";
-const SIGNATURE_SCHEMA: u32 = 6;
+const SIGNATURE_SCHEMA: u32 = 7;
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
 const TEMPLATE_SCHEMA: u32 = 3;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
@@ -175,7 +175,7 @@ pub enum SignaturePayload {
     Function {
         params: Vec<SignatureParameter>,
         return_type: u32,
-        attributes: Vec<u8>,
+        attributes: Vec<u32>,
     },
     Aggregate {
         fields: Vec<SignatureField>,
@@ -189,6 +189,8 @@ pub enum SignaturePayload {
     },
     Value {
         explicit_type: Option<u32>,
+        /// Stable builtin-const tag. Valid only for const declarations.
+        builtin: Option<u32>,
     },
 }
 
@@ -267,10 +269,10 @@ pub struct SignatureMember {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignatureTraitRecord {
     pub definition: DefinitionId,
-    pub generic_params: Vec<SignatureGenericParam>,
-    pub where_roots: Vec<u32>,
-    pub supertrait_roots: Vec<u32>,
+    pub supertraits: Vec<SignatureWhereBound>,
     pub members: Vec<SignatureMember>,
+    /// Stable builtin-trait tag.
+    pub builtin: Option<u32>,
 }
 
 /// Stable trait/inherent extension implementation facts. `impl_id` is the
@@ -283,10 +285,12 @@ pub struct SignatureExtensionRecord {
     pub target_root: u32,
     pub trait_root: Option<u32>,
     pub generic_params: Vec<SignatureGenericParam>,
-    pub where_roots: Vec<u32>,
+    pub where_predicates: Vec<SignatureWherePredicate>,
     pub members: Vec<SignatureMember>,
     /// Associated type bindings defined by the implementation.
     pub associated_types: Vec<SignatureAssociatedType>,
+    /// Canonical builtin implementation identity.
+    pub builtin: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -315,12 +319,15 @@ pub const SIGNATURE_FLAG_VARIADIC: u32 = 1 << 3;
 pub const SIGNATURE_FLAG_OPEN: u32 = 1 << 4;
 /// Signature represents tuple-like aggregate construction.
 pub const SIGNATURE_FLAG_TUPLE: u32 = 1 << 5;
+/// Global storage permits mutation.
+pub const SIGNATURE_FLAG_MUTABLE: u32 = 1 << 6;
 const SIGNATURE_FLAGS_MASK: u32 = SIGNATURE_FLAG_HAS_BODY
     | SIGNATURE_FLAG_EXTERN
     | SIGNATURE_FLAG_CONST
     | SIGNATURE_FLAG_VARIADIC
     | SIGNATURE_FLAG_OPEN
-    | SIGNATURE_FLAG_TUPLE;
+    | SIGNATURE_FLAG_TUPLE
+    | SIGNATURE_FLAG_MUTABLE;
 
 fn validate_signature_payload(
     kind: u8,
@@ -339,14 +346,17 @@ fn validate_signature_payload(
             params.len() <= MAX_ITEMS
                 && attributes.len() <= MAX_ITEMS
                 && params.iter().all(|param| param.receiver <= 3)
-                && attributes.iter().all(|attribute| {
-                    *attribute <= 2 || (*attribute & 0x80 != 0 && *attribute & 0x7f < 27)
-                })
+                && attributes
+                    .iter()
+                    .all(|attribute| matches!(*attribute, 1 | 2 | 0x101..=0x11b))
         }
         (5 | 7, SignaturePayload::Aggregate { fields }) => fields.len() <= MAX_ITEMS,
         (13, SignaturePayload::Enum { variants, .. }) => variants.len() <= MAX_ITEMS,
         (16, SignaturePayload::TypeAlias { .. }) => true,
-        (3 | 4, SignaturePayload::Value { .. }) => true,
+        (3, SignaturePayload::Value { builtin: None, .. }) => true,
+        (4, SignaturePayload::Value { builtin, .. }) => {
+            builtin.is_none_or(|tag| matches!(tag, 1..=7))
+        }
         _ => false,
     };
     if !valid {
@@ -433,7 +443,7 @@ fn signature_payload_roots(payload: &SignaturePayload) -> Vec<u32> {
             }
         }
         SignaturePayload::TypeAlias { target } => roots.push(*target),
-        SignaturePayload::Value { explicit_type } => {
+        SignaturePayload::Value { explicit_type, .. } => {
             roots.extend(explicit_type.iter().copied());
         }
     }
@@ -478,6 +488,7 @@ impl SignatureSection {
             if !(1..=16).contains(&record.kind)
                 || record.flags & !SIGNATURE_FLAGS_MASK != 0
                 || record.kind != record.definition.kind
+                || !signature_flags_valid_for_kind(record.kind, record.flags)
             {
                 return Err(MetadataError::InvalidManifest);
             }
@@ -531,25 +542,34 @@ impl SignatureSection {
         for trait_record in &self.traits {
             validate_definition(&trait_record.definition)?;
             if trait_record.definition.kind != 9
-                || trait_record.generic_params.len() > MAX_ITEMS
-                || trait_record.where_roots.len() > MAX_ITEMS
-                || trait_record.supertrait_roots.len() > MAX_ITEMS
+                || !self
+                    .records
+                    .iter()
+                    .any(|record| record.definition == trait_record.definition && record.kind == 9)
+                || trait_record.supertraits.len() > MAX_ITEMS
+                || trait_record
+                    .builtin
+                    .is_some_and(|tag| !matches!(tag, 1..=28))
             {
                 return Err(MetadataError::InvalidManifest);
             }
-            validate_signature_generic_params(&trait_record.generic_params)?;
+            validate_signature_where_bounds(&trait_record.supertraits)?;
             validate_signature_members(&trait_record.definition, &trait_record.members)?;
         }
         for extension in &self.extensions {
             validate_module_id(&extension.module)?;
             if extension.impl_id == 0
-                || extension.where_roots.len() > MAX_ITEMS
+                || extension.where_predicates.len() > MAX_ITEMS
                 || extension.members.len() > MAX_ITEMS
                 || extension.associated_types.len() > MAX_ITEMS
             {
                 return Err(MetadataError::InvalidManifest);
             }
             validate_signature_generic_params(&extension.generic_params)?;
+            validate_signature_where_predicates(&extension.where_predicates)?;
+            if let Some(builtin) = &extension.builtin {
+                validate_string(builtin)?;
+            }
             let mut associated_names = std::collections::BTreeSet::new();
             for associated in &extension.associated_types {
                 validate_string(&associated.name)?;
@@ -607,31 +627,29 @@ impl SignatureSection {
                 .flat_map(|record| record.members.iter())
                 .flat_map(|member| member.type_roots.iter())
                 .any(|root| *root >= node_count)
-            || self
-                .traits
-                .iter()
-                .flat_map(|record| {
-                    record
-                        .where_roots
-                        .iter()
-                        .chain(record.supertrait_roots.iter())
-                })
-                .any(|root| *root >= node_count)
-            || self
-                .extensions
-                .iter()
-                .flat_map(|record| record.where_roots.iter())
-                .any(|root| *root >= node_count)
-            || self.extensions.iter().any(|record| {
-                record.target_root >= node_count
-                    || record.trait_root.is_some_and(|root| root >= node_count)
+            || self.records.iter().any(|record| {
+                record
+                    .generic_params
+                    .iter()
+                    .filter_map(|param| param.type_root)
+                    .any(|root| root >= node_count)
+                    || signature_where_predicates_have_invalid_root(
+                        &record.where_predicates,
+                        node_count,
+                    )
             })
             || self
                 .traits
                 .iter()
-                .flat_map(|record| record.generic_params.iter())
-                .filter_map(|param| param.type_root)
-                .any(|root| root >= node_count)
+                .flat_map(|record| record.supertraits.iter())
+                .any(|bound| signature_where_bound_has_invalid_root(bound, node_count))
+            || self.extensions.iter().any(|record| {
+                signature_where_predicates_have_invalid_root(&record.where_predicates, node_count)
+            })
+            || self.extensions.iter().any(|record| {
+                record.target_root >= node_count
+                    || record.trait_root.is_some_and(|root| root >= node_count)
+            })
             || self
                 .extensions
                 .iter()
@@ -660,6 +678,45 @@ impl SignatureSection {
         }
         Ok(())
     }
+}
+
+fn signature_flags_valid_for_kind(kind: u8, flags: u32) -> bool {
+    let allowed = match kind {
+        2 | 11 | 12 => {
+            SIGNATURE_FLAG_HAS_BODY
+                | SIGNATURE_FLAG_EXTERN
+                | SIGNATURE_FLAG_CONST
+                | SIGNATURE_FLAG_VARIADIC
+        }
+        3 => SIGNATURE_FLAG_EXTERN | SIGNATURE_FLAG_MUTABLE,
+        4 => SIGNATURE_FLAG_CONST,
+        5 => SIGNATURE_FLAG_EXTERN | SIGNATURE_FLAG_TUPLE,
+        7 => SIGNATURE_FLAG_EXTERN,
+        13 => SIGNATURE_FLAG_OPEN,
+        _ => 0,
+    };
+    flags & !allowed == 0
+}
+
+fn signature_where_bound_has_invalid_root(bound: &SignatureWhereBound, node_count: u32) -> bool {
+    bound.trait_root >= node_count
+        || bound
+            .associated_type_bindings
+            .iter()
+            .any(|binding| binding.type_root >= node_count)
+}
+
+fn signature_where_predicates_have_invalid_root(
+    predicates: &[SignatureWherePredicate],
+    node_count: u32,
+) -> bool {
+    predicates.iter().any(|predicate| {
+        predicate.type_root >= node_count
+            || predicate
+                .bounds
+                .iter()
+                .any(|bound| signature_where_bound_has_invalid_root(bound, node_count))
+    })
 }
 
 /// Checked generic/const body retained for downstream specialization.
@@ -1454,32 +1511,19 @@ impl CompiledPackageInterface {
                             .any(|item| item.definition == member.definition)
                     })
             }) || signatures.extensions.iter().any(|record| {
-                record.members.iter().any(|member| {
-                    !interface
-                        .records
+                record.module.package != artifact.manifest().package
+                    || !artifact
+                        .manifest()
+                        .modules
                         .iter()
-                        .any(|item| item.definition == member.definition)
-                })
-            }) || signatures.traits.iter().any(|record| {
-                record.definition.module.package != artifact.manifest().package
-                    || !interface
-                        .records
-                        .iter()
-                        .any(|item| item.definition == record.definition)
+                        .any(|module| module.path == record.module.path)
                     || record.members.iter().any(|member| {
-                        !interface
-                            .records
-                            .iter()
-                            .any(|item| item.definition == member.definition)
+                        member.definition.module.package != artifact.manifest().package
+                            || !interface
+                                .records
+                                .iter()
+                                .any(|item| item.definition == member.definition)
                     })
-            }) || signatures.extensions.iter().any(|record| {
-                record.members.iter().any(|member| {
-                    member.definition.module.package != artifact.manifest().package
-                        || !interface
-                            .records
-                            .iter()
-                            .any(|item| item.definition == member.definition)
-                })
             }) {
                 return Err(MetadataError::InvalidManifest);
             }
@@ -1500,12 +1544,7 @@ impl CompiledPackageInterface {
                         .iter()
                         .any(|record| !record.type_roots.is_empty())
                         || section.traits.iter().any(|record| {
-                            record
-                                .generic_params
-                                .iter()
-                                .any(|param| param.type_root.is_some())
-                                || !record.where_roots.is_empty()
-                                || !record.supertrait_roots.is_empty()
+                            !record.supertraits.is_empty()
                                 || record
                                     .members
                                     .iter()
@@ -2043,7 +2082,7 @@ fn put_signature_payload(
             put_u32(output, *return_type);
             put_list_len(output, attributes.len())?;
             for attribute in attributes {
-                output.push(*attribute);
+                put_u32(output, *attribute);
             }
         }
         SignaturePayload::Aggregate { fields } => {
@@ -2077,12 +2116,22 @@ fn put_signature_payload(
             output.push(4);
             put_u32(output, *target);
         }
-        SignaturePayload::Value { explicit_type } => {
+        SignaturePayload::Value {
+            explicit_type,
+            builtin,
+        } => {
             output.push(5);
             match explicit_type {
                 Some(root) => {
                     output.push(1);
                     put_u32(output, *root);
+                }
+                None => output.push(0),
+            }
+            match builtin {
+                Some(tag) => {
+                    output.push(1);
+                    put_u32(output, *tag);
                 }
                 None => output.push(0),
             }
@@ -2129,7 +2178,7 @@ fn read_signature_payload(
                 let attr_count = bounded_count(get_u32(cursor)?)?;
                 let mut attributes = Vec::with_capacity(attr_count);
                 for _ in 0..attr_count {
-                    attributes.push(read_u8(cursor)?);
+                    attributes.push(get_u32(cursor)?);
                 }
                 SignaturePayload::Function {
                     params,
@@ -2169,6 +2218,11 @@ fn read_signature_payload(
             },
             5 => SignaturePayload::Value {
                 explicit_type: match read_u8(cursor)? {
+                    0 => None,
+                    1 => Some(get_u32(cursor)?),
+                    _ => return Err(MetadataError::InvalidManifest),
+                },
+                builtin: match read_u8(cursor)? {
                     0 => None,
                     1 => Some(get_u32(cursor)?),
                     _ => return Err(MetadataError::InvalidManifest),
@@ -2226,10 +2280,12 @@ pub fn encode_signatures(section: &SignatureSection) -> Result<Vec<u8>, Metadata
     put_list_len(&mut output, section.traits.len())?;
     for record in &section.traits {
         put_definition(&mut output, &record.definition)?;
-        put_generic_params(&mut output, &record.generic_params)?;
-        put_refs(&mut output, &record.where_roots)?;
-        put_refs(&mut output, &record.supertrait_roots)?;
+        put_list_len(&mut output, record.supertraits.len())?;
+        for supertrait in &record.supertraits {
+            put_where_bound(&mut output, supertrait)?;
+        }
         put_members(&mut output, &record.members)?;
+        put_optional_u32(&mut output, record.builtin);
     }
     put_list_len(&mut output, section.extensions.len())?;
     for record in &section.extensions {
@@ -2244,12 +2300,19 @@ pub fn encode_signatures(section: &SignatureSection) -> Result<Vec<u8>, Metadata
             None => output.push(0),
         }
         put_generic_params(&mut output, &record.generic_params)?;
-        put_refs(&mut output, &record.where_roots)?;
+        put_where_predicates(&mut output, &record.where_predicates)?;
         put_members(&mut output, &record.members)?;
         put_list_len(&mut output, record.associated_types.len())?;
         for associated in &record.associated_types {
             put_string(&mut output, &associated.name)?;
             put_u32(&mut output, associated.type_root);
+        }
+        match &record.builtin {
+            Some(builtin) => {
+                output.push(1);
+                put_string(&mut output, builtin)?;
+            }
+            None => output.push(0),
         }
     }
     if output.len() > MAX_PACKAGE_BYTES {
@@ -2310,12 +2373,17 @@ pub fn decode_signatures(bytes: &[u8]) -> Result<SignatureSection, MetadataError
     let trait_len = bounded_count(get_u32(&mut cursor)?)?;
     let mut traits = Vec::with_capacity(trait_len);
     for _ in 0..trait_len {
+        let definition = read_definition(&mut cursor)?;
+        let supertrait_count = bounded_count(get_u32(&mut cursor)?)?;
+        let mut supertraits = Vec::with_capacity(supertrait_count);
+        for _ in 0..supertrait_count {
+            supertraits.push(read_where_bound(&mut cursor)?);
+        }
         traits.push(SignatureTraitRecord {
-            definition: read_definition(&mut cursor)?,
-            generic_params: read_generic_params(&mut cursor)?,
-            where_roots: read_refs(&mut cursor)?,
-            supertrait_roots: read_refs(&mut cursor)?,
+            definition,
+            supertraits,
             members: read_members(&mut cursor)?,
+            builtin: read_optional_u32(&mut cursor)?,
         });
     }
     let extension_len = bounded_count(get_u32(&mut cursor)?)?;
@@ -2335,7 +2403,7 @@ pub fn decode_signatures(bytes: &[u8]) -> Result<SignatureSection, MetadataError
             target_root,
             trait_root,
             generic_params: read_generic_params(&mut cursor)?,
-            where_roots: read_refs(&mut cursor)?,
+            where_predicates: read_where_predicates(&mut cursor)?,
             members: read_members(&mut cursor)?,
             associated_types: {
                 let count = bounded_count(get_u32(&mut cursor)?)?;
@@ -2347,6 +2415,11 @@ pub fn decode_signatures(bytes: &[u8]) -> Result<SignatureSection, MetadataError
                     });
                 }
                 values
+            },
+            builtin: match read_u8(&mut cursor)? {
+                0 => None,
+                1 => Some(get_string(&mut cursor)?),
+                _ => return Err(MetadataError::InvalidManifest),
             },
         });
     }
@@ -3401,12 +3474,7 @@ fn put_where_predicates(
         put_u32(output, predicate.type_root);
         put_list_len(output, predicate.bounds.len())?;
         for bound in &predicate.bounds {
-            put_u32(output, bound.trait_root);
-            put_list_len(output, bound.associated_type_bindings.len())?;
-            for binding in &bound.associated_type_bindings {
-                put_string(output, &binding.name)?;
-                put_u32(output, binding.type_root);
-            }
+            put_where_bound(output, bound)?;
         }
     }
     Ok(())
@@ -3422,23 +3490,55 @@ fn read_where_predicates(
         let bound_count = bounded_count(get_u32(cursor)?)?;
         let mut bounds = Vec::with_capacity(bound_count);
         for _ in 0..bound_count {
-            let trait_root = get_u32(cursor)?;
-            let binding_count = bounded_count(get_u32(cursor)?)?;
-            let mut associated_type_bindings = Vec::with_capacity(binding_count);
-            for _ in 0..binding_count {
-                associated_type_bindings.push(SignatureAssociatedTypeBinding {
-                    name: get_string(cursor)?,
-                    type_root: get_u32(cursor)?,
-                });
-            }
-            bounds.push(SignatureWhereBound {
-                trait_root,
-                associated_type_bindings,
-            });
+            bounds.push(read_where_bound(cursor)?);
         }
         predicates.push(SignatureWherePredicate { type_root, bounds });
     }
     Ok(predicates)
+}
+
+fn put_where_bound(output: &mut Vec<u8>, bound: &SignatureWhereBound) -> Result<(), MetadataError> {
+    put_u32(output, bound.trait_root);
+    put_list_len(output, bound.associated_type_bindings.len())?;
+    for binding in &bound.associated_type_bindings {
+        put_string(output, &binding.name)?;
+        put_u32(output, binding.type_root);
+    }
+    Ok(())
+}
+
+fn read_where_bound(cursor: &mut Cursor<&[u8]>) -> Result<SignatureWhereBound, MetadataError> {
+    let trait_root = get_u32(cursor)?;
+    let binding_count = bounded_count(get_u32(cursor)?)?;
+    let mut associated_type_bindings = Vec::with_capacity(binding_count);
+    for _ in 0..binding_count {
+        associated_type_bindings.push(SignatureAssociatedTypeBinding {
+            name: get_string(cursor)?,
+            type_root: get_u32(cursor)?,
+        });
+    }
+    Ok(SignatureWhereBound {
+        trait_root,
+        associated_type_bindings,
+    })
+}
+
+fn put_optional_u32(output: &mut Vec<u8>, value: Option<u32>) {
+    match value {
+        Some(value) => {
+            output.push(1);
+            put_u32(output, value);
+        }
+        None => output.push(0),
+    }
+}
+
+fn read_optional_u32(cursor: &mut Cursor<&[u8]>) -> Result<Option<u32>, MetadataError> {
+    match read_u8(cursor)? {
+        0 => Ok(None),
+        1 => Ok(Some(get_u32(cursor)?)),
+        _ => Err(MetadataError::InvalidManifest),
+    }
 }
 
 fn put_members(output: &mut Vec<u8>, members: &[SignatureMember]) -> Result<(), MetadataError> {
@@ -3833,7 +3933,7 @@ mod tests {
                     type_root: 0,
                 }],
                 return_type: 2,
-                attributes: vec![1, 0x80],
+                attributes: vec![1, 0x101],
             }),
         };
         let section = SignatureSection {
@@ -3960,17 +4060,31 @@ mod tests {
             owner: None,
         };
         let section = SignatureSection {
-            records: Vec::new(),
-            traits: vec![SignatureTraitRecord {
-                definition: trait_definition,
+            records: vec![SignatureRecord {
+                definition: trait_definition.clone(),
+                kind: 9,
+                flags: 0,
+                type_roots: Vec::new(),
+                members: Vec::new(),
                 generic_params: vec![SignatureGenericParam {
                     name: "T".into(),
                     kind: 0,
                     type_root: None,
                 }],
-                where_roots: vec![1],
-                supertrait_roots: vec![2],
+                where_predicates: Vec::new(),
+                payload: None,
+            }],
+            traits: vec![SignatureTraitRecord {
+                definition: trait_definition,
+                supertraits: vec![SignatureWhereBound {
+                    trait_root: 2,
+                    associated_type_bindings: vec![SignatureAssociatedTypeBinding {
+                        name: "Item".into(),
+                        type_root: 0,
+                    }],
+                }],
                 members: Vec::new(),
+                builtin: Some(1),
             }],
             extensions: vec![SignatureExtensionRecord {
                 module: ModuleId {
@@ -3981,9 +4095,16 @@ mod tests {
                 target_root: 0,
                 trait_root: Some(2),
                 generic_params: Vec::new(),
-                where_roots: vec![1],
+                where_predicates: vec![SignatureWherePredicate {
+                    type_root: 1,
+                    bounds: vec![SignatureWhereBound {
+                        trait_root: 2,
+                        associated_type_bindings: Vec::new(),
+                    }],
+                }],
                 members: Vec::new(),
                 associated_types: Vec::new(),
+                builtin: Some("test.Display".into()),
             }],
         };
         let bytes = encode_signatures(&section).unwrap();
