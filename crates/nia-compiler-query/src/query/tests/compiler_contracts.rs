@@ -963,8 +963,14 @@ fn rehydrate_compiled_interface_type_roots_is_empty_without_selected_artifacts()
 fn rehydrate_compiled_signature_roots_is_empty_without_selected_artifacts() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "fn main() () {}");
     let database = fixture.database();
-    fn no_resolver(_: &nia_package_metadata::DefinitionId) -> nia_query::QueryResult<nia_ids::GlobalDefId> { panic!("resolver must not be called") }
-    let roots = database.rehydrate_compiled_signature_roots(&no_resolver).unwrap();
+    fn no_resolver(
+        _: &nia_package_metadata::DefinitionId,
+    ) -> nia_query::QueryResult<nia_ids::GlobalDefId> {
+        panic!("resolver must not be called")
+    }
+    let roots = database
+        .rehydrate_compiled_signature_roots(&no_resolver)
+        .unwrap();
     assert!(roots.is_empty());
 }
 
