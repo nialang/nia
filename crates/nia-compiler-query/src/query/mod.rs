@@ -359,6 +359,11 @@ impl CompiledPackageSignatures {
     pub fn extensions(&self) -> &[nia_package_metadata::SignatureExtensionRecord] {
         &self.extensions
     }
+
+    /// Returns extension records implementing a given stable trait root.
+    pub fn extensions_for_trait_root(&self, trait_root: u32) -> impl Iterator<Item = &nia_package_metadata::SignatureExtensionRecord> {
+        self.extensions.iter().filter(move |record| record.trait_root == Some(trait_root))
+    }
 }
 
 /// Target-specific native products selected from one compiled package.
