@@ -212,6 +212,14 @@ impl ToolchainLayout {
         &self.std_module
     }
 
+    /// Conventional compiled-package snapshot for the standard library.
+    ///
+    /// The artifact is optional during development and diagnostics; callers
+    /// must still validate its manifest before selecting it.
+    pub fn std_package_artifact(&self) -> std::path::PathBuf {
+        self.resource_root.join("std/.nia-cache/package.niapkg")
+    }
+
     /// Returns the manifest compatibility identity.
     pub const fn identity(&self) -> &ToolchainIdentity {
         &self.identity

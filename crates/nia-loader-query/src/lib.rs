@@ -245,6 +245,11 @@ impl LoaderDatabase {
 
     /// Creates a loader sharing dependency and execution state with `session`.
     pub fn new_in_session(request: LoadRequest, session: QuerySession) -> Self {
+        let toolchain_std_artifact = request
+            .toolchain
+            .as_ref()
+            .map(|toolchain| toolchain.std_package_artifact())
+            .filter(|path| path.is_file());
         let entry_path = request.entry_path;
         let package_roots_with_used_paths = if request.package_root_used_paths {
             request.module_map.entries().map(|(name, _)| name).collect()
@@ -352,7 +357,9 @@ impl LoaderDatabase {
         Self {
             db,
             sources,
-            package_artifact: request.package_artifact,
+            package_artifact: request
+                .package_artifact
+                .or_else(|| toolchain_std_artifact.map(PackageArtifactRequest::Optional)),
             expected_package: request.expected_package,
             artifact_compatibility,
             artifact_selection_cache: Arc::new(Mutex::new(None)),
