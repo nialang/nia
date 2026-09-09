@@ -40,11 +40,9 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
                 | "backend_module_item_plan"
                 | "backend_module_finalization"
                 | "compiled_package_type_roots"
-                | "compiled_package_type_graph"
                 | "compiled_package_declarations"
                 | "compiled_package_module_interface"
                 | "compiled_package_templates"
-                | "compiled_package_signatures"
                 | "compiled_package_native"
         ) {
             nia_query::QueryStoragePolicy::SingleConsumerOwned
@@ -280,6 +278,142 @@ fn package_signature_section_derives_function_flags_and_roots() {
         0
     );
     assert!(!greet.type_roots.is_empty());
+}
+
+#[test]
+fn artifact_item_signatures_materialize_without_dependency_source() {
+    let source = r#"
+pub struct Record {
+value: i32,
+}
+
+pub enum Choice: i32 {
+First = 1,
+_,
+}
+
+pub type Alias = i32;
+pub const ANSWER: i32 = 42;
+
+pub fn transform(value: Alias) i32 {
+value
+}
+
+pub trait Measure {
+fn measure(&self, scale: i32) i32;
+}
+
+extend Record : Measure {
+pub fn measure(&self, scale: i32) i32 {
+self.value * scale
+}
+}
+
+extend Record {
+fn hidden(&self) i32 {
+self.value
+}
+}
+"#;
+    let source_fixture = LoadedProgramFixture::new("src/lib.nia", source);
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "source-free-signatures".into(),
+        version: "1.0.0".into(),
+    };
+    let publication = source_fixture
+        .database()
+        .publish_package_artifact(package.clone())
+        .unwrap();
+    let artifact = nia_package_metadata::PackageArtifact::open(publication.bytes).unwrap();
+    let interface =
+        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap();
+    let identity = interface
+        .module_identities()
+        .find(|identity| identity.path == "src/lib.nia")
+        .expect("published module identity");
+
+    let artifact_fixture = LoadedProgramFixture::new("src/lib.nia", "");
+    let module_id = artifact_fixture.entry_id();
+    let loader = TestLoaderFacts::new(
+        artifact_fixture.program(),
+        crate::ProviderFactSnapshot::empty(crate::ProviderFactRevision::default()),
+    );
+    loader.replace_compiled_interfaces(vec![interface]);
+    loader.replace_compiled_module_identities(HashMap::from([(module_id, identity)]));
+    let database = super::super::CompilerDatabase::new(
+        CompileRequest::new(artifact_fixture.program()).with_loader_facts(loader),
+    );
+
+    database
+        .install_compiled_package_module_interfaces()
+        .unwrap();
+    let resolver = |definition: &nia_package_metadata::DefinitionId| {
+        database.resolve_loaded_definition(definition, &package)
+    };
+    database
+        .install_compiled_interface_type_roots(&resolver)
+        .unwrap();
+    database.install_compiled_package_declarations().unwrap();
+    database.install_compiled_package_signatures().unwrap();
+
+    let signatures = database.db.expect_get(ItemSignaturesQuery(module_id));
+    assert!(signatures.diagnostics.is_empty());
+    assert_eq!(signatures.semantic.functions.len(), 3);
+    assert_eq!(signatures.semantic.structs.len(), 1);
+    assert_eq!(signatures.semantic.enums.len(), 1);
+    assert_eq!(signatures.semantic.type_aliases.len(), 1);
+    assert_eq!(signatures.semantic.consts.len(), 1);
+    assert_eq!(signatures.semantic.traits.len(), 1);
+    assert_eq!(signatures.semantic.trait_impls.len(), 2);
+
+    let transform = signatures
+        .semantic
+        .functions
+        .values()
+        .find(|signature| signature.name == sym("transform"))
+        .expect("artifact function signature");
+    assert_eq!(transform.params.len(), 1);
+    assert!(transform.has_body);
+    assert_eq!(
+        signatures
+            .semantic
+            .structs
+            .values()
+            .next()
+            .unwrap()
+            .fields
+            .len(),
+        1
+    );
+    let choice = signatures.semantic.enums.values().next().unwrap();
+    assert_eq!(choice.variants.len(), 1);
+    assert!(choice.is_open);
+    assert_eq!(
+        signatures
+            .semantic
+            .traits
+            .values()
+            .next()
+            .unwrap()
+            .methods
+            .len(),
+        1
+    );
+    assert!(
+        signatures
+            .semantic
+            .trait_impls
+            .iter()
+            .any(|implementation| implementation.methods.len() == 1)
+    );
+    assert!(
+        signatures
+            .semantic
+            .trait_impls
+            .iter()
+            .any(|implementation| implementation.methods.is_empty())
+    );
 }
 
 #[test]

@@ -439,6 +439,75 @@ impl<C> QueryDb<C> {
         );
     }
 
+    /// Returns whether an externally published shared slot can accept its payload.
+    pub fn can_publish_shared<K>(&self, key: K) -> bool
+    where
+        K: QueryKey<C>,
+    {
+        assert_eq!(
+            K::STORAGE,
+            QueryStoragePolicy::CacheOwnedArc,
+            "query `{}` does not declare shared cache storage",
+            K::name()
+        );
+        assert_eq!(
+            K::PROVIDER,
+            QueryProviderPolicy::ExternallyPublished,
+            "query `{}` does not declare an external producer",
+            K::name()
+        );
+        let slot = self.slot_for(&key);
+        let state = slot.state.lock().expect("query cache lock poisoned");
+        matches!(&*state, QueryState::Empty)
+    }
+
+    /// Publishes an immutable shared payload with an explicit predecessor.
+    pub fn publish_shared<K, P>(&self, key: K, value: K::Value, predecessor: &P)
+    where
+        K: QueryKey<C>,
+        P: QueryKey<C>,
+    {
+        assert_eq!(
+            K::STORAGE,
+            QueryStoragePolicy::CacheOwnedArc,
+            "published query `{}` must use shared cache storage",
+            K::name()
+        );
+        assert_eq!(
+            K::PROVIDER,
+            QueryProviderPolicy::ExternallyPublished,
+            "query `{}` does not declare an external producer",
+            K::name()
+        );
+        assert_eq!(
+            K::FINGERPRINT,
+            QueryFingerprintPolicy::None,
+            "published query `{}` cannot retain a value fingerprint",
+            K::name()
+        );
+        let _activity = self.inner.session.enter_activity();
+        let slot = self.slot_for(&key);
+        let predecessor_slot = self.slot_for(predecessor);
+        {
+            let mut state = slot.state.lock().expect("query cache lock poisoned");
+            assert!(
+                matches!(&*state, QueryState::Empty),
+                "published query `{}` already has a live payload",
+                K::name()
+            );
+            *state = QueryState::Ready {
+                value: Arc::new(value),
+                fingerprint: None,
+                dependency_fingerprints: DependencyFingerprints::default(),
+            };
+            slot.ready.notify_all();
+        }
+        self.replace_dependencies_from(
+            slot.node_id,
+            FastHashSet::from_iter([predecessor_slot.node_id]),
+        );
+    }
+
     fn try_get_cached<K>(&self, key: K) -> QueryResult<Arc<K::Value>>
     where
         K: QueryKey<C>,
@@ -567,6 +636,12 @@ impl<C> QueryDb<C> {
                     );
                 }
                 QueryState::Empty => {
+                    if K::PROVIDER == QueryProviderPolicy::ExternallyPublished {
+                        return Err(QueryError::InvalidInput {
+                            query: query_frame::<C, K>(&key),
+                            message: "shared product has not been published by its producer".into(),
+                        });
+                    }
                     *state = QueryState::Computing { invalidated: false };
                     drop(state);
 
