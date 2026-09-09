@@ -1329,6 +1329,100 @@ impl CompilerDatabase {
                 StableTypeNode::GenericParam(hash) => append.intern(nia_ty::TyKind::GenericParam(
                     SymbolId::from_stable_hash(*hash),
                 )),
+                StableTypeNode::Error => append.intern(nia_ty::TyKind::Error),
+                StableTypeNode::ConstOnly => append.intern(nia_ty::TyKind::ConstOnly),
+                StableTypeNode::Opaque => append.intern(nia_ty::TyKind::Opaque),
+                StableTypeNode::VolatilePointer { target, readonly } => {
+                    append.intern(nia_ty::TyKind::VolatilePointer {
+                        is_readonly: *readonly,
+                        elem: types[usize::try_from(*target).unwrap()],
+                    })
+                }
+                StableTypeNode::Slice { target, readonly } => {
+                    append.intern(nia_ty::TyKind::Slice {
+                        is_readonly: *readonly,
+                        elem: types[usize::try_from(*target).unwrap()],
+                    })
+                }
+                StableTypeNode::SlicePointee { target } => {
+                    append.intern(nia_ty::TyKind::SlicePointee {
+                        elem: types[usize::try_from(*target).unwrap()],
+                    })
+                }
+                StableTypeNode::Vector { element, lanes } => {
+                    append.intern(nia_ty::TyKind::Vector {
+                        elem: stable_primitive_from_tag(*element).ok_or_else(|| {
+                            self.db.invalid_input(
+                                &ModuleGraphQuery,
+                                "unknown stable vector element tag".to_string(),
+                            )
+                        })?,
+                        lanes: *lanes,
+                    })
+                }
+                StableTypeNode::Range { kind, bound } => append.intern(nia_ty::TyKind::Range {
+                    kind: stable_range_kind(*kind).ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "unknown stable range kind".to_string(),
+                        )
+                    })?,
+                    bound: bound.map(|index| types[usize::try_from(index).unwrap()]),
+                }),
+                StableTypeNode::Optional { element } => append.intern(nia_ty::TyKind::Optional {
+                    elem: types[usize::try_from(*element).unwrap()],
+                }),
+                StableTypeNode::ErrorUnion { error, value } => {
+                    append.intern(nia_ty::TyKind::ErrorUnion {
+                        error: types[usize::try_from(*error).unwrap()],
+                        value: types[usize::try_from(*value).unwrap()],
+                    })
+                }
+                StableTypeNode::Callable {
+                    parameters,
+                    result,
+                    readonly,
+                } => append.intern(nia_ty::TyKind::Callable {
+                    is_readonly: *readonly,
+                    params: parameters
+                        .iter()
+                        .map(|index| types[usize::try_from(*index).unwrap()])
+                        .collect(),
+                    return_type: types[usize::try_from(*result).unwrap()],
+                }),
+                StableTypeNode::CallablePointee { parameters, result } => {
+                    append.intern(nia_ty::TyKind::CallablePointee {
+                        params: parameters
+                            .iter()
+                            .map(|index| types[usize::try_from(*index).unwrap()])
+                            .collect(),
+                        return_type: types[usize::try_from(*result).unwrap()],
+                    })
+                }
+                StableTypeNode::SelfParam => append.intern(nia_ty::TyKind::SelfParam),
+                StableTypeNode::BuiltinType(tag) => append.intern(nia_ty::TyKind::BuiltinType(
+                    stable_builtin_type(*tag).ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "unknown stable builtin type tag".to_string(),
+                        )
+                    })?,
+                )),
+                StableTypeNode::BuiltinTrait {
+                    trait_id,
+                    arguments,
+                } => append.intern(nia_ty::TyKind::BuiltinTrait {
+                    trait_id: stable_builtin_trait(*trait_id).ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "unknown stable builtin trait tag".to_string(),
+                        )
+                    })?,
+                    args: arguments
+                        .iter()
+                        .map(|index| types[usize::try_from(*index).unwrap()])
+                        .collect(),
+                }),
             };
             types.push(ty);
         }
@@ -3074,6 +3168,71 @@ impl StableTypeGraphEncoder<'_> {
                 target: self.encode(elem)?,
                 readonly: is_readonly,
             },
+            nia_ty::TyKind::Error => StableTypeNode::Error,
+            nia_ty::TyKind::ConstOnly => StableTypeNode::ConstOnly,
+            nia_ty::TyKind::Opaque => StableTypeNode::Opaque,
+            nia_ty::TyKind::VolatilePointer { is_readonly, elem } => {
+                StableTypeNode::VolatilePointer {
+                    target: self.encode(elem)?,
+                    readonly: is_readonly,
+                }
+            }
+            nia_ty::TyKind::Slice { is_readonly, elem } => StableTypeNode::Slice {
+                target: self.encode(elem)?,
+                readonly: is_readonly,
+            },
+            nia_ty::TyKind::SlicePointee { elem } => StableTypeNode::SlicePointee {
+                target: self.encode(elem)?,
+            },
+            nia_ty::TyKind::Vector { elem, lanes } => StableTypeNode::Vector {
+                element: primitive_tag(elem)
+                    .ok_or_else(|| self.unsupported("invalid vector lane type"))?,
+                lanes,
+            },
+            nia_ty::TyKind::Range { kind, bound } => StableTypeNode::Range {
+                kind: range_kind_tag(kind),
+                bound: bound.map(|bound| self.encode(bound)).transpose()?,
+            },
+            nia_ty::TyKind::Optional { elem } => StableTypeNode::Optional {
+                element: self.encode(elem)?,
+            },
+            nia_ty::TyKind::ErrorUnion { error, value } => StableTypeNode::ErrorUnion {
+                error: self.encode(error)?,
+                value: self.encode(value)?,
+            },
+            nia_ty::TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            } => StableTypeNode::Callable {
+                parameters: params
+                    .into_iter()
+                    .map(|param| self.encode(param))
+                    .collect::<QueryResult<Vec<_>>>()?,
+                result: self.encode(return_type)?,
+                readonly: is_readonly,
+            },
+            nia_ty::TyKind::CallablePointee {
+                params,
+                return_type,
+            } => StableTypeNode::CallablePointee {
+                parameters: params
+                    .into_iter()
+                    .map(|param| self.encode(param))
+                    .collect::<QueryResult<Vec<_>>>()?,
+                result: self.encode(return_type)?,
+            },
+            nia_ty::TyKind::SelfParam => StableTypeNode::SelfParam,
+            nia_ty::TyKind::BuiltinType(builtin) => {
+                StableTypeNode::BuiltinType(builtin_type_tag(builtin))
+            }
+            nia_ty::TyKind::BuiltinTrait { trait_id, args } => StableTypeNode::BuiltinTrait {
+                trait_id: builtin_trait_tag(trait_id),
+                arguments: args
+                    .into_iter()
+                    .map(|arg| self.encode(arg))
+                    .collect::<QueryResult<Vec<_>>>()?,
+            },
             nia_ty::TyKind::Array { len, elem } => {
                 let nia_ty::ArrayLenTy::ConstValue(length) = len else {
                     return Err(self.unsupported("array length is not a stable constant"));
@@ -3182,6 +3341,84 @@ impl StableTypeGraphEncoder<'_> {
             nia_ty::TyKind::Pointer { is_readonly, elem } => {
                 key.extend_from_slice(&[4, u8::from(is_readonly)]);
                 append_bytes(&mut key, &self.canonical_key(elem)?);
+            }
+            nia_ty::TyKind::Error => key.push(11),
+            nia_ty::TyKind::ConstOnly => key.push(12),
+            nia_ty::TyKind::Opaque => key.push(13),
+            nia_ty::TyKind::VolatilePointer { is_readonly, elem } => {
+                key.extend_from_slice(&[14, u8::from(is_readonly)]);
+                append_bytes(&mut key, &self.canonical_key(elem)?);
+            }
+            nia_ty::TyKind::Slice { is_readonly, elem } => {
+                key.extend_from_slice(&[15, u8::from(is_readonly)]);
+                append_bytes(&mut key, &self.canonical_key(elem)?);
+            }
+            nia_ty::TyKind::SlicePointee { elem } => {
+                key.push(16);
+                append_bytes(&mut key, &self.canonical_key(elem)?);
+            }
+            nia_ty::TyKind::Vector { elem, lanes } => {
+                key.push(17);
+                key.push(
+                    primitive_tag(elem)
+                        .ok_or_else(|| self.unsupported("invalid vector lane type"))?,
+                );
+                key.extend_from_slice(&lanes.to_le_bytes());
+            }
+            nia_ty::TyKind::Range { kind, bound } => {
+                key.push(18);
+                key.push(range_kind_tag(kind));
+                if let Some(bound) = bound {
+                    key.push(1);
+                    append_bytes(&mut key, &self.canonical_key(bound)?);
+                } else {
+                    key.push(0);
+                }
+            }
+            nia_ty::TyKind::Optional { elem } => {
+                key.push(19);
+                append_bytes(&mut key, &self.canonical_key(elem)?);
+            }
+            nia_ty::TyKind::ErrorUnion { error, value } => {
+                key.push(20);
+                append_bytes(&mut key, &self.canonical_key(error)?);
+                append_bytes(&mut key, &self.canonical_key(value)?);
+            }
+            nia_ty::TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            } => {
+                key.extend_from_slice(&[21, u8::from(is_readonly)]);
+                append_len(&mut key, params.len());
+                for param in params {
+                    append_bytes(&mut key, &self.canonical_key(param)?);
+                }
+                append_bytes(&mut key, &self.canonical_key(return_type)?);
+            }
+            nia_ty::TyKind::CallablePointee {
+                params,
+                return_type,
+            } => {
+                key.push(22);
+                append_len(&mut key, params.len());
+                for param in params {
+                    append_bytes(&mut key, &self.canonical_key(param)?);
+                }
+                append_bytes(&mut key, &self.canonical_key(return_type)?);
+            }
+            nia_ty::TyKind::SelfParam => key.push(23),
+            nia_ty::TyKind::BuiltinType(builtin) => {
+                key.push(24);
+                key.push(builtin_type_tag(builtin));
+            }
+            nia_ty::TyKind::BuiltinTrait { trait_id, args } => {
+                key.push(25);
+                key.push(builtin_trait_tag(trait_id));
+                append_len(&mut key, args.len());
+                for arg in args {
+                    append_bytes(&mut key, &self.canonical_key(arg)?);
+                }
             }
             nia_ty::TyKind::Array { len, elem } => {
                 let nia_ty::ArrayLenTy::ConstValue(length) = len else {
@@ -3346,6 +3583,123 @@ fn primitive_type_node(primitive: nia_ty::PrimitiveTy) -> QueryResult<StableType
         PrimitiveTy::F64 => StableTypeNode::Primitive(14),
         PrimitiveTy::Bool => StableTypeNode::Primitive(15),
         PrimitiveTy::Char => StableTypeNode::Primitive(16),
+    })
+}
+
+fn stable_range_kind(tag: u8) -> Option<nia_ty::RangeTyKind> {
+    Some(match tag {
+        0 => nia_ty::RangeTyKind::Exclusive,
+        1 => nia_ty::RangeTyKind::Inclusive,
+        2 => nia_ty::RangeTyKind::From,
+        3 => nia_ty::RangeTyKind::To,
+        4 => nia_ty::RangeTyKind::ToInclusive,
+        5 => nia_ty::RangeTyKind::Full,
+        _ => return None,
+    })
+}
+
+fn primitive_tag(primitive: nia_ty::PrimitiveTy) -> Option<u8> {
+    match primitive_type_node(primitive).ok()? {
+        StableTypeNode::Primitive(tag) => Some(tag),
+        StableTypeNode::Never => None,
+        _ => None,
+    }
+}
+
+fn range_kind_tag(kind: nia_ty::RangeTyKind) -> u8 {
+    match kind {
+        nia_ty::RangeTyKind::Exclusive => 0,
+        nia_ty::RangeTyKind::Inclusive => 1,
+        nia_ty::RangeTyKind::From => 2,
+        nia_ty::RangeTyKind::To => 3,
+        nia_ty::RangeTyKind::ToInclusive => 4,
+        nia_ty::RangeTyKind::Full => 5,
+    }
+}
+
+fn builtin_type_tag(value: nia_ids::BuiltinType) -> u8 {
+    match value {
+        nia_ids::BuiltinType::AsmConfig => 0,
+        nia_ids::BuiltinType::AsmInputs => 1,
+        nia_ids::BuiltinType::AsmOutputs => 2,
+    }
+}
+
+fn builtin_trait_tag(value: nia_ids::BuiltinTrait) -> u8 {
+    use nia_ids::BuiltinTrait;
+    match value {
+        BuiltinTrait::Add => 0,
+        BuiltinTrait::Sub => 1,
+        BuiltinTrait::Mul => 2,
+        BuiltinTrait::Div => 3,
+        BuiltinTrait::Rem => 4,
+        BuiltinTrait::Neg => 5,
+        BuiltinTrait::Not => 6,
+        BuiltinTrait::BitNot => 7,
+        BuiltinTrait::BitAnd => 8,
+        BuiltinTrait::BitOr => 9,
+        BuiltinTrait::BitXor => 10,
+        BuiltinTrait::Shl => 11,
+        BuiltinTrait::Shr => 12,
+        BuiltinTrait::Eq => 13,
+        BuiltinTrait::Ord => 14,
+        BuiltinTrait::Sized => 15,
+        BuiltinTrait::Unsized => 16,
+        BuiltinTrait::Deref => 17,
+        BuiltinTrait::DerefMut => 18,
+        BuiltinTrait::Index => 19,
+        BuiltinTrait::IndexMut => 20,
+        BuiltinTrait::Slice => 21,
+        BuiltinTrait::SliceMut => 22,
+        BuiltinTrait::Iterable => 23,
+        BuiltinTrait::Iterator => 24,
+        BuiltinTrait::Simd => 25,
+        BuiltinTrait::SimdMask => 26,
+        BuiltinTrait::IntoError => 27,
+    }
+}
+
+fn stable_builtin_type(tag: u8) -> Option<nia_ids::BuiltinType> {
+    Some(match tag {
+        0 => nia_ids::BuiltinType::AsmConfig,
+        1 => nia_ids::BuiltinType::AsmInputs,
+        2 => nia_ids::BuiltinType::AsmOutputs,
+        _ => return None,
+    })
+}
+
+fn stable_builtin_trait(tag: u8) -> Option<nia_ids::BuiltinTrait> {
+    use nia_ids::BuiltinTrait;
+    Some(match tag {
+        0 => BuiltinTrait::Add,
+        1 => BuiltinTrait::Sub,
+        2 => BuiltinTrait::Mul,
+        3 => BuiltinTrait::Div,
+        4 => BuiltinTrait::Rem,
+        5 => BuiltinTrait::Neg,
+        6 => BuiltinTrait::Not,
+        7 => BuiltinTrait::BitNot,
+        8 => BuiltinTrait::BitAnd,
+        9 => BuiltinTrait::BitOr,
+        10 => BuiltinTrait::BitXor,
+        11 => BuiltinTrait::Shl,
+        12 => BuiltinTrait::Shr,
+        13 => BuiltinTrait::Eq,
+        14 => BuiltinTrait::Ord,
+        15 => BuiltinTrait::Sized,
+        16 => BuiltinTrait::Unsized,
+        17 => BuiltinTrait::Deref,
+        18 => BuiltinTrait::DerefMut,
+        19 => BuiltinTrait::Index,
+        20 => BuiltinTrait::IndexMut,
+        21 => BuiltinTrait::Slice,
+        22 => BuiltinTrait::SliceMut,
+        23 => BuiltinTrait::Iterable,
+        24 => BuiltinTrait::Iterator,
+        25 => BuiltinTrait::Simd,
+        26 => BuiltinTrait::SimdMask,
+        27 => BuiltinTrait::IntoError,
+        _ => return None,
     })
 }
 
