@@ -11,6 +11,12 @@ pub(in crate::query) fn provide_executable_function_body(
     if facts.runtime_functions.binary_search(&def_id).is_err() {
         return Ok(None);
     }
+    // Artifact-owned definitions are backed by installed checked templates;
+    // they must never be reconstructed through the source executable-body
+    // provider (which has no const/body lowering state for such modules).
+    if is_compiled_artifact_module(db, def_id.module_id) {
+        return Ok(None);
+    }
     let Some(module) = facts
         .modules
         .iter()

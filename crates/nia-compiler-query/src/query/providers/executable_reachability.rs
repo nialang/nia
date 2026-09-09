@@ -844,6 +844,7 @@ fn executable_check_in_session(
                 &mut fact_by_id,
                 &caches,
                 &caches.const_modules,
+                non_function_signatures.as_ref(),
             )
         },
     ) {
@@ -1202,6 +1203,7 @@ fn final_executable_checked_modules(
     fact_by_id: &mut HashMap<ModuleId, ExecutableFactModuleState>,
     caches: &ExecutableCheckCaches,
     const_module_cache: &RefCell<HashMap<ModuleId, ConstModuleLowering>>,
+    program_signatures: Option<&ProgramExecutableNonFunctionSignatures>,
 ) -> QueryResult<HashMap<ModuleId, CheckedModule>> {
     let reachable_body_modules = executable_reachable_body_modules(db, reachability_by_module)?;
     let modules_with_executable_items = parse_ok
@@ -1243,6 +1245,26 @@ fn final_executable_checked_modules(
         .into_iter()
         .map(
             |(module_id, module_items)| -> QueryResult<(ModuleId, CheckedModule)> {
+                if db
+                    .context()
+                    .loader_facts()
+                    .compiled_package_module_identity(module_id)?
+                    .is_some()
+                {
+                    let signatures = program_signatures.ok_or_else(|| {
+                        db.invalid_input(
+                            &ExecutableCheckedModuleFactsQuery,
+                            "artifact executable module requires program signature facts",
+                        )
+                    })?;
+                    let layouts = store_module_layouts(
+                        db.context(),
+                        signature_layouts_for_types(db, module_id, Some(signatures))?,
+                    );
+                    let module =
+                        executable_signature_checked_module(db, module_id, layouts, signatures)?;
+                    return Ok((module_id, module));
+                }
                 let module_functions = &module_items.functions;
                 let module_globals = &module_items.globals;
                 let layouts =

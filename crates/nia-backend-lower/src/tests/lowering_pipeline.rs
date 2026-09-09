@@ -109,6 +109,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
             type_store: &type_store,
             defs: &defs,
+            generic_params: &HashMap::new(),
             signatures: &signatures,
             root_types: &root_types,
             normalized: &normalization.normalized,

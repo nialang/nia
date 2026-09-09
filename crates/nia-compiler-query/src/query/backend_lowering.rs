@@ -225,6 +225,25 @@ impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
             .map(|index| self.program_defs[*index].as_ref())
     }
 
+    fn generic_params(&self, def_id: GlobalDefId) -> Option<Vec<(nia_symbol::SymbolId, bool)>> {
+        self.functions.get(&def_id).map(|signature| {
+            signature
+                .signature
+                .generic_params
+                .iter()
+                .map(|param| {
+                    (
+                        param.name,
+                        matches!(
+                            param.kind,
+                            nia_item_signatures::GenericParamSignatureKind::Const { .. }
+                        ),
+                    )
+                })
+                .collect()
+        })
+    }
+
     fn normalized_type(&self, ty: InternedTyId) -> Option<InternedTyId> {
         self.checked_modules
             .iter()

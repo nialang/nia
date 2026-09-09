@@ -133,6 +133,29 @@ pub(super) fn monomorphization_for_checked_modules(
         .iter()
         .map(|module| Ok((module.id, item_signatures_semantic(db, module.id)?)))
         .collect::<QueryResult<HashMap<_, _>>>()?;
+    let generic_params = checked_modules
+        .iter()
+        .flat_map(|module| {
+            local_signatures
+                .get(&module.id)
+                .into_iter()
+                .flat_map(move |signatures| {
+                    signatures.functions.iter().map(move |(def_id, signature)| {
+                        (
+                            GlobalDefId {
+                                module_id: module.id,
+                                def_id: *def_id,
+                            },
+                            signature
+                                .generic_params
+                                .iter()
+                                .map(|param| param.name)
+                                .collect::<Vec<_>>(),
+                        )
+                    })
+                })
+        })
+        .collect::<HashMap<_, _>>();
     let _function_bodies = function_bodies_from_checked_modules(db, checked_modules)?;
     let semantic_instantiations = checked_modules
         .iter()
@@ -153,6 +176,7 @@ pub(super) fn monomorphization_for_checked_modules(
                     module_id: module.id,
                     source_identity: module.path.identity(),
                     defs: &module.defs,
+                    generic_params: &generic_params,
                     normalization: &module.type_normalization,
                     const_eval: &module.const_eval,
                     const_expr_summaries: &module.type_lowering.const_expr_summaries,
@@ -267,27 +291,26 @@ pub(in crate::query) fn provide_lowered_function_body(
     db: &QueryDb<CompilerContext>,
     def_id: GlobalDefId,
 ) -> QueryResult<LoweredFunctionBodyValue> {
+    // Compiled dependencies carry their checked template body as an artifact
+    // fact.  Consume it directly so lowering never asks the executable-body
+    // provider to reconstruct a source body for an artifact-owned definition.
+    let imported = imported_template_body(db, def_id)?;
+    if let Some(imported) = imported {
+        return Ok(LoweredFunctionBodyValue::Body(
+            nia_function_lower::LoweredFunctionBody {
+                body: imported,
+                closure_entries: Vec::new(),
+            },
+        ));
+    }
     let checked_body = db.get(ExecutableFunctionBodyQuery(def_id))?;
-    let imported = if checked_body.is_none() {
-        imported_template_body(db, def_id)?
-    } else {
-        None
-    };
     let body = match checked_body.as_ref() {
         Some(body) => body,
         None => {
-            let Some(imported) = imported.as_ref() else {
-                return Ok(LoweredFunctionBodyValue::Diagnostic(
-                    nia_function_lower::FunctionLoweringDiagnostic {
-                        span: Span::default(),
-                        message: format!("missing executable checked function body for {def_id:?}"),
-                    },
-                ));
-            };
-            return Ok(LoweredFunctionBodyValue::Body(
-                nia_function_lower::LoweredFunctionBody {
-                    body: imported.clone(),
-                    closure_entries: Vec::new(),
+            return Ok(LoweredFunctionBodyValue::Diagnostic(
+                nia_function_lower::FunctionLoweringDiagnostic {
+                    span: Span::default(),
+                    message: format!("missing executable checked function body for {def_id:?}"),
                 },
             ));
         }
@@ -315,7 +338,8 @@ fn imported_template_body(
             continue;
         };
         for record in &templates.records {
-            let resolved = crate::query::resolve_loaded_definition_in_query(db, &record.definition, package)?;
+            let resolved =
+                crate::query::resolve_loaded_definition_in_query(db, &record.definition, package)?;
             if resolved == def_id {
                 let compiled = db.get(CompiledPackageTemplatesQuery(package.clone()))?;
                 return Ok(compiled
@@ -529,7 +553,14 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                     checked_modules
                         .iter()
                         .map(|checked_module| {
-                            db.get(FullActiveModuleItemTreeQuery(checked_module.id))
+                            if is_compiled_artifact_module(db, checked_module.id) {
+                                Ok(Arc::new(ActiveModuleItemTree::new(
+                                    Vec::new(),
+                                    HashSet::new(),
+                                )))
+                            } else {
+                                db.get(FullActiveModuleItemTreeQuery(checked_module.id))
+                            }
                         })
                         .collect::<QueryResult<Vec<_>>>()
                 },
@@ -616,10 +647,37 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
         db,
         checked_modules.iter().map(|module| module.id),
     )?;
-    let functions = executable_program_functions_for_modules(
+    let mut functions = executable_program_functions_for_modules(
         db,
         checked_modules.iter().map(|module| module.id),
     )?;
+    let artifact_module_sequence = db.get(ProgramSignatureModuleIdsQuery(
+        nia_item_tree::SignatureItemSet::Functions,
+    ))?;
+    let artifact_modules = resolve_stable_module_sequence(db, artifact_module_sequence.as_ref())?;
+    for module_id in artifact_modules {
+        if db
+            .context()
+            .loader_facts()
+            .compiled_package_module_identity(module_id)?
+            .is_none()
+        {
+            continue;
+        }
+        let signatures = db.get(ItemSignaturesQuery(module_id))?;
+        for (def_id, signature) in signatures.semantic.functions.iter() {
+            functions.insert(
+                GlobalDefId {
+                    module_id,
+                    def_id: *def_id,
+                },
+                ProgramFunctionSignature {
+                    name: signature.name,
+                    signature: signature.clone(),
+                },
+            );
+        }
+    }
     let runtime = *db.get(CompilerRuntimeQuery)?;
     let source_identities = db
         .context()
@@ -800,8 +858,8 @@ pub(in crate::query) fn closure_safety_check(
                     body,
                 }
             })
-    })
-    .collect::<Vec<_>>();
+        })
+        .collect::<Vec<_>>();
     if !nia_closure_check::contains_closure_constructs(&functions) {
         return Ok(nia_closure_check::ClosureCheck {
             summaries: HashMap::new(),
@@ -825,12 +883,14 @@ pub(in crate::query) fn closure_safety_check(
         })
         .collect::<Vec<_>>();
     let imported_summaries = imported_closure_summaries(db)?;
-    Ok(nia_closure_check::check_closure_safety_with_support_and_summaries(
-        &functions,
-        &support_functions,
-        &imported_summaries,
-        &db.context().type_store,
-    ))
+    Ok(
+        nia_closure_check::check_closure_safety_with_support_and_summaries(
+            &functions,
+            &support_functions,
+            &imported_summaries,
+            &db.context().type_store,
+        ),
+    )
 }
 
 /// Rehydrates closure summaries from selected package templates into the

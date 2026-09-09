@@ -427,6 +427,9 @@ pub(super) fn provide_full_active_module_item_tree(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<ActiveModuleItemTree> {
+    if crate::query::executable::is_compiled_artifact_module(db, module_id) {
+        return Ok(ActiveModuleItemTree::new(Vec::new(), HashSet::new()));
+    }
     let _raw_item_tree = db.get(FullModuleItemTreeQuery(module_id))?;
     Ok(db
         .get(FullActiveModuleItemTreeInputQuery(module_id))?

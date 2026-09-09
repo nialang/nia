@@ -2840,7 +2840,10 @@ mod tests {
         let relocations = collect_checked_function_body_relocations(&body).expect("collect");
 
         assert_eq!(relocations.types, vec![first_ty]);
-        assert_eq!(relocations.definitions, vec![first_definition, second_definition]);
+        assert_eq!(
+            relocations.definitions,
+            vec![first_definition, second_definition]
+        );
         assert_eq!(relocations.modules, vec![argument_module]);
     }
 }

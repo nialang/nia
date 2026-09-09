@@ -1122,9 +1122,9 @@ impl CompilerDatabase {
         for (package, records) in prepared {
             if self
                 .db
-                .can_publish_owned(CompiledPackageTemplatesQuery(package.clone()))
+                .can_publish_shared(CompiledPackageTemplatesQuery(package.clone()))
             {
-                self.db.publish_owned(
+                self.db.publish_shared(
                     CompiledPackageTemplatesQuery(package.clone()),
                     CompiledPackageTemplates {
                         package: package.clone(),
@@ -1143,7 +1143,11 @@ impl CompilerDatabase {
         &self,
         package: PackageId,
     ) -> QueryResult<CompiledPackageTemplates> {
-        self.db.get_owned(CompiledPackageTemplatesQuery(package))
+        Ok(self
+            .db
+            .get(CompiledPackageTemplatesQuery(package))?
+            .as_ref()
+            .clone())
     }
 
     /// Publishes validated target-independent signatures for selected packages.
@@ -2237,15 +2241,19 @@ impl CompilerDatabase {
                 continue;
             }
             let checked = self.db.get(CheckedModuleQuery(global.module_id))?;
-            let typed = checked.body_ir.function_bodies.get(&global).ok_or_else(|| {
-                self.db.invalid_input(
-                    &ModuleGraphQuery,
-                    format!(
-                        "published template has no checked body: {:?}",
-                        record.definition
-                    ),
-                )
-            })?;
+            let typed = checked
+                .body_ir
+                .function_bodies
+                .get(&global)
+                .ok_or_else(|| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        format!(
+                            "published template has no checked body: {:?}",
+                            record.definition
+                        ),
+                    )
+                })?;
             let lowered = nia_function_lower::lower_function_body(
                 global.module_id,
                 typed,
@@ -2305,7 +2313,10 @@ impl CompilerDatabase {
                     .ok_or_else(|| {
                         self.db.invalid_input(
                             &ModuleGraphQuery,
-                            format!("template module has no stable package identity: {:?}", module.id),
+                            format!(
+                                "template module has no stable package identity: {:?}",
+                                module.id
+                            ),
                         )
                     })?
             };
@@ -2326,12 +2337,13 @@ impl CompilerDatabase {
         let closure_check = providers::closure_safety_check(&self.db, &checked_modules)?;
         let mut records = Vec::with_capacity(bodies.len());
         for template in bodies {
-            let relocations = collect_checked_function_body_relocations(&template.body).map_err(|e| {
-                self.db.invalid_input(
-                    &ModuleGraphQuery,
-                    format!("failed to collect template relocations: {e}"),
-                )
-            })?;
+            let relocations =
+                collect_checked_function_body_relocations(&template.body).map_err(|e| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        format!("failed to collect template relocations: {e}"),
+                    )
+                })?;
             let mut definitions = relocations
                 .definitions
                 .iter()
@@ -2339,7 +2351,9 @@ impl CompilerDatabase {
                 .map(|global| {
                     stable_index
                         .iter()
-                        .find_map(|(identity, candidate)| (*candidate == global).then_some(identity.clone()))
+                        .find_map(|(identity, candidate)| {
+                            (*candidate == global).then_some(identity.clone())
+                        })
                         .ok_or_else(|| {
                             self.db.invalid_input(
                                 &ModuleGraphQuery,
@@ -2370,53 +2384,94 @@ impl CompilerDatabase {
                 .iter()
                 .copied()
                 .map(|ty| {
-                    type_indexes.get(&ty).copied().map(|index| (ty, index)).ok_or_else(|| {
-                        self.db.invalid_input(
-                            &ModuleGraphQuery,
-                            "template type is absent from published graph".to_string(),
-                        )
-                    })
+                    type_indexes
+                        .get(&ty)
+                        .copied()
+                        .map(|index| (ty, index))
+                        .ok_or_else(|| {
+                            self.db.invalid_input(
+                                &ModuleGraphQuery,
+                                "template type is absent from published graph".to_string(),
+                            )
+                        })
                 })
                 .collect::<QueryResult<Vec<_>>>()?;
             type_pairs.sort_by_key(|(_, index)| *index);
             type_pairs.dedup_by_key(|(_, index)| *index);
-            let type_roots = type_pairs.iter().map(|(_, index)| *index).collect::<Vec<_>>();
+            let type_roots = type_pairs
+                .iter()
+                .map(|(_, index)| *index)
+                .collect::<Vec<_>>();
             let mut context = TemplateEncodeContext {
                 types: HashMap::new(),
                 definitions: HashMap::new(),
                 modules: HashMap::new(),
             };
             for (index, (ty, _)) in type_pairs.iter().copied().enumerate() {
-                context.types.insert(ty, u32::try_from(index).map_err(|_| {
-                    self.db.invalid_input(&ModuleGraphQuery, "template type index overflows u32".to_string())
-                })?);
+                context.types.insert(
+                    ty,
+                    u32::try_from(index).map_err(|_| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "template type index overflows u32".to_string(),
+                        )
+                    })?,
+                );
             }
             for global in relocations.definitions.iter().copied() {
-                let identity = stable_index.iter().find_map(|(identity, candidate)| {
-                    (*candidate == global).then_some(identity)
-                }).ok_or_else(|| {
-                    self.db.invalid_input(&ModuleGraphQuery, format!("template references unpublished definition: {global:?}"))
-                })?;
+                let identity = stable_index
+                    .iter()
+                    .find_map(|(identity, candidate)| (*candidate == global).then_some(identity))
+                    .ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            format!("template references unpublished definition: {global:?}"),
+                        )
+                    })?;
                 let index = definitions.binary_search(identity).map_err(|_| {
-                    self.db.invalid_input(&ModuleGraphQuery, "template definition relocation ordering mismatch".to_string())
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        "template definition relocation ordering mismatch".to_string(),
+                    )
                 })?;
-                context.definitions.insert(global, u32::try_from(index).map_err(|_| {
-                    self.db.invalid_input(&ModuleGraphQuery, "template definition index overflows u32".to_string())
-                })?);
+                context.definitions.insert(
+                    global,
+                    u32::try_from(index).map_err(|_| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "template definition index overflows u32".to_string(),
+                        )
+                    })?,
+                );
             }
             for module in relocations.modules.iter().copied() {
                 let identity = module_identities.get(&module).ok_or_else(|| {
-                    self.db.invalid_input(&ModuleGraphQuery, format!("template references unpublished module: {module:?}"))
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        format!("template references unpublished module: {module:?}"),
+                    )
                 })?;
                 let index = modules.binary_search(identity).map_err(|_| {
-                    self.db.invalid_input(&ModuleGraphQuery, "template module relocation ordering mismatch".to_string())
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        "template module relocation ordering mismatch".to_string(),
+                    )
                 })?;
-                context.modules.insert(module, u32::try_from(index).map_err(|_| {
-                    self.db.invalid_input(&ModuleGraphQuery, "template module index overflows u32".to_string())
-                })?);
+                context.modules.insert(
+                    module,
+                    u32::try_from(index).map_err(|_| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "template module index overflows u32".to_string(),
+                        )
+                    })?,
+                );
             }
             let body = encode_checked_function_body(&template.body, &context).map_err(|e| {
-                self.db.invalid_input(&ModuleGraphQuery, format!("failed to encode template body: {e}"))
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    format!("failed to encode template body: {e}"),
+                )
             })?;
             let summary = closure_check
                 .summaries
@@ -2424,10 +2479,26 @@ impl CompilerDatabase {
                 .cloned()
                 .unwrap_or_default();
             let summary = nia_package_metadata::TemplateSummary {
-                returned_parameters: summary.returned_parameters.into_iter().map(|v| v as u32).collect(),
-                escaping_parameters: summary.escaping_parameters.into_iter().map(|v| v as u32).collect(),
-                returned_captured_address_parameters: summary.returned_captured_address_parameters.into_iter().map(|v| v as u32).collect(),
-                escaping_captured_address_parameters: summary.escaping_captured_address_parameters.into_iter().map(|v| v as u32).collect(),
+                returned_parameters: summary
+                    .returned_parameters
+                    .into_iter()
+                    .map(|v| v as u32)
+                    .collect(),
+                escaping_parameters: summary
+                    .escaping_parameters
+                    .into_iter()
+                    .map(|v| v as u32)
+                    .collect(),
+                returned_captured_address_parameters: summary
+                    .returned_captured_address_parameters
+                    .into_iter()
+                    .map(|v| v as u32)
+                    .collect(),
+                escaping_captured_address_parameters: summary
+                    .escaping_captured_address_parameters
+                    .into_iter()
+                    .map(|v| v as u32)
+                    .collect(),
             };
             let summary = nia_package_metadata::encode_template_summary(&summary)
                 .map_err(|e| self.db.invalid_input(&ModuleGraphQuery, e.to_string()))?;
@@ -2918,12 +2989,13 @@ impl CompilerDatabase {
         };
         let template_bodies = self.checked_template_bodies(&pending_interface, resolver)?;
         for template in &template_bodies {
-            let relocations = collect_checked_function_body_relocations(&template.body).map_err(|e| {
-                self.db.invalid_input(
-                    &ModuleGraphQuery,
-                    format!("failed to collect template type roots: {e}"),
-                )
-            })?;
+            let relocations =
+                collect_checked_function_body_relocations(&template.body).map_err(|e| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        format!("failed to collect template type roots: {e}"),
+                    )
+                })?;
             all_roots.extend(relocations.types);
         }
         // Public extension records carry roots which are not necessarily
