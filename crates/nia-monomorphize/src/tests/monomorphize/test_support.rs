@@ -95,7 +95,7 @@ fn mono_input<'a>(
             defs.module_id.local_index()
         )),
         defs,
-        generic_params: &HashMap::new(),
+        generic_params: &EMPTY_GENERIC_PARAMS,
         normalization,
         const_eval,
         const_expr_summaries,

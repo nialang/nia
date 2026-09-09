@@ -157,7 +157,7 @@ pub(super) fn monomorphization_for_checked_modules(
         })
         .collect::<HashMap<_, _>>();
     let _function_bodies = function_bodies_from_checked_modules(db, checked_modules)?;
-    let semantic_instantiations = checked_modules
+    let mut semantic_instantiations = checked_modules
         .iter()
         .map(|module| {
             module
@@ -167,6 +167,30 @@ pub(super) fn monomorphization_for_checked_modules(
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
+    let module_indices = checked_modules
+        .iter()
+        .enumerate()
+        .map(|(index, module)| (module.id, index))
+        .collect::<HashMap<_, _>>();
+    for (owner, body) in artifact_function_bodies(db)? {
+        let Some(index) = module_indices.get(&owner.module_id).copied() else {
+            continue;
+        };
+        semantic_instantiations[index].extend(
+            body.value_refs(&db.context().type_store)
+                .function_instances
+                .into_iter()
+                .map(|instance| nia_sema_ir::GenericInstantiation {
+                    def_id: instance.def_id,
+                    self_arg: instance.self_arg,
+                    args: instance.args,
+                    const_args: instance.const_args,
+                    generics: Vec::new(),
+                    span: instance.span,
+                    source_def_id: Some(owner),
+                }),
+        );
+    }
     Ok(nia_monomorphize::collect_monomorphizations(
         &checked_modules
             .iter()

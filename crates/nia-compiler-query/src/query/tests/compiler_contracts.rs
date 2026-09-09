@@ -239,7 +239,7 @@ fn package_artifact_publication_emits_checked_generic_templates() {
 fn source_free_dependency_generic_body_reaches_backend_without_source_queries() {
     let dependency = LoadedProgramFixture::new(
         "src/dependency.nia",
-        "pub fn identity[T](value: T) T { value }",
+        "pub fn leaf[T](value: T) T { value } pub fn wrapper[T](value: T) T { leaf[T](value) }",
     );
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
@@ -259,7 +259,7 @@ fn source_free_dependency_generic_body_reaches_backend_without_source_queries() 
 
     let mut consumer = LoadedProgramFixture::new(
         "src/main.nia",
-        "using dependency::identity; fn main() i32 { identity[i32](1) }",
+        "using dependency::wrapper; fn main() i32 { wrapper[i32](1) }",
     );
     let dependency_module =
         consumer.add_child(consumer.entry_id(), "dependency", "src/dependency.nia", "");
@@ -295,9 +295,9 @@ fn source_free_dependency_generic_body_reaches_backend_without_source_queries() 
     let plans = database
         .db
         .expect_get(BackendModuleFunctionInstancePlanQuery(dependency_module));
-    assert!(!mono.semantic.instances.is_empty());
+    assert_eq!(mono.semantic.instances.len(), 2);
     assert!(modules.iter().any(|module| module.id == dependency_module));
-    assert!(!plans.instances.is_empty());
+    assert_eq!(plans.instances.len(), 2);
     let backend = database.db.expect_get(BackendLoweringQuery);
     assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
 }
