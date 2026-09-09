@@ -224,6 +224,9 @@ static EMPTY_PROGRAM_ENUMS: std::sync::LazyLock<HashMap<GlobalDefId, ProgramEnum
 static EMPTY_LOCAL_ENUMS: std::sync::LazyLock<HashMap<DefId, EnumSignature>> =
     std::sync::LazyLock::new(HashMap::new);
 #[cfg(test)]
+static EMPTY_GENERIC_PARAMS: std::sync::LazyLock<HashMap<GlobalDefId, Vec<SymbolId>>> =
+    std::sync::LazyLock::new(HashMap::new);
+#[cfg(test)]
 static EMPTY_PROGRAM_TRAIT_IMPL_INDEX: std::sync::LazyLock<ProgramTraitImplIndex> =
     std::sync::LazyLock::new(ProgramTraitImplIndex::default);
 
