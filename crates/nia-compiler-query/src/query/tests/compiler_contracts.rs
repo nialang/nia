@@ -234,7 +234,11 @@ fn package_artifact_publication_embeds_validated_signatures() {
             flags: nia_package_metadata::SIGNATURE_FLAG_HAS_BODY,
             type_roots: Vec::new(),
             members: Vec::new(),
+            generic_params: Vec::new(),
+            where_predicates: Vec::new(),
         }],
+        traits: Vec::new(),
+        extensions: Vec::new(),
     };
     let publication = database
         .publish_package_artifact_with_resolver_and_products_and_signatures(

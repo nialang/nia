@@ -1539,7 +1539,7 @@ impl CompilerDatabase {
             Ok(package_for_resolver.clone())
         };
         self.package_interface_and_type_graph(package, &resolver)
-            .map(|(interface, _)| interface)
+            .map(|(interface, _, _)| interface)
     }
 
     /// Publishes an interface using an explicit resolver for every nominal
@@ -1551,7 +1551,7 @@ impl CompilerDatabase {
         resolver: &dyn StableDefinitionPackageResolver,
     ) -> QueryResult<InterfaceSection> {
         self.package_interface_and_type_graph(package, resolver)
-            .map(|(interface, _)| interface)
+            .map(|(interface, _, _)| interface)
     }
 
     /// Derives the stable signature inventory from the same source query
@@ -1563,7 +1563,7 @@ impl CompilerDatabase {
         package: PackageId,
         resolver: &dyn StableDefinitionPackageResolver,
     ) -> QueryResult<nia_package_metadata::SignatureSection> {
-        let (interface, _) = self.package_interface_and_type_graph(package.clone(), resolver)?;
+        let (interface, _, _) = self.package_interface_and_type_graph(package.clone(), resolver)?;
         self.signature_section_from_interface(resolver, interface)
     }
 
@@ -1602,9 +1602,15 @@ impl CompilerDatabase {
                 kind,
                 flags,
                 type_roots,
+                generic_params: Vec::new(),
+                where_predicates: Vec::new(),
             })
             .collect();
-        let section = nia_package_metadata::SignatureSection { records };
+        let section = nia_package_metadata::SignatureSection {
+            records,
+            traits: Vec::new(),
+            extensions: Vec::new(),
+        };
         section
             .validate()
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
@@ -1615,7 +1621,7 @@ impl CompilerDatabase {
         &self,
         package: PackageId,
         resolver: &dyn StableDefinitionPackageResolver,
-    ) -> QueryResult<(InterfaceSection, StableTypeGraph)> {
+    ) -> QueryResult<(InterfaceSection, StableTypeGraph, HashMap<nia_ids::InternedTyId, u32>)> {
         let graph = self.db.get(ModuleGraphQuery)?;
         let symbols = self.db.context().loader_facts().symbols();
         let entry_package_root = graph.current_package_root(graph.entry());
@@ -1734,7 +1740,7 @@ impl CompilerDatabase {
         section
             .validate_type_roots(&type_graph)
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
-        Ok((section, type_graph))
+        Ok((section, type_graph, indexes))
     }
 
     /// Publishes the fully resolved export surface for one package. Export
@@ -2035,7 +2041,7 @@ impl CompilerDatabase {
         native: Option<nia_package_metadata::NativeSection>,
         signatures: Option<nia_package_metadata::SignatureSection>,
     ) -> QueryResult<crate::PackageArtifactPublication> {
-        let (interface, type_graph) =
+        let (interface, type_graph, _) =
             self.package_interface_and_type_graph(package.clone(), resolver)?;
         let signatures = match signatures {
             Some(signatures) => Some(signatures),
