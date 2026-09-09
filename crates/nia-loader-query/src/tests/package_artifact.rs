@@ -49,6 +49,21 @@ fn optional_artifact_loads_and_preserves_relocation_independent_identity() {
 }
 
 #[test]
+fn toolchain_standard_library_artifact_is_discovered_automatically() {
+    let toolchain = test_toolchain_layout();
+    let artifact_path = toolchain.std_package_artifact();
+    fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
+    fs::write(&artifact_path, encode(&manifest()).unwrap()).unwrap();
+    let loader = LoaderDatabase::new(
+        LoadRequest::new("main.nia").with_toolchain_layout(toolchain),
+    );
+    assert!(matches!(
+        loader.package_artifact().unwrap(),
+        Some(PackageArtifactLoad::Loaded { .. })
+    ));
+}
+
+#[test]
 fn artifact_selection_cache_refreshes_after_file_replacement() {
     let path = temp_artifact("cache-refresh");
     fs::write(&path, encode(&manifest()).unwrap()).unwrap();
