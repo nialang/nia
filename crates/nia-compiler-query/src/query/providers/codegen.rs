@@ -747,22 +747,65 @@ pub(super) fn closure_safety_diagnostics(
             })
         })
         .collect::<Vec<_>>();
-    Ok(nia_closure_check::check_closure_safety_with_support(
-        &functions,
-        &support_functions,
-        &db.context().type_store,
+    let imported_summaries = imported_closure_summaries(db)?;
+    Ok(
+        nia_closure_check::check_closure_safety_with_support_and_summaries(
+            &functions,
+            &support_functions,
+            &imported_summaries,
+            &db.context().type_store,
+        )
+        .diagnostics
+        .into_iter()
+        .map(|diagnostic| ProgramDiagnostic {
+            path: checked_modules
+                .iter()
+                .find(|module| module.id == diagnostic.owner.module_id)
+                .map(|module| module.path.clone())
+                .unwrap_or_else(synthetic_diagnostic_path),
+            diagnostic: diagnostic.diagnostic,
+        })
+        .collect(),
     )
-    .diagnostics
-    .into_iter()
-    .map(|diagnostic| ProgramDiagnostic {
-        path: checked_modules
-            .iter()
-            .find(|module| module.id == diagnostic.owner.module_id)
-            .map(|module| module.path.clone())
-            .unwrap_or_else(synthetic_diagnostic_path),
-        diagnostic: diagnostic.diagnostic,
-    })
-    .collect())
+}
+
+/// Rehydrates closure summaries from selected package templates into the
+/// current query session. Template bodies are intentionally not loaded here:
+/// the summary is the complete cross-package contract needed by the escape
+/// analysis, and the stable definition remap is shared with every other
+/// artifact-backed consumer.
+fn imported_closure_summaries(
+    db: &QueryDb<CompilerContext>,
+) -> QueryResult<HashMap<GlobalDefId, nia_closure_check::ImportedClosureEscapeSummary>> {
+    let index = db.get(CompiledPackageInterfaceIndexQuery)?;
+    let mut summaries = HashMap::new();
+    for (package, _) in index.packages() {
+        let templates = db.get(CompiledPackageTemplatesQuery(package.clone()))?;
+        for (definition, _) in templates.iter() {
+            let summary = templates.summary(definition)?.ok_or_else(|| {
+                db.invalid_input(
+                    &CompiledPackageInterfaceIndexQuery,
+                    "installed template is missing its semantic summary",
+                )
+            })?;
+            let imported = nia_closure_check::ImportedClosureEscapeSummary::from_parameter_sets(
+                summary.returned_parameters,
+                summary.escaping_parameters,
+                summary.returned_captured_address_parameters,
+                summary.escaping_captured_address_parameters,
+            )
+            .map_err(|message| db.invalid_input(&CompiledPackageInterfaceIndexQuery, message))?;
+            let resolved =
+                crate::query::resolve_loaded_definition_in_query(db, definition, package)?;
+            if summaries.insert(resolved, imported).is_some() {
+                return Err(db.invalid_input(
+                    &CompiledPackageInterfaceIndexQuery,
+                    "duplicate imported closure summary identity",
+                ));
+            }
+        }
+    }
+    Ok(summaries)
 }
 
 pub(super) fn monomorphization_diagnostics(
