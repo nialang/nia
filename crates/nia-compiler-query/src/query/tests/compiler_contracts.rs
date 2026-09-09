@@ -236,6 +236,29 @@ fn package_artifact_publication_emits_checked_generic_templates() {
 }
 
 #[test]
+fn package_artifact_publication_emits_const_runtime_templates() {
+    let fixture = LoadedProgramFixture::new(
+        "src/main.nia",
+        "pub const fn double(value: i32) i32 { value * 2 }",
+    );
+    let artifact = nia_package_metadata::PackageArtifact::open(
+        fixture
+            .database()
+            .publish_package_artifact(nia_package_metadata::PackageId {
+                namespace: "example".into(),
+                name: "const-template-demo".into(),
+                version: "1.0.0".into(),
+            })
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
+    let templates = artifact.templates().unwrap().unwrap();
+    assert_eq!(templates.records.len(), 1);
+    assert!(!templates.records[0].body.is_empty());
+}
+
+#[test]
 fn source_free_dependency_generic_body_reaches_backend_without_source_queries() {
     let dependency = LoadedProgramFixture::new(
         "src/dependency.nia",
