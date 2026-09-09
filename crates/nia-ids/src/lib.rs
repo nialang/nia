@@ -508,6 +508,73 @@ pub enum BuiltinFunction {
 }
 
 impl BuiltinFunction {
+    /// Returns the package-metadata ABI tag for this builtin.
+    pub const fn stable_tag(self) -> u32 {
+        match self {
+            Self::ConstError => 1,
+            Self::Trap => 2,
+            Self::SizeOf => 3,
+            Self::AlignOf => 4,
+            Self::Offset => 5,
+            Self::Asm => 6,
+            Self::MemCopy => 7,
+            Self::MemMove => 8,
+            Self::MemSet => 9,
+            Self::LoadUnaligned => 10,
+            Self::Splat => 11,
+            Self::Extract => 12,
+            Self::Insert => 13,
+            Self::Bitmask => 14,
+            Self::Ctz => 15,
+            Self::Clz => 16,
+            Self::Popcount => 17,
+            Self::AtomicLoad => 18,
+            Self::AtomicStore => 19,
+            Self::AtomicRmw => 20,
+            Self::CmpxchgStrong => 21,
+            Self::CmpxchgWeak => 22,
+            Self::Fence => 23,
+            Self::Embed => 24,
+            Self::CharFromU32 => 25,
+            Self::SliceLen => 26,
+            Self::CallerLocation => 27,
+        }
+    }
+
+    /// Resolves a package-metadata ABI tag without relying on registry order.
+    pub const fn from_stable_tag(tag: u32) -> Option<Self> {
+        match tag {
+            1 => Some(Self::ConstError),
+            2 => Some(Self::Trap),
+            3 => Some(Self::SizeOf),
+            4 => Some(Self::AlignOf),
+            5 => Some(Self::Offset),
+            6 => Some(Self::Asm),
+            7 => Some(Self::MemCopy),
+            8 => Some(Self::MemMove),
+            9 => Some(Self::MemSet),
+            10 => Some(Self::LoadUnaligned),
+            11 => Some(Self::Splat),
+            12 => Some(Self::Extract),
+            13 => Some(Self::Insert),
+            14 => Some(Self::Bitmask),
+            15 => Some(Self::Ctz),
+            16 => Some(Self::Clz),
+            17 => Some(Self::Popcount),
+            18 => Some(Self::AtomicLoad),
+            19 => Some(Self::AtomicStore),
+            20 => Some(Self::AtomicRmw),
+            21 => Some(Self::CmpxchgStrong),
+            22 => Some(Self::CmpxchgWeak),
+            23 => Some(Self::Fence),
+            24 => Some(Self::Embed),
+            25 => Some(Self::CharFromU32),
+            26 => Some(Self::SliceLen),
+            27 => Some(Self::CallerLocation),
+            _ => None,
+        }
+    }
+
     /// All builtin functions in canonical registry order.
     pub const ALL: [Self; 27] = [
         Self::ConstError,
@@ -661,6 +728,33 @@ impl ValueBuiltin {
 }
 
 impl BuiltinConstValue {
+    /// Returns the package-metadata ABI tag for this builtin constant.
+    pub const fn stable_tag(self) -> u32 {
+        match self {
+            Self::TargetArch => 1,
+            Self::TargetVendor => 2,
+            Self::TargetOs => 3,
+            Self::TargetEnv => 4,
+            Self::TargetAbi => 5,
+            Self::TargetEndian => 6,
+            Self::TargetPointerWidth => 7,
+        }
+    }
+
+    /// Resolves a package-metadata ABI tag without relying on registry order.
+    pub const fn from_stable_tag(tag: u32) -> Option<Self> {
+        match tag {
+            1 => Some(Self::TargetArch),
+            2 => Some(Self::TargetVendor),
+            3 => Some(Self::TargetOs),
+            4 => Some(Self::TargetEnv),
+            5 => Some(Self::TargetAbi),
+            6 => Some(Self::TargetEndian),
+            7 => Some(Self::TargetPointerWidth),
+            _ => None,
+        }
+    }
+
     /// All target configuration values in canonical registry order.
     pub const ALL: [Self; 7] = [
         Self::TargetArch,
@@ -1262,6 +1356,75 @@ impl BuiltinTraitMethodDescriptor {
 }
 
 impl BuiltinTrait {
+    /// Returns the package-metadata ABI tag for this builtin trait.
+    pub const fn stable_tag(self) -> u32 {
+        match self {
+            Self::Add => 1,
+            Self::Sub => 2,
+            Self::Mul => 3,
+            Self::Div => 4,
+            Self::Rem => 5,
+            Self::Neg => 6,
+            Self::Not => 7,
+            Self::BitNot => 8,
+            Self::BitAnd => 9,
+            Self::BitOr => 10,
+            Self::BitXor => 11,
+            Self::Shl => 12,
+            Self::Shr => 13,
+            Self::Eq => 14,
+            Self::Ord => 15,
+            Self::Sized => 16,
+            Self::Unsized => 17,
+            Self::Deref => 18,
+            Self::DerefMut => 19,
+            Self::Index => 20,
+            Self::IndexMut => 21,
+            Self::Slice => 22,
+            Self::SliceMut => 23,
+            Self::Iterable => 24,
+            Self::Iterator => 25,
+            Self::Simd => 26,
+            Self::SimdMask => 27,
+            Self::IntoError => 28,
+        }
+    }
+
+    /// Resolves a package-metadata ABI tag without relying on registry order.
+    pub const fn from_stable_tag(tag: u32) -> Option<Self> {
+        match tag {
+            1 => Some(Self::Add),
+            2 => Some(Self::Sub),
+            3 => Some(Self::Mul),
+            4 => Some(Self::Div),
+            5 => Some(Self::Rem),
+            6 => Some(Self::Neg),
+            7 => Some(Self::Not),
+            8 => Some(Self::BitNot),
+            9 => Some(Self::BitAnd),
+            10 => Some(Self::BitOr),
+            11 => Some(Self::BitXor),
+            12 => Some(Self::Shl),
+            13 => Some(Self::Shr),
+            14 => Some(Self::Eq),
+            15 => Some(Self::Ord),
+            16 => Some(Self::Sized),
+            17 => Some(Self::Unsized),
+            18 => Some(Self::Deref),
+            19 => Some(Self::DerefMut),
+            20 => Some(Self::Index),
+            21 => Some(Self::IndexMut),
+            22 => Some(Self::Slice),
+            23 => Some(Self::SliceMut),
+            24 => Some(Self::Iterable),
+            25 => Some(Self::Iterator),
+            26 => Some(Self::Simd),
+            27 => Some(Self::SimdMask),
+            28 => Some(Self::IntoError),
+            _ => None,
+        }
+    }
+
     /// Canonical name of the operator output associated type.
     pub const OUTPUT_ASSOC_TYPE: &'static str = "Output";
     /// Canonical name of the dereference target associated type.

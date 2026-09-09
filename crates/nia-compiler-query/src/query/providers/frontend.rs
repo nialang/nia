@@ -1223,16 +1223,16 @@ fn provide_artifact_item_signatures(
                     .map(|attribute| match *attribute {
                         1 => Ok(nia_item_signatures::FunctionAttribute::Naked),
                         2 => Ok(nia_item_signatures::FunctionAttribute::TrackCaller),
-                        tag if tag & 0x80 != 0 => nia_ids::BuiltinFunction::ALL
-                            .get((tag & 0x7f) as usize)
-                            .copied()
-                            .map(nia_item_signatures::FunctionAttribute::Builtin)
-                            .ok_or_else(|| {
-                                db.invalid_input(
-                                    &CompiledPackageSignaturesQuery(identity.package.clone()),
-                                    "unknown artifact builtin attribute",
-                                )
-                            }),
+                        tag if tag & 0x100 != 0 => {
+                            nia_ids::BuiltinFunction::from_stable_tag(tag & 0xff)
+                                .map(nia_item_signatures::FunctionAttribute::Builtin)
+                                .ok_or_else(|| {
+                                    db.invalid_input(
+                                        &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                        "unknown artifact builtin attribute",
+                                    )
+                                })
+                        }
                         _ => Err(db.invalid_input(
                             &CompiledPackageSignaturesQuery(identity.package.clone()),
                             "unknown artifact function attribute",
@@ -1384,7 +1384,10 @@ fn provide_artifact_item_signatures(
                     },
                 );
             }
-            nia_package_metadata::SignaturePayload::Value { explicit_type } => {
+            nia_package_metadata::SignaturePayload::Value {
+                explicit_type,
+                builtin,
+            } => {
                 let ty = explicit_type
                     .map(|root| {
                         graph.get(root).ok_or_else(|| {
@@ -1400,7 +1403,8 @@ fn provide_artifact_item_signatures(
                         global.def_id,
                         nia_item_signatures::GlobalSignature {
                             explicit_type: ty,
-                            is_mutable: false,
+                            is_mutable: record.flags & nia_package_metadata::SIGNATURE_FLAG_MUTABLE
+                                != 0,
                             is_extern: record.flags & nia_package_metadata::SIGNATURE_FLAG_EXTERN
                                 != 0,
                             span: Span::default(),
@@ -1411,7 +1415,20 @@ fn provide_artifact_item_signatures(
                         global.def_id,
                         nia_item_signatures::ConstSignature {
                             explicit_type: ty,
-                            builtin: None,
+                            builtin: builtin
+                                .map(|tag| {
+                                    nia_ids::BuiltinConstValue::from_stable_tag(tag).ok_or_else(
+                                        || {
+                                            db.invalid_input(
+                                                &CompiledPackageSignaturesQuery(
+                                                    identity.package.clone(),
+                                                ),
+                                                "unknown artifact builtin const tag",
+                                            )
+                                        },
+                                    )
+                                })
+                                .transpose()?,
                             span: Span::default(),
                         },
                     );
@@ -1433,17 +1450,22 @@ fn provide_artifact_item_signatures(
         let generic_params = artifact_generic_params(db, &graph, record)?;
         let where_predicates = artifact_where_predicates(db, &graph, record)?;
         let supertraits = trait_record
-            .supertrait_roots
+            .supertraits
             .iter()
-            .map(|root| {
+            .map(|bound| {
                 Ok(nia_item_signatures::TraitSupertraitSignature {
-                    ty: graph.get(*root).ok_or_else(|| {
+                    ty: graph.get(bound.trait_root).ok_or_else(|| {
                         db.invalid_input(
                             &CompiledPackageSignaturesQuery(identity.package.clone()),
                             "artifact supertrait root is unavailable",
                         )
                     })?,
-                    associated_type_bindings: Vec::new(),
+                    associated_type_bindings: artifact_associated_type_bindings(
+                        db,
+                        &graph,
+                        &identity.package,
+                        &bound.associated_type_bindings,
+                    )?,
                     span: Span::default(),
                 })
             })
@@ -1520,7 +1542,17 @@ fn provide_artifact_item_signatures(
                 associated_types,
                 associated_values,
                 methods,
-                builtin: None,
+                builtin: trait_record
+                    .builtin
+                    .map(|tag| {
+                        nia_ids::BuiltinTrait::from_stable_tag(tag).ok_or_else(|| {
+                            db.invalid_input(
+                                &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                "unknown artifact builtin trait tag",
+                            )
+                        })
+                    })
+                    .transpose()?,
                 span: Span::default(),
             },
         );
@@ -1578,22 +1610,12 @@ fn provide_artifact_item_signatures(
                 Ok(nia_item_signatures::GenericParamSignature { name, kind })
             })
             .collect::<QueryResult<Vec<_>>>()?;
-        let where_predicates = extension
-            .where_roots
-            .iter()
-            .map(|root| {
-                Ok(nia_defs::WherePredicateSignature {
-                    ty: graph.get(*root).ok_or_else(|| {
-                        db.invalid_input(
-                            &CompiledPackageSignaturesQuery(identity.package.clone()),
-                            "artifact extension where root is unavailable",
-                        )
-                    })?,
-                    bounds: Vec::new(),
-                    span: Span::default(),
-                })
-            })
-            .collect::<QueryResult<Vec<_>>>()?;
+        let where_predicates = artifact_where_predicates_from_wire(
+            db,
+            &graph,
+            &identity.package,
+            &extension.where_predicates,
+        )?;
         let mut associated_types = Vec::new();
         for associated in &extension.associated_types {
             associated_types.push(nia_item_signatures::TraitImplAssociatedTypeSignature {
@@ -1644,7 +1666,7 @@ fn provide_artifact_item_signatures(
             .trait_impls
             .push(nia_item_signatures::TraitImplSignature {
                 impl_id: nia_ids::TraitImplId(extension.impl_id),
-                builtin: None,
+                builtin: extension.builtin.clone(),
                 generics: generic_params.iter().map(|param| param.name).collect(),
                 generic_params,
                 target_ty,
@@ -1718,14 +1740,27 @@ fn artifact_where_predicates(
     graph: &CompiledPackageTypeGraph,
     record: &nia_package_metadata::SignatureRecord,
 ) -> QueryResult<Vec<nia_defs::WherePredicateSignature>> {
-    record
-        .where_predicates
+    artifact_where_predicates_from_wire(
+        db,
+        graph,
+        &record.definition.module.package,
+        &record.where_predicates,
+    )
+}
+
+fn artifact_where_predicates_from_wire(
+    db: &QueryDb<CompilerContext>,
+    graph: &CompiledPackageTypeGraph,
+    package: &nia_package_metadata::PackageId,
+    predicates: &[nia_package_metadata::SignatureWherePredicate],
+) -> QueryResult<Vec<nia_defs::WherePredicateSignature>> {
+    predicates
         .iter()
         .map(|predicate| {
             Ok(nia_defs::WherePredicateSignature {
                 ty: graph.get(predicate.type_root).ok_or_else(|| {
                     db.invalid_input(
-                        &CompiledPackageSignaturesQuery(record.definition.module.package.clone()),
+                        &CompiledPackageSignaturesQuery(package.clone()),
                         "artifact where root is unavailable",
                     )
                 })?,
@@ -1736,45 +1771,52 @@ fn artifact_where_predicates(
                         Ok(nia_defs::WhereBoundSignature {
                             trait_ty: graph.get(bound.trait_root).ok_or_else(|| {
                                 db.invalid_input(
-                                    &CompiledPackageSignaturesQuery(
-                                        record.definition.module.package.clone(),
-                                    ),
+                                    &CompiledPackageSignaturesQuery(package.clone()),
                                     "artifact where trait root is unavailable",
                                 )
                             })?,
-                            associated_type_bindings: bound
-                                .associated_type_bindings
-                                .iter()
-                                .map(|binding| {
-                                    Ok(nia_defs::AssociatedTypeBindingSignature {
-                                        name: db
-                                            .context()
-                                            .symbols()
-                                            .intern(&binding.name)
-                                            .map_err(|error| {
-                                                db.invalid_input(
-                                                    &CompiledPackageSignaturesQuery(
-                                                        record.definition.module.package.clone(),
-                                                    ),
-                                                    error.to_string(),
-                                                )
-                                            })?,
-                                        ty: graph.get(binding.type_root).ok_or_else(|| {
-                                            db.invalid_input(
-                                                &CompiledPackageSignaturesQuery(
-                                                    record.definition.module.package.clone(),
-                                                ),
-                                                "artifact associated type root is unavailable",
-                                            )
-                                        })?,
-                                        span: Span::default(),
-                                    })
-                                })
-                                .collect::<QueryResult<Vec<_>>>()?,
+                            associated_type_bindings: artifact_associated_type_bindings(
+                                db,
+                                graph,
+                                package,
+                                &bound.associated_type_bindings,
+                            )?,
                             span: Span::default(),
                         })
                     })
                     .collect::<QueryResult<Vec<_>>>()?,
+                span: Span::default(),
+            })
+        })
+        .collect()
+}
+
+fn artifact_associated_type_bindings(
+    db: &QueryDb<CompilerContext>,
+    graph: &CompiledPackageTypeGraph,
+    package: &nia_package_metadata::PackageId,
+    bindings: &[nia_package_metadata::SignatureAssociatedTypeBinding],
+) -> QueryResult<Vec<nia_defs::AssociatedTypeBindingSignature>> {
+    bindings
+        .iter()
+        .map(|binding| {
+            Ok(nia_defs::AssociatedTypeBindingSignature {
+                name: db
+                    .context()
+                    .symbols()
+                    .intern(&binding.name)
+                    .map_err(|error| {
+                        db.invalid_input(
+                            &CompiledPackageSignaturesQuery(package.clone()),
+                            error.to_string(),
+                        )
+                    })?,
+                ty: graph.get(binding.type_root).ok_or_else(|| {
+                    db.invalid_input(
+                        &CompiledPackageSignaturesQuery(package.clone()),
+                        "artifact associated type root is unavailable",
+                    )
+                })?,
                 span: Span::default(),
             })
         })

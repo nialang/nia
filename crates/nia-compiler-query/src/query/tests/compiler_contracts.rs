@@ -294,9 +294,26 @@ _,
 
 pub type Alias = i32;
 pub const ANSWER: i32 = 42;
+@[builtin("target.pointerWidth")]
+pub const POINTER_WIDTH: usize;
+pub static mut STATE: i32 = 0;
 
 pub fn transform(value: Alias) i32 {
 value
+}
+
+@[builtin("trap")]
+pub fn halt() never;
+
+pub trait Parent {
+type Item;
+}
+
+pub trait Child : Parent[Item = i32] {}
+
+@[builtin("Iterator")]
+pub trait Iterator {
+type Item;
 }
 
 pub trait Measure {
@@ -313,6 +330,16 @@ extend Record {
 fn hidden(&self) i32 {
 self.value
 }
+}
+
+pub trait Probe {
+fn probe(&self) usize;
+}
+
+@[builtin("test.Probe")]
+extend[T] [T] : Probe
+where T: Parent[Item = i32] {
+pub fn probe(&self) usize;
 }
 "#;
     let source_fixture = LoadedProgramFixture::new("src/lib.nia", source);
@@ -359,13 +386,14 @@ self.value
 
     let signatures = database.db.expect_get(ItemSignaturesQuery(module_id));
     assert!(signatures.diagnostics.is_empty());
-    assert_eq!(signatures.semantic.functions.len(), 3);
+    assert!(signatures.semantic.functions.len() >= 5);
     assert_eq!(signatures.semantic.structs.len(), 1);
     assert_eq!(signatures.semantic.enums.len(), 1);
     assert_eq!(signatures.semantic.type_aliases.len(), 1);
-    assert_eq!(signatures.semantic.consts.len(), 1);
-    assert_eq!(signatures.semantic.traits.len(), 1);
-    assert_eq!(signatures.semantic.trait_impls.len(), 2);
+    assert_eq!(signatures.semantic.consts.len(), 2);
+    assert_eq!(signatures.semantic.globals.len(), 1);
+    assert_eq!(signatures.semantic.traits.len(), 5);
+    assert_eq!(signatures.semantic.trait_impls.len(), 3);
 
     let transform = signatures
         .semantic
@@ -375,6 +403,36 @@ self.value
         .expect("artifact function signature");
     assert_eq!(transform.params.len(), 1);
     assert!(transform.has_body);
+    let halt = signatures
+        .semantic
+        .functions
+        .values()
+        .find(|signature| signature.name == sym("halt"))
+        .expect("artifact builtin function signature");
+    assert_eq!(
+        halt.attributes,
+        vec![nia_item_signatures::FunctionAttribute::Builtin(
+            nia_ids::BuiltinFunction::Trap,
+        )]
+    );
+    assert!(
+        signatures
+            .semantic
+            .globals
+            .values()
+            .next()
+            .unwrap()
+            .is_mutable
+    );
+    let pointer_width = signatures
+        .semantic
+        .consts
+        .iter()
+        .find_map(|(def_id, signature)| {
+            (signature.builtin == Some(nia_ids::BuiltinConstValue::TargetPointerWidth))
+                .then_some(def_id)
+        });
+    assert!(pointer_width.is_some());
     assert_eq!(
         signatures
             .semantic
@@ -389,17 +447,28 @@ self.value
     let choice = signatures.semantic.enums.values().next().unwrap();
     assert_eq!(choice.variants.len(), 1);
     assert!(choice.is_open);
-    assert_eq!(
-        signatures
-            .semantic
-            .traits
-            .values()
-            .next()
-            .unwrap()
-            .methods
-            .len(),
-        1
-    );
+    let iterator = signatures
+        .semantic
+        .traits
+        .values()
+        .find(|signature| signature.builtin == Some(nia_ids::BuiltinTrait::Iterator))
+        .expect("artifact builtin trait signature");
+    assert_eq!(iterator.associated_types.len(), 1);
+    let defs = database.db.expect_get(FullModuleDefsQuery(module_id));
+    let child = signatures
+        .semantic
+        .traits
+        .iter()
+        .find_map(|(def_id, signature)| {
+            defs.semantic
+                .defs
+                .get(*def_id)
+                .is_some_and(|definition| definition.name == sym("Child"))
+                .then_some(signature)
+        })
+        .expect("artifact child trait signature");
+    assert_eq!(child.supertraits.len(), 1);
+    assert_eq!(child.supertraits[0].associated_type_bindings.len(), 1);
     assert!(
         signatures
             .semantic
@@ -413,6 +482,20 @@ self.value
             .trait_impls
             .iter()
             .any(|implementation| implementation.methods.is_empty())
+    );
+    let builtin_impl = signatures
+        .semantic
+        .trait_impls
+        .iter()
+        .find(|implementation| implementation.builtin.as_deref() == Some("test.Probe"))
+        .expect("artifact builtin implementation signature");
+    assert_eq!(builtin_impl.where_predicates.len(), 1);
+    assert_eq!(builtin_impl.where_predicates[0].bounds.len(), 1);
+    assert_eq!(
+        builtin_impl.where_predicates[0].bounds[0]
+            .associated_type_bindings
+            .len(),
+        1
     );
 }
 
