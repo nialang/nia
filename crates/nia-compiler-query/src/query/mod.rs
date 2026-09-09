@@ -329,6 +329,8 @@ pub struct CompiledPackageTemplates {
 pub struct CompiledPackageSignatures {
     package: PackageId,
     records: BTreeMap<DefinitionId, nia_package_metadata::SignatureRecord>,
+    traits: BTreeMap<DefinitionId, nia_package_metadata::SignatureTraitRecord>,
+    extensions: Vec<nia_package_metadata::SignatureExtensionRecord>,
 }
 
 impl CompiledPackageSignatures {
@@ -344,6 +346,18 @@ impl CompiledPackageSignatures {
         &self,
     ) -> impl Iterator<Item = (&DefinitionId, &nia_package_metadata::SignatureRecord)> {
         self.records.iter()
+    }
+
+    pub fn trait_record(&self, definition: &DefinitionId) -> Option<&nia_package_metadata::SignatureTraitRecord> {
+        self.traits.get(definition)
+    }
+
+    pub fn traits(&self) -> impl Iterator<Item = (&DefinitionId, &nia_package_metadata::SignatureTraitRecord)> {
+        self.traits.iter()
+    }
+
+    pub fn extensions(&self) -> &[nia_package_metadata::SignatureExtensionRecord] {
+        &self.extensions
     }
 }
 
@@ -752,6 +766,8 @@ impl CompilerDatabase {
         let mut installed = Vec::new();
         for (package, interface) in index.packages() {
             let mut records = BTreeMap::new();
+            let mut traits = BTreeMap::new();
+            let mut extensions = Vec::new();
             if let Some(signatures) = interface.signatures() {
                 for record in &signatures.records {
                     if record.definition.module.package != *package
@@ -772,14 +788,25 @@ impl CompilerDatabase {
                         ));
                     }
                 }
+                for record in &signatures.traits {
+                    if record.definition.module.package != *package
+                        || !interface.records().iter().any(|item| item.definition == record.definition)
+                        || traits.insert(record.definition.clone(), record.clone()).is_some()
+                    {
+                        return Err(self.db.invalid_input(&CompiledPackageInterfaceIndexQuery, "compiled trait signature identity is inconsistent"));
+                    }
+                }
+                extensions.extend(signatures.extensions.iter().cloned());
             }
             let key = CompiledPackageSignaturesQuery(package.clone());
             if self.db.can_publish_owned(key.clone()) {
                 self.db.publish_owned(
                     key,
                     CompiledPackageSignatures {
-                        package: package.clone(),
-                        records,
+                    package: package.clone(),
+                    records,
+                    traits,
+                    extensions,
                     },
                     &CompiledPackageInterfaceIndexQuery,
                 );
