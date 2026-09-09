@@ -2055,13 +2055,17 @@ impl CompilerDatabase {
                 "compiled template relocation belongs to a different package",
             ));
         }
-        if interface.definition(identity).is_some() {
-            if let Ok(module_id) = self.resolve_compiled_module_identity(&identity.module) {
-                return Ok(GlobalDefId {
-                    module_id,
-                    def_id: DefId(identity.disambiguator),
-                });
+        if let Ok(module_id) = self.resolve_compiled_module_identity(&identity.module) {
+            if interface.definition(identity).is_none() {
+                return Err(self.db.invalid_input(
+                    &CompiledPackageInterfaceIndexQuery,
+                    format!("compiled template definition is absent from interface: {identity:?}"),
+                ));
             }
+            return Ok(GlobalDefId {
+                module_id,
+                def_id: DefId(identity.disambiguator),
+            });
         }
         self.resolve_loaded_definition(identity, package)
     }
