@@ -461,6 +461,10 @@ pub trait BackendProgramFacts: Sync {
     fn extensions(&self, module_id: ModuleId) -> Option<&VisibleExtensionMethods>;
     /// Returns definitions owned by `module_id`.
     fn defs(&self, module_id: ModuleId) -> Option<&DefCollection>;
+    /// Returns effective generic parameter kinds for source or artifact definitions.
+    fn generic_params(&self, _def_id: GlobalDefId) -> Option<Vec<(SymbolId, bool)>> {
+        None
+    }
     /// Returns the canonical normalized form of a program type when available.
     fn normalized_type(&self, ty: InternedTyId) -> Option<InternedTyId>;
     /// Normalizes a type using aliases and projections visible from `module_id`.

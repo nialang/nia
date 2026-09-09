@@ -84,6 +84,11 @@ pub struct MonomorphizeModuleInput<'a> {
     pub source_identity: SourceIdentity,
     /// Definitions used to recover generic parameter kinds and names.
     pub defs: &'a DefCollection,
+    /// Effective generic parameter names for source and artifact definitions.
+    /// Artifact modules do not have active syntax trees, so this fact is
+    /// supplied by their published signatures instead of reconstructed from
+    /// source definitions.
+    pub generic_params: &'a HashMap<GlobalDefId, Vec<SymbolId>>,
     /// Type normalization product for this module.
     pub normalization: &'a TypeNormalization,
     /// Evaluated const expressions used by array-length symbol generation.
@@ -117,6 +122,15 @@ pub fn collect_monomorphizations(
         defs_by_module: inputs
             .iter()
             .map(|input| (input.module_id, input.defs))
+            .collect(),
+        generic_params_by_def: inputs
+            .iter()
+            .flat_map(|input| {
+                input
+                    .generic_params
+                    .iter()
+                    .map(|(def, params)| (*def, params.clone()))
+            })
             .collect(),
         normalizations_by_module: inputs
             .iter()
@@ -177,6 +191,7 @@ struct MonoCollector<'a> {
     type_store: &'a TypeStore,
     source_identities: HashMap<ModuleId, SourceIdentity>,
     defs_by_module: HashMap<ModuleId, &'a DefCollection>,
+    generic_params_by_def: HashMap<GlobalDefId, Vec<SymbolId>>,
     normalizations_by_module: HashMap<ModuleId, &'a TypeNormalization>,
     const_by_module: HashMap<ModuleId, &'a ConstCheck>,
     const_expr_summaries_by_module:
@@ -312,6 +327,9 @@ impl MonoCollector<'_> {
         if self.has_recorded_generics(def_id) {
             return true;
         }
+        if self.generic_params_by_def.contains_key(&def_id) {
+            return true;
+        }
         let Some(defs) = self.defs_by_module.get(&def_id.module_id) else {
             return false;
         };
@@ -330,6 +348,9 @@ impl MonoCollector<'_> {
     fn compute_effective_generics(&self, def_id: GlobalDefId) -> Vec<SymbolId> {
         if let Some(generics) = self.recorded_generics(def_id) {
             return generics.to_vec();
+        }
+        if let Some(generics) = self.generic_params_by_def.get(&def_id) {
+            return generics.clone();
         }
         let Some(defs) = self.defs_by_module.get(&def_id.module_id) else {
             return Vec::new();

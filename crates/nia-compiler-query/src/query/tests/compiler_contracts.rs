@@ -42,7 +42,6 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
                 | "compiled_package_type_roots"
                 | "compiled_package_declarations"
                 | "compiled_package_module_interface"
-                | "compiled_package_templates"
                 | "compiled_package_native"
         ) {
             nia_query::QueryStoragePolicy::SingleConsumerOwned
@@ -211,10 +210,8 @@ fn package_artifact_publication_round_trips_manifest_and_interface() {
 
 #[test]
 fn package_artifact_publication_emits_checked_generic_templates() {
-    let fixture = LoadedProgramFixture::new(
-        "src/main.nia",
-        "pub fn identity[T](value: T) T { value }",
-    );
+    let fixture =
+        LoadedProgramFixture::new("src/main.nia", "pub fn identity[T](value: T) T { value }");
     let database = fixture.database();
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
@@ -236,6 +233,73 @@ fn package_artifact_publication_emits_checked_generic_templates() {
     assert!(!identity.body.is_empty());
     assert!(!identity.summary.is_empty());
     assert!(identity.type_roots.len() >= 1);
+}
+
+#[test]
+fn source_free_dependency_generic_body_reaches_backend_without_source_queries() {
+    let dependency = LoadedProgramFixture::new(
+        "src/dependency.nia",
+        "pub fn identity[T](value: T) T { value }",
+    );
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "generic-dependency".into(),
+        version: "1.0.0".into(),
+    };
+    let artifact = nia_package_metadata::PackageArtifact::open(
+        dependency
+            .database()
+            .publish_package_artifact(package.clone())
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
+    let compiled =
+        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap();
+
+    let mut consumer = LoadedProgramFixture::new(
+        "src/main.nia",
+        "using dependency::identity; fn main() i32 { identity[i32](1) }",
+    );
+    let dependency_module =
+        consumer.add_child(consumer.entry_id(), "dependency", "src/dependency.nia", "");
+    let loader = TestLoaderFacts::new(
+        consumer.program(),
+        crate::ProviderFactSnapshot::empty(crate::ProviderFactRevision::default()),
+    );
+    let identity = compiled
+        .module_identities()
+        .next()
+        .expect("dependency module identity");
+    loader.replace_compiled_interfaces(vec![compiled]);
+    loader.replace_compiled_module_identities(HashMap::from([(dependency_module, identity)]));
+    let database = super::super::CompilerDatabase::new(
+        CompileRequest::new(consumer.program()).with_loader_facts(loader),
+    );
+    database
+        .install_compiled_package_module_interfaces()
+        .unwrap();
+    let resolver = |definition: &nia_package_metadata::DefinitionId| {
+        database.resolve_loaded_definition(definition, &package)
+    };
+    database
+        .install_compiled_interface_type_roots(&resolver)
+        .unwrap();
+    database.install_compiled_package_declarations().unwrap();
+    database.install_compiled_package_templates().unwrap();
+    database.install_compiled_package_signatures().unwrap();
+
+    assert!(is_compiled_artifact_module(&database.db, dependency_module));
+    let mono = database.db.expect_get(MonomorphizationQuery);
+    let modules = database.db.expect_get(ExecutableCheckedModulesQuery);
+    let plans = database
+        .db
+        .expect_get(BackendModuleFunctionInstancePlanQuery(dependency_module));
+    assert!(!mono.semantic.instances.is_empty());
+    assert!(modules.iter().any(|module| module.id == dependency_module));
+    assert!(!plans.instances.is_empty());
+    let backend = database.db.expect_get(BackendLoweringQuery);
+    assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
 }
 
 #[test]

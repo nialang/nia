@@ -156,7 +156,6 @@ impl QueryKey<CompilerContext> for CompiledPackageNativeObservationQuery {
 impl QueryKey<CompilerContext> for CompiledPackageTemplatesQuery {
     type Value = CompiledPackageTemplates;
 
-    const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
     const PROVIDER: QueryProviderPolicy = QueryProviderPolicy::ExternallyPublished;
 
     fn name() -> &'static str {
