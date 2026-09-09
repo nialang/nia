@@ -353,6 +353,12 @@ pub(super) fn provide_module_defs(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<ModuleDefinitions> {
+    if let Some(facts) = provide_artifact_public_surface_facts(db, module_id)? {
+        return Ok(ModuleDefinitions {
+            semantic: Arc::new(facts.materialize_for_public_surface(module_id)),
+            diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        });
+    }
     let item_tree = db.get(ActiveModuleItemTreeQuery(module_id))?;
     let symbols = db.context().symbols();
     let mut defs = nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
@@ -372,6 +378,12 @@ pub(super) fn provide_full_module_defs(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<FullModuleDefinitions> {
+    if let Some(facts) = provide_artifact_public_surface_facts(db, module_id)? {
+        return Ok(FullModuleDefinitions {
+            semantic: Arc::new(facts.materialize_for_public_surface(module_id)),
+            diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        });
+    }
     let item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
     let symbols = db.context().symbols();
     let mut defs = nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(

@@ -1832,6 +1832,14 @@ impl CompilerDatabase {
                 ));
             };
             if graph.current_package_root(def_id.module_id) != Some(entry_root) {
+                if let Some(identity) = self
+                    .db
+                    .context()
+                    .loader_facts()
+                    .compiled_package_module_identity(def_id.module_id)?
+                {
+                    return Ok(identity.package);
+                }
                 return Err(self.db.invalid_input(
                     &ModuleGraphQuery,
                     "nominal type belongs to an external package; provide an external definition resolver"
@@ -1924,6 +1932,14 @@ impl CompilerDatabase {
                 ));
             };
             if graph.current_package_root(def_id.module_id) != Some(entry_root) {
+                if let Some(identity) = self
+                    .db
+                    .context()
+                    .loader_facts()
+                    .compiled_package_module_identity(def_id.module_id)?
+                {
+                    return Ok(identity.package);
+                }
                 return Err(self.db.invalid_input(
                     &ModuleGraphQuery,
                     "nominal type belongs to an external package; provide an external definition resolver"
