@@ -844,7 +844,25 @@ impl CompilerDatabase {
                         ));
                     }
                 }
-                extensions.extend(signatures.extensions.iter().cloned());
+                for extension in &signatures.extensions {
+                    if extension.members.iter().any(|member| {
+                        member.definition.module.package != *package
+                            || !interface
+                                .records()
+                                .iter()
+                                .any(|item| item.definition == member.definition)
+                    }) || extensions.iter().any(
+                        |existing: &nia_package_metadata::SignatureExtensionRecord| {
+                            existing.impl_id == extension.impl_id
+                        },
+                    ) {
+                        return Err(self.db.invalid_input(
+                            &CompiledPackageInterfaceIndexQuery,
+                            "compiled extension signature identity is inconsistent",
+                        ));
+                    }
+                    extensions.push(extension.clone());
+                }
             }
             let key = CompiledPackageSignaturesQuery(package.clone());
             if self.db.can_publish_owned(key.clone()) {
