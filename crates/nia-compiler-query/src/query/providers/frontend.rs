@@ -31,9 +31,6 @@ pub(in crate::query) fn provide_artifact_public_surface_facts(
             nia_package_metadata::decode_declaration(&record.declaration).map_err(|error| {
                 db.invalid_input(&CompiledPackageInterfaceIndexQuery, error.to_string())
             })?;
-        if declaration.visibility != 3 {
-            continue;
-        }
         if record.definition.module != identity {
             return Err(db.invalid_input(
                 &CompiledPackageInterfaceIndexQuery,
@@ -55,15 +52,47 @@ pub(in crate::query) fn provide_artifact_public_surface_facts(
         let name = symbols.intern(&record.definition.name).map_err(|error| {
             db.invalid_input(&CompiledPackageInterfaceIndexQuery, error.to_string())
         })?;
-        let id = nia_defs::stable_top_level_def_id(kind, name);
+        let local_id = |definition: &nia_package_metadata::DefinitionId| {
+            let kind = def_kind_from_tag(definition.kind).ok_or_else(|| {
+                db.invalid_input(
+                    &CompiledPackageInterfaceIndexQuery,
+                    "artifact declaration has unknown definition kind",
+                )
+            })?;
+            let name = symbols.intern(&definition.name).map_err(|error| {
+                db.invalid_input(&CompiledPackageInterfaceIndexQuery, error.to_string())
+            })?;
+            Ok(if definition.disambiguator == 0 {
+                nia_defs::stable_top_level_def_id(kind, name)
+            } else {
+                nia_defs::DefId(definition.disambiguator)
+            })
+        };
+        let id = local_id(&record.definition)?;
+        let parent = record
+            .definition
+            .owner
+            .as_deref()
+            .map(local_id)
+            .transpose()?;
+        let visibility = match declaration.visibility {
+            0 => nia_defs::Visibility::Private,
+            1 => nia_defs::Visibility::PublicSuper,
+            2 => nia_defs::Visibility::PublicPkg,
+            3 => nia_defs::Visibility::Public,
+            _ => unreachable!(),
+        };
         defs.push(nia_defs::PublicSurfaceDefFact {
             id,
             name,
             kind,
-            parent: None,
-            visibility: nia_defs::Visibility::Public,
+            parent,
+            visibility,
             span: Span::default(),
         });
+        if visibility != nia_defs::Visibility::Public || parent.is_some() {
+            continue;
+        }
         match kind {
             nia_defs::DefKind::Module => modules.push((name, id)),
             nia_defs::DefKind::Function | nia_defs::DefKind::Global | nia_defs::DefKind::Const => {
@@ -74,21 +103,34 @@ pub(in crate::query) fn provide_artifact_public_surface_facts(
             | nia_defs::DefKind::Trait
             | nia_defs::DefKind::Enum
             | nia_defs::DefKind::TypeAlias => types.push((name, id)),
-            _ => {
-                return Err(db.invalid_input(
-                    &CompiledPackageInterfaceIndexQuery,
-                    format!(
-                        "artifact declaration is not top-level: {:?}",
-                        record.definition
-                    ),
-                ));
-            }
+            _ => {}
         }
     }
     defs.sort_by_key(|fact| fact.id);
     modules.sort_unstable();
     types.sort_unstable();
     values.sort_unstable();
+    let mut enum_scopes =
+        HashMap::<nia_defs::DefId, Vec<(nia_symbol::SymbolId, nia_defs::DefId)>>::new();
+    for fact in &defs {
+        if fact.kind == nia_defs::DefKind::EnumVariant
+            && fact.visibility == nia_defs::Visibility::Public
+        {
+            if let Some(parent) = fact.parent {
+                enum_scopes
+                    .entry(parent)
+                    .or_default()
+                    .push((fact.name, fact.id));
+            }
+        }
+    }
+    let enum_scopes = enum_scopes
+        .into_iter()
+        .map(|(owner, mut variants)| {
+            variants.sort_unstable();
+            nia_defs::PublicSurfaceEnumScopeFact { owner, variants }
+        })
+        .collect();
     Ok(Some(PublicSurfaceModuleFacts {
         defs,
         module_scope: nia_defs::PublicSurfaceModuleScopeFacts {
@@ -96,7 +138,7 @@ pub(in crate::query) fn provide_artifact_public_surface_facts(
             types,
             values,
         },
-        enum_scopes: Vec::new(),
+        enum_scopes,
         module_usings: Vec::new(),
     }))
 }
@@ -1118,6 +1160,9 @@ fn provide_artifact_item_signatures(
             continue;
         }
         let Some(payload) = record.payload.as_ref() else {
+            if matches!(definition.kind, 1 | 6 | 8 | 9 | 10 | 14 | 15) {
+                continue;
+            }
             complete = false;
             continue;
         };

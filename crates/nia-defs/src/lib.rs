@@ -176,6 +176,33 @@ impl PublicSurfaceModuleFacts {
                 )
             })
             .collect();
+        let mut struct_members = HashMap::new();
+        let mut union_members = HashMap::new();
+        for fact in &self.defs {
+            let Some(parent) = fact.parent else { continue };
+            let Some(parent_def) = defs.get(parent) else {
+                continue;
+            };
+            let table = match parent_def.kind {
+                DefKind::Struct => Some(&mut struct_members),
+                DefKind::Union => Some(&mut union_members),
+                _ => None,
+            };
+            let Some(table) = table else { continue };
+            let scope = table.entry(parent).or_insert_with(MemberScope::default);
+            match fact.kind {
+                DefKind::StructField | DefKind::UnionField => {
+                    let _ = scope.fields.insert(fact.name, fact.id, fact.span);
+                }
+                DefKind::Const | DefKind::Global => {
+                    let _ = scope.values.insert(fact.name, fact.id, fact.span);
+                }
+                DefKind::Method | DefKind::TraitMethod => {
+                    let _ = scope.methods.insert(fact.name, fact.id, fact.span);
+                }
+                _ => {}
+            }
+        }
         DefCollection {
             module_id,
             defs,
@@ -185,8 +212,8 @@ impl PublicSurfaceModuleFacts {
                 values: name_table_from_fact_entries(&self.module_scope.values),
             },
             scopes: DefScopes {
-                struct_members: HashMap::new(),
-                union_members: HashMap::new(),
+                struct_members,
+                union_members,
                 enum_members,
             },
             def_nodes: DefNodeMap::default(),
