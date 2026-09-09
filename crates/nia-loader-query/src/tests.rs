@@ -203,8 +203,10 @@ fn test_loader_context(
             &entry_path,
             module_map,
             Some(test_toolchain_layout().as_ref()),
+            None,
         ),
         sources,
+        compiled_package_modules: Arc::new(Vec::new()),
         node_store: nia_node_id::NodeStore::new(),
         diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
         symbols: SymbolTable::new(),
@@ -396,6 +398,7 @@ fn facade_cache_identity(
         entry_path,
         module_map.clone(),
         Some(test_toolchain_layout().as_ref()),
+        None,
     );
     let module_map = frontend_module_map_fingerprint(&effective_module_map);
     let facade_key = FrontendFacadeFactsCacheKey::new(
@@ -428,6 +431,7 @@ fn module_dependencies_cache_identity(
         entry_path,
         module_map.clone(),
         Some(test_toolchain_layout().as_ref()),
+        None,
     );
     let module_map = frontend_module_map_fingerprint(&effective_module_map);
     let key = FrontendModuleDependenciesCacheKey::new(namespace, &module, source, module_map);
