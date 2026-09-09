@@ -925,6 +925,7 @@ impl Driver {
         // incremental requests either retain a live payload or republish a
         // consumed slot for the current artifact generation.
         database.install_compiled_package_module_interfaces()?;
+        database.install_compiled_package_declarations()?;
         database.install_compiled_package_templates()?;
         database.install_compiled_package_signatures()?;
         database.install_compiled_package_native()?;

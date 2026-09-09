@@ -1463,6 +1463,19 @@ impl CompilerDatabase {
             .get_owned(CompiledPackageDeclarationsQuery(package.clone()))
     }
 
+    /// Installs decoded declaration inventories for every selected package.
+    /// The interface index remains the sole predecessor, so replacement or
+    /// retirement of an artifact invalidates all published declaration facts.
+    pub fn install_compiled_package_declarations(&self) -> QueryResult<Vec<PackageId>> {
+        let index = self.compiled_package_interface_index()?;
+        let mut installed = Vec::new();
+        for (package, _) in index.packages() {
+            self.publish_compiled_package_declarations(package.clone())?;
+            installed.push(package.clone());
+        }
+        Ok(installed)
+    }
+
     /// Installs all loader-selected compiled interface roots into their
     /// package query slots. Definitions are grouped by the stable package
     /// identity carried by the artifact; no package is inferred from the

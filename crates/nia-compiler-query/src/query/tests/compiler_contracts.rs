@@ -450,7 +450,7 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
                         kind: 2,
                         owner: None,
                     },
-                    declaration: b"NIADECL01".to_vec(),
+                    declaration: [b"NIADECL01".as_slice(), &[2, 3, 0, 0, 0, 0]].concat(),
                     type_roots: Vec::new(),
                 }],
             };
@@ -526,6 +526,12 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
             nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap()
         };
     loader.replace_compiled_interfaces(vec![make_interface("first", b"a", [0; 32], 0)]);
+    assert_eq!(
+        database.install_compiled_package_declarations().unwrap(),
+        vec![package.clone()]
+    );
+    let declarations = database.compiled_package_declarations(&package).unwrap();
+    assert_eq!(declarations.iter().count(), 1);
     let _ = database.compiled_package_interface_index().unwrap();
     loader.replace_compiled_interfaces(vec![make_interface("first", b"a", [1; 32], 0)]);
     let dependency_invalidation = database
