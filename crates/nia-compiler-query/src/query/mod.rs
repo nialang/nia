@@ -1711,15 +1711,15 @@ impl CompilerDatabase {
             for implementation in &facts.semantic.trait_impls {
                 let target_root = match type_indexes.get(&implementation.target_ty) { Some(root) => *root, None => continue };
                 let trait_root = implementation.trait_ty.map(|ty| type_indexes.get(&ty).copied()).flatten();
-                let generic_params = implementation.generic_params.iter().filter_map(|param| {
-                    let name = self.db.context().loader_facts().symbols().symbol_text(param.name)?.to_string();
+                let generic_params = implementation.generic_params.iter().map(|param| {
+                    let name = self.db.context().loader_facts().symbols().symbol_text(param.name).ok_or_else(|| self.db.invalid_input(&ModuleGraphQuery, "extension generic parameter has no stable symbol text"))?.to_string();
                     let (kind, type_root) = match param.kind {
                         nia_item_signatures::GenericParamSignatureKind::Type => (0, None),
                         nia_item_signatures::GenericParamSignatureKind::Const { ty } => (1, type_indexes.get(&ty).copied()),
                     };
-                    Some(nia_package_metadata::SignatureGenericParam { name, kind, type_root })
-                }).collect::<Vec<_>>();
-                let where_roots = implementation.where_predicates.iter().filter_map(|predicate| type_indexes.get(&predicate.ty).copied()).collect::<Vec<_>>();
+                    Ok(nia_package_metadata::SignatureGenericParam { name, kind, type_root })
+                }).collect::<QueryResult<Vec<_>>>()?;
+                let where_roots = implementation.where_predicates.iter().map(|predicate| type_indexes.get(&predicate.ty).copied().ok_or_else(|| self.db.invalid_input(&ModuleGraphQuery, "extension where predicate type missing from published graph"))).collect::<QueryResult<Vec<_>>>()?;
                 let mut extension_members = Vec::new();
                 for method in &implementation.methods {
                     if method.visibility != nia_ids::Visibility::Public { continue; }
@@ -1737,10 +1737,11 @@ impl CompilerDatabase {
                         }
                     }
                 }
-                let associated_types = implementation.associated_types.iter().filter_map(|associated| {
-                    let name = self.db.context().loader_facts().symbols().symbol_text(associated.name)?.to_string();
-                    Some(nia_package_metadata::SignatureAssociatedType { name, type_root: type_indexes.get(&associated.ty).copied()? })
-                }).collect();
+                let associated_types = implementation.associated_types.iter().map(|associated| {
+                    let name = self.db.context().loader_facts().symbols().symbol_text(associated.name).ok_or_else(|| self.db.invalid_input(&ModuleGraphQuery, "associated type has no stable symbol text"))?.to_string();
+                    let type_root = type_indexes.get(&associated.ty).copied().ok_or_else(|| self.db.invalid_input(&ModuleGraphQuery, "associated type missing from published graph"))?;
+                    Ok(nia_package_metadata::SignatureAssociatedType { name, type_root })
+                }).collect::<QueryResult<Vec<_>>>()?;
                 extension_records.push(nia_package_metadata::SignatureExtensionRecord { impl_id: implementation.impl_id.0, target_root, trait_root, generic_params, where_roots, members: extension_members, associated_types });
             }
         }
