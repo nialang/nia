@@ -1702,7 +1702,11 @@ impl CompilerDatabase {
                         }
                     }
                 }
-                extension_records.push(nia_package_metadata::SignatureExtensionRecord { impl_id: implementation.impl_id.0, target_root, trait_root, generic_params, where_roots, members: extension_members });
+                let associated_types = implementation.associated_types.iter().filter_map(|associated| {
+                    let name = self.db.context().loader_facts().symbols().symbol_text(associated.name)?.to_string();
+                    Some(nia_package_metadata::SignatureAssociatedType { name, type_root: type_indexes.get(&associated.ty).copied()? })
+                }).collect();
+                extension_records.push(nia_package_metadata::SignatureExtensionRecord { impl_id: implementation.impl_id.0, target_root, trait_root, generic_params, where_roots, members: extension_members, associated_types });
             }
         }
         let records = records
