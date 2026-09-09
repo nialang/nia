@@ -846,6 +846,41 @@ impl CompilerDatabase {
         self.db.get_owned(CompiledPackageSignaturesQuery(package))
     }
 
+    /// Rehydrates artifact signature roots into the current type store. This
+    /// is the semantic bridge used by downstream providers; it validates that
+    /// every generic/where/trait/extension root points into the selected
+    /// package graph before exposing session-local type handles.
+    pub fn rehydrate_compiled_signature_roots(
+        &self,
+        resolver: &dyn StableDefinitionResolver,
+    ) -> QueryResult<BTreeMap<DefinitionId, Vec<InternedTyId>>> {
+        let index = self.compiled_package_interface_index()?;
+        let mut result = BTreeMap::new();
+        for (package, interface) in index.packages() {
+            let types = interface
+                .type_graph()
+                .map(|graph| self.rehydrate_stable_type_graph(graph, resolver))
+                .transpose()?
+                .unwrap_or_default();
+            let signatures = self.compiled_package_signatures(package.clone())?;
+            for (definition, record) in signatures.iter() {
+                let roots = record.type_roots.iter().map(|root| {
+                    types.get(*root as usize).copied().ok_or_else(|| self.db.invalid_input(&CompiledPackageInterfaceIndexQuery, "compiled signature root is outside its graph"))
+                }).collect::<QueryResult<Vec<_>>>()?;
+                for param in &record.generic_params {
+                    if let Some(root) = param.type_root { if types.get(root as usize).is_none() { return Err(self.db.invalid_input(&CompiledPackageInterfaceIndexQuery, "compiled generic parameter root is outside its graph")); } }
+                }
+                for predicate in &record.where_predicates {
+                    for root in std::iter::once(predicate.type_root).chain(predicate.bounds.iter().flat_map(|bound| std::iter::once(bound.trait_root).chain(bound.associated_type_bindings.iter().map(|binding| binding.type_root)))) {
+                        if types.get(root as usize).is_none() { return Err(self.db.invalid_input(&CompiledPackageInterfaceIndexQuery, "compiled where predicate root is outside its graph")); }
+                    }
+                }
+                if result.insert(definition.clone(), roots).is_some() { return Err(self.db.invalid_input(&CompiledPackageInterfaceIndexQuery, "duplicate compiled signature during root rehydration")); }
+            }
+        }
+        Ok(result)
+    }
+
     /// Returns decoded closure summaries for every installed template. Stable
     /// definition identities remain intact until an explicit remap step.
     pub fn compiled_template_summaries(
