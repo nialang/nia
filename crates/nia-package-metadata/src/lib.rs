@@ -27,7 +27,10 @@ const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG01";
 const SIGNATURE_SCHEMA: u32 = 8;
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
-const TEMPLATE_SCHEMA: u32 = 3;
+// Version 4 adds explicit stable definition/module/type relocations for the
+// checked Function IR body. There is intentionally no legacy decode path:
+// bodies without relocation tables are not executable package products.
+const TEMPLATE_SCHEMA: u32 = 4;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
 const TEMPLATE_SUMMARY_SCHEMA: u32 = 1;
 const NATIVE_MAGIC: &[u8; 8] = b"NIANAT01";
@@ -785,6 +788,12 @@ pub struct TemplateRecord {
     pub definition: DefinitionId,
     /// Number of ABI parameters represented by the summary index domain.
     pub parameter_count: u32,
+    /// Stable definitions referenced by the checked body, in canonical order.
+    pub referenced_definitions: Vec<DefinitionId>,
+    /// Stable modules referenced by the checked body, in canonical order.
+    pub referenced_modules: Vec<ModuleId>,
+    /// Type-graph roots used by the body relocation table, in canonical order.
+    pub type_roots: Vec<u32>,
     /// Compiler-owned checked template payload.
     pub body: Vec<u8>,
     /// Compositional semantic summary used before body materialization.
@@ -956,6 +965,27 @@ impl TemplateSection {
         }
         for record in &self.records {
             validate_definition(&record.definition)?;
+            if record.referenced_definitions.len() > MAX_ITEMS
+                || record.referenced_modules.len() > MAX_ITEMS
+                || record.type_roots.len() > MAX_ITEMS
+                || record
+                    .referenced_definitions
+                    .windows(2)
+                    .any(|pair| pair[0] >= pair[1])
+                || record
+                    .referenced_modules
+                    .windows(2)
+                    .any(|pair| pair[0] >= pair[1])
+                || record.type_roots.windows(2).any(|pair| pair[0] >= pair[1])
+            {
+                return Err(MetadataError::InvalidManifest);
+            }
+            for definition in &record.referenced_definitions {
+                validate_definition(definition)?;
+            }
+            for module in &record.referenced_modules {
+                validate_module_id(module)?;
+            }
             validate_bytes(&record.body)?;
             validate_bytes(&record.summary)?;
             if record.body.is_empty() || record.summary.is_empty() {
@@ -2504,6 +2534,15 @@ pub fn encode_templates(section: &TemplateSection) -> Result<Vec<u8>, MetadataEr
     for record in &section.records {
         put_definition(&mut output, &record.definition)?;
         put_u32(&mut output, record.parameter_count);
+        put_list_len(&mut output, record.referenced_definitions.len())?;
+        for definition in &record.referenced_definitions {
+            put_definition(&mut output, definition)?;
+        }
+        put_list_len(&mut output, record.referenced_modules.len())?;
+        for module in &record.referenced_modules {
+            put_module_id(&mut output, module)?;
+        }
+        put_refs(&mut output, &record.type_roots)?;
         put_bytes(&mut output, &record.body)?;
         put_bytes(&mut output, &record.summary)?;
     }
@@ -2531,9 +2570,25 @@ pub fn decode_templates(bytes: &[u8]) -> Result<TemplateSection, MetadataError> 
     let count = bounded_count(get_u32(&mut cursor)?)?;
     let mut records = Vec::with_capacity(count);
     for _ in 0..count {
+        let definition = read_definition(&mut cursor)?;
+        let parameter_count = get_u32(&mut cursor)?;
+        let definition_count = bounded_count(get_u32(&mut cursor)?)?;
+        let mut referenced_definitions = Vec::with_capacity(definition_count);
+        for _ in 0..definition_count {
+            referenced_definitions.push(read_definition(&mut cursor)?);
+        }
+        let module_count = bounded_count(get_u32(&mut cursor)?)?;
+        let mut referenced_modules = Vec::with_capacity(module_count);
+        for _ in 0..module_count {
+            referenced_modules.push(read_module_id(&mut cursor)?);
+        }
+        let type_roots = read_refs(&mut cursor)?;
         records.push(TemplateRecord {
-            definition: read_definition(&mut cursor)?,
-            parameter_count: get_u32(&mut cursor)?,
+            definition,
+            parameter_count,
+            referenced_definitions,
+            referenced_modules,
+            type_roots,
             body: get_bytes(&mut cursor)?,
             summary: get_bytes(&mut cursor)?,
         });
@@ -3946,6 +4001,9 @@ mod tests {
                     owner: None,
                 },
                 parameter_count: 0,
+                referenced_definitions: Vec::new(),
+                referenced_modules: Vec::new(),
+                type_roots: Vec::new(),
                 body: vec![1, 2, 3],
                 summary: encode_template_summary(&TemplateSummary::default()).unwrap(),
             }],
@@ -4325,6 +4383,9 @@ mod tests {
                     owner: None,
                 },
                 parameter_count: 0,
+                referenced_definitions: Vec::new(),
+                referenced_modules: Vec::new(),
+                type_roots: Vec::new(),
                 body: vec![1],
                 summary: b"opaque summary".to_vec(),
             }],
@@ -4353,6 +4414,9 @@ mod tests {
             records: vec![TemplateRecord {
                 definition,
                 parameter_count: 1,
+                referenced_definitions: Vec::new(),
+                referenced_modules: Vec::new(),
+                type_roots: Vec::new(),
                 body: vec![1],
                 summary,
             }],
