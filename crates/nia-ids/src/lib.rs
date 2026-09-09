@@ -836,6 +836,23 @@ impl LayoutBuiltin {
             Self::Align => "align",
         }
     }
+
+    /// Returns the package-metadata ABI tag for this layout builtin.
+    pub const fn stable_tag(self) -> u32 {
+        match self {
+            Self::Size => 1,
+            Self::Align => 2,
+        }
+    }
+
+    /// Resolves a package-metadata ABI tag without relying on registry order.
+    pub const fn from_stable_tag(tag: u32) -> Option<Self> {
+        match tag {
+            1 => Some(Self::Size),
+            2 => Some(Self::Align),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1015,6 +1032,75 @@ pub struct BuiltinTraitMethodDescriptor {
 }
 
 impl BuiltinTraitMethod {
+    /// Returns the package-metadata ABI tag for this builtin trait method.
+    pub const fn stable_tag(self) -> u32 {
+        match self {
+            Self::Add => 1,
+            Self::Sub => 2,
+            Self::Mul => 3,
+            Self::Div => 4,
+            Self::Rem => 5,
+            Self::Neg => 6,
+            Self::Not => 7,
+            Self::BitNot => 8,
+            Self::BitAnd => 9,
+            Self::BitOr => 10,
+            Self::BitXor => 11,
+            Self::Shl => 12,
+            Self::Shr => 13,
+            Self::Eq => 14,
+            Self::Ne => 15,
+            Self::Lt => 16,
+            Self::Le => 17,
+            Self::Gt => 18,
+            Self::Ge => 19,
+            Self::Deref => 20,
+            Self::DerefMut => 21,
+            Self::Index => 22,
+            Self::IndexMut => 23,
+            Self::Slice => 24,
+            Self::SliceMut => 25,
+            Self::IterableIter => 26,
+            Self::IteratorNext => 27,
+            Self::IntoError => 28,
+        }
+    }
+
+    /// Resolves a package-metadata ABI tag without relying on registry order.
+    pub const fn from_stable_tag(tag: u32) -> Option<Self> {
+        match tag {
+            1 => Some(Self::Add),
+            2 => Some(Self::Sub),
+            3 => Some(Self::Mul),
+            4 => Some(Self::Div),
+            5 => Some(Self::Rem),
+            6 => Some(Self::Neg),
+            7 => Some(Self::Not),
+            8 => Some(Self::BitNot),
+            9 => Some(Self::BitAnd),
+            10 => Some(Self::BitOr),
+            11 => Some(Self::BitXor),
+            12 => Some(Self::Shl),
+            13 => Some(Self::Shr),
+            14 => Some(Self::Eq),
+            15 => Some(Self::Ne),
+            16 => Some(Self::Lt),
+            17 => Some(Self::Le),
+            18 => Some(Self::Gt),
+            19 => Some(Self::Ge),
+            20 => Some(Self::Deref),
+            21 => Some(Self::DerefMut),
+            22 => Some(Self::Index),
+            23 => Some(Self::IndexMut),
+            24 => Some(Self::Slice),
+            25 => Some(Self::SliceMut),
+            26 => Some(Self::IterableIter),
+            27 => Some(Self::IteratorNext),
+            28 => Some(Self::IntoError),
+            _ => None,
+        }
+    }
+
     /// All builtin trait methods in canonical registry order.
     pub const ALL: [Self; 28] = [
         Self::Add,
@@ -1298,6 +1384,27 @@ impl BuiltinTraitMethod {
             | Self::IteratorNext
             | Self::IntoError => true,
             Self::DerefMut => false,
+        }
+    }
+}
+
+impl ReceiverKind {
+    /// Returns the package-metadata ABI tag for this receiver passing mode.
+    pub const fn stable_tag(self) -> u32 {
+        match self {
+            Self::RefReadOnly => 1,
+            Self::Ref => 2,
+            Self::Value => 3,
+        }
+    }
+
+    /// Resolves a package-metadata ABI tag without relying on registry order.
+    pub const fn from_stable_tag(tag: u32) -> Option<Self> {
+        match tag {
+            1 => Some(Self::RefReadOnly),
+            2 => Some(Self::Ref),
+            3 => Some(Self::Value),
+            _ => None,
         }
     }
 }
