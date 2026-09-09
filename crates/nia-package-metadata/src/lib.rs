@@ -25,7 +25,7 @@ const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 4;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG01";
-const SIGNATURE_SCHEMA: u32 = 7;
+const SIGNATURE_SCHEMA: u32 = 8;
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
 const TEMPLATE_SCHEMA: u32 = 3;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
@@ -161,10 +161,10 @@ pub struct SignatureRecord {
     pub members: Vec<SignatureMember>,
     pub generic_params: Vec<SignatureGenericParam>,
     pub where_predicates: Vec<SignatureWherePredicate>,
-    /// Complete declaration payload for consumers that need ordered
-    /// parameters, fields, variants, or value types. The legacy root/member
-    /// indexes remain available for aggregate indexes and are validated
-    /// against this typed payload when present.
+    /// Complete declaration payload for semantic definitions. Structural
+    /// container/member records that are represented by their owner's payload
+    /// carry `None`; every kind accepted by [`signature_kind_requires_payload`]
+    /// must carry `Some`.
     pub payload: Option<SignaturePayload>,
 }
 
@@ -333,6 +333,9 @@ fn validate_signature_payload(
     kind: u8,
     payload: Option<&SignaturePayload>,
 ) -> Result<(), MetadataError> {
+    if signature_kind_requires_payload(kind) != payload.is_some() {
+        return Err(MetadataError::InvalidManifest);
+    }
     let Some(payload) = payload else {
         return Ok(());
     };
@@ -396,6 +399,12 @@ fn validate_signature_payload(
         SignaturePayload::TypeAlias { .. } | SignaturePayload::Value { .. } => {}
     }
     Ok(())
+}
+
+/// Returns whether a definition kind owns an independently consumable
+/// semantic signature payload.
+pub const fn signature_kind_requires_payload(kind: u8) -> bool {
+    matches!(kind, 2 | 3 | 4 | 5 | 7 | 11 | 12 | 13 | 16)
 }
 
 fn validate_signature_fields(fields: &[SignatureField]) -> Result<(), MetadataError> {
@@ -695,7 +704,11 @@ fn signature_flags_valid_for_kind(kind: u8, flags: u32) -> bool {
         13 => SIGNATURE_FLAG_OPEN,
         _ => 0,
     };
-    flags & !allowed == 0
+    let required = match kind {
+        4 => SIGNATURE_FLAG_CONST,
+        _ => 0,
+    };
+    flags & !allowed == 0 && flags & required == required
 }
 
 fn signature_where_bound_has_invalid_root(bound: &SignatureWhereBound, node_count: u32) -> bool {
@@ -3955,6 +3968,12 @@ mod tests {
             encode_signatures(&invalid),
             Err(MetadataError::InvalidManifest)
         );
+        invalid = section.clone();
+        invalid.records[0].payload = None;
+        assert_eq!(
+            encode_signatures(&invalid),
+            Err(MetadataError::InvalidManifest)
+        );
     }
 
     #[test]
@@ -3978,7 +3997,11 @@ mod tests {
                 members: Vec::new(),
                 generic_params: Vec::new(),
                 where_predicates: Vec::new(),
-                payload: None,
+                payload: Some(SignaturePayload::Function {
+                    params: Vec::new(),
+                    return_type: 0,
+                    attributes: Vec::new(),
+                }),
             }],
             traits: Vec::new(),
             extensions: Vec::new(),
@@ -4022,7 +4045,7 @@ mod tests {
                 flags: 0,
                 type_roots: Vec::new(),
                 members: vec![SignatureMember {
-                    definition: child,
+                    definition: child.clone(),
                     name: "field".into(),
                     kind: 6,
                     flags: 0,
@@ -4030,7 +4053,13 @@ mod tests {
                 }],
                 generic_params: Vec::new(),
                 where_predicates: Vec::new(),
-                payload: None,
+                payload: Some(SignaturePayload::Aggregate {
+                    fields: vec![SignatureField {
+                        definition: child,
+                        name: "field".into(),
+                        type_root: 0,
+                    }],
+                }),
             }],
             traits: Vec::new(),
             extensions: Vec::new(),
@@ -4160,7 +4189,11 @@ mod tests {
                 members: Vec::new(),
                 generic_params: Vec::new(),
                 where_predicates: Vec::new(),
-                payload: None,
+                payload: Some(SignaturePayload::Function {
+                    params: Vec::new(),
+                    return_type: 0,
+                    attributes: Vec::new(),
+                }),
             }],
             traits: Vec::new(),
             extensions: Vec::new(),

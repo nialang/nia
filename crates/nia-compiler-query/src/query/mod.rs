@@ -2148,6 +2148,15 @@ impl CompilerDatabase {
                 &self.db.context().loader_facts().symbols(),
                 &self.db,
             )?;
+            if nia_package_metadata::signature_kind_requires_payload(kind) && payload.is_none() {
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    format!(
+                        "semantic definition has no complete signature payload: {:?}",
+                        item.definition
+                    ),
+                ));
+            }
             if let Some(owner) = item.definition.owner.as_deref() {
                 members.entry(owner.clone()).or_default().push(
                     nia_package_metadata::SignatureMember {
@@ -4514,10 +4523,7 @@ fn signature_flags_for_definition(
             }
             flags
         }),
-        4 => signatures
-            .consts
-            .get(&def_id)
-            .map_or(0, |_| nia_package_metadata::SIGNATURE_FLAG_CONST),
+        4 => nia_package_metadata::SIGNATURE_FLAG_CONST,
         _ => 0,
     }
 }
@@ -4714,14 +4720,31 @@ fn signature_payload_for_definition(
                     builtin: None,
                 })
             }),
-            4 => signatures.consts.get(&def_id).map(|signature| {
-                Ok(nia_package_metadata::SignaturePayload::Value {
-                    explicit_type: signature.explicit_type.map(root).transpose()?,
-                    builtin: signature
-                        .builtin
-                        .map(nia_ids::BuiltinConstValue::stable_tag),
+            4 => signatures
+                .consts
+                .get(&def_id)
+                .map(|signature| {
+                    Ok(nia_package_metadata::SignaturePayload::Value {
+                        explicit_type: signature.explicit_type.map(root).transpose()?,
+                        builtin: signature
+                            .builtin
+                            .map(nia_ids::BuiltinConstValue::stable_tag),
+                    })
                 })
-            }),
+                .or_else(|| {
+                    signatures.traits.values().find_map(|signature| {
+                        signature
+                            .associated_values
+                            .iter()
+                            .find(|value| value.def_id == def_id)
+                            .map(|value| {
+                                Ok(nia_package_metadata::SignaturePayload::Value {
+                                    explicit_type: Some(root(value.ty)?),
+                                    builtin: None,
+                                })
+                            })
+                    })
+                }),
             _ => None,
         };
     payload.transpose()

@@ -69,8 +69,10 @@ pub(in crate::query) use self::executable_reachability::{
 };
 use self::extension_providers::*;
 use self::frontend::*;
+#[cfg(test)]
+pub(in crate::query) use self::frontend::{project_const_item_signatures, project_item_signatures};
 pub(in crate::query) use self::frontend::{
-    project_item_signatures, provide_artifact_public_surface, provide_artifact_public_surface_facts,
+    provide_artifact_public_surface, provide_artifact_public_surface_facts,
 };
 use self::layout_roots::*;
 use self::module_checks::*;

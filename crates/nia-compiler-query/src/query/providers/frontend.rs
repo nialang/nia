@@ -1109,9 +1109,7 @@ pub(super) fn provide_item_signatures(
         .loader_facts()
         .compiled_package_module_identity(module_id)?
     {
-        if let Some(signatures) = provide_artifact_item_signatures(db, &identity)? {
-            return Ok(signatures);
-        }
+        return provide_artifact_item_signatures(db, &identity);
     }
     let active_item_tree = db.get(DeclarationActiveModuleItemTreeQuery(module_id))?;
     let defs = module_defs_semantic(db, module_id)?;
@@ -1135,7 +1133,7 @@ pub(super) fn provide_item_signatures(
 fn provide_artifact_item_signatures(
     db: &QueryDb<CompilerContext>,
     identity: &nia_package_metadata::ModuleId,
-) -> QueryResult<Option<ModuleItemSignatures>> {
+) -> QueryResult<ModuleItemSignatures> {
     let package = db.get(CompiledPackageSignaturesQuery(identity.package.clone()))?;
     let graph = db.get(CompiledPackageTypeGraphQuery(identity.package.clone()))?;
     let symbols = db.context().symbols();
@@ -1154,16 +1152,19 @@ fn provide_artifact_item_signatures(
         consts: HashMap::new(),
         diagnostics: Vec::new(),
     };
-    let mut complete = true;
     for (definition, record) in package.iter() {
         if definition.module != *identity {
             continue;
         }
         let Some(payload) = record.payload.as_ref() else {
-            if matches!(definition.kind, 1 | 6 | 8 | 9 | 10 | 14 | 15) {
-                continue;
+            if nia_package_metadata::signature_kind_requires_payload(definition.kind) {
+                return Err(db.invalid_input(
+                    &CompiledPackageSignaturesQuery(identity.package.clone()),
+                    format!(
+                        "artifact semantic definition has no signature payload: {definition:?}"
+                    ),
+                ));
             }
-            complete = false;
             continue;
         };
         let global = resolve(definition)?;
@@ -1410,7 +1411,11 @@ fn provide_artifact_item_signatures(
                             span: Span::default(),
                         },
                     );
-                } else {
+                } else if definition
+                    .owner
+                    .as_deref()
+                    .is_none_or(|owner| owner.kind != 9)
+                {
                     result.consts.insert(
                         global.def_id,
                         nia_item_signatures::ConstSignature {
@@ -1488,16 +1493,28 @@ fn provide_artifact_item_signatures(
                     span: Span::default(),
                 }),
                 4 => {
-                    let ty = result
-                        .consts
-                        .get(&member_global.def_id)
-                        .and_then(|signature| signature.explicit_type)
-                        .ok_or_else(|| {
-                            db.invalid_input(
-                                &CompiledPackageSignaturesQuery(identity.package.clone()),
-                                "artifact trait associated value has no type payload",
-                            )
-                        })?;
+                    let member_record = package.get(&member.definition).ok_or_else(|| {
+                        db.invalid_input(
+                            &CompiledPackageSignaturesQuery(identity.package.clone()),
+                            "artifact trait associated value has no signature record",
+                        )
+                    })?;
+                    let Some(nia_package_metadata::SignaturePayload::Value {
+                        explicit_type: Some(type_root),
+                        ..
+                    }) = member_record.payload.as_ref()
+                    else {
+                        return Err(db.invalid_input(
+                            &CompiledPackageSignaturesQuery(identity.package.clone()),
+                            "artifact trait associated value has no type payload",
+                        ));
+                    };
+                    let ty = graph.get(*type_root).ok_or_else(|| {
+                        db.invalid_input(
+                            &CompiledPackageSignaturesQuery(identity.package.clone()),
+                            "artifact trait associated value root is unavailable",
+                        )
+                    })?;
                     associated_values.push(nia_item_signatures::TraitAssociatedValueSignature {
                         def_id: member_global.def_id,
                         name: member_name,
@@ -1679,13 +1696,10 @@ fn provide_artifact_item_signatures(
                 span: Span::default(),
             });
     }
-    if !complete {
-        return Ok(None);
-    }
-    Ok(Some(ModuleItemSignatures {
+    Ok(ModuleItemSignatures {
         semantic: Arc::new(result),
         diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
-    }))
+    })
 }
 
 fn artifact_generic_params(
@@ -2129,10 +2143,83 @@ pub(in crate::query) fn project_item_signatures(
     }
 }
 
+pub(in crate::query) fn project_const_item_signatures(
+    source: &nia_item_signatures::ItemSignatures,
+    defs: &nia_defs::DefCollection,
+) -> nia_item_signatures::ItemSignatures {
+    let trait_associated_values = source
+        .traits
+        .values()
+        .flat_map(|signature| signature.associated_values.iter().map(|value| value.def_id))
+        .collect::<std::collections::HashSet<_>>();
+    let functions = source
+        .functions
+        .iter()
+        .filter(|(def_id, signature)| {
+            signature.is_const
+                && defs.defs.get(**def_id).is_some_and(|definition| {
+                    matches!(
+                        definition.kind,
+                        nia_defs::DefKind::Function | nia_defs::DefKind::Method
+                    )
+                })
+        })
+        .map(|(def_id, signature)| (*def_id, signature.clone()))
+        .collect::<HashMap<_, _>>();
+    let consts = source
+        .consts
+        .iter()
+        .filter(|(def_id, _)| !trait_associated_values.contains(def_id))
+        .map(|(def_id, signature)| (*def_id, signature.clone()))
+        .collect::<HashMap<_, _>>();
+    let trait_impls = source
+        .trait_impls
+        .iter()
+        .filter_map(|implementation| {
+            let mut implementation = implementation.clone();
+            implementation
+                .associated_values
+                .retain(|value| consts.contains_key(&value.def_id));
+            implementation
+                .methods
+                .retain(|method| functions.contains_key(&method.def_id));
+            (!implementation.associated_types.is_empty()
+                || !implementation.associated_values.is_empty()
+                || !implementation.methods.is_empty())
+            .then_some(implementation)
+        })
+        .collect();
+    nia_item_signatures::ItemSignatures {
+        functions,
+        structs: source.structs.clone(),
+        unions: source.unions.clone(),
+        traits: HashMap::new(),
+        trait_impls,
+        enums: source.enums.clone(),
+        type_aliases: source.type_aliases.clone(),
+        globals: HashMap::new(),
+        consts,
+        diagnostics: Vec::new(),
+    }
+}
+
 pub(super) fn provide_signature_const_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<ItemSignatures> {
+    if db
+        .context()
+        .loader_facts()
+        .compiled_package_module_identity(module_id)?
+        .is_some()
+    {
+        let signatures = db.get(ItemSignaturesQuery(module_id))?;
+        let defs = db.get(FullModuleDefsQuery(module_id))?;
+        return Ok(project_const_item_signatures(
+            &signatures.semantic,
+            &defs.semantic,
+        ));
+    }
     let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id))?;
     let defs = module_defs_semantic(db, module_id)?;
     let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id))?;
