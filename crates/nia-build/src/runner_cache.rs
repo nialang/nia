@@ -184,6 +184,82 @@ fn paths(invocation: &BuildInvocation, key: &str) -> (PathBuf, PathBuf) {
     )
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{BuildRunnerSource, BuildStepSelection};
+    use nia_driver::TimingMode;
+    use nia_target_config::{BuildProfile, CompilationMode};
+    use nia_timing::TimingFormat;
+    use std::sync::Arc;
+
+    fn invocation(root: &std::path::Path) -> BuildInvocation {
+        let executable = root.join("bin/nia");
+        let resources = root.join("lib");
+        fs::create_dir_all(resources.join("std")).unwrap();
+        fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        fs::write(&executable, b"compiler").unwrap();
+        fs::write(
+            resources.join(nia_toolchain::RESOURCE_MANIFEST_NAME),
+            nia_compat::toolchain_manifest(),
+        )
+        .unwrap();
+        fs::write(resources.join("std/pkg.nia"), "").unwrap();
+        fs::write(resources.join("std/start.nia"), "").unwrap();
+        let toolchain = Arc::new(
+            nia_toolchain::ToolchainLayout::resolve(
+                nia_toolchain::ToolchainLayoutRequest::explicit(&executable, resources),
+            )
+            .unwrap(),
+        );
+        let package_root = root.join("package");
+        fs::create_dir_all(&package_root).unwrap();
+        let build_script = package_root.join("build.nia");
+        fs::write(&build_script, "").unwrap();
+        BuildInvocation {
+            toolchain,
+            package_root: package_root.clone(),
+            build_script,
+            build_dir: package_root.join(".nia-build"),
+            cache_dir: package_root.join(".nia-cache"),
+            runner_dir: package_root.join(".nia-build/runner"),
+            runner_executable: package_root.join(".nia-build/runner/runner"),
+            runner_config: package_root.join(".nia-build/runner/config"),
+            plan_draft: package_root.join(".nia-build/plan.draft"),
+            plan_path: package_root.join(".nia-build/plan"),
+            step: BuildStepSelection::Default,
+            test_filter: None,
+            test_list: false,
+            test_fail_fast: false,
+            timings: TimingMode::Off,
+            timing_format: TimingFormat::Text,
+            max_parallel_actions: None,
+            optimization: OptimizationMode::O0,
+            profile: BuildProfile::Debug,
+            compilation_mode: CompilationMode::Normal,
+        }
+    }
+
+    #[test]
+    fn std_artifact_content_is_part_of_runner_cache_identity() {
+        let root =
+            std::env::temp_dir().join(format!("nia-runner-cache-key-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let invocation = invocation(&root);
+        let artifact = invocation.toolchain.std_package_artifact();
+        fs::create_dir_all(artifact.parent().unwrap()).unwrap();
+        fs::write(&artifact, b"artifact-v1").unwrap();
+        let runner = BuildRunnerSource {
+            path: "runner.nia".into(),
+            source: "using std;".into(),
+        };
+        let first = cache_key(&invocation, &runner).unwrap();
+        fs::write(&artifact, b"artifact-v2").unwrap();
+        let second = cache_key(&invocation, &runner).unwrap();
+        assert_ne!(first, second);
+    }
+}
+
 pub(super) fn restore(invocation: &BuildInvocation, key: &str) -> io::Result<bool> {
     let (cached, digest) = paths(invocation, key);
     let metadata = match fs::metadata(&cached) {
