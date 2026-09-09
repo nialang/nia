@@ -218,15 +218,14 @@ fn package_artifact_publication_embeds_validated_signatures() {
         name: "signature-demo".into(),
         version: "1.0.0".into(),
     };
-    let definition = nia_package_metadata::DefinitionId {
-        module: nia_package_metadata::ModuleId {
-            package: package.clone(),
-            path: "src/main.nia".into(),
-        },
-        name: "greet".into(),
-        kind: 2,
-        owner: None,
-    };
+    let definition = database
+        .package_interface_section(package.clone())
+        .unwrap()
+        .records
+        .into_iter()
+        .find(|record| record.definition.name == "greet")
+        .unwrap()
+        .definition;
     let signatures = nia_package_metadata::SignatureSection {
         records: vec![nia_package_metadata::SignatureRecord {
             definition,
@@ -362,6 +361,7 @@ fn package_artifact_publication_rejects_template_for_unknown_definition() {
                 },
                 name: "missing".into(),
                 kind: 2,
+                disambiguator: 0,
                 owner: None,
             },
             parameter_count: 0,
@@ -448,6 +448,7 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
                         },
                         name: name.into(),
                         kind: 2,
+                        disambiguator: 0,
                         owner: None,
                     },
                     declaration: [b"NIADECL01".as_slice(), &[2, 3, 0, 0, 0, 0]].concat(),
@@ -967,6 +968,7 @@ fn stable_definition_index_remaps_current_session_identities() {
         },
         name: "greet".into(),
         kind: 2,
+        disambiguator: 0,
         owner: None,
     };
     let resolved = index.definition_for_identity(&identity).unwrap();
@@ -1098,6 +1100,7 @@ fn compiled_package_type_roots_reject_unselected_packages() {
         },
         name: "answer".into(),
         kind: 2,
+        disambiguator: 0,
         owner: None,
     };
     let mut roots = std::collections::BTreeMap::new();
@@ -1144,6 +1147,7 @@ fn compiled_interface_index_resolves_stable_definitions_without_session_handles(
                 },
                 name: "answer".into(),
                 kind: 2,
+                disambiguator: 0,
                 owner: None,
             },
             declaration: b"NIADECL01".to_vec(),
