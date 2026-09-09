@@ -1297,12 +1297,17 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
     }
     let driver = Driver::with_config(build_runner_driver_config(invocation));
     driver.set_source(runner.path.clone(), runner.source.clone());
+    let mut check = CheckRequest::new(runner.path.clone())
+        .with_module_map(build_runner_module_map(invocation))
+        .with_profile(invocation.profile)
+        .with_compilation_mode(invocation.compilation_mode)
+        .with_timings(invocation.timings);
+    let std_artifact = invocation.toolchain.std_package_artifact();
+    if std_artifact.is_file() {
+        check = check.with_package_artifact(std_artifact);
+    }
     let output = driver.link_executable(LinkExecutableRequest::new(
-        CheckRequest::new(runner.path.clone())
-            .with_module_map(build_runner_module_map(invocation))
-            .with_profile(invocation.profile)
-            .with_compilation_mode(invocation.compilation_mode)
-            .with_timings(invocation.timings),
+        check,
         &invocation.runner_executable,
     ));
     output.result.map_err(|error| BuildError::CompileRunner {

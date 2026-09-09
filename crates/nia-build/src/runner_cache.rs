@@ -20,11 +20,18 @@ pub(super) fn cache_key(
     hasher.update(b"nia.build.runner-cache.v1");
     hasher.update(runner.source.as_bytes());
     hash_file(&mut hasher, &invocation.build_script, runner)?;
-    hash_directory(
-        &mut hasher,
-        invocation.toolchain.resource_root().join("std"),
-        runner,
-    )?;
+    let std_artifact = invocation.toolchain.std_package_artifact();
+    if std_artifact.is_file() {
+        hasher.update(b"std-package-artifact");
+        hash_file(&mut hasher, &std_artifact, runner)?;
+    } else {
+        hasher.update(b"std-source-tree");
+        hash_directory(
+            &mut hasher,
+            invocation.toolchain.resource_root().join("std"),
+            runner,
+        )?;
+    }
     for part in invocation.toolchain.identity().fingerprint().parts() {
         hasher.update(&part.to_le_bytes());
     }
