@@ -717,6 +717,25 @@ pub(super) fn closure_safety_diagnostics(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
 ) -> QueryResult<Vec<ProgramDiagnostic>> {
+    let check = closure_safety_check(db, checked_modules)?;
+    Ok(check
+        .diagnostics
+        .into_iter()
+        .map(|diagnostic| ProgramDiagnostic {
+            path: checked_modules
+                .iter()
+                .find(|module| module.id == diagnostic.owner.module_id)
+                .map(|module| module.path.clone())
+                .unwrap_or_else(synthetic_diagnostic_path),
+            diagnostic: diagnostic.diagnostic,
+        })
+        .collect())
+}
+
+pub(in crate::query) fn closure_safety_check(
+    db: &QueryDb<CompilerContext>,
+    checked_modules: &[Arc<CheckedModule>],
+) -> QueryResult<nia_closure_check::ClosureCheck> {
     let functions = checked_modules
         .iter()
         .flat_map(|module| {
@@ -726,10 +745,13 @@ pub(super) fn closure_safety_diagnostics(
                     body,
                 }
             })
-        })
-        .collect::<Vec<_>>();
+    })
+    .collect::<Vec<_>>();
     if !nia_closure_check::contains_closure_constructs(&functions) {
-        return Ok(Vec::new());
+        return Ok(nia_closure_check::ClosureCheck {
+            summaries: HashMap::new(),
+            diagnostics: Vec::new(),
+        });
     }
     let support_module_ids = resolve_stable_module_sequence_from_current_inputs(
         db,
@@ -748,25 +770,12 @@ pub(super) fn closure_safety_diagnostics(
         })
         .collect::<Vec<_>>();
     let imported_summaries = imported_closure_summaries(db)?;
-    Ok(
-        nia_closure_check::check_closure_safety_with_support_and_summaries(
-            &functions,
-            &support_functions,
-            &imported_summaries,
-            &db.context().type_store,
-        )
-        .diagnostics
-        .into_iter()
-        .map(|diagnostic| ProgramDiagnostic {
-            path: checked_modules
-                .iter()
-                .find(|module| module.id == diagnostic.owner.module_id)
-                .map(|module| module.path.clone())
-                .unwrap_or_else(synthetic_diagnostic_path),
-            diagnostic: diagnostic.diagnostic,
-        })
-        .collect(),
-    )
+    Ok(nia_closure_check::check_closure_safety_with_support_and_summaries(
+        &functions,
+        &support_functions,
+        &imported_summaries,
+        &db.context().type_store,
+    ))
 }
 
 /// Rehydrates closure summaries from selected package templates into the

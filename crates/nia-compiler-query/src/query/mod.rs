@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::template_body_codec::{TemplateBodyDecodeContext, decode_checked_function_body};
+use crate::template_body_codec::{
+    TemplateBodyDecodeContext, TemplateBodyEncodeContext,
+    collect_checked_function_body_relocations, decode_checked_function_body,
+    encode_checked_function_body,
+};
 use crate::{
     ActiveModuleItemTreeFactKind, CheckedModule, CheckedProgram, CheckedProgramAnalysis,
     CodegenPreparation, CodegenProgram, FrontendCheckInputFingerprint, FrontendCheckScope,
@@ -253,6 +257,13 @@ impl StableDefinitionIndex {
         self.definitions.is_empty()
     }
 
+    /// Iterates every stable definition remapped in this session. The
+    /// publication boundary uses this inverse view to encode checked bodies
+    /// without reconstructing identities from source names.
+    pub fn iter(&self) -> impl Iterator<Item = (&DefinitionId, &GlobalDefId)> {
+        self.definitions.iter()
+    }
+
     /// Resolves a published module identity to its current session handle.
     pub fn module(&self, identity: &StableModuleId) -> Option<ModuleId> {
         self.modules.module(identity)
@@ -466,6 +477,33 @@ struct TemplateDecodeContext {
     types: Vec<InternedTyId>,
     definitions: Vec<GlobalDefId>,
     modules: Vec<ModuleId>,
+}
+
+struct TemplateEncodeContext {
+    types: HashMap<InternedTyId, u32>,
+    definitions: HashMap<GlobalDefId, u32>,
+    modules: HashMap<ModuleId, u32>,
+}
+
+struct PublishedTemplateBody {
+    definition: DefinitionId,
+    global: GlobalDefId,
+    body: nia_function_ir::FunctionBody,
+    parameter_count: u32,
+}
+
+impl TemplateBodyEncodeContext for TemplateEncodeContext {
+    fn type_index(&self, ty: InternedTyId) -> Option<u32> {
+        self.types.get(&ty).copied()
+    }
+
+    fn definition_index(&self, definition: GlobalDefId) -> Option<u32> {
+        self.definitions.get(&definition).copied()
+    }
+
+    fn module_index(&self, module: ModuleId) -> Option<u32> {
+        self.modules.get(&module).copied()
+    }
 }
 
 impl TemplateBodyDecodeContext for TemplateDecodeContext {
@@ -2176,6 +2214,241 @@ impl CompilerDatabase {
     /// This is deliberately an explicit publication API: normal compilation
     /// continues to consume the tracked source queries. The returned section is
     /// canonical and can be embedded in a [`nia_package_metadata::PackageArtifact`].
+    fn checked_template_bodies(
+        &self,
+        interface: &InterfaceSection,
+        resolver: &dyn StableDefinitionPackageResolver,
+    ) -> QueryResult<Vec<PublishedTemplateBody>> {
+        let stable_index = self.stable_definition_index(resolver)?;
+        let mut bodies = Vec::new();
+        for record in &interface.records {
+            if record.definition.kind != def_kind_tag(nia_defs::DefKind::Function)
+                && record.definition.kind != def_kind_tag(nia_defs::DefKind::Method)
+                && record.definition.kind != def_kind_tag(nia_defs::DefKind::TraitMethod)
+            {
+                continue;
+            }
+            let global = stable_index.definition_for_identity(&record.definition)?;
+            let signatures = self.db.get(ItemSignaturesQuery(global.module_id))?;
+            let Some(signature) = signatures.semantic.functions.get(&global.def_id) else {
+                continue;
+            };
+            if signature.generic_params.is_empty() && !signature.is_const {
+                continue;
+            }
+            let checked = self.db.get(CheckedModuleQuery(global.module_id))?;
+            let typed = checked.body_ir.function_bodies.get(&global).ok_or_else(|| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    format!(
+                        "published template has no checked body: {:?}",
+                        record.definition
+                    ),
+                )
+            })?;
+            let lowered = nia_function_lower::lower_function_body(
+                global.module_id,
+                typed,
+                nia_function_lower::FunctionTypeContext::for_module(
+                    &self.db.context().type_store,
+                    global.module_id,
+                ),
+            )
+            .map_err(|diagnostic| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    format!(
+                        "failed to lower published template {:?}: {}",
+                        record.definition, diagnostic.message
+                    ),
+                )
+            })?;
+            bodies.push(PublishedTemplateBody {
+                definition: record.definition.clone(),
+                global,
+                body: lowered.body,
+                parameter_count: u32::try_from(signature.params.len()).map_err(|_| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        "template parameter count overflows u32".to_string(),
+                    )
+                })?,
+            });
+        }
+        Ok(bodies)
+    }
+
+    /// Publishes the canonical checked template inventory for one package.
+    fn package_template_section_with_resolver(
+        &self,
+        package: PackageId,
+        interface: &InterfaceSection,
+        type_indexes: &HashMap<InternedTyId, u32>,
+        resolver: &dyn StableDefinitionPackageResolver,
+    ) -> QueryResult<nia_package_metadata::TemplateSection> {
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let stable_index = self.stable_definition_index(resolver)?;
+        let entry_root = graph.current_package_root(graph.entry());
+        let mut module_identities = HashMap::new();
+        for module in graph.modules() {
+            let Some(key) = graph.stable_key(module.id) else {
+                continue;
+            };
+            let owner = if graph.current_package_root(module.id) == entry_root {
+                package.clone()
+            } else {
+                self.db
+                    .context()
+                    .loader_facts()
+                    .compiled_package_module_identity(module.id)?
+                    .map(|identity| identity.package)
+                    .ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            format!("template module has no stable package identity: {:?}", module.id),
+                        )
+                    })?
+            };
+            module_identities.insert(
+                module.id,
+                StableModuleId {
+                    package: owner,
+                    path: key.source_identity().normalized_path().to_owned(),
+                },
+            );
+        }
+        let bodies = self.checked_template_bodies(interface, resolver)?;
+        let checked_modules = graph
+            .modules()
+            .filter(|module| graph.current_package_root(module.id) == entry_root)
+            .map(|module| self.db.get(CheckedModuleQuery(module.id)))
+            .collect::<QueryResult<Vec<_>>>()?;
+        let closure_check = providers::closure_safety_check(&self.db, &checked_modules)?;
+        let mut records = Vec::with_capacity(bodies.len());
+        for template in bodies {
+            let relocations = collect_checked_function_body_relocations(&template.body).map_err(|e| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    format!("failed to collect template relocations: {e}"),
+                )
+            })?;
+            let mut definitions = relocations
+                .definitions
+                .iter()
+                .copied()
+                .map(|global| {
+                    stable_index
+                        .iter()
+                        .find_map(|(identity, candidate)| (*candidate == global).then_some(identity.clone()))
+                        .ok_or_else(|| {
+                            self.db.invalid_input(
+                                &ModuleGraphQuery,
+                                format!("template references unpublished definition: {global:?}"),
+                            )
+                        })
+                })
+                .collect::<QueryResult<Vec<_>>>()?;
+            definitions.sort();
+            definitions.dedup();
+            let mut modules = relocations
+                .modules
+                .iter()
+                .copied()
+                .map(|module| {
+                    module_identities.get(&module).cloned().ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            format!("template references unpublished module: {module:?}"),
+                        )
+                    })
+                })
+                .collect::<QueryResult<Vec<_>>>()?;
+            modules.sort();
+            modules.dedup();
+            let mut type_pairs = relocations
+                .types
+                .iter()
+                .copied()
+                .map(|ty| {
+                    type_indexes.get(&ty).copied().map(|index| (ty, index)).ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "template type is absent from published graph".to_string(),
+                        )
+                    })
+                })
+                .collect::<QueryResult<Vec<_>>>()?;
+            type_pairs.sort_by_key(|(_, index)| *index);
+            type_pairs.dedup_by_key(|(_, index)| *index);
+            let type_roots = type_pairs.iter().map(|(_, index)| *index).collect::<Vec<_>>();
+            let mut context = TemplateEncodeContext {
+                types: HashMap::new(),
+                definitions: HashMap::new(),
+                modules: HashMap::new(),
+            };
+            for (index, (ty, _)) in type_pairs.iter().copied().enumerate() {
+                context.types.insert(ty, u32::try_from(index).map_err(|_| {
+                    self.db.invalid_input(&ModuleGraphQuery, "template type index overflows u32".to_string())
+                })?);
+            }
+            for global in relocations.definitions.iter().copied() {
+                let identity = stable_index.iter().find_map(|(identity, candidate)| {
+                    (*candidate == global).then_some(identity)
+                }).ok_or_else(|| {
+                    self.db.invalid_input(&ModuleGraphQuery, format!("template references unpublished definition: {global:?}"))
+                })?;
+                let index = definitions.binary_search(identity).map_err(|_| {
+                    self.db.invalid_input(&ModuleGraphQuery, "template definition relocation ordering mismatch".to_string())
+                })?;
+                context.definitions.insert(global, u32::try_from(index).map_err(|_| {
+                    self.db.invalid_input(&ModuleGraphQuery, "template definition index overflows u32".to_string())
+                })?);
+            }
+            for module in relocations.modules.iter().copied() {
+                let identity = module_identities.get(&module).ok_or_else(|| {
+                    self.db.invalid_input(&ModuleGraphQuery, format!("template references unpublished module: {module:?}"))
+                })?;
+                let index = modules.binary_search(identity).map_err(|_| {
+                    self.db.invalid_input(&ModuleGraphQuery, "template module relocation ordering mismatch".to_string())
+                })?;
+                context.modules.insert(module, u32::try_from(index).map_err(|_| {
+                    self.db.invalid_input(&ModuleGraphQuery, "template module index overflows u32".to_string())
+                })?);
+            }
+            let body = encode_checked_function_body(&template.body, &context).map_err(|e| {
+                self.db.invalid_input(&ModuleGraphQuery, format!("failed to encode template body: {e}"))
+            })?;
+            let summary = closure_check
+                .summaries
+                .get(&template.global)
+                .cloned()
+                .unwrap_or_default();
+            let summary = nia_package_metadata::TemplateSummary {
+                returned_parameters: summary.returned_parameters.into_iter().map(|v| v as u32).collect(),
+                escaping_parameters: summary.escaping_parameters.into_iter().map(|v| v as u32).collect(),
+                returned_captured_address_parameters: summary.returned_captured_address_parameters.into_iter().map(|v| v as u32).collect(),
+                escaping_captured_address_parameters: summary.escaping_captured_address_parameters.into_iter().map(|v| v as u32).collect(),
+            };
+            let summary = nia_package_metadata::encode_template_summary(&summary)
+                .map_err(|e| self.db.invalid_input(&ModuleGraphQuery, e.to_string()))?;
+            records.push(nia_package_metadata::TemplateRecord {
+                definition: template.definition,
+                parameter_count: template.parameter_count,
+                referenced_definitions: definitions,
+                referenced_modules: modules,
+                type_roots,
+                body,
+                summary,
+            });
+        }
+        records.sort_by(|left, right| left.definition.cmp(&right.definition));
+        let section = nia_package_metadata::TemplateSection { records };
+        section
+            .validate()
+            .map_err(|e| self.db.invalid_input(&ModuleGraphQuery, e.to_string()))?;
+        Ok(section)
+    }
+
     pub fn package_interface_section(&self, package: PackageId) -> QueryResult<InterfaceSection> {
         let package_for_resolver = package.clone();
         let resolver = |def_id: GlobalDefId| {
@@ -2640,6 +2913,19 @@ impl CompilerDatabase {
             .flat_map(|(_, roots)| roots.iter().copied())
             .chain(module_signature_roots)
             .collect::<Vec<_>>();
+        let pending_interface = InterfaceSection {
+            records: pending.iter().map(|(record, _)| record.clone()).collect(),
+        };
+        let template_bodies = self.checked_template_bodies(&pending_interface, resolver)?;
+        for template in &template_bodies {
+            let relocations = collect_checked_function_body_relocations(&template.body).map_err(|e| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    format!("failed to collect template type roots: {e}"),
+                )
+            })?;
+            all_roots.extend(relocations.types);
+        }
         // Public extension records carry roots which are not necessarily
         // attached to a public item declaration (notably associated types and
         // their target/trait projections). Include those roots in the same
@@ -3141,6 +3427,21 @@ impl CompilerDatabase {
             .map(nia_package_metadata::encode_native)
             .transpose()
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        let templates = match templates {
+            Some(templates) => Some(templates),
+            None => Some(
+                self.package_template_section_with_resolver(
+                    package.clone(),
+                    &interface,
+                    &indexes,
+                    resolver,
+                )
+                .map_err(|error| {
+                    self.db
+                        .invalid_input(&ModuleGraphQuery, format!("templates: {error}"))
+                })?,
+            ),
+        };
         let template_bytes = templates
             .as_ref()
             .map(|section| {

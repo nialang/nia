@@ -210,6 +210,35 @@ fn package_artifact_publication_round_trips_manifest_and_interface() {
 }
 
 #[test]
+fn package_artifact_publication_emits_checked_generic_templates() {
+    let fixture = LoadedProgramFixture::new(
+        "src/main.nia",
+        "pub fn identity[T](value: T) T { value }",
+    );
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "generic-template".into(),
+        version: "1.0.0".into(),
+    };
+    let publication = database.publish_package_artifact(package.clone()).unwrap();
+    let artifact = nia_package_metadata::PackageArtifact::open(publication.bytes).unwrap();
+    let templates = artifact
+        .templates()
+        .unwrap()
+        .expect("generic publication must carry templates");
+    let identity = templates
+        .records
+        .iter()
+        .find(|record| record.definition.name == "identity")
+        .expect("generic function template");
+    assert_eq!(identity.parameter_count, 1);
+    assert!(!identity.body.is_empty());
+    assert!(!identity.summary.is_empty());
+    assert!(identity.type_roots.len() >= 1);
+}
+
+#[test]
 fn package_artifact_publication_embeds_validated_signatures() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
     let database = fixture.database();
