@@ -14,6 +14,7 @@ pub(super) struct BackendLoweringInputs {
     visible_extensions: Vec<Arc<VisibleExtensionsValue>>,
     extension_methods: Arc<ExtensionMethodIndexValue>,
     function_bodies: Vec<LoweredFunctionBodyHandle>,
+    artifact_function_bodies: HashMap<GlobalDefId, Arc<nia_function_ir::FunctionBody>>,
     function_body_ids: Vec<GlobalDefId>,
     function_body_indices: HashMap<GlobalDefId, usize>,
     static_inits: Vec<StaticInitHandle>,
@@ -38,6 +39,7 @@ pub(super) struct BackendLoweringInputsParts {
     pub(super) visible_extensions: Vec<Arc<VisibleExtensionsValue>>,
     pub(super) extension_methods: Arc<ExtensionMethodIndexValue>,
     pub(super) function_bodies: Vec<LoweredFunctionBodyHandle>,
+    pub(super) artifact_function_bodies: HashMap<GlobalDefId, Arc<nia_function_ir::FunctionBody>>,
     pub(super) static_inits: Vec<StaticInitHandle>,
     pub(super) source_item_plans: Vec<Arc<BackendModuleSourceItemPlan>>,
     pub(super) function_instance_plans: Vec<Arc<BackendModuleFunctionInstancePlan>>,
@@ -115,6 +117,7 @@ impl BackendLoweringInputs {
             visible_extensions: parts.visible_extensions,
             extension_methods: parts.extension_methods,
             function_bodies: parts.function_bodies,
+            artifact_function_bodies: parts.artifact_function_bodies,
             function_body_ids,
             function_body_indices,
             static_inits: parts.static_inits,
@@ -186,6 +189,7 @@ impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
         self.function_body_indices
             .get(&def_id)
             .and_then(|index| self.function_bodies[*index].value.body())
+            .or_else(|| self.artifact_function_bodies.get(&def_id).map(Arc::as_ref))
     }
 
     fn closure_entries(&self, def_id: GlobalDefId) -> &[nia_function_ir::FunctionClosureEntry] {
@@ -412,6 +416,7 @@ mod tests {
             function_body_ids: vec![def_id],
             function_body_indices: HashMap::from([(def_id, 0)]),
             function_bodies: lowered,
+            artifact_function_bodies: HashMap::new(),
             static_init_ids: vec![def_id],
             static_init_indices: HashMap::from([(def_id, 0)]),
             static_inits,
