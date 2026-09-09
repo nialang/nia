@@ -9,6 +9,7 @@ mod frontend_fingerprint;
 mod program_diagnostic_bundle;
 mod query;
 mod signature_cache;
+mod template_body_codec;
 
 use std::sync::Arc;
 
