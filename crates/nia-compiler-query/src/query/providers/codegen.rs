@@ -222,6 +222,20 @@ fn function_bodies_from_checked_modules(
     )
 }
 
+fn artifact_function_bodies(
+    db: &QueryDb<CompilerContext>,
+) -> QueryResult<HashMap<GlobalDefId, Arc<nia_function_ir::FunctionBody>>> {
+    let index = db.get(CompiledPackageInterfaceIndexQuery)?;
+    let mut bodies = HashMap::new();
+    for (package, _) in index.packages() {
+        let templates = db.get(CompiledPackageTemplatesQuery(package.clone()))?;
+        for (_, template) in templates.iter() {
+            bodies.insert(template.definition, Arc::new(template.body.clone()));
+        }
+    }
+    Ok(bodies)
+}
+
 fn static_inits_from_checked_modules(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
@@ -254,13 +268,29 @@ pub(in crate::query) fn provide_lowered_function_body(
     def_id: GlobalDefId,
 ) -> QueryResult<LoweredFunctionBodyValue> {
     let checked_body = db.get(ExecutableFunctionBodyQuery(def_id))?;
-    let Some(body) = checked_body.as_ref() else {
-        return Ok(LoweredFunctionBodyValue::Diagnostic(
-            nia_function_lower::FunctionLoweringDiagnostic {
-                span: Span::default(),
-                message: format!("missing executable checked function body for {def_id:?}"),
-            },
-        ));
+    let imported = if checked_body.is_none() {
+        imported_template_body(db, def_id)?
+    } else {
+        None
+    };
+    let body = match checked_body.as_ref() {
+        Some(body) => body,
+        None => {
+            let Some(imported) = imported.as_ref() else {
+                return Ok(LoweredFunctionBodyValue::Diagnostic(
+                    nia_function_lower::FunctionLoweringDiagnostic {
+                        span: Span::default(),
+                        message: format!("missing executable checked function body for {def_id:?}"),
+                    },
+                ));
+            };
+            return Ok(LoweredFunctionBodyValue::Body(
+                nia_function_lower::LoweredFunctionBody {
+                    body: imported.clone(),
+                    closure_entries: Vec::new(),
+                },
+            ));
+        }
     };
     match nia_function_lower::lower_function_body(
         def_id.module_id,
@@ -273,6 +303,29 @@ pub(in crate::query) fn provide_lowered_function_body(
         Ok(lowered) => Ok(LoweredFunctionBodyValue::Body(lowered)),
         Err(diagnostic) => Ok(LoweredFunctionBodyValue::Diagnostic(diagnostic)),
     }
+}
+
+fn imported_template_body(
+    db: &QueryDb<CompilerContext>,
+    def_id: GlobalDefId,
+) -> QueryResult<Option<nia_function_ir::FunctionBody>> {
+    let index = db.get(CompiledPackageInterfaceIndexQuery)?;
+    for (package, interface) in index.packages() {
+        let Some(templates) = interface.templates() else {
+            continue;
+        };
+        for record in &templates.records {
+            let resolved = crate::query::resolve_loaded_definition_in_query(db, &record.definition, package)?;
+            if resolved == def_id {
+                let compiled = db.get(CompiledPackageTemplatesQuery(package.clone()))?;
+                return Ok(compiled
+                    .iter()
+                    .find(|(_, template)| template.definition == def_id)
+                    .map(|(_, template)| template.body.clone()));
+            }
+        }
+    }
+    Ok(None)
 }
 
 pub(super) fn provide_backend_lowering(
@@ -548,6 +601,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
             ))
         },
     )?;
+    let artifact_function_bodies = artifact_function_bodies(db)?;
     let function_lowering_diagnostics = function_lowering_diagnostics(&function_bodies);
     if !function_lowering_diagnostics.is_empty() {
         return Ok(ProgramBackendLoweringInputs {
@@ -590,6 +644,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                 visible_extensions,
                 extension_methods,
                 function_bodies,
+                artifact_function_bodies,
                 static_inits,
                 source_item_plans,
                 function_instance_plans,
