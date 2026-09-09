@@ -1117,6 +1117,7 @@ name = "nia-toolchain"
 version = "0.2.0-dev"
 dependencies = [
  "nia-compat",
+ "nia-package-metadata",
  "nia-query",
  "nia-target-config",
 ]

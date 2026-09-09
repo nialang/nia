@@ -220,6 +220,12 @@ impl ToolchainLayout {
         self.resource_root.join("std/.nia-cache/package.niapkg")
     }
 
+    /// Returns the canonical package identity expected from the standard
+    /// library artifact shipped with this toolchain.
+    pub fn std_package_id(&self) -> nia_package_metadata::PackageId {
+        nia_package_metadata::PackageId::standard_library()
+    }
+
     /// Returns the manifest compatibility identity.
     pub const fn identity(&self) -> &ToolchainIdentity {
         &self.identity

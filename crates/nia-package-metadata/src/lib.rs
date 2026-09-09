@@ -43,6 +43,22 @@ pub struct PackageId {
     pub version: String,
 }
 
+impl PackageId {
+    /// Returns the canonical identity published by the toolchain standard
+    /// library artifact.
+    pub fn standard_library() -> Self {
+        Self {
+            namespace: "nia".into(),
+            name: "std".into(),
+            version: format!(
+                "{}+std{}",
+                COMPILER_VERSION,
+                toolchain::STANDARD_LIBRARY
+            ),
+        }
+    }
+}
+
 /// Relocation-independent identity of one module within a package.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleId {
