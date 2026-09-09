@@ -6,7 +6,7 @@
 //! identity crosses the wire through an explicit relocation index, and every
 //! decoded body is structurally validated before it can enter the query graph.
 
-use std::{fmt, io::Cursor};
+use std::{cell::RefCell, fmt, io::Cursor};
 
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_function_ir::*;
@@ -35,6 +35,83 @@ pub(crate) trait TemplateBodyDecodeContext {
     fn type_at(&self, index: u32) -> Option<InternedTyId>;
     fn definition_at(&self, index: u32) -> Option<GlobalDefId>;
     fn module_at(&self, index: u32) -> Option<ModuleId>;
+}
+
+/// Session-local relocation identities discovered by walking a checked body.
+/// The encoder invokes every relocation callback, so this pass covers fields,
+/// callees, nested places, closure owners, and identities that are not exposed
+/// by the lighter backend reference summary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TemplateBodyRelocations {
+    pub types: Vec<InternedTyId>,
+    pub definitions: Vec<GlobalDefId>,
+    pub modules: Vec<ModuleId>,
+}
+
+pub(crate) fn collect_checked_function_body_relocations(
+    body: &FunctionBody,
+) -> Result<TemplateBodyRelocations, TemplateBodyCodecError> {
+    let mut context = CollectContext::default();
+    let _ = encode_checked_function_body(body, &mut context)?;
+    Ok(TemplateBodyRelocations {
+        types: context.types.into_inner(),
+        definitions: context.definitions.into_inner(),
+        modules: context.modules.into_inner(),
+    })
+}
+
+#[derive(Default)]
+struct CollectContext {
+    types: RefCell<Vec<InternedTyId>>,
+    definitions: RefCell<Vec<GlobalDefId>>,
+    modules: RefCell<Vec<ModuleId>>,
+}
+
+impl TemplateBodyEncodeContext for CollectContext {
+    fn type_index(&self, ty: InternedTyId) -> Option<u32> {
+        if let Some(index) = self
+            .types
+            .borrow()
+            .iter()
+            .position(|candidate| *candidate == ty)
+        {
+            return Some(index as u32);
+        }
+        let mut values = self.types.borrow_mut();
+        let index = values.len();
+        values.push(ty);
+        Some(index as u32)
+    }
+
+    fn definition_index(&self, definition: GlobalDefId) -> Option<u32> {
+        if let Some(index) = self
+            .definitions
+            .borrow()
+            .iter()
+            .position(|candidate| *candidate == definition)
+        {
+            return Some(index as u32);
+        }
+        let mut values = self.definitions.borrow_mut();
+        let index = values.len();
+        values.push(definition);
+        Some(index as u32)
+    }
+
+    fn module_index(&self, module: ModuleId) -> Option<u32> {
+        if let Some(index) = self
+            .modules
+            .borrow()
+            .iter()
+            .position(|candidate| *candidate == module)
+        {
+            return Some(index as u32);
+        }
+        let mut values = self.modules.borrow_mut();
+        let index = values.len();
+        values.push(module);
+        Some(index as u32)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2726,5 +2803,44 @@ mod tests {
             modules: Vec::new(),
         };
         assert!(encode_checked_function_body(&body, &source).is_err());
+    }
+
+    #[test]
+    fn relocation_collector_walks_and_deduplicates_all_identity_classes() {
+        let (mut body, first_ty, _) = fixture();
+        let mut modules = ModuleIdAllocator::new();
+        let owner_module = modules.allocate();
+        let argument_module = modules.allocate();
+        let first_definition = GlobalDefId {
+            module_id: owner_module,
+            def_id: nia_ids::DefId(7),
+        };
+        let second_definition = GlobalDefId {
+            module_id: owner_module,
+            def_id: nia_ids::DefId(8),
+        };
+        body.blocks[0].ops.extend([
+            FunctionOp::Expr(FunctionExpr {
+                span: Span::new(0, 1),
+                ty: first_ty,
+                kind: FunctionExprKind::Global(first_definition),
+            }),
+            FunctionOp::Expr(FunctionExpr {
+                span: Span::new(0, 1),
+                ty: first_ty,
+                kind: FunctionExprKind::GlobalInstance {
+                    def_id: second_definition,
+                    arg_module_id: argument_module,
+                    args: vec![first_ty, first_ty],
+                    const_args: Vec::new(),
+                },
+            }),
+        ]);
+
+        let relocations = collect_checked_function_body_relocations(&body).expect("collect");
+
+        assert_eq!(relocations.types, vec![first_ty]);
+        assert_eq!(relocations.definitions, vec![first_definition, second_definition]);
+        assert_eq!(relocations.modules, vec![argument_module]);
     }
 }
