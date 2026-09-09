@@ -53,7 +53,7 @@ use nia_query::{
 };
 use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
-use nia_symbol::SymbolId;
+use nia_symbol::{SymbolId, SymbolText};
 use nia_target_config::TargetConfig;
 use nia_ty::{ArrayLenTy, TyKind};
 use nia_type_lower::TypeLowering;
@@ -1627,6 +1627,15 @@ impl CompilerDatabase {
             for implementation in &facts.semantic.trait_impls {
                 let target_root = match type_indexes.get(&implementation.target_ty) { Some(root) => *root, None => continue };
                 let trait_root = implementation.trait_ty.map(|ty| type_indexes.get(&ty).copied()).flatten();
+                let generic_params = implementation.generic_params.iter().filter_map(|param| {
+                    let name = self.db.context().loader_facts().symbols().symbol_text(param.name)?.to_string();
+                    let (kind, type_root) = match param.kind {
+                        nia_item_signatures::GenericParamSignatureKind::Type => (0, None),
+                        nia_item_signatures::GenericParamSignatureKind::Const { ty } => (1, type_indexes.get(&ty).copied()),
+                    };
+                    Some(nia_package_metadata::SignatureGenericParam { name, kind, type_root })
+                }).collect::<Vec<_>>();
+                let where_roots = implementation.where_predicates.iter().filter_map(|predicate| type_indexes.get(&predicate.ty).copied()).collect::<Vec<_>>();
                 let mut extension_members = Vec::new();
                 for method in &implementation.methods {
                     if method.visibility != nia_ids::Visibility::Public { continue; }
@@ -1636,7 +1645,15 @@ impl CompilerDatabase {
                         }
                     }
                 }
-                extension_records.push(nia_package_metadata::SignatureExtensionRecord { impl_id: implementation.impl_id.0, target_root, trait_root, generic_params: Vec::new(), where_roots: Vec::new(), members: extension_members });
+                for value in &implementation.associated_values {
+                    if value.visibility != nia_ids::Visibility::Public { continue; }
+                    if let Some(definition) = stable_by_global.get(&GlobalDefId { module_id: module.id, def_id: value.def_id }) {
+                        if let Some(item) = interface.records.iter().find(|item| &item.definition == definition) {
+                            extension_members.push(nia_package_metadata::SignatureMember { definition: definition.clone(), name: definition.name.clone(), kind: definition.kind, flags: 0, type_roots: item.type_roots.clone() });
+                        }
+                    }
+                }
+                extension_records.push(nia_package_metadata::SignatureExtensionRecord { impl_id: implementation.impl_id.0, target_root, trait_root, generic_params, where_roots, members: extension_members });
             }
         }
         let records = records
