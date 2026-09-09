@@ -1868,6 +1868,23 @@ pub(super) fn provide_signature_item_signatures(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<SignatureItemSignatures> {
+    if db
+        .context()
+        .loader_facts()
+        .compiled_package_module_identity(module_id)?
+        .is_some()
+    {
+        let signatures = db.get(ItemSignaturesQuery(module_id))?;
+        let defs = db.get(FullModuleDefsQuery(module_id))?;
+        return Ok(SignatureItemSignatures {
+            semantic: Arc::new(project_item_signatures(
+                &signatures.semantic,
+                &defs.semantic,
+                set,
+            )),
+            diagnostics: signatures.diagnostics.clone(),
+        });
+    }
     let program_sources = db.get(FrontendProgramSourcesQuery)?;
     let cache_input = program_sources
         .as_ref()
@@ -2001,6 +2018,115 @@ pub(super) fn provide_signature_item_signatures(
         semantic: Arc::new(fresh),
         diagnostics: db.context().diagnostic_store.bundle(diagnostics),
     })
+}
+
+pub(in crate::query) fn project_item_signatures(
+    source: &nia_item_signatures::ItemSignatures,
+    defs: &nia_defs::DefCollection,
+    set: nia_item_tree::SignatureItemSet,
+) -> nia_item_signatures::ItemSignatures {
+    use nia_item_tree::SignatureItemSet;
+    let retains_types = matches!(
+        set,
+        SignatureItemSet::Functions
+            | SignatureItemSet::ExtensionFunctions
+            | SignatureItemSet::Types
+            | SignatureItemSet::Traits
+    );
+    let retains_traits = matches!(
+        set,
+        SignatureItemSet::Functions
+            | SignatureItemSet::ExtensionFunctions
+            | SignatureItemSet::Traits
+    );
+    let retains_top_level_functions = set == SignatureItemSet::Functions;
+    let retains_methods = matches!(
+        set,
+        SignatureItemSet::Functions
+            | SignatureItemSet::ExtensionFunctions
+            | SignatureItemSet::Traits
+    );
+    let mut trait_impls = if retains_traits {
+        source.trait_impls.clone()
+    } else if set == SignatureItemSet::Values {
+        source
+            .trait_impls
+            .iter()
+            .filter(|implementation| !implementation.associated_values.is_empty())
+            .cloned()
+            .collect()
+    } else {
+        Vec::new()
+    };
+    match set {
+        SignatureItemSet::Functions | SignatureItemSet::ExtensionFunctions => {
+            for implementation in &mut trait_impls {
+                implementation.associated_values.clear();
+            }
+        }
+        SignatureItemSet::Values => {
+            for implementation in &mut trait_impls {
+                implementation.associated_types.clear();
+                implementation.methods.clear();
+            }
+        }
+        SignatureItemSet::Types | SignatureItemSet::Traits => {}
+    }
+    nia_item_signatures::ItemSignatures {
+        functions: source
+            .functions
+            .iter()
+            .filter(|(def_id, _)| {
+                let kind = defs.defs.get(**def_id).map(|definition| definition.kind);
+                (retains_top_level_functions && kind == Some(nia_defs::DefKind::Function))
+                    || (retains_methods
+                        && matches!(
+                            kind,
+                            Some(nia_defs::DefKind::TraitMethod | nia_defs::DefKind::Method)
+                        ))
+            })
+            .map(|(def_id, signature)| (*def_id, signature.clone()))
+            .collect(),
+        structs: retains_types
+            .then(|| source.structs.clone())
+            .unwrap_or_default(),
+        unions: retains_types
+            .then(|| source.unions.clone())
+            .unwrap_or_default(),
+        traits: retains_traits
+            .then(|| source.traits.clone())
+            .unwrap_or_default(),
+        trait_impls,
+        enums: retains_types
+            .then(|| source.enums.clone())
+            .unwrap_or_default(),
+        type_aliases: retains_types
+            .then(|| source.type_aliases.clone())
+            .unwrap_or_default(),
+        globals: (set == SignatureItemSet::Values)
+            .then(|| source.globals.clone())
+            .unwrap_or_default(),
+        consts: if set == SignatureItemSet::Values {
+            source.consts.clone()
+        } else if set == SignatureItemSet::Traits {
+            source
+                .consts
+                .iter()
+                .filter(|(def_id, _)| {
+                    source.trait_impls.iter().any(|implementation| {
+                        implementation
+                            .associated_values
+                            .iter()
+                            .any(|value| value.def_id == **def_id)
+                    })
+                })
+                .map(|(def_id, signature)| (*def_id, signature.clone()))
+                .collect()
+        } else {
+            HashMap::new()
+        },
+        diagnostics: Vec::new(),
+    }
 }
 
 pub(super) fn provide_signature_const_item_signatures(

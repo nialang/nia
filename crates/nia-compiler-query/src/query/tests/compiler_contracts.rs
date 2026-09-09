@@ -497,6 +497,71 @@ pub fn probe(&self) usize;
             .len(),
         1
     );
+
+    for set in [
+        nia_item_tree::SignatureItemSet::Functions,
+        nia_item_tree::SignatureItemSet::ExtensionFunctions,
+        nia_item_tree::SignatureItemSet::Values,
+        nia_item_tree::SignatureItemSet::Types,
+        nia_item_tree::SignatureItemSet::Traits,
+    ] {
+        let projected = database
+            .db
+            .expect_get(SignatureItemSignaturesQuery(module_id, set));
+        assert!(projected.diagnostics.is_empty());
+    }
+    let trace = database.query_trace();
+    assert!(
+        trace
+            .queries
+            .iter()
+            .filter(|query| query.frame.name == "signature_item_tree")
+            .all(|query| query.stats.executions == 0),
+        "artifact signature projections must not execute source item-tree queries"
+    );
+}
+
+#[test]
+fn complete_signature_projection_matches_source_subset_collection() {
+    let fixture = LoadedProgramFixture::new(
+        "src/lib.nia",
+        r#"
+struct Record { value: i32 }
+fn top(value: i32) i32 { value }
+static mut STATE: i32 = 0;
+const ANSWER: i32 = 42;
+trait Measure {
+type Output;
+const DEFAULT: i32;
+fn measure(&self) i32;
+}
+extend Record : Measure {
+type Output = i32;
+const DEFAULT: i32 = 1;
+fn measure(&self) i32 { self.value }
+}
+"#,
+    );
+    let database = fixture.database();
+    let module_id = fixture.entry_id();
+    let complete = database.db.expect_get(ItemSignaturesQuery(module_id));
+    let defs = database.db.expect_get(FullModuleDefsQuery(module_id));
+    for set in [
+        nia_item_tree::SignatureItemSet::Functions,
+        nia_item_tree::SignatureItemSet::ExtensionFunctions,
+        nia_item_tree::SignatureItemSet::Values,
+        nia_item_tree::SignatureItemSet::Types,
+        nia_item_tree::SignatureItemSet::Traits,
+    ] {
+        let source = database
+            .db
+            .expect_get(SignatureItemSignaturesQuery(module_id, set));
+        let projected = project_item_signatures(&complete.semantic, &defs.semantic, set);
+        assert_eq!(
+            *source.semantic, projected,
+            "projection mismatch for {set:?}"
+        );
+    }
 }
 
 #[test]
