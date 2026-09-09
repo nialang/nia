@@ -500,6 +500,23 @@ impl CompiledPackageInterfaceIndex {
         self.packages.get(package)?.signatures()
     }
 
+    /// Looks up a canonical trait declaration from a selected package.
+    pub fn trait_signature(
+        &self,
+        definition: &DefinitionId,
+    ) -> Option<&nia_package_metadata::SignatureTraitRecord> {
+        let package = &definition.module.package;
+        self.packages.get(package)?.signatures()?.traits.iter().find(|record| record.definition == *definition)
+    }
+
+    /// Returns extension records published by a selected package.
+    pub fn extension_signatures(
+        &self,
+        package: &PackageId,
+    ) -> Option<&[nia_package_metadata::SignatureExtensionRecord]> {
+        self.packages.get(package)?.signatures().map(|section| section.extensions.as_slice())
+    }
+
     /// Resolves one stable definition without loading dependency source.
     pub fn definition(
         &self,
