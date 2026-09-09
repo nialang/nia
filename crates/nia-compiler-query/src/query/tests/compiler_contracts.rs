@@ -235,6 +235,7 @@ fn package_artifact_publication_embeds_validated_signatures() {
             members: Vec::new(),
             generic_params: Vec::new(),
             where_predicates: Vec::new(),
+            payload: None,
         }],
         traits: Vec::new(),
         extensions: Vec::new(),

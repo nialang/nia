@@ -25,7 +25,7 @@ const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 4;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG01";
-const SIGNATURE_SCHEMA: u32 = 4;
+const SIGNATURE_SCHEMA: u32 = 5;
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
 const TEMPLATE_SCHEMA: u32 = 3;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
@@ -161,6 +161,64 @@ pub struct SignatureRecord {
     pub members: Vec<SignatureMember>,
     pub generic_params: Vec<SignatureGenericParam>,
     pub where_predicates: Vec<SignatureWherePredicate>,
+    /// Complete declaration payload for consumers that need ordered
+    /// parameters, fields, variants, or value types. The legacy root/member
+    /// indexes remain available for aggregate indexes and are validated
+    /// against this typed payload when present.
+    pub payload: Option<SignaturePayload>,
+}
+
+/// Typed, target-independent declaration details used by downstream semantic
+/// queries. Every type reference is an index into the package type graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SignaturePayload {
+    Function {
+        params: Vec<SignatureParameter>,
+        return_type: u32,
+        attributes: Vec<u8>,
+    },
+    Aggregate {
+        fields: Vec<SignatureField>,
+    },
+    Enum {
+        backing_type: u32,
+        variants: Vec<SignatureVariant>,
+    },
+    TypeAlias {
+        target: u32,
+    },
+    Value {
+        explicit_type: Option<u32>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureParameter {
+    pub name: Option<String>,
+    /// `0` means no receiver; `1..=3` use the canonical ReceiverKind tags.
+    pub receiver: u8,
+    pub type_root: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureField {
+    pub definition: DefinitionId,
+    pub name: String,
+    pub type_root: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureVariant {
+    pub definition: DefinitionId,
+    pub name: String,
+    pub payload: SignatureVariantPayload,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SignatureVariantPayload {
+    Unit,
+    Tuple(Vec<u32>),
+    Named(Vec<SignatureField>),
 }
 
 /// Stable generic parameter fact used by declaration signatures.
@@ -262,6 +320,124 @@ const SIGNATURE_FLAGS_MASK: u32 = SIGNATURE_FLAG_HAS_BODY
     | SIGNATURE_FLAG_OPEN
     | SIGNATURE_FLAG_TUPLE;
 
+fn validate_signature_payload(
+    kind: u8,
+    payload: Option<&SignaturePayload>,
+) -> Result<(), MetadataError> {
+    let Some(payload) = payload else {
+        return Ok(());
+    };
+    let valid = match (kind, payload) {
+        (
+            2 | 11 | 12,
+            SignaturePayload::Function {
+                params, attributes, ..
+            },
+        ) => {
+            params.len() <= MAX_ITEMS
+                && attributes.len() <= MAX_ITEMS
+                && params.iter().all(|param| param.receiver <= 3)
+                && attributes.iter().all(|attribute| {
+                    *attribute <= 2 || (*attribute & 0x80 != 0 && *attribute & 0x7f < 27)
+                })
+        }
+        (5 | 7, SignaturePayload::Aggregate { fields }) => fields.len() <= MAX_ITEMS,
+        (13, SignaturePayload::Enum { variants, .. }) => variants.len() <= MAX_ITEMS,
+        (16, SignaturePayload::TypeAlias { .. }) => true,
+        (3 | 4, SignaturePayload::Value { .. }) => true,
+        _ => false,
+    };
+    if !valid {
+        return Err(MetadataError::InvalidManifest);
+    }
+    match payload {
+        SignaturePayload::Function { params, .. } => {
+            for param in params {
+                if let Some(name) = &param.name {
+                    validate_string(name)?;
+                }
+            }
+        }
+        SignaturePayload::Aggregate { fields } => validate_signature_fields(fields)?,
+        SignaturePayload::Enum { variants, .. } => {
+            let mut seen = std::collections::BTreeSet::new();
+            for variant in variants {
+                validate_definition(&variant.definition)?;
+                validate_string(&variant.name)?;
+                if variant.name != variant.definition.name {
+                    return Err(MetadataError::InvalidManifest);
+                }
+                if !seen.insert(variant.definition.clone()) {
+                    return Err(MetadataError::InvalidManifest);
+                }
+                match &variant.payload {
+                    SignatureVariantPayload::Unit => {}
+                    SignatureVariantPayload::Tuple(types) => {
+                        if types.len() > MAX_ITEMS {
+                            return Err(MetadataError::TooManyItems);
+                        }
+                    }
+                    SignatureVariantPayload::Named(fields) => validate_signature_fields(fields)?,
+                }
+            }
+        }
+        SignaturePayload::TypeAlias { .. } | SignaturePayload::Value { .. } => {}
+    }
+    Ok(())
+}
+
+fn validate_signature_fields(fields: &[SignatureField]) -> Result<(), MetadataError> {
+    if fields.len() > MAX_ITEMS {
+        return Err(MetadataError::TooManyItems);
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for field in fields {
+        validate_definition(&field.definition)?;
+        validate_string(&field.name)?;
+        if field.name != field.definition.name || !seen.insert(field.definition.clone()) {
+            return Err(MetadataError::InvalidManifest);
+        }
+    }
+    Ok(())
+}
+
+fn signature_payload_roots(payload: &SignaturePayload) -> Vec<u32> {
+    let mut roots = Vec::new();
+    match payload {
+        SignaturePayload::Function {
+            params,
+            return_type,
+            ..
+        } => {
+            roots.extend(params.iter().map(|param| param.type_root));
+            roots.push(*return_type);
+        }
+        SignaturePayload::Aggregate { fields } => {
+            roots.extend(fields.iter().map(|field| field.type_root));
+        }
+        SignaturePayload::Enum {
+            backing_type,
+            variants,
+        } => {
+            roots.push(*backing_type);
+            for variant in variants {
+                match &variant.payload {
+                    SignatureVariantPayload::Unit => {}
+                    SignatureVariantPayload::Tuple(types) => roots.extend(types.iter().copied()),
+                    SignatureVariantPayload::Named(fields) => {
+                        roots.extend(fields.iter().map(|field| field.type_root));
+                    }
+                }
+            }
+        }
+        SignaturePayload::TypeAlias { target } => roots.push(*target),
+        SignaturePayload::Value { explicit_type } => {
+            roots.extend(explicit_type.iter().copied());
+        }
+    }
+    roots
+}
+
 impl SignatureSection {
     /// Returns a canonical trait declaration by definition identity.
     pub fn trait_record(&self, definition: &DefinitionId) -> Option<&SignatureTraitRecord> {
@@ -308,6 +484,7 @@ impl SignatureSection {
             }
             validate_signature_generic_params(&record.generic_params)?;
             validate_signature_where_predicates(&record.where_predicates)?;
+            validate_signature_payload(record.kind, record.payload.as_ref())?;
             if record
                 .members
                 .windows(2)
@@ -412,6 +589,15 @@ impl SignatureSection {
             .iter()
             .flat_map(|record| record.type_roots.iter())
             .any(|root| *root >= node_count)
+            || self
+                .records
+                .iter()
+                .filter_map(|record| record.payload.as_ref())
+                .any(|payload| {
+                    signature_payload_roots(payload)
+                        .into_iter()
+                        .any(|root| root >= node_count)
+                })
             || self
                 .records
                 .iter()
@@ -1823,6 +2009,188 @@ pub fn decode_interface(bytes: &[u8]) -> Result<InterfaceSection, MetadataError>
 }
 
 /// Encodes canonical target-independent signature facts.
+fn put_signature_payload(
+    output: &mut Vec<u8>,
+    payload: Option<&SignaturePayload>,
+) -> Result<(), MetadataError> {
+    let Some(payload) = payload else {
+        output.push(0);
+        return Ok(());
+    };
+    output.push(1);
+    match payload {
+        SignaturePayload::Function {
+            params,
+            return_type,
+            attributes,
+        } => {
+            output.push(1);
+            put_list_len(output, params.len())?;
+            for param in params {
+                match &param.name {
+                    Some(name) => {
+                        output.push(1);
+                        put_string(output, name)?;
+                    }
+                    None => output.push(0),
+                }
+                output.push(param.receiver);
+                put_u32(output, param.type_root);
+            }
+            put_u32(output, *return_type);
+            put_list_len(output, attributes.len())?;
+            for attribute in attributes {
+                output.push(*attribute);
+            }
+        }
+        SignaturePayload::Aggregate { fields } => {
+            output.push(2);
+            put_signature_fields(output, fields)?;
+        }
+        SignaturePayload::Enum {
+            backing_type,
+            variants,
+        } => {
+            output.push(3);
+            put_u32(output, *backing_type);
+            put_list_len(output, variants.len())?;
+            for variant in variants {
+                put_definition(output, &variant.definition)?;
+                put_string(output, &variant.name)?;
+                match &variant.payload {
+                    SignatureVariantPayload::Unit => output.push(0),
+                    SignatureVariantPayload::Tuple(types) => {
+                        output.push(1);
+                        put_refs(output, types)?;
+                    }
+                    SignatureVariantPayload::Named(fields) => {
+                        output.push(2);
+                        put_signature_fields(output, fields)?;
+                    }
+                }
+            }
+        }
+        SignaturePayload::TypeAlias { target } => {
+            output.push(4);
+            put_u32(output, *target);
+        }
+        SignaturePayload::Value { explicit_type } => {
+            output.push(5);
+            match explicit_type {
+                Some(root) => {
+                    output.push(1);
+                    put_u32(output, *root);
+                }
+                None => output.push(0),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn put_signature_fields(
+    output: &mut Vec<u8>,
+    fields: &[SignatureField],
+) -> Result<(), MetadataError> {
+    put_list_len(output, fields.len())?;
+    for field in fields {
+        put_definition(output, &field.definition)?;
+        put_string(output, &field.name)?;
+        put_u32(output, field.type_root);
+    }
+    Ok(())
+}
+
+fn read_signature_payload(
+    cursor: &mut Cursor<&[u8]>,
+) -> Result<Option<SignaturePayload>, MetadataError> {
+    match read_u8(cursor)? {
+        0 => Ok(None),
+        1 => Ok(Some(match read_u8(cursor)? {
+            1 => {
+                let count = bounded_count(get_u32(cursor)?)?;
+                let mut params = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let name = match read_u8(cursor)? {
+                        0 => None,
+                        1 => Some(get_string(cursor)?),
+                        _ => return Err(MetadataError::InvalidManifest),
+                    };
+                    params.push(SignatureParameter {
+                        name,
+                        receiver: read_u8(cursor)?,
+                        type_root: get_u32(cursor)?,
+                    });
+                }
+                let return_type = get_u32(cursor)?;
+                let attr_count = bounded_count(get_u32(cursor)?)?;
+                let mut attributes = Vec::with_capacity(attr_count);
+                for _ in 0..attr_count {
+                    attributes.push(read_u8(cursor)?);
+                }
+                SignaturePayload::Function {
+                    params,
+                    return_type,
+                    attributes,
+                }
+            }
+            2 => SignaturePayload::Aggregate {
+                fields: read_signature_fields(cursor)?,
+            },
+            3 => {
+                let backing_type = get_u32(cursor)?;
+                let count = bounded_count(get_u32(cursor)?)?;
+                let mut variants = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let definition = read_definition(cursor)?;
+                    let name = get_string(cursor)?;
+                    let payload = match read_u8(cursor)? {
+                        0 => SignatureVariantPayload::Unit,
+                        1 => SignatureVariantPayload::Tuple(read_refs(cursor)?),
+                        2 => SignatureVariantPayload::Named(read_signature_fields(cursor)?),
+                        _ => return Err(MetadataError::InvalidManifest),
+                    };
+                    variants.push(SignatureVariant {
+                        definition,
+                        name,
+                        payload,
+                    });
+                }
+                SignaturePayload::Enum {
+                    backing_type,
+                    variants,
+                }
+            }
+            4 => SignaturePayload::TypeAlias {
+                target: get_u32(cursor)?,
+            },
+            5 => SignaturePayload::Value {
+                explicit_type: match read_u8(cursor)? {
+                    0 => None,
+                    1 => Some(get_u32(cursor)?),
+                    _ => return Err(MetadataError::InvalidManifest),
+                },
+            },
+            _ => return Err(MetadataError::InvalidManifest),
+        })),
+        _ => Err(MetadataError::InvalidManifest),
+    }
+}
+
+fn read_signature_fields(cursor: &mut Cursor<&[u8]>) -> Result<Vec<SignatureField>, MetadataError> {
+    let count = bounded_count(get_u32(cursor)?)?;
+    let mut fields = Vec::with_capacity(count);
+    for _ in 0..count {
+        fields.push(SignatureField {
+            definition: read_definition(cursor)?,
+            name: get_string(cursor)?,
+            type_root: get_u32(cursor)?,
+        });
+    }
+    Ok(fields)
+}
+
+/// Encodes canonical target-independent signature facts.
 pub fn encode_signatures(section: &SignatureSection) -> Result<Vec<u8>, MetadataError> {
     section.validate()?;
     let mut output = Vec::new();
@@ -1850,6 +2218,7 @@ pub fn encode_signatures(section: &SignatureSection) -> Result<Vec<u8>, Metadata
         }
         put_generic_params(&mut output, &record.generic_params)?;
         put_where_predicates(&mut output, &record.where_predicates)?;
+        put_signature_payload(&mut output, record.payload.as_ref())?;
     }
     put_list_len(&mut output, section.traits.len())?;
     for record in &section.traits {
@@ -1931,6 +2300,7 @@ pub fn decode_signatures(bytes: &[u8]) -> Result<SignatureSection, MetadataError
             members,
             generic_params: read_generic_params(&mut cursor)?,
             where_predicates: read_where_predicates(&mut cursor)?,
+            payload: read_signature_payload(&mut cursor)?,
         });
     }
     let trait_len = bounded_count(get_u32(&mut cursor)?)?;
@@ -3432,6 +3802,15 @@ mod tests {
             members: Vec::new(),
             generic_params: Vec::new(),
             where_predicates: Vec::new(),
+            payload: Some(SignaturePayload::Function {
+                params: vec![SignatureParameter {
+                    name: Some("value".into()),
+                    receiver: 0,
+                    type_root: 0,
+                }],
+                return_type: 2,
+                attributes: vec![1, 0x80],
+            }),
         };
         let section = SignatureSection {
             records: vec![record],
@@ -3475,6 +3854,7 @@ mod tests {
                 members: Vec::new(),
                 generic_params: Vec::new(),
                 where_predicates: Vec::new(),
+                payload: None,
             }],
             traits: Vec::new(),
             extensions: Vec::new(),
@@ -3526,6 +3906,7 @@ mod tests {
                 }],
                 generic_params: Vec::new(),
                 where_predicates: Vec::new(),
+                payload: None,
             }],
             traits: Vec::new(),
             extensions: Vec::new(),
@@ -3630,6 +4011,7 @@ mod tests {
                 members: Vec::new(),
                 generic_params: Vec::new(),
                 where_predicates: Vec::new(),
+                payload: None,
             }],
             traits: Vec::new(),
             extensions: Vec::new(),

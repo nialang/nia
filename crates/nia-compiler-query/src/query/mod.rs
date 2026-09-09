@@ -452,6 +452,16 @@ impl CompiledPackageSignatures {
         self.records.get(definition)
     }
 
+    /// Returns the complete typed declaration payload when the published
+    /// package carries one. Consumers must remap its stable roots before
+    /// constructing session-local signatures.
+    pub fn payload(
+        &self,
+        definition: &DefinitionId,
+    ) -> Option<&nia_package_metadata::SignaturePayload> {
+        self.records.get(definition)?.payload.as_ref()
+    }
+
     pub fn iter(
         &self,
     ) -> impl Iterator<Item = (&DefinitionId, &nia_package_metadata::SignatureRecord)> {
@@ -2049,6 +2059,9 @@ impl CompilerDatabase {
         for item in &interface.records {
             let global = definition_index.definition_for_identity(&item.definition)?;
             stable_by_global.insert(global, item.definition.clone());
+        }
+        for item in &interface.records {
+            let global = definition_index.definition_for_identity(&item.definition)?;
             let kind = item.definition.kind;
             let facts = self.db.get(ItemSignaturesQuery(global.module_id))?;
             let flags = signature_flags_for_definition(global.def_id, kind, &facts.semantic);
@@ -2057,6 +2070,16 @@ impl CompilerDatabase {
                 &facts.semantic,
                 &self.db.context().loader_facts().symbols(),
                 type_indexes,
+            )?;
+            let payload = signature_payload_for_definition(
+                global.def_id,
+                global.module_id,
+                kind,
+                &facts.semantic,
+                &stable_by_global,
+                type_indexes,
+                &self.db.context().loader_facts().symbols(),
+                &self.db,
             )?;
             if let Some(owner) = item.definition.owner.as_deref() {
                 members.entry(owner.clone()).or_default().push(
@@ -2099,6 +2122,7 @@ impl CompilerDatabase {
                 item.type_roots.clone(),
                 generic_params,
                 where_predicates,
+                payload,
             ));
         }
         let module_graph = self.db.get(ModuleGraphQuery)?;
@@ -2251,7 +2275,15 @@ impl CompilerDatabase {
         let records = records
             .into_iter()
             .map(
-                |(definition, kind, flags, type_roots, generic_params, where_predicates)| {
+                |(
+                    definition,
+                    kind,
+                    flags,
+                    type_roots,
+                    generic_params,
+                    where_predicates,
+                    payload,
+                )| {
                     nia_package_metadata::SignatureRecord {
                         members: members.remove(&definition).unwrap_or_default(),
                         definition,
@@ -2260,6 +2292,7 @@ impl CompilerDatabase {
                         type_roots,
                         generic_params,
                         where_predicates,
+                        payload,
                     }
                 },
             )
@@ -4413,6 +4446,217 @@ fn signature_flags_for_definition(
             .map_or(0, |_| nia_package_metadata::SIGNATURE_FLAG_CONST),
         _ => 0,
     }
+}
+
+fn signature_payload_for_definition(
+    def_id: DefId,
+    module_id: ModuleId,
+    kind: u8,
+    signatures: &nia_item_signatures::ItemSignatures,
+    stable_by_global: &HashMap<GlobalDefId, DefinitionId>,
+    indexes: &HashMap<InternedTyId, u32>,
+    symbols: &dyn nia_symbol::SymbolText,
+    db: &QueryDb<CompilerContext>,
+) -> QueryResult<Option<nia_package_metadata::SignaturePayload>> {
+    let root = |ty: InternedTyId| {
+        indexes.get(&ty).copied().ok_or_else(|| {
+            db.invalid_input(
+                &ModuleGraphQuery,
+                "signature payload type missing from published graph",
+            )
+        })
+    };
+    let field = |field: &nia_item_signatures::FieldSignature| {
+        let definition = stable_by_global
+            .get(&GlobalDefId {
+                module_id,
+                def_id: field.def_id,
+            })
+            .cloned()
+            .ok_or_else(|| {
+                db.invalid_input(
+                    &ModuleGraphQuery,
+                    "signature payload field is missing from interface identities",
+                )
+            })?;
+        Ok(nia_package_metadata::SignatureField {
+            name: symbols
+                .symbol_text(field.name)
+                .ok_or_else(|| db.invalid_input(&ModuleGraphQuery, "field has no stable name"))?
+                .to_string(),
+            type_root: root(field.ty)?,
+            definition,
+        })
+    };
+    let has_definition =
+        |def_id: DefId| stable_by_global.contains_key(&GlobalDefId { module_id, def_id });
+    let payload =
+        match kind {
+            2 | 11 | 12 => signatures.functions.get(&def_id).map(|signature| {
+                let params = signature
+                    .params
+                    .iter()
+                    .map(|param| {
+                        Ok(nia_package_metadata::SignatureParameter {
+                            name: param.name.and_then(|name| {
+                                symbols.symbol_text(name).as_deref().map(str::to_owned)
+                            }),
+                            receiver: match param.receiver {
+                                None => 0,
+                                Some(nia_ids::ReceiverKind::RefReadOnly) => 1,
+                                Some(nia_ids::ReceiverKind::Ref) => 2,
+                                Some(nia_ids::ReceiverKind::Value) => 3,
+                            },
+                            type_root: root(param.ty)?,
+                        })
+                    })
+                    .collect::<QueryResult<Vec<_>>>()?;
+                let attributes = signature
+                    .attributes
+                    .iter()
+                    .map(|attribute| -> QueryResult<u8> {
+                        match attribute {
+                            nia_item_signatures::FunctionAttribute::Naked => Ok(1),
+                            nia_item_signatures::FunctionAttribute::TrackCaller => Ok(2),
+                            nia_item_signatures::FunctionAttribute::Builtin(builtin) => {
+                                let tag = nia_ids::BuiltinFunction::ALL
+                                    .iter()
+                                    .position(|candidate| candidate == builtin)
+                                    .and_then(|index| u8::try_from(index).ok())
+                                    .ok_or_else(|| {
+                                        db.invalid_input(
+                                            &ModuleGraphQuery,
+                                            "unknown builtin function attribute",
+                                        )
+                                    })?;
+                                Ok(0x80 | tag)
+                            }
+                        }
+                    })
+                    .collect::<QueryResult<Vec<_>>>()?;
+                Ok(nia_package_metadata::SignaturePayload::Function {
+                    params,
+                    return_type: root(signature.return_type)?,
+                    attributes,
+                })
+            }),
+            5 => signatures.structs.get(&def_id).and_then(|signature| {
+                signature
+                    .fields
+                    .iter()
+                    .all(|field| has_definition(field.def_id))
+                    .then(|| {
+                        Ok(nia_package_metadata::SignaturePayload::Aggregate {
+                            fields: signature
+                                .fields
+                                .iter()
+                                .map(field)
+                                .collect::<QueryResult<Vec<_>>>()?,
+                        })
+                    })
+            }),
+            7 => signatures.unions.get(&def_id).and_then(|signature| {
+                signature
+                    .fields
+                    .iter()
+                    .all(|field| has_definition(field.def_id))
+                    .then(|| {
+                        Ok(nia_package_metadata::SignaturePayload::Aggregate {
+                            fields: signature
+                                .fields
+                                .iter()
+                                .map(field)
+                                .collect::<QueryResult<Vec<_>>>()?,
+                        })
+                    })
+            }),
+            13 => {
+                signatures.enums.get(&def_id).and_then(|signature| {
+                    signature
+                        .variants
+                        .iter()
+                        .all(|variant| {
+                            has_definition(variant.def_id)
+                                && match &variant.payload {
+                                    nia_item_signatures::EnumVariantPayloadSignature::Named(
+                                        fields,
+                                    ) => fields.iter().all(|field| has_definition(field.def_id)),
+                                    _ => true,
+                                }
+                        })
+                        .then(|| {
+                            let variants =
+                                signature
+                                    .variants
+                                    .iter()
+                                    .map(|variant| {
+                                        let definition = stable_by_global
+                                            .get(&GlobalDefId {
+                                                module_id,
+                                                def_id: variant.def_id,
+                                            })
+                                            .cloned()
+                                            .ok_or_else(|| {
+                                                db.invalid_input(
+                                &ModuleGraphQuery,
+                                "enum variant is missing from interface identities",
+                            )
+                                            })?;
+                                        let payload = match &variant.payload {
+                        nia_item_signatures::EnumVariantPayloadSignature::Unit => {
+                            nia_package_metadata::SignatureVariantPayload::Unit
+                        }
+                        nia_item_signatures::EnumVariantPayloadSignature::Tuple(types) => {
+                            nia_package_metadata::SignatureVariantPayload::Tuple(
+                                types.iter().map(|ty| root(*ty)).collect::<QueryResult<Vec<_>>>()?,
+                            )
+                        }
+                        nia_item_signatures::EnumVariantPayloadSignature::Named(fields) => {
+                            nia_package_metadata::SignatureVariantPayload::Named(
+                                fields.iter().map(field).collect::<QueryResult<Vec<_>>>()?,
+                            )
+                        }
+                    };
+                                        Ok(nia_package_metadata::SignatureVariant {
+                                            definition,
+                                            name: symbols
+                                                .symbol_text(variant.name)
+                                                .ok_or_else(|| {
+                                                    db.invalid_input(
+                                                        &ModuleGraphQuery,
+                                                        "variant has no stable name",
+                                                    )
+                                                })?
+                                                .to_string(),
+                                            payload,
+                                        })
+                                    })
+                                    .collect::<QueryResult<Vec<_>>>()?;
+                            Ok(nia_package_metadata::SignaturePayload::Enum {
+                                backing_type: root(signature.backing_type)?,
+                                variants,
+                            })
+                        })
+                })
+            }
+            16 => signatures.type_aliases.get(&def_id).map(|signature| {
+                Ok(nia_package_metadata::SignaturePayload::TypeAlias {
+                    target: root(signature.target)?,
+                })
+            }),
+            3 => signatures.globals.get(&def_id).map(|signature| {
+                Ok(nia_package_metadata::SignaturePayload::Value {
+                    explicit_type: signature.explicit_type.map(root).transpose()?,
+                })
+            }),
+            4 => signatures.consts.get(&def_id).map(|signature| {
+                Ok(nia_package_metadata::SignaturePayload::Value {
+                    explicit_type: signature.explicit_type.map(root).transpose()?,
+                })
+            }),
+            _ => None,
+        };
+    payload.transpose()
 }
 
 fn signature_generic_and_where_facts(
