@@ -348,11 +348,16 @@ impl CompiledPackageSignatures {
         self.records.iter()
     }
 
-    pub fn trait_record(&self, definition: &DefinitionId) -> Option<&nia_package_metadata::SignatureTraitRecord> {
+    pub fn trait_record(
+        &self,
+        definition: &DefinitionId,
+    ) -> Option<&nia_package_metadata::SignatureTraitRecord> {
         self.traits.get(definition)
     }
 
-    pub fn traits(&self) -> impl Iterator<Item = (&DefinitionId, &nia_package_metadata::SignatureTraitRecord)> {
+    pub fn traits(
+        &self,
+    ) -> impl Iterator<Item = (&DefinitionId, &nia_package_metadata::SignatureTraitRecord)> {
         self.traits.iter()
     }
 
@@ -361,8 +366,13 @@ impl CompiledPackageSignatures {
     }
 
     /// Returns extension records implementing a given stable trait root.
-    pub fn extensions_for_trait_root(&self, trait_root: u32) -> impl Iterator<Item = &nia_package_metadata::SignatureExtensionRecord> {
-        self.extensions.iter().filter(move |record| record.trait_root == Some(trait_root))
+    pub fn extensions_for_trait_root(
+        &self,
+        trait_root: u32,
+    ) -> impl Iterator<Item = &nia_package_metadata::SignatureExtensionRecord> {
+        self.extensions
+            .iter()
+            .filter(move |record| record.trait_root == Some(trait_root))
     }
 }
 
@@ -506,7 +516,12 @@ impl CompiledPackageInterfaceIndex {
         definition: &DefinitionId,
     ) -> Option<&nia_package_metadata::SignatureTraitRecord> {
         let package = &definition.module.package;
-        self.packages.get(package)?.signatures()?.traits.iter().find(|record| record.definition == *definition)
+        self.packages
+            .get(package)?
+            .signatures()?
+            .traits
+            .iter()
+            .find(|record| record.definition == *definition)
     }
 
     /// Returns extension records published by a selected package.
@@ -514,7 +529,10 @@ impl CompiledPackageInterfaceIndex {
         &self,
         package: &PackageId,
     ) -> Option<&[nia_package_metadata::SignatureExtensionRecord]> {
-        self.packages.get(package)?.signatures().map(|section| section.extensions.as_slice())
+        self.packages
+            .get(package)?
+            .signatures()
+            .map(|section| section.extensions.as_slice())
     }
 
     /// Resolves one stable definition without loading dependency source.
@@ -812,10 +830,18 @@ impl CompilerDatabase {
                 }
                 for record in &signatures.traits {
                     if record.definition.module.package != *package
-                        || !interface.records().iter().any(|item| item.definition == record.definition)
-                        || traits.insert(record.definition.clone(), record.clone()).is_some()
+                        || !interface
+                            .records()
+                            .iter()
+                            .any(|item| item.definition == record.definition)
+                        || traits
+                            .insert(record.definition.clone(), record.clone())
+                            .is_some()
                     {
-                        return Err(self.db.invalid_input(&CompiledPackageInterfaceIndexQuery, "compiled trait signature identity is inconsistent"));
+                        return Err(self.db.invalid_input(
+                            &CompiledPackageInterfaceIndexQuery,
+                            "compiled trait signature identity is inconsistent",
+                        ));
                     }
                 }
                 extensions.extend(signatures.extensions.iter().cloned());
@@ -825,10 +851,10 @@ impl CompilerDatabase {
                 self.db.publish_owned(
                     key,
                     CompiledPackageSignatures {
-                    package: package.clone(),
-                    records,
-                    traits,
-                    extensions,
+                        package: package.clone(),
+                        records,
+                        traits,
+                        extensions,
                     },
                     &CompiledPackageInterfaceIndexQuery,
                 );
@@ -864,18 +890,53 @@ impl CompilerDatabase {
                 .unwrap_or_default();
             let signatures = self.compiled_package_signatures(package.clone())?;
             for (definition, record) in signatures.iter() {
-                let roots = record.type_roots.iter().map(|root| {
-                    types.get(*root as usize).copied().ok_or_else(|| self.db.invalid_input(&CompiledPackageInterfaceIndexQuery, "compiled signature root is outside its graph"))
-                }).collect::<QueryResult<Vec<_>>>()?;
+                let roots = record
+                    .type_roots
+                    .iter()
+                    .map(|root| {
+                        types.get(*root as usize).copied().ok_or_else(|| {
+                            self.db.invalid_input(
+                                &CompiledPackageInterfaceIndexQuery,
+                                "compiled signature root is outside its graph",
+                            )
+                        })
+                    })
+                    .collect::<QueryResult<Vec<_>>>()?;
                 for param in &record.generic_params {
-                    if let Some(root) = param.type_root { if types.get(root as usize).is_none() { return Err(self.db.invalid_input(&CompiledPackageInterfaceIndexQuery, "compiled generic parameter root is outside its graph")); } }
-                }
-                for predicate in &record.where_predicates {
-                    for root in std::iter::once(predicate.type_root).chain(predicate.bounds.iter().flat_map(|bound| std::iter::once(bound.trait_root).chain(bound.associated_type_bindings.iter().map(|binding| binding.type_root)))) {
-                        if types.get(root as usize).is_none() { return Err(self.db.invalid_input(&CompiledPackageInterfaceIndexQuery, "compiled where predicate root is outside its graph")); }
+                    if let Some(root) = param.type_root {
+                        if types.get(root as usize).is_none() {
+                            return Err(self.db.invalid_input(
+                                &CompiledPackageInterfaceIndexQuery,
+                                "compiled generic parameter root is outside its graph",
+                            ));
+                        }
                     }
                 }
-                if result.insert(definition.clone(), roots).is_some() { return Err(self.db.invalid_input(&CompiledPackageInterfaceIndexQuery, "duplicate compiled signature during root rehydration")); }
+                for predicate in &record.where_predicates {
+                    for root in std::iter::once(predicate.type_root).chain(
+                        predicate.bounds.iter().flat_map(|bound| {
+                            std::iter::once(bound.trait_root).chain(
+                                bound
+                                    .associated_type_bindings
+                                    .iter()
+                                    .map(|binding| binding.type_root),
+                            )
+                        }),
+                    ) {
+                        if types.get(root as usize).is_none() {
+                            return Err(self.db.invalid_input(
+                                &CompiledPackageInterfaceIndexQuery,
+                                "compiled where predicate root is outside its graph",
+                            ));
+                        }
+                    }
+                }
+                if result.insert(definition.clone(), roots).is_some() {
+                    return Err(self.db.invalid_input(
+                        &CompiledPackageInterfaceIndexQuery,
+                        "duplicate compiled signature during root rehydration",
+                    ));
+                }
             }
         }
         Ok(result)
@@ -1647,7 +1708,8 @@ impl CompilerDatabase {
         package: PackageId,
         resolver: &dyn StableDefinitionPackageResolver,
     ) -> QueryResult<nia_package_metadata::SignatureSection> {
-        let (interface, _, indexes) = self.package_interface_and_type_graph(package.clone(), resolver)?;
+        let (interface, _, indexes) =
+            self.package_interface_and_type_graph(package.clone(), resolver)?;
         self.signature_section_from_interface(resolver, interface, &indexes)
     }
 
@@ -1662,7 +1724,8 @@ impl CompilerDatabase {
         let mut trait_records = Vec::new();
         let mut extension_records = Vec::new();
         let mut stable_by_global = HashMap::new();
-        let mut members = BTreeMap::<DefinitionId, Vec<nia_package_metadata::SignatureMember>>::new();
+        let mut members =
+            BTreeMap::<DefinitionId, Vec<nia_package_metadata::SignatureMember>>::new();
         for item in &interface.records {
             let global = definition_index.definition_for_identity(&item.definition)?;
             stable_by_global.insert(global, item.definition.clone());
@@ -1676,22 +1739,30 @@ impl CompilerDatabase {
                 type_indexes,
             )?;
             if let Some(owner) = item.definition.owner.as_deref() {
-                members
-                    .entry(owner.clone())
-                    .or_default()
-                    .push(nia_package_metadata::SignatureMember {
+                members.entry(owner.clone()).or_default().push(
+                    nia_package_metadata::SignatureMember {
                         definition: item.definition.clone(),
                         name: item.definition.name.clone(),
                         kind,
                         flags,
                         type_roots: item.type_roots.clone(),
-                    });
+                    },
+                );
             }
             if kind == 9 {
                 if let Some(trait_signature) = facts.semantic.traits.get(&global.def_id) {
-                    let supertrait_roots = trait_signature.supertraits.iter().map(|bound| {
-                        type_indexes.get(&bound.ty).copied().ok_or_else(|| self.db.invalid_input(&ModuleGraphQuery, "supertrait type missing from published graph"))
-                    }).collect::<QueryResult<Vec<_>>>()?;
+                    let supertrait_roots = trait_signature
+                        .supertraits
+                        .iter()
+                        .map(|bound| {
+                            type_indexes.get(&bound.ty).copied().ok_or_else(|| {
+                                self.db.invalid_input(
+                                    &ModuleGraphQuery,
+                                    "supertrait type missing from published graph",
+                                )
+                            })
+                        })
+                        .collect::<QueryResult<Vec<_>>>()?;
                     trait_records.push(nia_package_metadata::SignatureTraitRecord {
                         definition: item.definition.clone(),
                         generic_params: generic_params.clone(),
@@ -1701,61 +1772,177 @@ impl CompilerDatabase {
                     });
                 }
             }
-            records.push((item.definition.clone(), kind, flags, item.type_roots.clone(), generic_params, where_predicates));
+            records.push((
+                item.definition.clone(),
+                kind,
+                flags,
+                item.type_roots.clone(),
+                generic_params,
+                where_predicates,
+            ));
         }
         let module_graph = self.db.get(ModuleGraphQuery)?;
         let entry_root = module_graph.current_package_root(module_graph.entry());
         for module in module_graph.modules() {
-            if entry_root.is_some() && module_graph.current_package_root(module.id) != entry_root { continue; }
+            if entry_root.is_some() && module_graph.current_package_root(module.id) != entry_root {
+                continue;
+            }
             let facts = self.db.get(ItemSignaturesQuery(module.id))?;
             for implementation in &facts.semantic.trait_impls {
-                let target_root = match type_indexes.get(&implementation.target_ty) { Some(root) => *root, None => continue };
-                let trait_root = implementation.trait_ty.map(|ty| type_indexes.get(&ty).copied()).flatten();
-                let generic_params = implementation.generic_params.iter().map(|param| {
-                    let name = self.db.context().loader_facts().symbols().symbol_text(param.name).ok_or_else(|| self.db.invalid_input(&ModuleGraphQuery, "extension generic parameter has no stable symbol text"))?.to_string();
-                    let (kind, type_root) = match param.kind {
-                        nia_item_signatures::GenericParamSignatureKind::Type => (0, None),
-                        nia_item_signatures::GenericParamSignatureKind::Const { ty } => (1, type_indexes.get(&ty).copied()),
-                    };
-                    Ok(nia_package_metadata::SignatureGenericParam { name, kind, type_root })
-                }).collect::<QueryResult<Vec<_>>>()?;
-                let where_roots = implementation.where_predicates.iter().map(|predicate| type_indexes.get(&predicate.ty).copied().ok_or_else(|| self.db.invalid_input(&ModuleGraphQuery, "extension where predicate type missing from published graph"))).collect::<QueryResult<Vec<_>>>()?;
+                let target_root = match type_indexes.get(&implementation.target_ty) {
+                    Some(root) => *root,
+                    None => continue,
+                };
+                let trait_root = implementation
+                    .trait_ty
+                    .map(|ty| type_indexes.get(&ty).copied())
+                    .flatten();
+                let generic_params = implementation
+                    .generic_params
+                    .iter()
+                    .map(|param| {
+                        let name = self
+                            .db
+                            .context()
+                            .loader_facts()
+                            .symbols()
+                            .symbol_text(param.name)
+                            .ok_or_else(|| {
+                                self.db.invalid_input(
+                                    &ModuleGraphQuery,
+                                    "extension generic parameter has no stable symbol text",
+                                )
+                            })?
+                            .to_string();
+                        let (kind, type_root) = match param.kind {
+                            nia_item_signatures::GenericParamSignatureKind::Type => (0, None),
+                            nia_item_signatures::GenericParamSignatureKind::Const { ty } => {
+                                (1, type_indexes.get(&ty).copied())
+                            }
+                        };
+                        Ok(nia_package_metadata::SignatureGenericParam {
+                            name,
+                            kind,
+                            type_root,
+                        })
+                    })
+                    .collect::<QueryResult<Vec<_>>>()?;
+                let where_roots = implementation
+                    .where_predicates
+                    .iter()
+                    .map(|predicate| {
+                        type_indexes.get(&predicate.ty).copied().ok_or_else(|| {
+                            self.db.invalid_input(
+                                &ModuleGraphQuery,
+                                "extension where predicate type missing from published graph",
+                            )
+                        })
+                    })
+                    .collect::<QueryResult<Vec<_>>>()?;
                 let mut extension_members = Vec::new();
                 for method in &implementation.methods {
-                    if method.visibility != nia_ids::Visibility::Public { continue; }
-                    if let Some(definition) = stable_by_global.get(&GlobalDefId { module_id: module.id, def_id: method.def_id }) {
-                        if let Some(item) = interface.records.iter().find(|item| &item.definition == definition) {
-                            extension_members.push(nia_package_metadata::SignatureMember { definition: definition.clone(), name: definition.name.clone(), kind: definition.kind, flags: signature_flags_for_definition(method.def_id, definition.kind, &facts.semantic), type_roots: item.type_roots.clone() });
+                    if method.visibility != nia_ids::Visibility::Public {
+                        continue;
+                    }
+                    if let Some(definition) = stable_by_global.get(&GlobalDefId {
+                        module_id: module.id,
+                        def_id: method.def_id,
+                    }) {
+                        if let Some(item) = interface
+                            .records
+                            .iter()
+                            .find(|item| &item.definition == definition)
+                        {
+                            extension_members.push(nia_package_metadata::SignatureMember {
+                                definition: definition.clone(),
+                                name: definition.name.clone(),
+                                kind: definition.kind,
+                                flags: signature_flags_for_definition(
+                                    method.def_id,
+                                    definition.kind,
+                                    &facts.semantic,
+                                ),
+                                type_roots: item.type_roots.clone(),
+                            });
                         }
                     }
                 }
                 for value in &implementation.associated_values {
-                    if value.visibility != nia_ids::Visibility::Public { continue; }
-                    if let Some(definition) = stable_by_global.get(&GlobalDefId { module_id: module.id, def_id: value.def_id }) {
-                        if let Some(item) = interface.records.iter().find(|item| &item.definition == definition) {
-                            extension_members.push(nia_package_metadata::SignatureMember { definition: definition.clone(), name: definition.name.clone(), kind: definition.kind, flags: 0, type_roots: item.type_roots.clone() });
+                    if value.visibility != nia_ids::Visibility::Public {
+                        continue;
+                    }
+                    if let Some(definition) = stable_by_global.get(&GlobalDefId {
+                        module_id: module.id,
+                        def_id: value.def_id,
+                    }) {
+                        if let Some(item) = interface
+                            .records
+                            .iter()
+                            .find(|item| &item.definition == definition)
+                        {
+                            extension_members.push(nia_package_metadata::SignatureMember {
+                                definition: definition.clone(),
+                                name: definition.name.clone(),
+                                kind: definition.kind,
+                                flags: 0,
+                                type_roots: item.type_roots.clone(),
+                            });
                         }
                     }
                 }
-                let associated_types = implementation.associated_types.iter().map(|associated| {
-                    let name = self.db.context().loader_facts().symbols().symbol_text(associated.name).ok_or_else(|| self.db.invalid_input(&ModuleGraphQuery, "associated type has no stable symbol text"))?.to_string();
-                    let type_root = type_indexes.get(&associated.ty).copied().ok_or_else(|| self.db.invalid_input(&ModuleGraphQuery, "associated type missing from published graph"))?;
-                    Ok(nia_package_metadata::SignatureAssociatedType { name, type_root })
-                }).collect::<QueryResult<Vec<_>>>()?;
-                extension_records.push(nia_package_metadata::SignatureExtensionRecord { impl_id: implementation.impl_id.0, target_root, trait_root, generic_params, where_roots, members: extension_members, associated_types });
+                let associated_types = implementation
+                    .associated_types
+                    .iter()
+                    .map(|associated| {
+                        let name = self
+                            .db
+                            .context()
+                            .loader_facts()
+                            .symbols()
+                            .symbol_text(associated.name)
+                            .ok_or_else(|| {
+                                self.db.invalid_input(
+                                    &ModuleGraphQuery,
+                                    "associated type has no stable symbol text",
+                                )
+                            })?
+                            .to_string();
+                        let type_root =
+                            type_indexes.get(&associated.ty).copied().ok_or_else(|| {
+                                self.db.invalid_input(
+                                    &ModuleGraphQuery,
+                                    "associated type missing from published graph",
+                                )
+                            })?;
+                        Ok(nia_package_metadata::SignatureAssociatedType { name, type_root })
+                    })
+                    .collect::<QueryResult<Vec<_>>>()?;
+                extension_records.push(nia_package_metadata::SignatureExtensionRecord {
+                    impl_id: implementation.impl_id.0,
+                    target_root,
+                    trait_root,
+                    generic_params,
+                    where_roots,
+                    members: extension_members,
+                    associated_types,
+                });
             }
         }
         let records = records
             .into_iter()
-            .map(|(definition, kind, flags, type_roots, generic_params, where_predicates)| nia_package_metadata::SignatureRecord {
-                members: members.remove(&definition).unwrap_or_default(),
-                definition,
-                kind,
-                flags,
-                type_roots,
-                generic_params,
-                where_predicates,
-            })
+            .map(
+                |(definition, kind, flags, type_roots, generic_params, where_predicates)| {
+                    nia_package_metadata::SignatureRecord {
+                        members: members.remove(&definition).unwrap_or_default(),
+                        definition,
+                        kind,
+                        flags,
+                        type_roots,
+                        generic_params,
+                        where_predicates,
+                    }
+                },
+            )
             .collect();
         let section = nia_package_metadata::SignatureSection {
             records,
@@ -1772,7 +1959,11 @@ impl CompilerDatabase {
         &self,
         package: PackageId,
         resolver: &dyn StableDefinitionPackageResolver,
-    ) -> QueryResult<(InterfaceSection, StableTypeGraph, HashMap<nia_ids::InternedTyId, u32>)> {
+    ) -> QueryResult<(
+        InterfaceSection,
+        StableTypeGraph,
+        HashMap<nia_ids::InternedTyId, u32>,
+    )> {
         let graph = self.db.get(ModuleGraphQuery)?;
         let symbols = self.db.context().loader_facts().symbols();
         let entry_package_root = graph.current_package_root(graph.entry());
@@ -2108,11 +2299,7 @@ impl CompilerDatabase {
         resolver: &dyn StableDefinitionPackageResolver,
     ) -> QueryResult<crate::PackageArtifactPublication> {
         self.publish_package_artifact_with_resolver_and_products_and_signatures(
-            package,
-            resolver,
-            None,
-            None,
-            None,
+            package, resolver, None, None, None,
         )
     }
 
@@ -2127,11 +2314,7 @@ impl CompilerDatabase {
         native: Option<nia_package_metadata::NativeSection>,
     ) -> QueryResult<crate::PackageArtifactPublication> {
         self.publish_package_artifact_with_resolver_and_products_and_signatures(
-            package,
-            resolver,
-            None,
-            native,
-            None,
+            package, resolver, None, native, None,
         )
     }
 
@@ -2173,11 +2356,7 @@ impl CompilerDatabase {
         native: Option<nia_package_metadata::NativeSection>,
     ) -> QueryResult<crate::PackageArtifactPublication> {
         self.publish_package_artifact_with_resolver_and_products_and_signatures(
-            package,
-            resolver,
-            templates,
-            native,
-            None,
+            package, resolver, templates, native, None,
         )
     }
 
@@ -2196,7 +2375,11 @@ impl CompilerDatabase {
             self.package_interface_and_type_graph(package.clone(), resolver)?;
         let signatures = match signatures {
             Some(signatures) => Some(signatures),
-            None => Some(self.signature_section_from_interface(resolver, interface.clone(), &indexes)?),
+            None => Some(self.signature_section_from_interface(
+                resolver,
+                interface.clone(),
+                &indexes,
+            )?),
         };
         let public_surface =
             self.package_public_surface_section_with_resolver(package.clone(), resolver)?;
@@ -3266,9 +3449,10 @@ fn signature_flags_for_definition(
         3 => signatures.globals.get(&def_id).map_or(0, |signature| {
             u32::from(signature.is_extern) * nia_package_metadata::SIGNATURE_FLAG_EXTERN
         }),
-        4 => signatures.consts.get(&def_id).map_or(0, |_| {
-            nia_package_metadata::SIGNATURE_FLAG_CONST
-        }),
+        4 => signatures
+            .consts
+            .get(&def_id)
+            .map_or(0, |_| nia_package_metadata::SIGNATURE_FLAG_CONST),
         _ => 0,
     }
 }
@@ -3278,18 +3462,52 @@ fn signature_generic_and_where_facts(
     signatures: &nia_item_signatures::ItemSignatures,
     symbols: &dyn nia_symbol::SymbolText,
     indexes: &HashMap<InternedTyId, u32>,
-) -> QueryResult<(Vec<nia_package_metadata::SignatureGenericParam>, Vec<nia_package_metadata::SignatureWherePredicate>)> {
+) -> QueryResult<(
+    Vec<nia_package_metadata::SignatureGenericParam>,
+    Vec<nia_package_metadata::SignatureWherePredicate>,
+)> {
     let mut generic_params = Vec::new();
     let mut where_predicates = Vec::new();
-    let mut convert = |params: &[nia_item_signatures::GenericParamSignature], predicates: &[nia_defs::WherePredicateSignature]| -> QueryResult<()> {
-        generic_params = params.iter().map(|param| {
-            let name = symbols.symbol_text(param.name).ok_or_else(|| QueryError::InvalidInput { query: QueryFrame { name: "signature_publication", key: format!("{def_id:?}"), description: "signature_publication".into() }, message: "generic parameter has no stable symbol text".into() })?.to_string();
-            let type_root = match param.kind {
-                nia_item_signatures::GenericParamSignatureKind::Type => None,
-                nia_item_signatures::GenericParamSignatureKind::Const { ty } => Some(*indexes.get(&ty).ok_or_else(|| QueryError::InvalidInput { query: QueryFrame { name: "signature_publication", key: format!("{def_id:?}"), description: "signature_publication".into() }, message: "generic parameter type missing from published graph".into() })?),
-            };
-            Ok(nia_package_metadata::SignatureGenericParam { name, kind: u8::from(matches!(param.kind, nia_item_signatures::GenericParamSignatureKind::Const { .. })), type_root })
-        }).collect::<QueryResult<Vec<_>>>()?;
+    let mut convert = |params: &[nia_item_signatures::GenericParamSignature],
+                       predicates: &[nia_defs::WherePredicateSignature]|
+     -> QueryResult<()> {
+        generic_params = params
+            .iter()
+            .map(|param| {
+                let name = symbols
+                    .symbol_text(param.name)
+                    .ok_or_else(|| QueryError::InvalidInput {
+                        query: QueryFrame {
+                            name: "signature_publication",
+                            key: format!("{def_id:?}"),
+                            description: "signature_publication".into(),
+                        },
+                        message: "generic parameter has no stable symbol text".into(),
+                    })?
+                    .to_string();
+                let type_root = match param.kind {
+                    nia_item_signatures::GenericParamSignatureKind::Type => None,
+                    nia_item_signatures::GenericParamSignatureKind::Const { ty } => {
+                        Some(*indexes.get(&ty).ok_or_else(|| QueryError::InvalidInput {
+                            query: QueryFrame {
+                                name: "signature_publication",
+                                key: format!("{def_id:?}"),
+                                description: "signature_publication".into(),
+                            },
+                            message: "generic parameter type missing from published graph".into(),
+                        })?)
+                    }
+                };
+                Ok(nia_package_metadata::SignatureGenericParam {
+                    name,
+                    kind: u8::from(matches!(
+                        param.kind,
+                        nia_item_signatures::GenericParamSignatureKind::Const { .. }
+                    )),
+                    type_root,
+                })
+            })
+            .collect::<QueryResult<Vec<_>>>()?;
         where_predicates = predicates.iter().map(|predicate| {
             let type_root = *indexes.get(&predicate.ty).ok_or_else(|| QueryError::InvalidInput { query: QueryFrame { name: "signature_publication", key: format!("{def_id:?}"), description: "signature_publication".into() }, message: "where predicate type missing from published graph".into() })?;
             let bounds = predicate.bounds.iter().map(|bound| {
@@ -3301,11 +3519,17 @@ fn signature_generic_and_where_facts(
         }).collect::<QueryResult<Vec<_>>>()?;
         Ok(())
     };
-    if let Some(signature) = signatures.functions.get(&def_id) { convert(&signature.generic_params, &signature.where_predicates)?; }
-    else if let Some(signature) = signatures.structs.get(&def_id) { convert(&signature.generic_params, &signature.where_predicates)?; }
-    else if let Some(signature) = signatures.unions.get(&def_id) { convert(&signature.generic_params, &signature.where_predicates)?; }
-    else if let Some(signature) = signatures.traits.get(&def_id) { convert(&signature.generic_params, &signature.where_predicates)?; }
-    else if let Some(signature) = signatures.type_aliases.get(&def_id) { convert(&signature.generic_params, &[])?; }
+    if let Some(signature) = signatures.functions.get(&def_id) {
+        convert(&signature.generic_params, &signature.where_predicates)?;
+    } else if let Some(signature) = signatures.structs.get(&def_id) {
+        convert(&signature.generic_params, &signature.where_predicates)?;
+    } else if let Some(signature) = signatures.unions.get(&def_id) {
+        convert(&signature.generic_params, &signature.where_predicates)?;
+    } else if let Some(signature) = signatures.traits.get(&def_id) {
+        convert(&signature.generic_params, &signature.where_predicates)?;
+    } else if let Some(signature) = signatures.type_aliases.get(&def_id) {
+        convert(&signature.generic_params, &[])?;
+    }
     Ok((generic_params, where_predicates))
 }
 
