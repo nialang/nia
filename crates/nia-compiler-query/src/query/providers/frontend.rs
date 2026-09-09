@@ -1059,6 +1059,15 @@ pub(super) fn provide_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<ModuleItemSignatures> {
+    if let Some(identity) = db
+        .context()
+        .loader_facts()
+        .compiled_package_module_identity(module_id)?
+    {
+        if let Some(signatures) = provide_artifact_item_signatures(db, module_id, &identity)? {
+            return Ok(signatures);
+        }
+    }
     let active_item_tree = db.get(DeclarationActiveModuleItemTreeQuery(module_id))?;
     let defs = module_defs_semantic(db, module_id)?;
     let type_lowering = db.get(DeclarationTypeLoweringQuery(module_id))?;
@@ -1076,6 +1085,456 @@ pub(super) fn provide_item_signatures(
         semantic: Arc::new(signatures),
         diagnostics: db.context().diagnostic_store.bundle(diagnostics),
     })
+}
+
+fn provide_artifact_item_signatures(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    identity: &nia_package_metadata::ModuleId,
+) -> QueryResult<Option<ModuleItemSignatures>> {
+    let package = db.get(CompiledPackageSignaturesQuery(identity.package.clone()))?;
+    let graph = db.get(CompiledPackageTypeGraphQuery(identity.package.clone()))?;
+    let symbols = db.context().symbols();
+    let resolve = |definition: &nia_package_metadata::DefinitionId| {
+        crate::query::resolve_loaded_definition_in_query(db, definition, &identity.package)
+    };
+    let mut result = nia_item_signatures::ItemSignatures {
+        functions: HashMap::new(),
+        structs: HashMap::new(),
+        unions: HashMap::new(),
+        traits: HashMap::new(),
+        trait_impls: Vec::new(),
+        enums: HashMap::new(),
+        type_aliases: HashMap::new(),
+        globals: HashMap::new(),
+        consts: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let mut complete = true;
+    for (definition, record) in package.iter() {
+        if definition.module != *identity {
+            continue;
+        }
+        let Some(payload) = record.payload.as_ref() else {
+            complete = false;
+            continue;
+        };
+        let global = resolve(definition)?;
+        let name = symbols.intern(&definition.name).map_err(|error| {
+            db.invalid_input(
+                &CompiledPackageSignaturesQuery(identity.package.clone()),
+                error.to_string(),
+            )
+        })?;
+        let generic_params = artifact_generic_params(db, &graph, record)?;
+        let where_predicates = artifact_where_predicates(db, &graph, record)?;
+        match payload {
+            nia_package_metadata::SignaturePayload::Function {
+                params,
+                return_type,
+                attributes,
+            } => {
+                let params = params
+                    .iter()
+                    .map(|param| {
+                        Ok(nia_item_signatures::ParamSignature {
+                            name: param
+                                .name
+                                .as_deref()
+                                .map(|name| symbols.intern(name))
+                                .transpose()
+                                .map_err(|error| {
+                                    db.invalid_input(
+                                        &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                        error.to_string(),
+                                    )
+                                })?,
+                            receiver: match param.receiver {
+                                0 => None,
+                                1 => Some(nia_ids::ReceiverKind::RefReadOnly),
+                                2 => Some(nia_ids::ReceiverKind::Ref),
+                                3 => Some(nia_ids::ReceiverKind::Value),
+                                _ => {
+                                    return Err(db.invalid_input(
+                                        &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                        "invalid artifact receiver tag",
+                                    ));
+                                }
+                            },
+                            ty: graph.get(param.type_root).ok_or_else(|| {
+                                db.invalid_input(
+                                    &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                    "artifact parameter root is unavailable",
+                                )
+                            })?,
+                            span: Span::default(),
+                        })
+                    })
+                    .collect::<QueryResult<Vec<_>>>()?;
+                let attributes = attributes
+                    .iter()
+                    .map(|attribute| match *attribute {
+                        1 => Ok(nia_item_signatures::FunctionAttribute::Naked),
+                        2 => Ok(nia_item_signatures::FunctionAttribute::TrackCaller),
+                        tag if tag & 0x80 != 0 => nia_ids::BuiltinFunction::ALL
+                            .get((tag & 0x7f) as usize)
+                            .copied()
+                            .map(nia_item_signatures::FunctionAttribute::Builtin)
+                            .ok_or_else(|| {
+                                db.invalid_input(
+                                    &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                    "unknown artifact builtin attribute",
+                                )
+                            }),
+                        _ => Err(db.invalid_input(
+                            &CompiledPackageSignaturesQuery(identity.package.clone()),
+                            "unknown artifact function attribute",
+                        )),
+                    })
+                    .collect::<QueryResult<Vec<_>>>()?;
+                result.functions.insert(
+                    global.def_id,
+                    nia_item_signatures::FunctionSignature {
+                        name,
+                        generics: generic_params.iter().map(|param| param.name).collect(),
+                        generic_params,
+                        where_predicates,
+                        params,
+                        return_type: graph.get(*return_type).ok_or_else(|| {
+                            db.invalid_input(
+                                &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                "artifact return root is unavailable",
+                            )
+                        })?,
+                        is_extern: record.flags & nia_package_metadata::SIGNATURE_FLAG_EXTERN != 0,
+                        is_const: record.flags & nia_package_metadata::SIGNATURE_FLAG_CONST != 0,
+                        is_variadic: record.flags & nia_package_metadata::SIGNATURE_FLAG_VARIADIC
+                            != 0,
+                        attributes,
+                        has_body: record.flags & nia_package_metadata::SIGNATURE_FLAG_HAS_BODY != 0,
+                        span: Span::default(),
+                    },
+                );
+            }
+            nia_package_metadata::SignaturePayload::Aggregate { fields } => {
+                let fields = artifact_fields(db, &graph, fields, &resolve)?;
+                let generic_names = generic_params.iter().map(|param| param.name).collect();
+                let common = (
+                    generic_names,
+                    generic_params,
+                    where_predicates,
+                    fields,
+                    Span::default(),
+                );
+                if definition.kind == 5 {
+                    let (generics, generic_params, where_predicates, fields, span) = common;
+                    result.structs.insert(
+                        global.def_id,
+                        nia_item_signatures::StructSignature {
+                            generics,
+                            generic_params,
+                            where_predicates,
+                            fields,
+                            is_tuple: record.flags & nia_package_metadata::SIGNATURE_FLAG_TUPLE
+                                != 0,
+                            is_extern: record.flags & nia_package_metadata::SIGNATURE_FLAG_EXTERN
+                                != 0,
+                            span,
+                        },
+                    );
+                } else {
+                    let (generics, generic_params, where_predicates, fields, span) = common;
+                    result.unions.insert(
+                        global.def_id,
+                        nia_item_signatures::UnionSignature {
+                            generics,
+                            generic_params,
+                            where_predicates,
+                            fields,
+                            is_extern: record.flags & nia_package_metadata::SIGNATURE_FLAG_EXTERN
+                                != 0,
+                            span,
+                        },
+                    );
+                }
+            }
+            nia_package_metadata::SignaturePayload::Enum {
+                backing_type,
+                variants,
+            } => {
+                let variants = variants
+                    .iter()
+                    .map(|variant| {
+                        let variant_global = resolve(&variant.definition)?;
+                        let payload = match &variant.payload {
+                            nia_package_metadata::SignatureVariantPayload::Unit => {
+                                nia_item_signatures::EnumVariantPayloadSignature::Unit
+                            }
+                            nia_package_metadata::SignatureVariantPayload::Tuple(types) => {
+                                nia_item_signatures::EnumVariantPayloadSignature::Tuple(
+                                    types
+                                        .iter()
+                                        .map(|root| {
+                                            graph.get(*root).ok_or_else(|| {
+                                                db.invalid_input(
+                                                    &CompiledPackageSignaturesQuery(
+                                                        identity.package.clone(),
+                                                    ),
+                                                    "artifact enum root is unavailable",
+                                                )
+                                            })
+                                        })
+                                        .collect::<QueryResult<Vec<_>>>()?,
+                                )
+                            }
+                            nia_package_metadata::SignatureVariantPayload::Named(fields) => {
+                                nia_item_signatures::EnumVariantPayloadSignature::Named(
+                                    artifact_fields(db, &graph, fields, &resolve)?,
+                                )
+                            }
+                        };
+                        Ok(nia_item_signatures::EnumVariantSignature {
+                            def_id: variant_global.def_id,
+                            name: symbols.intern(&variant.name).map_err(|error| {
+                                db.invalid_input(
+                                    &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                    error.to_string(),
+                                )
+                            })?,
+                            payload,
+                            span: Span::default(),
+                        })
+                    })
+                    .collect::<QueryResult<Vec<_>>>()?;
+                result.enums.insert(
+                    global.def_id,
+                    nia_item_signatures::EnumSignature {
+                        backing_type: graph.get(*backing_type).ok_or_else(|| {
+                            db.invalid_input(
+                                &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                "artifact enum backing root is unavailable",
+                            )
+                        })?,
+                        is_open: record.flags & nia_package_metadata::SIGNATURE_FLAG_OPEN != 0,
+                        variants,
+                        span: Span::default(),
+                    },
+                );
+            }
+            nia_package_metadata::SignaturePayload::TypeAlias { target } => {
+                result.type_aliases.insert(
+                    global.def_id,
+                    nia_item_signatures::TypeAliasSignature {
+                        generics: generic_params.iter().map(|param| param.name).collect(),
+                        generic_params,
+                        target: graph.get(*target).ok_or_else(|| {
+                            db.invalid_input(
+                                &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                "artifact alias root is unavailable",
+                            )
+                        })?,
+                        span: Span::default(),
+                    },
+                );
+            }
+            nia_package_metadata::SignaturePayload::Value { explicit_type } => {
+                let ty = explicit_type
+                    .map(|root| {
+                        graph.get(root).ok_or_else(|| {
+                            db.invalid_input(
+                                &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                "artifact value root is unavailable",
+                            )
+                        })
+                    })
+                    .transpose()?;
+                if definition.kind == 3 {
+                    result.globals.insert(
+                        global.def_id,
+                        nia_item_signatures::GlobalSignature {
+                            explicit_type: ty,
+                            is_mutable: false,
+                            is_extern: record.flags & nia_package_metadata::SIGNATURE_FLAG_EXTERN
+                                != 0,
+                            span: Span::default(),
+                        },
+                    );
+                } else {
+                    result.consts.insert(
+                        global.def_id,
+                        nia_item_signatures::ConstSignature {
+                            explicit_type: ty,
+                            builtin: None,
+                            span: Span::default(),
+                        },
+                    );
+                }
+            }
+        }
+    }
+    if !complete {
+        return Ok(None);
+    }
+    let _ = module_id;
+    Ok(Some(ModuleItemSignatures {
+        semantic: Arc::new(result),
+        diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+    }))
+}
+
+fn artifact_generic_params(
+    db: &QueryDb<CompilerContext>,
+    graph: &CompiledPackageTypeGraph,
+    record: &nia_package_metadata::SignatureRecord,
+) -> QueryResult<Vec<nia_item_signatures::GenericParamSignature>> {
+    record
+        .generic_params
+        .iter()
+        .map(|param| {
+            let name = db
+                .context()
+                .symbols()
+                .intern(&param.name)
+                .map_err(|error| {
+                    db.invalid_input(
+                        &CompiledPackageSignaturesQuery(record.definition.module.package.clone()),
+                        error.to_string(),
+                    )
+                })?;
+            let kind = if param.kind == 0 {
+                nia_item_signatures::GenericParamSignatureKind::Type
+            } else {
+                nia_item_signatures::GenericParamSignatureKind::Const {
+                    ty: graph
+                        .get(param.type_root.ok_or_else(|| {
+                            db.invalid_input(
+                                &CompiledPackageSignaturesQuery(
+                                    record.definition.module.package.clone(),
+                                ),
+                                "const generic parameter has no type root",
+                            )
+                        })?)
+                        .ok_or_else(|| {
+                            db.invalid_input(
+                                &CompiledPackageSignaturesQuery(
+                                    record.definition.module.package.clone(),
+                                ),
+                                "const generic parameter root is unavailable",
+                            )
+                        })?,
+                }
+            };
+            Ok(nia_item_signatures::GenericParamSignature { name, kind })
+        })
+        .collect()
+}
+
+fn artifact_where_predicates(
+    db: &QueryDb<CompilerContext>,
+    graph: &CompiledPackageTypeGraph,
+    record: &nia_package_metadata::SignatureRecord,
+) -> QueryResult<Vec<nia_defs::WherePredicateSignature>> {
+    record
+        .where_predicates
+        .iter()
+        .map(|predicate| {
+            Ok(nia_defs::WherePredicateSignature {
+                ty: graph.get(predicate.type_root).ok_or_else(|| {
+                    db.invalid_input(
+                        &CompiledPackageSignaturesQuery(record.definition.module.package.clone()),
+                        "artifact where root is unavailable",
+                    )
+                })?,
+                bounds: predicate
+                    .bounds
+                    .iter()
+                    .map(|bound| {
+                        Ok(nia_defs::WhereBoundSignature {
+                            trait_ty: graph.get(bound.trait_root).ok_or_else(|| {
+                                db.invalid_input(
+                                    &CompiledPackageSignaturesQuery(
+                                        record.definition.module.package.clone(),
+                                    ),
+                                    "artifact where trait root is unavailable",
+                                )
+                            })?,
+                            associated_type_bindings: bound
+                                .associated_type_bindings
+                                .iter()
+                                .map(|binding| {
+                                    Ok(nia_defs::AssociatedTypeBindingSignature {
+                                        name: db
+                                            .context()
+                                            .symbols()
+                                            .intern(&binding.name)
+                                            .map_err(|error| {
+                                                db.invalid_input(
+                                                    &CompiledPackageSignaturesQuery(
+                                                        record.definition.module.package.clone(),
+                                                    ),
+                                                    error.to_string(),
+                                                )
+                                            })?,
+                                        ty: graph.get(binding.type_root).ok_or_else(|| {
+                                            db.invalid_input(
+                                                &CompiledPackageSignaturesQuery(
+                                                    record.definition.module.package.clone(),
+                                                ),
+                                                "artifact associated type root is unavailable",
+                                            )
+                                        })?,
+                                        span: Span::default(),
+                                    })
+                                })
+                                .collect::<QueryResult<Vec<_>>>()?,
+                            span: Span::default(),
+                        })
+                    })
+                    .collect::<QueryResult<Vec<_>>>()?,
+                span: Span::default(),
+            })
+        })
+        .collect()
+}
+
+fn artifact_fields(
+    db: &QueryDb<CompilerContext>,
+    graph: &CompiledPackageTypeGraph,
+    fields: &[nia_package_metadata::SignatureField],
+    resolve: &dyn Fn(&nia_package_metadata::DefinitionId) -> QueryResult<GlobalDefId>,
+) -> QueryResult<Vec<nia_item_signatures::FieldSignature>> {
+    fields
+        .iter()
+        .map(|field| {
+            Ok({
+                let global = resolve(&field.definition)?;
+                nia_item_signatures::FieldSignature {
+                    def_id: global.def_id,
+                    name: db
+                        .context()
+                        .symbols()
+                        .intern(&field.name)
+                        .map_err(|error| {
+                            db.invalid_input(
+                                &CompiledPackageSignaturesQuery(
+                                    field.definition.module.package.clone(),
+                                ),
+                                error.to_string(),
+                            )
+                        })?,
+                    ty: graph.get(field.type_root).ok_or_else(|| {
+                        db.invalid_input(
+                            &CompiledPackageSignaturesQuery(
+                                field.definition.module.package.clone(),
+                            ),
+                            "artifact field root is unavailable",
+                        )
+                    })?,
+                    span: Span::default(),
+                }
+            })
+        })
+        .collect()
 }
 
 pub(super) fn provide_signature_item_signatures(
