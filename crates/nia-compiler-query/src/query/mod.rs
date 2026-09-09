@@ -1575,6 +1575,7 @@ impl CompilerDatabase {
     ) -> QueryResult<nia_package_metadata::SignatureSection> {
         let definition_index = self.stable_definition_index(resolver)?;
         let mut records = Vec::with_capacity(interface.records.len());
+        let mut trait_records = Vec::new();
         let mut members = BTreeMap::<DefinitionId, Vec<nia_package_metadata::SignatureMember>>::new();
         for item in &interface.records {
             let global = definition_index.definition_for_identity(&item.definition)?;
@@ -1599,6 +1600,20 @@ impl CompilerDatabase {
                         type_roots: item.type_roots.clone(),
                     });
             }
+            if kind == 9 {
+                if let Some(trait_signature) = facts.semantic.traits.get(&global.def_id) {
+                    let supertrait_roots = trait_signature.supertraits.iter().map(|bound| {
+                        type_indexes.get(&bound.ty).copied().ok_or_else(|| self.db.invalid_input(&ModuleGraphQuery, "supertrait type missing from published graph"))
+                    }).collect::<QueryResult<Vec<_>>>()?;
+                    trait_records.push(nia_package_metadata::SignatureTraitRecord {
+                        definition: item.definition.clone(),
+                        generic_params: generic_params.clone(),
+                        where_roots: where_predicates.iter().map(|p| p.type_root).collect(),
+                        supertrait_roots,
+                        members: members.get(&item.definition).cloned().unwrap_or_default(),
+                    });
+                }
+            }
             records.push((item.definition.clone(), kind, flags, item.type_roots.clone(), generic_params, where_predicates));
         }
         let records = records
@@ -1615,7 +1630,7 @@ impl CompilerDatabase {
             .collect();
         let section = nia_package_metadata::SignatureSection {
             records,
-            traits: Vec::new(),
+            traits: trait_records,
             extensions: Vec::new(),
         };
         section
