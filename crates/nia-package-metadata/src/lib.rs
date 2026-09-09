@@ -76,6 +76,52 @@ pub struct DefinitionId {
     pub owner: Option<Box<DefinitionId>>,
 }
 
+/// Encodes one stable module identity for embedding in another versioned
+/// compiler-owned section. The enclosing section owns framing and schema;
+/// this function owns the canonical package/module representation.
+pub fn encode_module_id(module: &ModuleId) -> Result<Vec<u8>, MetadataError> {
+    let mut output = Vec::new();
+    put_module_id(&mut output, module)?;
+    Ok(output)
+}
+
+/// Decodes one complete embedded stable module identity.
+pub fn decode_module_id(bytes: &[u8]) -> Result<ModuleId, MetadataError> {
+    if bytes.len() > MAX_PACKAGE_BYTES {
+        return Err(MetadataError::TooLarge);
+    }
+    let mut cursor = Cursor::new(bytes);
+    let module = read_module_id(&mut cursor)?;
+    if cursor.position() != bytes.len() as u64 {
+        return Err(MetadataError::InvalidManifest);
+    }
+    Ok(module)
+}
+
+/// Encodes one stable definition identity for embedding in another versioned
+/// compiler-owned section, including its complete canonical owner chain.
+pub fn encode_definition_id(definition: &DefinitionId) -> Result<Vec<u8>, MetadataError> {
+    validate_definition(definition)?;
+    let mut output = Vec::new();
+    put_definition(&mut output, definition)?;
+    Ok(output)
+}
+
+/// Decodes one complete embedded stable definition identity and validates its
+/// package, module, name, kind, disambiguator, and bounded owner chain.
+pub fn decode_definition_id(bytes: &[u8]) -> Result<DefinitionId, MetadataError> {
+    if bytes.len() > MAX_PACKAGE_BYTES {
+        return Err(MetadataError::TooLarge);
+    }
+    let mut cursor = Cursor::new(bytes);
+    let definition = read_definition(&mut cursor)?;
+    if cursor.position() != bytes.len() as u64 {
+        return Err(MetadataError::InvalidManifest);
+    }
+    validate_definition(&definition)?;
+    Ok(definition)
+}
+
 /// Stable const-generic argument used by applied nominal type nodes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StableConstArg {
@@ -3916,6 +3962,41 @@ mod tests {
         incomplete.records[0].body.clear();
         assert_eq!(
             encode_templates(&incomplete),
+            Err(MetadataError::InvalidManifest)
+        );
+    }
+
+    #[test]
+    fn embedded_stable_identity_codecs_round_trip_and_reject_trailing_bytes() {
+        let package = sample().package;
+        let module = ModuleId {
+            package: package.clone(),
+            path: "src/nested/module.nia".into(),
+        };
+        let owner = DefinitionId {
+            module: module.clone(),
+            name: "Container".into(),
+            kind: 5,
+            disambiguator: 7,
+            owner: None,
+        };
+        let definition = DefinitionId {
+            module: module.clone(),
+            name: "method".into(),
+            kind: 2,
+            disambiguator: 11,
+            owner: Some(Box::new(owner)),
+        };
+
+        let module_bytes = encode_module_id(&module).unwrap();
+        assert_eq!(decode_module_id(&module_bytes).unwrap(), module);
+        let definition_bytes = encode_definition_id(&definition).unwrap();
+        assert_eq!(decode_definition_id(&definition_bytes).unwrap(), definition);
+
+        let mut trailing = definition_bytes;
+        trailing.push(0);
+        assert_eq!(
+            decode_definition_id(&trailing),
             Err(MetadataError::InvalidManifest)
         );
     }
