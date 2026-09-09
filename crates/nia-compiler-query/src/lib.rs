@@ -64,7 +64,7 @@ pub use nia_timing::TimingMode;
 pub use query::{
     CompileRequest, CompiledPackageDeclarations, CompiledPackageInterfaceIndex,
     CompiledPackageModuleInterface, CompiledPackageSignatures, CompiledPackageTemplates,
-    CompilerDatabase, StableDefinitionIndex, StableDefinitionPackageResolver,
+    CompiledTemplate, CompilerDatabase, StableDefinitionIndex, StableDefinitionPackageResolver,
     StableDefinitionResolver, StableModuleIdentity, StableModuleIndex, StableModulePackageResolver,
 };
 
