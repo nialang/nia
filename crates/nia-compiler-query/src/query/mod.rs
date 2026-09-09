@@ -30,7 +30,8 @@ use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_package_metadata::{
     DefinitionId, InterfaceRecord, InterfaceSection, ModuleId as StableModuleId, ModuleInterface,
     PackageId, PackageManifest, PublicSurfaceExport, PublicSurfaceModule, PublicSurfaceSection,
-    SectionKind, StableConstArg, StableDeclaration, StableTypeGraph, StableTypeNode,
+    SectionKind, StableAssociatedTypeBinding, StableConstArg, StableConstValue, StableDeclaration,
+    StableTraitId, StableTypeGraph, StableTypeNode,
 };
 use nia_parser::ParseError;
 use nia_program_signatures::{
@@ -642,6 +643,97 @@ pub struct CompilerDatabase {
 }
 
 impl CompilerDatabase {
+    fn rehydrate_stable_trait_id(
+        &self,
+        trait_id: &StableTraitId,
+        resolver: &dyn StableDefinitionResolver,
+    ) -> QueryResult<nia_ty::TraitId> {
+        Ok(match trait_id {
+            StableTraitId::Source(definition) => {
+                nia_ty::TraitId::Source(resolver.definition_for_identity(definition)?)
+            }
+            StableTraitId::Builtin(tag) => {
+                nia_ty::TraitId::Builtin(stable_builtin_trait(*tag).ok_or_else(|| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        "unknown stable builtin trait tag".to_string(),
+                    )
+                })?)
+            }
+        })
+    }
+
+    fn rehydrate_stable_const_args(
+        &self,
+        arguments: &[StableConstArg],
+        types: &[nia_ids::InternedTyId],
+    ) -> QueryResult<Vec<nia_ty::ConstGenericArg>> {
+        arguments
+            .iter()
+            .map(|argument| {
+                Ok(match argument {
+                    StableConstArg { ty, value } => nia_ty::ConstGenericArg {
+                        ty: types.get(*ty as usize).copied().ok_or_else(|| {
+                            self.db.invalid_input(
+                                &ModuleGraphQuery,
+                                "stable const argument type is outside graph".to_string(),
+                            )
+                        })?,
+                        value: match value {
+                            StableConstValue::GenericParam(hash) => {
+                                nia_ty::ConstGenericValue::GenericParam(SymbolId::from_stable_hash(
+                                    *hash,
+                                ))
+                            }
+                            StableConstValue::Integer { bits, signed } => {
+                                nia_ty::ConstGenericValue::Int(if *signed {
+                                    nia_ty::IntConst::signed_bits(*bits)
+                                } else {
+                                    nia_ty::IntConst::unsigned(*bits)
+                                })
+                            }
+                            StableConstValue::Bool(value) => {
+                                nia_ty::ConstGenericValue::Bool(*value)
+                            }
+                            StableConstValue::Char(value) => {
+                                nia_ty::ConstGenericValue::Char(*value)
+                            }
+                        },
+                    },
+                })
+            })
+            .collect()
+    }
+
+    fn rehydrate_stable_bindings(
+        &self,
+        bindings: &[StableAssociatedTypeBinding],
+        types: &[nia_ids::InternedTyId],
+        resolver: &dyn StableDefinitionResolver,
+    ) -> QueryResult<Vec<nia_ty::AssociatedTypeBindingTy>> {
+        bindings
+            .iter()
+            .map(|binding| {
+                Ok(nia_ty::AssociatedTypeBindingTy {
+                    trait_id: binding
+                        .trait_id
+                        .as_ref()
+                        .map(|trait_id| self.rehydrate_stable_trait_id(trait_id, resolver))
+                        .transpose()?,
+                    trait_args: binding
+                        .trait_arguments
+                        .iter()
+                        .map(|index| types[usize::try_from(*index).unwrap()])
+                        .collect(),
+                    trait_const_args: self
+                        .rehydrate_stable_const_args(&binding.trait_const_arguments, types)?,
+                    name: SymbolId::from_stable_hash(binding.name),
+                    ty: types[usize::try_from(binding.ty).unwrap()],
+                })
+            })
+            .collect()
+    }
+
     /// Creates a compiler database and registers the complete query provider graph.
     pub fn new(request: CompileRequest) -> Self {
         compiler_database_with_providers(request, CompilerQueryProviders::default())
@@ -1256,39 +1348,7 @@ impl CompilerDatabase {
                         .iter()
                         .map(|index| types[usize::try_from(*index).unwrap()])
                         .collect(),
-                    const_args: const_arguments
-                        .iter()
-                        .map(|argument| match argument {
-                            StableConstArg::GenericParam(hash) => Ok(nia_ty::ConstGenericArg {
-                                ty: append.primitive(nia_ty::PrimitiveTy::Usize),
-                                value: nia_ty::ConstGenericValue::GenericParam(
-                                    SymbolId::from_stable_hash(*hash),
-                                ),
-                            }),
-                            StableConstArg::Integer { bits, signed } => {
-                                Ok(nia_ty::ConstGenericArg {
-                                    ty: append.primitive(if *signed {
-                                        nia_ty::PrimitiveTy::I128
-                                    } else {
-                                        nia_ty::PrimitiveTy::U128
-                                    }),
-                                    value: nia_ty::ConstGenericValue::Int(if *signed {
-                                        nia_ty::IntConst::signed_bits(*bits)
-                                    } else {
-                                        nia_ty::IntConst::unsigned(*bits)
-                                    }),
-                                })
-                            }
-                            StableConstArg::Bool(value) => Ok(nia_ty::ConstGenericArg {
-                                ty: append.primitive(nia_ty::PrimitiveTy::Bool),
-                                value: nia_ty::ConstGenericValue::Bool(*value),
-                            }),
-                            StableConstArg::Char(value) => Ok(nia_ty::ConstGenericArg {
-                                ty: append.primitive(nia_ty::PrimitiveTy::Char),
-                                value: nia_ty::ConstGenericValue::Char(*value),
-                            }),
-                        })
-                        .collect::<QueryResult<Vec<_>>>()?,
+                    const_args: self.rehydrate_stable_const_args(const_arguments, &types)?,
                 }),
                 StableTypeNode::Unit => append.intern(nia_ty::TyKind::Tuple(Vec::new())),
                 StableTypeNode::Never => {
@@ -1422,6 +1482,63 @@ impl CompilerDatabase {
                         .iter()
                         .map(|index| types[usize::try_from(*index).unwrap()])
                         .collect(),
+                }),
+                StableTypeNode::TraitObject {
+                    readonly,
+                    trait_id,
+                    trait_arguments,
+                    trait_const_arguments,
+                    associated_type_bindings,
+                } => append.intern(nia_ty::TyKind::TraitObject {
+                    is_readonly: *readonly,
+                    trait_id: self.rehydrate_stable_trait_id(trait_id, resolver)?,
+                    trait_args: trait_arguments
+                        .iter()
+                        .map(|index| types[usize::try_from(*index).unwrap()])
+                        .collect(),
+                    trait_const_args: self
+                        .rehydrate_stable_const_args(trait_const_arguments, &types)?,
+                    associated_type_bindings: self.rehydrate_stable_bindings(
+                        associated_type_bindings,
+                        &types,
+                        resolver,
+                    )?,
+                }),
+                StableTypeNode::TraitObjectPointee {
+                    trait_id,
+                    trait_arguments,
+                    trait_const_arguments,
+                    associated_type_bindings,
+                } => append.intern(nia_ty::TyKind::TraitObjectPointee {
+                    trait_id: self.rehydrate_stable_trait_id(trait_id, resolver)?,
+                    trait_args: trait_arguments
+                        .iter()
+                        .map(|index| types[usize::try_from(*index).unwrap()])
+                        .collect(),
+                    trait_const_args: self
+                        .rehydrate_stable_const_args(trait_const_arguments, &types)?,
+                    associated_type_bindings: self.rehydrate_stable_bindings(
+                        associated_type_bindings,
+                        &types,
+                        resolver,
+                    )?,
+                }),
+                StableTypeNode::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_arguments,
+                    trait_const_arguments,
+                    name,
+                } => append.intern(nia_ty::TyKind::Projection {
+                    self_ty: types[usize::try_from(*self_ty).unwrap()],
+                    trait_id: self.rehydrate_stable_trait_id(trait_id, resolver)?,
+                    trait_args: trait_arguments
+                        .iter()
+                        .map(|index| types[usize::try_from(*index).unwrap()])
+                        .collect(),
+                    trait_const_args: self
+                        .rehydrate_stable_const_args(trait_const_arguments, &types)?,
+                    name: SymbolId::from_stable_hash(*name),
                 }),
             };
             types.push(ty);
@@ -3233,6 +3350,67 @@ impl StableTypeGraphEncoder<'_> {
                     .map(|arg| self.encode(arg))
                     .collect::<QueryResult<Vec<_>>>()?,
             },
+            nia_ty::TyKind::TraitObject {
+                is_readonly,
+                trait_id,
+                trait_args,
+                trait_const_args,
+                associated_type_bindings,
+            } => StableTypeNode::TraitObject {
+                readonly: is_readonly,
+                trait_id: self.stable_trait_id(trait_id)?,
+                trait_arguments: trait_args
+                    .into_iter()
+                    .map(|arg| self.encode(arg))
+                    .collect::<QueryResult<Vec<_>>>()?,
+                trait_const_arguments: trait_const_args
+                    .iter()
+                    .map(|arg| self.encode_const_argument(arg))
+                    .collect::<QueryResult<Vec<_>>>()?,
+                associated_type_bindings: associated_type_bindings
+                    .iter()
+                    .map(|binding| self.stable_binding(binding))
+                    .collect::<QueryResult<Vec<_>>>()?,
+            },
+            nia_ty::TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                trait_const_args,
+                associated_type_bindings,
+            } => StableTypeNode::TraitObjectPointee {
+                trait_id: self.stable_trait_id(trait_id)?,
+                trait_arguments: trait_args
+                    .into_iter()
+                    .map(|arg| self.encode(arg))
+                    .collect::<QueryResult<Vec<_>>>()?,
+                trait_const_arguments: trait_const_args
+                    .iter()
+                    .map(|arg| self.encode_const_argument(arg))
+                    .collect::<QueryResult<Vec<_>>>()?,
+                associated_type_bindings: associated_type_bindings
+                    .iter()
+                    .map(|binding| self.stable_binding(binding))
+                    .collect::<QueryResult<Vec<_>>>()?,
+            },
+            nia_ty::TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                trait_const_args,
+                name,
+            } => StableTypeNode::Projection {
+                self_ty: self.encode(self_ty)?,
+                trait_id: self.stable_trait_id(trait_id)?,
+                trait_arguments: trait_args
+                    .into_iter()
+                    .map(|arg| self.encode(arg))
+                    .collect::<QueryResult<Vec<_>>>()?,
+                trait_const_arguments: trait_const_args
+                    .iter()
+                    .map(|arg| self.encode_const_argument(arg))
+                    .collect::<QueryResult<Vec<_>>>()?,
+                name: name.raw(),
+            },
             nia_ty::TyKind::Array { len, elem } => {
                 let nia_ty::ArrayLenTy::ConstValue(length) = len else {
                     return Err(self.unsupported("array length is not a stable constant"));
@@ -3424,6 +3602,63 @@ impl StableTypeGraphEncoder<'_> {
                     append_bytes(&mut key, &self.canonical_key(arg)?);
                 }
             }
+            nia_ty::TyKind::TraitObject {
+                is_readonly,
+                trait_id,
+                trait_args,
+                trait_const_args,
+                associated_type_bindings,
+            } => {
+                key.extend_from_slice(&[26, u8::from(is_readonly)]);
+                self.append_trait_key(&mut key, trait_id)?;
+                append_len(&mut key, trait_args.len());
+                for arg in trait_args {
+                    append_bytes(&mut key, &self.canonical_key(arg)?);
+                }
+                append_len(&mut key, trait_const_args.len());
+                for arg in trait_const_args {
+                    self.append_stable_const_key(&mut key, &arg)?;
+                }
+                self.append_binding_keys(&mut key, &associated_type_bindings)?;
+            }
+            nia_ty::TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                trait_const_args,
+                associated_type_bindings,
+            } => {
+                key.push(27);
+                self.append_trait_key(&mut key, trait_id)?;
+                append_len(&mut key, trait_args.len());
+                for arg in trait_args {
+                    append_bytes(&mut key, &self.canonical_key(arg)?);
+                }
+                append_len(&mut key, trait_const_args.len());
+                for arg in trait_const_args {
+                    self.append_stable_const_key(&mut key, &arg)?;
+                }
+                self.append_binding_keys(&mut key, &associated_type_bindings)?;
+            }
+            nia_ty::TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                trait_const_args,
+                name,
+            } => {
+                key.push(28);
+                append_bytes(&mut key, &self.canonical_key(self_ty)?);
+                self.append_trait_key(&mut key, trait_id)?;
+                append_len(&mut key, trait_args.len());
+                for arg in trait_args {
+                    append_bytes(&mut key, &self.canonical_key(arg)?);
+                }
+                append_len(&mut key, trait_const_args.len());
+                for arg in trait_const_args {
+                    self.append_stable_const_key(&mut key, &arg)?;
+                }
+                key.extend_from_slice(&name.raw().to_le_bytes());
+            }
             nia_ty::TyKind::Array { len, elem } => {
                 let nia_ty::ArrayLenTy::ConstValue(length) = len else {
                     return Err(self.unsupported("array length is not a stable constant"));
@@ -3462,7 +3697,7 @@ impl StableTypeGraphEncoder<'_> {
                 }
                 append_len(&mut key, const_args.len());
                 for argument in &const_args {
-                    append_const_arg_key(&mut key, argument);
+                    self.append_stable_const_key(&mut key, argument)?;
                 }
             }
             nia_ty::TyKind::GenericParam(name) => {
@@ -3478,6 +3713,81 @@ impl StableTypeGraphEncoder<'_> {
         self.key_visiting.remove(&ty);
         self.key_cache.insert(ty, key.clone());
         Ok(key)
+    }
+
+    fn append_trait_key(&self, key: &mut Vec<u8>, trait_id: nia_ty::TraitId) -> QueryResult<()> {
+        match trait_id {
+            nia_ty::TraitId::Source(def_id) => {
+                key.push(0);
+                append_definition_key(key, &self.definition(def_id)?);
+            }
+            nia_ty::TraitId::Builtin(builtin) => {
+                key.push(1);
+                key.push(builtin_trait_tag(builtin));
+            }
+        }
+        Ok(())
+    }
+
+    fn append_stable_const_key(
+        &mut self,
+        key: &mut Vec<u8>,
+        argument: &nia_ty::ConstGenericArg,
+    ) -> QueryResult<()> {
+        append_bytes(key, &self.canonical_key(argument.ty)?);
+        match &argument.value {
+            nia_ty::ConstGenericValue::GenericParam(name) => {
+                key.push(0);
+                key.extend_from_slice(&name.raw().to_le_bytes());
+            }
+            nia_ty::ConstGenericValue::Int(value) => {
+                key.push(1);
+                key.extend_from_slice(&value.bits().to_le_bytes());
+                key.push(u8::from(value.is_signed()));
+            }
+            nia_ty::ConstGenericValue::Bool(value) => {
+                key.push(2);
+                key.push(u8::from(*value));
+            }
+            nia_ty::ConstGenericValue::Char(value) => {
+                key.push(3);
+                key.extend_from_slice(&u32::from(*value).to_le_bytes());
+            }
+            nia_ty::ConstGenericValue::ConstExpr(_) => {
+                return Err(self.unsupported(
+                    "const expression argument has no stable package representation",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn append_binding_keys(
+        &mut self,
+        key: &mut Vec<u8>,
+        bindings: &[nia_ty::AssociatedTypeBindingTy],
+    ) -> QueryResult<()> {
+        append_len(key, bindings.len());
+        for binding in bindings {
+            match binding.trait_id {
+                Some(trait_id) => {
+                    key.push(1);
+                    self.append_trait_key(key, trait_id)?;
+                }
+                None => key.push(0),
+            }
+            append_len(key, binding.trait_args.len());
+            for arg in &binding.trait_args {
+                append_bytes(key, &self.canonical_key(*arg)?);
+            }
+            append_len(key, binding.trait_const_args.len());
+            for arg in &binding.trait_const_args {
+                self.append_stable_const_key(key, arg)?;
+            }
+            key.extend_from_slice(&binding.name.raw().to_le_bytes());
+            append_bytes(key, &self.canonical_key(binding.ty)?);
+        }
+        Ok(())
     }
 
     fn definition(&self, def_id: nia_ids::GlobalDefId) -> QueryResult<DefinitionId> {
@@ -3546,21 +3856,57 @@ impl StableTypeGraphEncoder<'_> {
         &mut self,
         argument: &nia_ty::ConstGenericArg,
     ) -> QueryResult<StableConstArg> {
-        match &argument.value {
+        let value = match &argument.value {
             nia_ty::ConstGenericValue::GenericParam(name) => {
-                Ok(StableConstArg::GenericParam(name.raw()))
+                StableConstValue::GenericParam(name.raw())
             }
-            nia_ty::ConstGenericValue::Int(value) => Ok(StableConstArg::Integer {
+            nia_ty::ConstGenericValue::Int(value) => StableConstValue::Integer {
                 bits: value.bits(),
                 signed: value.is_signed(),
-            }),
-            nia_ty::ConstGenericValue::Bool(value) => Ok(StableConstArg::Bool(*value)),
-            nia_ty::ConstGenericValue::Char(value) => Ok(StableConstArg::Char(*value)),
+            },
+            nia_ty::ConstGenericValue::Bool(value) => StableConstValue::Bool(*value),
+            nia_ty::ConstGenericValue::Char(value) => StableConstValue::Char(*value),
             nia_ty::ConstGenericValue::ConstExpr(_) => {
-                Err(self
-                    .unsupported("const expression argument has no stable package representation"))
+                return Err(self.unsupported(
+                    "const expression argument has no stable package representation",
+                ));
             }
-        }
+        };
+        Ok(StableConstArg {
+            ty: self.encode(argument.ty)?,
+            value,
+        })
+    }
+
+    fn stable_trait_id(&self, trait_id: nia_ty::TraitId) -> QueryResult<StableTraitId> {
+        Ok(match trait_id {
+            nia_ty::TraitId::Source(def_id) => StableTraitId::Source(self.definition(def_id)?),
+            nia_ty::TraitId::Builtin(builtin) => StableTraitId::Builtin(builtin_trait_tag(builtin)),
+        })
+    }
+
+    fn stable_binding(
+        &mut self,
+        binding: &nia_ty::AssociatedTypeBindingTy,
+    ) -> QueryResult<StableAssociatedTypeBinding> {
+        Ok(StableAssociatedTypeBinding {
+            trait_id: binding
+                .trait_id
+                .map(|trait_id| self.stable_trait_id(trait_id))
+                .transpose()?,
+            trait_arguments: binding
+                .trait_args
+                .iter()
+                .map(|arg| self.encode(*arg))
+                .collect::<QueryResult<Vec<_>>>()?,
+            trait_const_arguments: binding
+                .trait_const_args
+                .iter()
+                .map(|arg| self.encode_const_argument(arg))
+                .collect::<QueryResult<Vec<_>>>()?,
+            name: binding.name.raw(),
+            ty: self.encode(binding.ty)?,
+        })
     }
 
     fn unsupported(&self, detail: &str) -> QueryError {
@@ -3735,26 +4081,6 @@ fn append_definition_key(bytes: &mut Vec<u8>, definition: &DefinitionId) {
             append_definition_key(bytes, owner);
         }
         None => bytes.push(0),
-    }
-}
-
-fn append_const_arg_key(bytes: &mut Vec<u8>, argument: &nia_ty::ConstGenericArg) {
-    match &argument.value {
-        nia_ty::ConstGenericValue::GenericParam(name) => {
-            bytes.push(1);
-            bytes.extend_from_slice(&name.raw().to_le_bytes());
-        }
-        nia_ty::ConstGenericValue::Int(value) => {
-            bytes.push(2);
-            bytes.extend_from_slice(&value.bits().to_le_bytes());
-            bytes.push(u8::from(value.is_signed()));
-        }
-        nia_ty::ConstGenericValue::Bool(value) => bytes.extend_from_slice(&[3, u8::from(*value)]),
-        nia_ty::ConstGenericValue::Char(value) => {
-            bytes.push(4);
-            bytes.extend_from_slice(&u32::from(*value).to_le_bytes());
-        }
-        nia_ty::ConstGenericValue::ConstExpr(_) => bytes.push(5),
     }
 }
 

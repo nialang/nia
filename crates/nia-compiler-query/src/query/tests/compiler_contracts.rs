@@ -728,6 +728,61 @@ fn stable_type_graph_rehydrates_into_current_type_store() {
 }
 
 #[test]
+fn stable_type_graph_publication_carries_trait_objects_and_projections() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() Unit {}");
+    let database = fixture.database();
+    let append = database
+        .db
+        .context()
+        .type_store
+        .append_for_module(fixture.entry_id());
+    let value = append.primitive(nia_ty::PrimitiveTy::I32);
+    let object = append.intern(nia_ty::TyKind::TraitObject {
+        is_readonly: false,
+        trait_id: nia_ty::TraitId::Builtin(nia_ids::BuiltinTrait::Iterator),
+        trait_args: vec![value],
+        trait_const_args: vec![],
+        associated_type_bindings: vec![nia_ty::AssociatedTypeBindingTy {
+            trait_id: None,
+            trait_args: vec![],
+            trait_const_args: vec![],
+            name: sym("Item"),
+            ty: value,
+        }],
+    });
+    let projection = append.intern(nia_ty::TyKind::Projection {
+        self_ty: value,
+        trait_id: nia_ty::TraitId::Builtin(nia_ids::BuiltinTrait::Iterator),
+        trait_args: vec![],
+        trait_const_args: vec![],
+        name: sym("Item"),
+    });
+    let graph = database
+        .stable_type_graph_for_roots(
+            nia_package_metadata::PackageId {
+                namespace: "example".into(),
+                name: "traits".into(),
+                version: "1.0.0".into(),
+            },
+            &[object, projection],
+        )
+        .unwrap();
+    assert!(graph.nodes.iter().any(|node| matches!(
+        node,
+        nia_package_metadata::StableTypeNode::TraitObject { .. }
+    )));
+    assert!(graph.nodes.iter().any(|node| matches!(
+        node,
+        nia_package_metadata::StableTypeNode::Projection { .. }
+    )));
+    let bytes = nia_package_metadata::encode_type_graph(&graph).unwrap();
+    assert_eq!(
+        nia_package_metadata::decode_type_graph(&bytes).unwrap(),
+        graph
+    );
+}
+
+#[test]
 fn stable_type_graph_publication_remaps_nominal_definition_identity() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "pub struct User {}");
     let database = fixture.database();
@@ -791,6 +846,53 @@ fn stable_type_graph_publication_preserves_nominal_type_arguments() {
         &graph.nodes[1],
         nia_package_metadata::StableTypeNode::NamedApplied { arguments, .. } if arguments == &vec![0]
     ));
+}
+
+#[test]
+fn stable_const_arguments_preserve_declared_type_identity() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub struct Box {}");
+    let database = fixture.database();
+    let module = fixture.entry_id();
+    let defs = database.db.get(FullModuleDefsQuery(module)).unwrap();
+    let (def_id, _) = defs.semantic.defs.iter().next().unwrap();
+    let append = database.db.context().type_store.append_for_module(module);
+    let make = |ty| {
+        append.intern(nia_ty::TyKind::Nominal {
+            def_id: nia_ids::GlobalDefId {
+                module_id: module,
+                def_id,
+            },
+            args: vec![],
+            const_args: vec![nia_ty::ConstGenericArg {
+                ty,
+                value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(4)),
+            }],
+        })
+    };
+    let u8_ty = append.primitive(nia_ty::PrimitiveTy::U8);
+    let usize_ty = append.primitive(nia_ty::PrimitiveTy::Usize);
+    let graph = database
+        .stable_type_graph_for_roots(
+            nia_package_metadata::PackageId {
+                namespace: "example".into(),
+                name: "const-types".into(),
+                version: "1.0.0".into(),
+            },
+            &[make(u8_ty), make(usize_ty)],
+        )
+        .unwrap();
+    assert_eq!(graph.roots.len(), 2);
+    let argument_types = graph
+        .nodes
+        .iter()
+        .filter_map(|node| match node {
+            nia_package_metadata::StableTypeNode::NamedApplied {
+                const_arguments, ..
+            } => Some(const_arguments[0].ty),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(argument_types.len(), 2);
 }
 
 #[test]
