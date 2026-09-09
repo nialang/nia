@@ -930,6 +930,15 @@ impl CompiledPackageInterface {
             }) || signatures.extensions.iter().any(|record| {
                 record.members.iter().any(|member| {
                     !interface.records.iter().any(|item| item.definition == member.definition)
+                    })
+            }) || signatures.traits.iter().any(|record| {
+                record.definition.module.package != artifact.manifest().package
+                    || !interface.records.iter().any(|item| item.definition == record.definition)
+                    || record.members.iter().any(|member| !interface.records.iter().any(|item| item.definition == member.definition))
+            }) || signatures.extensions.iter().any(|record| {
+                record.members.iter().any(|member| {
+                    member.definition.module.package != artifact.manifest().package
+                        || !interface.records.iter().any(|item| item.definition == member.definition)
                 })
             }) {
                 return Err(MetadataError::InvalidManifest);
