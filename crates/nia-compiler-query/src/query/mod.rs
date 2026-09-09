@@ -3276,7 +3276,11 @@ impl StableTypeGraphEncoder<'_> {
                 }
             }
             nia_ty::TyKind::GenericParam(name) => StableTypeNode::GenericParam(name.raw()),
-            _ => return Err(self.unsupported("type form has no stable package encoding")),
+            unsupported => {
+                return Err(self.unsupported(&format!(
+                    "type form has no stable package encoding: {unsupported:?}"
+                )));
+            }
         };
         self.visiting.remove(&ty);
         if let Some(index) = self.canonical_indexes.get(&key) {
@@ -3465,7 +3469,11 @@ impl StableTypeGraphEncoder<'_> {
                 key.push(9);
                 key.extend_from_slice(&name.raw().to_le_bytes());
             }
-            _ => return Err(self.unsupported("type form has no stable package encoding")),
+            unsupported => {
+                return Err(self.unsupported(&format!(
+                    "type form has no stable package encoding: {unsupported:?}"
+                )));
+            }
         }
         self.key_visiting.remove(&ty);
         self.key_cache.insert(ty, key.clone());
