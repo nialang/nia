@@ -252,8 +252,14 @@ impl LoaderDatabase {
             .filter(|path| path.is_file());
         let auto_std_artifact =
             request.package_artifact.is_none() && toolchain_std_artifact.is_some();
+        let explicit_std_artifact = request
+            .package_artifact
+            .as_ref()
+            .zip(toolchain_std_artifact.as_ref())
+            .is_some_and(|(request, path)| request.path() == path);
+        let std_artifact_requested = auto_std_artifact || explicit_std_artifact;
         let expected_package = request.expected_package.clone().or_else(|| {
-            auto_std_artifact.then(|| {
+            std_artifact_requested.then(|| {
                 request
                     .toolchain
                     .as_ref()
@@ -263,13 +269,14 @@ impl LoaderDatabase {
         });
         let artifact_compatibility =
             package_artifact::ArtifactCompatibility::current(request.toolchain.as_deref());
-        let selected_std_modules = if auto_std_artifact {
+        let selected_std_modules = if std_artifact_requested {
             request
                 .toolchain
                 .as_ref()
                 .and_then(|toolchain| {
-                    let artifact_request =
-                        PackageArtifactRequest::Optional(toolchain.std_package_artifact());
+                    let artifact_request = request.package_artifact.clone().unwrap_or_else(|| {
+                        PackageArtifactRequest::Optional(toolchain.std_package_artifact())
+                    });
                     match package_artifact::load(
                         &artifact_request,
                         expected_package.as_ref(),
