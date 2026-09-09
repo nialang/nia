@@ -2270,7 +2270,10 @@ impl CompilerDatabase {
             let Some(signature) = signatures.semantic.functions.get(&global.def_id) else {
                 continue;
             };
-            if signature.generic_params.is_empty() && !signature.is_const {
+            // Extern/builtin const declarations are callable by the evaluator
+            // but have no source body to publish. Only definitions carrying a
+            // checked body enter the template section.
+            if !signature.has_body || (signature.generic_params.is_empty() && !signature.is_const) {
                 continue;
             }
             let checked = self.db.get(CheckedModuleQuery(global.module_id))?;
@@ -2369,12 +2372,17 @@ impl CompilerDatabase {
         let graph = self.db.get(ModuleGraphQuery)?;
         let stable_index = self.stable_definition_index(resolver)?;
         let entry_root = graph.current_package_root(graph.entry());
+        let std_root = graph.std_package_root();
         let mut module_identities = HashMap::new();
         for module in graph.modules() {
             let Some(key) = graph.stable_key(module.id) else {
                 continue;
             };
-            let owner = if graph.current_package_root(module.id) == entry_root {
+            let is_std_module = package == PackageId::standard_library()
+                && std_root.is_some_and(|root| {
+                    module.id == root || graph.current_package_root(module.id) == Some(root)
+                });
+            let owner = if graph.current_package_root(module.id) == entry_root || is_std_module {
                 package.clone()
             } else {
                 self.db
@@ -2386,8 +2394,9 @@ impl CompilerDatabase {
                         self.db.invalid_input(
                             &ModuleGraphQuery,
                             format!(
-                                "template module has no stable package identity: {:?}",
-                                module.id
+                                "template module has no stable package identity: {:?} {:?}",
+                                module.id,
+                                key.source_identity()
                             ),
                         )
                     })?
