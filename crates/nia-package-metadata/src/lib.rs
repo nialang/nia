@@ -216,6 +216,34 @@ const SIGNATURE_FLAGS_MASK: u32 = SIGNATURE_FLAG_HAS_BODY
     | SIGNATURE_FLAG_TUPLE;
 
 impl SignatureSection {
+    /// Returns a canonical trait declaration by definition identity.
+    pub fn trait_record(&self, definition: &DefinitionId) -> Option<&SignatureTraitRecord> {
+        self.traits
+            .binary_search_by(|record| record.definition.cmp(definition))
+            .ok()
+            .map(|index| &self.traits[index])
+    }
+
+    /// Returns extension implementations targeting one canonical type root.
+    pub fn extensions_for_target_root(
+        &self,
+        target_root: u32,
+    ) -> impl Iterator<Item = &SignatureExtensionRecord> {
+        self.extensions
+            .iter()
+            .filter(move |record| record.target_root == target_root)
+    }
+
+    /// Returns extension implementations for one canonical trait root.
+    pub fn extensions_for_trait_root(
+        &self,
+        trait_root: u32,
+    ) -> impl Iterator<Item = &SignatureExtensionRecord> {
+        self.extensions
+            .iter()
+            .filter(move |record| record.trait_root == Some(trait_root))
+    }
+
     pub fn validate(&self) -> Result<(), MetadataError> {
         if self.records.len() > MAX_ITEMS {
             return Err(MetadataError::TooManyItems);
@@ -3014,6 +3042,9 @@ mod tests {
             roots: vec![0, 1, 2],
         };
         section.validate_type_roots(&graph).unwrap();
+        assert!(section.trait_record(&section.traits[0].definition).is_some());
+        assert_eq!(section.extensions_for_target_root(0).count(), 1);
+        assert_eq!(section.extensions_for_trait_root(2).count(), 1);
     }
 
     #[test]
