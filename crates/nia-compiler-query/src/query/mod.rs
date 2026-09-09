@@ -2241,19 +2241,36 @@ impl CompilerDatabase {
                 continue;
             }
             let checked = self.db.get(CheckedModuleQuery(global.module_id))?;
-            let typed = checked
-                .body_ir
-                .function_bodies
-                .get(&global)
-                .ok_or_else(|| {
-                    self.db.invalid_input(
+            let const_templates;
+            let typed = match checked.body_ir.function_bodies.get(&global) {
+                Some(body) => body,
+                None if signature.is_const => {
+                    const_templates =
+                        providers::body_check_const_templates(&self.db, global.module_id)?;
+                    const_templates
+                        .ir
+                        .function_bodies
+                        .get(&global)
+                        .ok_or_else(|| {
+                            self.db.invalid_input(
+                                &ModuleGraphQuery,
+                                format!(
+                                    "published const template has no checked runtime body: {:?}",
+                                    record.definition
+                                ),
+                            )
+                        })?
+                }
+                None => {
+                    return Err(self.db.invalid_input(
                         &ModuleGraphQuery,
                         format!(
                             "published template has no checked body: {:?}",
                             record.definition
                         ),
-                    )
-                })?;
+                    ));
+                }
+            };
             let lowered = nia_function_lower::lower_function_body(
                 global.module_id,
                 typed,
