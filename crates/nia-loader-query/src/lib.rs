@@ -250,11 +250,53 @@ impl LoaderDatabase {
             .as_ref()
             .map(|toolchain| toolchain.std_package_artifact())
             .filter(|path| path.is_file());
-        let auto_std_artifact = request.package_artifact.is_none() && toolchain_std_artifact.is_some();
+        let auto_std_artifact =
+            request.package_artifact.is_none() && toolchain_std_artifact.is_some();
         let expected_package = request.expected_package.clone().or_else(|| {
-            auto_std_artifact
-                .then(|| request.toolchain.as_ref().expect("std artifact has toolchain").std_package_id())
+            auto_std_artifact.then(|| {
+                request
+                    .toolchain
+                    .as_ref()
+                    .expect("std artifact has toolchain")
+                    .std_package_id()
+            })
         });
+        let artifact_compatibility =
+            package_artifact::ArtifactCompatibility::current(request.toolchain.as_deref());
+        let selected_std_modules = if auto_std_artifact {
+            request
+                .toolchain
+                .as_ref()
+                .and_then(|toolchain| {
+                    let artifact_request =
+                        PackageArtifactRequest::Optional(toolchain.std_package_artifact());
+                    match package_artifact::load(
+                        &artifact_request,
+                        expected_package.as_ref(),
+                        &artifact_compatibility,
+                    ) {
+                        Ok(PackageArtifactLoad::Loaded { interface, .. }) => Some(
+                            interface
+                                .module_identities()
+                                .filter(|identity| {
+                                    expected_package
+                                        .as_ref()
+                                        .is_some_and(|package| &identity.package == package)
+                                })
+                                .collect::<Vec<_>>(),
+                        ),
+                        _ => None,
+                    }
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let std_artifact_root = selected_std_modules
+            .iter()
+            .map(|module| module.path.as_str())
+            .find(|path| path.rsplit('/').next() == Some("pkg.nia"))
+            .map(str::to_owned);
         let entry_path = request.entry_path;
         let package_roots_with_used_paths = if request.package_root_used_paths {
             request.module_map.entries().map(|(name, _)| name).collect()
@@ -265,8 +307,18 @@ impl LoaderDatabase {
             &entry_path,
             request.module_map,
             request.toolchain.as_deref(),
+            std_artifact_root.as_deref(),
         );
         let sources = request.sources;
+        for module in &selected_std_modules {
+            sources.set_source(
+                SourcePath::with_identity(
+                    format!("/__nia_artifact__/std/{}", module.path),
+                    &module.path,
+                ),
+                "",
+            );
+        }
         let symbols = SymbolTable::new();
         let frontend_cache = request
             .frontend_cache_dir
@@ -338,6 +390,7 @@ impl LoaderDatabase {
                 package_root: request.package_root,
                 module_map,
                 sources: sources.clone(),
+                compiled_package_modules: Arc::new(selected_std_modules.clone()),
                 node_store: nia_node_id::NodeStore::new(),
                 diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
                 symbols,
@@ -357,8 +410,6 @@ impl LoaderDatabase {
             loader_query_registry(),
             session,
         );
-        let artifact_compatibility =
-            package_artifact::ArtifactCompatibility::current(request.toolchain.as_deref());
         Self {
             db,
             sources,
@@ -890,6 +941,16 @@ impl LoaderFactProvider for LoaderDatabase {
         let Some(module) = graph.semantic.get(module_id) else {
             return Ok(None);
         };
+        let path = module.path.identity().normalized_path().to_owned();
+        if let Some(identity) = self
+            .db
+            .context()
+            .compiled_package_modules
+            .iter()
+            .find(|identity| identity.path == path)
+        {
+            return Ok(Some(identity.clone()));
+        }
         // Source-backed package modules remain authoritative until the
         // artifact publishes the complete public-surface projection (including
         // re-export directives). Artifact facts are therefore used only for
@@ -907,7 +968,6 @@ impl LoaderFactProvider for LoaderDatabase {
         if entry_root != graph.semantic.current_package_root(module_id) {
             return Ok(None);
         }
-        let path = module.path.identity().normalized_path().to_owned();
         let mut matches = self
             .compiled_package_interfaces()?
             .into_iter()
@@ -1106,6 +1166,7 @@ fn load_program_trace(
         &entry_path,
         module_map,
         Some(tests::test_toolchain_layout().as_ref()),
+        None,
     );
     let db = QueryDb::new_registered(
         LoaderContext {
@@ -1113,6 +1174,7 @@ fn load_program_trace(
             package_root: None,
             module_map,
             sources: SourceDatabase::new(),
+            compiled_package_modules: Arc::new(Vec::new()),
             node_store: nia_node_id::NodeStore::new(),
             diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
             symbols: SymbolTable::new(),
@@ -1141,15 +1203,22 @@ fn effective_module_map(
     entry_path: &SourcePath,
     module_map: ModuleMap,
     toolchain: Option<&ToolchainLayout>,
+    std_artifact_root: Option<&str>,
 ) -> ModuleMap {
     let module_map = module_map.with_entry(entry_path.clone());
     let Some(toolchain) = toolchain else {
         return module_map;
     };
-    module_map.with_default_std(SourcePath::with_identity(
-        toolchain.std_module().to_string_lossy().into_owned(),
-        "toolchain:/std/pkg.nia",
-    ))
+    let std_path = std_artifact_root.map_or_else(
+        || {
+            SourcePath::with_identity(
+                toolchain.std_module().to_string_lossy().into_owned(),
+                "toolchain:/std/pkg.nia",
+            )
+        },
+        |identity| SourcePath::with_identity(format!("/__nia_artifact__/std/{identity}"), identity),
+    );
+    module_map.with_default_std(std_path)
 }
 
 pub(crate) struct LoaderContext {
@@ -1157,6 +1226,7 @@ pub(crate) struct LoaderContext {
     pub(crate) package_root: Option<SourcePath>,
     pub(crate) module_map: ModuleMap,
     pub(crate) sources: SourceDatabase,
+    pub(crate) compiled_package_modules: Arc<Vec<nia_package_metadata::ModuleId>>,
     pub(crate) node_store: nia_node_id::NodeStore,
     pub(crate) diagnostic_store: Arc<nia_diagnostic::DiagnosticStore>,
     pub(crate) symbols: SymbolTable,
