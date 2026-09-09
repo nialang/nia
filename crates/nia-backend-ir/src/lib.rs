@@ -596,10 +596,7 @@ pub enum CodegenUnitId {
     /// Runtime/compiler support unit outside source modules.
     CompilerBuiltins,
     /// Unit imported from a compiled package artifact.
-    CompiledPackage {
-        package: u64,
-        object: u64,
-    },
+    CompiledPackage { package: u64, object: u64 },
 }
 
 impl CodegenUnitId {
