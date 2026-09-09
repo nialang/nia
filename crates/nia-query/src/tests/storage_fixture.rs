@@ -108,6 +108,23 @@ impl QueryKey<TestContext> for PublishedOwnedValueQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct PublishedSharedValueQuery(usize);
+
+impl QueryKey<TestContext> for PublishedSharedValueQuery {
+    type Value = usize;
+
+    const PROVIDER: QueryProviderPolicy = QueryProviderPolicy::ExternallyPublished;
+
+    fn name() -> &'static str {
+        "published_shared_value"
+    }
+
+    fn execute_result(&self, _db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+        unreachable!("externally published queries do not execute their key provider")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct OwnedValueParent(usize);
 
 impl QueryKey<TestContext> for OwnedValueParent {

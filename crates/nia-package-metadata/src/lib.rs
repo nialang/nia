@@ -25,7 +25,7 @@ const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 4;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG01";
-const SIGNATURE_SCHEMA: u32 = 5;
+const SIGNATURE_SCHEMA: u32 = 6;
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
 const TEMPLATE_SCHEMA: u32 = 3;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
@@ -277,6 +277,8 @@ pub struct SignatureTraitRecord {
 /// compiler's package-stable implementation identity, not a session handle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignatureExtensionRecord {
+    /// Canonical module that declares this implementation.
+    pub module: ModuleId,
     pub impl_id: u64,
     pub target_root: u32,
     pub trait_root: Option<u32>,
@@ -520,10 +522,9 @@ impl SignatureSection {
             .traits
             .windows(2)
             .any(|pair| pair[0].definition >= pair[1].definition)
-            || self
-                .extensions
-                .windows(2)
-                .any(|pair| pair[0].impl_id >= pair[1].impl_id)
+            || self.extensions.windows(2).any(|pair| {
+                (&pair[0].module, pair[0].impl_id) >= (&pair[1].module, pair[1].impl_id)
+            })
         {
             return Err(MetadataError::InvalidManifest);
         }
@@ -540,6 +541,7 @@ impl SignatureSection {
             validate_signature_members(&trait_record.definition, &trait_record.members)?;
         }
         for extension in &self.extensions {
+            validate_module_id(&extension.module)?;
             if extension.impl_id == 0
                 || extension.where_roots.len() > MAX_ITEMS
                 || extension.members.len() > MAX_ITEMS
@@ -569,7 +571,8 @@ impl SignatureSection {
             for member in &extension.members {
                 validate_definition(&member.definition)?;
                 validate_string(&member.name)?;
-                if member.name != member.definition.name
+                if member.definition.module != extension.module
+                    || member.name != member.definition.name
                     || member.kind != member.definition.kind
                     || member.flags & !SIGNATURE_FLAGS_MASK != 0
                     || member.type_roots.windows(2).any(|p| p[0] >= p[1])
@@ -2230,6 +2233,7 @@ pub fn encode_signatures(section: &SignatureSection) -> Result<Vec<u8>, Metadata
     }
     put_list_len(&mut output, section.extensions.len())?;
     for record in &section.extensions {
+        put_module_id(&mut output, &record.module)?;
         output.extend_from_slice(&record.impl_id.to_le_bytes());
         put_u32(&mut output, record.target_root);
         match record.trait_root {
@@ -2317,6 +2321,7 @@ pub fn decode_signatures(bytes: &[u8]) -> Result<SignatureSection, MetadataError
     let extension_len = bounded_count(get_u32(&mut cursor)?)?;
     let mut extensions = Vec::with_capacity(extension_len);
     for _ in 0..extension_len {
+        let module = read_module_id(&mut cursor)?;
         let impl_id = get_u64(&mut cursor)?;
         let target_root = get_u32(&mut cursor)?;
         let trait_root = match read_u8(&mut cursor)? {
@@ -2325,6 +2330,7 @@ pub fn decode_signatures(bytes: &[u8]) -> Result<SignatureSection, MetadataError
             _ => return Err(MetadataError::InvalidManifest),
         };
         extensions.push(SignatureExtensionRecord {
+            module,
             impl_id,
             target_root,
             trait_root,
@@ -3092,6 +3098,11 @@ fn validate_definition(definition: &DefinitionId) -> Result<(), MetadataError> {
     validate_definition_with_depth(definition, 0)
 }
 
+fn validate_module_id(module: &ModuleId) -> Result<(), MetadataError> {
+    validate_id(&module.package)?;
+    validate_string(&module.path)
+}
+
 fn validate_definition_with_depth(
     definition: &DefinitionId,
     depth: usize,
@@ -3130,6 +3141,19 @@ fn put_id(output: &mut Vec<u8>, id: &PackageId) -> Result<(), MetadataError> {
     put_string(output, &id.namespace)?;
     put_string(output, &id.name)?;
     put_string(output, &id.version)
+}
+fn put_module_id(output: &mut Vec<u8>, module: &ModuleId) -> Result<(), MetadataError> {
+    validate_module_id(module)?;
+    put_id(output, &module.package)?;
+    put_string(output, &module.path)
+}
+fn read_module_id(cursor: &mut Cursor<&[u8]>) -> Result<ModuleId, MetadataError> {
+    let module = ModuleId {
+        package: get_id(cursor)?,
+        path: get_string(cursor)?,
+    };
+    validate_module_id(&module)?;
+    Ok(module)
 }
 fn put_definition(output: &mut Vec<u8>, definition: &DefinitionId) -> Result<(), MetadataError> {
     validate_definition(definition)?;
@@ -3949,6 +3973,10 @@ mod tests {
                 members: Vec::new(),
             }],
             extensions: vec![SignatureExtensionRecord {
+                module: ModuleId {
+                    package: package.clone(),
+                    path: "m".into(),
+                },
                 impl_id: 7,
                 target_root: 0,
                 trait_root: Some(2),

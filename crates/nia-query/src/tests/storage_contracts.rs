@@ -1,6 +1,23 @@
 use super::*;
 
 #[test]
+fn externally_published_shared_values_support_repeated_reads() {
+    let db = QueryDb::new(TestContext {
+        executions: AtomicUsize::new(0),
+    });
+    assert!(db.get(PublishedSharedValueQuery(3)).is_err());
+    assert!(db.can_publish_shared(PublishedSharedValueQuery(3)));
+    db.publish_shared(PublishedSharedValueQuery(3), 42, &Double(3));
+    assert_eq!(*db.expect_get(PublishedSharedValueQuery(3)), 42);
+    assert_eq!(*db.expect_get(PublishedSharedValueQuery(3)), 42);
+    assert!(!db.can_publish_shared(PublishedSharedValueQuery(3)));
+
+    db.invalidate(Double(3));
+    assert!(db.get(PublishedSharedValueQuery(3)).is_err());
+    assert!(db.can_publish_shared(PublishedSharedValueQuery(3)));
+}
+
+#[test]
 fn memoizes_query_values() {
     let db = QueryDb::new(TestContext {
         executions: AtomicUsize::new(0),

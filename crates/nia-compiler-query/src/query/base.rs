@@ -175,7 +175,6 @@ impl QueryKey<CompilerContext> for CompiledPackageTemplatesQuery {
 impl QueryKey<CompilerContext> for CompiledPackageSignaturesQuery {
     type Value = CompiledPackageSignatures;
 
-    const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
     const PROVIDER: QueryProviderPolicy = QueryProviderPolicy::ExternallyPublished;
 
     fn name() -> &'static str {
@@ -270,7 +269,6 @@ impl QueryKey<CompilerContext> for CompiledPackageTypeRootsQuery {
 impl QueryKey<CompilerContext> for CompiledPackageTypeGraphQuery {
     type Value = CompiledPackageTypeGraph;
 
-    const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
     const PROVIDER: QueryProviderPolicy = QueryProviderPolicy::ExternallyPublished;
 
     fn name() -> &'static str {

@@ -1526,10 +1526,7 @@ fn provide_artifact_item_signatures(
         );
     }
     for extension in package.extensions() {
-        let Some(first_member) = extension.members.first() else {
-            continue;
-        };
-        if first_member.definition.module != *identity {
+        if extension.module != *identity {
             continue;
         }
         let target_ty = graph.get(extension.target_root).ok_or_else(|| {

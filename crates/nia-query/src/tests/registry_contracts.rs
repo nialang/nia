@@ -30,6 +30,19 @@ fn declarative_registry_records_an_external_owned_producer() {
 }
 
 #[test]
+fn declarative_registry_records_an_external_shared_producer() {
+    let mut registry = QueryRegistry::new();
+    registry.register::<TestContext, PublishedSharedValueQuery>();
+
+    let descriptor = &registry.descriptors()[0];
+    assert_eq!(
+        descriptor.provider,
+        QueryProviderPolicy::ExternallyPublished
+    );
+    assert_eq!(descriptor.storage, QueryStoragePolicy::CacheOwnedArc);
+}
+
+#[test]
 fn declarative_registry_records_and_enforces_query_contracts() {
     let mut registry = QueryRegistry::new();
     registry.register::<TestContext, Double>();

@@ -1083,11 +1083,14 @@ impl CompilerDatabase {
                                 .records()
                                 .iter()
                                 .any(|item| item.definition == member.definition)
-                    }) || extensions.iter().any(
-                        |existing: &nia_package_metadata::SignatureExtensionRecord| {
-                            existing.impl_id == extension.impl_id
-                        },
-                    ) {
+                    }) || extension.module.package != *package
+                        || extensions.iter().any(
+                            |existing: &nia_package_metadata::SignatureExtensionRecord| {
+                                existing.module == extension.module
+                                    && existing.impl_id == extension.impl_id
+                            },
+                        )
+                    {
                         return Err(self.db.invalid_input(
                             &CompiledPackageInterfaceIndexQuery,
                             "compiled extension signature identity is inconsistent",
@@ -1097,8 +1100,8 @@ impl CompilerDatabase {
                 }
             }
             let key = CompiledPackageSignaturesQuery(package.clone());
-            if self.db.can_publish_owned(key.clone()) {
-                self.db.publish_owned(
+            if self.db.can_publish_shared(key.clone()) {
+                self.db.publish_shared(
                     key,
                     CompiledPackageSignatures {
                         package: package.clone(),
@@ -1119,7 +1122,9 @@ impl CompilerDatabase {
         &self,
         package: PackageId,
     ) -> QueryResult<CompiledPackageSignatures> {
-        self.db.get_owned(CompiledPackageSignaturesQuery(package))
+        self.db
+            .get(CompiledPackageSignaturesQuery(package))
+            .map(|signatures| signatures.as_ref().clone())
     }
 
     /// Rehydrates artifact signature roots into the current type store. This
@@ -1799,8 +1804,8 @@ impl CompilerDatabase {
             ));
         }
         let key = CompiledPackageTypeGraphQuery(package.clone());
-        if self.db.can_publish_owned(key.clone()) {
-            self.db.publish_owned(
+        if self.db.can_publish_shared(key.clone()) {
+            self.db.publish_shared(
                 key,
                 CompiledPackageTypeGraph { package, types },
                 &CompiledPackageInterfaceIndexQuery,
@@ -1814,7 +1819,8 @@ impl CompilerDatabase {
         package: &PackageId,
     ) -> QueryResult<CompiledPackageTypeGraph> {
         self.db
-            .get_owned(CompiledPackageTypeGraphQuery(package.clone()))
+            .get(CompiledPackageTypeGraphQuery(package.clone()))
+            .map(|graph| graph.as_ref().clone())
     }
 
     /// Publishes the validated declaration inventory for one selected package
@@ -2100,11 +2106,12 @@ impl CompilerDatabase {
     ) -> QueryResult<nia_package_metadata::SignatureSection> {
         let (interface, _, indexes) =
             self.package_interface_and_type_graph(package.clone(), resolver)?;
-        self.signature_section_from_interface(resolver, interface, &indexes)
+        self.signature_section_from_interface(package, resolver, interface, &indexes)
     }
 
     fn signature_section_from_interface(
         &self,
+        package: PackageId,
         resolver: &dyn StableDefinitionPackageResolver,
         interface: InterfaceSection,
         type_indexes: &HashMap<nia_ids::InternedTyId, u32>,
@@ -2152,29 +2159,6 @@ impl CompilerDatabase {
                     },
                 );
             }
-            if kind == 9 {
-                if let Some(trait_signature) = facts.semantic.traits.get(&global.def_id) {
-                    let supertrait_roots = trait_signature
-                        .supertraits
-                        .iter()
-                        .map(|bound| {
-                            type_indexes.get(&bound.ty).copied().ok_or_else(|| {
-                                self.db.invalid_input(
-                                    &ModuleGraphQuery,
-                                    "supertrait type missing from published graph",
-                                )
-                            })
-                        })
-                        .collect::<QueryResult<Vec<_>>>()?;
-                    trait_records.push(nia_package_metadata::SignatureTraitRecord {
-                        definition: item.definition.clone(),
-                        generic_params: generic_params.clone(),
-                        where_roots: where_predicates.iter().map(|p| p.type_root).collect(),
-                        supertrait_roots,
-                        members: members.get(&item.definition).cloned().unwrap_or_default(),
-                    });
-                }
-            }
             records.push((
                 item.definition.clone(),
                 kind,
@@ -2184,6 +2168,49 @@ impl CompilerDatabase {
                 where_predicates,
                 payload,
             ));
+        }
+        for item in interface
+            .records
+            .iter()
+            .filter(|item| item.definition.kind == 9)
+        {
+            let global = definition_index.definition_for_identity(&item.definition)?;
+            let facts = self.db.get(ItemSignaturesQuery(global.module_id))?;
+            let Some(trait_signature) = facts.semantic.traits.get(&global.def_id) else {
+                continue;
+            };
+            let (generic_params, where_predicates) = records
+                .iter()
+                .find(|record| record.0 == item.definition)
+                .map(|record| (record.4.clone(), record.5.clone()))
+                .ok_or_else(|| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        "trait signature record is missing from interface inventory",
+                    )
+                })?;
+            let supertrait_roots = trait_signature
+                .supertraits
+                .iter()
+                .map(|bound| {
+                    type_indexes.get(&bound.ty).copied().ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "supertrait type missing from published graph",
+                        )
+                    })
+                })
+                .collect::<QueryResult<Vec<_>>>()?;
+            trait_records.push(nia_package_metadata::SignatureTraitRecord {
+                definition: item.definition.clone(),
+                generic_params,
+                where_roots: where_predicates
+                    .iter()
+                    .map(|predicate| predicate.type_root)
+                    .collect(),
+                supertrait_roots,
+                members: members.get(&item.definition).cloned().unwrap_or_default(),
+            });
         }
         let module_graph = self.db.get(ModuleGraphQuery)?;
         let entry_root = module_graph.current_package_root(module_graph.entry());
@@ -2322,6 +2349,20 @@ impl CompilerDatabase {
                     })
                     .collect::<QueryResult<Vec<_>>>()?;
                 extension_records.push(nia_package_metadata::SignatureExtensionRecord {
+                    module: nia_package_metadata::ModuleId {
+                        package: package.clone(),
+                        path: module_graph
+                            .stable_key(module.id)
+                            .ok_or_else(|| {
+                                self.db.invalid_input(
+                                    &ModuleGraphQuery,
+                                    "extension module has no stable identity",
+                                )
+                            })?
+                            .source_identity()
+                            .normalized_path()
+                            .to_owned(),
+                    },
                     impl_id: implementation.impl_id.0,
                     target_root,
                     trait_root,
@@ -2370,27 +2411,10 @@ impl CompilerDatabase {
             .traits
             .sort_by(|left, right| left.definition.cmp(&right.definition));
         section.extensions.sort_by(|left, right| {
-            left.impl_id
-                .cmp(&right.impl_id)
-                .then_with(|| left.target_root.cmp(&right.target_root))
-                .then_with(|| left.trait_root.cmp(&right.trait_root))
-                .then_with(|| left.where_roots.cmp(&right.where_roots))
-                .then_with(|| {
-                    left.members
-                        .first()
-                        .map(|member| &member.definition)
-                        .cmp(&right.members.first().map(|member| &member.definition))
-                })
+            left.module
+                .cmp(&right.module)
+                .then_with(|| left.impl_id.cmp(&right.impl_id))
         });
-        let mut previous_extension = None;
-        for extension in &mut section.extensions {
-            if let Some(previous) = previous_extension {
-                if extension.impl_id <= previous {
-                    extension.impl_id = previous.wrapping_add(1).max(1);
-                }
-            }
-            previous_extension = Some(extension.impl_id);
-        }
         section.validate().map_err(|error| {
             self.db
                 .invalid_input(&ModuleGraphQuery, format!("signature validate: {error}"))
@@ -2923,11 +2947,16 @@ impl CompilerDatabase {
         let signatures = match signatures {
             Some(signatures) => Some(signatures),
             None => Some(
-                self.signature_section_from_interface(resolver, interface.clone(), &indexes)
-                    .map_err(|error| {
-                        self.db
-                            .invalid_input(&ModuleGraphQuery, format!("signatures: {error}"))
-                    })?,
+                self.signature_section_from_interface(
+                    package.clone(),
+                    resolver,
+                    interface.clone(),
+                    &indexes,
+                )
+                .map_err(|error| {
+                    self.db
+                        .invalid_input(&ModuleGraphQuery, format!("signatures: {error}"))
+                })?,
             ),
         };
         let public_surface = self

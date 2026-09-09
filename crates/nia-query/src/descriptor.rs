@@ -317,8 +317,8 @@ impl QueryRegistry {
     /// Registers `K` and validates its provider, storage, and fingerprint policies.
     ///
     /// Registration panics for duplicate key types or names, for fingerprinted
-    /// single-consumer values, and for externally published values that are not
-    /// un-fingerprinted single-consumer payloads.
+    /// single-consumer values, and for externally published values that retain
+    /// fingerprints.
     pub fn register<C, K>(&mut self)
     where
         C: 'static,
@@ -332,13 +332,12 @@ impl QueryRegistry {
             "single-consumer query `{}` cannot retain a value fingerprint",
             K::name()
         );
-        // External publishers need transfer semantics: a cache-owned value
-        // could otherwise outlive and obscure the producer's retirement edge.
+        // External products are invalidated through their explicit predecessor
+        // edge. They must not carry an independently computed fingerprint.
         assert!(
             K::PROVIDER == QueryProviderPolicy::KeyExecute
-                || (K::STORAGE == QueryStoragePolicy::SingleConsumerOwned
-                    && K::FINGERPRINT == QueryFingerprintPolicy::None),
-            "externally published query `{}` must use single-consumer owned storage",
+                || K::FINGERPRINT == QueryFingerprintPolicy::None,
+            "externally published query `{}` cannot retain a value fingerprint",
             K::name()
         );
         let key_type_id = TypeId::of::<K>();
