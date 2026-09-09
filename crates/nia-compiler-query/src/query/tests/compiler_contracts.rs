@@ -771,6 +771,9 @@ fn package_artifact_publication_rejects_template_for_unknown_definition() {
                 owner: None,
             },
             parameter_count: 0,
+            referenced_definitions: Vec::new(),
+            referenced_modules: Vec::new(),
+            type_roots: Vec::new(),
             body: vec![1],
             summary: nia_package_metadata::encode_template_summary(
                 &nia_package_metadata::TemplateSummary::default(),
@@ -866,6 +869,9 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
                 records: vec![nia_package_metadata::TemplateRecord {
                     definition: section.records[0].definition.clone(),
                     parameter_count: 0,
+                    referenced_definitions: Vec::new(),
+                    referenced_modules: Vec::new(),
+                    type_roots: Vec::new(),
                     body: template_body.to_vec(),
                     summary: nia_package_metadata::encode_template_summary(
                         &nia_package_metadata::TemplateSummary::default(),
