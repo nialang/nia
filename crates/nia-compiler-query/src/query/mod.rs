@@ -1563,14 +1563,15 @@ impl CompilerDatabase {
         package: PackageId,
         resolver: &dyn StableDefinitionPackageResolver,
     ) -> QueryResult<nia_package_metadata::SignatureSection> {
-        let (interface, _, _) = self.package_interface_and_type_graph(package.clone(), resolver)?;
-        self.signature_section_from_interface(resolver, interface)
+        let (interface, _, indexes) = self.package_interface_and_type_graph(package.clone(), resolver)?;
+        self.signature_section_from_interface(resolver, interface, &indexes)
     }
 
     fn signature_section_from_interface(
         &self,
         resolver: &dyn StableDefinitionPackageResolver,
         interface: InterfaceSection,
+        type_indexes: &HashMap<nia_ids::InternedTyId, u32>,
     ) -> QueryResult<nia_package_metadata::SignatureSection> {
         let definition_index = self.stable_definition_index(resolver)?;
         let mut records = Vec::with_capacity(interface.records.len());
@@ -1580,6 +1581,12 @@ impl CompilerDatabase {
             let kind = item.definition.kind;
             let facts = self.db.get(ItemSignaturesQuery(global.module_id))?;
             let flags = signature_flags_for_definition(global.def_id, kind, &facts.semantic);
+            let (generic_params, where_predicates) = signature_generic_and_where_facts(
+                global.def_id,
+                &facts.semantic,
+                &self.db.context().loader_facts().symbols(),
+                type_indexes,
+            )?;
             if let Some(owner) = item.definition.owner.as_deref() {
                 members
                     .entry(owner.clone())
@@ -1592,18 +1599,18 @@ impl CompilerDatabase {
                         type_roots: item.type_roots.clone(),
                     });
             }
-            records.push((item.definition.clone(), kind, flags, item.type_roots.clone()));
+            records.push((item.definition.clone(), kind, flags, item.type_roots.clone(), generic_params, where_predicates));
         }
         let records = records
             .into_iter()
-            .map(|(definition, kind, flags, type_roots)| nia_package_metadata::SignatureRecord {
+            .map(|(definition, kind, flags, type_roots, generic_params, where_predicates)| nia_package_metadata::SignatureRecord {
                 members: members.remove(&definition).unwrap_or_default(),
                 definition,
                 kind,
                 flags,
                 type_roots,
-                generic_params: Vec::new(),
-                where_predicates: Vec::new(),
+                generic_params,
+                where_predicates,
             })
             .collect();
         let section = nia_package_metadata::SignatureSection {
@@ -2041,11 +2048,11 @@ impl CompilerDatabase {
         native: Option<nia_package_metadata::NativeSection>,
         signatures: Option<nia_package_metadata::SignatureSection>,
     ) -> QueryResult<crate::PackageArtifactPublication> {
-        let (interface, type_graph, _) =
+        let (interface, type_graph, indexes) =
             self.package_interface_and_type_graph(package.clone(), resolver)?;
         let signatures = match signatures {
             Some(signatures) => Some(signatures),
-            None => Some(self.signature_section_from_interface(resolver, interface.clone())?),
+            None => Some(self.signature_section_from_interface(resolver, interface.clone(), &indexes)?),
         };
         let public_surface =
             self.package_public_surface_section_with_resolver(package.clone(), resolver)?;
@@ -3120,6 +3127,42 @@ fn signature_flags_for_definition(
         }),
         _ => 0,
     }
+}
+
+fn signature_generic_and_where_facts(
+    def_id: DefId,
+    signatures: &nia_item_signatures::ItemSignatures,
+    symbols: &dyn nia_symbol::SymbolText,
+    indexes: &HashMap<InternedTyId, u32>,
+) -> QueryResult<(Vec<nia_package_metadata::SignatureGenericParam>, Vec<nia_package_metadata::SignatureWherePredicate>)> {
+    let mut generic_params = Vec::new();
+    let mut where_predicates = Vec::new();
+    let mut convert = |params: &[nia_item_signatures::GenericParamSignature], predicates: &[nia_defs::WherePredicateSignature]| -> QueryResult<()> {
+        generic_params = params.iter().map(|param| {
+            let name = symbols.symbol_text(param.name).ok_or_else(|| QueryError::InvalidInput { query: QueryFrame { name: "signature_publication", key: format!("{def_id:?}"), description: "signature_publication".into() }, message: "generic parameter has no stable symbol text".into() })?.to_string();
+            let type_root = match param.kind {
+                nia_item_signatures::GenericParamSignatureKind::Type => None,
+                nia_item_signatures::GenericParamSignatureKind::Const { ty } => Some(*indexes.get(&ty).ok_or_else(|| QueryError::InvalidInput { query: QueryFrame { name: "signature_publication", key: format!("{def_id:?}"), description: "signature_publication".into() }, message: "generic parameter type missing from published graph".into() })?),
+            };
+            Ok(nia_package_metadata::SignatureGenericParam { name, kind: u8::from(matches!(param.kind, nia_item_signatures::GenericParamSignatureKind::Const { .. })), type_root })
+        }).collect::<QueryResult<Vec<_>>>()?;
+        where_predicates = predicates.iter().map(|predicate| {
+            let type_root = *indexes.get(&predicate.ty).ok_or_else(|| QueryError::InvalidInput { query: QueryFrame { name: "signature_publication", key: format!("{def_id:?}"), description: "signature_publication".into() }, message: "where predicate type missing from published graph".into() })?;
+            let bounds = predicate.bounds.iter().map(|bound| {
+                let trait_root = *indexes.get(&bound.trait_ty).ok_or_else(|| QueryError::InvalidInput { query: QueryFrame { name: "signature_publication", key: format!("{def_id:?}"), description: "signature_publication".into() }, message: "where bound trait missing from published graph".into() })?;
+                let associated_type_bindings = bound.associated_type_bindings.iter().map(|binding| Ok(nia_package_metadata::SignatureAssociatedTypeBinding { name: symbols.symbol_text(binding.name).ok_or_else(|| QueryError::InvalidInput { query: QueryFrame { name: "signature_publication", key: format!("{def_id:?}"), description: "signature_publication".into() }, message: "associated type has no stable symbol text".into() })?.to_string(), type_root: *indexes.get(&binding.ty).ok_or_else(|| QueryError::InvalidInput { query: QueryFrame { name: "signature_publication", key: format!("{def_id:?}"), description: "signature_publication".into() }, message: "associated type binding missing from published graph".into() })? })).collect::<QueryResult<Vec<_>>>()?;
+                Ok(nia_package_metadata::SignatureWhereBound { trait_root, associated_type_bindings })
+            }).collect::<QueryResult<Vec<_>>>()?;
+            Ok(nia_package_metadata::SignatureWherePredicate { type_root, bounds })
+        }).collect::<QueryResult<Vec<_>>>()?;
+        Ok(())
+    };
+    if let Some(signature) = signatures.functions.get(&def_id) { convert(&signature.generic_params, &signature.where_predicates)?; }
+    else if let Some(signature) = signatures.structs.get(&def_id) { convert(&signature.generic_params, &signature.where_predicates)?; }
+    else if let Some(signature) = signatures.unions.get(&def_id) { convert(&signature.generic_params, &signature.where_predicates)?; }
+    else if let Some(signature) = signatures.traits.get(&def_id) { convert(&signature.generic_params, &signature.where_predicates)?; }
+    else if let Some(signature) = signatures.type_aliases.get(&def_id) { convert(&signature.generic_params, &[])?; }
+    Ok((generic_params, where_predicates))
 }
 
 fn emit_provider_graph_change(
