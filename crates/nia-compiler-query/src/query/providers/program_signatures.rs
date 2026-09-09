@@ -21,8 +21,49 @@ pub(super) fn provide_program_signature_module_eligibility(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<bool> {
+    if db
+        .context()
+        .loader_facts()
+        .compiled_package_module_identity(module_id)?
+        .is_some()
+    {
+        let signatures = db.get(SignatureItemSignaturesQuery(module_id, set))?;
+        return Ok(item_signatures_have_program_facts(
+            &signatures.semantic,
+            set,
+        ));
+    }
     let tree = db.get(SignatureItemTreeQuery(module_id, set))?;
     Ok(nia_program_signatures::signature_tree_has_program_signature_facts(&tree, set))
+}
+
+fn item_signatures_have_program_facts(
+    signatures: &ItemSignatures,
+    set: nia_item_tree::SignatureItemSet,
+) -> bool {
+    use nia_item_tree::SignatureItemSet;
+    match set {
+        SignatureItemSet::Functions | SignatureItemSet::ExtensionFunctions => {
+            !signatures.functions.is_empty()
+        }
+        SignatureItemSet::Values => {
+            !signatures.globals.is_empty()
+                || !signatures.consts.is_empty()
+                || signatures
+                    .trait_impls
+                    .iter()
+                    .any(|implementation| !implementation.associated_values.is_empty())
+        }
+        SignatureItemSet::Types => {
+            !signatures.structs.is_empty()
+                || !signatures.unions.is_empty()
+                || !signatures.enums.is_empty()
+                || !signatures.type_aliases.is_empty()
+        }
+        SignatureItemSet::Traits => {
+            !signatures.traits.is_empty() || !signatures.trait_impls.is_empty()
+        }
+    }
 }
 
 pub(super) fn provide_module_program_signature_facts(

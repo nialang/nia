@@ -932,6 +932,17 @@ pub(super) fn provide_signature_type_lowering(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<SignatureTypeLowering> {
+    if db
+        .context()
+        .loader_facts()
+        .compiled_package_module_identity(module_id)?
+        .is_some()
+    {
+        return Ok(SignatureTypeLowering {
+            semantic: Arc::new(empty_artifact_type_lowering()),
+            diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        });
+    }
     let program_sources = db.get(FrontendProgramSourcesQuery)?;
     let cache_input = program_sources
         .as_ref()
@@ -1079,6 +1090,14 @@ pub(super) fn provide_signature_const_type_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<TypeLowering> {
+    if db
+        .context()
+        .loader_facts()
+        .compiled_package_module_identity(module_id)?
+        .is_some()
+    {
+        return Ok(empty_artifact_type_lowering());
+    }
     let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id))?;
     let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id))?;
     let query_failure = RefCell::new(None);
@@ -2304,11 +2323,23 @@ fn normalize_types_in_session_store(
     type_lowering: &nia_type_lower::TypeLowering,
     item_signatures: &ItemSignatures,
 ) -> TypeNormalization {
-    let input_ids = type_lowering.explicit_type_roots();
+    let mut input_ids = type_lowering.explicit_type_roots();
+    input_ids.extend(item_signatures.type_roots());
+    input_ids.sort_unstable();
+    input_ids.dedup();
     nia_type_normalize::normalize_module_types(nia_type_normalize::TypeNormalizationInput {
         module_id,
         type_store: &db.context().type_store,
         input_ids: &input_ids,
         signatures: item_signatures,
     })
+}
+
+fn empty_artifact_type_lowering() -> nia_type_lower::TypeLowering {
+    nia_type_lower::TypeLowering {
+        type_uses: HashMap::new(),
+        const_exprs: HashMap::new(),
+        const_expr_summaries: HashMap::new(),
+        diagnostics: Vec::new(),
+    }
 }
