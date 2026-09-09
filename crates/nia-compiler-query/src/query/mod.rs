@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use crate::ctfe_template_codec::{
+    collect_resolved_const_function_relocations, decode_resolved_const_function,
+    encode_resolved_const_function,
+};
 use crate::template_body_codec::{
     TemplateBodyDecodeContext, TemplateBodyEncodeContext,
     collect_checked_function_body_relocations, decode_checked_function_body,
@@ -469,7 +473,8 @@ pub struct CompiledPackageTemplates {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompiledTemplate {
     pub definition: GlobalDefId,
-    pub body: nia_function_ir::FunctionBody,
+    pub body: Option<nia_function_ir::FunctionBody>,
+    pub ctfe_body: Option<nia_const_ir::ResolvedConstFunction>,
     pub summary: nia_package_metadata::TemplateSummary,
 }
 
@@ -489,6 +494,7 @@ struct PublishedTemplateBody {
     definition: DefinitionId,
     global: GlobalDefId,
     body: nia_function_ir::FunctionBody,
+    ctfe_body: Option<nia_const_ir::ResolvedConstFunction>,
     parameter_count: u32,
 }
 
@@ -1085,13 +1091,39 @@ impl CompilerDatabase {
                     }
                     let owner =
                         self.resolve_template_definition(&record.definition, package, interface)?;
-                    let body =
-                        decode_checked_function_body(&record.body, &context).map_err(|error| {
+                    let body = (!record.body.is_empty())
+                        .then(|| decode_checked_function_body(&record.body, &context))
+                        .transpose()
+                        .map_err(|error| {
                             self.db.invalid_input(
                                 &CompiledPackageInterfaceIndexQuery,
                                 format!("invalid checked template body: {error}"),
                             )
                         })?;
+                    let ctfe_body = (!record.ctfe_body.is_empty())
+                        .then(|| decode_resolved_const_function(&record.ctfe_body, &context))
+                        .transpose()
+                        .map_err(|error| {
+                            self.db.invalid_input(
+                                &CompiledPackageInterfaceIndexQuery,
+                                format!("invalid CTFE template body: {error}"),
+                            )
+                        })?;
+                    let is_const = interface.signatures().is_some_and(|signatures| {
+                        signatures.records.iter().any(|signature| {
+                            signature.definition == record.definition
+                                && signature.flags & nia_package_metadata::SIGNATURE_FLAG_CONST != 0
+                        })
+                    });
+                    if is_const && ctfe_body.is_none() {
+                        return Err(self.db.invalid_input(
+                            &CompiledPackageInterfaceIndexQuery,
+                            format!(
+                                "compiled const template has no CTFE body: {:?}",
+                                record.definition
+                            ),
+                        ));
+                    }
                     let summary = nia_package_metadata::decode_template_summary(&record.summary)
                         .map_err(|error| {
                             self.db.invalid_input(
@@ -1105,6 +1137,7 @@ impl CompilerDatabase {
                             CompiledTemplate {
                                 definition: owner,
                                 body,
+                                ctfe_body,
                                 summary,
                             },
                         )
@@ -2288,10 +2321,32 @@ impl CompilerDatabase {
                     ),
                 )
             })?;
+            let ctfe_body = if signature.is_const {
+                Some(
+                    self.db
+                        .get(ConstModuleQuery(global.module_id))?
+                        .module
+                        .functions()
+                        .get(&global)
+                        .cloned()
+                        .ok_or_else(|| {
+                            self.db.invalid_input(
+                                &ModuleGraphQuery,
+                                format!(
+                                    "published const template has no resolved CTFE body: {:?}",
+                                    record.definition
+                                ),
+                            )
+                        })?,
+                )
+            } else {
+                None
+            };
             bodies.push(PublishedTemplateBody {
                 definition: record.definition.clone(),
                 global,
                 body: lowered.body,
+                ctfe_body,
                 parameter_count: u32::try_from(signature.params.len()).map_err(|_| {
                     self.db.invalid_input(
                         &ModuleGraphQuery,
@@ -2354,13 +2409,25 @@ impl CompilerDatabase {
         let closure_check = providers::closure_safety_check(&self.db, &checked_modules)?;
         let mut records = Vec::with_capacity(bodies.len());
         for template in bodies {
-            let relocations =
-                collect_checked_function_body_relocations(&template.body).map_err(|e| {
+            let mut relocations = collect_checked_function_body_relocations(&template.body)
+                .map_err(|e| {
                     self.db.invalid_input(
                         &ModuleGraphQuery,
                         format!("failed to collect template relocations: {e}"),
                     )
                 })?;
+            if let Some(ctfe_body) = &template.ctfe_body {
+                let ctfe_relocations = collect_resolved_const_function_relocations(ctfe_body)
+                    .map_err(|e| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            format!("failed to collect CTFE template relocations: {e}"),
+                        )
+                    })?;
+                relocations.types.extend(ctfe_relocations.types);
+                relocations.definitions.extend(ctfe_relocations.definitions);
+                relocations.modules.extend(ctfe_relocations.modules);
+            }
             let mut definitions = relocations
                 .definitions
                 .iter()
@@ -2413,18 +2480,26 @@ impl CompilerDatabase {
                         })
                 })
                 .collect::<QueryResult<Vec<_>>>()?;
+            type_pairs.sort_by_key(|(ty, index)| (*index, *ty));
+            type_pairs.dedup_by_key(|(ty, _)| *ty);
             type_pairs.sort_by_key(|(_, index)| *index);
-            type_pairs.dedup_by_key(|(_, index)| *index);
-            let type_roots = type_pairs
+            let mut type_roots = type_pairs
                 .iter()
                 .map(|(_, index)| *index)
                 .collect::<Vec<_>>();
+            type_roots.dedup();
             let mut context = TemplateEncodeContext {
                 types: HashMap::new(),
                 definitions: HashMap::new(),
                 modules: HashMap::new(),
             };
-            for (index, (ty, _)) in type_pairs.iter().copied().enumerate() {
+            for (ty, graph_index) in type_pairs.iter().copied() {
+                let index = type_roots.binary_search(&graph_index).map_err(|_| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        "template type relocation root ordering mismatch".to_string(),
+                    )
+                })?;
                 context.types.insert(
                     ty,
                     u32::try_from(index).map_err(|_| {
@@ -2490,6 +2565,18 @@ impl CompilerDatabase {
                     format!("failed to encode template body: {e}"),
                 )
             })?;
+            let ctfe_body = template
+                .ctfe_body
+                .as_ref()
+                .map(|body| encode_resolved_const_function(body, &context))
+                .transpose()
+                .map_err(|e| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        format!("failed to encode CTFE template body: {e}"),
+                    )
+                })?
+                .unwrap_or_default();
             let summary = closure_check
                 .summaries
                 .get(&template.global)
@@ -2526,7 +2613,7 @@ impl CompilerDatabase {
                 referenced_modules: modules,
                 type_roots,
                 body,
-                ctfe_body: Vec::new(),
+                ctfe_body,
                 summary,
             });
         }
@@ -3015,6 +3102,16 @@ impl CompilerDatabase {
                     )
                 })?;
             all_roots.extend(relocations.types);
+            if let Some(ctfe_body) = &template.ctfe_body {
+                let relocations =
+                    collect_resolved_const_function_relocations(ctfe_body).map_err(|e| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            format!("failed to collect CTFE template type roots: {e}"),
+                        )
+                    })?;
+                all_roots.extend(relocations.types);
+            }
         }
         // Public extension records carry roots which are not necessarily
         // attached to a public item declaration (notably associated types and

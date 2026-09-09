@@ -256,6 +256,76 @@ fn package_artifact_publication_emits_const_runtime_templates() {
     let templates = artifact.templates().unwrap().unwrap();
     assert_eq!(templates.records.len(), 1);
     assert!(!templates.records[0].body.is_empty());
+    assert!(!templates.records[0].ctfe_body.is_empty());
+}
+
+#[test]
+fn source_free_dependency_const_function_evaluates_from_ctfe_template() {
+    let dependency = LoadedProgramFixture::new(
+        "src/dependency.nia",
+        "pub const fn double(value: i32) i32 { value * 2 }",
+    );
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "const-dependency".into(),
+        version: "1.0.0".into(),
+    };
+    let artifact = nia_package_metadata::PackageArtifact::open(
+        dependency
+            .database()
+            .publish_package_artifact(package.clone())
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
+    let compiled =
+        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap();
+
+    let mut consumer = LoadedProgramFixture::new(
+        "src/main.nia",
+        "using dependency::double; const ANSWER: i32 = double(21); fn main() i32 { ANSWER }",
+    );
+    let entry = consumer.entry_id();
+    let dependency_module = consumer.add_child(entry, "dependency", "src/dependency.nia", "");
+    let loader = TestLoaderFacts::new(
+        consumer.program(),
+        crate::ProviderFactSnapshot::empty(crate::ProviderFactRevision::default()),
+    );
+    let identity = compiled
+        .module_identities()
+        .next()
+        .expect("dependency module identity");
+    loader.replace_compiled_interfaces(vec![compiled]);
+    loader.replace_compiled_module_identities(HashMap::from([(dependency_module, identity)]));
+    let database = super::super::CompilerDatabase::new(
+        CompileRequest::new(consumer.program()).with_loader_facts(loader),
+    );
+    database
+        .install_compiled_package_module_interfaces()
+        .unwrap();
+    let resolver = |definition: &nia_package_metadata::DefinitionId| {
+        database.resolve_loaded_definition(definition, &package)
+    };
+    database
+        .install_compiled_interface_type_roots(&resolver)
+        .unwrap();
+    database.install_compiled_package_declarations().unwrap();
+    database.install_compiled_package_templates().unwrap();
+    database.install_compiled_package_signatures().unwrap();
+
+    let compiled_const = database.db.expect_get(ConstModuleQuery(dependency_module));
+    assert_eq!(compiled_const.module.functions().len(), 1);
+    let checked = database.db.expect_get(CheckedModuleQuery(entry));
+    assert!(
+        checked.const_diagnostics.is_empty(),
+        "{:?}",
+        checked.const_diagnostics
+    );
+    assert!(
+        checked.body_diagnostics.is_empty(),
+        "{:?}",
+        checked.body_diagnostics
+    );
 }
 
 #[test]

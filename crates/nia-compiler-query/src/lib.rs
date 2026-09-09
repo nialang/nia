@@ -5,6 +5,7 @@
 //! and backend products inside one [`nia_query::QuerySession`]. Public
 //! fingerprints identify relocatable persisted frontend products; session-local
 //! compiler databases retain query ownership, invalidation, and diagnostics.
+mod ctfe_template_codec;
 mod frontend_fingerprint;
 mod program_diagnostic_bundle;
 mod query;

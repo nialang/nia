@@ -5,6 +5,9 @@ pub(super) fn provide_const_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<ConstModuleLowering> {
+    if super::executable::is_compiled_artifact_module(db, module_id) {
+        return provide_compiled_const_module(db, module_id);
+    }
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
     let defs = full_module_defs_semantic(db, module_id)?;
     let values = value_resolution_semantic(db, module_id)?;
@@ -30,6 +33,40 @@ pub(super) fn provide_const_module(
             source_path: &source_path,
         },
     ))
+}
+
+/// Rehydrates the CTFE portion of an installed package template product.
+///
+/// Artifact modules deliberately have no source item tree or const-lowering
+/// inputs in the current session. Their const function map is therefore built
+/// solely from the validated, transactionally-installed CTFE templates.
+fn provide_compiled_const_module(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<ConstModuleLowering> {
+    let identity = db
+        .context()
+        .loader_facts()
+        .compiled_package_module_identity(module_id)?
+        .ok_or_else(|| {
+            db.invalid_input(
+                &ConstModuleQuery(module_id),
+                "compiled const module has no package identity",
+            )
+        })?;
+    let templates = db.get(CompiledPackageTemplatesQuery(identity.package.clone()))?;
+    let mut module = nia_const_ir::ResolvedConstModule::new();
+    for (_, template) in templates.iter() {
+        if template.definition.module_id == module_id {
+            if let Some(function) = &template.ctfe_body {
+                module.insert_function(template.definition, function.clone());
+            }
+        }
+    }
+    Ok(ConstModuleLowering {
+        module: Arc::new(module),
+        diagnostics: Vec::new(),
+    })
 }
 
 pub(super) fn provide_const(

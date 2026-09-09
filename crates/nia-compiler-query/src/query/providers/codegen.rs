@@ -278,7 +278,9 @@ fn artifact_function_bodies(
     for (package, _) in index.packages() {
         let templates = db.get(CompiledPackageTemplatesQuery(package.clone()))?;
         for (_, template) in templates.iter() {
-            bodies.insert(template.definition, Arc::new(template.body.clone()));
+            if let Some(body) = &template.body {
+                bodies.insert(template.definition, Arc::new(body.clone()));
+            }
         }
     }
     Ok(bodies)
@@ -369,7 +371,7 @@ fn imported_template_body(
                 return Ok(compiled
                     .iter()
                     .find(|(_, template)| template.definition == def_id)
-                    .map(|(_, template)| template.body.clone()));
+                    .and_then(|(_, template)| template.body.clone()));
             }
         }
     }
