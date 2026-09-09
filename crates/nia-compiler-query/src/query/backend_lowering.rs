@@ -25,6 +25,7 @@ pub(super) struct BackendLoweringInputs {
     program_defs: Vec<Arc<DefCollection>>,
     non_function_signatures: ProgramExecutableNonFunctionSignatures,
     functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
+    artifact_generic_params: HashMap<GlobalDefId, Vec<(nia_symbol::SymbolId, bool)>>,
     runtime: RuntimeModel,
 }
 
@@ -46,6 +47,7 @@ pub(super) struct BackendLoweringInputsParts {
     pub(super) program_defs: Vec<Arc<DefCollection>>,
     pub(super) non_function_signatures: ProgramExecutableNonFunctionSignatures,
     pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub(super) artifact_generic_params: HashMap<GlobalDefId, Vec<(nia_symbol::SymbolId, bool)>>,
     pub(super) runtime: RuntimeModel,
 }
 
@@ -128,6 +130,7 @@ impl BackendLoweringInputs {
             program_defs: parts.program_defs,
             non_function_signatures: parts.non_function_signatures,
             functions: parts.functions,
+            artifact_generic_params: parts.artifact_generic_params,
             runtime: parts.runtime,
         }
     }
@@ -226,22 +229,7 @@ impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
     }
 
     fn generic_params(&self, def_id: GlobalDefId) -> Option<Vec<(nia_symbol::SymbolId, bool)>> {
-        self.functions.get(&def_id).map(|signature| {
-            signature
-                .signature
-                .generic_params
-                .iter()
-                .map(|param| {
-                    (
-                        param.name,
-                        matches!(
-                            param.kind,
-                            nia_item_signatures::GenericParamSignatureKind::Const { .. }
-                        ),
-                    )
-                })
-                .collect()
-        })
+        self.artifact_generic_params.get(&def_id).cloned()
     }
 
     fn normalized_type(&self, ty: InternedTyId) -> Option<InternedTyId> {
@@ -455,6 +443,7 @@ mod tests {
                 trait_method_index: nia_program_signatures::ProgramTraitMethodIndex::default(),
             },
             functions: HashMap::new(),
+            artifact_generic_params: HashMap::new(),
             runtime: RuntimeModel::Bare,
         };
         let indexed = inputs.function_body(def_id).expect("indexed function body");

@@ -133,29 +133,27 @@ pub(super) fn monomorphization_for_checked_modules(
         .iter()
         .map(|module| Ok((module.id, item_signatures_semantic(db, module.id)?)))
         .collect::<QueryResult<HashMap<_, _>>>()?;
-    let generic_params = checked_modules
-        .iter()
-        .flat_map(|module| {
-            local_signatures
-                .get(&module.id)
-                .into_iter()
-                .flat_map(move |signatures| {
-                    signatures.functions.iter().map(move |(def_id, signature)| {
-                        (
-                            GlobalDefId {
-                                module_id: module.id,
-                                def_id: *def_id,
-                            },
-                            signature
-                                .generic_params
-                                .iter()
-                                .map(|param| param.name)
-                                .collect::<Vec<_>>(),
-                        )
-                    })
-                })
-        })
-        .collect::<HashMap<_, _>>();
+    let mut generic_params = HashMap::new();
+    for module in checked_modules {
+        if !is_compiled_artifact_module(db, module.id) {
+            continue;
+        }
+        let signatures = local_signatures
+            .get(&module.id)
+            .expect("monomorphization signatures must exist for checked module");
+        for def_id in signatures.functions.keys() {
+            generic_params.insert(
+                GlobalDefId {
+                    module_id: module.id,
+                    def_id: *def_id,
+                },
+                effective_function_generic_params(signatures, &module.defs, *def_id)
+                    .into_iter()
+                    .map(|param| param.name)
+                    .collect(),
+            );
+        }
+    }
     let _function_bodies = function_bodies_from_checked_modules(db, checked_modules)?;
     let mut semantic_instantiations = checked_modules
         .iter()
@@ -659,6 +657,36 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
         },
     )?;
     let artifact_function_bodies = artifact_function_bodies(db)?;
+    let mut artifact_generic_params = HashMap::new();
+    for ((module, signatures), defs) in checked_modules
+        .iter()
+        .zip(&item_signatures)
+        .zip(&program_defs)
+    {
+        if !is_compiled_artifact_module(db, module.id) {
+            continue;
+        }
+        for def_id in signatures.functions.keys() {
+            artifact_generic_params.insert(
+                GlobalDefId {
+                    module_id: module.id,
+                    def_id: *def_id,
+                },
+                effective_function_generic_params(signatures, defs, *def_id)
+                    .into_iter()
+                    .map(|param| {
+                        (
+                            param.name,
+                            matches!(
+                                param.kind,
+                                nia_item_signatures::GenericParamSignatureKind::Const { .. }
+                            ),
+                        )
+                    })
+                    .collect(),
+            );
+        }
+    }
     let function_lowering_diagnostics = function_lowering_diagnostics(&function_bodies);
     if !function_lowering_diagnostics.is_empty() {
         return Ok(ProgramBackendLoweringInputs {
@@ -735,6 +763,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                 program_defs,
                 non_function_signatures,
                 functions,
+                artifact_generic_params,
             })
         },
     );
@@ -742,6 +771,34 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
         semantic: Some(inputs),
         diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
     })
+}
+
+pub(in crate::query) fn effective_function_generic_params(
+    signatures: &nia_item_signatures::ItemSignatures,
+    defs: &DefCollection,
+    def_id: DefId,
+) -> Vec<nia_item_signatures::GenericParamSignature> {
+    let mut params = Vec::new();
+    if let Some(parent) = defs.defs.get(def_id).and_then(|def| def.parent) {
+        if let Some(signature) = signatures.structs.get(&parent) {
+            params.extend(signature.generic_params.iter().cloned());
+        } else if let Some(signature) = signatures.unions.get(&parent) {
+            params.extend(signature.generic_params.iter().cloned());
+        } else if let Some(signature) = signatures.traits.get(&parent) {
+            params.extend(signature.generic_params.iter().cloned());
+        }
+    } else if let Some(signature) = signatures.trait_impls.iter().find(|signature| {
+        signature
+            .methods
+            .iter()
+            .any(|method| method.def_id == def_id)
+    }) {
+        params.extend(signature.generic_params.iter().cloned());
+    }
+    if let Some(signature) = signatures.functions.get(&def_id) {
+        params.extend(signature.generic_params.iter().cloned());
+    }
+    params
 }
 
 pub(super) fn early_program_diagnostics(

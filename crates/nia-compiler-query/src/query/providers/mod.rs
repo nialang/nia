@@ -34,7 +34,7 @@ fn compiler_target_data_layout(
 mod body_check_flow;
 mod body_executable;
 mod body_signature_lookup;
-mod codegen;
+pub(in crate::query) mod codegen;
 mod const_eval;
 mod executable_reachability;
 mod extension_providers;
