@@ -756,6 +756,12 @@ mod tests {
         let installed = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
             .expect("installed layout");
         assert_eq!(explicit, installed);
+        assert_eq!(
+            explicit.std_package_artifact(),
+            explicit
+                .resource_root()
+                .join("std/.nia-cache/package.niapkg")
+        );
 
         let relocated_root = temp_dir("relocated_layout");
         fs::rename(&first, relocated_root.join("toolchain")).expect("relocate toolchain");
