@@ -178,6 +178,14 @@ pub struct SignatureExtensionRecord {
     pub generic_params: Vec<SignatureGenericParam>,
     pub where_roots: Vec<u32>,
     pub members: Vec<SignatureMember>,
+    /// Associated type bindings defined by the implementation.
+    pub associated_types: Vec<SignatureAssociatedType>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureAssociatedType {
+    pub name: String,
+    pub type_root: u32,
 }
 
 /// Target-independent signature facts published by one package.
@@ -287,10 +295,16 @@ impl SignatureSection {
             if extension.impl_id == 0
                 || extension.where_roots.len() > MAX_ITEMS
                 || extension.members.len() > MAX_ITEMS
+                || extension.associated_types.len() > MAX_ITEMS
             {
                 return Err(MetadataError::InvalidManifest);
             }
             validate_signature_generic_params(&extension.generic_params)?;
+            let mut associated_names = std::collections::BTreeSet::new();
+            for associated in &extension.associated_types {
+                validate_string(&associated.name)?;
+                if !associated_names.insert(&associated.name) { return Err(MetadataError::InvalidManifest); }
+            }
             let owner = extension
                 .members
                 .first()
@@ -334,6 +348,7 @@ impl SignatureSection {
             || self.extensions.iter().flat_map(|record| record.generic_params.iter()).filter_map(|param| param.type_root).any(|root| root >= node_count)
             || self.traits.iter().flat_map(|record| record.members.iter()).flat_map(|member| member.type_roots.iter()).any(|root| *root >= node_count)
             || self.extensions.iter().flat_map(|record| record.members.iter()).flat_map(|member| member.type_roots.iter()).any(|root| *root >= node_count)
+            || self.extensions.iter().flat_map(|record| record.associated_types.iter()).any(|associated| associated.type_root >= node_count)
         {
             return Err(MetadataError::InvalidManifest);
         }
@@ -1505,6 +1520,8 @@ pub fn encode_signatures(section: &SignatureSection) -> Result<Vec<u8>, Metadata
         put_generic_params(&mut output, &record.generic_params)?;
         put_refs(&mut output, &record.where_roots)?;
         put_members(&mut output, &record.members)?;
+        put_list_len(&mut output, record.associated_types.len())?;
+        for associated in &record.associated_types { put_string(&mut output, &associated.name)?; put_u32(&mut output, associated.type_root); }
     }
     if output.len() > MAX_PACKAGE_BYTES {
         return Err(MetadataError::TooLarge);
@@ -1582,6 +1599,12 @@ pub fn decode_signatures(bytes: &[u8]) -> Result<SignatureSection, MetadataError
             generic_params: read_generic_params(&mut cursor)?,
             where_roots: read_refs(&mut cursor)?,
             members: read_members(&mut cursor)?,
+            associated_types: {
+                let count = bounded_count(get_u32(&mut cursor)?)?;
+                let mut values = Vec::with_capacity(count);
+                for _ in 0..count { values.push(SignatureAssociatedType { name: get_string(&mut cursor)?, type_root: get_u32(&mut cursor)? }); }
+                values
+            },
         });
     }
     if cursor.position() != bytes.len() as u64 {
@@ -2805,6 +2828,7 @@ mod tests {
                 generic_params: Vec::new(),
                 where_roots: vec![1],
                 members: Vec::new(),
+                associated_types: Vec::new(),
             }],
         };
         let bytes = encode_signatures(&section).unwrap();
