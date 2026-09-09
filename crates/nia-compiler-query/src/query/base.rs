@@ -88,6 +88,9 @@ pub(super) struct CompiledPackageInterfaceIndexQuery;
 pub(super) struct CompiledPackageTypeRootsQuery(pub(super) PackageId);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct CompiledPackageTypeGraphQuery(pub(super) PackageId);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct CompiledPackageDeclarationsQuery(pub(super) PackageId);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -261,6 +264,25 @@ impl QueryKey<CompilerContext> for CompiledPackageTypeRootsQuery {
 
     fn execute_result(&self, _db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         unreachable!("compiled package type roots are published by artifact installation")
+    }
+}
+
+impl QueryKey<CompilerContext> for CompiledPackageTypeGraphQuery {
+    type Value = CompiledPackageTypeGraph;
+
+    const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
+    const PROVIDER: QueryProviderPolicy = QueryProviderPolicy::ExternallyPublished;
+
+    fn name() -> &'static str {
+        "compiled_package_type_graph"
+    }
+
+    fn description(&self) -> String {
+        format!("compiled_package_type_graph({:?})", self.0)
+    }
+
+    fn execute_result(&self, _db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        unreachable!("compiled package type graphs are published by artifact installation")
     }
 }
 

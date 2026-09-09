@@ -415,6 +415,27 @@ pub struct CompiledPackageDeclarations {
     declarations: BTreeMap<DefinitionId, StableDeclaration>,
 }
 
+/// Rehydrated package type graph retaining the canonical wire-node indexes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompiledPackageTypeGraph {
+    package: PackageId,
+    types: Vec<InternedTyId>,
+}
+
+impl CompiledPackageTypeGraph {
+    pub fn package(&self) -> &PackageId {
+        &self.package
+    }
+
+    pub fn get(&self, index: u32) -> Option<InternedTyId> {
+        self.types.get(index as usize).copied()
+    }
+
+    pub fn len(&self) -> usize {
+        self.types.len()
+    }
+}
+
 /// Validated public interface records belonging to one canonical package
 /// module. This is the first artifact-backed module fact consumed by the
 /// compiler query graph; it deliberately carries no source or session ids.
@@ -1442,6 +1463,21 @@ impl CompilerDatabase {
         graph: &StableTypeGraph,
         resolver: &dyn StableDefinitionResolver,
     ) -> QueryResult<Vec<InternedTyId>> {
+        let types = self.rehydrate_stable_type_graph_nodes(graph, resolver)?;
+        Ok(graph
+            .roots
+            .iter()
+            .map(|root| types[usize::try_from(*root).unwrap()])
+            .collect())
+    }
+
+    /// Rehydrates every node in a stable package graph, preserving its wire
+    /// index so typed signature payloads can reference arbitrary nodes.
+    fn rehydrate_stable_type_graph_nodes(
+        &self,
+        graph: &StableTypeGraph,
+        resolver: &dyn StableDefinitionResolver,
+    ) -> QueryResult<Vec<InternedTyId>> {
         graph
             .validate()
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
@@ -1675,11 +1711,7 @@ impl CompilerDatabase {
             };
             types.push(ty);
         }
-        Ok(graph
-            .roots
-            .iter()
-            .map(|root| types[usize::try_from(*root).unwrap()])
-            .collect())
+        Ok(types)
     }
 
     /// Rehydrates every selected compiled interface into the current type
@@ -1691,12 +1723,13 @@ impl CompilerDatabase {
     ) -> QueryResult<BTreeMap<DefinitionId, Vec<InternedTyId>>> {
         let index = self.compiled_package_interface_index()?;
         let mut result = BTreeMap::new();
-        for (_, interface) in index.packages() {
+        for (package, interface) in index.packages() {
             let types = interface
                 .type_graph()
-                .map(|graph| self.rehydrate_stable_type_graph(graph, resolver))
+                .map(|graph| self.rehydrate_stable_type_graph_nodes(graph, resolver))
                 .transpose()?
                 .unwrap_or_default();
+            self.publish_compiled_package_type_graph(package.clone(), types.clone())?;
             for record in interface.records() {
                 let roots = record
                     .type_roots
@@ -1753,6 +1786,37 @@ impl CompilerDatabase {
                 .publish_owned(key, roots, &CompiledPackageInterfaceIndexQuery);
         }
         Ok(())
+    }
+
+    pub fn publish_compiled_package_type_graph(
+        &self,
+        package: PackageId,
+        types: Vec<InternedTyId>,
+    ) -> QueryResult<()> {
+        let index = self.compiled_package_interface_index()?;
+        if index.package(&package).is_none() {
+            return Err(self.db.invalid_input(
+                &CompiledPackageInterfaceIndexQuery,
+                format!("cannot publish compiled type graph for an unselected package: {package:?}"),
+            ));
+        }
+        let key = CompiledPackageTypeGraphQuery(package.clone());
+        if self.db.can_publish_owned(key.clone()) {
+            self.db.publish_owned(
+                key,
+                CompiledPackageTypeGraph { package, types },
+                &CompiledPackageInterfaceIndexQuery,
+            );
+        }
+        Ok(())
+    }
+
+    pub fn compiled_package_type_graph(
+        &self,
+        package: &PackageId,
+    ) -> QueryResult<CompiledPackageTypeGraph> {
+        self.db
+            .get_owned(CompiledPackageTypeGraphQuery(package.clone()))
     }
 
     /// Publishes the validated declaration inventory for one selected package
