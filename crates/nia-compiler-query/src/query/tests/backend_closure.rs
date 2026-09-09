@@ -360,6 +360,56 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_extension_method_instances_substitute_owner_and_method_parameters() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+extend[Value] ?Value {
+    fn map[Mapped](self, mapper: &Fn(Value) Mapped) ?Mapped {
+        if self is ?value { ?mapper(value) } else { null }
+    }
+}
+
+fn main(base: i32) i32 {
+    let callback = \[base] value: i32 -> { base + value };
+    let value: ?i32 = ?1;
+    match value.map[i32](&callback) {
+        ?mapped => mapped,
+        null => 0,
+    }
+}
+"#,
+    );
+    let mut loaded = fixture.program();
+    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let db = query_db(loaded);
+
+    let backend = db.expect_get(BackendLoweringQuery);
+    assert!(
+        resolve_diagnostic_bundle(db.context(), &backend.diagnostics).is_empty(),
+        "{:?}",
+        resolve_diagnostic_bundle(db.context(), &backend.diagnostics)
+    );
+    let map = backend
+        .semantic
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| &module.function_instances)
+        .find(|instance| instance.name == sym("map"))
+        .expect("map[i32] instance");
+    assert_eq!(map.args.len(), 2, "owner and method type arguments");
+    assert!(map.function_body.is_some());
+    assert!(
+        map.params.iter().all(|param| !matches!(
+            db.context().type_store.get(param.passing_ty),
+            Some(nia_ty::TyKind::GenericParam(_))
+        )),
+        "instance parameters must not retain open generic types"
+    );
+}
+
+#[test]
 fn closure_entry_bodies_participate_in_backend_reachability() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",

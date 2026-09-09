@@ -396,6 +396,90 @@ fn source_free_dependency_generic_body_reaches_backend_without_source_queries() 
 }
 
 #[test]
+fn source_free_generic_extension_reconstructs_effective_parameters() {
+    let dependency = LoadedProgramFixture::new(
+        "src/dependency.nia",
+        r#"
+extend[Value] ?Value {
+    pub fn map[Mapped](self, mapper: &Fn(Value) Mapped) ?Mapped {
+        if self is ?value { ?mapper(value) } else { null }
+    }
+}
+"#,
+    );
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "generic-extension-dependency".into(),
+        version: "1.0.0".into(),
+    };
+    let artifact = nia_package_metadata::PackageArtifact::open(
+        dependency
+            .database()
+            .publish_package_artifact(package.clone())
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
+    let compiled =
+        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap();
+
+    let mut consumer = LoadedProgramFixture::new("src/main.nia", "fn main() () {}");
+    let dependency_module =
+        consumer.add_child(consumer.entry_id(), "dependency", "src/dependency.nia", "");
+    let loader = TestLoaderFacts::new(
+        consumer.program(),
+        crate::ProviderFactSnapshot::empty(crate::ProviderFactRevision::default()),
+    );
+    let identity = compiled
+        .module_identities()
+        .next()
+        .expect("dependency module identity");
+    loader.replace_compiled_interfaces(vec![compiled]);
+    loader.replace_compiled_module_identities(HashMap::from([(dependency_module, identity)]));
+    let database = super::super::CompilerDatabase::new(
+        CompileRequest::new(consumer.program()).with_loader_facts(loader),
+    );
+    database
+        .install_compiled_package_module_interfaces()
+        .unwrap();
+    let resolver = |definition: &nia_package_metadata::DefinitionId| {
+        database.resolve_loaded_definition(definition, &package)
+    };
+    database
+        .install_compiled_interface_type_roots(&resolver)
+        .unwrap();
+    database.install_compiled_package_declarations().unwrap();
+    database.install_compiled_package_templates().unwrap();
+    database.install_compiled_package_signatures().unwrap();
+
+    let signatures = database
+        .db
+        .expect_get(ItemSignaturesQuery(dependency_module));
+    let defs = database
+        .db
+        .expect_get(FullModuleDefsQuery(dependency_module));
+    let map = signatures
+        .semantic
+        .functions
+        .iter()
+        .find_map(|(def_id, signature)| (signature.name == sym("map")).then_some(*def_id))
+        .expect("artifact map signature");
+    let params = providers::codegen::effective_function_generic_params(
+        &signatures.semantic,
+        &defs.semantic,
+        map,
+    );
+    assert_eq!(
+        params.iter().map(|param| param.name).collect::<Vec<_>>(),
+        vec![sym("Value"), sym("Mapped")]
+    );
+    assert!(params.iter().all(|param| matches!(
+        param.kind,
+        nia_item_signatures::GenericParamSignatureKind::Type
+    )));
+}
+
+#[test]
 fn package_artifact_publication_embeds_validated_signatures() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
     let database = fixture.database();
