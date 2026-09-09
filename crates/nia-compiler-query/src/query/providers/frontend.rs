@@ -1374,6 +1374,247 @@ fn provide_artifact_item_signatures(
             }
         }
     }
+    for (definition, trait_record) in package.traits() {
+        if definition.module != *identity {
+            continue;
+        }
+        let global = resolve(definition)?;
+        let record = package.get(definition).ok_or_else(|| {
+            db.invalid_input(
+                &CompiledPackageSignaturesQuery(identity.package.clone()),
+                "artifact trait has no declaration signature record",
+            )
+        })?;
+        let generic_params = artifact_generic_params(db, &graph, record)?;
+        let where_predicates = artifact_where_predicates(db, &graph, record)?;
+        let supertraits = trait_record
+            .supertrait_roots
+            .iter()
+            .map(|root| {
+                Ok(nia_item_signatures::TraitSupertraitSignature {
+                    ty: graph.get(*root).ok_or_else(|| {
+                        db.invalid_input(
+                            &CompiledPackageSignaturesQuery(identity.package.clone()),
+                            "artifact supertrait root is unavailable",
+                        )
+                    })?,
+                    associated_type_bindings: Vec::new(),
+                    span: Span::default(),
+                })
+            })
+            .collect::<QueryResult<Vec<_>>>()?;
+        let mut associated_types = Vec::new();
+        let mut associated_values = Vec::new();
+        let mut methods = Vec::new();
+        for member in &trait_record.members {
+            let member_global = resolve(&member.definition)?;
+            let member_name = symbols.intern(&member.name).map_err(|error| {
+                db.invalid_input(
+                    &CompiledPackageSignaturesQuery(identity.package.clone()),
+                    error.to_string(),
+                )
+            })?;
+            match member.kind {
+                10 => associated_types.push(nia_item_signatures::TraitAssociatedTypeSignature {
+                    def_id: member_global.def_id,
+                    name: member_name,
+                    span: Span::default(),
+                }),
+                4 => {
+                    let ty = result
+                        .consts
+                        .get(&member_global.def_id)
+                        .and_then(|signature| signature.explicit_type)
+                        .ok_or_else(|| {
+                            db.invalid_input(
+                                &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                "artifact trait associated value has no type payload",
+                            )
+                        })?;
+                    associated_values.push(nia_item_signatures::TraitAssociatedValueSignature {
+                        def_id: member_global.def_id,
+                        name: member_name,
+                        ty,
+                        span: Span::default(),
+                    });
+                }
+                11 => {
+                    let signature = result
+                        .functions
+                        .get(&member_global.def_id)
+                        .cloned()
+                        .ok_or_else(|| {
+                            db.invalid_input(
+                                &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                "artifact trait method has no function payload",
+                            )
+                        })?;
+                    methods.push(nia_item_signatures::TraitMethodSignature {
+                        def_id: member_global.def_id,
+                        name: member_name,
+                        has_default: signature.has_body,
+                        signature,
+                        span: Span::default(),
+                    });
+                }
+                _ => {
+                    return Err(db.invalid_input(
+                        &CompiledPackageSignaturesQuery(identity.package.clone()),
+                        "unknown artifact trait member kind",
+                    ));
+                }
+            }
+        }
+        result.traits.insert(
+            global.def_id,
+            nia_item_signatures::TraitSignature {
+                generics: generic_params.iter().map(|param| param.name).collect(),
+                generic_params,
+                where_predicates,
+                supertraits,
+                associated_types,
+                associated_values,
+                methods,
+                builtin: None,
+                span: Span::default(),
+            },
+        );
+    }
+    for extension in package.extensions() {
+        let Some(first_member) = extension.members.first() else {
+            continue;
+        };
+        if first_member.definition.module != *identity {
+            continue;
+        }
+        let target_ty = graph.get(extension.target_root).ok_or_else(|| {
+            db.invalid_input(
+                &CompiledPackageSignaturesQuery(identity.package.clone()),
+                "artifact extension target root is unavailable",
+            )
+        })?;
+        let trait_ty = extension
+            .trait_root
+            .map(|root| {
+                graph.get(root).ok_or_else(|| {
+                    db.invalid_input(
+                        &CompiledPackageSignaturesQuery(identity.package.clone()),
+                        "artifact extension trait root is unavailable",
+                    )
+                })
+            })
+            .transpose()?;
+        let generic_params = extension
+            .generic_params
+            .iter()
+            .map(|param| {
+                let name = symbols.intern(&param.name).map_err(|error| {
+                    db.invalid_input(
+                        &CompiledPackageSignaturesQuery(identity.package.clone()),
+                        error.to_string(),
+                    )
+                })?;
+                let kind = if param.kind == 0 {
+                    nia_item_signatures::GenericParamSignatureKind::Type
+                } else {
+                    nia_item_signatures::GenericParamSignatureKind::Const {
+                        ty: graph
+                            .get(param.type_root.ok_or_else(|| {
+                                db.invalid_input(
+                                    &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                    "artifact extension const parameter has no type root",
+                                )
+                            })?)
+                            .ok_or_else(|| {
+                                db.invalid_input(
+                                    &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                    "artifact extension const parameter root is unavailable",
+                                )
+                            })?,
+                    }
+                };
+                Ok(nia_item_signatures::GenericParamSignature { name, kind })
+            })
+            .collect::<QueryResult<Vec<_>>>()?;
+        let where_predicates = extension
+            .where_roots
+            .iter()
+            .map(|root| {
+                Ok(nia_defs::WherePredicateSignature {
+                    ty: graph.get(*root).ok_or_else(|| {
+                        db.invalid_input(
+                            &CompiledPackageSignaturesQuery(identity.package.clone()),
+                            "artifact extension where root is unavailable",
+                        )
+                    })?,
+                    bounds: Vec::new(),
+                    span: Span::default(),
+                })
+            })
+            .collect::<QueryResult<Vec<_>>>()?;
+        let mut associated_types = Vec::new();
+        for associated in &extension.associated_types {
+            associated_types.push(nia_item_signatures::TraitImplAssociatedTypeSignature {
+                name: symbols.intern(&associated.name).map_err(|error| {
+                    db.invalid_input(
+                        &CompiledPackageSignaturesQuery(identity.package.clone()),
+                        error.to_string(),
+                    )
+                })?,
+                ty: graph.get(associated.type_root).ok_or_else(|| {
+                    db.invalid_input(
+                        &CompiledPackageSignaturesQuery(identity.package.clone()),
+                        "artifact extension associated type root is unavailable",
+                    )
+                })?,
+                span: Span::default(),
+            });
+        }
+        let mut associated_values = Vec::new();
+        let mut methods = Vec::new();
+        for member in &extension.members {
+            let member_global = resolve(&member.definition)?;
+            let name = symbols.intern(&member.name).map_err(|error| {
+                db.invalid_input(
+                    &CompiledPackageSignaturesQuery(identity.package.clone()),
+                    error.to_string(),
+                )
+            })?;
+            match member.kind {
+                4 => {
+                    associated_values.push(nia_item_signatures::TraitImplAssociatedValueSignature {
+                        def_id: member_global.def_id,
+                        name,
+                        visibility: nia_ids::Visibility::Public,
+                        span: Span::default(),
+                    })
+                }
+                12 | 11 => methods.push(nia_item_signatures::TraitImplMethodSignature {
+                    def_id: member_global.def_id,
+                    name,
+                    visibility: nia_ids::Visibility::Public,
+                    span: Span::default(),
+                }),
+                _ => {}
+            }
+        }
+        result
+            .trait_impls
+            .push(nia_item_signatures::TraitImplSignature {
+                impl_id: nia_ids::TraitImplId(extension.impl_id),
+                builtin: None,
+                generics: generic_params.iter().map(|param| param.name).collect(),
+                generic_params,
+                target_ty,
+                trait_ty,
+                trait_span: None,
+                where_predicates,
+                associated_types,
+                associated_values,
+                methods,
+                span: Span::default(),
+            });
+    }
     if !complete {
         return Ok(None);
     }
