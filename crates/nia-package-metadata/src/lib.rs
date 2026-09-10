@@ -1254,7 +1254,7 @@ impl StableTypeGraph {
                     trait_id,
                     arguments,
                 } => {
-                    if *trait_id == 255 {
+                    if nia_ids::BuiltinTrait::from_stable_tag(u32::from(*trait_id)).is_none() {
                         return Err(MetadataError::InvalidManifest);
                     }
                     references.extend(arguments);
@@ -1323,7 +1323,11 @@ impl StableTypeGraph {
 fn validate_stable_trait_id(trait_id: &StableTraitId) -> Result<(), MetadataError> {
     match trait_id {
         StableTraitId::Source(definition) => validate_definition(definition),
-        StableTraitId::Builtin(tag) if *tag <= 27 => Ok(()),
+        StableTraitId::Builtin(tag)
+            if nia_ids::BuiltinTrait::from_stable_tag(u32::from(*tag)).is_some() =>
+        {
+            Ok(())
+        }
         StableTraitId::Builtin(_) => Err(MetadataError::InvalidManifest),
     }
 }
@@ -3163,7 +3167,7 @@ pub fn decode_type_graph(bytes: &[u8]) -> Result<StableTypeGraph, MetadataError>
             26 => StableTypeNode::BuiltinTrait {
                 trait_id: {
                     let tag = read_u8(&mut cursor)?;
-                    if tag > 27 {
+                    if nia_ids::BuiltinTrait::from_stable_tag(u32::from(tag)).is_none() {
                         return Err(MetadataError::InvalidManifest);
                     }
                     tag
@@ -3494,7 +3498,8 @@ fn read_stable_trait_id(cursor: &mut Cursor<&[u8]>) -> Result<StableTraitId, Met
         0 => Ok(StableTraitId::Source(read_definition(cursor)?)),
         1 => {
             let tag = read_u8(cursor)?;
-            (tag <= 27)
+            nia_ids::BuiltinTrait::from_stable_tag(u32::from(tag))
+                .is_some()
                 .then_some(StableTraitId::Builtin(tag))
                 .ok_or(MetadataError::InvalidManifest)
         }
@@ -4701,7 +4706,7 @@ mod tests {
                 },
                 StableTypeNode::BuiltinType(0),
                 StableTypeNode::BuiltinTrait {
-                    trait_id: 24,
+                    trait_id: nia_ids::BuiltinTrait::IntoError.stable_tag() as u8,
                     arguments: vec![0],
                 },
                 StableTypeNode::SelfParam,

@@ -2831,15 +2831,7 @@ impl CompilerDatabase {
                     type_indexes,
                 )?;
                 let mut extension_members = Vec::new();
-                let include_private_members = implementation.trait_ty.is_some_and(|trait_ty| {
-                    matches!(
-                        self.db.context().type_store.get(trait_ty),
-                        Some(nia_ty::TyKind::BuiltinTrait {
-                            trait_id: nia_ids::BuiltinTrait::IntoError,
-                            ..
-                        })
-                    )
-                });
+                let include_private_members = implementation.trait_ty.is_some();
                 for method in &implementation.methods {
                     if method.visibility != nia_ids::Visibility::Public && !include_private_members
                     {
@@ -3014,16 +3006,7 @@ impl CompilerDatabase {
             }
             let signatures = self.db.get(ItemSignaturesQuery(module.id))?;
             for implementation in &signatures.semantic.trait_impls {
-                let builtin_into_error = implementation.trait_ty.is_some_and(|trait_ty| {
-                    matches!(
-                        self.db.context().type_store.get(trait_ty),
-                        Some(nia_ty::TyKind::BuiltinTrait {
-                            trait_id: nia_ids::BuiltinTrait::IntoError,
-                            ..
-                        })
-                    )
-                });
-                if !builtin_into_error {
+                if implementation.trait_ty.is_none() {
                     continue;
                 }
                 required_impl_members.extend(implementation.methods.iter().map(|member| {
@@ -4685,20 +4668,35 @@ impl StableTypeGraphEncoder<'_> {
                 args,
                 const_args,
             } => {
-                let definition = self.definition(def_id)?;
-                if args.is_empty() && const_args.is_empty() {
-                    StableTypeNode::Named(definition)
-                } else {
-                    StableTypeNode::NamedApplied {
-                        definition,
+                if let Some(trait_id) = self.builtin_trait_for_definition(def_id)? {
+                    if !const_args.is_empty() {
+                        return Err(self.unsupported(
+                            "builtin trait applications with const arguments cannot cross package metadata",
+                        ));
+                    }
+                    StableTypeNode::BuiltinTrait {
+                        trait_id: builtin_trait_tag(trait_id),
                         arguments: args
                             .into_iter()
                             .map(|argument| self.encode(argument))
                             .collect::<QueryResult<Vec<_>>>()?,
-                        const_arguments: const_args
-                            .iter()
-                            .map(|argument| self.encode_const_argument(argument))
-                            .collect::<QueryResult<Vec<_>>>()?,
+                    }
+                } else {
+                    let definition = self.definition(def_id)?;
+                    if args.is_empty() && const_args.is_empty() {
+                        StableTypeNode::Named(definition)
+                    } else {
+                        StableTypeNode::NamedApplied {
+                            definition,
+                            arguments: args
+                                .into_iter()
+                                .map(|argument| self.encode(argument))
+                                .collect::<QueryResult<Vec<_>>>()?,
+                            const_arguments: const_args
+                                .iter()
+                                .map(|argument| self.encode_const_argument(argument))
+                                .collect::<QueryResult<Vec<_>>>()?,
+                        }
                     }
                 }
             }
@@ -4939,20 +4937,34 @@ impl StableTypeGraphEncoder<'_> {
                 args,
                 const_args,
             } => {
-                let definition = self.definition(def_id)?;
-                key.push(if args.is_empty() && const_args.is_empty() {
-                    7
+                if let Some(trait_id) = self.builtin_trait_for_definition(def_id)? {
+                    if !const_args.is_empty() {
+                        return Err(self.unsupported(
+                            "builtin trait applications with const arguments cannot cross package metadata",
+                        ));
+                    }
+                    key.push(25);
+                    key.push(builtin_trait_tag(trait_id));
+                    append_len(&mut key, args.len());
+                    for argument in args {
+                        append_bytes(&mut key, &self.canonical_key(argument)?);
+                    }
                 } else {
-                    8
-                });
-                append_definition_key(&mut key, &definition);
-                append_len(&mut key, args.len());
-                for argument in args {
-                    append_bytes(&mut key, &self.canonical_key(argument)?);
-                }
-                append_len(&mut key, const_args.len());
-                for argument in &const_args {
-                    self.append_stable_const_key(&mut key, argument)?;
+                    let definition = self.definition(def_id)?;
+                    key.push(if args.is_empty() && const_args.is_empty() {
+                        7
+                    } else {
+                        8
+                    });
+                    append_definition_key(&mut key, &definition);
+                    append_len(&mut key, args.len());
+                    for argument in args {
+                        append_bytes(&mut key, &self.canonical_key(argument)?);
+                    }
+                    append_len(&mut key, const_args.len());
+                    for argument in &const_args {
+                        self.append_stable_const_key(&mut key, argument)?;
+                    }
                 }
             }
             nia_ty::TyKind::GenericParam(name) => {
@@ -5165,9 +5177,28 @@ impl StableTypeGraphEncoder<'_> {
 
     fn stable_trait_id(&self, trait_id: nia_ty::TraitId) -> QueryResult<StableTraitId> {
         Ok(match trait_id {
-            nia_ty::TraitId::Source(def_id) => StableTraitId::Source(self.definition(def_id)?),
+            nia_ty::TraitId::Source(def_id) => {
+                if let Some(builtin) = self.builtin_trait_for_definition(def_id)? {
+                    StableTraitId::Builtin(builtin_trait_tag(builtin))
+                } else {
+                    StableTraitId::Source(self.definition(def_id)?)
+                }
+            }
             nia_ty::TraitId::Builtin(builtin) => StableTraitId::Builtin(builtin_trait_tag(builtin)),
         })
+    }
+
+    fn builtin_trait_for_definition(
+        &self,
+        def_id: GlobalDefId,
+    ) -> QueryResult<Option<nia_ids::BuiltinTrait>> {
+        Ok(self
+            .db
+            .get(ItemSignaturesQuery(def_id.module_id))?
+            .semantic
+            .traits
+            .get(&def_id.def_id)
+            .and_then(|signature| signature.builtin))
     }
 
     fn stable_binding(
@@ -5265,37 +5296,7 @@ fn builtin_type_tag(value: nia_ids::BuiltinType) -> u8 {
 }
 
 fn builtin_trait_tag(value: nia_ids::BuiltinTrait) -> u8 {
-    use nia_ids::BuiltinTrait;
-    match value {
-        BuiltinTrait::Add => 0,
-        BuiltinTrait::Sub => 1,
-        BuiltinTrait::Mul => 2,
-        BuiltinTrait::Div => 3,
-        BuiltinTrait::Rem => 4,
-        BuiltinTrait::Neg => 5,
-        BuiltinTrait::Not => 6,
-        BuiltinTrait::BitNot => 7,
-        BuiltinTrait::BitAnd => 8,
-        BuiltinTrait::BitOr => 9,
-        BuiltinTrait::BitXor => 10,
-        BuiltinTrait::Shl => 11,
-        BuiltinTrait::Shr => 12,
-        BuiltinTrait::Eq => 13,
-        BuiltinTrait::Ord => 14,
-        BuiltinTrait::Sized => 15,
-        BuiltinTrait::Unsized => 16,
-        BuiltinTrait::Deref => 17,
-        BuiltinTrait::DerefMut => 18,
-        BuiltinTrait::Index => 19,
-        BuiltinTrait::IndexMut => 20,
-        BuiltinTrait::Slice => 21,
-        BuiltinTrait::SliceMut => 22,
-        BuiltinTrait::Iterable => 23,
-        BuiltinTrait::Iterator => 24,
-        BuiltinTrait::Simd => 25,
-        BuiltinTrait::SimdMask => 26,
-        BuiltinTrait::IntoError => 27,
-    }
+    u8::try_from(value.stable_tag()).expect("builtin trait stable tag fits in u8")
 }
 
 fn stable_builtin_type(tag: u8) -> Option<nia_ids::BuiltinType> {
@@ -5308,38 +5309,7 @@ fn stable_builtin_type(tag: u8) -> Option<nia_ids::BuiltinType> {
 }
 
 fn stable_builtin_trait(tag: u8) -> Option<nia_ids::BuiltinTrait> {
-    use nia_ids::BuiltinTrait;
-    Some(match tag {
-        0 => BuiltinTrait::Add,
-        1 => BuiltinTrait::Sub,
-        2 => BuiltinTrait::Mul,
-        3 => BuiltinTrait::Div,
-        4 => BuiltinTrait::Rem,
-        5 => BuiltinTrait::Neg,
-        6 => BuiltinTrait::Not,
-        7 => BuiltinTrait::BitNot,
-        8 => BuiltinTrait::BitAnd,
-        9 => BuiltinTrait::BitOr,
-        10 => BuiltinTrait::BitXor,
-        11 => BuiltinTrait::Shl,
-        12 => BuiltinTrait::Shr,
-        13 => BuiltinTrait::Eq,
-        14 => BuiltinTrait::Ord,
-        15 => BuiltinTrait::Sized,
-        16 => BuiltinTrait::Unsized,
-        17 => BuiltinTrait::Deref,
-        18 => BuiltinTrait::DerefMut,
-        19 => BuiltinTrait::Index,
-        20 => BuiltinTrait::IndexMut,
-        21 => BuiltinTrait::Slice,
-        22 => BuiltinTrait::SliceMut,
-        23 => BuiltinTrait::Iterable,
-        24 => BuiltinTrait::Iterator,
-        25 => BuiltinTrait::Simd,
-        26 => BuiltinTrait::SimdMask,
-        27 => BuiltinTrait::IntoError,
-        _ => return None,
-    })
+    nia_ids::BuiltinTrait::from_stable_tag(u32::from(tag))
 }
 
 fn append_len(bytes: &mut Vec<u8>, len: usize) {

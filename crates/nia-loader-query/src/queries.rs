@@ -931,6 +931,15 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
+        let path = db.context().sources.path_for_id(self.0.id).ok_or_else(|| {
+            db.invalid_input(
+                self,
+                "provider summary source is not registered".to_string(),
+            )
+        })?;
+        if let Some(summary) = db.context().compiled_provider_summary_for_path(&path) {
+            return Ok(summary);
+        }
         let cache_input = frontend_cache_input(db, self.0)?;
         let cached_item_signature = cached_item_signature(db, cache_input.as_ref());
         let cached =

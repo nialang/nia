@@ -1057,7 +1057,26 @@ pub(super) fn provide_visible_trait_impls(
         .map(|providers| providers.modules.clone())
         .unwrap_or_default()
     };
-    let visible_modules = visible_trait_impl_modules_for_module(db, module_id)?;
+    let mut visible_modules = visible_trait_impl_modules_for_module(db, module_id)?;
+    // Artifact-backed provider modules do not carry source using-scope facts.
+    // The loader graph is the authoritative lazy-selection product: only
+    // compiled modules already selected there may contribute trait witnesses.
+    let graph_snapshot = db.get(ModuleGraphQuery)?;
+    for node in graph_snapshot.modules() {
+        if !node.semantic_selected || !node.process_used_paths {
+            continue;
+        }
+        if db
+            .context()
+            .loader_facts()
+            .compiled_package_module_identity(node.id)?
+            .is_some_and(|_| node.id != module_id)
+        {
+            visible_modules.push(node.id);
+        }
+    }
+    visible_modules.sort();
+    visible_modules.dedup();
     let mut trait_impls = Vec::new();
     for provider_module in visible_modules.iter().copied() {
         trait_impls.extend(

@@ -103,6 +103,29 @@ fn build_module_graph(
             let mut graph = (*value.semantic).clone();
             let existing_modules = graph.modules().count();
             for demand in new_provider_demands {
+                for module in db
+                    .context()
+                    .compiled_provider_modules_for_demand(&demand.request)
+                {
+                    let module_id = graph
+                        .modules()
+                        .find(|node| {
+                            graph.stable_key(node.id).is_some_and(|key| {
+                                key.source_identity().normalized_path() == module.path
+                            })
+                        })
+                        .map(|node| node.id);
+                    if let Some(module_id) = module_id {
+                        mark_process_used_paths_and_process(db, &mut graph, module_id).map_err(
+                            |error| {
+                                db.invalid_input(
+                                    &ModuleGraphQuery,
+                                    format!("artifact provider traversal failed: {error:?}"),
+                                )
+                            },
+                        )?;
+                    }
+                }
                 match &demand.request {
                     nia_compiler_query::ProviderRequest::ModuleSemantic { module_path } => {
                         record_traversal_diagnostic(
