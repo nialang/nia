@@ -2674,6 +2674,7 @@ impl Drop for TempDir {
 #[cfg(test)]
 mod streamed_output_tests {
     use super::*;
+    use nia_test_support::copy_case_tree;
     use nia_toolchain::ToolchainLayoutRequest;
     use std::sync::Arc;
 
@@ -2690,7 +2691,10 @@ mod streamed_output_tests {
             ))
             .unwrap(),
         );
-        let request = CheckRequest::new(layout.std_module().to_string_lossy());
+        let request = CheckRequest::from_source_path(SourcePath::with_identity(
+            layout.std_module().to_string_lossy().into_owned(),
+            "toolchain:/std/pkg.nia",
+        ));
         let driver = Driver::new(Arc::clone(&layout));
         let database = driver.compiler_database(&request).unwrap();
         let package = layout.std_package_id();
@@ -2700,6 +2704,58 @@ mod streamed_output_tests {
         let artifact = nia_package_metadata::PackageArtifact::open(publication.bytes).unwrap();
         assert_eq!(artifact.manifest().package, package);
         assert!(artifact.signatures().unwrap().is_some());
+    }
+
+    #[test]
+    fn standard_library_artifact_is_selected_without_dependency_sources() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .unwrap();
+        let root = TempDir::new("nia_driver_source_free_std");
+        let lib = root.path().join("lib");
+        copy_case_tree(&workspace.join("lib"), &lib);
+        let layout = Arc::new(
+            ToolchainLayout::resolve(ToolchainLayoutRequest::explicit(
+                std::env::current_exe().unwrap(),
+                &lib,
+            ))
+            .unwrap(),
+        );
+        let package = layout.std_package_id();
+        let staged_artifact = root.path().join("std.niapkg");
+        let publisher = Driver::new(Arc::clone(&layout));
+        let request = CheckRequest::from_source_path(SourcePath::with_identity(
+            layout.std_module().to_string_lossy().into_owned(),
+            "toolchain:/std/pkg.nia",
+        ));
+        let database = publisher.compiler_database(&request).unwrap();
+        let publication = database
+            .publish_package_artifact_with_resolver(package.clone(), &|_| Ok(package.clone()))
+            .unwrap();
+        fs::write(&staged_artifact, publication.bytes).unwrap();
+
+        fs::remove_dir_all(layout.resource_root().join("std")).unwrap();
+        let installed_artifact = layout.std_package_artifact();
+        fs::create_dir_all(installed_artifact.parent().unwrap()).unwrap();
+        fs::rename(&staged_artifact, &installed_artifact).unwrap();
+        assert!(!layout.std_module().exists());
+        let probe_loader = Driver::new(Arc::clone(&layout)).loader_database(&CheckRequest::new(
+            root.path().join("hello.nia").to_string_lossy(),
+        ));
+        let selection = probe_loader.package_artifact().unwrap();
+        assert!(
+            matches!(
+                selection,
+                Some(nia_loader_query::PackageArtifactLoad::Loaded { .. })
+            ),
+            "std artifact selection: {selection:?}"
+        );
+        let artifact =
+            nia_package_metadata::PackageArtifact::open(fs::read(&installed_artifact).unwrap())
+                .unwrap();
+        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact)
+            .expect("published standard library artifact must validate without sources");
     }
 
     #[test]

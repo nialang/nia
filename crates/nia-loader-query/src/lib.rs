@@ -770,6 +770,15 @@ impl LoaderFactProvider for LoaderDatabase {
         let Some(module) = graph.semantic.get(module_id) else {
             return Ok(None);
         };
+        if self
+            .db
+            .context()
+            .compiled_package_modules
+            .iter()
+            .any(|identity| identity.path == module.path.identity().normalized_path())
+        {
+            return Ok(Some(self.sources.empty_source(&module.path).version()));
+        }
         let source_id = self.sources.id_for_path(&module.path);
         Ok(match *self.db.get(queries::SourceStatusQuery(source_id))? {
             queries::SourceStatus::Present(version) => Some(version),
