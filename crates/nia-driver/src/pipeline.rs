@@ -2740,9 +2740,23 @@ mod streamed_output_tests {
         fs::create_dir_all(installed_artifact.parent().unwrap()).unwrap();
         fs::rename(&staged_artifact, &installed_artifact).unwrap();
         assert!(!layout.std_module().exists());
-        let probe_loader = Driver::new(Arc::clone(&layout)).loader_database(&CheckRequest::new(
-            root.path().join("hello.nia").to_string_lossy(),
-        ));
+        let hello = root.path().join("hello.nia");
+        fs::write(
+            &hello,
+            r#"using std::io;
+using std::process;
+using process::{Init, ExitCode};
+
+pub fn main(init: Init) ExitCode!() {
+    _ = init;
+    io::debugPrint(&"hello from nia\n", &[]).?;
+    !()
+}
+"#,
+        )
+        .unwrap();
+        let probe_loader = Driver::new(Arc::clone(&layout))
+            .loader_database(&CheckRequest::new(hello.to_string_lossy()));
         let selection = probe_loader.package_artifact().unwrap();
         assert!(
             matches!(
@@ -2754,8 +2768,27 @@ mod streamed_output_tests {
         let artifact =
             nia_package_metadata::PackageArtifact::open(fs::read(&installed_artifact).unwrap())
                 .unwrap();
+        let signatures = artifact.signatures().unwrap().unwrap();
+        assert!(
+            signatures.extensions.iter().any(|extension| {
+                extension.module.path.ends_with("/std/process/exit.nia")
+                    && extension.trait_root.is_some()
+            }),
+            "published process exit trait implementations: {:?}",
+            signatures
+                .extensions
+                .iter()
+                .filter(|extension| extension.module.path.contains("process"))
+                .collect::<Vec<_>>()
+        );
         nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact)
             .expect("published standard library artifact must validate without sources");
+        let consumer = Driver::new(Arc::clone(&layout));
+        let checked = consumer
+            .check_entry(CheckRequest::new(hello.to_string_lossy()))
+            .result
+            .expect("source-free standard library artifact must check hello");
+        assert!(checked.diagnostics.is_empty(), "{:#?}", checked.diagnostics);
     }
 
     #[test]

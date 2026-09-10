@@ -207,6 +207,7 @@ fn test_loader_context(
         ),
         sources,
         compiled_package_modules: Arc::new(Vec::new()),
+        compiled_package_interfaces: Arc::new(Vec::new()),
         node_store: nia_node_id::NodeStore::new(),
         diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
         symbols: SymbolTable::new(),

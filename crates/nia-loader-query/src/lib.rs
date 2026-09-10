@@ -20,7 +20,7 @@ mod tests;
 
 use nia_compiler_query::{
     FrontendCacheNamespace, FrontendProgramSourceFingerprint, FrontendProviderDemandPlanCacheKey,
-    LoadedProgram, LoaderFactProvider, ProviderDemand, SourceContentFingerprint,
+    LoadedProgram, LoaderFactProvider, ProviderDemand, ProviderRequest, SourceContentFingerprint,
     frontend_module_map_fingerprint_with_package_root, frontend_program_source_fingerprint,
     source_content_fingerprint,
 };
@@ -28,6 +28,7 @@ use nia_imports::{ModuleMap, StableModuleKey};
 use nia_package_metadata::PackageId;
 use nia_query::{QueryDb, QueryResult, QueryRetirement, QuerySession};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceRevision, SourceVersion};
+use nia_symbol::ToSymbolId;
 use nia_symbol_table::SymbolTable;
 use nia_target_config::{BuildProfile, CompilationMode, TargetConfig};
 use nia_toolchain::ToolchainLayout;
@@ -269,36 +270,36 @@ impl LoaderDatabase {
         });
         let artifact_compatibility =
             package_artifact::ArtifactCompatibility::current(request.toolchain.as_deref());
-        let selected_std_modules = if std_artifact_requested {
-            request
-                .toolchain
-                .as_ref()
-                .and_then(|toolchain| {
-                    let artifact_request = request.package_artifact.clone().unwrap_or_else(|| {
-                        PackageArtifactRequest::Optional(toolchain.std_package_artifact())
-                    });
-                    match package_artifact::load(
-                        &artifact_request,
-                        expected_package.as_ref(),
-                        &artifact_compatibility,
-                    ) {
-                        Ok(PackageArtifactLoad::Loaded { interface, .. }) => Some(
-                            interface
-                                .module_identities()
-                                .filter(|identity| {
-                                    expected_package
-                                        .as_ref()
-                                        .is_some_and(|package| &identity.package == package)
-                                })
-                                .collect::<Vec<_>>(),
-                        ),
-                        _ => None,
-                    }
-                })
-                .unwrap_or_default()
+        let selected_std_interfaces = if std_artifact_requested {
+            request.toolchain.as_ref().and_then(|toolchain| {
+                let artifact_request = request.package_artifact.clone().unwrap_or_else(|| {
+                    PackageArtifactRequest::Optional(toolchain.std_package_artifact())
+                });
+                match package_artifact::load(
+                    &artifact_request,
+                    expected_package.as_ref(),
+                    &artifact_compatibility,
+                ) {
+                    Ok(PackageArtifactLoad::Loaded { interface, .. }) => Some(interface),
+                    _ => None,
+                }
+            })
         } else {
-            Vec::new()
+            None
         };
+        let selected_std_modules = selected_std_interfaces
+            .as_ref()
+            .map(|interface| {
+                interface
+                    .module_identities()
+                    .filter(|identity| {
+                        expected_package
+                            .as_ref()
+                            .is_some_and(|package| &identity.package == package)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let std_artifact_root = selected_std_modules
             .iter()
             .map(|module| module.path.as_str())
@@ -398,6 +399,9 @@ impl LoaderDatabase {
                 module_map,
                 sources: sources.clone(),
                 compiled_package_modules: Arc::new(selected_std_modules.clone()),
+                compiled_package_interfaces: selected_std_interfaces
+                    .map(|interface| Arc::new(vec![interface]))
+                    .unwrap_or_default(),
                 node_store: nia_node_id::NodeStore::new(),
                 diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
                 symbols,
@@ -826,6 +830,27 @@ impl LoaderFactProvider for LoaderDatabase {
         let Some(module) = graph.semantic.get(module_id) else {
             return Ok(None);
         };
+        if let Some(identity) = self
+            .db
+            .context()
+            .compiled_package_modules
+            .iter()
+            .find(|identity| identity.path == module.path.identity().normalized_path())
+        {
+            if let Some(interface) = self
+                .db
+                .context()
+                .compiled_package_interfaces
+                .iter()
+                .find(|interface| interface.manifest().package == identity.package)
+            {
+                return Ok(Some(compiled_provider_summary(
+                    interface,
+                    identity,
+                    &self.db.context().symbols,
+                )?));
+            }
+        }
         let key = queries::provider_summary_query(&self.db, &module.path)?;
         Ok(Some(self.db.get(key)?.as_ref().clone()))
     }
@@ -1191,6 +1216,7 @@ fn load_program_trace(
             module_map,
             sources: SourceDatabase::new(),
             compiled_package_modules: Arc::new(Vec::new()),
+            compiled_package_interfaces: Arc::new(Vec::new()),
             node_store: nia_node_id::NodeStore::new(),
             diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
             symbols: SymbolTable::new(),
@@ -1243,6 +1269,8 @@ pub(crate) struct LoaderContext {
     pub(crate) module_map: ModuleMap,
     pub(crate) sources: SourceDatabase,
     pub(crate) compiled_package_modules: Arc<Vec<nia_package_metadata::ModuleId>>,
+    pub(crate) compiled_package_interfaces:
+        Arc<Vec<nia_package_metadata::CompiledPackageInterface>>,
     pub(crate) node_store: nia_node_id::NodeStore,
     pub(crate) diagnostic_store: Arc<nia_diagnostic::DiagnosticStore>,
     pub(crate) symbols: SymbolTable,
@@ -1261,6 +1289,66 @@ pub(crate) struct LoaderContext {
 }
 
 impl LoaderContext {
+    pub(crate) fn compiled_provider_modules_for_demand(
+        &self,
+        request: &ProviderRequest,
+    ) -> Vec<nia_package_metadata::ModuleId> {
+        self.compiled_package_modules
+            .iter()
+            .filter(|module| {
+                let Some(interface) = self
+                    .compiled_package_interfaces
+                    .iter()
+                    .find(|interface| interface.manifest().package == module.package)
+                else {
+                    return false;
+                };
+                let Some(summary) =
+                    compiled_provider_summary(interface, module, &self.symbols).ok()
+                else {
+                    return false;
+                };
+                match request {
+                    ProviderRequest::TraitImpl {
+                        target_type_name,
+                        trait_name,
+                    } => summary.defines_trait_impl(target_type_name.as_ref(), trait_name, None),
+                    ProviderRequest::Method {
+                        target_type_name,
+                        method_name,
+                    } => target_type_name.as_ref().is_some_and(|target| {
+                        summary.defines_public_extension_method_for_facade(
+                            |_| true,
+                            Some(target),
+                            method_name,
+                        )
+                    }),
+                    ProviderRequest::ModuleSemantic { .. } | ProviderRequest::ModuleBody { .. } => {
+                        false
+                    }
+                }
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn compiled_provider_summary_for_path(
+        &self,
+        path: &SourcePath,
+    ) -> Option<nia_provider_summary::ProviderSummary> {
+        let path_identity = path.identity();
+        let identity = path_identity.normalized_path();
+        let module = self
+            .compiled_package_modules
+            .iter()
+            .find(|module| identity == module.path)?;
+        let interface = self
+            .compiled_package_interfaces
+            .iter()
+            .find(|interface| interface.manifest().package == module.package)?;
+        compiled_provider_summary(interface, module, &self.symbols).ok()
+    }
+
     pub(crate) fn frontend_cache_namespace(&self) -> FrontendCacheNamespace {
         FrontendCacheNamespace::for_toolchain_with_profile_and_mode(
             &self.target,
@@ -1270,4 +1358,74 @@ impl LoaderContext {
             self.toolchain_identity,
         )
     }
+}
+
+fn compiled_provider_summary(
+    interface: &nia_package_metadata::CompiledPackageInterface,
+    module: &nia_package_metadata::ModuleId,
+    symbols: &SymbolTable,
+) -> QueryResult<nia_provider_summary::ProviderSummary> {
+    let Some(signatures) = interface.signatures() else {
+        return Ok(nia_provider_summary::ProviderSummary::default());
+    };
+    let Some(graph) = interface.type_graph() else {
+        return Ok(nia_provider_summary::ProviderSummary::default());
+    };
+    let type_ref = |root: u32| -> nia_provider_summary::ProviderTypeRef {
+        match graph.nodes.get(root as usize) {
+            Some(nia_package_metadata::StableTypeNode::Named(definition))
+            | Some(nia_package_metadata::StableTypeNode::NamedApplied { definition, .. }) => {
+                let name = symbols.intern(&definition.name).ok();
+                nia_provider_summary::ProviderTypeRef {
+                    last_name: name,
+                    is_generic_or_structural_target: false,
+                    semantic_is_conservative: false,
+                }
+            }
+            Some(nia_package_metadata::StableTypeNode::BuiltinTrait { trait_id, .. }) => {
+                let name = nia_ids::BuiltinTrait::from_stable_tag(*trait_id as u32)
+                    .map(|builtin| builtin.symbol_id());
+                nia_provider_summary::ProviderTypeRef {
+                    last_name: name,
+                    is_generic_or_structural_target: false,
+                    semantic_is_conservative: false,
+                }
+            }
+            _ => nia_provider_summary::ProviderTypeRef {
+                last_name: None,
+                is_generic_or_structural_target: true,
+                semantic_is_conservative: true,
+            },
+        }
+    };
+    let mut providers = Vec::new();
+    for extension in signatures
+        .extensions
+        .iter()
+        .filter(|extension| extension.module == *module)
+    {
+        let associated_methods = extension
+            .members
+            .iter()
+            .filter(|member| member.kind == 11 || member.kind == 12)
+            .filter_map(|member| symbols.intern(&member.name).ok())
+            .collect();
+        let associated_values = extension
+            .members
+            .iter()
+            .filter(|member| member.kind == 4)
+            .filter_map(|member| symbols.intern(&member.name).ok())
+            .collect();
+        providers.push(nia_provider_summary::Provider {
+            target: nia_provider_summary::ProviderTarget {
+                ty: type_ref(extension.target_root),
+            },
+            trait_ref: extension.trait_root.map(type_ref),
+            associated_methods,
+            associated_values,
+        });
+    }
+    Ok(nia_provider_summary::ProviderSummary::from_providers(
+        providers,
+    ))
 }
