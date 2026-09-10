@@ -2822,9 +2822,6 @@ impl CompilerDatabase {
                 )?;
                 let mut extension_members = Vec::new();
                 for method in &implementation.methods {
-                    if method.visibility != nia_ids::Visibility::Public {
-                        continue;
-                    }
                     if let Some(definition) = stable_by_global.get(&GlobalDefId {
                         module_id: module.id,
                         def_id: method.def_id,
@@ -2849,9 +2846,6 @@ impl CompilerDatabase {
                     }
                 }
                 for value in &implementation.associated_values {
-                    if value.visibility != nia_ids::Visibility::Public {
-                        continue;
-                    }
                     if let Some(definition) = stable_by_global.get(&GlobalDefId {
                         module_id: module.id,
                         def_id: value.def_id,
@@ -3102,6 +3096,11 @@ impl CompilerDatabase {
             records: pending.iter().map(|(record, _)| record.clone()).collect(),
         };
         let template_bodies = self.checked_template_bodies(&pending_interface, resolver)?;
+        let stable_index = self.stable_definition_index(resolver)?;
+        let mut published_definitions = pending
+            .iter()
+            .map(|(record, _)| record.definition.clone())
+            .collect::<std::collections::BTreeSet<_>>();
         for template in &template_bodies {
             let relocations =
                 collect_checked_function_body_relocations(&template.body).map_err(|e| {
@@ -3111,12 +3110,90 @@ impl CompilerDatabase {
                     )
                 })?;
             all_roots.extend(relocations.types);
+            let mut referenced = relocations.definitions;
             if let Some(ctfe_body) = &template.ctfe_body {
                 let relocations =
                     collect_resolved_const_function_relocations(ctfe_body).map_err(|e| {
                         self.db.invalid_input(
                             &ModuleGraphQuery,
                             format!("failed to collect CTFE template type roots: {e}"),
+                        )
+                    })?;
+                all_roots.extend(relocations.types);
+                referenced.extend(relocations.definitions);
+            }
+            for global in referenced {
+                let Some((identity, _)) = stable_index.iter().find(|(identity, candidate)| {
+                    **candidate == global && identity.module.package == package
+                }) else {
+                    return Err(self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        format!("template references unpublished definition: {global:?}"),
+                    ));
+                };
+                let mut identity = Some(identity.clone());
+                while let Some(definition) = identity {
+                    if !published_definitions.insert(definition.clone()) {
+                        identity = definition.owner.as_deref().cloned();
+                        continue;
+                    }
+                    let Some((_, global)) = stable_index
+                        .iter()
+                        .find(|(candidate, _)| **candidate == definition)
+                    else {
+                        return Err(self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            format!(
+                                "template owner is absent from definition index: {definition:?}"
+                            ),
+                        ));
+                    };
+                    let defs = self.db.get(FullModuleDefsQuery(global.module_id))?;
+                    let def = defs.semantic.defs.get(global.def_id).ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "template definition is missing from module facts".to_string(),
+                        )
+                    })?;
+                    let roots = self
+                        .db
+                        .get(ItemSignaturesQuery(global.module_id))?
+                        .semantic
+                        .type_roots_for_definition(global.def_id)
+                        .unwrap_or_default();
+                    pending.push((
+                        InterfaceRecord {
+                            definition: definition.clone(),
+                            declaration: declaration_signature(def),
+                            type_roots: Vec::new(),
+                        },
+                        roots,
+                    ));
+                    identity = definition.owner.as_deref().cloned();
+                }
+            }
+        }
+        // Adding private definitions referenced by public templates can make
+        // additional generic bodies eligible for publication. Include their
+        // relocations in the same canonical graph before encoding templates.
+        let complete_interface = InterfaceSection {
+            records: pending.iter().map(|(record, _)| record.clone()).collect(),
+        };
+        for template in self.checked_template_bodies(&complete_interface, resolver)? {
+            let relocations =
+                collect_checked_function_body_relocations(&template.body).map_err(|e| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        format!("failed to collect private template type roots: {e}"),
+                    )
+                })?;
+            all_roots.extend(relocations.types);
+            if let Some(ctfe_body) = &template.ctfe_body {
+                let relocations =
+                    collect_resolved_const_function_relocations(ctfe_body).map_err(|e| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            format!("failed to collect private CTFE template type roots: {e}"),
                         )
                     })?;
                 all_roots.extend(relocations.types);
