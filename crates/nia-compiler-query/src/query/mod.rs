@@ -2704,6 +2704,7 @@ impl CompilerDatabase {
         let mut trait_records = Vec::new();
         let mut extension_records = Vec::new();
         let mut stable_by_global = HashMap::new();
+        let mut signature_definitions = std::collections::BTreeSet::new();
         let mut members =
             BTreeMap::<DefinitionId, Vec<nia_package_metadata::SignatureMember>>::new();
         for item in &interface.records {
@@ -2713,6 +2714,8 @@ impl CompilerDatabase {
         for item in &interface.records {
             let global = definition_index.definition_for_identity(&item.definition)?;
             let kind = item.definition.kind;
+            let declaration = nia_package_metadata::decode_declaration(&item.declaration)
+                .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
             let facts = self.db.get(ItemSignaturesQuery(global.module_id))?;
             let flags = signature_flags_for_definition(global.def_id, kind, &facts.semantic);
             let (generic_params, where_predicates) = signature_generic_and_where_facts(
@@ -2732,6 +2735,9 @@ impl CompilerDatabase {
                 &self.db,
             )?;
             if nia_package_metadata::signature_kind_requires_payload(kind) && payload.is_none() {
+                if declaration.visibility != 3 {
+                    continue;
+                }
                 return Err(self.db.invalid_input(
                     &ModuleGraphQuery,
                     format!(
@@ -2760,12 +2766,16 @@ impl CompilerDatabase {
                 where_predicates,
                 payload,
             ));
+            signature_definitions.insert(item.definition.clone());
         }
         for item in interface
             .records
             .iter()
             .filter(|item| item.definition.kind == 9)
         {
+            if !signature_definitions.contains(&item.definition) {
+                continue;
+            }
             let global = definition_index.definition_for_identity(&item.definition)?;
             let facts = self.db.get(ItemSignaturesQuery(global.module_id))?;
             let Some(trait_signature) = facts.semantic.traits.get(&global.def_id) else {
@@ -2821,16 +2831,28 @@ impl CompilerDatabase {
                     type_indexes,
                 )?;
                 let mut extension_members = Vec::new();
+                let include_private_members = implementation.trait_ty.is_some_and(|trait_ty| {
+                    matches!(
+                        self.db.context().type_store.get(trait_ty),
+                        Some(nia_ty::TyKind::BuiltinTrait {
+                            trait_id: nia_ids::BuiltinTrait::IntoError,
+                            ..
+                        })
+                    )
+                });
                 for method in &implementation.methods {
+                    if method.visibility != nia_ids::Visibility::Public && !include_private_members
+                    {
+                        continue;
+                    }
                     if let Some(definition) = stable_by_global.get(&GlobalDefId {
                         module_id: module.id,
                         def_id: method.def_id,
                     }) {
-                        if let Some(item) = interface
-                            .records
-                            .iter()
-                            .find(|item| &item.definition == definition)
-                        {
+                        if let Some(item) = interface.records.iter().find(|item| {
+                            &item.definition == definition
+                                && signature_definitions.contains(&item.definition)
+                        }) {
                             extension_members.push(nia_package_metadata::SignatureMember {
                                 definition: definition.clone(),
                                 name: definition.name.clone(),
@@ -2846,15 +2868,17 @@ impl CompilerDatabase {
                     }
                 }
                 for value in &implementation.associated_values {
+                    if value.visibility != nia_ids::Visibility::Public && !include_private_members {
+                        continue;
+                    }
                     if let Some(definition) = stable_by_global.get(&GlobalDefId {
                         module_id: module.id,
                         def_id: value.def_id,
                     }) {
-                        if let Some(item) = interface
-                            .records
-                            .iter()
-                            .find(|item| &item.definition == definition)
-                        {
+                        if let Some(item) = interface.records.iter().find(|item| {
+                            &item.definition == definition
+                                && signature_definitions.contains(&item.definition)
+                        }) {
                             extension_members.push(nia_package_metadata::SignatureMember {
                                 definition: definition.clone(),
                                 name: definition.name.clone(),
@@ -2981,6 +3005,41 @@ impl CompilerDatabase {
         let entry_package_root = graph.current_package_root(graph.entry());
         let mut pending = Vec::new();
         let mut module_signature_roots = Vec::new();
+        let mut required_impl_members = std::collections::HashSet::new();
+        for module in graph.modules() {
+            if entry_package_root.is_some()
+                && graph.current_package_root(module.id) != entry_package_root
+            {
+                continue;
+            }
+            let signatures = self.db.get(ItemSignaturesQuery(module.id))?;
+            for implementation in &signatures.semantic.trait_impls {
+                let builtin_into_error = implementation.trait_ty.is_some_and(|trait_ty| {
+                    matches!(
+                        self.db.context().type_store.get(trait_ty),
+                        Some(nia_ty::TyKind::BuiltinTrait {
+                            trait_id: nia_ids::BuiltinTrait::IntoError,
+                            ..
+                        })
+                    )
+                });
+                if !builtin_into_error {
+                    continue;
+                }
+                required_impl_members.extend(implementation.methods.iter().map(|member| {
+                    GlobalDefId {
+                        module_id: module.id,
+                        def_id: member.def_id,
+                    }
+                }));
+                required_impl_members.extend(implementation.associated_values.iter().map(
+                    |member| GlobalDefId {
+                        module_id: module.id,
+                        def_id: member.def_id,
+                    },
+                ));
+            }
+        }
         for module in graph.modules() {
             if entry_package_root.is_some()
                 && graph.current_package_root(module.id) != entry_package_root
@@ -2999,7 +3058,12 @@ impl CompilerDatabase {
                     .type_roots(),
             );
             for (def_id, def) in defs.semantic.defs.iter() {
-                let mut include = def.visibility == nia_defs::Visibility::Public;
+                let global = GlobalDefId {
+                    module_id: module.id,
+                    def_id,
+                };
+                let mut include = def.visibility == nia_defs::Visibility::Public
+                    || required_impl_members.contains(&global);
                 let mut parent = def.parent;
                 while !include {
                     let Some(parent_id) = parent else { break };
@@ -3015,10 +3079,6 @@ impl CompilerDatabase {
                 if !include {
                     continue;
                 }
-                let global = GlobalDefId {
-                    module_id: module.id,
-                    def_id,
-                };
                 let owner = resolver.package_for_definition(global)?;
                 if owner != package {
                     continue;
@@ -3180,6 +3240,41 @@ impl CompilerDatabase {
             records: pending.iter().map(|(record, _)| record.clone()).collect(),
         };
         for template in self.checked_template_bodies(&complete_interface, resolver)? {
+            if published_definitions.insert(template.definition.clone()) {
+                let Some((_, global)) = stable_index
+                    .iter()
+                    .find(|(candidate, _)| **candidate == template.definition)
+                else {
+                    return Err(self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        format!(
+                            "template owner is absent from definition index: {:?}",
+                            template.definition
+                        ),
+                    ));
+                };
+                let defs = self.db.get(FullModuleDefsQuery(global.module_id))?;
+                let def = defs.semantic.defs.get(global.def_id).ok_or_else(|| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        "template owner is missing from module facts".to_string(),
+                    )
+                })?;
+                let roots = self
+                    .db
+                    .get(ItemSignaturesQuery(global.module_id))?
+                    .semantic
+                    .type_roots_for_definition(global.def_id)
+                    .unwrap_or_default();
+                pending.push((
+                    InterfaceRecord {
+                        definition: template.definition.clone(),
+                        declaration: declaration_signature(def),
+                        type_roots: Vec::new(),
+                    },
+                    roots,
+                ));
+            }
             let relocations =
                 collect_checked_function_body_relocations(&template.body).map_err(|e| {
                     self.db.invalid_input(
@@ -3188,6 +3283,39 @@ impl CompilerDatabase {
                     )
                 })?;
             all_roots.extend(relocations.types);
+            for global in relocations.definitions {
+                let Some((identity, _)) = stable_index.iter().find(|(identity, candidate)| {
+                    **candidate == global && identity.module.package == package
+                }) else {
+                    return Err(self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        format!("template references unpublished definition: {global:?}"),
+                    ));
+                };
+                if published_definitions.insert(identity.clone()) {
+                    let defs = self.db.get(FullModuleDefsQuery(global.module_id))?;
+                    let def = defs.semantic.defs.get(global.def_id).ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "template definition is missing from module facts".to_string(),
+                        )
+                    })?;
+                    let roots = self
+                        .db
+                        .get(ItemSignaturesQuery(global.module_id))?
+                        .semantic
+                        .type_roots_for_definition(global.def_id)
+                        .unwrap_or_default();
+                    pending.push((
+                        InterfaceRecord {
+                            definition: identity.clone(),
+                            declaration: declaration_signature(def),
+                            type_roots: Vec::new(),
+                        },
+                        roots,
+                    ));
+                }
+            }
             if let Some(ctfe_body) = &template.ctfe_body {
                 let relocations =
                     collect_resolved_const_function_relocations(ctfe_body).map_err(|e| {
@@ -3197,6 +3325,39 @@ impl CompilerDatabase {
                         )
                     })?;
                 all_roots.extend(relocations.types);
+                for global in relocations.definitions {
+                    let Some((identity, _)) = stable_index.iter().find(|(identity, candidate)| {
+                        **candidate == global && identity.module.package == package
+                    }) else {
+                        return Err(self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            format!("CTFE template references unpublished definition: {global:?}"),
+                        ));
+                    };
+                    if published_definitions.insert(identity.clone()) {
+                        let defs = self.db.get(FullModuleDefsQuery(global.module_id))?;
+                        let def = defs.semantic.defs.get(global.def_id).ok_or_else(|| {
+                            self.db.invalid_input(
+                                &ModuleGraphQuery,
+                                "CTFE template definition is missing from module facts".to_string(),
+                            )
+                        })?;
+                        let roots = self
+                            .db
+                            .get(ItemSignaturesQuery(global.module_id))?
+                            .semantic
+                            .type_roots_for_definition(global.def_id)
+                            .unwrap_or_default();
+                        pending.push((
+                            InterfaceRecord {
+                                definition: identity.clone(),
+                                declaration: declaration_signature(def),
+                                type_roots: Vec::new(),
+                            },
+                            roots,
+                        ));
+                    }
+                }
             }
         }
         // Public extension records carry roots which are not necessarily
@@ -3250,6 +3411,81 @@ impl CompilerDatabase {
                 self.db
                     .invalid_input(&ModuleGraphQuery, format!("stable graph: {error}"))
             })?;
+        // Type-graph nominal nodes can reference private implementation
+        // definitions that are not reachable through a published template
+        // relocation (for example a private field type of a public struct).
+        // Retain those identities in the interface so artifact rehydration
+        // can validate and remap them without loading dependency source.
+        let mut graph_definitions = Vec::new();
+        for node in &type_graph.nodes {
+            match node {
+                nia_package_metadata::StableTypeNode::Named(definition)
+                | nia_package_metadata::StableTypeNode::NamedApplied { definition, .. } => {
+                    graph_definitions.push(definition.clone());
+                }
+                nia_package_metadata::StableTypeNode::TraitObject {
+                    trait_id,
+                    associated_type_bindings,
+                    ..
+                }
+                | nia_package_metadata::StableTypeNode::TraitObjectPointee {
+                    trait_id,
+                    associated_type_bindings,
+                    ..
+                } => {
+                    if let Some(definition) = stable_trait_definition(trait_id) {
+                        graph_definitions.push(definition);
+                    }
+                    graph_definitions.extend(
+                        associated_type_bindings.iter().filter_map(|binding| {
+                            stable_trait_definition(binding.trait_id.as_ref()?)
+                        }),
+                    );
+                }
+                nia_package_metadata::StableTypeNode::Projection { trait_id, .. } => {
+                    if let Some(definition) = stable_trait_definition(trait_id) {
+                        graph_definitions.push(definition);
+                    }
+                }
+                _ => {}
+            }
+        }
+        for definition in graph_definitions {
+            if definition.module.package != package || published_definitions.contains(&definition) {
+                continue;
+            }
+            let Some((_, global)) = stable_index
+                .iter()
+                .find(|(candidate, _)| **candidate == definition)
+            else {
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    format!("type graph references unpublished definition: {definition:?}"),
+                ));
+            };
+            let defs = self.db.get(FullModuleDefsQuery(global.module_id))?;
+            let def = defs.semantic.defs.get(global.def_id).ok_or_else(|| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "type graph definition is missing from module facts".to_string(),
+                )
+            })?;
+            let roots = self
+                .db
+                .get(ItemSignaturesQuery(global.module_id))?
+                .semantic
+                .type_roots_for_definition(global.def_id)
+                .unwrap_or_default();
+            published_definitions.insert(definition.clone());
+            pending.push((
+                InterfaceRecord {
+                    definition,
+                    declaration: declaration_signature(def),
+                    type_roots: Vec::new(),
+                },
+                roots,
+            ));
+        }
         let mut records = pending
             .into_iter()
             .map(|(mut record, roots)| {
@@ -5173,6 +5409,15 @@ fn def_kind_tag(kind: nia_defs::DefKind) -> u8 {
         DefKind::EnumVariant => 14,
         DefKind::EnumVariantField => 15,
         DefKind::TypeAlias => 16,
+    }
+}
+
+fn stable_trait_definition(
+    trait_id: &nia_package_metadata::StableTraitId,
+) -> Option<nia_package_metadata::DefinitionId> {
+    match trait_id {
+        nia_package_metadata::StableTraitId::Source(definition) => Some(definition.clone()),
+        nia_package_metadata::StableTraitId::Builtin(_) => None,
     }
 }
 
