@@ -42,6 +42,22 @@ if readelf -d "${binary}" 2>/dev/null | grep -Eqi 'libLLVM|liblld'; then
     exit 1
 fi
 
+package_cache="${repo_root}/target/release-package-cache"
+"${binary}" emit --package "${repo_root}/lib/std/pkg.nia" --std \
+    --debug -O0 --resource-root "${repo_root}/lib" --cache-dir "${package_cache}"
+"${binary}" emit --package "${repo_root}/lib/std/pkg.nia" --std \
+    --release -O2 --resource-root "${repo_root}/lib" --cache-dir "${package_cache}"
+
+for context in debug release; do
+    mapfile -t std_artifacts < <(find "${repo_root}/lib/std/.nia-cache/packages" \
+        -type f -path "*/${context}/normal/package.niapkg" -size +0c -print | sort)
+    if [[ "${#std_artifacts[@]}" -eq 0 ]]; then
+        printf 'missing %s/normal standard-library package artifact\n' "${context}" >&2
+        exit 1
+    fi
+    printf 'standard-library artifact: %s\n' "${std_artifacts[-1]}"
+done
+
 printf 'release compiler: %s\n' "${binary}"
 printf 'LLVM linkage: static (%s)\n' "${llvm_prefix}"
 printf 'bundled linker candidate: %s\n' "${lld}"

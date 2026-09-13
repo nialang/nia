@@ -20,6 +20,7 @@ pub use nia_compiler_query::{
 pub use nia_imports::{ENTRY_MODULE_MAP_NAME, ModuleMap, PACKAGE_MODULE_MAP_NAME};
 pub use nia_loader_query::{SourceInput, SourceInputContent, SourceInputManifest};
 pub use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
+pub use nia_package_metadata::PackageId;
 pub use nia_parser::ParseError;
 pub use nia_source::SourcePath;
 pub use nia_target_config::{BuildProfile, CompilationMode};

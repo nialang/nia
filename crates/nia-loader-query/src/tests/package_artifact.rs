@@ -176,6 +176,24 @@ fn toolchain_standard_library_artifact_is_discovered_automatically() {
 }
 
 #[test]
+fn toolchain_standard_library_artifact_discovery_can_be_disabled_for_publication() {
+    let toolchain = temporary_toolchain("publication-source-authority");
+    let artifact_path = std_artifact_path(&toolchain);
+    fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
+    fs::write(
+        &artifact_path,
+        encode(&standard_library_manifest()).unwrap(),
+    )
+    .unwrap();
+    let loader = LoaderDatabase::new(
+        LoadRequest::new("main.nia")
+            .with_toolchain_layout(toolchain)
+            .with_toolchain_std_artifact_discovery(false),
+    );
+    assert!(loader.package_artifact().unwrap().is_none());
+}
+
+#[test]
 fn automatic_standard_library_artifact_rejects_nonstandard_package_identity() {
     let toolchain = temporary_toolchain("reject");
     let artifact_path = std_artifact_path(&toolchain);

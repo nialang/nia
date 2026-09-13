@@ -736,6 +736,11 @@ dispatch, and ICE boundaries. Core pipeline commands:
 - `nia build [step] [--root dir]` - discovers and runs package build.nia
 - `nia check <file.nia>` - validates without codegen
 - `nia emit --tokens|--ast|--checked|--backend|--llvm|--obj|--exe <file.nia>` - emits intermediate or final products
+- `nia emit --package <pkg.nia> --package-id <namespace/name@version>` - atomically publishes semantic metadata and the selected native optimization variant
+
+`nia emit --package ... --std` binds publication to the selected toolchain's
+canonical std source and package identity. Publication disables installed std artifact
+discovery so an existing snapshot can never become the input to its own replacement.
 
 Accepts global options: `-O0` through `-Oz` for optimization, `-M name=path` for module
 aliases, `--timings` for performance analysis, `--opt-report` for optimization report.

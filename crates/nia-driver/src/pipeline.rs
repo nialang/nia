@@ -67,6 +67,8 @@ pub struct CheckRequest {
     pub compilation_mode: nia_target_config::CompilationMode,
     /// Optional compiled package artifact to consume before source fallback.
     pub package_artifact: Option<PackageArtifactRequest>,
+    /// Whether the installed toolchain standard-library artifact may be selected.
+    pub discover_toolchain_std_artifact: bool,
 }
 
 /// Checked program paired with the exact source closure used to produce it.
@@ -636,11 +638,14 @@ impl Driver {
     /// resolver for nominal definitions from dependency packages.
     pub fn publish_package_artifact_with_resolver(
         &self,
-        request: CheckRequest,
+        mut request: CheckRequest,
         package: PackageId,
         output: PathBuf,
         resolver: Option<&dyn StableDefinitionPackageResolver>,
     ) -> DriverOutput<PublishedPackageArtifact> {
+        if package == PackageId::standard_library() {
+            request.discover_toolchain_std_artifact = false;
+        }
         DriverOutput::catch_ice(|| {
             let database = match self.compiler_database(&request) {
                 Ok(database) => database,
@@ -698,10 +703,13 @@ impl Driver {
     /// objects, and imported specializations remain separate link inputs.
     pub fn publish_package_artifact_with_native(
         &self,
-        request: CheckRequest,
+        mut request: CheckRequest,
         package: PackageId,
         output: PathBuf,
     ) -> DriverOutput<PublishedPackageArtifact> {
+        if package == PackageId::standard_library() {
+            request.discover_toolchain_std_artifact = false;
+        }
         DriverOutput::catch_ice(|| {
             let (database, _) = match self
                 .compilation_databases_with_codegen_scope(&request, CodegenScope::Package)
@@ -1872,6 +1880,7 @@ impl Driver {
             compilation_mode: request.compilation_mode,
             entry_runtime: entry_runtime(request.runtime),
             package_artifact: request.package_artifact.clone(),
+            discover_toolchain_std_artifact: request.discover_toolchain_std_artifact,
             required_native_optimization,
         };
         let mut loader_guard = self.loader.lock().expect("driver loader lock poisoned");
@@ -1885,6 +1894,7 @@ impl Driver {
                     .with_profile(key.profile)
                     .with_compilation_mode(key.compilation_mode)
                     .with_entry_runtime(key.entry_runtime)
+                    .with_toolchain_std_artifact_discovery(key.discover_toolchain_std_artifact)
                     .with_toolchain_layout(std::sync::Arc::clone(&self.config.toolchain))
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
                     .with_frontend_cache_verification(self.config.verify_frontend_cache);
@@ -2158,6 +2168,7 @@ struct LoaderKey {
     compilation_mode: nia_target_config::CompilationMode,
     entry_runtime: EntryRuntime,
     package_artifact: Option<PackageArtifactRequest>,
+    discover_toolchain_std_artifact: bool,
     required_native_optimization: Option<u8>,
 }
 
@@ -2204,6 +2215,7 @@ impl CheckRequest {
             profile: BuildProfile::default(),
             compilation_mode: nia_target_config::CompilationMode::default(),
             package_artifact: None,
+            discover_toolchain_std_artifact: true,
         }
     }
 

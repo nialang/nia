@@ -150,6 +150,7 @@ enum EmitTarget {
     Llvm { runtime: Runtime },
     Obj { args: Vec<String> },
     Exe { args: Vec<String> },
+    Package { args: Vec<String> },
 }
 
 #[derive(Debug)]
@@ -173,6 +174,7 @@ enum HelpTopic {
     EmitLlvm,
     EmitObj,
     EmitExe,
+    EmitPackage,
 }
 
 #[derive(Debug)]
@@ -592,6 +594,7 @@ fn emit_target_option_takes_value(arg: &str) -> bool {
         "-o" | "--out-dir"
             | "--runtime"
             | "--cache-dir"
+            | "--package-id"
             | "--link-arg"
             | "--dynamic-linker"
             | "--library-path"
@@ -1046,6 +1049,8 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
             }
             _ if arg.starts_with("--runtime=")
                 || arg.starts_with("--cache-dir=")
+                || arg.starts_with("--package-id=")
+                || arg == "--std"
                 || arg.starts_with("--link-arg=")
                 || arg.starts_with("--dynamic-linker=")
                 || arg == "--no-dynamic-linker"
@@ -1074,7 +1079,7 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     }
     let Some(target) = target else {
         return Err(CliError::new(
-            "missing emit target flag; expected one of --tokens, --ast, --checked, --backend, --llvm, --obj, or --exe",
+            "missing emit target flag; expected one of --tokens, --ast, --checked, --backend, --llvm, --obj, --exe, or --package",
             HelpTopic::Emit,
         ));
     };
@@ -1118,6 +1123,7 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
         ParsedEmitTarget::Llvm => EmitTarget::Llvm { runtime },
         ParsedEmitTarget::Obj => EmitTarget::Obj { args: target_args },
         ParsedEmitTarget::Exe => EmitTarget::Exe { args: target_args },
+        ParsedEmitTarget::Package => EmitTarget::Package { args: target_args },
     };
     Ok(CliCommand::Emit {
         path,
@@ -1135,6 +1141,7 @@ enum ParsedEmitTarget {
     Llvm,
     Obj,
     Exe,
+    Package,
 }
 
 impl ParsedEmitTarget {
@@ -1147,11 +1154,12 @@ impl ParsedEmitTarget {
             Self::Llvm => "--llvm",
             Self::Obj => "--obj",
             Self::Exe => "--exe",
+            Self::Package => "--package",
         }
     }
 
     fn accepts_target_args(self) -> bool {
-        matches!(self, Self::Obj | Self::Exe)
+        matches!(self, Self::Obj | Self::Exe | Self::Package)
     }
 
     fn accepts_opt_report(self) -> bool {
@@ -1171,6 +1179,7 @@ impl ParsedEmitTarget {
             Self::Llvm => HelpTopic::EmitLlvm,
             Self::Obj => HelpTopic::EmitObj,
             Self::Exe => HelpTopic::EmitExe,
+            Self::Package => HelpTopic::EmitPackage,
         }
     }
 }
@@ -1223,6 +1232,7 @@ fn emit_target_flag(arg: &str) -> Option<ParsedEmitTarget> {
         "--llvm" => Some(ParsedEmitTarget::Llvm),
         "--obj" => Some(ParsedEmitTarget::Obj),
         "--exe" => Some(ParsedEmitTarget::Exe),
+        "--package" => Some(ParsedEmitTarget::Package),
         _ => None,
     }
 }
@@ -1230,7 +1240,7 @@ fn emit_target_flag(arg: &str) -> Option<ParsedEmitTarget> {
 fn looks_like_emit_target_name(arg: &str) -> bool {
     matches!(
         arg,
-        "tokens" | "ast" | "checked" | "backend" | "llvm" | "obj" | "exe"
+        "tokens" | "ast" | "checked" | "backend" | "llvm" | "obj" | "exe" | "package"
     )
 }
 
@@ -1505,6 +1515,7 @@ fn run_emit(path: &str, source: &str, target: EmitTarget, context: EmitContext) 
         EmitTarget::Llvm { runtime } => run_emit_llvm(path, source, runtime, context),
         EmitTarget::Obj { args } => run_emit_obj(path, source, args, context),
         EmitTarget::Exe { args } => run_emit_exe(path, source, args, context),
+        EmitTarget::Package { args } => run_emit_package(path, source, args, context),
     }
 }
 
@@ -1751,6 +1762,171 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
     }
     let output =
         driver.write_native_objects_from_artifact(&objects, options.output.into_driver_output());
+    match output.result {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprint!(
+                "{}",
+                nia_driver::render_driver_error(&error, Some(path), Some(source))
+            );
+            ExitCode::FAILURE
+        }
+    }
+}
+
+struct EmitPackageOptions {
+    output: PathBuf,
+    package: nia_driver::PackageId,
+    standard_library: bool,
+    cache_dir: Option<PathBuf>,
+}
+
+fn parse_emit_package_options(
+    source: &str,
+    args: Vec<String>,
+    toolchain: &nia_toolchain::ToolchainLayout,
+    profile: BuildProfile,
+) -> Result<EmitPackageOptions, String> {
+    let mut output = None;
+    let mut package_id = None;
+    let mut standard_library = false;
+    let mut cache_dir = None;
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        if let Some(value) = arg.strip_prefix("--package-id=") {
+            package_id = Some(parse_package_id(value)?);
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--cache-dir=") {
+            cache_dir = Some(PathBuf::from(value));
+            continue;
+        }
+        match arg.as_str() {
+            "-o" => {
+                let Some(path) = iter.next() else {
+                    return Err("missing path after `-o`".to_string());
+                };
+                output = Some(PathBuf::from(path));
+            }
+            "--package-id" => {
+                let Some(value) = iter.next() else {
+                    return Err("missing identity after `--package-id`".to_string());
+                };
+                package_id = Some(parse_package_id(&value)?);
+            }
+            "--std" => standard_library = true,
+            "--cache-dir" => {
+                let Some(path) = iter.next() else {
+                    return Err("missing path after `--cache-dir`".to_string());
+                };
+                cache_dir = Some(PathBuf::from(path));
+            }
+            _ => return Err(format!("unknown `nia emit --package` option `{arg}`")),
+        }
+    }
+    let package = match (standard_library, package_id) {
+        (true, None) => toolchain.std_package_id(),
+        (false, Some(package)) => package,
+        (true, Some(_)) => {
+            return Err("use either `--std` or `--package-id`, not both".to_string());
+        }
+        (false, None) => {
+            return Err("missing package identity; use `--package-id` or `--std`".to_string());
+        }
+    };
+    Ok(EmitPackageOptions {
+        output: output.unwrap_or_else(|| {
+            if standard_library {
+                toolchain.std_package_artifact(
+                    toolchain.artifact_target(),
+                    profile,
+                    nia_target_config::CompilationMode::Normal,
+                )
+            } else {
+                default_output_path(source, "niapkg")
+            }
+        }),
+        package,
+        standard_library,
+        cache_dir,
+    })
+}
+
+fn parse_package_id(value: &str) -> Result<nia_driver::PackageId, String> {
+    let Some((qualified_name, version)) = value.rsplit_once('@') else {
+        return Err(format!(
+            "invalid package identity `{value}`; expected <namespace>/<name>@<version>"
+        ));
+    };
+    let Some((namespace, name)) = qualified_name.split_once('/') else {
+        return Err(format!(
+            "invalid package identity `{value}`; expected <namespace>/<name>@<version>"
+        ));
+    };
+    if namespace.is_empty()
+        || name.is_empty()
+        || version.is_empty()
+        || name.contains('/')
+        || namespace.contains('@')
+    {
+        return Err(format!(
+            "invalid package identity `{value}`; expected <namespace>/<name>@<version>"
+        ));
+    }
+    Ok(nia_driver::PackageId {
+        namespace: namespace.to_string(),
+        name: name.to_string(),
+        version: version.to_string(),
+    })
+}
+
+fn run_emit_package(path: &str, source: &str, args: Vec<String>, context: EmitContext) -> ExitCode {
+    let options = match parse_emit_package_options(path, args, &context.toolchain, context.profile)
+    {
+        Ok(options) => options,
+        Err(message) => {
+            report_cli_error(&message, HelpTopic::EmitPackage);
+            return ExitCode::FAILURE;
+        }
+    };
+    let entry_path = if options.standard_library {
+        let physical = match fs::canonicalize(path) {
+            Ok(path) => path,
+            Err(error) => {
+                report_cli_error(
+                    &format!("failed to resolve standard-library source `{path}`: {error}"),
+                    HelpTopic::EmitPackage,
+                );
+                return ExitCode::FAILURE;
+            }
+        };
+        if physical != context.toolchain.std_module() {
+            report_cli_error(
+                &format!(
+                    "`--std` requires the selected toolchain source `{}`",
+                    context.toolchain.std_module().display()
+                ),
+                HelpTopic::EmitPackage,
+            );
+            return ExitCode::FAILURE;
+        }
+        SourcePath::with_identity(path, "toolchain:/std/pkg.nia")
+    } else {
+        SourcePath::new(path)
+    };
+    let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
+        artifact_cache_dir: options.cache_dir,
+        ..nia_driver::DriverConfig::new(context.toolchain)
+    });
+    let request = nia_driver::CheckRequest::from_source_path(entry_path)
+        .with_module_map(context.module_map)
+        .with_optimization(context.optimization)
+        .with_profile(context.profile)
+        .with_timings(context.timings)
+        .with_runtime(Runtime::Bare);
+    let output = time_summary_stage(context.timings, "publish_package", || {
+        driver.publish_package_artifact_with_native(request, options.package, options.output)
+    });
     match output.result {
         Ok(_) => ExitCode::SUCCESS,
         Err(error) => {
@@ -2146,6 +2322,42 @@ mod tests {
         };
         assert_eq!(cli.profile, BuildProfile::Release);
         assert_eq!(cli.optimization, NiaOptimizationLevel::O0);
+    }
+
+    #[test]
+    fn compiled_package_emit_parses_stable_identity_and_output() {
+        let CliAction::Run(cli) = parse_cli(vec![
+            "emit".into(),
+            "--package".into(),
+            "src/pkg.nia".into(),
+            "--package-id".into(),
+            "acme/math@1.2.3".into(),
+            "-o".into(),
+            "build/math.niapkg".into(),
+        ])
+        .expect("parse package publication") else {
+            panic!("expected package emit command");
+        };
+        let CliCommand::Emit {
+            target: EmitTarget::Package { args },
+            ..
+        } = cli.command
+        else {
+            panic!("expected package emit target");
+        };
+        assert_eq!(
+            args,
+            ["--package-id", "acme/math@1.2.3", "-o", "build/math.niapkg"]
+        );
+        assert_eq!(
+            parse_package_id("acme/math@1.2.3").unwrap(),
+            nia_driver::PackageId {
+                namespace: "acme".into(),
+                name: "math".into(),
+                version: "1.2.3".into(),
+            }
+        );
+        assert!(parse_package_id("math@1.2.3").is_err());
     }
 
     #[test]

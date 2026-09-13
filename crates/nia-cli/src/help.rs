@@ -352,6 +352,43 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "nia emit --exe src/main.nia -L vendor/lib -lfoo",
             ],
         },
+        HelpTopic::EmitPackage => HelpDoc {
+            title: "nia emit --package",
+            about: "Publish a compiled package artifact.",
+            usage: &["nia emit --package <path> (--package-id <id> | --std) [-o <file>] [options]"],
+            commands: &[],
+            targets: &[],
+            options: &[
+                HelpRow {
+                    left: "--package-id <namespace/name@version>",
+                    right: "set the stable package identity",
+                },
+                HelpRow {
+                    left: "--std",
+                    right: "publish the selected toolchain standard library",
+                },
+                HelpRow {
+                    left: "-o <file>",
+                    right: "write the package artifact to this path",
+                },
+                HelpRow {
+                    left: "--cache-dir <path>",
+                    right: "reuse compiler artifacts from this directory",
+                },
+                OPTIMIZATION_ROW,
+                PROFILE_ROW,
+                MODULE_ROW,
+                TIMINGS_ROW,
+                TIMING_FORMAT_ROW,
+                TIMING_TRACE_ROW,
+                RESOURCE_ROW,
+                HELP_ROW,
+            ],
+            examples: &[
+                "nia emit --package src/pkg.nia --package-id acme/math@1.0.0 -o math.niapkg",
+                "nia emit --package lib/std/pkg.nia --std -o std.niapkg",
+            ],
+        },
     }
 }
 
@@ -423,6 +460,7 @@ fn help_command(topic: HelpTopic) -> &'static str {
         HelpTopic::EmitLlvm => "nia help emit --llvm",
         HelpTopic::EmitObj => "nia help emit --obj",
         HelpTopic::EmitExe => "nia help emit --exe",
+        HelpTopic::EmitPackage => "nia help emit --package",
     }
 }
 
@@ -454,6 +492,10 @@ const EMIT_TARGETS: &[HelpRow] = &[
     HelpRow {
         left: "--exe",
         right: "build a freestanding executable",
+    },
+    HelpRow {
+        left: "--package",
+        right: "publish a compiled package artifact",
     },
 ];
 
