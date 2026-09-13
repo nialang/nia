@@ -284,6 +284,7 @@ fn main() i32 {
         const_enum_values: const_enum_values.values.as_ref(),
         layouts: &layouts,
         roots: BackendFunctionRoots::FunctionBodies,
+        artifact_module: false,
         reachable_functions: None,
         reachable_globals: None,
         reachable_structs: Some(&reachable_structs),

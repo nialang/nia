@@ -553,6 +553,11 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<ProgramBackendLoweringInputs> {
     let checked_modules = checked_modules_for_codegen(db)?;
+    let artifact_modules = checked_modules
+        .iter()
+        .filter(|module| is_compiled_artifact_module(db, module.id))
+        .map(|module| module.id)
+        .collect::<HashSet<_>>();
     let (
         active_item_trees,
         item_signatures,
@@ -596,11 +601,19 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                     checked_modules
                         .iter()
                         .map(|checked_module| {
-                            body_local_item_signatures(
-                                db,
-                                checked_module.id,
-                                &checked_module.type_lowering,
-                            )
+                            if is_compiled_artifact_module(db, checked_module.id) {
+                                Ok(db
+                                    .get(ItemSignaturesQuery(checked_module.id))?
+                                    .semantic
+                                    .as_ref()
+                                    .clone())
+                            } else {
+                                body_local_item_signatures(
+                                    db,
+                                    checked_module.id,
+                                    &checked_module.type_lowering,
+                                )
+                            }
                         })
                         .collect::<QueryResult<Vec<_>>>()
                 },
@@ -708,8 +721,9 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
     let artifact_module_sequence = db.get(ProgramSignatureModuleIdsQuery(
         nia_item_tree::SignatureItemSet::Functions,
     ))?;
-    let artifact_modules = resolve_stable_module_sequence(db, artifact_module_sequence.as_ref())?;
-    for module_id in artifact_modules {
+    let artifact_module_sequence =
+        resolve_stable_module_sequence(db, artifact_module_sequence.as_ref())?;
+    for module_id in artifact_module_sequence {
         if db
             .context()
             .loader_facts()
@@ -761,6 +775,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                 source_item_plans,
                 function_instance_plans,
                 program_defs,
+                artifact_modules,
                 non_function_signatures,
                 functions,
                 artifact_generic_params,

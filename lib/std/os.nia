@@ -280,7 +280,8 @@ pub(pkg) fn killWith(pid: ProcessId, signal: i32) Error!() {
     !(platform::killWith(pid.platform(), signal).?)
 }
 
-pub(pkg) fn exit(code: i32) () {
+// Public runtime primitive used by the toolchain-owned startup template.
+pub fn exit(code: i32) () {
     platform::exit(code);
 }
 

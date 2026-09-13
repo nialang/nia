@@ -205,7 +205,10 @@ impl<'a> MembershipBuilder<'a> {
 
     fn add_function(&mut self, item: &BackendFunction) {
         if self.functions.insert(item.def_id) {
-            self.add_dependency(self.index.function_owner(item.def_id), "function");
+            self.add_dependency(
+                self.index.function_owner(item.def_id),
+                &format!("function {:?}", item.def_id),
+            );
             self.add_function_signature(&item.params, item.return_type);
         }
     }
@@ -258,7 +261,10 @@ impl<'a> MembershipBuilder<'a> {
             if let Some(item) = self.index.function(def_id) {
                 self.add_function(item);
             } else {
-                self.wait_for_owner(self.owners.item_owner(def_id), "function");
+                self.wait_for_owner(
+                    self.owners.item_owner(def_id),
+                    &format!("function {def_id:?}"),
+                );
             }
         }
         for def_id in refs.globals {

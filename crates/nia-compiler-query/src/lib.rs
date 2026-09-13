@@ -581,6 +581,20 @@ pub enum RuntimeModel {
     FreestandingExecutable,
 }
 
+/// Root-selection scope for backend code generation.
+///
+/// This is deliberately independent from [`RuntimeModel`]: runtime startup
+/// controls executable semantics, while package publication selects every
+/// concrete runtime definition owned by the current package.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum CodegenScope {
+    /// Emit the definitions reachable from the selected entry/runtime roots.
+    #[default]
+    Entry,
+    /// Emit every non-generic runtime definition owned by the current package.
+    Package,
+}
+
 /// Loaded source/module facts for one module.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadedModule {

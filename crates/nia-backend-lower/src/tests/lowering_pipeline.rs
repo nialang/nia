@@ -274,6 +274,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         const_enum_values: const_enum_values.values.as_ref(),
         layouts: &layouts,
         roots: BackendFunctionRoots::Public,
+        artifact_module: false,
         reachable_functions: None,
         reachable_globals: None,
         reachable_structs: None,

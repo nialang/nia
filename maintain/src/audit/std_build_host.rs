@@ -220,7 +220,7 @@ mod tests {
                 "std/build.nia",
                 "std/build/core.nia",
                 "std/builtin.nia",
-                "std/start.nia",
+                "runtime/start.nia",
                 "std/support.nia",
                 "std/support/provider.nia",
             ]

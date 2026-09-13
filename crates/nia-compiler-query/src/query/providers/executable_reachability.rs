@@ -399,6 +399,34 @@ fn executable_check_in_session(
         .cloned()
         .map(|signature| ProgramUnionSignature { signature })
     };
+    let enum_signature = |def_id: GlobalDefId| {
+        capture_query_failure(
+            &query_failure,
+            db.get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            )),
+        )?
+        .semantic
+        .enums
+        .get(&def_id.def_id)
+        .cloned()
+        .map(|signature| ProgramEnumSignature { signature })
+    };
+    let type_alias_signature = |def_id: GlobalDefId| {
+        capture_query_failure(
+            &query_failure,
+            db.get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            )),
+        )?
+        .semantic
+        .type_aliases
+        .get(&def_id.def_id)
+        .cloned()
+        .map(|signature| ProgramTypeAliasSignature { signature })
+    };
     let trait_signature = |def_id: GlobalDefId| {
         capture_query_failure(
             &query_failure,
@@ -487,6 +515,8 @@ fn executable_check_in_session(
                             function: &function_signature,
                             struct_: &struct_signature,
                             union: &union_signature,
+                            enum_: &enum_signature,
+                            type_alias: &type_alias_signature,
                             trait_: &trait_signature,
                             trait_default_method: &trait_default_method,
                         },
@@ -779,6 +809,8 @@ fn executable_check_in_session(
                                     function: &function_signature,
                                     struct_: &struct_signature,
                                     union: &union_signature,
+                                    enum_: &enum_signature,
+                                    type_alias: &type_alias_signature,
                                     trait_: &trait_signature,
                                     trait_default_method: &trait_default_method,
                                 },
@@ -1112,6 +1144,9 @@ fn executable_root_defs(
     runtime_root_modules: &[ModuleId],
     parse_ok: &[ModuleId],
 ) -> QueryResult<(Vec<GlobalDefId>, Vec<GlobalDefId>)> {
+    if *db.get(CompilerCodegenScopeQuery)? == crate::CodegenScope::Package {
+        return package_root_defs(db, entry, parse_ok);
+    }
     match *db.get(CompilerRuntimeQuery)? {
         RuntimeModel::Bare => {
             let defs = full_module_defs_semantic(db, entry)?;
@@ -1181,6 +1216,58 @@ fn executable_root_defs(
             Ok((functions, Vec::new()))
         }
     }
+}
+
+fn package_root_defs(
+    db: &QueryDb<CompilerContext>,
+    entry: ModuleId,
+    parse_ok: &[ModuleId],
+) -> QueryResult<(Vec<GlobalDefId>, Vec<GlobalDefId>)> {
+    let graph = db.get(ModuleGraphQuery)?;
+    let package_root = graph.current_package_root(entry);
+    let mut functions = Vec::new();
+    let mut globals = Vec::new();
+    for module_id in parse_ok.iter().copied() {
+        if graph.current_package_root(module_id) != package_root
+            || db
+                .context()
+                .loader_facts()
+                .compiled_package_module_identity(module_id)?
+                .is_some()
+        {
+            continue;
+        }
+        let defs = full_module_defs_semantic(db, module_id)?;
+        let signatures = db.get(SignatureItemSignaturesQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Functions,
+        ))?;
+        for (def_id, signature) in &signatures.semantic.functions {
+            let Some(definition) = defs.defs.get(*def_id) else {
+                continue;
+            };
+            if matches!(definition.kind, DefKind::Function | DefKind::Method)
+                && signature.has_body
+                && !signature.is_const
+                && effective_function_generic_params(&signatures.semantic, &defs, *def_id)
+                    .is_empty()
+            {
+                functions.push(GlobalDefId {
+                    module_id,
+                    def_id: *def_id,
+                });
+            }
+        }
+        globals.extend(defs.defs.iter().filter_map(|(def_id, definition)| {
+            (definition.kind == DefKind::Global && definition.parent.is_none())
+                .then_some(GlobalDefId { module_id, def_id })
+        }));
+    }
+    functions.sort_unstable();
+    functions.dedup();
+    globals.sort_unstable();
+    globals.dedup();
+    Ok((functions, globals))
 }
 
 fn named_top_level_function(

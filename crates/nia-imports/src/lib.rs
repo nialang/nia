@@ -654,6 +654,64 @@ impl ModuleGraph {
         };
         let child_module_path = parent.module_path.child(*name);
         let child_path = self.declared_child_source_path(&parent, *name);
+        self.intern_declared_child_with_source_path_and_processing(
+            parent_id,
+            name,
+            visibility,
+            span,
+            child_path,
+            process_used_paths,
+            process_declared_children,
+            child_module_path,
+        )
+    }
+
+    /// Interns a declared child using an explicit source path.
+    ///
+    /// Runtime resources may live outside a package's source directory while
+    /// retaining the package/module namespace used by source-level imports.
+    /// Callers must provide the canonical [`SourcePath`] selected by the
+    /// loader; no filesystem path is inferred from the parent in this form.
+    pub fn intern_declared_child_with_source_path(
+        &mut self,
+        parent_id: ModuleId,
+        name: &SymbolId,
+        visibility: Visibility,
+        span: Span,
+        child_path: SourcePath,
+    ) -> Result<ModuleId, Diagnostic> {
+        let Some(parent) = self.get(parent_id).cloned() else {
+            return Err(Diagnostic::internal_error(
+                codes::MODULE_GRAPH_LOOKUP,
+                "unknown parent module id while adding module declaration",
+            )
+            .debug("module_id", parent_id)
+            .finish());
+        };
+        let child_module_path = parent.module_path.child(*name);
+        self.intern_declared_child_with_source_path_and_processing(
+            parent_id,
+            name,
+            visibility,
+            span,
+            child_path,
+            true,
+            true,
+            child_module_path,
+        )
+    }
+
+    fn intern_declared_child_with_source_path_and_processing(
+        &mut self,
+        parent_id: ModuleId,
+        name: &SymbolId,
+        visibility: Visibility,
+        span: Span,
+        child_path: SourcePath,
+        process_used_paths: bool,
+        process_declared_children: bool,
+        child_module_path: ModulePath,
+    ) -> Result<ModuleId, Diagnostic> {
         let child_id = self.intern_module(
             child_path.clone(),
             child_module_path,
@@ -1414,7 +1472,7 @@ mod tests {
         let package_root = ModulePath::root("std");
         let package_path = SourcePath::new("lib/std/pkg.nia");
         let child_path = declared_child_source_path_for(&package_path, &package_root, known::START);
-        assert_eq!(child_path.as_str(), "lib/std/start.nia");
+        assert_eq!(child_path.as_str(), "lib/runtime/start.nia");
     }
 
     #[test]

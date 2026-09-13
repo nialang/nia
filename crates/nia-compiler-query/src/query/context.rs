@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::{CompileRequest, CompilerQueryProviders, ExecutableFactSession};
 use crate::{
-    FrontendCheckCertificateCacheKey, FrontendCheckInputFingerprint, FrontendCheckScope,
-    RuntimeModel, TimingMode,
+    CodegenScope, FrontendCheckCertificateCacheKey, FrontendCheckInputFingerprint,
+    FrontendCheckScope, RuntimeModel, TimingMode,
 };
 use nia_ids::ModuleId;
 use nia_imports::{ModuleGraphSnapshot, StableModuleKey};
@@ -107,6 +107,7 @@ impl StableModuleSequence {
 pub(super) struct CompilerInputs {
     pub(super) optimization: OptimizationPolicy,
     pub(super) timings: TimingMode,
+    pub(super) codegen_scope: CodegenScope,
 }
 
 impl CompilerInputs {
@@ -114,6 +115,7 @@ impl CompilerInputs {
         Self {
             optimization: request.optimization.policy(),
             timings: request.timings,
+            codegen_scope: request.codegen_scope,
         }
     }
 }
@@ -125,6 +127,7 @@ pub(super) struct ExecutableFactEpoch {
     pub(super) modules: Vec<(ModuleId, SourceVersion)>,
     pub(super) target: TargetConfig,
     pub(super) runtime: RuntimeModel,
+    pub(super) codegen_scope: CodegenScope,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

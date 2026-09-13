@@ -1003,6 +1003,13 @@ fn package_artifact_publication_can_embed_validated_native_product() {
         profile: 0,
         optimization: 0,
         objects: vec![nia_package_metadata::NativeObject {
+            owner: nia_package_metadata::NativeObjectOwner::PackageModule {
+                module: nia_package_metadata::ModuleId {
+                    package: package.clone(),
+                    path: "src/main.nia".into(),
+                },
+                ordinal: 0,
+            },
             key: "unit-0".into(),
             fingerprint: [1, 2],
             bytes: vec![1, 2, 3],
@@ -1166,6 +1173,13 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
                 profile: 0,
                 optimization: 0,
                 objects: vec![nia_package_metadata::NativeObject {
+                    owner: nia_package_metadata::NativeObjectOwner::PackageModule {
+                        module: nia_package_metadata::ModuleId {
+                            package: package.clone(),
+                            path: "src/main.nia".into(),
+                        },
+                        ordinal: 0,
+                    },
                     key: "unit".into(),
                     fingerprint: [0, 0],
                     bytes: vec![native_byte],

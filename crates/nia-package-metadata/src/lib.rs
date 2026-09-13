@@ -978,14 +978,9 @@ impl NativeSection {
                 return Err(MetadataError::InvalidManifest);
             }
         }
-        if self
-            .objects
-            .windows(2)
-            .any(|pair| {
-                (pair[0].owner.clone(), &pair[0].key)
-                    >= (pair[1].owner.clone(), &pair[1].key)
-            })
-        {
+        if self.objects.windows(2).any(|pair| {
+            (pair[0].owner.clone(), &pair[0].key) >= (pair[1].owner.clone(), &pair[1].key)
+        }) {
             return Err(MetadataError::InvalidManifest);
         }
         if self

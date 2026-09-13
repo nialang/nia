@@ -801,6 +801,9 @@ fn inject_entry_runtime(
     match db.context().entry_runtime {
         EntryRuntime::None => {}
         EntryRuntime::Freestanding => {
+            let Some(runtime_start) = db.context().runtime_start_module.clone() else {
+                return;
+            };
             let std_root = graph.std_package_root().or_else(|| {
                 db.context()
                     .module_map
@@ -808,11 +811,12 @@ fn inject_entry_runtime(
                     .map(|path| graph.intern_std_package_root(path.clone()))
             });
             let Some(std_root) = std_root else { return };
-            match graph.intern_declared_child(
+            match graph.intern_declared_child_with_source_path(
                 std_root,
                 &known::START,
                 nia_imports::Visibility::PublicPkg,
                 Span::default(),
+                runtime_start,
             ) {
                 Ok(start_root) => graph.mark_executable_root_subtree(start_root),
                 Err(diagnostic) => {

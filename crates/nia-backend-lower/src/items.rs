@@ -18,6 +18,115 @@ use nia_ty::TyKind;
 pub(crate) const SIMPLIFY_STATIC_INIT_PASS: &str = "simplify-static-init";
 
 impl<'a> ModuleLowerer<'a> {
+    pub(crate) fn lower_artifact_struct_declarations(&mut self) -> Vec<BackendStruct> {
+        self.input
+            .signatures
+            .structs
+            .iter()
+            .filter_map(|(def_id, signature)| {
+                let definition = self.input.defs.defs.get(*def_id)?;
+                Some(BackendStruct {
+                    def_id: self.global_def_id(*def_id),
+                    name: definition.name,
+                    generics: signature.generics.clone(),
+                    fields: signature
+                        .fields
+                        .iter()
+                        .map(|field| BackendField {
+                            def_id: self.global_def_id(field.def_id),
+                            name: field.name,
+                            ty: field.ty,
+                            span: field.span,
+                        })
+                        .collect(),
+                    is_extern: signature.is_extern,
+                    span: signature.span,
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn lower_artifact_union_declarations(&mut self) -> Vec<BackendUnion> {
+        self.input
+            .signatures
+            .unions
+            .iter()
+            .filter_map(|(def_id, signature)| {
+                let definition = self.input.defs.defs.get(*def_id)?;
+                Some(BackendUnion {
+                    def_id: self.global_def_id(*def_id),
+                    name: definition.name,
+                    generics: signature.generics.clone(),
+                    fields: signature
+                        .fields
+                        .iter()
+                        .map(|field| BackendField {
+                            def_id: self.global_def_id(field.def_id),
+                            name: field.name,
+                            ty: field.ty,
+                            span: field.span,
+                        })
+                        .collect(),
+                    is_extern: signature.is_extern,
+                    span: signature.span,
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn lower_artifact_enum_declarations(&mut self) -> Vec<BackendEnum> {
+        self.input
+            .signatures
+            .enums
+            .iter()
+            .filter_map(|(def_id, signature)| {
+                let definition = self.input.defs.defs.get(*def_id)?;
+                Some(BackendEnum {
+                    def_id: self.global_def_id(*def_id),
+                    name: definition.name,
+                    backing_type: signature.backing_type,
+                    variants: signature
+                        .variants
+                        .iter()
+                        .map(|variant| BackendEnumVariant {
+                            def_id: self.global_def_id(variant.def_id),
+                            name: variant.name,
+                            value: self.input.const_enum_values.get(&variant.def_id).and_then(
+                                |value| match value {
+                                    ConstValue::Int(value) => value.as_i128(),
+                                    _ => None,
+                                },
+                            ),
+                            payload: match &variant.payload {
+                                nia_item_signatures::EnumVariantPayloadSignature::Unit => {
+                                    nia_backend_ir::BackendEnumVariantPayload::Unit
+                                }
+                                nia_item_signatures::EnumVariantPayloadSignature::Tuple(fields) => {
+                                    nia_backend_ir::BackendEnumVariantPayload::Tuple(fields.clone())
+                                }
+                                nia_item_signatures::EnumVariantPayloadSignature::Named(fields) => {
+                                    nia_backend_ir::BackendEnumVariantPayload::Named(
+                                        fields
+                                            .iter()
+                                            .map(|field| BackendField {
+                                                def_id: self.global_def_id(field.def_id),
+                                                name: field.name,
+                                                ty: field.ty,
+                                                span: field.span,
+                                            })
+                                            .collect(),
+                                    )
+                                }
+                            },
+                            span: variant.span,
+                        })
+                        .collect(),
+                    span: signature.span,
+                })
+            })
+            .collect()
+    }
+
     pub(crate) fn backend_function_attributes(
         &self,
         def_id: nia_ids::GlobalDefId,

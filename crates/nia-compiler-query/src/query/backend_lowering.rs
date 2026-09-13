@@ -22,6 +22,7 @@ pub(super) struct BackendLoweringInputs {
     static_init_indices: HashMap<GlobalDefId, usize>,
     source_item_plans: Vec<Arc<BackendModuleSourceItemPlan>>,
     function_instance_plans: Vec<Arc<BackendModuleFunctionInstancePlan>>,
+    artifact_modules: HashSet<ModuleId>,
     program_defs: Vec<Arc<DefCollection>>,
     non_function_signatures: ProgramExecutableNonFunctionSignatures,
     functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
@@ -44,6 +45,7 @@ pub(super) struct BackendLoweringInputsParts {
     pub(super) static_inits: Vec<StaticInitHandle>,
     pub(super) source_item_plans: Vec<Arc<BackendModuleSourceItemPlan>>,
     pub(super) function_instance_plans: Vec<Arc<BackendModuleFunctionInstancePlan>>,
+    pub(super) artifact_modules: HashSet<ModuleId>,
     pub(super) program_defs: Vec<Arc<DefCollection>>,
     pub(super) non_function_signatures: ProgramExecutableNonFunctionSignatures,
     pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
@@ -127,6 +129,7 @@ impl BackendLoweringInputs {
             static_init_indices,
             source_item_plans: parts.source_item_plans,
             function_instance_plans: parts.function_instance_plans,
+            artifact_modules: parts.artifact_modules,
             program_defs: parts.program_defs,
             non_function_signatures: parts.non_function_signatures,
             functions: parts.functions,
@@ -162,7 +165,12 @@ impl BackendLoweringInputs {
             const_array_lengths: self.const_array_lengths[index].as_ref(),
             const_enum_values: self.const_enum_values[index].as_ref(),
             layouts: &checked_module.layouts,
-            roots: backend_function_roots(self.runtime, checked_module),
+            roots: backend_function_roots(
+                self.runtime,
+                checked_module,
+                self.artifact_modules.contains(&checked_module.id),
+            ),
+            artifact_module: self.artifact_modules.contains(&checked_module.id),
             reachable_functions: Some(&source_item_plan.functions),
             reachable_globals: Some(&source_item_plan.globals),
             reachable_structs: Some(&source_item_plan.structs),
@@ -349,8 +357,9 @@ impl BackendFinalizationTaskContext {
 fn backend_function_roots(
     runtime: RuntimeModel,
     checked_module: &CheckedModule,
+    artifact_module: bool,
 ) -> nia_backend_lower::BackendFunctionRoots {
-    if checked_module.executable_type_only {
+    if checked_module.executable_type_only || artifact_module {
         return nia_backend_lower::BackendFunctionRoots::NoFunctions;
     }
     match runtime {
@@ -429,6 +438,7 @@ mod tests {
             static_inits,
             source_item_plans: Vec::new(),
             function_instance_plans: Vec::new(),
+            artifact_modules: HashSet::new(),
             program_defs: Vec::new(),
             non_function_signatures: ProgramExecutableNonFunctionSignatures {
                 globals: HashMap::new(),

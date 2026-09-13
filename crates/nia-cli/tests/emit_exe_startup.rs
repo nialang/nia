@@ -41,11 +41,12 @@ fn emit_exe_entry_name_is_chosen_by_std_runtime_not_compiler() {
     let std_root = root.join("custom_std/std.nia");
     let std_builtin = root.join("custom_std/std/builtin.nia");
     let std_process = root.join("custom_std/std/process.nia");
-    let std_start = root.join("custom_std/std/start.nia");
-    let std_start_freestanding = root.join("custom_std/std/start/freestanding.nia");
-    let std_start_freestanding_linux = root.join("custom_std/std/start/freestanding/linux.nia");
-    let std_start_linux_x86_64 = root.join("custom_std/std/start/freestanding/linux/x86_64.nia");
-    let std_start_linux_x86 = root.join("custom_std/std/start/freestanding/linux/x86.nia");
+    let std_start = root.join("custom_std/runtime/start.nia");
+    let std_start_freestanding = root.join("custom_std/runtime/start/freestanding.nia");
+    let std_start_freestanding_linux = root.join("custom_std/runtime/start/freestanding/linux.nia");
+    let std_start_linux_x86_64 =
+        root.join("custom_std/runtime/start/freestanding/linux/x86_64.nia");
+    let std_start_linux_x86 = root.join("custom_std/runtime/start/freestanding/linux/x86.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::create_dir_all(std_start_linux_x86_64.parent().expect("std start parent"))
         .expect("create custom std dir");

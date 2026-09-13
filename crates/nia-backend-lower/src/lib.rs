@@ -533,6 +533,10 @@ pub struct BackendLowerModuleInput<'a> {
     pub layouts: &'a Layouts,
     /// Policy for choosing initial function roots.
     pub roots: BackendFunctionRoots,
+    /// Whether this module is backed by a compiled package artifact. Artifact
+    /// modules contribute declarations only; their executable bodies arrive
+    /// from the package's native product.
+    pub artifact_module: bool,
     /// Sorted executable function reachability, when available.
     pub reachable_functions: Option<&'a [GlobalDefId]>,
     /// Sorted executable global reachability, when available.
