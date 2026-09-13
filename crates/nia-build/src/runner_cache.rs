@@ -9,8 +9,10 @@ use nia_compat::toolchain::BUILD_PROTOCOL;
 
 use crate::{BuildError, BuildInvocation, BuildRunnerSource, OptimizationMode};
 
-const CACHE_SCHEMA: &str = "v1";
+const CACHE_SCHEMA: &str = "v2";
 const MAX_RUNNER_BYTES: u64 = 256 * 1024 * 1024;
+const RUNNER_BUNDLE_MAGIC: &[u8; 8] = b"NIARUNR2";
+const RUNNER_BUNDLE_HEADER_BYTES: usize = 8 + 32 + 8;
 
 pub(super) fn cache_key(
     invocation: &BuildInvocation,
@@ -178,10 +180,7 @@ fn compilation_mode_tag(mode: nia_target_config::CompilationMode) -> u8 {
 
 fn paths(invocation: &BuildInvocation, key: &str) -> (PathBuf, PathBuf) {
     let root = invocation.cache_dir.join("runner").join(CACHE_SCHEMA);
-    (
-        root.join(format!("{key}.exe")),
-        root.join(format!("{key}.digest")),
-    )
+    (root.join(format!("{key}.bundle")), root)
 }
 
 #[cfg(test)]
@@ -259,38 +258,80 @@ mod tests {
         let second = cache_key(&invocation, &runner).unwrap();
         assert_ne!(first, second);
     }
+
+    #[test]
+    fn runner_bundle_publication_and_restore_are_atomic_and_validated() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-runner-cache-bundle-{}-{}",
+            std::process::id(),
+            CACHE_SCHEMA
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let invocation = invocation(&root);
+        fs::create_dir_all(invocation.runner_executable.parent().unwrap()).unwrap();
+        fs::write(&invocation.runner_executable, b"runner-bytes").unwrap();
+        let key = "bundle-test";
+        publish(&invocation, key).expect("publish runner bundle");
+        let (bundle, _) = paths(&invocation, key);
+        assert!(bundle.is_file());
+        fs::remove_file(&invocation.runner_executable).unwrap();
+        assert!(restore(&invocation, key).expect("restore runner bundle"));
+        assert_eq!(
+            fs::read(&invocation.runner_executable).unwrap(),
+            b"runner-bytes"
+        );
+
+        let mut corrupt = fs::read(&bundle).unwrap();
+        *corrupt.last_mut().unwrap() ^= 0xff;
+        fs::write(&bundle, corrupt).unwrap();
+        fs::remove_file(&invocation.runner_executable).unwrap();
+        assert!(!restore(&invocation, key).expect("reject corrupt runner bundle"));
+        assert!(!bundle.exists());
+    }
 }
 
 pub(super) fn restore(invocation: &BuildInvocation, key: &str) -> io::Result<bool> {
-    let (cached, digest) = paths(invocation, key);
+    let (cached, _) = paths(invocation, key);
     let metadata = match fs::metadata(&cached) {
         Ok(metadata)
-            if metadata.is_file() && metadata.len() > 0 && metadata.len() <= MAX_RUNNER_BYTES =>
+            if metadata.is_file()
+                && metadata.len() > RUNNER_BUNDLE_HEADER_BYTES as u64
+                && metadata.len() <= MAX_RUNNER_BYTES + RUNNER_BUNDLE_HEADER_BYTES as u64 =>
         {
             metadata
         }
         Ok(_) => {
             let _ = fs::remove_file(&cached);
-            let _ = fs::remove_file(&digest);
             return Ok(false);
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error),
     };
-    let expected = fs::read_to_string(&digest).ok();
     let mut file = fs::File::open(&cached)?;
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
     file.read_to_end(&mut bytes)?;
-    let actual = blake3::hash(&bytes).to_hex().to_string();
-    if expected.as_deref().map(str::trim) != Some(actual.as_str()) {
+    if bytes.len() < RUNNER_BUNDLE_HEADER_BYTES
+        || &bytes[..RUNNER_BUNDLE_MAGIC.len()] != RUNNER_BUNDLE_MAGIC
+    {
         let _ = fs::remove_file(&cached);
-        let _ = fs::remove_file(&digest);
+        return Ok(false);
+    }
+    let digest_start = RUNNER_BUNDLE_MAGIC.len();
+    let digest_end = digest_start + 32;
+    let len_start = digest_end;
+    let len_end = len_start + 8;
+    let expected_len = u64::from_le_bytes(bytes[len_start..len_end].try_into().unwrap());
+    let payload = &bytes[len_end..];
+    let valid_len = expected_len == payload.len() as u64 && expected_len <= MAX_RUNNER_BYTES;
+    let actual = blake3::hash(payload);
+    if !valid_len || bytes[digest_start..digest_end] != *actual.as_bytes() || payload.is_empty() {
+        let _ = fs::remove_file(&cached);
         return Ok(false);
     }
     if let Some(parent) = invocation.runner_executable.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::copy(&cached, &invocation.runner_executable)?;
+    fs::write(&invocation.runner_executable, payload)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -308,34 +349,25 @@ pub(super) fn publish(invocation: &BuildInvocation, key: &str) -> io::Result<()>
         return Ok(());
     }
     let bytes = fs::read(source)?;
-    let digest_value = blake3::hash(&bytes).to_hex().to_string();
-    let (cached, digest) = paths(invocation, key);
+    let digest = blake3::hash(&bytes);
+    let (cached, _) = paths(invocation, key);
     let parent = cached.parent().expect("runner cache path has parent");
     fs::create_dir_all(parent)?;
     let temp = parent.join(format!(".{}.{}.tmp", key, std::process::id()));
-    let temp_digest = parent.join(format!(".{}.{}.digest.tmp", key, std::process::id()));
+    let mut bundle = Vec::with_capacity(RUNNER_BUNDLE_HEADER_BYTES + bytes.len());
+    bundle.extend_from_slice(RUNNER_BUNDLE_MAGIC);
+    bundle.extend_from_slice(digest.as_bytes());
+    bundle.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+    bundle.extend_from_slice(&bytes);
     {
         let mut file = fs::File::create(&temp)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-    }
-    {
-        let mut file = fs::File::create(&temp_digest)?;
-        file.write_all(digest_value.as_bytes())?;
-        file.write_all(b"\n")?;
+        file.write_all(&bundle)?;
         file.sync_all()?;
     }
     match fs::rename(&temp, &cached) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
             let _ = fs::remove_file(&temp);
-        }
-        Err(error) => return Err(error),
-    }
-    match fs::rename(&temp_digest, &digest) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            let _ = fs::remove_file(&temp_digest);
         }
         Err(error) => return Err(error),
     }
