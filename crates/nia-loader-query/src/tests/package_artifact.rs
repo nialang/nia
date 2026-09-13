@@ -76,6 +76,17 @@ fn standard_library_manifest() -> PackageManifest {
     manifest_for(PackageId::standard_library())
 }
 
+fn artifact_with_native_variant(optimization: u8) -> Vec<u8> {
+    let native = nia_package_metadata::NativeSection {
+        variants: vec![nia_package_metadata::NativeVariant {
+            optimization,
+            objects: Vec::new(),
+        }],
+    };
+    let native = nia_package_metadata::encode_native(&native).unwrap();
+    encode_artifact(&manifest(), &[(SectionKind::Native, &native)]).unwrap()
+}
+
 fn std_artifact_path(toolchain: &nia_toolchain::ToolchainLayout) -> std::path::PathBuf {
     toolchain.std_package_artifact(
         &nia_target_config::TargetConfig::host(),
@@ -108,6 +119,42 @@ fn optional_artifact_loads_and_preserves_relocation_independent_identity() {
     assert!(matches!(
         loader.package_artifact().unwrap(),
         Some(PackageArtifactLoad::Loaded { .. })
+    ));
+}
+
+#[test]
+fn native_codegen_falls_back_from_artifact_without_exact_variant() {
+    let path = temp_artifact("missing-native-variant");
+    fs::write(&path, artifact_with_native_variant(0)).unwrap();
+    let loader = LoaderDatabase::new(
+        LoadRequest::new("main.nia")
+            .with_package_artifact(&path)
+            .with_required_native_optimization(2),
+    );
+    assert!(matches!(
+        loader.package_artifact().unwrap(),
+        Some(PackageArtifactLoad::SourceFallback {
+            reason: PackageArtifactFallback::MissingNativeVariant { optimization: 2 },
+            ..
+        })
+    ));
+}
+
+#[test]
+fn required_artifact_reports_missing_native_variant() {
+    let path = temp_artifact("required-missing-native-variant");
+    fs::write(&path, artifact_with_native_variant(0)).unwrap();
+    let loader = LoaderDatabase::new(
+        LoadRequest::new("main.nia")
+            .require_package_artifact(&path)
+            .with_required_native_optimization(3),
+    );
+    assert!(matches!(
+        loader.package_artifact(),
+        Err(PackageArtifactError::MissingNativeVariant {
+            optimization: 3,
+            ..
+        })
     ));
 }
 

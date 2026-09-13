@@ -955,7 +955,28 @@ impl Driver {
         request: &CheckRequest,
         codegen_scope: CodegenScope,
     ) -> nia_query::QueryResult<(CompilerDatabase, LoaderDatabase)> {
-        let loader = self.loader_database(request);
+        self.compilation_databases_with_requirements(request, codegen_scope, None)
+    }
+
+    fn compilation_databases_requiring_native(
+        &self,
+        request: &CheckRequest,
+        codegen_scope: CodegenScope,
+    ) -> nia_query::QueryResult<(CompilerDatabase, LoaderDatabase)> {
+        self.compilation_databases_with_requirements(
+            request,
+            codegen_scope,
+            Some(optimization_wire_tag(request.optimization)),
+        )
+    }
+
+    fn compilation_databases_with_requirements(
+        &self,
+        request: &CheckRequest,
+        codegen_scope: CodegenScope,
+        required_native_optimization: Option<u8>,
+    ) -> nia_query::QueryResult<(CompilerDatabase, LoaderDatabase)> {
+        let loader = self.loader_database_with_requirements(request, required_native_optimization);
         loader.load_program()?;
         let query_session = loader.query_session();
         let mut compiler_guard = self.compiler.lock().expect("driver compiler lock poisoned");
@@ -1161,7 +1182,9 @@ impl Driver {
     ) -> DriverOutput<ObjectArtifactWithSourceManifest> {
         DriverOutput::catch_ice(|| {
             let timings = request.check.timings;
-            let (database, loader) = match self.compilation_databases(&request.check) {
+            let (database, loader) = match self
+                .compilation_databases_requiring_native(&request.check, CodegenScope::Entry)
+            {
                 Ok(databases) => databases,
                 Err(error) => {
                     return DriverOutput::from_error(DriverError::InternalDiagnostic(
@@ -1832,6 +1855,14 @@ impl Driver {
     }
 
     fn loader_database(&self, request: &CheckRequest) -> LoaderDatabase {
+        self.loader_database_with_requirements(request, None)
+    }
+
+    fn loader_database_with_requirements(
+        &self,
+        request: &CheckRequest,
+        required_native_optimization: Option<u8>,
+    ) -> LoaderDatabase {
         let key = LoaderKey {
             entry_path: request.entry_path.clone(),
             package_root: request.package_root.clone(),
@@ -1841,6 +1872,7 @@ impl Driver {
             compilation_mode: request.compilation_mode,
             entry_runtime: entry_runtime(request.runtime),
             package_artifact: request.package_artifact.clone(),
+            required_native_optimization,
         };
         let mut loader_guard = self.loader.lock().expect("driver loader lock poisoned");
         let database = match &*loader_guard {
@@ -1858,6 +1890,9 @@ impl Driver {
                     .with_frontend_cache_verification(self.config.verify_frontend_cache);
                 if let Some(package_artifact) = &key.package_artifact {
                     load_request.package_artifact = Some(package_artifact.clone());
+                }
+                if let Some(optimization) = key.required_native_optimization {
+                    load_request = load_request.with_required_native_optimization(optimization);
                 }
                 if let Some(package_root) = &key.package_root {
                     load_request = load_request.with_package_root(package_root.clone());
@@ -2123,6 +2158,7 @@ struct LoaderKey {
     compilation_mode: nia_target_config::CompilationMode,
     entry_runtime: EntryRuntime,
     package_artifact: Option<PackageArtifactRequest>,
+    required_native_optimization: Option<u8>,
 }
 
 #[derive(Clone)]
