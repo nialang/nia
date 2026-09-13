@@ -4598,7 +4598,11 @@ impl CompilerDatabase {
             return Ok(Vec::new());
         };
         let graph = self.db.get(ModuleGraphQuery)?;
-        let root_identity = nia_source::SourceIdentity::new(runtime.package_root_identity());
+        let root_path = nia_source::SourcePath::with_identity(
+            runtime.package_root().to_string_lossy().into_owned(),
+            runtime.package_root_identity(),
+        );
+        let root_identity = nia_source::SourceIdentity::from_path(&root_path);
         let Some(runtime_root) = graph.module_id_for_source_identity(&root_identity) else {
             return Err(self.db.invalid_input(
                 &ModuleGraphQuery,
