@@ -355,6 +355,7 @@ impl LoaderDatabase {
         let source_roots = std::iter::once(entry_path.clone())
             .chain(request.package_root.clone())
             .chain(module_map.entries().map(|(_, path)| path.clone()))
+            .chain(runtime_start_module.clone())
             .collect::<Vec<_>>();
         let module_map_fingerprint = frontend_module_map_fingerprint_with_package_root(
             &module_map,

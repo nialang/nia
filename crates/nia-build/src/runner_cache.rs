@@ -197,6 +197,7 @@ mod tests {
         let executable = root.join("bin/nia");
         let resources = root.join("lib");
         fs::create_dir_all(resources.join("std")).unwrap();
+        fs::create_dir_all(resources.join("runtime")).unwrap();
         fs::create_dir_all(executable.parent().unwrap()).unwrap();
         fs::write(&executable, b"compiler").unwrap();
         fs::write(

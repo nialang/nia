@@ -5968,11 +5968,17 @@ fn checked_provider_demands(program: &CheckedProgramAnalysis) -> Vec<crate::Prov
         .iter()
         .flat_map(|module| module.provider_demands.iter().cloned())
         .collect::<Vec<_>>();
-    demands.extend(program.modules.iter().map(|module| crate::ProviderDemand {
-        source_path: module.path.clone(),
-        request: crate::ProviderRequest::ModuleBody {
-            module_path: module.path.clone(),
-        },
+    demands.extend(program.modules.iter().filter_map(|module| {
+        let needs_body_activation = program
+            .graph
+            .get(module.id)
+            .is_some_and(|node| !node.process_used_paths);
+        needs_body_activation.then(|| crate::ProviderDemand {
+            source_path: module.path.clone(),
+            request: crate::ProviderRequest::ModuleBody {
+                module_path: module.path.clone(),
+            },
+        })
     }));
     demands
 }
