@@ -271,8 +271,9 @@ impl LoaderDatabase {
             })
         });
         let toolchain_std_artifact = request
-            .toolchain
-            .as_ref()
+            .discover_toolchain_std_artifact
+            .then_some(request.toolchain.as_ref())
+            .flatten()
             .map(|toolchain| {
                 toolchain.std_package_artifact(
                     &request.target,
@@ -1116,6 +1117,8 @@ pub struct LoadRequest {
     /// Native optimization variant required before selecting an artifact.
     /// Semantic-only requests leave this unset.
     pub required_native_optimization: Option<u8>,
+    /// Whether the resolved toolchain's standard-library artifact is probed.
+    pub discover_toolchain_std_artifact: bool,
 }
 
 impl LoadRequest {
@@ -1143,6 +1146,7 @@ impl LoadRequest {
             package_artifact: None,
             expected_package: None,
             required_native_optimization: None,
+            discover_toolchain_std_artifact: true,
         }
     }
 
@@ -1185,6 +1189,12 @@ impl LoadRequest {
     /// Requires an exact native optimization variant from a selected artifact.
     pub fn with_required_native_optimization(mut self, optimization: u8) -> Self {
         self.required_native_optimization = Some(optimization);
+        self
+    }
+
+    /// Enables or disables automatic toolchain standard-library artifacts.
+    pub fn with_toolchain_std_artifact_discovery(mut self, enabled: bool) -> Self {
+        self.discover_toolchain_std_artifact = enabled;
         self
     }
 

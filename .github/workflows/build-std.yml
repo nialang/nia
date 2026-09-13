@@ -128,6 +128,13 @@ jobs:
       - name: Build release compiler
         run: cargo build --release -p nia-cli
 
+      - name: Publish standard-library package artifacts
+        run: |
+          target/release/nia emit --package lib/std/pkg.nia --std --debug -O0 --resource-root lib --cache-dir target/std-package-cache
+          target/release/nia emit --package lib/std/pkg.nia --std --release -O2 --resource-root lib --cache-dir target/std-package-cache
+          find lib/std/.nia-cache/packages -type f -path '*/debug/normal/package.niapkg' -size +0c | grep -q .
+          find lib/std/.nia-cache/packages -type f -path '*/release/normal/package.niapkg' -size +0c | grep -q .
+
       - name: Run clean/warm/edit/corruption/failure build baseline
         run: |
           cargo maintain baseline build \

@@ -37,6 +37,15 @@ for required in "${binary}" "${lld}" "${resource_root}/toolchain.meta" \
         exit 1
     fi
 done
+for context in debug release; do
+    if ! find "${resource_root}/std/.nia-cache/packages" -type f \
+        -path "*/${context}/normal/package.niapkg" -size +0c -print -quit \
+        | grep -q .; then
+        printf 'release requires a %s/normal standard-library package artifact\n' \
+            "${context}" >&2
+        exit 1
+    fi
+done
 
 stage_root="${output_root}/nia-${version}-${platform}"
 archive="${output_root}/nia-${version}-${platform}.tar.gz"
