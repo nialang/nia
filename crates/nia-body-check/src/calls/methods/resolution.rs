@@ -1074,6 +1074,32 @@ impl<'a> BodyChecker<'a> {
                         .then_some(self.global_def_id(*def_id))
                 }),
         );
+        let visible_impls = self.with_visible_extensions(|extensions| {
+            extensions
+                .trait_witness_impls()
+                .collect::<std::collections::HashSet<_>>()
+        });
+        let visible_impl_trait_ids = self
+            .program_trait_impls
+            .iter()
+            .filter(|implementation| {
+                visible_impls.contains(&(implementation.module_id, implementation.impl_id))
+            })
+            .filter_map(|implementation| match implementation.trait_id {
+                TraitId::Source(trait_id) => Some(trait_id),
+                TraitId::Builtin(_) => None,
+            })
+            .collect::<Vec<_>>();
+        for trait_id in visible_impl_trait_ids {
+            if self
+                .resolved_trait_signature(trait_id)
+                .is_some_and(|signature| {
+                    signature.methods.iter().any(|method| method.name == *name)
+                })
+            {
+                trait_ids.push(trait_id);
+            }
+        }
         trait_ids.sort_unstable();
         trait_ids.dedup();
         self.traits_by_method_name.insert(*name, trait_ids.clone());

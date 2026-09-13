@@ -2261,6 +2261,13 @@ impl CheckRequest {
         self
     }
 
+    /// Enables or disables automatic toolchain standard-library artifacts.
+    /// Package publishers disable discovery to keep source authoritative.
+    pub fn with_toolchain_std_artifact_discovery(mut self, enabled: bool) -> Self {
+        self.discover_toolchain_std_artifact = enabled;
+        self
+    }
+
     /// Selects the build profile used for conditional source selection.
     pub fn with_profile(mut self, profile: BuildProfile) -> Self {
         self.profile = profile;
@@ -2839,7 +2846,8 @@ mod streamed_output_tests {
         let request = CheckRequest::from_source_path(SourcePath::with_identity(
             layout.std_module().to_string_lossy().into_owned(),
             "toolchain:/std/pkg.nia",
-        ));
+        ))
+        .with_toolchain_std_artifact_discovery(false);
         let driver = Driver::new(Arc::clone(&layout));
         let database = driver.compiler_database(&request).unwrap();
         let package = layout.std_package_id();
@@ -2848,7 +2856,17 @@ mod streamed_output_tests {
             .unwrap();
         let artifact = nia_package_metadata::PackageArtifact::open(publication.bytes).unwrap();
         assert_eq!(artifact.manifest().package, package);
-        assert!(artifact.signatures().unwrap().is_some());
+        let signatures = artifact.signatures().unwrap().unwrap();
+        assert!(signatures.traits.iter().any(|trait_record| {
+            trait_record.members.iter().any(|member| {
+                member.name == "formatSpec"
+                    && member.flags & nia_package_metadata::SIGNATURE_FLAG_HAS_BODY != 0
+            })
+        }));
+        assert!(signatures.records.iter().any(|record| {
+            record.definition.name == "formatSpec"
+                && record.flags & nia_package_metadata::SIGNATURE_FLAG_HAS_BODY != 0
+        }));
     }
 
     #[test]
