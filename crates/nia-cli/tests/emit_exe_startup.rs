@@ -137,9 +137,10 @@ fn syscall_exit(code: i32) () {
 pub extern fn _start() () {
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\call custom_start
+            b\\call $0
             \\ud2
         ,
+        inputs: std::builtin::AsmInputs { reg: &custom_start },
         clobbers: [b"rax", b"rcx", b"r11", b"memory"],
         options: [b"volatile"],
     });
@@ -176,9 +177,10 @@ fn syscall_exit(code: i32) () {
 pub extern fn _start() () {
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\call custom_start
+            b\\call $0
             \\ud2
         ,
+        inputs: std::builtin::AsmInputs { reg: &custom_start },
         clobbers: [b"eax", b"ecx", b"edx", b"memory"],
         options: [b"volatile"],
     });

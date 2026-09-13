@@ -58,9 +58,10 @@ pub extern fn _start() () {
     std::builtin::asm(std::builtin::AsmConfig {
         code:
             b\\mov rdi, rsp
-            \\call nia_start_stack
+            \\call $0
             \\ud2
         ,
+        inputs: std::builtin::AsmInputs { reg: &nia_start_stack },
         clobbers: [b"rdi", b"rax", b"rcx", b"r11", b"memory"],
         options: [b"volatile"],
     });

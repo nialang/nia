@@ -58,9 +58,10 @@ pub extern fn _start() () {
             \\and esp, -16
             \\sub esp, 12
             \\push eax
-            \\call nia_start_stack
+            \\call $0
             \\ud2
         ,
+        inputs: std::builtin::AsmInputs { reg: &nia_start_stack },
         clobbers: [b"eax", b"ecx", b"edx", b"memory"],
         options: [b"volatile"],
     });

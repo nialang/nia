@@ -1182,34 +1182,14 @@ fn executable_root_defs(
         RuntimeModel::FreestandingExecutable => {
             let mut functions = Vec::new();
             let parse_ok = parse_ok.iter().copied().collect::<HashSet<_>>();
-            let mut start_module = None;
             for module_id in runtime_root_modules.iter().copied() {
-                if parse_ok.contains(&module_id)
-                    && named_top_level_function(db, module_id, known::START_ENTRY)?.is_some()
-                {
-                    start_module = Some(module_id);
+                if !parse_ok.contains(&module_id) {
+                    continue;
+                }
+                if let Some(start) = named_top_level_function(db, module_id, known::START_ENTRY)? {
+                    functions.push(start);
                     break;
                 }
-            }
-            if let Some(start_module) = start_module {
-                let defs = full_module_defs_semantic(db, start_module)?;
-                let signatures = db.get(SignatureItemSignaturesQuery(
-                    start_module,
-                    nia_item_tree::SignatureItemSet::Functions,
-                ))?;
-                functions.extend(defs.defs.iter().filter_map(|(def_id, def)| {
-                    (def.kind == DefKind::Function
-                        && def.parent.is_none()
-                        && signatures
-                            .semantic
-                            .functions
-                            .get(&def_id)
-                            .is_some_and(|signature| !signature.is_const))
-                    .then_some(GlobalDefId {
-                        module_id: start_module,
-                        def_id,
-                    })
-                }));
             }
             Ok((functions, Vec::new()))
         }

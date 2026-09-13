@@ -86,6 +86,53 @@ fn freestanding_runtime_source_is_the_only_user_entry_root() {
 }
 
 #[test]
+fn freestanding_runtime_helpers_follow_ordinary_source_reachability() {
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 7 }");
+    let loaded = fixture.freestanding_program_with_runtime(
+        r#"
+using entry;
+
+fn used() i32 { entry::main() }
+fn unused() i32 { 99 }
+pub extern fn _start() () { _ = &used; }
+"#,
+    );
+    let db = query_db(loaded);
+
+    let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
+    let runtime = facts
+        .modules
+        .iter()
+        .find(|module| {
+            module
+                .defs
+                .defs
+                .iter()
+                .any(|(_, def)| def.name == sym("_start"))
+        })
+        .expect("runtime start module");
+    let function = |name: &str| {
+        runtime
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.kind == nia_defs::DefKind::Function && def.name == sym(name)).then_some(
+                    GlobalDefId {
+                        module_id: runtime.id,
+                        def_id,
+                    },
+                )
+            })
+            .expect("runtime function definition")
+    };
+
+    assert!(facts.runtime_functions.contains(&function("_start")));
+    assert!(facts.runtime_functions.contains(&function("used")));
+    assert!(!facts.runtime_functions.contains(&function("unused")));
+}
+
+#[test]
 fn bare_entry_checked_program_uses_rooted_diagnostics_without_freestanding_start() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",

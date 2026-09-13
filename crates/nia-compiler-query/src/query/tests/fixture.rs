@@ -157,7 +157,7 @@ impl LoadedProgramFixture {
 
     pub(super) fn freestanding_program(&self) -> LoadedProgram {
         self.freestanding_program_with_runtime(
-            "using entry; pub extern fn _start() () { _ = entry::main; }",
+            "using entry; pub extern fn _start() () { _ = &entry::main; }",
         )
     }
 
