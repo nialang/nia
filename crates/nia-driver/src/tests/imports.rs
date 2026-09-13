@@ -1917,7 +1917,7 @@ fn runtime_start_injected_for_executables_is_not_public_api() {
         &root.join("main.nia"),
         r#"
 using std::process;
-using std::start;
+using runtime::start;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;

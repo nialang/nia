@@ -1,7 +1,7 @@
 using entry;
-using pkg::math;
-using pkg::os;
-using pkg::process;
+using std::math;
+using std::os;
+using std::process;
 
 fn callUserMain(init: process::Init) process::ExitCode {
     if entry::main(init) is error! {

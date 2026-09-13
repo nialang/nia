@@ -22,12 +22,15 @@ pub const PACKAGE_MODULE_MAP_NAME: &str = "pkg";
 pub const BUILTIN_MODULE_MAP_NAME: &str = "builtin";
 /// Reserved module-map name for the standard library.
 pub const STD_MODULE_MAP_NAME: &str = "std";
+/// Reserved, private module-map name for toolchain runtime resources.
+pub const RUNTIME_MODULE_MAP_NAME: &str = "runtime";
 
 /// Names that cannot be inserted as ordinary package roots.
 pub const COMPILER_RESERVED_MODULE_ROOTS: &[&str] = &[
     ENTRY_MODULE_MAP_NAME,
     PACKAGE_MODULE_MAP_NAME,
     BUILTIN_MODULE_MAP_NAME,
+    RUNTIME_MODULE_MAP_NAME,
 ];
 
 /// Reports whether text names a compiler-reserved module root.
@@ -45,6 +48,7 @@ fn reserved_module_root_symbol(name: &str) -> Option<SymbolId> {
         PACKAGE_MODULE_MAP_NAME => None,
         BUILTIN_MODULE_MAP_NAME => Some(known::BUILTIN),
         STD_MODULE_MAP_NAME => Some(known::STD),
+        RUNTIME_MODULE_MAP_NAME => Some(known::RUNTIME),
         _ => None,
     }
 }
@@ -57,6 +61,11 @@ pub fn is_entry_module_root(symbol: SymbolId) -> bool {
 /// Reports whether a symbol denotes the standard-library root.
 pub fn is_std_module_root(symbol: SymbolId) -> bool {
     symbol == known::STD
+}
+
+/// Reports whether a symbol denotes the private toolchain runtime root.
+pub fn is_runtime_module_root(symbol: SymbolId) -> bool {
+    symbol == known::RUNTIME
 }
 
 /// Reports whether a symbol denotes the builtin root.
@@ -227,13 +236,17 @@ impl ModulePath {
         is_std_module_root(self.package)
     }
 
+    /// Reports whether this path belongs to the private toolchain runtime.
+    pub fn is_runtime_package(&self) -> bool {
+        is_runtime_module_root(self.package)
+    }
+
     /// Reports whether this path is the toolchain-owned runtime start module.
     ///
-    /// The loader currently mounts this private implementation node below the
-    /// std package so startup can consume std-facing runtime contracts. That
-    /// logical placement is not a public std API or the ownership boundary.
+    /// The loader mounts this private implementation node below the runtime
+    /// package so startup can consume runtime-facing contracts.
     pub fn is_runtime_start_module(&self) -> bool {
-        self.is_std_package()
+        self.is_runtime_package()
             && self
                 .segments
                 .first()
@@ -527,6 +540,11 @@ impl ModuleGraph {
         self.intern_package_root(&known::STD, path)
     }
 
+    /// Interns the private toolchain runtime package root.
+    pub fn intern_runtime_package_root(&mut self, path: SourcePath) -> ModuleId {
+        self.intern_package_root(&known::RUNTIME, path)
+    }
+
     /// Marks an interned package facade active and returns its root.
     pub fn mark_package_facade_active(&mut self, package: &SymbolId) -> Option<ModuleId> {
         let module_id = self.package_root(package)?;
@@ -569,6 +587,15 @@ impl ModuleGraph {
     ) -> Option<ModuleId> {
         if is_entry_module_root(name) {
             return Some(self.entry);
+        }
+        if is_runtime_module_root(name) {
+            // Runtime resources are injected by the loader and are never
+            // addressable from user source. Their own children still resolve
+            // through the normal graph rules.
+            return self
+                .get(current_module)
+                .filter(|node| node.module_path.is_runtime_package())
+                .and_then(|_| self.package_root(&name));
         }
         self.get(current_module)
             .and_then(|node| node.children.get(&name).copied())
@@ -904,6 +931,12 @@ pub trait ModuleGraphLookup {
                 if is_entry_module_root(name) {
                     return Some(self.entry_module());
                 }
+                if is_runtime_module_root(name) {
+                    return self
+                        .module_path(current_module)
+                        .filter(|path| path.is_runtime_package())
+                        .and_then(|_| self.package_root_module(&name));
+                }
                 self.child_declaration(current_module, &name)
                     .map(|(target, _)| target)
                     .or_else(|| self.package_root_module(&name))
@@ -1111,6 +1144,10 @@ pub fn visibility_allows(
                 return false;
             };
             defining.package == accessing.package
+                // The injected runtime is a toolchain-owned consumer of the
+                // selected std facade. This privilege is graph-identity based,
+                // so user source cannot obtain it by spelling `runtime`.
+                || (accessing.is_runtime_package() && defining.is_std_package())
         }
         Visibility::PublicSuper => {
             is_descendant_or_self(graph, accessing_module, defining_module)
@@ -1452,9 +1489,9 @@ mod tests {
         assert_eq!(child.parent(), Some(root.clone()));
         assert!(!child.is_runtime_start_module());
 
-        let std_start = ModulePath::root("std").child(known::START);
-        assert!(std_start.is_std_package());
-        assert!(std_start.is_runtime_start_module());
+        let runtime_start = ModulePath::root("runtime").child(known::START);
+        assert!(runtime_start.is_runtime_package());
+        assert!(runtime_start.is_runtime_start_module());
         assert!(!ModulePath::root("std").is_runtime_start_module());
     }
 
@@ -1473,8 +1510,8 @@ mod tests {
         assert_eq!(first_path.as_str(), "src/sym:0000000000001111.nia");
         assert_ne!(first_path.identity(), second_path.identity());
 
-        let package_root = ModulePath::root("std");
-        let package_path = SourcePath::new("lib/std/pkg.nia");
+        let package_root = ModulePath::root("runtime");
+        let package_path = SourcePath::new("lib/runtime/pkg.nia");
         let child_path = declared_child_source_path_for(&package_path, &package_root, known::START);
         assert_eq!(child_path.as_str(), "lib/runtime/start.nia");
     }

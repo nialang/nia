@@ -41,6 +41,18 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+/// Returns the synthetic, stable package-root identity for toolchain runtime
+/// resources. The root is graph-owned and source-backed with an empty facade;
+/// only its injected `start` child is a real runtime source module.
+pub(crate) fn runtime_package_root_path(runtime_start: &SourcePath) -> SourcePath {
+    let physical = runtime_start
+        .as_str()
+        .rsplit_once('/')
+        .map(|(parent, _)| format!("{parent}/pkg.nia"))
+        .unwrap_or_else(|| "runtime/pkg.nia".to_owned());
+    SourcePath::with_identity(physical, "toolchain:/runtime/pkg.nia")
+}
+
 pub use nia_package_metadata::CompiledPackageInterface;
 pub use package_artifact::{
     PackageArtifactError, PackageArtifactFallback, PackageArtifactLoad, PackageArtifactMismatch,
@@ -329,6 +341,12 @@ impl LoaderDatabase {
             std_artifact_root.as_deref(),
         );
         let sources = request.sources;
+        if let Some(runtime_start) = runtime_start_module.as_ref() {
+            // The runtime package root is a synthetic facade used only for
+            // graph ownership. Keep it source-backed so normal query loading
+            // does not manufacture a missing-file diagnostic.
+            sources.set_source(runtime_package_root_path(runtime_start), "");
+        }
         for module in &selected_std_modules {
             sources.set_source(
                 SourcePath::with_identity(
@@ -352,9 +370,11 @@ impl LoaderDatabase {
             queries::runtime_model(request.entry_runtime),
             toolchain_identity,
         );
+        let runtime_package_root = runtime_start_module.as_ref().map(runtime_package_root_path);
         let source_roots = std::iter::once(entry_path.clone())
             .chain(request.package_root.clone())
             .chain(module_map.entries().map(|(_, path)| path.clone()))
+            .chain(runtime_package_root.clone())
             .chain(runtime_start_module.clone())
             .collect::<Vec<_>>();
         let module_map_fingerprint = frontend_module_map_fingerprint_with_package_root(

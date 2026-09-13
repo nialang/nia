@@ -11,7 +11,7 @@ use crate::provider_loading::{
 };
 use crate::queries::module_declarations_query;
 use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
-use crate::{EntryRuntime, LoaderContext};
+use crate::{EntryRuntime, LoaderContext, runtime_package_root_path};
 use nia_compiler_query::{ProgramDiagnostic, ProgramDiagnosticBundles};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
@@ -830,15 +830,10 @@ fn inject_entry_runtime(
             let Some(runtime_start) = db.context().runtime_start_module.clone() else {
                 return;
             };
-            let std_root = graph.std_package_root().or_else(|| {
-                db.context()
-                    .module_map
-                    .std_path()
-                    .map(|path| graph.intern_std_package_root(path.clone()))
-            });
-            let Some(std_root) = std_root else { return };
+            let runtime_root_path = runtime_package_root_path(&runtime_start);
+            let runtime_root = graph.intern_runtime_package_root(runtime_root_path);
             match graph.intern_declared_child_with_source_path(
-                std_root,
+                runtime_root,
                 &known::START,
                 nia_imports::Visibility::PublicPkg,
                 Span::default(),
@@ -847,9 +842,9 @@ fn inject_entry_runtime(
                 Ok(start_root) => graph.mark_executable_root_subtree(start_root),
                 Err(diagnostic) => {
                     let path = graph
-                        .get(std_root)
+                        .get(runtime_root)
                         .map(|node| node.path.clone())
-                        .or_else(|| db.context().module_map.std_path().cloned())
+                        .or_else(|| db.context().runtime_start_module.clone())
                         .unwrap_or_else(|| SourcePath::new("std"));
                     diagnostics.push((path, diagnostic));
                 }
