@@ -102,6 +102,56 @@ fn semantic_provider_demand_remaps_across_graph_owners() {
 }
 
 #[test]
+fn body_provider_demand_uses_canonical_source_identity() {
+    let root = temp_dir("body_provider_demand_uses_canonical_source_identity");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        "using std::process; fn main(value: process::Init) () { _ = value; }",
+    );
+    let database = LoaderDatabase::new(
+        LoadRequest::new(main_path.to_string_lossy())
+            .with_entry_runtime(EntryRuntime::Freestanding)
+            .with_toolchain_layout(test_toolchain_layout()),
+    );
+    let initial = database.db.expect_get(crate::graph::ModuleGraphQuery);
+    let child = initial
+        .semantic
+        .modules()
+        .find(|module| module.path.as_str().ends_with("lib/std/process.nia"))
+        .expect("shallow std process facade")
+        .clone();
+    assert_ne!(
+        child.path.as_str(),
+        child.path.identity().normalized_path(),
+        "toolchain modules must exercise distinct physical and logical identities"
+    );
+    assert!(!child.process_used_paths);
+
+    assert_eq!(
+        database
+            .update_provider_demands([ProviderDemand {
+                source_path: child.path.clone(),
+                request: nia_compiler_query::ProviderRequest::ModuleBody {
+                    module_path: child.path.clone(),
+                },
+            }])
+            .expect("activate child body"),
+        ProviderGraphUpdate::Changed {
+            invalidates_resolved_body_facts: false,
+        }
+    );
+    let updated = database.db.expect_get(crate::graph::ModuleGraphQuery);
+    assert!(
+        updated
+            .semantic
+            .get(child.id)
+            .expect("activated child module")
+            .process_used_paths
+    );
+}
+
+#[test]
 fn query_loader_does_not_load_a_declared_provider_without_an_explicit_using_edge() {
     let root =
         temp_dir("query_loader_does_not_load_a_declared_provider_without_an_explicit_using_edge");

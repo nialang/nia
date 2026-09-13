@@ -35,6 +35,36 @@ pub use collector::{ItemSignatureInput, ItemSignatureSource, collect_item_signat
 pub use trait_impls::ProgramTraitImplIndex;
 use trait_impls::{TraitImplIdentity, stable_trait_impl_id};
 
+/// Returns the canonical builtin trait identity declared by one valid
+/// `@[builtin("...")]` attribute set.
+///
+/// Validation diagnostics remain owned by signature collection. This identity
+/// projection intentionally rejects malformed and duplicate registrations so
+/// name resolution cannot bind through an ambiguous lang-item declaration.
+pub fn declared_builtin_trait(attributes: &[Attribute]) -> Option<nia_ids::BuiltinTrait> {
+    let mut declared = None;
+    for attribute in attributes {
+        let AttributeKind::Meta(meta) = &attribute.kind else {
+            continue;
+        };
+        if meta.path.as_slice() != [known::BUILTIN] {
+            continue;
+        }
+        let [argument] = meta.args.as_slice() else {
+            return None;
+        };
+        let nia_ast::ExprKind::String(text) = &argument.kind else {
+            return None;
+        };
+        let name = nia_literals::eval_string_literal_parts(text.parts.iter().map(String::as_str))?;
+        let builtin = nia_ids::BuiltinTrait::from_name(&name)?;
+        if declared.replace(builtin).is_some() {
+            return None;
+        }
+    }
+    declared
+}
+
 /// Complete signature product for one module.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ItemSignatures {

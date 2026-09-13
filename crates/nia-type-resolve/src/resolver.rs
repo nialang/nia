@@ -1256,24 +1256,9 @@ impl<'a> TypeResolver<'a> {
     fn canonical_builtin_trait(
         &self,
         global: GlobalDefId,
-        expected_name: &SymbolId,
+        _expected_name: &SymbolId,
     ) -> Option<BuiltinTrait> {
-        let graph = self.graph()?;
-        let module_path = graph.module_path(global.module_id)?;
-        if module_path.package != known::std()
-            || module_path
-                .segments
-                .first()
-                .is_none_or(|segment| *segment != known::builtin())
-        {
-            return None;
-        }
-        let target_defs = self.defs_for_module(global.module_id)?;
-        let def = target_defs.as_ref().defs.get(global.def_id)?;
-        if def.kind != DefKind::Trait || &def.name != expected_name {
-            return None;
-        }
-        builtin_trait_for_symbol(&def.name)
+        (self.program_defs.builtin_trait?)(global)
     }
 }
 
