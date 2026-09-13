@@ -561,7 +561,46 @@ fn emit_backend_module_finalization_allocation(
 pub(in crate::query) fn provide_backend_lowering_inputs(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<ProgramBackendLoweringInputs> {
-    let checked_modules = checked_modules_for_codegen(db)?;
+    let mut checked_modules = checked_modules_for_codegen(db)?;
+    let executable_module_ids = checked_modules
+        .iter()
+        .map(|module| module.id)
+        .collect::<HashSet<_>>();
+    let graph = db.get(ModuleGraphQuery)?;
+    let mut support_ids = graph
+        .modules()
+        .filter(|node| {
+            !executable_module_ids.contains(&node.id)
+                && db
+                    .context()
+                    .loader_facts()
+                    .compiled_package_module_identity(node.id)
+                    .ok()
+                    .flatten()
+                    .is_some()
+        })
+        .map(|node| node.id)
+        .collect::<Vec<_>>();
+    support_ids.sort_unstable();
+    let mut all_ids = checked_modules
+        .iter()
+        .map(|module| module.id)
+        .collect::<Vec<_>>();
+    all_ids.extend(support_ids.iter().copied());
+    let support_signatures =
+        executable_program_non_function_signatures_for_modules(db, all_ids.iter().copied())?;
+    for module_id in &support_ids {
+        let layouts = store_module_layouts(
+            db.context(),
+            signature_layouts_for_types(db, *module_id, Some(&support_signatures))?,
+        );
+        checked_modules.push(Arc::new(executable_signature_checked_module(
+            db,
+            *module_id,
+            layouts,
+            &support_signatures,
+        )?));
+    }
     let artifact_modules = checked_modules
         .iter()
         .filter(|module| is_compiled_artifact_module(db, module.id))
@@ -653,7 +692,18 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
             let static_inits = static_inits_from_checked_modules(db, &checked_modules)?;
             let source_item_plans = checked_modules
                 .iter()
-                .map(|module| db.get(BackendModuleSourceItemPlanQuery(module.id)))
+                .map(|module| {
+                    if executable_module_ids.contains(&module.id) {
+                        db.get(BackendModuleSourceItemPlanQuery(module.id))
+                    } else {
+                        Ok(Arc::new(BackendModuleSourceItemPlan {
+                            functions: Vec::new(),
+                            globals: Vec::new(),
+                            structs: Vec::new(),
+                            unions: Vec::new(),
+                        }))
+                    }
+                })
                 .collect::<QueryResult<Vec<_>>>()?;
             let function_instance_plans = checked_modules
                 .iter()
