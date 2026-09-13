@@ -2703,15 +2703,13 @@ fn append_compiled_package_native_inputs(
     database: &CompilerDatabase,
     inputs: &mut Vec<nia_codegen_llvm::IncrementalLinkInput<nia_codegen_llvm::NativeObject>>,
 ) -> Result<(), DriverError> {
-    let source_paths = inputs
-        .iter()
-        .filter_map(|input| match &input.key {
-            nia_codegen_llvm::CodegenUnitKey::SourceModule {
-                source_identity, ..
-            } => Some(source_identity.normalized_path().to_owned()),
-            _ => None,
-        })
-        .collect::<std::collections::BTreeSet<_>>();
+    let mut source_owners = std::collections::BTreeSet::new();
+    for input in inputs.iter() {
+        let nia_codegen_llvm::CodegenUnitKey::SourceModule { .. } = &input.key else {
+            continue;
+        };
+        source_owners.insert(native_object_key(&input.key));
+    }
     let mut compiler_builtins_present = inputs.iter().any(|input| {
         matches!(
             &input.key,
@@ -2738,7 +2736,7 @@ fn append_compiled_package_native_inputs(
         append_native_variant_inputs(
             package,
             product.variant(),
-            &source_paths,
+            &source_owners,
             &mut owners,
             &mut compiler_builtins_present,
             inputs,
@@ -2750,7 +2748,7 @@ fn append_compiled_package_native_inputs(
 fn append_native_variant_inputs(
     enclosing_package: &PackageId,
     variant: &NativeVariant,
-    source_paths: &std::collections::BTreeSet<String>,
+    source_owners: &std::collections::BTreeSet<String>,
     owners: &mut std::collections::BTreeSet<(String, String, String, String)>,
     compiler_builtins_present: &mut bool,
     inputs: &mut Vec<nia_codegen_llvm::IncrementalLinkInput<nia_codegen_llvm::NativeObject>>,
@@ -2771,11 +2769,9 @@ fn append_native_variant_inputs(
                 "package-native object owner does not match its enclosing package".to_string(),
             ));
         }
-        if matches!(
-            &object.owner,
-            NativeObjectOwner::PackageModule { module, .. }
-                if source_paths.contains(&module.path)
-        ) {
+        if matches!(object.owner, NativeObjectOwner::PackageModule { .. })
+            && source_owners.contains(&object.key)
+        {
             continue;
         }
         let owner_package = object
