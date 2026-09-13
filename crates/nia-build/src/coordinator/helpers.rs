@@ -89,10 +89,14 @@ pub(super) fn optimization(mode: OptimizationMode) -> NiaOptimizationLevel {
     }
 }
 
-pub(super) fn runtime_mode(runtime: Runtime) -> DriverRuntime {
+pub(super) fn runtime_spec(
+    runtime: Runtime,
+    toolchain: &nia_toolchain::ToolchainLayout,
+    target: &TargetConfig,
+) -> Result<RuntimeSpec, nia_toolchain::RuntimeSpecError> {
     match runtime {
-        Runtime::Bare => DriverRuntime::Bare,
-        Runtime::Freestanding => DriverRuntime::Freestanding,
+        Runtime::Bare => Ok(RuntimeSpec::Bare),
+        Runtime::Freestanding => RuntimeSpec::freestanding(toolchain, target),
     }
 }
 

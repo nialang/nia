@@ -1,13 +1,13 @@
+use crate::LoaderContext;
 use crate::facade_facts::ModuleFacadeFacts;
 use crate::graph::ModuleGraphQuery;
 use crate::provider_facts::ProviderDemandsQuery;
 use crate::used_paths::{ModuleDeclarations, UsedModulePath, collect_used_modules};
-use crate::{EntryRuntime, LoaderContext};
 use nia_compiler_query::{
     ActiveModuleItemTreeFactKind, FrontendCacheNamespace, FrontendFacadeFactsCacheKey,
     FrontendModuleDependenciesCacheKey, FrontendProviderSummaryCacheKey,
     FrontendPublicSurfaceFactsCacheKey, FrontendSourceCacheKey, ItemSignatureFingerprint,
-    LoadedModule, LoadedProgram, ProgramDiagnostic, ProgramDiagnosticBundles, RuntimeModel,
+    LoadedModule, LoadedProgram, ProgramDiagnostic, ProgramDiagnosticBundles, RuntimeSpec,
     SourceContentFingerprint, frontend_module_map_fingerprint_with_package_root,
     item_signature_fingerprint, source_content_fingerprint,
 };
@@ -58,7 +58,7 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
             target: db.context().target.clone(),
             profile: db.context().profile,
             compilation_mode: db.context().compilation_mode,
-            runtime: runtime_model(db.context().entry_runtime),
+            runtime: db.context().runtime.clone(),
             toolchain_identity: db.context().toolchain_identity,
             modules,
             diagnostics: diagnostics.as_ref().clone(),
@@ -74,7 +74,7 @@ pub(crate) struct LoadedProgramValue {
     pub(crate) target: nia_target_config::TargetConfig,
     pub(crate) profile: nia_target_config::BuildProfile,
     pub(crate) compilation_mode: nia_target_config::CompilationMode,
-    pub(crate) runtime: RuntimeModel,
+    pub(crate) runtime: RuntimeSpec,
     pub(crate) toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     pub(crate) modules: Vec<LoadedModule>,
     pub(crate) diagnostics: ProgramDiagnosticBundles,
@@ -89,18 +89,11 @@ impl LoadedProgramValue {
             target: self.target.clone(),
             profile: self.profile,
             compilation_mode: self.compilation_mode,
-            runtime: self.runtime,
+            runtime: self.runtime.clone(),
             toolchain_identity: self.toolchain_identity,
             modules: self.modules.clone(),
             diagnostics: self.diagnostics.to_diagnostics(),
         }
-    }
-}
-
-pub(crate) fn runtime_model(entry_runtime: EntryRuntime) -> RuntimeModel {
-    match entry_runtime {
-        EntryRuntime::None => RuntimeModel::Bare,
-        EntryRuntime::Freestanding => RuntimeModel::FreestandingExecutable,
     }
 }
 

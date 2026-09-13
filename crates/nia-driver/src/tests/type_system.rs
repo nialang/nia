@@ -1325,8 +1325,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
 
     let program = checked_program_from_output(
-        driver
-            .check_entry(CheckRequest::new("main.nia").with_runtime(crate::Runtime::Freestanding)),
+        driver.check_entry(CheckRequest::new("main.nia").with_runtime(test_freestanding_runtime())),
     );
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);

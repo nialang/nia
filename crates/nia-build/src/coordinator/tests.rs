@@ -248,8 +248,14 @@ fn compiler_requests_preserve_physical_paths_and_stable_build_identities() {
     .unwrap();
     let invocation = test_invocation();
     let executor = DriverActionExecutor::new(plan.clone(), invocation.clone());
+    let action_target = target();
     let request = executor
-        .check_request(&plan.actions()[0], &module, Runtime::Freestanding)
+        .check_request(
+            &plan.actions()[0],
+            &module,
+            &action_target,
+            Runtime::Freestanding,
+        )
         .expect("construct compiler check request");
     let generated = request
         .module_map
@@ -758,11 +764,16 @@ fn all_optimization_and_runtime_modes_map_exactly() {
     assert_eq!(optimization(OptimizationMode::O3), NiaOptimizationLevel::O3);
     assert_eq!(optimization(OptimizationMode::Os), NiaOptimizationLevel::Os);
     assert_eq!(optimization(OptimizationMode::Oz), NiaOptimizationLevel::Oz);
-    assert_eq!(runtime_mode(Runtime::Bare), DriverRuntime::Bare);
+    let invocation = test_invocation();
+    let target = target_config(&target());
     assert_eq!(
-        runtime_mode(Runtime::Freestanding),
-        DriverRuntime::Freestanding
+        runtime_spec(Runtime::Bare, &invocation.toolchain, &target),
+        Ok(RuntimeSpec::Bare)
     );
+    assert!(matches!(
+        runtime_spec(Runtime::Freestanding, &invocation.toolchain, &target),
+        Ok(RuntimeSpec::Source(_))
+    ));
 }
 
 #[test]

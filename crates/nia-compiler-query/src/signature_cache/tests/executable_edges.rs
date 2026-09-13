@@ -14,7 +14,7 @@ fn executable_value_ref_edges_rehydrate_current_modules_and_retire_corruption() 
     ]);
     let namespace = crate::FrontendCacheNamespace::new(
         &nia_target_config::TargetConfig::host(),
-        crate::RuntimeModel::Bare,
+        crate::RuntimeSpec::Bare,
     );
     let owner = DefId(11);
     let key = crate::FrontendExecutableValueRefEdgesCacheKey::new(

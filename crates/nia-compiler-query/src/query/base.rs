@@ -541,7 +541,7 @@ impl QueryKey<CompilerContext> for CompilerTargetQuery {
 pub(super) struct CompilerRuntimeQuery;
 
 impl QueryKey<CompilerContext> for CompilerRuntimeQuery {
-    type Value = RuntimeModel;
+    type Value = RuntimeSpec;
 
     fn name() -> &'static str {
         "compiler_runtime"
@@ -678,7 +678,7 @@ impl QueryKey<CompilerContext> for ExecutableFactEpochQuery {
             runtime_root_modules,
             modules,
             target: db.get(CompilerTargetQuery)?.as_ref().clone(),
-            runtime: *db.get(CompilerRuntimeQuery)?,
+            runtime: db.get(CompilerRuntimeQuery)?.as_ref().clone(),
             codegen_scope: *db.get(CompilerCodegenScopeQuery)?,
         })
     }

@@ -15,7 +15,7 @@ use nia_compiler_query::{
     CompileRequest, CompilerDatabase, FrontendCacheNamespace, FrontendFacadeFactsCacheKey,
     FrontendModuleDependenciesCacheKey, FrontendModuleMapFingerprint,
     FrontendProviderSummaryCacheKey, FrontendPublicSurfaceFactsCacheKey, FrontendSourceCacheKey,
-    ItemSignatureFingerprint, ProviderDemand, ProviderGraphUpdate, RuntimeModel,
+    ItemSignatureFingerprint, ProviderDemand, ProviderGraphUpdate, RuntimeSpec,
     SourceContentFingerprint, frontend_module_map_fingerprint, has_error_diagnostics,
     item_signature_fingerprint, source_content_fingerprint,
 };
@@ -79,18 +79,24 @@ fn load_program_with_map(entry_path: impl Into<String>, module_map: ModuleMap) -
         .expect("test program load must succeed")
 }
 
-fn load_program_with_map_and_entry_runtime(
+fn load_program_with_map_and_runtime(
     entry_path: impl Into<String>,
     module_map: ModuleMap,
-    entry_runtime: EntryRuntime,
+    runtime: RuntimeSpec,
 ) -> LoadedProgram {
-    super::load_program_with_map_and_entry_runtime(
+    super::load_program_with_map_and_runtime(
         entry_path,
         module_map,
-        entry_runtime,
+        runtime,
         test_toolchain_layout(),
     )
     .expect("test program load must succeed")
+}
+
+fn test_freestanding_runtime() -> RuntimeSpec {
+    let toolchain = test_toolchain_layout();
+    RuntimeSpec::freestanding(&toolchain, toolchain.artifact_target())
+        .expect("host freestanding runtime")
 }
 
 fn parsed_module_query(db: &QueryDb<LoaderContext>, path: &SourcePath) -> ParsedModuleQuery {
@@ -214,8 +220,7 @@ fn test_loader_context(
         target: TargetConfig::host(),
         profile: nia_target_config::BuildProfile::Debug,
         compilation_mode: nia_target_config::CompilationMode::Normal,
-        entry_runtime: EntryRuntime::None,
-        runtime_start_module: None,
+        runtime: RuntimeSpec::Bare,
         toolchain_identity: test_toolchain_layout().identity().fingerprint(),
         package_roots_with_used_paths: HashSet::new(),
         package_root_used_paths: false,
@@ -367,7 +372,7 @@ struct PublicSurfaceFactsCacheIdentity {
 }
 
 fn provider_cache_identity(file: &SourceFile) -> ProviderCacheIdentity {
-    let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
+    let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeSpec::Bare);
     let module = StableModuleKey::from_source_identity(file.path.identity());
     let source = source_content_fingerprint(&file.text);
     let source_key = FrontendSourceCacheKey::new(namespace, &module, source);
@@ -425,7 +430,7 @@ fn module_dependencies_cache_identity(
     entry_path: &SourcePath,
     module_map: &ModuleMap,
 ) -> ModuleDependenciesCacheIdentity {
-    let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
+    let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeSpec::Bare);
     let module = StableModuleKey::from_source_identity(file.path.identity());
     let source = source_content_fingerprint(&file.text);
     let source_len = file.text.len();
@@ -448,7 +453,7 @@ fn module_dependencies_cache_identity(
 }
 
 fn public_surface_facts_cache_identity(file: &SourceFile) -> PublicSurfaceFactsCacheIdentity {
-    let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
+    let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeSpec::Bare);
     let module = StableModuleKey::from_source_identity(file.path.identity());
     let source = source_content_fingerprint(&file.text);
     let source_len = file.text.len();

@@ -394,7 +394,7 @@ impl DriverActionExecutor {
                 format!("module `{}`", module_key.name()),
             )
         })?;
-        let request = self.check_request(action, module_key, runtime)?;
+        let request = self.check_request(action, module_key, target, runtime)?;
         let driver = self.driver(action, target)?;
         // The cheap manifest is sufficient for lookup. A successful check may
         // discover a different provider closure, so only its returned manifest
@@ -487,9 +487,8 @@ impl DriverActionExecutor {
                 format!("module `{}`", artifact.root_module.name()),
             )
         })?;
-        let request = self
-            .check_request(action, &artifact.root_module, artifact.runtime)?
-            .with_runtime(DriverRuntime::Freestanding);
+        let request =
+            self.check_request(action, &artifact.root_module, target, Runtime::Freestanding)?;
         let output = self.resolve_path(action, &artifact.output)?;
         let driver = self.driver(action, target)?;
         let mut cache_link_inputs = Vec::with_capacity(static_archives.len());
@@ -676,9 +675,8 @@ impl DriverActionExecutor {
                 format!("module `{}`", artifact.root_module.name()),
             )
         })?;
-        let request = self
-            .check_request(action, &artifact.root_module, artifact.runtime)?
-            .with_runtime(runtime_mode(artifact.runtime));
+        let request =
+            self.check_request(action, &artifact.root_module, target, artifact.runtime)?;
         let output = self.resolve_path(action, &artifact.output)?;
         let driver = self.driver(action, target)?;
         let emitted = driver
@@ -721,9 +719,8 @@ impl DriverActionExecutor {
                 format!("module `{}`", artifact.root_module.name()),
             )
         })?;
-        let request = self
-            .check_request(action, &artifact.root_module, artifact.runtime)?
-            .with_runtime(runtime_mode(artifact.runtime));
+        let request =
+            self.check_request(action, &artifact.root_module, target, artifact.runtime)?;
         let output = self.resolve_path(action, &artifact.output)?;
         let driver = self.driver(action, target)?;
         let emitted = driver
@@ -881,6 +878,7 @@ impl DriverActionExecutor {
         &self,
         action: &PlanAction,
         module_key: &ModuleKey,
+        target: &TargetSpec,
         runtime: Runtime,
     ) -> Result<CheckRequest, CoordinatorError> {
         let module = find_module(self.plan.modules(), module_key).ok_or_else(|| {
@@ -904,6 +902,14 @@ impl DriverActionExecutor {
                     }))
                 })?;
         }
+        let target = target_config(target);
+        let runtime =
+            runtime_spec(runtime, &self.invocation.toolchain, &target).map_err(|error| {
+                CoordinatorError::Driver {
+                    action: action.key.clone(),
+                    error: Box::new(DriverError::Runtime(error)),
+                }
+            })?;
         Ok(CheckRequest::from_source_path(entry)
             .with_module_map(module_map)
             .with_package_artifact(nia_loader_query::package_artifact_path(
@@ -913,7 +919,7 @@ impl DriverActionExecutor {
             .with_profile(self.invocation.profile)
             .with_compilation_mode(self.invocation.compilation_mode)
             .with_timings(self.invocation.timings)
-            .with_runtime(runtime_mode(runtime)))
+            .with_runtime(runtime))
     }
 
     fn artifact(

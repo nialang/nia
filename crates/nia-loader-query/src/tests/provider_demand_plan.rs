@@ -36,7 +36,7 @@ fn provider_demand_plan_remaps_logical_toolchain_paths_after_relocation() {
     write(&main_path, "using std::unicode;");
     let first_toolchain = provider_plan_toolchain(&root.join("first"));
     let second_toolchain = provider_plan_toolchain(&root.join("second"));
-    let request = |toolchain| {
+    let request = |toolchain: Arc<nia_toolchain::ToolchainLayout>| {
         LoadRequest::new(main_path.to_string_lossy().into_owned())
             .with_frontend_cache_dir(Some(cache_root.clone()))
             .with_toolchain_layout(toolchain)
@@ -98,9 +98,11 @@ fn provider_demand_plan_remaps_runtime_start_after_toolchain_relocation() {
     write(&main_path, "fn main() i32 { 0 }");
     let first_toolchain = provider_plan_toolchain(&root.join("first"));
     let second_toolchain = provider_plan_toolchain(&root.join("second"));
-    let request = |toolchain| {
+    let request = |toolchain: Arc<nia_toolchain::ToolchainLayout>| {
+        let runtime = RuntimeSpec::freestanding(&toolchain, toolchain.artifact_target())
+            .expect("host freestanding runtime");
         LoadRequest::new(main_path.to_string_lossy().into_owned())
-            .with_entry_runtime(EntryRuntime::Freestanding)
+            .with_runtime(runtime)
             .with_frontend_cache_dir(Some(cache_root.clone()))
             .with_toolchain_layout(toolchain)
     };

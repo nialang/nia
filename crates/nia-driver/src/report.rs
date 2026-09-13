@@ -288,6 +288,7 @@ pub fn render_driver_error(
             out.push('\n');
             out
         }
+        DriverError::Runtime(error) => format!("invalid runtime configuration: {error}\n"),
         DriverError::Io {
             path,
             operation: _,

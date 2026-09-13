@@ -117,7 +117,7 @@ impl crate::LoaderFactProvider for FingerprintedLoadedProgram {
         self.program.target()
     }
 
-    fn runtime(&self) -> RuntimeModel {
+    fn runtime(&self) -> RuntimeSpec {
         self.program.runtime()
     }
 }

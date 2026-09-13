@@ -98,22 +98,89 @@ impl LoadedProgramFixture {
         module_id
     }
 
+    fn add_child_with_source_path(
+        &mut self,
+        parent: ModuleId,
+        child_name: &str,
+        visibility: nia_ids::Visibility,
+        path: SourcePath,
+        source: &str,
+    ) -> ModuleId {
+        let module_id = self
+            .graph
+            .intern_declared_child_with_source_path(
+                parent,
+                &sym(child_name),
+                visibility,
+                Span::default(),
+                path.clone(),
+            )
+            .expect("intern child source path");
+        self.modules
+            .push(loaded_module_with_source_path(module_id, path, source));
+        module_id
+    }
+
     pub(super) fn add_freestanding_runtime(&mut self, source: &str) -> ModuleId {
-        let runtime_root_path = SourcePath::new("runtime/pkg.nia");
+        let runtime_root_path =
+            SourcePath::with_identity("runtime/pkg.nia", "toolchain:/runtime/pkg.nia");
         let runtime_root = self
             .graph
             .intern_runtime_package_root(runtime_root_path.clone());
-        self.modules
-            .push(loaded_module(runtime_root, runtime_root_path.as_str(), ""));
-        let start = self.add_child_with_visibility(
+        self.modules.push(loaded_module_with_source_path(
             runtime_root,
-            "start",
+            runtime_root_path,
+            "",
+        ));
+        let start_path =
+            SourcePath::with_identity("runtime/start.nia", "toolchain:/runtime/start.nia");
+        let start = self
+            .graph
+            .intern_declared_child_with_source_path(
+                runtime_root,
+                &sym("start"),
+                nia_ids::Visibility::PublicPkg,
+                Span::default(),
+                start_path.clone(),
+            )
+            .expect("intern runtime start");
+        self.modules.push(loaded_module_with_source_path(
+            start,
+            start_path,
+            "pub(pkg) module freestanding;",
+        ));
+        let freestanding = self.add_child_with_source_path(
+            start,
+            "freestanding",
             nia_ids::Visibility::PublicPkg,
-            "runtime/start.nia",
+            SourcePath::with_identity(
+                "runtime/start/freestanding.nia",
+                "toolchain:/runtime/start/freestanding.nia",
+            ),
+            "pub(pkg) module linux;",
+        );
+        let linux = self.add_child_with_source_path(
+            freestanding,
+            "linux",
+            nia_ids::Visibility::PublicPkg,
+            SourcePath::with_identity(
+                "runtime/start/freestanding/linux.nia",
+                "toolchain:/runtime/start/freestanding/linux.nia",
+            ),
+            "pub(pkg) module x86_64;",
+        );
+        let implementation = self.add_child_with_source_path(
+            linux,
+            "x86_64",
+            nia_ids::Visibility::PublicPkg,
+            SourcePath::with_identity(
+                "runtime/start/freestanding/linux/x86_64.nia",
+                "toolchain:/runtime/start/freestanding/linux/x86_64.nia",
+            ),
             source,
         );
         self.graph.mark_executable_root_subtree(start);
-        start
+        implementation
     }
 
     pub(super) fn update_module_source(
@@ -148,7 +215,7 @@ impl LoadedProgramFixture {
             target: TargetConfig::host(),
             profile: nia_target_config::BuildProfile::Debug,
             compilation_mode: nia_target_config::CompilationMode::Normal,
-            runtime: RuntimeModel::Bare,
+            runtime: RuntimeSpec::Bare,
             toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint::current(),
             modules: self.modules.clone(),
             diagnostics: Vec::new(),
@@ -168,7 +235,7 @@ impl LoadedProgramFixture {
         };
         fixture.add_freestanding_runtime(source);
         let mut program = fixture.program();
-        program.runtime = RuntimeModel::FreestandingExecutable;
+        program.runtime = test_freestanding_runtime();
         program
     }
 
@@ -179,6 +246,18 @@ impl LoadedProgramFixture {
 
 pub(super) fn loaded_module(id: ModuleId, path: &str, source: &str) -> LoadedModule {
     loaded_module_with_revision(id, path, source, SourceRevision::INITIAL)
+}
+
+fn loaded_module_with_source_path(id: ModuleId, path: SourcePath, source: &str) -> LoadedModule {
+    let mut module = loaded_module(id, path.as_str(), source);
+    module.path = path.clone();
+    module.source_identity = path.identity();
+    module
+}
+
+pub(super) fn test_freestanding_runtime() -> RuntimeSpec {
+    RuntimeSpec::freestanding_from_start_module("runtime/start.nia", &TargetConfig::host())
+        .expect("host test runtime")
 }
 
 fn loaded_module_with_revision(

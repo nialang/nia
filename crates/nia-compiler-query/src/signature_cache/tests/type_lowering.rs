@@ -14,7 +14,7 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
     ]);
     let namespace = crate::FrontendCacheNamespace::new(
         &nia_target_config::TargetConfig::host(),
-        crate::RuntimeModel::Bare,
+        crate::RuntimeSpec::Bare,
     );
     let key = crate::FrontendSignatureTypeLoweringCacheKey::new(
         namespace,

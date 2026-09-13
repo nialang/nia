@@ -7,7 +7,7 @@ fn check_certificate_roundtrips_and_retires_corruption() {
     let entry = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
     let namespace = crate::FrontendCacheNamespace::new(
         &nia_target_config::TargetConfig::host(),
-        crate::RuntimeModel::Bare,
+        crate::RuntimeSpec::Bare,
     );
     let input = crate::FrontendCheckInputFingerprint::from_parts([11, 29]);
     let key = crate::FrontendCheckCertificateCacheKey::new(
