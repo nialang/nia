@@ -9,8 +9,8 @@ fn host_freestanding_start_module() -> &'static str {
 }
 
 #[test]
-fn query_loader_injects_freestanding_entry_runtime_through_std_start_facade() {
-    let root = temp_dir("query_loader_injects_freestanding_entry_runtime_through_std_start_facade");
+fn query_loader_injects_freestanding_entry_runtime_through_runtime_start() {
+    let root = temp_dir("query_loader_injects_freestanding_entry_runtime_through_runtime_start");
     let main_path = root.join("main.nia");
     write(
         &main_path,
@@ -64,7 +64,7 @@ fn query_loader_injects_freestanding_entry_runtime_through_std_start_facade() {
         .declarations
         .iter()
         .find(|declaration| declaration.name == sym("start"))
-        .expect("injected std start declaration");
+        .expect("injected runtime start declaration");
     assert_eq!(
         start_declaration.visibility,
         nia_imports::Visibility::PublicPkg

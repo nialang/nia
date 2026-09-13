@@ -488,7 +488,7 @@ fn should_eager_add_declarations(context: &LoaderContext, node: &ModuleNode) -> 
             && context
                 .package_roots_with_used_paths
                 .contains(&node.module_path.package))
-        || node.module_path.is_std_start_module()
+        || node.module_path.is_runtime_start_module()
 }
 
 fn should_process_used_module_paths(context: &LoaderContext, node: &ModuleNode) -> bool {
@@ -667,7 +667,10 @@ pub(crate) fn add_visible_declared_module_path(
                         let current_processes = graph
                             .get(current)
                             .is_some_and(|node| node.process_used_paths);
-                        if caller_processes && !current_processes {
+                        let current_is_package_root = graph
+                            .get(current)
+                            .is_some_and(|node| node.module_path.is_package_root());
+                        if caller_processes && !current_processes && !current_is_package_root {
                             mark_process_used_paths_and_process(db, graph, current)?;
                         } else {
                             mark_semantic_used_paths_and_process(db, graph, current)?;

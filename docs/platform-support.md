@@ -23,10 +23,10 @@ The repository is exercised in these environments:
 - the maintainer's current Fedora Linux x86_64 environment;
 - managed `ubuntu-24.04` x86_64 correctness and performance workflows using
   LLVM 22; and
-- freestanding Linux x86_64 executable tests using the standard-library startup
-  facade and a target linker without CRT startup; and
+- freestanding Linux x86_64 executable tests using toolchain runtime startup
+  source and a target linker without CRT startup; and
 - experimental i686 workspace compilation and selected freestanding executable
-  tests using the standard-library `int 0x80` startup/syscall facade.
+  tests using runtime-owned `int 0x80` startup/syscall source.
 
 The i686 LLVM-backed matrix requires an LLVM installation whose headers include
 the target-width configuration (for the current LLVM 22 packages,
