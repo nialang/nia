@@ -2318,10 +2318,17 @@ impl CompilerDatabase {
                 &defs,
                 global.def_id,
             );
+            let specializes_self = defs
+                .defs
+                .get(global.def_id)
+                .is_some_and(|def| def.kind == nia_defs::DefKind::TraitMethod);
             // Extern/builtin const declarations are callable by the evaluator
-            // but have no source body to publish. Only definitions carrying a
-            // checked body enter the template section.
-            if !signature.has_body || (effective_generic_params.is_empty() && !signature.is_const) {
+            // but have no source body to publish. Trait defaults are templates
+            // even without explicit generics because every implementation
+            // specializes their implicit `Self` parameter.
+            if !signature.has_body
+                || (effective_generic_params.is_empty() && !signature.is_const && !specializes_self)
+            {
                 continue;
             }
             let checked = self.db.get(CheckedModuleQuery(global.module_id))?;
@@ -2765,6 +2772,123 @@ impl CompilerDatabase {
         self.signature_section_from_interface(package, resolver, interface, &indexes)
     }
 
+    fn append_interface_definition_chain(
+        &self,
+        definition: &DefinitionId,
+        stable_index: &StableDefinitionIndex,
+        published_definitions: &mut std::collections::BTreeSet<DefinitionId>,
+        pending: &mut Vec<(InterfaceRecord, Vec<InternedTyId>)>,
+        all_roots: &mut Vec<InternedTyId>,
+    ) -> QueryResult<bool> {
+        let mut chain = Vec::new();
+        let mut current = Some(definition.clone());
+        while let Some(identity) = current {
+            current = identity.owner.as_deref().cloned();
+            chain.push(identity);
+        }
+        chain.reverse();
+
+        let mut changed = false;
+        for identity in chain {
+            if !published_definitions.insert(identity.clone()) {
+                continue;
+            }
+            let global = stable_index.definition(&identity).ok_or_else(|| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    format!("interface definition is absent from definition index: {identity:?}"),
+                )
+            })?;
+            let defs = self.db.get(FullModuleDefsQuery(global.module_id))?;
+            let def = defs.semantic.defs.get(global.def_id).ok_or_else(|| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "interface definition is missing from module facts".to_string(),
+                )
+            })?;
+            let roots = self
+                .db
+                .get(ItemSignaturesQuery(global.module_id))?
+                .semantic
+                .type_roots_for_definition(global.def_id)
+                .unwrap_or_default();
+            all_roots.extend(roots.iter().copied());
+            pending.push((
+                InterfaceRecord {
+                    definition: identity,
+                    declaration: declaration_signature(def),
+                    type_roots: Vec::new(),
+                },
+                roots,
+            ));
+            changed = true;
+        }
+        Ok(changed)
+    }
+
+    fn close_interface_signature_members(
+        &self,
+        stable_index: &StableDefinitionIndex,
+        published_definitions: &mut std::collections::BTreeSet<DefinitionId>,
+        pending: &mut Vec<(InterfaceRecord, Vec<InternedTyId>)>,
+        all_roots: &mut Vec<InternedTyId>,
+    ) -> QueryResult<bool> {
+        let mut changed_any = false;
+        loop {
+            let mut required = Vec::new();
+            for definition in published_definitions.iter() {
+                let Some(global) = stable_index.definition(definition) else {
+                    continue;
+                };
+                let defs = self.db.get(FullModuleDefsQuery(global.module_id))?;
+                let Some(owner) = defs.semantic.defs.get(global.def_id) else {
+                    continue;
+                };
+                for (child_id, child) in defs.semantic.defs.iter() {
+                    if child.parent == Some(global.def_id)
+                        && signature_owner_requires_child(owner.kind, child.kind)
+                    {
+                        let child_global = GlobalDefId {
+                            module_id: global.module_id,
+                            def_id: child_id,
+                        };
+                        let identity = stable_index
+                            .iter()
+                            .find_map(|(identity, candidate)| {
+                                (*candidate == child_global).then_some(identity.clone())
+                            })
+                            .ok_or_else(|| {
+                                self.db.invalid_input(
+                                    &ModuleGraphQuery,
+                                    format!(
+                                        "signature member is absent from definition index: {child_global:?}"
+                                    ),
+                                )
+                            })?;
+                        if !published_definitions.contains(&identity) {
+                            required.push(identity);
+                        }
+                    }
+                }
+            }
+            required.sort();
+            required.dedup();
+            if required.is_empty() {
+                break;
+            }
+            for definition in required {
+                changed_any |= self.append_interface_definition_chain(
+                    &definition,
+                    stable_index,
+                    published_definitions,
+                    pending,
+                    all_roots,
+                )?;
+            }
+        }
+        Ok(changed_any)
+    }
+
     fn signature_section_from_interface(
         &self,
         package: PackageId,
@@ -2868,10 +2992,27 @@ impl CompilerDatabase {
                     )
                 })
                 .collect::<QueryResult<Vec<_>>>()?;
+            let method_order = trait_signature
+                .methods
+                .iter()
+                .map(|method| {
+                    let global = GlobalDefId {
+                        module_id: global.module_id,
+                        def_id: method.def_id,
+                    };
+                    stable_by_global.get(&global).cloned().ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            format!("published trait method has no stable identity: {global:?}"),
+                        )
+                    })
+                })
+                .collect::<QueryResult<Vec<_>>>()?;
             trait_records.push(nia_package_metadata::SignatureTraitRecord {
                 definition: item.definition.clone(),
                 supertraits,
                 members: members.get(&item.definition).cloned().unwrap_or_default(),
+                method_order,
                 builtin: trait_signature
                     .builtin
                     .map(nia_ids::BuiltinTrait::stable_tag),
@@ -2906,12 +3047,7 @@ impl CompilerDatabase {
                     type_indexes,
                 )?;
                 let mut extension_members = Vec::new();
-                let include_private_members = implementation.trait_ty.is_some();
                 for method in &implementation.methods {
-                    if method.visibility != nia_ids::Visibility::Public && !include_private_members
-                    {
-                        continue;
-                    }
                     if let Some(definition) = stable_by_global.get(&GlobalDefId {
                         module_id: module.id,
                         def_id: method.def_id,
@@ -2935,9 +3071,6 @@ impl CompilerDatabase {
                     }
                 }
                 for value in &implementation.associated_values {
-                    if value.visibility != nia_ids::Visibility::Public && !include_private_members {
-                        continue;
-                    }
                     if let Some(definition) = stable_by_global.get(&GlobalDefId {
                         module_id: module.id,
                         def_id: value.def_id,
@@ -3588,92 +3721,52 @@ impl CompilerDatabase {
                 );
             }
         }
-        all_roots.sort_unstable();
-        all_roots.dedup();
-        let (type_graph, indexes) = self
-            .stable_type_graph_for_roots_with_resolver_and_indexes(&all_roots, resolver)
-            .map_err(|error| {
-                self.db
-                    .invalid_input(&ModuleGraphQuery, format!("stable graph: {error}"))
-            })?;
-        // Type-graph nominal nodes can reference private implementation
-        // definitions that are not reachable through a published template
-        // relocation (for example a private field type of a public struct).
-        // Retain those identities in the interface so artifact rehydration
-        // can validate and remap them without loading dependency source.
-        let mut graph_definitions = Vec::new();
-        for node in &type_graph.nodes {
-            match node {
-                nia_package_metadata::StableTypeNode::Named(definition)
-                | nia_package_metadata::StableTypeNode::NamedApplied { definition, .. } => {
-                    graph_definitions.push(definition.clone());
+        self.close_interface_signature_members(
+            &stable_index,
+            &mut published_definitions,
+            &mut pending,
+            &mut all_roots,
+        )?;
+
+        // Definition signatures and the stable type graph form one closure.
+        // A signature member can introduce a new nominal type, and a nominal
+        // type discovered in the graph requires its complete owned signature.
+        // Rebuild until neither side contributes new definitions or roots.
+        let (type_graph, indexes) = loop {
+            all_roots.sort_unstable();
+            all_roots.dedup();
+            let (type_graph, indexes) = self
+                .stable_type_graph_for_roots_with_resolver_and_indexes(&all_roots, resolver)
+                .map_err(|error| {
+                    self.db
+                        .invalid_input(&ModuleGraphQuery, format!("stable graph: {error}"))
+                })?;
+            let mut graph_definitions = stable_type_graph_definitions(&type_graph);
+            graph_definitions.sort();
+            graph_definitions.dedup();
+            let mut changed = false;
+            for definition in graph_definitions {
+                if definition.module.package != package {
+                    continue;
                 }
-                nia_package_metadata::StableTypeNode::TraitObject {
-                    trait_id,
-                    associated_type_bindings,
-                    ..
-                }
-                | nia_package_metadata::StableTypeNode::TraitObjectPointee {
-                    trait_id,
-                    associated_type_bindings,
-                    ..
-                } => {
-                    if let Some(definition) = stable_trait_definition(trait_id) {
-                        graph_definitions.push(definition);
-                    }
-                    graph_definitions.extend(
-                        associated_type_bindings.iter().filter_map(|binding| {
-                            stable_trait_definition(binding.trait_id.as_ref()?)
-                        }),
-                    );
-                }
-                nia_package_metadata::StableTypeNode::Projection { trait_id, .. } => {
-                    if let Some(definition) = stable_trait_definition(trait_id) {
-                        graph_definitions.push(definition);
-                    }
-                }
-                nia_package_metadata::StableTypeNode::ClosureState { owner, .. } => {
-                    graph_definitions.push(owner.clone());
-                }
-                _ => {}
+                changed |= self.append_interface_definition_chain(
+                    &definition,
+                    &stable_index,
+                    &mut published_definitions,
+                    &mut pending,
+                    &mut all_roots,
+                )?;
             }
-        }
-        for definition in graph_definitions {
-            if definition.module.package != package || published_definitions.contains(&definition) {
-                continue;
+            changed |= self.close_interface_signature_members(
+                &stable_index,
+                &mut published_definitions,
+                &mut pending,
+                &mut all_roots,
+            )?;
+            if !changed {
+                break (type_graph, indexes);
             }
-            let Some((_, global)) = stable_index
-                .iter()
-                .find(|(candidate, _)| **candidate == definition)
-            else {
-                return Err(self.db.invalid_input(
-                    &ModuleGraphQuery,
-                    format!("type graph references unpublished definition: {definition:?}"),
-                ));
-            };
-            let defs = self.db.get(FullModuleDefsQuery(global.module_id))?;
-            let def = defs.semantic.defs.get(global.def_id).ok_or_else(|| {
-                self.db.invalid_input(
-                    &ModuleGraphQuery,
-                    "type graph definition is missing from module facts".to_string(),
-                )
-            })?;
-            let roots = self
-                .db
-                .get(ItemSignaturesQuery(global.module_id))?
-                .semantic
-                .type_roots_for_definition(global.def_id)
-                .unwrap_or_default();
-            published_definitions.insert(definition.clone());
-            pending.push((
-                InterfaceRecord {
-                    definition,
-                    declaration: declaration_signature(def),
-                    type_roots: Vec::new(),
-                },
-                roots,
-            ));
-        }
+        };
         let mut records = pending
             .into_iter()
             .map(|(mut record, roots)| {
@@ -5670,6 +5763,21 @@ fn def_kind_tag(kind: nia_defs::DefKind) -> u8 {
     }
 }
 
+fn signature_owner_requires_child(owner: nia_defs::DefKind, child: nia_defs::DefKind) -> bool {
+    use nia_defs::DefKind;
+    matches!(
+        (owner, child),
+        (DefKind::Struct, DefKind::StructField)
+            | (DefKind::Union, DefKind::UnionField)
+            | (DefKind::Enum, DefKind::EnumVariant)
+            | (DefKind::EnumVariant, DefKind::EnumVariantField)
+            | (
+                DefKind::Trait,
+                DefKind::TraitAssociatedType | DefKind::TraitMethod
+            )
+    )
+}
+
 fn stable_trait_definition(
     trait_id: &nia_package_metadata::StableTraitId,
 ) -> Option<nia_package_metadata::DefinitionId> {
@@ -5677,6 +5785,43 @@ fn stable_trait_definition(
         nia_package_metadata::StableTraitId::Source(definition) => Some(definition.clone()),
         nia_package_metadata::StableTraitId::Builtin(_) => None,
     }
+}
+
+fn stable_type_graph_definitions(graph: &StableTypeGraph) -> Vec<DefinitionId> {
+    let mut definitions = Vec::new();
+    for node in &graph.nodes {
+        match node {
+            nia_package_metadata::StableTypeNode::Named(definition)
+            | nia_package_metadata::StableTypeNode::NamedApplied { definition, .. } => {
+                definitions.push(definition.clone());
+            }
+            nia_package_metadata::StableTypeNode::TraitObject {
+                trait_id,
+                associated_type_bindings,
+                ..
+            }
+            | nia_package_metadata::StableTypeNode::TraitObjectPointee {
+                trait_id,
+                associated_type_bindings,
+                ..
+            } => {
+                definitions.extend(stable_trait_definition(trait_id));
+                definitions.extend(
+                    associated_type_bindings
+                        .iter()
+                        .filter_map(|binding| stable_trait_definition(binding.trait_id.as_ref()?)),
+                );
+            }
+            nia_package_metadata::StableTypeNode::Projection { trait_id, .. } => {
+                definitions.extend(stable_trait_definition(trait_id));
+            }
+            nia_package_metadata::StableTypeNode::ClosureState { owner, .. } => {
+                definitions.push(owner.clone());
+            }
+            _ => {}
+        }
+    }
+    definitions
 }
 
 fn signature_flags_for_definition(

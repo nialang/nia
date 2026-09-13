@@ -63,7 +63,7 @@ impl<'a> BodyChecker<'a> {
 
     pub(super) fn extension_method_lookup(
         module_id: ModuleId,
-        defs: &DefCollection,
+        _defs: &DefCollection,
         signatures: BodyLocalSignatures<'_>,
         extensions: BodyVisibleExtensions<'_>,
         local_normalization: &TypeNormalization,
@@ -75,9 +75,15 @@ impl<'a> BodyChecker<'a> {
             }
             let target_ty = local_normalization.normalize(impl_signature.target_ty);
             for method in &impl_signature.methods {
-                let mut effective_generics = impl_signature.generics.clone();
-                let mut effective_const_generics = impl_signature
-                    .generic_params
+                let mut effective_generic_params = impl_signature.generic_params.clone();
+                if let Some(signature) = signatures.functions.get(&method.def_id) {
+                    effective_generic_params.extend(signature.generic_params.iter().cloned());
+                }
+                let effective_generics = effective_generic_params
+                    .iter()
+                    .map(|generic| generic.name)
+                    .collect();
+                let effective_const_generics = effective_generic_params
                     .iter()
                     .filter_map(|generic| {
                         matches!(
@@ -87,10 +93,6 @@ impl<'a> BodyChecker<'a> {
                         .then_some(generic.name)
                     })
                     .collect::<Vec<_>>();
-                if let Some(def) = defs.defs.get(method.def_id) {
-                    effective_generics.extend(def.generics.iter().cloned());
-                    effective_const_generics.extend(def.const_generic_names());
-                }
                 methods.insert(
                     GlobalDefId {
                         module_id,

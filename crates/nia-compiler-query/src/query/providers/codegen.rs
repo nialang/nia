@@ -758,6 +758,48 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                     .collect(),
             );
         }
+        for (def_id, signature) in &signatures.structs {
+            artifact_generic_params.insert(
+                GlobalDefId {
+                    module_id: module.id,
+                    def_id: *def_id,
+                },
+                signature
+                    .generic_params
+                    .iter()
+                    .map(|param| {
+                        (
+                            param.name,
+                            matches!(
+                                param.kind,
+                                nia_item_signatures::GenericParamSignatureKind::Const { .. }
+                            ),
+                        )
+                    })
+                    .collect(),
+            );
+        }
+        for (def_id, signature) in &signatures.unions {
+            artifact_generic_params.insert(
+                GlobalDefId {
+                    module_id: module.id,
+                    def_id: *def_id,
+                },
+                signature
+                    .generic_params
+                    .iter()
+                    .map(|param| {
+                        (
+                            param.name,
+                            matches!(
+                                param.kind,
+                                nia_item_signatures::GenericParamSignatureKind::Const { .. }
+                            ),
+                        )
+                    })
+                    .collect(),
+            );
+        }
     }
     let function_lowering_diagnostics = function_lowering_diagnostics(&function_bodies);
     if !function_lowering_diagnostics.is_empty() {

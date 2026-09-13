@@ -27,7 +27,7 @@ const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 5;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG01";
-const SIGNATURE_SCHEMA: u32 = 9;
+const SIGNATURE_SCHEMA: u32 = 10;
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
 // Version 4 adds explicit stable definition/module/type relocations for the
 // checked Function IR body. There is intentionally no legacy decode path:
@@ -324,6 +324,8 @@ pub struct SignatureTraitRecord {
     pub definition: DefinitionId,
     pub supertraits: Vec<SignatureWhereBound>,
     pub members: Vec<SignatureMember>,
+    /// Trait method identities in canonical vtable slot order.
+    pub method_order: Vec<DefinitionId>,
     /// Stable builtin-trait tag.
     pub builtin: Option<u32>,
 }
@@ -617,6 +619,29 @@ impl SignatureSection {
             }
             validate_signature_where_bounds(&trait_record.supertraits)?;
             validate_signature_members(&trait_record.definition, &trait_record.members)?;
+            if trait_record.method_order.len() > MAX_ITEMS {
+                return Err(MetadataError::TooManyItems);
+            }
+            let mut ordered_methods = std::collections::BTreeSet::new();
+            for method in &trait_record.method_order {
+                validate_definition(method)?;
+                if !ordered_methods.insert(method)
+                    || !trait_record
+                        .members
+                        .iter()
+                        .any(|member| member.kind == 11 && member.definition == *method)
+                {
+                    return Err(MetadataError::InvalidManifest);
+                }
+            }
+            if trait_record
+                .members
+                .iter()
+                .filter(|member| member.kind == 11)
+                .any(|member| !ordered_methods.contains(&member.definition))
+            {
+                return Err(MetadataError::InvalidManifest);
+            }
         }
         for extension in &self.extensions {
             validate_module_id(&extension.module)?;
@@ -2500,6 +2525,10 @@ pub fn encode_signatures(section: &SignatureSection) -> Result<Vec<u8>, Metadata
             put_where_bound(&mut output, supertrait)?;
         }
         put_members(&mut output, &record.members)?;
+        put_list_len(&mut output, record.method_order.len())?;
+        for method in &record.method_order {
+            put_definition(&mut output, method)?;
+        }
         put_optional_u32(&mut output, record.builtin);
     }
     put_list_len(&mut output, section.extensions.len())?;
@@ -2598,6 +2627,14 @@ pub fn decode_signatures(bytes: &[u8]) -> Result<SignatureSection, MetadataError
             definition,
             supertraits,
             members: read_members(&mut cursor)?,
+            method_order: {
+                let count = bounded_count(get_u32(&mut cursor)?)?;
+                let mut methods = Vec::with_capacity(count);
+                for _ in 0..count {
+                    methods.push(read_definition(&mut cursor)?);
+                }
+                methods
+            },
             builtin: read_optional_u32(&mut cursor)?,
         });
     }
@@ -4566,6 +4603,7 @@ mod tests {
                     }],
                 }],
                 members: Vec::new(),
+                method_order: Vec::new(),
                 builtin: Some(1),
             }],
             extensions: vec![SignatureExtensionRecord {

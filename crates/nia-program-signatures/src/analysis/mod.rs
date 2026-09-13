@@ -308,19 +308,21 @@ pub fn collect_extension_method_index_for_module(
         let where_predicates =
             normalize_where_predicates(module.normalization, &impl_signature.where_predicates);
         for method in &impl_signature.methods {
-            let effective_generics =
-                extension_method_effective_generics(module, impl_signature, method, target_ty);
-            let mut effective_const_generics = impl_signature
-                .generic_params
+            let mut effective_generic_params = impl_signature.generic_params.clone();
+            if let Some(signature) = module.signatures.functions.get(&method.def_id) {
+                effective_generic_params.extend(signature.generic_params.iter().cloned());
+            }
+            let effective_generics = effective_generic_params
+                .iter()
+                .map(|generic| generic.name)
+                .collect();
+            let effective_const_generics = effective_generic_params
                 .iter()
                 .filter_map(|generic| {
                     matches!(generic.kind, GenericParamSignatureKind::Const { .. })
                         .then_some(generic.name)
                 })
                 .collect::<Vec<_>>();
-            if let Some(def) = module.defs.defs.get(method.def_id) {
-                effective_const_generics.extend(def.const_generic_names());
-            }
             extensions.insert_with_nominal_target(
                 module.module_id,
                 ExtensionMethod {
@@ -395,35 +397,6 @@ fn visibility_rank(visibility: Visibility) -> u8 {
         Visibility::PublicSuper => 1,
         Visibility::PublicPkg => 2,
         Visibility::Public => 3,
-    }
-}
-
-fn extension_method_effective_generics(
-    module: &impl ExtensionMethodModule,
-    impl_signature: &TraitImplSignature,
-    method: &nia_item_signatures::TraitImplMethodSignature,
-    _target_ty: InternedTyId,
-) -> Vec<SymbolId> {
-    let mut generics = impl_signature.generics.clone();
-    if let Some(def) = module.defs().defs.get(method.def_id) {
-        generics.extend(def.generics.iter().cloned());
-    }
-    generics
-}
-
-trait ExtensionMethodModule {
-    fn defs(&self) -> &DefCollection;
-}
-
-impl ExtensionMethodModule for ExtensionModuleInput<'_> {
-    fn defs(&self) -> &DefCollection {
-        self.defs
-    }
-}
-
-impl ExtensionMethodModule for ExtensionMethodIndexModuleInput<'_> {
-    fn defs(&self) -> &DefCollection {
-        self.defs
     }
 }
 
