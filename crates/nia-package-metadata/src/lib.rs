@@ -22,7 +22,9 @@ const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT01";
 // Version 6 adds a stable declaration disambiguator for overloads.
 const INTERFACE_SCHEMA: u32 = 6;
 const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
-const TYPE_GRAPH_SCHEMA: u32 = 4;
+// Version 5 gives closure-state types a package-stable owner identity. There
+// is intentionally no legacy decode path.
+const TYPE_GRAPH_SCHEMA: u32 = 5;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG01";
 const SIGNATURE_SCHEMA: u32 = 8;
@@ -1231,6 +1233,14 @@ pub enum StableTypeNode {
         trait_const_arguments: Vec<StableConstArg>,
         name: u64,
     },
+    /// Anonymous closure state owned by a stable function definition.
+    ClosureState {
+        owner: DefinitionId,
+        ordinal: u32,
+        captures: Vec<u32>,
+        parameters: Vec<u32>,
+        result: u32,
+    },
 }
 
 /// Canonical, bounded type graph for cross-package signature use.
@@ -1375,6 +1385,18 @@ impl StableTypeGraph {
                     references.extend(trait_arguments);
                     validate_stable_const_arguments(trait_const_arguments)?;
                     references.extend(trait_const_arguments.iter().map(|argument| &argument.ty));
+                }
+                StableTypeNode::ClosureState {
+                    owner,
+                    captures,
+                    parameters,
+                    result,
+                    ..
+                } => {
+                    validate_definition(owner)?;
+                    references.extend(captures);
+                    references.extend(parameters);
+                    references.push(result);
                 }
                 StableTypeNode::GenericParam(_) => {}
             }
@@ -3166,6 +3188,20 @@ pub fn encode_type_graph(graph: &StableTypeGraph) -> Result<Vec<u8>, MetadataErr
                 put_stable_const_args(&mut output, trait_const_arguments)?;
                 output.extend_from_slice(&name.to_le_bytes());
             }
+            StableTypeNode::ClosureState {
+                owner,
+                ordinal,
+                captures,
+                parameters,
+                result,
+            } => {
+                output.push(30);
+                put_definition(&mut output, owner)?;
+                put_u32(&mut output, *ordinal);
+                put_refs(&mut output, captures)?;
+                put_refs(&mut output, parameters)?;
+                put_u32(&mut output, *result);
+            }
         }
     }
     if output.len() > MAX_PACKAGE_BYTES {
@@ -3337,6 +3373,13 @@ pub fn decode_type_graph(bytes: &[u8]) -> Result<StableTypeGraph, MetadataError>
                 trait_arguments: read_refs(&mut cursor)?,
                 trait_const_arguments: read_stable_const_args(&mut cursor)?,
                 name: get_u64(&mut cursor)?,
+            },
+            30 => StableTypeNode::ClosureState {
+                owner: read_definition(&mut cursor)?,
+                ordinal: get_u32(&mut cursor)?,
+                captures: read_refs(&mut cursor)?,
+                parameters: read_refs(&mut cursor)?,
+                result: get_u32(&mut cursor)?,
             },
             _ => return Err(MetadataError::InvalidManifest),
         });
@@ -4999,6 +5042,36 @@ mod tests {
                 },
             ],
             roots: vec![1, 2],
+        };
+        let bytes = encode_type_graph(&graph).unwrap();
+        assert_eq!(decode_type_graph(&bytes).unwrap(), graph);
+    }
+
+    #[test]
+    fn stable_type_graph_round_trips_closure_state_owner() {
+        let package = sample().package;
+        let owner = DefinitionId {
+            module: ModuleId {
+                package,
+                path: "std/io".into(),
+            },
+            name: "map".into(),
+            kind: 2,
+            disambiguator: 7,
+            owner: None,
+        };
+        let graph = StableTypeGraph {
+            nodes: vec![
+                StableTypeNode::Primitive(3),
+                StableTypeNode::ClosureState {
+                    owner,
+                    ordinal: 1,
+                    captures: vec![0],
+                    parameters: vec![0],
+                    result: 0,
+                },
+            ],
+            roots: vec![1],
         };
         let bytes = encode_type_graph(&graph).unwrap();
         assert_eq!(decode_type_graph(&bytes).unwrap(), graph);

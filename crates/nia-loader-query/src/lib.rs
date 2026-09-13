@@ -1487,12 +1487,38 @@ fn compiled_provider_summary(
         .iter()
         .filter(|extension| extension.module == *module)
     {
-        let associated_methods = extension
+        let mut associated_methods = extension
             .members
             .iter()
             .filter(|member| member.kind == 11 || member.kind == 12)
             .filter_map(|member| symbols.intern(&member.name).ok())
-            .collect();
+            .collect::<std::collections::BTreeSet<_>>();
+        if let Some(trait_definition) =
+            extension
+                .trait_root
+                .and_then(|root| match graph.nodes.get(root as usize) {
+                    Some(nia_package_metadata::StableTypeNode::Named(definition))
+                    | Some(nia_package_metadata::StableTypeNode::NamedApplied {
+                        definition, ..
+                    }) => Some(definition),
+                    _ => None,
+                })
+            && let Some(trait_record) = signatures
+                .traits
+                .iter()
+                .find(|record| &record.definition == trait_definition)
+        {
+            associated_methods.extend(
+                trait_record
+                    .members
+                    .iter()
+                    .filter(|member| {
+                        member.kind == 11
+                            && member.flags & nia_package_metadata::SIGNATURE_FLAG_HAS_BODY != 0
+                    })
+                    .filter_map(|member| symbols.intern(&member.name).ok()),
+            );
+        }
         let associated_values = extension
             .members
             .iter()
@@ -1504,7 +1530,7 @@ fn compiled_provider_summary(
                 ty: type_ref(extension.target_root),
             },
             trait_ref: extension.trait_root.map(type_ref),
-            associated_methods,
+            associated_methods: associated_methods.into_iter().collect(),
             associated_values,
         });
     }

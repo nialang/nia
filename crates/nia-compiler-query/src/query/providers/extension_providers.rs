@@ -852,6 +852,33 @@ fn visible_trait_impl_modules_for_module(
     )
 }
 
+/// Returns artifact modules whose providers were selected by the loader's
+/// demand fixed point. Artifact modules have no source `using` scopes, so the
+/// ordinary visibility closure cannot rediscover this witness edge.
+fn selected_artifact_trait_witness_modules(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<Vec<ModuleId>> {
+    let graph = db.get(ModuleGraphQuery)?;
+    let mut modules = Vec::new();
+    for node in graph.modules() {
+        if node.id == module_id || !node.semantic_selected || !node.process_used_paths {
+            continue;
+        }
+        if db
+            .context()
+            .loader_facts()
+            .compiled_package_module_identity(node.id)?
+            .is_some()
+        {
+            modules.push(node.id);
+        }
+    }
+    modules.sort();
+    modules.dedup();
+    Ok(modules)
+}
+
 fn visible_modules_for_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
@@ -961,8 +988,14 @@ pub(super) fn provide_visible_extensions(
         .map(|providers| providers.modules.clone())
         .unwrap_or_default()
     };
-    let visible_modules = visible_provider_modules_for_module(db, module_id)?;
-    let trait_witness_modules = visible_trait_impl_modules_for_module(db, module_id)?;
+    let mut visible_modules = visible_provider_modules_for_module(db, module_id)?;
+    visible_modules.extend(selected_artifact_trait_witness_modules(db, module_id)?);
+    visible_modules.sort();
+    visible_modules.dedup();
+    let mut trait_witness_modules = visible_trait_impl_modules_for_module(db, module_id)?;
+    trait_witness_modules.extend(selected_artifact_trait_witness_modules(db, module_id)?);
+    trait_witness_modules.sort();
+    trait_witness_modules.dedup();
     let mut fact_modules = visible_modules.clone();
     fact_modules.extend(trait_witness_modules.iter().copied());
     fact_modules.sort();
@@ -1058,23 +1091,7 @@ pub(super) fn provide_visible_trait_impls(
         .unwrap_or_default()
     };
     let mut visible_modules = visible_trait_impl_modules_for_module(db, module_id)?;
-    // Artifact-backed provider modules do not carry source using-scope facts.
-    // The loader graph is the authoritative lazy-selection product: only
-    // compiled modules already selected there may contribute trait witnesses.
-    let graph_snapshot = db.get(ModuleGraphQuery)?;
-    for node in graph_snapshot.modules() {
-        if !node.semantic_selected || !node.process_used_paths {
-            continue;
-        }
-        if db
-            .context()
-            .loader_facts()
-            .compiled_package_module_identity(node.id)?
-            .is_some_and(|_| node.id != module_id)
-        {
-            visible_modules.push(node.id);
-        }
-    }
+    visible_modules.extend(selected_artifact_trait_witness_modules(db, module_id)?);
     visible_modules.sort();
     visible_modules.dedup();
     let mut trait_impls = Vec::new();

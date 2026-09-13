@@ -1869,6 +1869,27 @@ impl CompilerDatabase {
                         .rehydrate_stable_const_args(trait_const_arguments, &types)?,
                     name: SymbolId::from_stable_hash(*name),
                 }),
+                StableTypeNode::ClosureState {
+                    owner,
+                    ordinal,
+                    captures,
+                    parameters,
+                    result,
+                } => append.intern(nia_ty::TyKind::ClosureState {
+                    closure_id: nia_ids::ClosureId {
+                        owner: resolver.definition_for_identity(owner)?,
+                        ordinal: *ordinal,
+                    },
+                    captures: captures
+                        .iter()
+                        .map(|index| types[usize::try_from(*index).unwrap()])
+                        .collect(),
+                    params: parameters
+                        .iter()
+                        .map(|index| types[usize::try_from(*index).unwrap()])
+                        .collect(),
+                    return_type: types[usize::try_from(*result).unwrap()],
+                }),
             };
             types.push(ty);
         }
@@ -2277,10 +2298,16 @@ impl CompilerDatabase {
             let Some(signature) = signatures.semantic.functions.get(&global.def_id) else {
                 continue;
             };
+            let defs = full_module_defs_semantic(&self.db, global.module_id)?;
+            let effective_generic_params = providers::codegen::effective_function_generic_params(
+                &signatures.semantic,
+                &defs,
+                global.def_id,
+            );
             // Extern/builtin const declarations are callable by the evaluator
             // but have no source body to publish. Only definitions carrying a
             // checked body enter the template section.
-            if !signature.has_body || (signature.generic_params.is_empty() && !signature.is_const) {
+            if !signature.has_body || (effective_generic_params.is_empty() && !signature.is_const) {
                 continue;
             }
             let checked = self.db.get(CheckedModuleQuery(global.module_id))?;
@@ -3350,6 +3377,91 @@ impl CompilerDatabase {
                 }
             }
         }
+        // Private generic templates can reference further private generic
+        // templates through arbitrarily deep call chains. Close their
+        // declaration ownership transitively instead of relying on a fixed
+        // number of publication passes.
+        loop {
+            let interface_len_before = pending.len();
+            let complete_interface = InterfaceSection {
+                records: pending.iter().map(|(record, _)| record.clone()).collect(),
+            };
+            for template in self.checked_template_bodies(&complete_interface, resolver)? {
+                let mut relocations = collect_checked_function_body_relocations(&template.body)
+                    .map_err(|error| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            format!("failed to collect template closure roots: {error}"),
+                        )
+                    })?;
+                if let Some(ctfe_body) = &template.ctfe_body {
+                    let ctfe = collect_resolved_const_function_relocations(ctfe_body).map_err(
+                        |error| {
+                            self.db.invalid_input(
+                                &ModuleGraphQuery,
+                                format!("failed to collect CTFE template closure roots: {error}"),
+                            )
+                        },
+                    )?;
+                    relocations.types.extend(ctfe.types);
+                    relocations.definitions.extend(ctfe.definitions);
+                }
+                all_roots.extend(relocations.types);
+                for global in relocations.definitions {
+                    let Some((identity, _)) = stable_index.iter().find(|(identity, candidate)| {
+                        **candidate == global && identity.module.package == package
+                    }) else {
+                        return Err(self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            format!("template references unpublished definition: {global:?}"),
+                        ));
+                    };
+                    let mut identity = Some(identity.clone());
+                    while let Some(definition) = identity {
+                        if !published_definitions.insert(definition.clone()) {
+                            identity = definition.owner.as_deref().cloned();
+                            continue;
+                        }
+                        let Some((_, global)) = stable_index
+                            .iter()
+                            .find(|(candidate, _)| **candidate == definition)
+                        else {
+                            return Err(self.db.invalid_input(
+                                &ModuleGraphQuery,
+                                format!(
+                                    "template owner is absent from definition index: {definition:?}"
+                                ),
+                            ));
+                        };
+                        let defs = self.db.get(FullModuleDefsQuery(global.module_id))?;
+                        let def = defs.semantic.defs.get(global.def_id).ok_or_else(|| {
+                            self.db.invalid_input(
+                                &ModuleGraphQuery,
+                                "template definition is missing from module facts".to_string(),
+                            )
+                        })?;
+                        let roots = self
+                            .db
+                            .get(ItemSignaturesQuery(global.module_id))?
+                            .semantic
+                            .type_roots_for_definition(global.def_id)
+                            .unwrap_or_default();
+                        pending.push((
+                            InterfaceRecord {
+                                definition: definition.clone(),
+                                declaration: declaration_signature(def),
+                                type_roots: Vec::new(),
+                            },
+                            roots,
+                        ));
+                        identity = definition.owner.as_deref().cloned();
+                    }
+                }
+            }
+            if pending.len() == interface_len_before {
+                break;
+            }
+        }
         // Public extension records carry roots which are not necessarily
         // attached to a public item declaration (notably associated types and
         // their target/trait projections). Include those roots in the same
@@ -3436,6 +3548,9 @@ impl CompilerDatabase {
                     if let Some(definition) = stable_trait_definition(trait_id) {
                         graph_definitions.push(definition);
                     }
+                }
+                nia_package_metadata::StableTypeNode::ClosureState { owner, .. } => {
+                    graph_definitions.push(owner.clone());
                 }
                 _ => {}
             }
@@ -4754,6 +4869,24 @@ impl StableTypeGraphEncoder<'_> {
                 }
             }
             nia_ty::TyKind::GenericParam(name) => StableTypeNode::GenericParam(name.raw()),
+            nia_ty::TyKind::ClosureState {
+                closure_id,
+                captures,
+                params,
+                return_type,
+            } => StableTypeNode::ClosureState {
+                owner: self.definition(closure_id.owner)?,
+                ordinal: closure_id.ordinal,
+                captures: captures
+                    .into_iter()
+                    .map(|capture| self.encode(capture))
+                    .collect::<QueryResult<Vec<_>>>()?,
+                parameters: params
+                    .into_iter()
+                    .map(|param| self.encode(param))
+                    .collect::<QueryResult<Vec<_>>>()?,
+                result: self.encode(return_type)?,
+            },
             unsupported => {
                 return Err(self.unsupported(&format!(
                     "type form has no stable package encoding: {unsupported:?}"
@@ -5023,6 +5156,25 @@ impl StableTypeGraphEncoder<'_> {
             nia_ty::TyKind::GenericParam(name) => {
                 key.push(9);
                 key.extend_from_slice(&name.raw().to_le_bytes());
+            }
+            nia_ty::TyKind::ClosureState {
+                closure_id,
+                captures,
+                params,
+                return_type,
+            } => {
+                key.push(29);
+                append_definition_key(&mut key, &self.definition(closure_id.owner)?);
+                key.extend_from_slice(&closure_id.ordinal.to_le_bytes());
+                append_len(&mut key, captures.len());
+                for capture in captures {
+                    append_bytes(&mut key, &self.canonical_key(capture)?);
+                }
+                append_len(&mut key, params.len());
+                for param in params {
+                    append_bytes(&mut key, &self.canonical_key(param)?);
+                }
+                append_bytes(&mut key, &self.canonical_key(return_type)?);
             }
             unsupported => {
                 return Err(self.unsupported(&format!(
@@ -5450,22 +5602,16 @@ fn signature_flags_for_definition(
     signatures: &nia_item_signatures::ItemSignatures,
 ) -> u32 {
     match kind {
-        2 | 12 => signatures.functions.get(&def_id).map_or(0, |signature| {
-            let mut flags = 0;
-            if signature.has_body {
-                flags |= nia_package_metadata::SIGNATURE_FLAG_HAS_BODY;
-            }
-            if signature.is_extern {
-                flags |= nia_package_metadata::SIGNATURE_FLAG_EXTERN;
-            }
-            if signature.is_const {
-                flags |= nia_package_metadata::SIGNATURE_FLAG_CONST;
-            }
-            if signature.is_variadic {
-                flags |= nia_package_metadata::SIGNATURE_FLAG_VARIADIC;
-            }
-            flags
-        }),
+        2 | 12 => signatures
+            .functions
+            .get(&def_id)
+            .map_or(0, function_signature_flags),
+        11 => signatures
+            .traits
+            .values()
+            .flat_map(|signature| &signature.methods)
+            .find(|method| method.def_id == def_id)
+            .map_or(0, |method| function_signature_flags(&method.signature)),
         5 => signatures.structs.get(&def_id).map_or(0, |signature| {
             let mut flags = 0;
             if signature.is_extern {
@@ -5483,8 +5629,10 @@ fn signature_flags_for_definition(
             u32::from(signature.is_open) * nia_package_metadata::SIGNATURE_FLAG_OPEN
         }),
         3 => signatures.globals.get(&def_id).map_or(0, |signature| {
-            let mut flags =
-                u32::from(signature.is_extern) * nia_package_metadata::SIGNATURE_FLAG_EXTERN;
+            let mut flags = 0;
+            if signature.is_extern {
+                flags |= nia_package_metadata::SIGNATURE_FLAG_EXTERN;
+            }
             if signature.is_mutable {
                 flags |= nia_package_metadata::SIGNATURE_FLAG_MUTABLE;
             }
@@ -5493,6 +5641,23 @@ fn signature_flags_for_definition(
         4 => nia_package_metadata::SIGNATURE_FLAG_CONST,
         _ => 0,
     }
+}
+
+fn function_signature_flags(signature: &nia_item_signatures::FunctionSignature) -> u32 {
+    let mut flags = 0;
+    if signature.has_body {
+        flags |= nia_package_metadata::SIGNATURE_FLAG_HAS_BODY;
+    }
+    if signature.is_extern {
+        flags |= nia_package_metadata::SIGNATURE_FLAG_EXTERN;
+    }
+    if signature.is_const {
+        flags |= nia_package_metadata::SIGNATURE_FLAG_CONST;
+    }
+    if signature.is_variadic {
+        flags |= nia_package_metadata::SIGNATURE_FLAG_VARIADIC;
+    }
+    flags
 }
 
 fn signature_payload_for_definition(

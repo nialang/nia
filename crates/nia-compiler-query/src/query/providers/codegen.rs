@@ -268,7 +268,7 @@ fn function_bodies_from_checked_modules(
     )
 }
 
-fn artifact_function_bodies(
+pub(super) fn artifact_function_bodies(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<HashMap<GlobalDefId, Arc<nia_function_ir::FunctionBody>>> {
     let index = db.get(CompiledPackageInterfaceIndexQuery)?;
@@ -802,7 +802,8 @@ pub(in crate::query) fn effective_function_generic_params(
         } else if let Some(signature) = signatures.traits.get(&parent) {
             params.extend(signature.generic_params.iter().cloned());
         }
-    } else if let Some(signature) = signatures.trait_impls.iter().find(|signature| {
+    }
+    if let Some(signature) = signatures.trait_impls.iter().find(|signature| {
         signature
             .methods
             .iter()

@@ -271,7 +271,9 @@ impl ModuleLowerer<'_> {
             if !known.insert(instance.def_id) {
                 continue;
             }
-            let function = if instance.def_id.module_id == self.input.module_id {
+            let function = if instance.def_id.module_id == self.input.module_id
+                && !self.input.artifact_module
+            {
                 self.function_sources
                     .get(&instance.def_id)
                     .copied()
