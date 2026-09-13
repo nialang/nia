@@ -16,6 +16,23 @@ pub(crate) struct BackendLayoutExtender<'input, 'ctx> {
 }
 
 impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
+    pub(crate) fn remove_generic_nominal_layouts(&self, layouts: &mut BackendLayouts) {
+        layouts.structs.retain(|(def_id, _)| {
+            self.input
+                .signatures
+                .structs
+                .get(&def_id.def_id)
+                .is_none_or(|signature| signature.generics.is_empty())
+        });
+        layouts.unions.retain(|(def_id, _)| {
+            self.input
+                .signatures
+                .unions
+                .get(&def_id.def_id)
+                .is_none_or(|signature| signature.generics.is_empty())
+        });
+    }
+
     pub(crate) fn new(
         input: &'ctx BackendLowerModuleInput<'input>,
         type_store: &'ctx nia_ty::TypeStore,
@@ -41,6 +58,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             },
         );
         let input = self.input;
+        self.remove_generic_nominal_layouts(layouts);
         let array_lengths = |id: GlobalConstExprId| {
             if id.module_id == input.module_id {
                 return input.const_array_lengths.get(&id).copied();
@@ -73,12 +91,34 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 program,
             });
         append_missing_type_layouts(&mut layouts.types, computed.types);
-        append_missing_nominal_layouts(
+        let generic_structs = self
+            .input
+            .signatures
+            .structs
+            .iter()
+            .filter(|(_, signature)| !signature.generics.is_empty())
+            .map(|(def_id, _)| *def_id)
+            .collect::<HashSet<_>>();
+        let generic_unions = self
+            .input
+            .signatures
+            .unions
+            .iter()
+            .filter(|(_, signature)| !signature.generics.is_empty())
+            .map(|(def_id, _)| *def_id)
+            .collect::<HashSet<_>>();
+        append_missing_nominal_layouts_filtered(
             &mut layouts.structs,
             computed.structs,
             self.input.module_id,
+            |def_id| !generic_structs.contains(&def_id),
         );
-        append_missing_nominal_layouts(&mut layouts.unions, computed.unions, self.input.module_id);
+        append_missing_nominal_layouts_filtered(
+            &mut layouts.unions,
+            computed.unions,
+            self.input.module_id,
+            |def_id| !generic_unions.contains(&def_id),
+        );
         append_missing_nominal_layouts(&mut layouts.enums, computed.enums, self.input.module_id);
         let layout_input = nia_layout::LayoutComputationInput {
             type_store: self.type_store,
@@ -184,6 +224,30 @@ fn append_missing_nominal_layouts<Layout>(
         .map(|(def_id, _)| *def_id)
         .collect::<HashSet<_>>();
     for (def_id, layout) in computed {
+        let def_id = GlobalDefId {
+            module_id: default_module_id,
+            def_id,
+        };
+        if existing.insert(def_id) {
+            output.push((def_id, layout));
+        }
+    }
+}
+
+fn append_missing_nominal_layouts_filtered<Layout>(
+    output: &mut Vec<(GlobalDefId, Layout)>,
+    computed: HashMap<nia_ids::DefId, Layout>,
+    default_module_id: ModuleId,
+    include: impl Fn(nia_ids::DefId) -> bool,
+) {
+    let mut existing = output
+        .iter()
+        .map(|(def_id, _)| *def_id)
+        .collect::<HashSet<_>>();
+    for (def_id, layout) in computed {
+        if !include(def_id) {
+            continue;
+        }
         let def_id = GlobalDefId {
             module_id: default_module_id,
             def_id,

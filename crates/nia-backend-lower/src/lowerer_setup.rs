@@ -2,6 +2,7 @@
 //! Module-lowerer construction and initial source-item materialization.
 
 use super::*;
+use crate::layout_extender::BackendLayoutExtender;
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn new(
@@ -255,7 +256,14 @@ impl<'a> ModuleLowerer<'a> {
             const_eval: nia_backend_ir::BackendConstFacts {
                 array_lengths: self.input.const_array_lengths.clone(),
             },
-            layouts: BackendLayouts::from_module_layouts(self.input.layouts),
+            layouts: {
+                let mut layouts = BackendLayouts::from_module_layouts(self.input.layouts);
+                if self.input.artifact_module {
+                    BackendLayoutExtender::new(self.input, self.type_store)
+                        .remove_generic_nominal_layouts(&mut layouts);
+                }
+                layouts
+            },
             structs,
             unions,
             struct_instances,
