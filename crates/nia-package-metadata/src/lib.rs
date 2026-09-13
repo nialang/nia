@@ -34,7 +34,9 @@ const TEMPLATE_SCHEMA: u32 = 5;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
 const TEMPLATE_SUMMARY_SCHEMA: u32 = 1;
 const NATIVE_MAGIC: &[u8; 8] = b"NIANAT01";
-const NATIVE_SCHEMA: u32 = 2;
+// Version 3 makes native ownership explicit instead of requiring consumers
+// to infer package/source overlap from an artifact-local object key.
+const NATIVE_SCHEMA: u32 = 3;
 const PUBLIC_SURFACE_MAGIC: &[u8; 8] = b"NIAPUB01";
 const PUBLIC_SURFACE_SCHEMA: u32 = 2;
 
@@ -847,9 +849,34 @@ pub struct NativeTarget {
     pub pointer_width: u32,
 }
 
+/// Stable ownership role for one target/profile-specific native object.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum NativeObjectOwner {
+    /// Object emitted for one concrete package module partition.
+    PackageModule { module: ModuleId, ordinal: u32 },
+    /// Runtime startup object specialized for the selected runtime contract.
+    RuntimeStartup { module: ModuleId, ordinal: u32 },
+}
+
+impl NativeObjectOwner {
+    /// Returns the stable module identity owning this object.
+    pub fn module(&self) -> &ModuleId {
+        match self {
+            Self::PackageModule { module, .. } | Self::RuntimeStartup { module, .. } => module,
+        }
+    }
+
+    /// Returns whether this object supplies runtime startup code.
+    pub fn is_runtime_startup(&self) -> bool {
+        matches!(self, Self::RuntimeStartup { .. })
+    }
+}
+
 /// One target/profile-specific native object retained by a package artifact.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeObject {
+    /// Explicit stable owner and runtime role.
+    pub owner: NativeObjectOwner,
     pub key: String,
     /// Stable code-generation fingerprint of this object.
     pub fingerprint: [u64; 2],
@@ -944,6 +971,7 @@ impl NativeSection {
             return Err(MetadataError::TooManyItems);
         }
         for object in &self.objects {
+            validate_module_id(object.owner.module())?;
             validate_string(&object.key)?;
             validate_bytes(&object.bytes)?;
             if object.bytes.is_empty() {
@@ -953,7 +981,17 @@ impl NativeSection {
         if self
             .objects
             .windows(2)
-            .any(|pair| pair[0].key >= pair[1].key)
+            .any(|pair| {
+                (pair[0].owner.clone(), &pair[0].key)
+                    >= (pair[1].owner.clone(), &pair[1].key)
+            })
+        {
+            return Err(MetadataError::InvalidManifest);
+        }
+        if self
+            .objects
+            .windows(2)
+            .any(|pair| pair[0].owner == pair[1].owner)
         {
             return Err(MetadataError::InvalidManifest);
         }
@@ -2780,6 +2818,7 @@ pub fn encode_native(section: &NativeSection) -> Result<Vec<u8>, MetadataError> 
     output.push(section.optimization);
     put_list_len(&mut output, section.objects.len())?;
     for object in &section.objects {
+        put_native_object_owner(&mut output, &object.owner)?;
         put_string(&mut output, &object.key)?;
         output.extend_from_slice(&object.fingerprint[0].to_le_bytes());
         output.extend_from_slice(&object.fingerprint[1].to_le_bytes());
@@ -2807,6 +2846,7 @@ pub fn decode_native(bytes: &[u8]) -> Result<NativeSection, MetadataError> {
     let mut objects = Vec::with_capacity(count);
     for _ in 0..count {
         objects.push(NativeObject {
+            owner: read_native_object_owner(&mut cursor)?,
             key: get_string(&mut cursor)?,
             fingerprint: [get_u64(&mut cursor)?, get_u64(&mut cursor)?],
             bytes: get_bytes(&mut cursor)?,
@@ -2823,6 +2863,43 @@ pub fn decode_native(bytes: &[u8]) -> Result<NativeSection, MetadataError> {
     };
     section.validate()?;
     Ok(section)
+}
+
+fn put_native_object_owner(
+    output: &mut Vec<u8>,
+    owner: &NativeObjectOwner,
+) -> Result<(), MetadataError> {
+    match owner {
+        NativeObjectOwner::PackageModule { module, ordinal } => {
+            output.push(0);
+            put_module_id(output, module)?;
+            put_u32(output, *ordinal);
+        }
+        NativeObjectOwner::RuntimeStartup { module, ordinal } => {
+            output.push(1);
+            put_module_id(output, module)?;
+            put_u32(output, *ordinal);
+        }
+    }
+    Ok(())
+}
+
+fn read_native_object_owner(
+    cursor: &mut Cursor<&[u8]>,
+) -> Result<NativeObjectOwner, MetadataError> {
+    let owner = match read_u8(cursor)? {
+        0 => NativeObjectOwner::PackageModule {
+            module: read_module_id(cursor)?,
+            ordinal: get_u32(cursor)?,
+        },
+        1 => NativeObjectOwner::RuntimeStartup {
+            module: read_module_id(cursor)?,
+            ordinal: get_u32(cursor)?,
+        },
+        _ => return Err(MetadataError::InvalidManifest),
+    };
+    validate_module_id(owner.module())?;
+    Ok(owner)
 }
 
 /// Encodes a canonical stable type graph.
@@ -3885,6 +3962,11 @@ mod tests {
 
     #[test]
     fn native_section_round_trips_target_identity_and_objects() {
+        let package = PackageId {
+            namespace: "nia".into(),
+            name: "sample".into(),
+            version: "1".into(),
+        };
         let section = NativeSection {
             target: NativeTarget {
                 arch: "x86_64".into(),
@@ -3898,6 +3980,13 @@ mod tests {
             profile: 1,
             optimization: 2,
             objects: vec![NativeObject {
+                owner: NativeObjectOwner::PackageModule {
+                    module: ModuleId {
+                        package: package.clone(),
+                        path: "src/lib.nia".into(),
+                    },
+                    ordinal: 0,
+                },
                 key: "unit-0".into(),
                 fingerprint: [1, 2],
                 bytes: vec![0, 1, 2, 3],
@@ -3911,6 +4000,59 @@ mod tests {
             decode_native(&trailing),
             Err(MetadataError::InvalidManifest)
         );
+    }
+
+    #[test]
+    fn native_owner_roles_are_distinct_and_duplicate_owners_rejected() {
+        let package = PackageId {
+            namespace: "nia".into(),
+            name: "sample".into(),
+            version: "1".into(),
+        };
+        let module = |path: &str| ModuleId {
+            package: package.clone(),
+            path: path.into(),
+        };
+        let startup = NativeObjectOwner::RuntimeStartup {
+            module: module("runtime/start.nia"),
+            ordinal: 0,
+        };
+        let ordinary = NativeObjectOwner::PackageModule {
+            module: module("src/lib.nia"),
+            ordinal: 0,
+        };
+        assert_ne!(startup, ordinary);
+        let mut section = NativeSection {
+            target: NativeTarget {
+                arch: "x86_64".into(),
+                vendor: "unknown".into(),
+                os: "linux".into(),
+                env: "gnu".into(),
+                abi: "gnu".into(),
+                endian: "little".into(),
+                pointer_width: 64,
+            },
+            profile: 0,
+            optimization: 0,
+            objects: vec![
+                NativeObject {
+                    owner: ordinary.clone(),
+                    key: "ordinary".into(),
+                    fingerprint: [1, 0],
+                    bytes: vec![1],
+                },
+                NativeObject {
+                    owner: startup,
+                    key: "startup".into(),
+                    fingerprint: [2, 0],
+                    bytes: vec![2],
+                },
+            ],
+        };
+        let bytes = encode_native(&section).expect("distinct native owners encode");
+        assert_eq!(decode_native(&bytes).unwrap(), section);
+        section.objects[1].owner = ordinary;
+        assert_eq!(encode_native(&section), Err(MetadataError::InvalidManifest));
     }
 
     #[test]
