@@ -1342,9 +1342,8 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
     // is never the semantic cache boundary.
     let package = runner_cache::package_id(&cache_key);
     let package_artifact = runner_cache::package_path(invocation, &cache_key);
-    let package_check = check.clone().with_runtime(nia_toolchain::RuntimeSpec::Bare);
     let publication = driver.publish_package_artifact_with_native(
-        package_check,
+        check,
         package,
         package_artifact,
     );
