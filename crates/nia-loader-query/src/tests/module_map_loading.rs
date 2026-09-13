@@ -61,8 +61,12 @@ pub fn build() i32 {
     assert_no_error_diagnostics(&program);
     let dep = module_by_suffix(&program, "dep.nia");
     assert!(
-        dep.process_used_paths,
+        dep.semantic_selected,
         "selected module-map package root must be semantic: {dep:?}"
+    );
+    assert!(
+        !dep.process_used_paths,
+        "value-host selection must not eagerly process module paths: {dep:?}"
     );
 }
 
