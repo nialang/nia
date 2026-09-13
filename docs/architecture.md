@@ -709,8 +709,10 @@ One `Arc<ProgramIndex>` is built before validation and shared by all unit tasks.
 
 Invokes the system linker to produce executables. Handles linker selection (lld, system
 ld), link arguments, library paths, and startup objects. The default Linux x86_64
-runtime exports `_start` and calls the Nia-level root entry contract from standard-library
-code.
+runtime exports `_start` and calls the Nia-level root entry contract from toolchain-owned
+runtime source. The source is currently mounted as a private child of the internal `std`
+package so it can consume std-facing contracts; this logical mount is not std ownership or
+public API.
 
 ## 13. CLI
 

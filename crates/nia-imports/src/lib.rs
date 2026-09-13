@@ -227,8 +227,12 @@ impl ModulePath {
         is_std_module_root(self.package)
     }
 
-    /// Reports whether this path is the standard-library start module.
-    pub fn is_std_start_module(&self) -> bool {
+    /// Reports whether this path is the toolchain-owned runtime start module.
+    ///
+    /// The loader currently mounts this private implementation node below the
+    /// std package so startup can consume std-facing runtime contracts. That
+    /// logical placement is not a public std API or the ownership boundary.
+    pub fn is_runtime_start_module(&self) -> bool {
         self.is_std_package()
             && self
                 .segments
@@ -1440,18 +1444,18 @@ mod tests {
         assert!(root.is_package_root());
         assert!(root.is_entry_package());
         assert!(!root.is_std_package());
-        assert!(!root.is_std_start_module());
+        assert!(!root.is_runtime_start_module());
         assert_eq!(root.parent(), None);
 
         let child = root.child(known::START);
         assert!(!child.is_package_root());
         assert_eq!(child.parent(), Some(root.clone()));
-        assert!(!child.is_std_start_module());
+        assert!(!child.is_runtime_start_module());
 
         let std_start = ModulePath::root("std").child(known::START);
         assert!(std_start.is_std_package());
-        assert!(std_start.is_std_start_module());
-        assert!(!ModulePath::root("std").is_std_start_module());
+        assert!(std_start.is_runtime_start_module());
+        assert!(!ModulePath::root("std").is_runtime_start_module());
     }
 
     #[test]

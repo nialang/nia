@@ -1911,8 +1911,8 @@ fn main() () {}
 }
 
 #[test]
-fn std_start_injected_for_executables_is_not_public_api() {
-    let root = temp_dir("std_start_injected_for_executables_is_not_public_api");
+fn runtime_start_injected_for_executables_is_not_public_api() {
+    let root = temp_dir("runtime_start_injected_for_executables_is_not_public_api");
     write(
         &root.join("main.nia"),
         r#"
