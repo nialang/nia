@@ -3,4 +3,4 @@ resource-layout-schema=2
 compiler-version=0.2.0-dev
 std-schema=1
 build-protocol-schema=1
-package-metadata-schema=7
+package-metadata-schema=8

@@ -27,7 +27,9 @@ use nia_loader_query::{
     EntryRuntime, LoadRequest, LoaderDatabase, PackageArtifactRequest, SourceInputManifest,
 };
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
-use nia_package_metadata::{NativeObject, NativeSection, NativeTarget, PackageId, PackageManifest};
+use nia_package_metadata::{
+    CompilationTarget, NativeObject, NativeSection, PackageId, PackageManifest,
+};
 use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::{BuildProfile, TargetConfig};
 use nia_toolchain::ToolchainLayout;
@@ -745,7 +747,7 @@ impl Driver {
                 }
             };
             let mut native = NativeSection {
-                target: NativeTarget {
+                target: CompilationTarget {
                     arch: self.config.artifact_target.arch.clone(),
                     vendor: self.config.artifact_target.vendor.clone(),
                     os: self.config.artifact_target.os.clone(),

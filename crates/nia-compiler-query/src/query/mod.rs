@@ -3909,10 +3909,33 @@ impl CompilerDatabase {
             .collect::<QueryResult<Vec<_>>>()?;
         dependencies.sort_by(|left, right| left.package.cmp(&right.package));
         dependencies.dedup_by(|left, right| left.package == right.package);
+        let compilation_target = self.db.context().loader_facts().target();
+        let manifest_target = nia_package_metadata::CompilationTarget {
+            arch: compilation_target.arch,
+            vendor: compilation_target.vendor,
+            os: compilation_target.os,
+            env: compilation_target.env,
+            abi: compilation_target.abi,
+            endian: compilation_target.endian,
+            pointer_width: compilation_target.pointer_width,
+        };
+        let manifest_profile = match self.db.context().loader_facts().profile() {
+            nia_target_config::BuildProfile::Debug => 0,
+            nia_target_config::BuildProfile::Release => 1,
+        };
+        let manifest_mode = match self.db.context().loader_facts().compilation_mode() {
+            nia_target_config::CompilationMode::Normal => 0,
+            nia_target_config::CompilationMode::Test => 1,
+        };
         let manifest = PackageManifest {
             modules,
             dependencies,
-            ..PackageManifest::current(package.clone())
+            ..PackageManifest::current(
+                package.clone(),
+                manifest_target,
+                manifest_profile,
+                manifest_mode,
+            )
         };
         let type_graph_bytes =
             nia_package_metadata::encode_type_graph(&type_graph).map_err(|error| {
@@ -3924,6 +3947,14 @@ impl CompilerDatabase {
                 self.db
                     .invalid_input(&ModuleGraphQuery, format!("surface bytes: {error}"))
             })?;
+        if native.as_ref().is_some_and(|native| {
+            native.target != manifest.target || native.profile != manifest.profile
+        }) {
+            return Err(self.db.invalid_input(
+                &ModuleGraphQuery,
+                "native product does not match the package compilation context".to_string(),
+            ));
+        }
         let native_bytes = native
             .as_ref()
             .map(nia_package_metadata::encode_native)
@@ -4470,7 +4501,7 @@ impl CompilerDatabase {
 }
 
 fn native_target_matches(
-    native: &nia_package_metadata::NativeTarget,
+    native: &nia_package_metadata::CompilationTarget,
     target: &nia_target_config::TargetConfig,
 ) -> bool {
     native.arch == target.arch

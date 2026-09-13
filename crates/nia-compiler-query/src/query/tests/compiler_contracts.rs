@@ -2,6 +2,19 @@
 
 use super::*;
 
+fn host_native_target() -> nia_package_metadata::CompilationTarget {
+    let target = nia_target_config::TargetConfig::host();
+    nia_package_metadata::CompilationTarget {
+        arch: target.arch,
+        vendor: target.vendor,
+        os: target.os,
+        env: target.env,
+        abi: target.abi,
+        endian: target.endian,
+        pointer_width: target.pointer_width,
+    }
+}
+
 #[test]
 fn compiler_query_registry_covers_all_declared_query_contracts() {
     let descriptors = compiler_query_registry().descriptors();
@@ -991,12 +1004,12 @@ fn package_artifact_publication_can_embed_validated_native_product() {
         version: "1.0.0".into(),
     };
     let native = nia_package_metadata::NativeSection {
-        target: nia_package_metadata::NativeTarget {
+        target: nia_package_metadata::CompilationTarget {
             arch: "x86_64".into(),
             vendor: "unknown".into(),
             os: "linux".into(),
-            env: "gnu".into(),
-            abi: "gnu".into(),
+            env: String::new(),
+            abi: String::new(),
             endian: "little".into(),
             pointer_width: 64,
         },
@@ -1161,7 +1174,7 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
             let template_bytes = nia_package_metadata::encode_templates(&templates).unwrap();
             let native_target = nia_target_config::TargetConfig::host();
             let native = nia_package_metadata::NativeSection {
-                target: nia_package_metadata::NativeTarget {
+                target: nia_package_metadata::CompilationTarget {
                     arch: native_target.arch,
                     vendor: native_target.vendor,
                     os: native_target.os,
@@ -1186,7 +1199,12 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
                 }],
             };
             let native_bytes = nia_package_metadata::encode_native(&native).unwrap();
-            let mut manifest = nia_package_metadata::PackageManifest::current(package.clone());
+            let mut manifest = nia_package_metadata::PackageManifest::current(
+                package.clone(),
+                host_native_target(),
+                0,
+                0,
+            );
             manifest
                 .dependencies
                 .push(nia_package_metadata::PackageDependency {
@@ -1853,7 +1871,8 @@ fn compiled_interface_index_resolves_stable_definitions_without_session_handles(
         }],
     };
     let interface_bytes = nia_package_metadata::encode_interface(&interface).unwrap();
-    let mut manifest = nia_package_metadata::PackageManifest::current(package.clone());
+    let mut manifest =
+        nia_package_metadata::PackageManifest::current(package.clone(), host_native_target(), 0, 0);
     manifest
         .modules
         .push(nia_package_metadata::ModuleInterface {

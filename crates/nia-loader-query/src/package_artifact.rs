@@ -2,8 +2,10 @@
 //! Discovery and compatibility selection for compiled package metadata.
 
 use nia_package_metadata::{
-    CompiledPackageInterface, MetadataError, PackageArtifact, PackageId, SCHEMA_VERSION,
+    CompilationTarget, CompiledPackageInterface, MetadataError, PackageArtifact, PackageId,
+    SCHEMA_VERSION,
 };
+use nia_target_config::{BuildProfile, CompilationMode, TargetConfig};
 use nia_toolchain::ToolchainLayout;
 use std::{
     fs, io,
@@ -69,6 +71,18 @@ pub enum PackageArtifactMismatch {
     Package {
         expected: PackageId,
         found: PackageId,
+    },
+    Target {
+        expected: CompilationTarget,
+        found: CompilationTarget,
+    },
+    BuildProfile {
+        expected: BuildProfile,
+        found: u8,
+    },
+    CompilationMode {
+        expected: CompilationMode,
+        found: u8,
     },
 }
 
@@ -142,22 +156,50 @@ pub(crate) struct ArtifactCompatibility {
     compiler_version: String,
     std_schema: u32,
     metadata_schema: u32,
+    target: CompilationTarget,
+    profile: BuildProfile,
+    compilation_mode: CompilationMode,
 }
 
 impl ArtifactCompatibility {
-    pub(crate) fn current(toolchain: Option<&ToolchainLayout>) -> Self {
-        match toolchain {
-            Some(toolchain) => Self {
-                compiler_version: toolchain.identity().compiler_version().to_owned(),
-                std_schema: toolchain.identity().std_schema(),
-                metadata_schema: toolchain.identity().package_metadata_schema(),
-            },
-            None => Self {
-                compiler_version: nia_compat::COMPILER_VERSION.to_owned(),
-                std_schema: nia_compat::toolchain::STANDARD_LIBRARY,
-                metadata_schema: SCHEMA_VERSION,
-            },
+    pub(crate) fn current(
+        toolchain: Option<&ToolchainLayout>,
+        target: &TargetConfig,
+        profile: BuildProfile,
+        compilation_mode: CompilationMode,
+    ) -> Self {
+        let (compiler_version, std_schema, metadata_schema) = match toolchain {
+            Some(toolchain) => (
+                toolchain.identity().compiler_version().to_owned(),
+                toolchain.identity().std_schema(),
+                toolchain.identity().package_metadata_schema(),
+            ),
+            None => (
+                nia_compat::COMPILER_VERSION.to_owned(),
+                nia_compat::toolchain::STANDARD_LIBRARY,
+                SCHEMA_VERSION,
+            ),
+        };
+        Self {
+            compiler_version,
+            std_schema,
+            metadata_schema,
+            target: metadata_target(target),
+            profile,
+            compilation_mode,
         }
+    }
+}
+
+fn metadata_target(target: &TargetConfig) -> CompilationTarget {
+    CompilationTarget {
+        arch: target.arch.clone(),
+        vendor: target.vendor.clone(),
+        os: target.os.clone(),
+        env: target.env.clone(),
+        abi: target.abi.clone(),
+        endian: target.endian.clone(),
+        pointer_width: target.pointer_width,
     }
 }
 
@@ -226,6 +268,27 @@ pub(crate) fn load(
                     expected: expected.clone(),
                     found: manifest.package.clone(),
                 })
+        })
+        .or_else(|| {
+            (manifest.target != compatibility.target).then(|| PackageArtifactMismatch::Target {
+                expected: compatibility.target.clone(),
+                found: manifest.target.clone(),
+            })
+        })
+        .or_else(|| {
+            (manifest.profile != profile_tag(compatibility.profile)).then(|| {
+                PackageArtifactMismatch::BuildProfile {
+                    expected: compatibility.profile,
+                    found: manifest.profile,
+                }
+            })
+        })
+        .or_else(|| {
+            (manifest.compilation_mode != compilation_mode_tag(compatibility.compilation_mode))
+                .then(|| PackageArtifactMismatch::CompilationMode {
+                    expected: compatibility.compilation_mode,
+                    found: manifest.compilation_mode,
+                })
         });
     if let Some(mismatch) = mismatch {
         return fallback_or_error(request, PackageArtifactFallback::Incompatible(mismatch));
@@ -237,16 +300,33 @@ pub(crate) fn load(
     })
 }
 
+fn profile_tag(profile: BuildProfile) -> u8 {
+    match profile {
+        BuildProfile::Debug => 0,
+        BuildProfile::Release => 1,
+    }
+}
+
+fn compilation_mode_tag(mode: CompilationMode) -> u8 {
+    match mode {
+        CompilationMode::Normal => 0,
+        CompilationMode::Test => 1,
+    }
+}
+
 /// Selects a compiled package artifact with an optional package identity check.
 pub fn select_package_artifact(
     request: &PackageArtifactRequest,
     expected_package: Option<&PackageId>,
     toolchain: Option<&ToolchainLayout>,
+    target: &TargetConfig,
+    profile: BuildProfile,
+    compilation_mode: CompilationMode,
 ) -> Result<PackageArtifactLoad, PackageArtifactError> {
     load(
         request,
         expected_package,
-        &ArtifactCompatibility::current(toolchain),
+        &ArtifactCompatibility::current(toolchain, target, profile, compilation_mode),
     )
 }
 
