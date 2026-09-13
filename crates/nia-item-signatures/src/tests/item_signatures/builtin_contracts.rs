@@ -97,6 +97,36 @@ type Item;
 }
 
 #[test]
+fn projects_only_unambiguous_builtin_trait_identity() {
+    let (module, diagnostics) = nia_parser::parse_module(
+        r#"
+@[builtin("IntoError")]
+trait Conversion[Target] {}
+"#,
+    );
+    assert!(diagnostics.is_empty());
+    let item_tree = nia_item_tree::ModuleItemTree::from_module(&module);
+    assert_eq!(
+        crate::declared_builtin_trait(&item_tree.items[0].attributes),
+        Some(BuiltinTrait::IntoError)
+    );
+
+    let (module, diagnostics) = nia_parser::parse_module(
+        r#"
+@[builtin("IntoError")]
+@[builtin("Iterator")]
+trait Ambiguous {}
+"#,
+    );
+    assert!(diagnostics.is_empty());
+    let item_tree = nia_item_tree::ModuleItemTree::from_module(&module);
+    assert_eq!(
+        crate::declared_builtin_trait(&item_tree.items[0].attributes),
+        None
+    );
+}
+
+#[test]
 fn records_trait_associated_const_requirements() {
     let signatures = signatures_ok(
         r#"

@@ -487,6 +487,60 @@ pub(super) fn provide_full_module_defs(
     })
 }
 
+fn canonical_builtin_trait(
+    db: &QueryDb<CompilerContext>,
+    def_id: GlobalDefId,
+) -> QueryResult<Option<nia_ids::BuiltinTrait>> {
+    if let Some(identity) = db
+        .context()
+        .loader_facts()
+        .compiled_package_module_identity(def_id.module_id)?
+    {
+        if identity.package != nia_package_metadata::PackageId::standard_library() {
+            return Ok(None);
+        }
+        return Ok(db
+            .get(ItemSignaturesQuery(def_id.module_id))?
+            .semantic
+            .traits
+            .get(&def_id.def_id)
+            .and_then(|signature| signature.builtin));
+    }
+
+    let graph = db.get(ModuleGraphQuery)?;
+    let Some(std_root) = graph.std_package_root() else {
+        return Ok(None);
+    };
+    let mut cursor = Some(def_id.module_id);
+    let mut belongs_to_std = false;
+    while let Some(module_id) = cursor {
+        if module_id == std_root {
+            belongs_to_std = true;
+            break;
+        }
+        cursor = graph.get(module_id).and_then(|node| node.parent);
+    }
+    if !belongs_to_std {
+        return Ok(None);
+    }
+
+    let defs = module_defs_semantic(db, def_id.module_id)?;
+    if defs
+        .defs
+        .get(def_id.def_id)
+        .is_none_or(|definition| definition.kind != nia_defs::DefKind::Trait)
+    {
+        return Ok(None);
+    }
+    let item_tree = db.get(DeclarationActiveModuleItemTreeQuery(def_id.module_id))?;
+    Ok(item_tree.items.iter().find_map(|item| {
+        (defs.def_nodes.get(&item.node_key) == Some(def_id.def_id)
+            && matches!(item.kind, nia_item_tree::ItemTreeNodeKind::Trait(_)))
+        .then(|| nia_item_signatures::declared_builtin_trait(&item.attributes))
+        .flatten()
+    }))
+}
+
 fn shared_defs_by_module(db: &QueryDb<CompilerContext>) -> QueryResult<Vec<Arc<DefCollection>>> {
     let parse_ok_modules = db.get(ParseOkModuleIdsQuery)?;
     let _graph = db.get(ModuleGraphQuery)?;
@@ -642,6 +696,9 @@ pub(super) fn provide_type_resolution(
         let program_defs = |module_id| {
             capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id))
         };
+        let builtin_trait = |def_id| {
+            capture_query_failure(&query_failure, canonical_builtin_trait(db, def_id)).flatten()
+        };
         let symbols = db.context().symbols();
         let mut resolution =
             nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
@@ -650,6 +707,7 @@ pub(super) fn provide_type_resolution(
                 nia_type_resolve::ProgramDefsContext {
                     defs: Some(&program_defs),
                     graph: Some(graph.as_ref()),
+                    builtin_trait: Some(&builtin_trait),
                 },
                 &public_surfaces.surfaces,
                 using_scope.as_ref(),
@@ -682,6 +740,9 @@ pub(super) fn provide_declaration_type_resolution(
         let query_failure = RefCell::new(None);
         let program_defs =
             |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
+        let builtin_trait = |def_id| {
+            capture_query_failure(&query_failure, canonical_builtin_trait(db, def_id)).flatten()
+        };
         let symbols = db.context().symbols();
         let resolution =
             nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
@@ -690,6 +751,7 @@ pub(super) fn provide_declaration_type_resolution(
                 nia_type_resolve::ProgramDefsContext {
                     defs: Some(&program_defs),
                     graph: Some(graph.as_ref()),
+                    builtin_trait: Some(&builtin_trait),
                 },
                 &public_surfaces.surfaces,
                 using_scope.as_ref(),
@@ -789,12 +851,16 @@ pub(super) fn provide_signature_type_resolution(
         let query_failure = RefCell::new(None);
         let program_defs =
             |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
+        let builtin_trait = |def_id| {
+            capture_query_failure(&query_failure, canonical_builtin_trait(db, def_id)).flatten()
+        };
         let mut fresh = nia_type_resolve::resolve_module_declaration_types_from_active_item_tree_with_symbols_in_store(
             &active_item_tree,
             &defs,
             nia_type_resolve::ProgramDefsContext {
                 defs: Some(&program_defs),
                 graph: Some(graph.as_ref()),
+                builtin_trait: Some(&builtin_trait),
             },
             &public_surfaces.surfaces,
             using_scope.as_ref(),
@@ -853,6 +919,9 @@ pub(super) fn provide_signature_const_type_resolution(
         let query_failure = RefCell::new(None);
         let program_defs =
             |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
+        let builtin_trait = |def_id| {
+            capture_query_failure(&query_failure, canonical_builtin_trait(db, def_id)).flatten()
+        };
         let symbols = db.context().symbols();
         let resolution =
             nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
@@ -861,6 +930,7 @@ pub(super) fn provide_signature_const_type_resolution(
                 nia_type_resolve::ProgramDefsContext {
                     defs: Some(&program_defs),
                     graph: Some(graph.as_ref()),
+                    builtin_trait: Some(&builtin_trait),
                 },
                 &public_surfaces.surfaces,
                 using_scope.as_ref(),

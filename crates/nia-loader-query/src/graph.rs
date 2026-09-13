@@ -135,7 +135,9 @@ fn build_module_graph(
                         )?;
                     }
                     nia_compiler_query::ProviderRequest::ModuleBody { module_path } => {
-                        if let Some(module_id) = graph.module_id_for_path(module_path.as_str()) {
+                        if let Some(module_id) =
+                            graph.module_id_for_source_identity(&module_path.identity())
+                        {
                             record_traversal_diagnostic(
                                 mark_process_used_paths_and_process(db, &mut graph, module_id),
                                 &mut fresh_diagnostics,

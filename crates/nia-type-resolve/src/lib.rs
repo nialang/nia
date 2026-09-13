@@ -70,6 +70,8 @@ pub struct ProgramDefsContext<'a> {
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
     /// Provides module graph and import visibility information.
     pub graph: Option<&'a dyn ModuleGraphLookup>,
+    /// Resolves source definitions registered as canonical builtin traits.
+    pub builtin_trait: Option<&'a dyn Fn(GlobalDefId) -> Option<BuiltinTrait>>,
 }
 
 impl<'a> ProgramDefsContext<'a> {
@@ -78,6 +80,7 @@ impl<'a> ProgramDefsContext<'a> {
         Self {
             defs: None,
             graph: None,
+            builtin_trait: None,
         }
     }
 }
@@ -87,6 +90,7 @@ impl std::fmt::Debug for ProgramDefsContext<'_> {
         f.debug_struct("ProgramDefsContext")
             .field("defs", &self.defs.is_some())
             .field("graph", &self.graph.is_some())
+            .field("builtin_trait", &self.builtin_trait.is_some())
             .finish()
     }
 }
