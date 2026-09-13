@@ -55,12 +55,15 @@ fn query_loader_injects_freestanding_entry_runtime_through_runtime_start() {
             .modules()
             .any(|module| module.path.as_str().ends_with("lib/runtime/start.nia"))
     );
-    let std_root = program
+    let runtime_root = program
         .graph
-        .package_root(&sym("std"))
-        .expect("std package root");
-    let std = program.graph.get(std_root).expect("std entry module");
-    let start_declaration = std
+        .package_root(&sym("runtime"))
+        .expect("runtime package root");
+    let runtime = program
+        .graph
+        .get(runtime_root)
+        .expect("runtime package root module");
+    let start_declaration = runtime
         .declarations
         .iter()
         .find(|declaration| declaration.name == sym("start"))

@@ -128,6 +128,7 @@ pub mod known {
     known_symbol!(MODULE, "module");
     known_symbol!(BUILTIN, "builtin");
     known_symbol!(STD, "std");
+    known_symbol!(RUNTIME, "runtime");
     known_symbol!(NAKED, "naked");
     known_symbol!(TRACK_CALLER, "trackCaller");
     known_symbol!(DEBUG, "debug");
@@ -299,6 +300,7 @@ pub mod known {
         (MODULE, "module"),
         (BUILTIN, "builtin"),
         (STD, "std"),
+        (RUNTIME, "runtime"),
         (NAKED, "naked"),
         (TRACK_CALLER, "trackCaller"),
         (MAIN, "main"),
