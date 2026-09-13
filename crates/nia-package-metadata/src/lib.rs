@@ -34,9 +34,9 @@ const TEMPLATE_SCHEMA: u32 = 5;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
 const TEMPLATE_SUMMARY_SCHEMA: u32 = 1;
 const NATIVE_MAGIC: &[u8; 8] = b"NIANAT01";
-// Version 3 makes native ownership explicit instead of requiring consumers
-// to infer package/source overlap from an artifact-local object key.
-const NATIVE_SCHEMA: u32 = 3;
+// Version 4 adds an explicit compiler-builtins ownership role. Builtins are
+// target products shared by package objects, not members of a source module.
+const NATIVE_SCHEMA: u32 = 4;
 const PUBLIC_SURFACE_MAGIC: &[u8; 8] = b"NIAPUB01";
 const PUBLIC_SURFACE_SCHEMA: u32 = 2;
 
@@ -852,6 +852,8 @@ pub struct NativeTarget {
 /// Stable ownership role for one target/profile-specific native object.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NativeObjectOwner {
+    /// Compiler-generated target support object shared by package code.
+    CompilerBuiltins,
     /// Object emitted for one concrete package module partition.
     PackageModule { module: ModuleId, ordinal: u32 },
     /// Runtime startup object specialized for the selected runtime contract.
@@ -860,9 +862,12 @@ pub enum NativeObjectOwner {
 
 impl NativeObjectOwner {
     /// Returns the stable module identity owning this object.
-    pub fn module(&self) -> &ModuleId {
+    pub fn module(&self) -> Option<&ModuleId> {
         match self {
-            Self::PackageModule { module, .. } | Self::RuntimeStartup { module, .. } => module,
+            Self::CompilerBuiltins => None,
+            Self::PackageModule { module, .. } | Self::RuntimeStartup { module, .. } => {
+                Some(module)
+            }
         }
     }
 
@@ -971,7 +976,9 @@ impl NativeSection {
             return Err(MetadataError::TooManyItems);
         }
         for object in &self.objects {
-            validate_module_id(object.owner.module())?;
+            if let Some(module) = object.owner.module() {
+                validate_module_id(module)?;
+            }
             validate_string(&object.key)?;
             validate_bytes(&object.bytes)?;
             if object.bytes.is_empty() {
@@ -2865,6 +2872,9 @@ fn put_native_object_owner(
     owner: &NativeObjectOwner,
 ) -> Result<(), MetadataError> {
     match owner {
+        NativeObjectOwner::CompilerBuiltins => {
+            output.push(2);
+        }
         NativeObjectOwner::PackageModule { module, ordinal } => {
             output.push(0);
             put_module_id(output, module)?;
@@ -2891,9 +2901,12 @@ fn read_native_object_owner(
             module: read_module_id(cursor)?,
             ordinal: get_u32(cursor)?,
         },
+        2 => NativeObjectOwner::CompilerBuiltins,
         _ => return Err(MetadataError::InvalidManifest),
     };
-    validate_module_id(owner.module())?;
+    if let Some(module) = owner.module() {
+        validate_module_id(module)?;
+    }
     Ok(owner)
 }
 
@@ -4012,11 +4025,13 @@ mod tests {
             module: module("runtime/start.nia"),
             ordinal: 0,
         };
+        let builtins = NativeObjectOwner::CompilerBuiltins;
         let ordinary = NativeObjectOwner::PackageModule {
             module: module("src/lib.nia"),
             ordinal: 0,
         };
         assert_ne!(startup, ordinary);
+        assert_eq!(builtins.module(), None);
         let mut section = NativeSection {
             target: NativeTarget {
                 arch: "x86_64".into(),
@@ -4030,6 +4045,12 @@ mod tests {
             profile: 0,
             optimization: 0,
             objects: vec![
+                NativeObject {
+                    owner: builtins,
+                    key: "compiler-builtins".into(),
+                    fingerprint: [0, 0],
+                    bytes: vec![3],
+                },
                 NativeObject {
                     owner: ordinary.clone(),
                     key: "ordinary".into(),
@@ -4046,7 +4067,7 @@ mod tests {
         };
         let bytes = encode_native(&section).expect("distinct native owners encode");
         assert_eq!(decode_native(&bytes).unwrap(), section);
-        section.objects[1].owner = ordinary;
+        section.objects[2].owner = ordinary;
         assert_eq!(encode_native(&section), Err(MetadataError::InvalidManifest));
     }
 
