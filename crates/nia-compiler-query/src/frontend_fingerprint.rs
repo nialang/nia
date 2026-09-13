@@ -508,7 +508,6 @@ impl FrontendCacheNamespace {
             RuntimeSpec::Source(runtime) => {
                 builder.write_u8(1);
                 builder.write_str(runtime.package_root_identity());
-                builder.write_str(runtime.start_module_identity());
                 builder.write_str(runtime.entry_point().module_identity());
                 builder.write_str(runtime.entry_point().definition_name());
                 builder.write_str(runtime.entry_point().linker_symbol());
@@ -516,6 +515,7 @@ impl FrontendCacheNamespace {
                 for dependency in runtime.dependencies() {
                     builder.write_u8(match dependency {
                         nia_toolchain::RuntimeDependency::EntryPackage => 0,
+                        nia_toolchain::RuntimeDependency::StandardLibrary => 1,
                     });
                 }
             }
@@ -852,7 +852,7 @@ extend Value {
             baseline,
             FrontendCacheNamespace::new(
                 &target,
-                RuntimeSpec::freestanding_from_start_module("runtime/start.nia", &target)
+                RuntimeSpec::freestanding_from_package_root("runtime/pkg.nia", &target)
                     .expect("test runtime"),
             )
         );

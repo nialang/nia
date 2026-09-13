@@ -209,6 +209,7 @@ mod tests {
         )
         .unwrap();
         fs::write(resources.join("std/pkg.nia"), "").unwrap();
+        fs::write(resources.join("runtime/pkg.nia"), "pub(pkg) module start;").unwrap();
         fs::write(resources.join("runtime/start.nia"), "").unwrap();
         let toolchain = Arc::new(
             nia_toolchain::ToolchainLayout::resolve(

@@ -42,24 +42,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-/// Returns the synthetic, stable package-root identity for toolchain runtime
-/// resources. The root is graph-owned and source-backed with an empty facade;
-/// only its injected `start` child is a real runtime source module.
-pub(crate) fn runtime_start_module_path(runtime: &SourceRuntimeSpec) -> SourcePath {
-    SourcePath::with_identity(
-        runtime.start_module().to_string_lossy().into_owned(),
-        runtime.start_module_identity(),
-    )
-}
-
+/// Returns the physical and relocation-independent identity of the selected
+/// private runtime source package.
 pub(crate) fn runtime_package_root_path(runtime: &SourceRuntimeSpec) -> SourcePath {
-    let physical = runtime
-        .start_module()
-        .to_string_lossy()
-        .rsplit_once('/')
-        .map(|(parent, _)| format!("{parent}/pkg.nia"))
-        .unwrap_or_else(|| "runtime/pkg.nia".to_owned());
-    SourcePath::with_identity(physical, runtime.package_root_identity())
+    SourcePath::with_identity(
+        runtime.package_root().to_string_lossy().into_owned(),
+        runtime.package_root_identity(),
+    )
 }
 
 pub use nia_package_metadata::CompiledPackageInterface;
@@ -268,7 +257,6 @@ impl LoaderDatabase {
 
     /// Creates a loader sharing dependency and execution state with `session`.
     pub fn new_in_session(request: LoadRequest, session: QuerySession) -> Self {
-        let runtime_start_module = request.runtime.source().map(runtime_start_module_path);
         let toolchain_std_artifact = request
             .discover_toolchain_std_artifact
             .then_some(request.toolchain.as_ref())
@@ -357,16 +345,6 @@ impl LoaderDatabase {
             std_artifact_root.as_deref(),
         );
         let sources = request.sources;
-        if runtime_start_module.is_some() {
-            // The runtime package root is a synthetic facade used only for
-            // graph ownership. Keep it source-backed so normal query loading
-            // does not manufacture a missing-file diagnostic.
-            let runtime = request
-                .runtime
-                .source()
-                .expect("runtime start requires source runtime");
-            sources.set_source(runtime_package_root_path(runtime), "");
-        }
         for module in &selected_std_modules {
             sources.set_source(
                 SourcePath::with_identity(
@@ -395,7 +373,6 @@ impl LoaderDatabase {
             .chain(request.package_root.clone())
             .chain(module_map.entries().map(|(_, path)| path.clone()))
             .chain(runtime_package_root.clone())
-            .chain(runtime_start_module.clone())
             .collect::<Vec<_>>();
         let module_map_fingerprint = frontend_module_map_fingerprint_with_package_root(
             &module_map,

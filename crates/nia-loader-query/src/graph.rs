@@ -11,7 +11,7 @@ use crate::provider_loading::{
 };
 use crate::queries::module_declarations_query;
 use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
-use crate::{LoaderContext, RuntimeSpec, runtime_package_root_path, runtime_start_module_path};
+use crate::{LoaderContext, RuntimeSpec, runtime_package_root_path};
 use nia_compiler_query::{ProgramDiagnostic, ProgramDiagnosticBundles};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
@@ -21,7 +21,7 @@ use nia_imports::{
 use nia_query::{QueryDb, QueryError, QueryKey, QueryResult};
 use nia_source::SourcePath;
 use nia_span::Span;
-use nia_symbol::{SymbolId, known};
+use nia_symbol::SymbolId;
 
 #[derive(Debug)]
 pub(crate) enum TraversalError {
@@ -183,7 +183,7 @@ fn build_module_graph(
                     std::sync::Arc::new(db.context().symbols.clone()),
                 ),
             };
-            inject_entry_runtime(db, &mut graph, &mut fresh_diagnostics);
+            inject_entry_runtime(db, &mut graph);
             (
                 graph,
                 ProgramDiagnosticBundles::from_diagnostics_in(
@@ -823,34 +823,14 @@ fn add_declared_module_child_with_processing(
     )?)
 }
 
-fn inject_entry_runtime(
-    db: &QueryDb<LoaderContext>,
-    graph: &mut ModuleGraph,
-    diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
-) {
+fn inject_entry_runtime(db: &QueryDb<LoaderContext>, graph: &mut ModuleGraph) {
     match &db.context().runtime {
         RuntimeSpec::Bare => {}
         RuntimeSpec::Source(runtime) => {
-            let runtime_start = runtime_start_module_path(runtime);
             let runtime_root_path = runtime_package_root_path(runtime);
             let runtime_root = graph.intern_runtime_package_root(runtime_root_path);
-            match graph.intern_declared_child_with_source_path(
-                runtime_root,
-                &known::START,
-                nia_imports::Visibility::PublicPkg,
-                Span::default(),
-                runtime_start,
-            ) {
-                Ok(start_root) => graph.mark_executable_root_subtree(start_root),
-                Err(diagnostic) => {
-                    let path = graph
-                        .get(runtime_root)
-                        .map(|node| node.path.clone())
-                        .or_else(|| Some(runtime_start_module_path(runtime)))
-                        .unwrap_or_else(|| SourcePath::new("std"));
-                    diagnostics.push((path, diagnostic));
-                }
-            }
+            graph.mark_process_declared_children(runtime_root);
+            graph.mark_executable_root_subtree(runtime_root);
         }
     }
 }
