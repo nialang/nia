@@ -5,7 +5,8 @@ use crate::ctfe_template_codec::{
 };
 use crate::template_body_codec::{
     TemplateBodyDecodeContext, TemplateBodyEncodeContext,
-    collect_checked_function_body_relocations, decode_checked_function_body,
+    collect_checked_closure_entry_relocations, collect_checked_function_body_relocations,
+    decode_checked_closure_entries, decode_checked_function_body, encode_checked_closure_entries,
     encode_checked_function_body,
 };
 use crate::{
@@ -474,6 +475,7 @@ pub struct CompiledPackageTemplates {
 pub struct CompiledTemplate {
     pub definition: GlobalDefId,
     pub body: Option<nia_function_ir::FunctionBody>,
+    pub closure_entries: Vec<nia_function_ir::FunctionClosureEntry>,
     pub ctfe_body: Option<nia_const_ir::ResolvedConstFunction>,
     pub summary: nia_package_metadata::TemplateSummary,
 }
@@ -494,6 +496,7 @@ struct PublishedTemplateBody {
     definition: DefinitionId,
     global: GlobalDefId,
     body: nia_function_ir::FunctionBody,
+    closure_entries: Vec<nia_function_ir::FunctionClosureEntry>,
     ctfe_body: Option<nia_const_ir::ResolvedConstFunction>,
     parameter_count: u32,
 }
@@ -1110,6 +1113,16 @@ impl CompilerDatabase {
                                 format!("invalid checked template body: {error}"),
                             )
                         })?;
+                    let closure_entries = (!record.closure_entries.is_empty())
+                        .then(|| decode_checked_closure_entries(&record.closure_entries, &context))
+                        .transpose()
+                        .map_err(|error| {
+                            self.db.invalid_input(
+                                &CompiledPackageInterfaceIndexQuery,
+                                format!("invalid checked closure entries: {error}"),
+                            )
+                        })?
+                        .unwrap_or_default();
                     let ctfe_body = (!record.ctfe_body.is_empty())
                         .then(|| decode_resolved_const_function(&record.ctfe_body, &context))
                         .transpose()
@@ -1147,6 +1160,7 @@ impl CompilerDatabase {
                             CompiledTemplate {
                                 definition: owner,
                                 body,
+                                closure_entries,
                                 ctfe_body,
                                 summary,
                             },
@@ -2383,6 +2397,7 @@ impl CompilerDatabase {
                 definition: record.definition.clone(),
                 global,
                 body: lowered.body,
+                closure_entries: lowered.closure_entries,
                 ctfe_body,
                 parameter_count: u32::try_from(signature.params.len()).map_err(|_| {
                     self.db.invalid_input(
@@ -2459,6 +2474,20 @@ impl CompilerDatabase {
                         format!("failed to collect template relocations: {e}"),
                     )
                 })?;
+            let closure_relocations = collect_checked_closure_entry_relocations(
+                &template.closure_entries,
+            )
+            .map_err(|e| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    format!("failed to collect template closure relocations: {e}"),
+                )
+            })?;
+            relocations.types.extend(closure_relocations.types);
+            relocations
+                .definitions
+                .extend(closure_relocations.definitions);
+            relocations.modules.extend(closure_relocations.modules);
             if let Some(ctfe_body) = &template.ctfe_body {
                 let ctfe_relocations = collect_resolved_const_function_relocations(ctfe_body)
                     .map_err(|e| {
@@ -2608,6 +2637,15 @@ impl CompilerDatabase {
                     format!("failed to encode template body: {e}"),
                 )
             })?;
+            let closure_entries =
+                encode_checked_closure_entries(&template.closure_entries, &context).map_err(
+                    |e| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            format!("failed to encode template closure entries: {e}"),
+                        )
+                    },
+                )?;
             let ctfe_body = template
                 .ctfe_body
                 .as_ref()
@@ -2656,6 +2694,7 @@ impl CompilerDatabase {
                 referenced_modules: modules,
                 type_roots,
                 body,
+                closure_entries,
                 ctfe_body,
                 summary,
             });
@@ -2751,10 +2790,12 @@ impl CompilerDatabase {
             let declaration = nia_package_metadata::decode_declaration(&item.declaration)
                 .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
             let facts = self.db.get(ItemSignaturesQuery(global.module_id))?;
+            let defs = self.db.get(FullModuleDefsQuery(global.module_id))?;
             let flags = signature_flags_for_definition(global.def_id, kind, &facts.semantic);
             let (generic_params, where_predicates) = signature_generic_and_where_facts(
                 global.def_id,
                 &facts.semantic,
+                &defs.semantic,
                 &self.db.context().loader_facts().symbols(),
                 type_indexes,
             )?;
@@ -3179,13 +3220,27 @@ impl CompilerDatabase {
             .map(|(record, _)| record.definition.clone())
             .collect::<std::collections::BTreeSet<_>>();
         for template in &template_bodies {
-            let relocations =
-                collect_checked_function_body_relocations(&template.body).map_err(|e| {
+            let mut relocations = collect_checked_function_body_relocations(&template.body)
+                .map_err(|e| {
                     self.db.invalid_input(
                         &ModuleGraphQuery,
                         format!("failed to collect template type roots: {e}"),
                     )
                 })?;
+            let closure_relocations = collect_checked_closure_entry_relocations(
+                &template.closure_entries,
+            )
+            .map_err(|e| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    format!("failed to collect template closure roots: {e}"),
+                )
+            })?;
+            relocations.types.extend(closure_relocations.types);
+            relocations
+                .definitions
+                .extend(closure_relocations.definitions);
+            relocations.modules.extend(closure_relocations.modules);
             all_roots.extend(relocations.types);
             let mut referenced = relocations.definitions;
             if let Some(ctfe_body) = &template.ctfe_body {
@@ -3292,13 +3347,27 @@ impl CompilerDatabase {
                     roots,
                 ));
             }
-            let relocations =
-                collect_checked_function_body_relocations(&template.body).map_err(|e| {
+            let mut relocations = collect_checked_function_body_relocations(&template.body)
+                .map_err(|e| {
                     self.db.invalid_input(
                         &ModuleGraphQuery,
                         format!("failed to collect private template type roots: {e}"),
                     )
                 })?;
+            let closure_relocations = collect_checked_closure_entry_relocations(
+                &template.closure_entries,
+            )
+            .map_err(|e| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    format!("failed to collect private template closure roots: {e}"),
+                )
+            })?;
+            relocations.types.extend(closure_relocations.types);
+            relocations
+                .definitions
+                .extend(closure_relocations.definitions);
+            relocations.modules.extend(closure_relocations.modules);
             all_roots.extend(relocations.types);
             for global in relocations.definitions {
                 let Some((identity, _)) = stable_index.iter().find(|(identity, candidate)| {
@@ -3394,6 +3463,20 @@ impl CompilerDatabase {
                             format!("failed to collect template closure roots: {error}"),
                         )
                     })?;
+                let closure_relocations = collect_checked_closure_entry_relocations(
+                    &template.closure_entries,
+                )
+                .map_err(|error| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        format!("failed to collect template closure roots: {error}"),
+                    )
+                })?;
+                relocations.types.extend(closure_relocations.types);
+                relocations
+                    .definitions
+                    .extend(closure_relocations.definitions);
+                relocations.modules.extend(closure_relocations.modules);
                 if let Some(ctfe_body) = &template.ctfe_body {
                     let ctfe = collect_resolved_const_function_relocations(ctfe_body).map_err(
                         |error| {
@@ -5885,6 +5968,7 @@ fn signature_payload_for_definition(
 fn signature_generic_and_where_facts(
     def_id: DefId,
     signatures: &nia_item_signatures::ItemSignatures,
+    defs: &nia_defs::DefCollection,
     symbols: &dyn nia_symbol::SymbolText,
     indexes: &HashMap<InternedTyId, u32>,
 ) -> QueryResult<(
@@ -5892,33 +5976,47 @@ fn signature_generic_and_where_facts(
     Vec<nia_package_metadata::SignatureWherePredicate>,
 )> {
     let (params, predicates) = if let Some(signature) = signatures.functions.get(&def_id) {
-        (
-            &signature.generic_params[..],
-            &signature.where_predicates[..],
-        )
+        let params =
+            providers::codegen::effective_function_generic_params(signatures, defs, def_id);
+        let mut predicates = Vec::new();
+        if let Some(parent) = defs.defs.get(def_id).and_then(|def| def.parent)
+            && let Some(parent) = signatures.traits.get(&parent)
+        {
+            predicates.extend(parent.where_predicates.iter().cloned());
+        }
+        if let Some(extension) = signatures.trait_impls.iter().find(|extension| {
+            extension
+                .methods
+                .iter()
+                .any(|method| method.def_id == def_id)
+        }) {
+            predicates.extend(extension.where_predicates.iter().cloned());
+        }
+        predicates.extend(signature.where_predicates.iter().cloned());
+        (params, predicates)
     } else if let Some(signature) = signatures.structs.get(&def_id) {
         (
-            &signature.generic_params[..],
-            &signature.where_predicates[..],
+            signature.generic_params.clone(),
+            signature.where_predicates.clone(),
         )
     } else if let Some(signature) = signatures.unions.get(&def_id) {
         (
-            &signature.generic_params[..],
-            &signature.where_predicates[..],
+            signature.generic_params.clone(),
+            signature.where_predicates.clone(),
         )
     } else if let Some(signature) = signatures.traits.get(&def_id) {
         (
-            &signature.generic_params[..],
-            &signature.where_predicates[..],
+            signature.generic_params.clone(),
+            signature.where_predicates.clone(),
         )
     } else if let Some(signature) = signatures.type_aliases.get(&def_id) {
-        (&signature.generic_params[..], &[][..])
+        (signature.generic_params.clone(), Vec::new())
     } else {
-        (&[][..], &[][..])
+        (Vec::new(), Vec::new())
     };
     Ok((
-        signature_generic_params_to_wire(def_id, params, symbols, indexes)?,
-        signature_where_predicates_to_wire(def_id, predicates, symbols, indexes)?,
+        signature_generic_params_to_wire(def_id, &params, symbols, indexes)?,
+        signature_where_predicates_to_wire(def_id, &predicates, symbols, indexes)?,
     ))
 }
 

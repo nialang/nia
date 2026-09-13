@@ -14,7 +14,7 @@ pub(super) struct BackendLoweringInputs {
     visible_extensions: Vec<Arc<VisibleExtensionsValue>>,
     extension_methods: Arc<ExtensionMethodIndexValue>,
     function_bodies: Vec<LoweredFunctionBodyHandle>,
-    artifact_function_bodies: HashMap<GlobalDefId, Arc<nia_function_ir::FunctionBody>>,
+    artifact_function_bodies: HashMap<GlobalDefId, Arc<nia_function_lower::LoweredFunctionBody>>,
     function_body_ids: Vec<GlobalDefId>,
     function_body_indices: HashMap<GlobalDefId, usize>,
     static_inits: Vec<StaticInitHandle>,
@@ -41,7 +41,8 @@ pub(super) struct BackendLoweringInputsParts {
     pub(super) visible_extensions: Vec<Arc<VisibleExtensionsValue>>,
     pub(super) extension_methods: Arc<ExtensionMethodIndexValue>,
     pub(super) function_bodies: Vec<LoweredFunctionBodyHandle>,
-    pub(super) artifact_function_bodies: HashMap<GlobalDefId, Arc<nia_function_ir::FunctionBody>>,
+    pub(super) artifact_function_bodies:
+        HashMap<GlobalDefId, Arc<nia_function_lower::LoweredFunctionBody>>,
     pub(super) static_inits: Vec<StaticInitHandle>,
     pub(super) source_item_plans: Vec<Arc<BackendModuleSourceItemPlan>>,
     pub(super) function_instance_plans: Vec<Arc<BackendModuleFunctionInstancePlan>>,
@@ -200,13 +201,22 @@ impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
         self.function_body_indices
             .get(&def_id)
             .and_then(|index| self.function_bodies[*index].value.body())
-            .or_else(|| self.artifact_function_bodies.get(&def_id).map(Arc::as_ref))
+            .or_else(|| {
+                self.artifact_function_bodies
+                    .get(&def_id)
+                    .map(|body| &body.body)
+            })
     }
 
     fn closure_entries(&self, def_id: GlobalDefId) -> &[nia_function_ir::FunctionClosureEntry] {
         self.function_body_indices
             .get(&def_id)
             .map(|index| self.function_bodies[*index].value.closure_entries())
+            .or_else(|| {
+                self.artifact_function_bodies
+                    .get(&def_id)
+                    .map(|body| body.closure_entries.as_slice())
+            })
             .unwrap_or_default()
     }
 

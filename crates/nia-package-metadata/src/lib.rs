@@ -27,12 +27,12 @@ const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 5;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG01";
-const SIGNATURE_SCHEMA: u32 = 8;
+const SIGNATURE_SCHEMA: u32 = 9;
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
 // Version 4 adds explicit stable definition/module/type relocations for the
 // checked Function IR body. There is intentionally no legacy decode path:
 // bodies without relocation tables are not executable package products.
-const TEMPLATE_SCHEMA: u32 = 5;
+const TEMPLATE_SCHEMA: u32 = 6;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
 const TEMPLATE_SUMMARY_SCHEMA: u32 = 1;
 const NATIVE_MAGIC: &[u8; 8] = b"NIANAT01";
@@ -800,6 +800,8 @@ pub struct TemplateRecord {
     pub type_roots: Vec<u32>,
     /// Compiler-owned checked template payload.
     pub body: Vec<u8>,
+    /// Compiler-owned generated closure entry payloads for the checked body.
+    pub closure_entries: Vec<u8>,
     /// Compiler-owned resolved const-evaluation payload. Empty for definitions
     /// which are not callable during compile-time evaluation.
     pub ctfe_body: Vec<u8>,
@@ -2668,6 +2670,7 @@ pub fn encode_templates(section: &TemplateSection) -> Result<Vec<u8>, MetadataEr
         }
         put_refs(&mut output, &record.type_roots)?;
         put_bytes(&mut output, &record.body)?;
+        put_bytes(&mut output, &record.closure_entries)?;
         put_bytes(&mut output, &record.ctfe_body)?;
         put_bytes(&mut output, &record.summary)?;
     }
@@ -2715,6 +2718,7 @@ pub fn decode_templates(bytes: &[u8]) -> Result<TemplateSection, MetadataError> 
             referenced_modules,
             type_roots,
             body: get_bytes(&mut cursor)?,
+            closure_entries: get_bytes(&mut cursor)?,
             ctfe_body: get_bytes(&mut cursor)?,
             summary: get_bytes(&mut cursor)?,
         });
@@ -4309,6 +4313,7 @@ mod tests {
                 referenced_modules: Vec::new(),
                 type_roots: Vec::new(),
                 body: vec![1, 2, 3],
+                closure_entries: Vec::new(),
                 ctfe_body: Vec::new(),
                 summary: encode_template_summary(&TemplateSummary::default()).unwrap(),
             }],
@@ -4696,6 +4701,7 @@ mod tests {
                 referenced_modules: Vec::new(),
                 type_roots: Vec::new(),
                 body: vec![1],
+                closure_entries: Vec::new(),
                 ctfe_body: Vec::new(),
                 summary: b"opaque summary".to_vec(),
             }],
@@ -4728,6 +4734,7 @@ mod tests {
                 referenced_modules: Vec::new(),
                 type_roots: Vec::new(),
                 body: vec![1],
+                closure_entries: Vec::new(),
                 ctfe_body: Vec::new(),
                 summary,
             }],

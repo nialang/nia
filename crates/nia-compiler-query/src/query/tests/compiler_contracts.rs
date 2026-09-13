@@ -409,6 +409,81 @@ fn source_free_dependency_generic_body_reaches_backend_without_source_queries() 
 }
 
 #[test]
+fn source_free_generic_closure_rehydrates_its_generated_entry() {
+    let dependency = LoadedProgramFixture::new(
+        "src/dependency.nia",
+        r#"
+pub fn capture[T](value: T) T {
+    let callback = \[value] -> { value };
+    callback()
+}
+"#,
+    );
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "generic-closure-dependency".into(),
+        version: "1.0.0".into(),
+    };
+    let artifact = nia_package_metadata::PackageArtifact::open(
+        dependency
+            .database()
+            .publish_package_artifact(package.clone())
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
+    let templates = artifact.templates().unwrap().unwrap();
+    assert_eq!(templates.records.len(), 1);
+    assert!(!templates.records[0].closure_entries.is_empty());
+    let compiled =
+        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap();
+
+    let mut consumer = LoadedProgramFixture::new(
+        "src/main.nia",
+        "using dependency::capture; fn main() i32 { capture[i32](7) }",
+    );
+    let dependency_module =
+        consumer.add_child(consumer.entry_id(), "dependency", "src/dependency.nia", "");
+    let loader = TestLoaderFacts::new(
+        consumer.program(),
+        crate::ProviderFactSnapshot::empty(crate::ProviderFactRevision::default()),
+    );
+    let identity = compiled
+        .module_identities()
+        .next()
+        .expect("dependency module identity");
+    loader.replace_compiled_interfaces(vec![compiled]);
+    loader.replace_compiled_module_identities(HashMap::from([(dependency_module, identity)]));
+    let database = super::super::CompilerDatabase::new(
+        CompileRequest::new(consumer.program()).with_loader_facts(loader),
+    );
+    database
+        .install_compiled_package_module_interfaces()
+        .unwrap();
+    let resolver = |definition: &nia_package_metadata::DefinitionId| {
+        database.resolve_loaded_definition(definition, &package)
+    };
+    database
+        .install_compiled_interface_type_roots(&resolver)
+        .unwrap();
+    database.install_compiled_package_declarations().unwrap();
+    database.install_compiled_package_templates().unwrap();
+    database.install_compiled_package_signatures().unwrap();
+
+    let backend = database.db.expect_get(BackendLoweringQuery);
+    assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
+    let dependency = backend
+        .semantic
+        .program
+        .modules
+        .iter()
+        .find(|module| module.id == dependency_module)
+        .expect("dependency backend module");
+    assert_eq!(dependency.function_instances.len(), 1);
+    assert_eq!(dependency.closure_entries.len(), 1);
+}
+
+#[test]
 fn source_free_generic_extension_reconstructs_effective_parameters() {
     let dependency = LoadedProgramFixture::new(
         "src/dependency.nia",
@@ -433,6 +508,20 @@ extend[Value] ?Value {
             .bytes,
     )
     .unwrap();
+    let wire_signatures = artifact.signatures().unwrap().unwrap();
+    let wire_map = wire_signatures
+        .records
+        .iter()
+        .find(|record| record.definition.name == "map")
+        .expect("published map signature");
+    assert_eq!(
+        wire_map
+            .generic_params
+            .iter()
+            .map(|param| param.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Value", "Mapped"]
+    );
     let compiled =
         nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap();
 
@@ -1057,6 +1146,7 @@ fn package_artifact_publication_rejects_template_for_unknown_definition() {
             referenced_modules: Vec::new(),
             type_roots: Vec::new(),
             body: vec![1],
+            closure_entries: Vec::new(),
             ctfe_body: Vec::new(),
             summary: nia_package_metadata::encode_template_summary(
                 &nia_package_metadata::TemplateSummary::default(),
@@ -1156,6 +1246,7 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
                     referenced_modules: Vec::new(),
                     type_roots: Vec::new(),
                     body: template_body.to_vec(),
+                    closure_entries: Vec::new(),
                     ctfe_body: Vec::new(),
                     summary: nia_package_metadata::encode_template_summary(
                         &nia_package_metadata::TemplateSummary::default(),

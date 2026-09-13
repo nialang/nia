@@ -6,11 +6,9 @@ pub(in crate::query) fn provide_backend_module_source_item_plan(
     module_id: ModuleId,
 ) -> QueryResult<BackendModuleSourceItemPlan> {
     let facts = db.get(ExecutableCheckedModuleFactsQuery)?;
-    let module = facts
-        .modules
-        .iter()
-        .find(|module| module.id == module_id)
-        .unwrap_or_else(|| panic!("Nia ICE: missing executable facts for module {module_id:?}"));
+    let Some(module) = facts.modules.iter().find(|module| module.id == module_id) else {
+        panic!("Nia ICE: missing executable facts for module {module_id:?}");
+    };
     let mut functions = facts
         .runtime_functions
         .iter()
@@ -57,8 +55,9 @@ pub(in crate::query) fn provide_backend_module_function_instance_plan(
 ) -> QueryResult<BackendModuleFunctionInstancePlan> {
     let facts = db.get(ExecutableCheckedModuleFactsQuery)?;
     assert!(
-        facts.modules.iter().any(|module| module.id == module_id),
-        "Nia ICE: missing executable facts for module {module_id:?}"
+        facts.modules.iter().any(|module| module.id == module_id)
+            || is_compiled_artifact_module(db, module_id),
+        "Nia ICE: missing executable or artifact facts for module {module_id:?}"
     );
     let monomorphization = db.get(MonomorphizationQuery)?;
     let mut instances = monomorphization
@@ -175,7 +174,8 @@ pub(super) fn monomorphization_for_checked_modules(
             continue;
         };
         semantic_instantiations[index].extend(
-            body.value_refs(&db.context().type_store)
+            body.body
+                .value_refs(&db.context().type_store)
                 .function_instances
                 .into_iter()
                 .map(|instance| nia_sema_ir::GenericInstantiation {
@@ -270,14 +270,20 @@ fn function_bodies_from_checked_modules(
 
 pub(super) fn artifact_function_bodies(
     db: &QueryDb<CompilerContext>,
-) -> QueryResult<HashMap<GlobalDefId, Arc<nia_function_ir::FunctionBody>>> {
+) -> QueryResult<HashMap<GlobalDefId, Arc<nia_function_lower::LoweredFunctionBody>>> {
     let index = db.get(CompiledPackageInterfaceIndexQuery)?;
     let mut bodies = HashMap::new();
     for (package, _) in index.packages() {
         let templates = db.get(CompiledPackageTemplatesQuery(package.clone()))?;
         for (_, template) in templates.iter() {
             if let Some(body) = &template.body {
-                bodies.insert(template.definition, Arc::new(body.clone()));
+                bodies.insert(
+                    template.definition,
+                    Arc::new(nia_function_lower::LoweredFunctionBody {
+                        body: body.clone(),
+                        closure_entries: template.closure_entries.clone(),
+                    }),
+                );
             }
         }
     }
@@ -320,12 +326,7 @@ pub(in crate::query) fn provide_lowered_function_body(
     // provider to reconstruct a source body for an artifact-owned definition.
     let imported = imported_template_body(db, def_id)?;
     if let Some(imported) = imported {
-        return Ok(LoweredFunctionBodyValue::Body(
-            nia_function_lower::LoweredFunctionBody {
-                body: imported,
-                closure_entries: Vec::new(),
-            },
-        ));
+        return Ok(LoweredFunctionBodyValue::Body(imported));
     }
     let checked_body = db.get(ExecutableFunctionBodyQuery(def_id))?;
     let body = match checked_body.as_ref() {
@@ -355,7 +356,7 @@ pub(in crate::query) fn provide_lowered_function_body(
 fn imported_template_body(
     db: &QueryDb<CompilerContext>,
     def_id: GlobalDefId,
-) -> QueryResult<Option<nia_function_ir::FunctionBody>> {
+) -> QueryResult<Option<nia_function_lower::LoweredFunctionBody>> {
     let index = db.get(CompiledPackageInterfaceIndexQuery)?;
     for (package, interface) in index.packages() {
         let Some(templates) = interface.templates() else {
@@ -369,7 +370,15 @@ fn imported_template_body(
                 return Ok(compiled
                     .iter()
                     .find(|(_, template)| template.definition == def_id)
-                    .and_then(|(_, template)| template.body.clone()));
+                    .and_then(|(_, template)| {
+                        template
+                            .body
+                            .clone()
+                            .map(|body| nia_function_lower::LoweredFunctionBody {
+                                body,
+                                closure_entries: template.closure_entries.clone(),
+                            })
+                    }));
             }
         }
     }
@@ -814,7 +823,11 @@ pub(in crate::query) fn effective_function_generic_params(
     if let Some(signature) = signatures.functions.get(&def_id) {
         params.extend(signature.generic_params.iter().cloned());
     }
+    let mut seen = HashSet::new();
     params
+        .into_iter()
+        .filter(|param| seen.insert(param.name))
+        .collect()
 }
 
 pub(super) fn early_program_diagnostics(
