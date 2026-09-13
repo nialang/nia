@@ -1180,9 +1180,7 @@ fn executable_root_defs(
             Ok((functions, globals))
         }
         RuntimeModel::FreestandingExecutable => {
-            let mut functions = named_top_level_function(db, entry, known::MAIN)?
-                .into_iter()
-                .collect::<Vec<_>>();
+            let mut functions = Vec::new();
             let parse_ok = parse_ok.iter().copied().collect::<HashSet<_>>();
             let mut start_module = None;
             for module_id in runtime_root_modules.iter().copied() {

@@ -10,7 +10,7 @@ fn executable_type_only_modules_keep_signature_const_enum_values() {
 module types;
 using entry::types;
 
-fn main(value: types::Mode) i32 {
+pub fn main(value: types::Mode) i32 {
 0
 }
 "#,
@@ -32,8 +32,7 @@ missing_symbol
 "#,
     );
     let types_description = format!("{types_id:?}");
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -88,7 +87,7 @@ fn executable_type_only_modules_keep_signature_const_array_lengths() {
 module types;
 using entry::types;
 
-fn main(value: types::Packet) i32 {
+pub fn main(value: types::Packet) i32 {
 0
 }
 "#,
@@ -111,8 +110,7 @@ missing_symbol
 "#,
     );
     let types_description = format!("{types_id:?}");
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -160,7 +158,7 @@ fn executable_body_and_type_only_layouts_use_artifact_pointer_width() {
 module types;
 using entry::types;
 
-fn main(value: types::Word) usize {
+pub fn main(value: types::Word) usize {
 value.value
 }
 "#,
@@ -172,8 +170,7 @@ value.value
         "types.nia",
         "pub struct Word { value: usize }",
     );
-    let mut program = fixture.program();
-    program.runtime = RuntimeModel::FreestandingExecutable;
+    let mut program = fixture.freestanding_program();
     program.target.pointer_width = 32;
     let db = query_db(program);
 

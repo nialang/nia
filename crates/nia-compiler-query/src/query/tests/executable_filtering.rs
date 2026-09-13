@@ -25,7 +25,7 @@ fn next(&mut self) ?i32 {
 }
 }
 
-fn main() i32 {
+pub fn main() i32 {
 let mut total = 0;
 let mut iter = Counter { current: 0, end: 3 };
 for value in iter {
@@ -36,8 +36,7 @@ total
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -95,7 +94,7 @@ fn next(&mut self) ?i32 {
 }
 }
 
-fn main() i32 {
+pub fn main() i32 {
 let mut total = 0;
 let mut iter = Counter { current: 0, end: 3 };
 for value in iter {
@@ -106,8 +105,7 @@ total
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -159,15 +157,14 @@ fn unused(self) i32 {
 }
 }
 
-fn main() i32 {
+pub fn main() i32 {
 let value = Value {};
 value.used()
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -237,7 +234,7 @@ fn intoError(self) Target {
 }
 }
 
-fn main() i32 {
+pub fn main() i32 {
 let value: Source!i32 = Source { value: 1 }!;
 match value.cast_error() {
     !ok => {
@@ -251,8 +248,7 @@ match value.cast_error() {
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -337,7 +333,7 @@ fn write(&mut self) Error!usize {
 }
 }
 
-fn main() i32!i32 {
+pub fn main() i32!i32 {
 let mut writer = FileWriter { value: 0 };
 writer.write_all().?;
 !writer.value
@@ -345,8 +341,7 @@ writer.write_all().?;
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -390,14 +385,13 @@ fn executable_checked_modules_do_not_body_check_unreachable_globals() {
         r#"
 static unused = missing_symbol;
 
-fn main() i32 {
+pub fn main() i32 {
 0
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -433,14 +427,13 @@ fn executable_checked_modules_do_not_retain_rejected_static_initializers() {
         r#"
 static used: i32 = { 1 };
 
-fn main() i32 {
+pub fn main() i32 {
     used
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -479,7 +472,7 @@ fn executable_checked_modules_keep_type_owner_modules_type_only() {
 module types;
 using entry::types;
 
-fn main(value: types::Used) i32 {
+pub fn main(value: types::Used) i32 {
 value.value
 }
 "#,
@@ -500,8 +493,7 @@ missing_symbol
 "#,
     );
     let types_description = format!("{types_id:?}");
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);

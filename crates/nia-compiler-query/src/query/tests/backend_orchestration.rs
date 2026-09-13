@@ -3,7 +3,7 @@ use super::*;
 
 #[test]
 fn codegen_public_adapter_reuses_large_product_handles() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 1 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 1 }");
     let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
     let cached = database.db.expect_get(CodegenProgramQuery);
@@ -21,7 +21,7 @@ fn codegen_public_adapter_reuses_large_product_handles() {
 
 #[test]
 fn codegen_preparation_does_not_cross_backend_aggregate_barrier() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 1 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 1 }");
     let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
     let preparation = database.codegen_preparation();
@@ -37,7 +37,7 @@ fn codegen_preparation_does_not_cross_backend_aggregate_barrier() {
 fn scoped_backend_schedule_exposes_each_module_before_aggregate_finish() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "module helper; using entry::helper; fn main() i32 { helper::value() }",
+        "module helper; using entry::helper; pub fn main() i32 { helper::value() }",
     );
     let entry = fixture.entry_id();
     let helper = fixture.add_child(entry, "helper", "helper.nia", "pub fn value() i32 { 1 }");
@@ -96,7 +96,7 @@ fn backend_definition_manifest_precedes_finalization_at_every_optimization_level
 module geom;
 using entry::geom;
 
-fn main() i32 {
+pub fn main() i32 {
 let mut point = geom::Point { x: 40, y: 2 };
 point.x + point.y
 }
@@ -123,8 +123,7 @@ y: i32,
         NiaOptimizationLevel::Os,
         NiaOptimizationLevel::Oz,
     ] {
-        let mut program = fixture.program();
-        program.runtime = RuntimeModel::FreestandingExecutable;
+        let program = fixture.freestanding_program();
         let database = CompilerDatabase::new(CompileRequest::new(program).with_optimization(level));
         let preparation = database.codegen_preparation();
         assert!(

@@ -8,14 +8,13 @@ fn executable_checked_modules_include_reachable_global_initializers() {
         r#"
 static used: i32 = 1;
 
-fn main() i32 {
+pub fn main() i32 {
 used
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -49,15 +48,14 @@ static text = b"-O2\0";
 &text[0]
 }
 
-fn main() i32 {
+pub fn main() i32 {
 _ = option_arg();
 0
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -100,15 +98,14 @@ fn argv(self) &u8 {
 }
 }
 
-fn main() i32 {
+pub fn main() i32 {
 _ = Mode::O2.argv();
 0
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -139,7 +136,7 @@ fn executable_checked_modules_include_cross_module_extension_method_local_static
         r#"
 using helper::Mode;
 
-fn main() i32 {
+pub fn main() i32 {
 _ = Mode::O2.argv();
 0
 }
@@ -166,8 +163,7 @@ pub fn argv(self) &u8 {
 }
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -227,14 +223,13 @@ fn executable_checked_modules_do_not_flow_check_unreachable_functions() {
 fn unused() i32 {
 }
 
-fn main() i32 {
+pub fn main() i32 {
 0
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -257,7 +252,7 @@ fn executable_checked_modules_do_not_body_check_unreachable_loaded_modules() {
         r#"
 pub module unused;
 
-fn main() i32 {
+pub fn main() i32 {
 0
 }
 "#,
@@ -274,8 +269,7 @@ missing_symbol
 "#,
     );
     let unused_description = format!("{unused_id:?}");
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);

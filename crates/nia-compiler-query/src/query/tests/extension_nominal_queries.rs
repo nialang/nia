@@ -10,7 +10,7 @@ fn visible_extensions_use_signature_type_normalization_and_nominal_provider_quer
 module facade;
 using entry::facade;
 
-fn main(value: facade::Used) i32 {
+pub fn main(value: facade::Used) i32 {
     value.len()
 }
 "#,
@@ -44,8 +44,7 @@ extend Used {
     );
     fixture.add_child(facade_id, "types", "facade/types.nia", "pub struct Used {}");
     let impls_description = format!("{impls_id:?}");
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let _ = db.expect_get(VisibleExtensionsQuery(entry_id));

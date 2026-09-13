@@ -6,7 +6,7 @@ use super::*;
 fn body_edit_keeps_unrelated_lowered_function_product_green() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "fn helper() i32 { 1 } fn main() i32 { helper() }",
+        "fn helper() i32 { 1 } pub fn main() i32 { helper() }",
     );
     let module_id = fixture.entry_id();
     let database = fixture.database();
@@ -62,7 +62,7 @@ fn body_edit_keeps_unrelated_lowered_function_product_green() {
 
     fixture.update_module_source(
         module_id,
-        "fn helper() i32 { 2 } fn main() i32 { helper() }",
+        "fn helper() i32 { 2 } pub fn main() i32 { helper() }",
         SourceRevision(1),
     );
     database.update(CompileRequest::new(fixture.program()));
@@ -91,7 +91,7 @@ fn global_edit_preserves_unrelated_static_init_semantic_value() {
 static first: [u8; 4] = [1, 2, 3, 4];
 static second: [u8; 4] = [5, 6, 7, 8];
 
-fn main() u8 {
+pub fn main() u8 {
 first[0] + second[0]
 }
 "#,
@@ -154,7 +154,7 @@ first[0] + second[0]
 static first: [u8; 4] = [9, 2, 3, 4];
 static second: [u8; 4] = [5, 6, 7, 8];
 
-fn main() u8 {
+pub fn main() u8 {
 first[0] + second[0]
 }
 "#,
@@ -206,7 +206,7 @@ fn value() i32 {
 
 static callback: &fn() i32 = &Helper::value;
 
-fn main() i32 {
+pub fn main() i32 {
 callback()
 }
 "#,
@@ -268,15 +268,14 @@ fn identity[T](value: T) T {
 
 static callback: &fn(i32) i32 = &identity[i32];
 
-fn main() i32 {
+pub fn main() i32 {
     callback(7)
 }
 "#,
     );
 
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let codegen = db.expect_get(CodegenProgramQuery);
@@ -346,14 +345,13 @@ fn identity[T, N: usize](value: T) T {
 
 static callback: &fn(i32) i32 = &identity[i32, 3];
 
-fn main() i32 {
+pub fn main() i32 {
     callback(7)
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
     let codegen = db.expect_get(CodegenProgramQuery);
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
@@ -429,7 +427,7 @@ static callback: &fn() i32 = &Helper::value;
 callback()
 }
 
-fn main() i32 {
+pub fn main() i32 {
 invoke()
 }
 "#,

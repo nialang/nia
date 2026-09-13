@@ -98,6 +98,24 @@ impl LoadedProgramFixture {
         module_id
     }
 
+    pub(super) fn add_freestanding_runtime(&mut self, source: &str) -> ModuleId {
+        let runtime_root_path = SourcePath::new("runtime/pkg.nia");
+        let runtime_root = self
+            .graph
+            .intern_runtime_package_root(runtime_root_path.clone());
+        self.modules
+            .push(loaded_module(runtime_root, runtime_root_path.as_str(), ""));
+        let start = self.add_child_with_visibility(
+            runtime_root,
+            "start",
+            nia_ids::Visibility::PublicPkg,
+            "runtime/start.nia",
+            source,
+        );
+        self.graph.mark_executable_root_subtree(start);
+        start
+    }
+
     pub(super) fn update_module_source(
         &mut self,
         module_id: ModuleId,
@@ -135,6 +153,23 @@ impl LoadedProgramFixture {
             modules: self.modules.clone(),
             diagnostics: Vec::new(),
         }
+    }
+
+    pub(super) fn freestanding_program(&self) -> LoadedProgram {
+        self.freestanding_program_with_runtime(
+            "using entry; pub extern fn _start() () { _ = entry::main; }",
+        )
+    }
+
+    pub(super) fn freestanding_program_with_runtime(&self, source: &str) -> LoadedProgram {
+        let mut fixture = Self {
+            graph: self.graph.clone(),
+            modules: self.modules.clone(),
+        };
+        fixture.add_freestanding_runtime(source);
+        let mut program = fixture.program();
+        program.runtime = RuntimeModel::FreestandingExecutable;
+        program
     }
 
     pub(super) fn database(&self) -> CompilerDatabase {

@@ -4,7 +4,8 @@ use super::*;
 
 #[test]
 fn const_uses_precise_program_context_queries() {
-    let fixture = LoadedProgramFixture::new("main.nia", "const VALUE = 1; fn main() i32 { VALUE }");
+    let fixture =
+        LoadedProgramFixture::new("main.nia", "const VALUE = 1; pub fn main() i32 { VALUE }");
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
 
@@ -68,8 +69,7 @@ fn monomorphization_avoids_removed_program_trait_signature_product() {
 #[test]
 fn executable_reachability_uses_lazy_signature_resolvers() {
     let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 1 }");
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let _ = db.expect_get(ExecutableCheckedModulesQuery);
@@ -97,7 +97,7 @@ fn executable_reachability_uses_lazy_signature_resolvers() {
 #[test]
 fn body_check_without_method_lookup_does_not_build_global_extension_method_index() {
     let mut fixture =
-        LoadedProgramFixture::new("main.nia", "module providers; fn main() i32 { 1 }");
+        LoadedProgramFixture::new("main.nia", "module providers; pub fn main() i32 { 1 }");
     let module_id = fixture.entry_id();
     fixture.add_child(
         module_id,
@@ -126,7 +126,7 @@ fn body_check_without_method_lookup_does_not_build_global_extension_method_index
 fn body_check_method_lookup_uses_named_extension_method_query() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "module module1; using self::module1::S; fn main() i32 { let s = S::make(); 1 }",
+        "module module1; using self::module1::S; pub fn main() i32 { let s = S::make(); 1 }",
     );
     let module_id = fixture.entry_id();
     fixture.add_child(
@@ -169,7 +169,7 @@ fn const_module_uses_full_active_item_tree_query() {
 
 #[test]
 fn semantic_use_table_query_combines_value_local_and_type_resolution() {
-    let source = "static VALUE: i32 = 1; fn main() i32 { let mut local: i32 = VALUE; local }";
+    let source = "static VALUE: i32 = 1; pub fn main() i32 { let mut local: i32 = VALUE; local }";
     let fixture = LoadedProgramFixture::new("main.nia", source);
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
@@ -212,7 +212,7 @@ fn semantic_use_table_query_combines_value_local_and_type_resolution() {
 
 #[test]
 fn resolution_queries_share_compiler_session_node_owner() {
-    let source = "static VALUE: i32 = 1; fn main() i32 { let local: i32 = VALUE; local }";
+    let source = "static VALUE: i32 = 1; pub fn main() i32 { let local: i32 = VALUE; local }";
     let fixture = LoadedProgramFixture::new("main.nia", source);
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());

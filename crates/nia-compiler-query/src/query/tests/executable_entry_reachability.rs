@@ -4,10 +4,12 @@ use super::*;
 
 #[test]
 fn executable_checked_program_uses_query_backed_extension_method_lookup() {
-    let fixture = LoadedProgramFixture::new(
+    let mut fixture = LoadedProgramFixture::new(
         "main.nia",
         "trait Show { fn show(self) i32; } extend i32 : Show { fn show(self) i32 { self } } pub fn main() i32 { 1.show() }",
     );
+    fixture
+        .add_freestanding_runtime("using entry; pub extern fn _start() () { _ = entry::main(); }");
     let mut loaded = fixture.program();
     loaded.runtime = RuntimeModel::FreestandingExecutable;
     let db = query_db(loaded);
@@ -41,6 +43,46 @@ fn executable_checked_program_uses_query_backed_extension_method_lookup() {
         dependency.from.name == "checked_program"
             && dependency.to.name == "extension_provider_validation_facts"
     }));
+}
+
+#[test]
+fn freestanding_runtime_source_is_the_only_user_entry_root() {
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "pub fn main() i32 { 7 } pub fn mymain() i32 { 11 }",
+    );
+    fixture.add_freestanding_runtime(
+        "using entry; pub extern fn _start() () { _ = entry::mymain(); }",
+    );
+    let entry_id = fixture.entry_id();
+    let mut loaded = fixture.program();
+    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let db = query_db(loaded);
+
+    let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
+    let entry = facts
+        .modules
+        .iter()
+        .find(|module| module.id == entry_id)
+        .expect("runtime call must make the entry module reachable");
+    let function = |name: &str| {
+        entry
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.kind == nia_defs::DefKind::Function && def.name == sym(name)).then_some(
+                    GlobalDefId {
+                        module_id: entry_id,
+                        def_id,
+                    },
+                )
+            })
+            .expect("entry function definition")
+    };
+
+    assert!(facts.runtime_functions.contains(&function("mymain")));
+    assert!(!facts.runtime_functions.contains(&function("main")));
 }
 
 #[test]
@@ -115,10 +157,12 @@ pub fn main() i32 { _ = W; 0 }
 
 #[test]
 fn freestanding_entry_checked_program_uses_executable_reachability() {
-    let fixture = LoadedProgramFixture::new(
+    let mut fixture = LoadedProgramFixture::new(
         "main.nia",
         "extend ! { fn nope(self) () {} } pub fn main() i32 { 1 }",
     );
+    fixture
+        .add_freestanding_runtime("using entry; pub extern fn _start() () { _ = entry::main(); }");
     let mut loaded = fixture.program();
     loaded.runtime = RuntimeModel::FreestandingExecutable;
     let db = query_db(loaded);
@@ -188,6 +232,8 @@ fn from(input: Input) i32 {
 }
 "#,
     );
+    fixture
+        .add_freestanding_runtime("using entry; pub extern fn _start() () { _ = entry::main(); }");
     let mut loaded = fixture.program();
     loaded.runtime = RuntimeModel::FreestandingExecutable;
     let db = query_db(loaded);
