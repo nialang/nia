@@ -26,7 +26,7 @@ use nia_linker::{
 use nia_loader_query::{LoadRequest, LoaderDatabase, PackageArtifactRequest, SourceInputManifest};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_package_metadata::{
-    NativeObject, NativeSection, NativeVariant, PackageId, PackageManifest,
+    NativeObject, NativeObjectOwner, NativeSection, NativeVariant, PackageId, PackageManifest,
 };
 use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::{BuildProfile, TargetConfig};
@@ -75,6 +75,24 @@ pub struct PublishedPackageArtifact {
     pub path: PathBuf,
     /// Manifest encoded in the published container.
     pub manifest: PackageManifest,
+}
+
+/// One package-native product selected for source-free linking.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageNativeInput {
+    /// Canonical package artifact path.
+    pub path: PathBuf,
+    /// Required package identity, preventing cache-key/path confusion.
+    pub package: PackageId,
+}
+
+impl PackageNativeInput {
+    pub fn new(path: impl Into<PathBuf>, package: PackageId) -> Self {
+        Self {
+            path: path.into(),
+            package,
+        }
+    }
 }
 
 const EXECUTABLE_CACHE_REFERENCE_LEN: usize = 12 * size_of::<u64>();
@@ -742,6 +760,20 @@ impl Driver {
                     ));
                 }
             };
+            let runtime_sources = match database.runtime_source_identities() {
+                Ok(identities) => identities
+                    .into_iter()
+                    .collect::<std::collections::BTreeSet<_>>(),
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
+            let runtime_package = request
+                .runtime
+                .source()
+                .map(|runtime| runtime.package().clone());
             let mut native = NativeVariant {
                 optimization: optimization_wire_tag(emission.artifact.optimization.level),
                 objects: emission
@@ -758,6 +790,21 @@ impl Driver {
                                 nia_package_metadata::NativeObjectOwner::PackageModule {
                                     module: nia_package_metadata::ModuleId {
                                         package: package.clone(),
+                                        path: source_identity.normalized_path().to_owned(),
+                                    },
+                                    ordinal: *ordinal,
+                                }
+                            }
+                            nia_codegen_llvm::CodegenUnitKey::SourceModule {
+                                source_identity,
+                                ordinal,
+                            } if runtime_sources.contains(source_identity) => {
+                                let Some(runtime_package) = runtime_package.clone() else {
+                                    return None;
+                                };
+                                NativeObjectOwner::RuntimeStartup {
+                                    module: nia_package_metadata::ModuleId {
+                                        package: runtime_package,
                                         path: source_identity.normalized_path().to_owned(),
                                     },
                                     ordinal: *ordinal,
@@ -1650,6 +1697,82 @@ impl Driver {
                     error,
                 }),
             }
+        })
+    }
+
+    /// Restores validated native products from ordinary package artifacts.
+    /// This path performs no source loading or semantic reconstruction.
+    pub fn load_package_native_objects(
+        &self,
+        packages: &[PackageNativeInput],
+        profile: BuildProfile,
+        compilation_mode: nia_target_config::CompilationMode,
+        optimization: NiaOptimizationLevel,
+    ) -> DriverOutput<ObjectArtifact> {
+        DriverOutput::catch_ice(|| {
+            let optimization_tag = optimization_wire_tag(optimization);
+            let mut inputs = Vec::new();
+            let mut owners = std::collections::BTreeSet::new();
+            let mut compiler_builtins_present = false;
+            for package in packages {
+                let request = PackageArtifactRequest::Required(package.path.clone());
+                let loaded = match nia_loader_query::select_package_artifact(
+                    &request,
+                    Some(&package.package),
+                    Some(&self.config.toolchain),
+                    &self.config.artifact_target,
+                    profile,
+                    compilation_mode,
+                ) {
+                    Ok(nia_loader_query::PackageArtifactLoad::Loaded { artifact, .. }) => artifact,
+                    Ok(nia_loader_query::PackageArtifactLoad::SourceFallback { .. }) => {
+                        unreachable!("required package artifacts cannot fall back to source")
+                    }
+                    Err(error) => {
+                        return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
+                            error.to_string(),
+                        ));
+                    }
+                };
+                let native = match loaded.native() {
+                    Ok(Some(native)) => native,
+                    Ok(None) => {
+                        return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
+                            format!(
+                                "compiled package artifact {} has no native section",
+                                package.path.display()
+                            ),
+                        ));
+                    }
+                    Err(error) => {
+                        return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
+                            format!("invalid native package product: {error}"),
+                        ));
+                    }
+                };
+                let Some(variant) = native.variant(optimization_tag) else {
+                    return DriverOutput::from_error(DriverError::InvalidArtifactRequest(format!(
+                        "compiled package artifact {} has no native optimization variant {optimization_tag}",
+                        package.path.display()
+                    )));
+                };
+                if let Err(error) = append_native_variant_inputs(
+                    &package.package,
+                    variant,
+                    &std::collections::BTreeSet::new(),
+                    &mut owners,
+                    &mut compiler_builtins_present,
+                    &mut inputs,
+                ) {
+                    return DriverOutput::from_error(error);
+                }
+            }
+            DriverOutput::success(ObjectArtifact {
+                link_inputs: nia_codegen_llvm::IncrementalLinkInputs::new(inputs),
+                optimization: optimization.policy(),
+                optimization_report: crate::BackendOptimizationReport::default(),
+                diagnostics: Vec::new(),
+            })
         })
     }
 
@@ -2595,69 +2718,107 @@ fn append_compiled_package_native_inputs(
             nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins
         )
     });
+    let mut owners = inputs
+        .iter()
+        .filter_map(|input| match &input.key {
+            nia_codegen_llvm::CodegenUnitKey::CompiledPackage {
+                namespace,
+                package,
+                version,
+                object,
+            } => Some((namespace.clone(), package.clone(), version.clone(), object.clone())),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
     for product in database
         .compiled_package_native_products()
         .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?
     {
         let package = product.package();
-        for object in &product.variant().objects {
-            if matches!(
-                &object.owner,
-                nia_package_metadata::NativeObjectOwner::CompilerBuiltins
-            ) {
-                if compiler_builtins_present {
-                    continue;
-                }
-                compiler_builtins_present = true;
-            }
-            if let Some(module) = object.owner.module()
-                && module.package != *package
-            {
-                return Err(DriverError::InvalidArtifactRequest(
-                    "compiled package native object owner does not match its package".to_string(),
-                ));
-            }
-            if matches!(
-                &object.owner,
-                nia_package_metadata::NativeObjectOwner::PackageModule { module, .. }
-                    if source_paths.contains(&module.path)
-            ) {
+        append_native_variant_inputs(
+            package,
+            product.variant(),
+            &source_paths,
+            &mut owners,
+            &mut compiler_builtins_present,
+            inputs,
+        )?;
+    }
+    Ok(())
+}
+
+fn append_native_variant_inputs(
+    enclosing_package: &PackageId,
+    variant: &NativeVariant,
+    source_paths: &std::collections::BTreeSet<String>,
+    owners: &mut std::collections::BTreeSet<(String, String, String, String)>,
+    compiler_builtins_present: &mut bool,
+    inputs: &mut Vec<nia_codegen_llvm::IncrementalLinkInput<nia_codegen_llvm::NativeObject>>,
+) -> Result<(), DriverError> {
+    for object in &variant.objects {
+        if matches!(&object.owner, NativeObjectOwner::CompilerBuiltins) {
+            if *compiler_builtins_present {
                 continue;
             }
-            let key = nia_codegen_llvm::CodegenUnitKey::compiled_package(
-                package.namespace.clone(),
-                package.name.clone(),
-                package.version.clone(),
-                object.key.clone(),
-            );
-            let mut hasher = blake3::Hasher::new();
-            for field in [
-                package.namespace.as_str(),
-                package.name.as_str(),
-                package.version.as_str(),
-                object.key.as_str(),
-            ] {
-                hasher.update(field.as_bytes());
-                hasher.update(&[0]);
-            }
-            let digest = hasher.finalize();
-            let bytes = digest.as_bytes();
-            let unit = nia_codegen_llvm::CodegenUnitId::CompiledPackage {
-                package: u64::from_le_bytes(bytes[0..8].try_into().expect("digest width")),
-                object: u64::from_le_bytes(bytes[8..16].try_into().expect("digest width")),
-            };
-            inputs.push(nia_codegen_llvm::IncrementalLinkInput {
-                key: key.clone(),
-                fingerprint: nia_codegen_llvm::CodegenUnitFingerprint::from_parts(
-                    object.fingerprint,
-                ),
-                object: nia_codegen_llvm::NativeObject {
-                    unit,
-                    name: object.key.clone(),
-                    bytes: object.bytes.clone(),
-                },
-            });
+            *compiler_builtins_present = true;
         }
+        if matches!(
+            &object.owner,
+            NativeObjectOwner::PackageModule { module, .. }
+                if module.package != *enclosing_package
+        ) {
+            return Err(DriverError::InvalidArtifactRequest(
+                "package-native object owner does not match its enclosing package".to_string(),
+            ));
+        }
+        if matches!(
+            &object.owner,
+            NativeObjectOwner::PackageModule { module, .. }
+                if source_paths.contains(&module.path)
+        ) {
+            continue;
+        }
+        let owner_package = object
+            .owner
+            .module()
+            .map(|module| &module.package)
+            .unwrap_or(enclosing_package);
+        let stable_key = (
+            owner_package.namespace.clone(),
+            owner_package.name.clone(),
+            owner_package.version.clone(),
+            object.key.clone(),
+        );
+        if !owners.insert(stable_key.clone()) {
+            return Err(DriverError::InvalidArtifactRequest(
+                "package-native products contain duplicate stable object identities".to_string(),
+            ));
+        }
+        let key = nia_codegen_llvm::CodegenUnitKey::compiled_package(
+            stable_key.0.clone(),
+            stable_key.1.clone(),
+            stable_key.2.clone(),
+            stable_key.3.clone(),
+        );
+        let mut hasher = blake3::Hasher::new();
+        for field in [&stable_key.0, &stable_key.1, &stable_key.2, &stable_key.3] {
+            hasher.update(field.as_bytes());
+            hasher.update(&[0]);
+        }
+        let digest = hasher.finalize();
+        let bytes = digest.as_bytes();
+        inputs.push(nia_codegen_llvm::IncrementalLinkInput {
+            key,
+            fingerprint: nia_codegen_llvm::CodegenUnitFingerprint::from_parts(object.fingerprint),
+            object: nia_codegen_llvm::NativeObject {
+                unit: nia_codegen_llvm::CodegenUnitId::CompiledPackage {
+                    package: u64::from_le_bytes(bytes[0..8].try_into().expect("digest width")),
+                    object: u64::from_le_bytes(bytes[8..16].try_into().expect("digest width")),
+                },
+                name: object.key.clone(),
+                bytes: object.bytes.clone(),
+            },
+        });
     }
     Ok(())
 }

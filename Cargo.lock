@@ -320,6 +320,7 @@ dependencies = [
  "nia-imports",
  "nia-linker",
  "nia-loader-query",
+ "nia-package-metadata",
  "nia-query",
  "nia-source",
  "nia-target-config",
