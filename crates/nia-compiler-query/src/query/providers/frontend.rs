@@ -1643,19 +1643,33 @@ fn provide_artifact_item_signatures(
             })?;
             let signature = result
                 .functions
-                .get(&method_global.def_id)
-                .cloned()
+                .get_mut(&method_global.def_id)
                 .ok_or_else(|| {
                     db.invalid_input(
                         &CompiledPackageSignaturesQuery(identity.package.clone()),
                         "artifact trait method has no function payload",
                     )
                 })?;
+            if !signature.generic_params.starts_with(&generic_params)
+                || !signature.where_predicates.starts_with(&where_predicates)
+            {
+                return Err(db.invalid_input(
+                    &CompiledPackageSignaturesQuery(identity.package.clone()),
+                    "artifact trait method does not inherit its owner signature",
+                ));
+            }
+            signature.generic_params.drain(..generic_params.len());
+            signature.generics = signature
+                .generic_params
+                .iter()
+                .map(|param| param.name)
+                .collect();
+            signature.where_predicates.drain(..where_predicates.len());
             methods.push(nia_item_signatures::TraitMethodSignature {
                 def_id: method_global.def_id,
                 name,
                 has_default: signature.has_body,
-                signature,
+                signature: signature.clone(),
                 span: Span::default(),
             });
         }
