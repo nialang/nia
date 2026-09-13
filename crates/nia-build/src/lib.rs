@@ -1279,16 +1279,62 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
     })?;
     let runner = build_runner_source(invocation)?;
     let cache_key = runner_cache::cache_key(invocation, &runner)?;
-    match runner_cache::restore(invocation, &cache_key) {
-        Ok(true) => {
-            nia_timing::emit_counter("build.runner_cache_hits", 1);
-            return Ok(invocation.runner_executable.clone());
+    let runner_package = runner_cache::package_path(invocation, &cache_key);
+    let runner_package_id = runner_cache::package_id(&cache_key);
+    if runner_package.is_file()
+        && runner_cache::restore_package(invocation, &cache_key).unwrap_or(false)
+    {
+        let mut packages = vec![nia_driver::PackageNativeInput::new(
+            runner_package,
+            runner_package_id,
+        )];
+        let std_artifact = invocation.toolchain.std_package_artifact(
+            invocation.toolchain.host_target(),
+            invocation.profile,
+            invocation.compilation_mode,
+        );
+        if std_artifact.is_file() {
+            packages.push(nia_driver::PackageNativeInput::new(
+                std_artifact,
+                invocation.toolchain.std_package_id(),
+            ));
         }
-        Ok(false) => nia_timing::emit_counter("build.runner_cache_misses", 1),
-        Err(_) => {
-            nia_timing::emit_counter("build.runner_cache_misses", 1);
-        }
+        let driver = Driver::with_config(build_runner_driver_config(invocation));
+        let objects = driver
+            .load_package_native_objects(
+                &packages,
+                invocation.profile,
+                invocation.compilation_mode,
+                match invocation.optimization {
+                    OptimizationMode::O0 => nia_driver::NiaOptimizationLevel::O0,
+                    OptimizationMode::O1 => nia_driver::NiaOptimizationLevel::O1,
+                    OptimizationMode::O2 => nia_driver::NiaOptimizationLevel::O2,
+                    OptimizationMode::O3 => nia_driver::NiaOptimizationLevel::O3,
+                    OptimizationMode::Os => nia_driver::NiaOptimizationLevel::Os,
+                    OptimizationMode::Oz => nia_driver::NiaOptimizationLevel::Oz,
+                },
+            )
+            .result
+            .map_err(|error| BuildError::CompileRunner {
+                path: runner.path.clone(),
+                source: runner.source.clone(),
+                error: Box::new(error),
+            })?;
+        let linked = driver.link_executable_from_objects(
+            &objects,
+            invocation.runner_executable.clone(),
+            nia_linker::LinkOptions::default(),
+            invocation.timings,
+        );
+        linked.result.map_err(|error| BuildError::CompileRunner {
+            path: runner.path.clone(),
+            source: runner.source.clone(),
+            error: Box::new(error),
+        })?;
+        nia_timing::emit_counter("build.runner_cache_hits", 1);
+        return Ok(invocation.runner_executable.clone());
     }
+    nia_timing::emit_counter("build.runner_cache_misses", 1);
     if let Some(parent) = invocation.runner_executable.parent() {
         fs::create_dir_all(parent).map_err(|error| BuildError::CreateRunnerDirectory {
             path: parent.to_path_buf(),
@@ -1337,9 +1383,7 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
         source: runner.source.clone(),
         error: Box::new(error),
     })?;
-    // Keep the ordinary package artifact as the canonical runner product. The
-    // executable bundle remains a derived fast-path for process startup; it
-    // is never the semantic cache boundary.
+    // Keep the ordinary package artifact as the canonical runner product.
     let package = runner_cache::package_id(&cache_key);
     let package_artifact = runner_cache::package_path(invocation, &cache_key);
     let publication = driver.publish_package_artifact_with_native(
@@ -1354,7 +1398,6 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
             error: Box::new(error),
         });
     }
-    let _ = runner_cache::publish(invocation, &cache_key);
     Ok(invocation.runner_executable.clone())
 }
 
