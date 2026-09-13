@@ -837,9 +837,9 @@ impl TemplateSummary {
     }
 }
 
-/// Explicit target identity attached to target-specific native products.
+/// Explicit target identity attached to one compiled package configuration.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct NativeTarget {
+pub struct CompilationTarget {
     pub arch: String,
     pub vendor: String,
     pub os: String,
@@ -891,7 +891,7 @@ pub struct NativeObject {
 /// Canonical target-native package payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSection {
-    pub target: NativeTarget,
+    pub target: CompilationTarget,
     pub profile: u8,
     pub optimization: u8,
     pub objects: Vec<NativeObject>,
@@ -1517,6 +1517,12 @@ impl CompiledPackageInterface {
         let native = artifact.native()?;
         let public_surface = artifact.public_surface()?;
         let signatures = artifact.signatures()?;
+        if native.as_ref().is_some_and(|native| {
+            native.target != artifact.manifest().target
+                || native.profile != artifact.manifest().profile
+        }) {
+            return Err(MetadataError::InvalidManifest);
+        }
         if let Some(surface) = &public_surface {
             surface.validate()?;
             if surface.package != artifact.manifest().package {
@@ -1815,25 +1821,39 @@ struct SectionEntry {
     hash: [u8; 32],
 }
 
-/// Target-independent package publication manifest.
+/// Package publication manifest for one semantic compilation context.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageManifest {
     pub package: PackageId,
     pub compiler_version: String,
     pub std_schema: u32,
     pub schema_version: u32,
+    /// Target under which conditional source was selected.
+    pub target: CompilationTarget,
+    /// Build-profile tag under which conditional source was selected.
+    pub profile: u8,
+    /// Compilation-mode tag under which conditional source was selected.
+    pub compilation_mode: u8,
     pub dependencies: Vec<PackageDependency>,
     pub modules: Vec<ModuleInterface>,
 }
 
 impl PackageManifest {
     /// Constructs a manifest for the current compiler/toolchain identity.
-    pub fn current(package: PackageId) -> Self {
+    pub fn current(
+        package: PackageId,
+        target: CompilationTarget,
+        profile: u8,
+        compilation_mode: u8,
+    ) -> Self {
         Self {
             package,
             compiler_version: COMPILER_VERSION.to_owned(),
             std_schema: toolchain::STANDARD_LIBRARY,
             schema_version: SCHEMA_VERSION,
+            target,
+            profile,
+            compilation_mode,
             dependencies: Vec::new(),
             modules: Vec::new(),
         }
@@ -1843,6 +1863,9 @@ impl PackageManifest {
         put_id(output, &self.package)?;
         put_string(output, &self.compiler_version)?;
         put_u32(output, self.std_schema);
+        put_target(output, &self.target)?;
+        output.push(self.profile);
+        output.push(self.compilation_mode);
         put_list_len(output, self.dependencies.len())?;
         for dependency in &self.dependencies {
             put_id(output, &dependency.package)?;
@@ -1861,6 +1884,9 @@ impl PackageManifest {
             compiler_version: get_string(cursor)?,
             std_schema: get_u32(cursor)?,
             schema_version: SCHEMA_VERSION,
+            target: get_target(cursor)?,
+            profile: read_u8(cursor)?,
+            compilation_mode: read_u8(cursor)?,
             dependencies: get_dependencies(cursor)?,
             modules: get_modules(cursor)?,
         };
@@ -1871,8 +1897,12 @@ impl PackageManifest {
     pub fn validate(&self) -> Result<(), MetadataError> {
         validate_id(&self.package)?;
         validate_string(&self.compiler_version)?;
+        validate_target(&self.target)?;
         if self.schema_version != SCHEMA_VERSION {
             return Err(MetadataError::Schema(self.schema_version));
+        }
+        if self.profile > 1 || self.compilation_mode > 1 {
+            return Err(MetadataError::InvalidManifest);
         }
         if self.dependencies.len() > MAX_ITEMS || self.modules.len() > MAX_ITEMS {
             return Err(MetadataError::TooManyItems);
@@ -3341,7 +3371,7 @@ fn validate_id(id: &PackageId) -> Result<(), MetadataError> {
     validate_string(&id.name)?;
     validate_string(&id.version)
 }
-fn validate_target(target: &NativeTarget) -> Result<(), MetadataError> {
+fn validate_target(target: &CompilationTarget) -> Result<(), MetadataError> {
     validate_string(&target.arch)?;
     validate_string(&target.vendor)?;
     validate_string(&target.os)?;
@@ -3353,7 +3383,7 @@ fn validate_target(target: &NativeTarget) -> Result<(), MetadataError> {
     }
     Ok(())
 }
-fn put_target(output: &mut Vec<u8>, target: &NativeTarget) -> Result<(), MetadataError> {
+fn put_target(output: &mut Vec<u8>, target: &CompilationTarget) -> Result<(), MetadataError> {
     validate_target(target)?;
     put_string(output, &target.arch)?;
     put_string(output, &target.vendor)?;
@@ -3364,8 +3394,8 @@ fn put_target(output: &mut Vec<u8>, target: &NativeTarget) -> Result<(), Metadat
     put_u32(output, target.pointer_width);
     Ok(())
 }
-fn get_target(cursor: &mut Cursor<&[u8]>) -> Result<NativeTarget, MetadataError> {
-    let target = NativeTarget {
+fn get_target(cursor: &mut Cursor<&[u8]>) -> Result<CompilationTarget, MetadataError> {
+    let target = CompilationTarget {
         arch: get_string(cursor)?,
         vendor: get_string(cursor)?,
         os: get_string(cursor)?,
@@ -3926,12 +3956,29 @@ fn read_exact(cursor: &mut Cursor<&[u8]>, bytes: &mut [u8]) -> Result<(), Metada
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn sample_target() -> CompilationTarget {
+        CompilationTarget {
+            arch: "x86_64".into(),
+            vendor: "unknown".into(),
+            os: "linux".into(),
+            env: String::new(),
+            abi: String::new(),
+            endian: "little".into(),
+            pointer_width: 64,
+        }
+    }
+
     fn sample() -> PackageManifest {
-        let mut manifest = PackageManifest::current(PackageId {
-            namespace: "nia".into(),
-            name: "std".into(),
-            version: "0.2".into(),
-        });
+        let mut manifest = PackageManifest::current(
+            PackageId {
+                namespace: "nia".into(),
+                name: "std".into(),
+                version: "0.2".into(),
+            },
+            sample_target(),
+            0,
+            0,
+        );
         manifest.modules.push(ModuleInterface {
             path: "std/io".into(),
             interface_hash: [7; 32],
@@ -3976,7 +4023,7 @@ mod tests {
             version: "1".into(),
         };
         let section = NativeSection {
-            target: NativeTarget {
+            target: CompilationTarget {
                 arch: "x86_64".into(),
                 vendor: "unknown".into(),
                 os: "linux".into(),
@@ -4011,6 +4058,32 @@ mod tests {
     }
 
     #[test]
+    fn compiled_interface_rejects_native_from_another_compilation_context() {
+        let manifest = sample();
+        let mut native = NativeSection {
+            target: manifest.target.clone(),
+            profile: manifest.profile,
+            optimization: 0,
+            objects: vec![NativeObject {
+                owner: NativeObjectOwner::CompilerBuiltins,
+                key: "builtins".into(),
+                fingerprint: [1, 2],
+                bytes: vec![1],
+            }],
+        };
+        native.profile = 1;
+        let native_bytes = encode_native(&native).unwrap();
+        let artifact = PackageArtifact::open(
+            encode_artifact(&manifest, &[(SectionKind::Native, &native_bytes)]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            CompiledPackageInterface::from_artifact(&artifact),
+            Err(MetadataError::InvalidManifest)
+        );
+    }
+
+    #[test]
     fn native_owner_roles_are_distinct_and_duplicate_owners_rejected() {
         let package = PackageId {
             namespace: "nia".into(),
@@ -4033,7 +4106,7 @@ mod tests {
         assert_ne!(startup, ordinary);
         assert_eq!(builtins.module(), None);
         let mut section = NativeSection {
-            target: NativeTarget {
+            target: CompilationTarget {
                 arch: "x86_64".into(),
                 vendor: "unknown".into(),
                 os: "linux".into(),
@@ -4088,11 +4161,16 @@ mod tests {
 
     #[test]
     fn compiled_interface_exposes_package_qualified_module_identities() {
-        let mut manifest = PackageManifest::current(PackageId {
-            namespace: "example".into(),
-            name: "demo".into(),
-            version: "1.0.0".into(),
-        });
+        let mut manifest = PackageManifest::current(
+            PackageId {
+                namespace: "example".into(),
+                name: "demo".into(),
+                version: "1.0.0".into(),
+            },
+            sample_target(),
+            0,
+            0,
+        );
         manifest.modules.push(ModuleInterface {
             path: "src/lib.nia".into(),
             interface_hash: interface_module_hash(
@@ -4664,11 +4742,16 @@ mod tests {
         };
         let bytes = encode_interface(&section).unwrap();
         assert_eq!(decode_interface(&bytes).unwrap(), section);
-        let mut manifest = PackageManifest::current(PackageId {
-            namespace: "nia".into(),
-            name: "std".into(),
-            version: "0.2".into(),
-        });
+        let mut manifest = PackageManifest::current(
+            PackageId {
+                namespace: "nia".into(),
+                name: "std".into(),
+                version: "0.2".into(),
+            },
+            sample_target(),
+            0,
+            0,
+        );
         manifest.modules.push(ModuleInterface {
             path: "std/io".into(),
             interface_hash: interface_module_hash(&section, "std/io").unwrap(),

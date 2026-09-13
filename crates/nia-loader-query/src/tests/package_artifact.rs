@@ -47,8 +47,25 @@ fn temp_artifact(name: &str) -> std::path::PathBuf {
     root.join("package.niapkg")
 }
 
+fn host_native_target() -> nia_package_metadata::CompilationTarget {
+    let target = nia_target_config::TargetConfig::host();
+    nia_package_metadata::CompilationTarget {
+        arch: target.arch,
+        vendor: target.vendor,
+        os: target.os,
+        env: target.env,
+        abi: target.abi,
+        endian: target.endian,
+        pointer_width: target.pointer_width,
+    }
+}
+
+fn manifest_for(package: PackageId) -> PackageManifest {
+    PackageManifest::current(package, host_native_target(), 0, 0)
+}
+
 fn manifest() -> PackageManifest {
-    PackageManifest::current(PackageId {
+    manifest_for(PackageId {
         namespace: "example".into(),
         name: "demo".into(),
         version: "1.0.0".into(),
@@ -56,7 +73,7 @@ fn manifest() -> PackageManifest {
 }
 
 fn standard_library_manifest() -> PackageManifest {
-    PackageManifest::current(PackageId::standard_library())
+    manifest_for(PackageId::standard_library())
 }
 
 #[test]
@@ -306,9 +323,87 @@ fn explicit_package_identity_mismatch_is_reported() {
     };
     let request = PackageArtifactRequest::Required(path);
     assert!(matches!(
-        select_package_artifact(&request, Some(&expected), None),
+        select_package_artifact(
+            &request,
+            Some(&expected),
+            None,
+            &nia_target_config::TargetConfig::host(),
+            nia_target_config::BuildProfile::Debug,
+            nia_target_config::CompilationMode::Normal,
+        ),
         Err(PackageArtifactError::Incompatible {
             mismatch: PackageArtifactMismatch::Package { .. },
+            ..
+        })
+    ));
+}
+
+#[test]
+fn artifact_selection_rejects_target_context_mismatch() {
+    let path = temp_artifact("context-mismatch");
+    let mut metadata = manifest();
+    metadata.target.arch = "definitely-not-host".into();
+    metadata.profile = 1;
+    fs::write(&path, encode(&metadata).unwrap()).unwrap();
+    let request = PackageArtifactRequest::Required(path);
+    let target = nia_target_config::TargetConfig::host();
+    assert!(matches!(
+        select_package_artifact(
+            &request,
+            None,
+            None,
+            &target,
+            nia_target_config::BuildProfile::Debug,
+            nia_target_config::CompilationMode::Normal,
+        ),
+        Err(PackageArtifactError::Incompatible {
+            mismatch: PackageArtifactMismatch::Target { .. },
+            ..
+        })
+    ));
+}
+
+#[test]
+fn artifact_selection_rejects_profile_context_mismatch() {
+    let path = temp_artifact("profile-mismatch");
+    let mut metadata = manifest();
+    metadata.profile = 1;
+    fs::write(&path, encode(&metadata).unwrap()).unwrap();
+    let request = PackageArtifactRequest::Required(path);
+    assert!(matches!(
+        select_package_artifact(
+            &request,
+            None,
+            None,
+            &nia_target_config::TargetConfig::host(),
+            nia_target_config::BuildProfile::Debug,
+            nia_target_config::CompilationMode::Normal,
+        ),
+        Err(PackageArtifactError::Incompatible {
+            mismatch: PackageArtifactMismatch::BuildProfile { .. },
+            ..
+        })
+    ));
+}
+
+#[test]
+fn artifact_selection_rejects_compilation_mode_mismatch() {
+    let path = temp_artifact("mode-mismatch");
+    let mut metadata = manifest();
+    metadata.compilation_mode = 1;
+    fs::write(&path, encode(&metadata).unwrap()).unwrap();
+    let request = PackageArtifactRequest::Required(path);
+    assert!(matches!(
+        select_package_artifact(
+            &request,
+            None,
+            None,
+            &nia_target_config::TargetConfig::host(),
+            nia_target_config::BuildProfile::Debug,
+            nia_target_config::CompilationMode::Normal,
+        ),
+        Err(PackageArtifactError::Incompatible {
+            mismatch: PackageArtifactMismatch::CompilationMode { .. },
             ..
         })
     ));
@@ -337,7 +432,7 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
     let interface_bytes = encode_interface(&interface).unwrap();
     let target = nia_target_config::TargetConfig::host();
     let native = nia_package_metadata::NativeSection {
-        target: nia_package_metadata::NativeTarget {
+        target: nia_package_metadata::CompilationTarget {
             arch: target.arch,
             vendor: target.vendor,
             os: target.os,
@@ -362,7 +457,7 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
         }],
     };
     let native_bytes = nia_package_metadata::encode_native(&native).unwrap();
-    let mut metadata = PackageManifest::current(package.clone());
+    let mut metadata = manifest_for(package.clone());
     metadata
         .modules
         .push(nia_package_metadata::ModuleInterface {
@@ -445,7 +540,7 @@ fn compiler_reads_loader_selected_interface_without_dependency_source() {
         }],
     };
     let interface_bytes = encode_interface(&interface).unwrap();
-    let mut metadata = PackageManifest::current(package);
+    let mut metadata = manifest_for(package);
     metadata
         .modules
         .push(nia_package_metadata::ModuleInterface {

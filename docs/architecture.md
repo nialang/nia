@@ -713,6 +713,11 @@ runtime exports `_start` and calls the Nia-level root entry contract from toolch
 runtime source. The source is mounted as a private child of the toolchain-owned runtime
 package identity; this logical mount is not a public import or standard-library ownership.
 
+Compiled package manifests identify the exact target, build profile, and normal/test
+compilation mode used for conditional source selection. Loader selection validates this
+semantic context before exposing any declaration, template, or native section; products
+compiled from a different conditional source view are never partially reused.
+
 ## 13. CLI
 
 ### `nia-cli`

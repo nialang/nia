@@ -291,8 +291,12 @@ impl LoaderDatabase {
                     .std_package_id()
             })
         });
-        let artifact_compatibility =
-            package_artifact::ArtifactCompatibility::current(request.toolchain.as_deref());
+        let artifact_compatibility = package_artifact::ArtifactCompatibility::current(
+            request.toolchain.as_deref(),
+            &request.target,
+            request.profile,
+            request.compilation_mode,
+        );
         let selected_std_interfaces = if std_artifact_requested {
             request.toolchain.as_ref().and_then(|toolchain| {
                 let artifact_request = request.package_artifact.clone().unwrap_or_else(|| {
