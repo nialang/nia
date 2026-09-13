@@ -2,17 +2,14 @@
 //! Content-addressed cache for generated host build runners.
 
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io;
 use std::path::PathBuf;
 
 use nia_compat::toolchain::BUILD_PROTOCOL;
 
 use crate::{BuildError, BuildInvocation, BuildRunnerSource, OptimizationMode};
 
-const CACHE_SCHEMA: &str = "v2";
-const MAX_RUNNER_BYTES: u64 = 256 * 1024 * 1024;
-const RUNNER_BUNDLE_MAGIC: &[u8; 8] = b"NIARUNR2";
-const RUNNER_BUNDLE_HEADER_BYTES: usize = 8 + 32 + 8;
+const CACHE_SCHEMA: &str = "v3";
 
 /// Canonical compiled-package product path for a generated build runner.
 pub(super) fn package_path(invocation: &BuildInvocation, key: &str) -> PathBuf {
@@ -29,6 +26,30 @@ pub(super) fn package_id(key: &str) -> nia_package_metadata::PackageId {
         name: "build-runner".to_string(),
         version: key.to_string(),
     }
+}
+
+/// Validates an ordinary runner package artifact without interpreting its
+/// semantic sections. Invalid products are retired and treated as misses.
+pub(super) fn restore_package(invocation: &BuildInvocation, key: &str) -> io::Result<bool> {
+    let cached = package_path(invocation, key);
+    let bytes = match fs::read(&cached) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    let valid = nia_package_metadata::PackageArtifact::open(bytes)
+        .and_then(|artifact| {
+            artifact.validate_sections()?;
+            if artifact.native()?.is_none() {
+                return Err(nia_package_metadata::MetadataError::InvalidManifest);
+            }
+            Ok(())
+        })
+        .is_ok();
+    if !valid {
+        let _ = fs::remove_file(&cached);
+    }
+    Ok(valid)
 }
 
 pub(super) fn cache_key(
@@ -199,11 +220,6 @@ fn compilation_mode_tag(mode: nia_target_config::CompilationMode) -> u8 {
     }
 }
 
-fn paths(invocation: &BuildInvocation, key: &str) -> (PathBuf, PathBuf) {
-    let root = invocation.cache_dir.join("runner").join(CACHE_SCHEMA);
-    (root.join(format!("{key}.bundle")), root)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn runner_bundle_publication_and_restore_are_atomic_and_validated() {
+    fn runner_package_artifact_publication_is_atomic_and_validated() {
         let root = std::env::temp_dir().join(format!(
             "nia-runner-cache-bundle-{}-{}",
             std::process::id(),
@@ -294,108 +310,36 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&root);
         let invocation = invocation(&root);
-        fs::create_dir_all(invocation.runner_executable.parent().unwrap()).unwrap();
-        fs::write(&invocation.runner_executable, b"runner-bytes").unwrap();
         let key = "bundle-test";
-        publish(&invocation, key).expect("publish runner bundle");
-        let (bundle, _) = paths(&invocation, key);
-        assert!(bundle.is_file());
-        fs::remove_file(&invocation.runner_executable).unwrap();
-        assert!(restore(&invocation, key).expect("restore runner bundle"));
-        assert_eq!(
-            fs::read(&invocation.runner_executable).unwrap(),
-            b"runner-bytes"
+        let manifest = nia_package_metadata::PackageManifest::current(
+            package_id(key),
+            nia_package_metadata::CompilationTarget {
+                arch: "x86_64".into(), vendor: "unknown".into(), os: "linux".into(),
+                env: "gnu".into(), abi: "".into(), endian: "little".into(), pointer_width: 64,
+            },
+            0, 0,
         );
-
-        let mut corrupt = fs::read(&bundle).unwrap();
+        let native = nia_package_metadata::NativeSection { variants: vec![
+            nia_package_metadata::NativeVariant { optimization: 0, objects: vec![
+                nia_package_metadata::NativeObject {
+                    owner: nia_package_metadata::NativeObjectOwner::CompilerBuiltins,
+                    key: "builtins".into(), fingerprint: [1, 2], bytes: vec![1],
+                }
+            ] }
+        ]};
+        let native_bytes = nia_package_metadata::encode_native(&native).unwrap();
+        let bytes = nia_package_metadata::encode_artifact(
+            &manifest,
+            &[(nia_package_metadata::SectionKind::Native, &native_bytes)],
+        ).unwrap();
+        let artifact = package_path(&invocation, key);
+        fs::create_dir_all(artifact.parent().unwrap()).unwrap();
+        fs::write(&artifact, bytes).unwrap();
+        assert!(restore_package(&invocation, key).expect("restore runner package"));
+        let mut corrupt = fs::read(&artifact).unwrap();
         *corrupt.last_mut().unwrap() ^= 0xff;
-        fs::write(&bundle, corrupt).unwrap();
-        fs::remove_file(&invocation.runner_executable).unwrap();
-        assert!(!restore(&invocation, key).expect("reject corrupt runner bundle"));
-        assert!(!bundle.exists());
+        fs::write(&artifact, corrupt).unwrap();
+        assert!(!restore_package(&invocation, key).expect("reject corrupt runner package"));
+        assert!(!artifact.exists());
     }
-}
-
-pub(super) fn restore(invocation: &BuildInvocation, key: &str) -> io::Result<bool> {
-    let (cached, _) = paths(invocation, key);
-    let metadata = match fs::metadata(&cached) {
-        Ok(metadata)
-            if metadata.is_file()
-                && metadata.len() > RUNNER_BUNDLE_HEADER_BYTES as u64
-                && metadata.len() <= MAX_RUNNER_BYTES + RUNNER_BUNDLE_HEADER_BYTES as u64 =>
-        {
-            metadata
-        }
-        Ok(_) => {
-            let _ = fs::remove_file(&cached);
-            return Ok(false);
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(error),
-    };
-    let mut file = fs::File::open(&cached)?;
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    file.read_to_end(&mut bytes)?;
-    if bytes.len() < RUNNER_BUNDLE_HEADER_BYTES
-        || &bytes[..RUNNER_BUNDLE_MAGIC.len()] != RUNNER_BUNDLE_MAGIC
-    {
-        let _ = fs::remove_file(&cached);
-        return Ok(false);
-    }
-    let digest_start = RUNNER_BUNDLE_MAGIC.len();
-    let digest_end = digest_start + 32;
-    let len_start = digest_end;
-    let len_end = len_start + 8;
-    let expected_len = u64::from_le_bytes(bytes[len_start..len_end].try_into().unwrap());
-    let payload = &bytes[len_end..];
-    let valid_len = expected_len == payload.len() as u64 && expected_len <= MAX_RUNNER_BYTES;
-    let actual = blake3::hash(payload);
-    if !valid_len || bytes[digest_start..digest_end] != *actual.as_bytes() || payload.is_empty() {
-        let _ = fs::remove_file(&cached);
-        return Ok(false);
-    }
-    if let Some(parent) = invocation.runner_executable.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(&invocation.runner_executable, payload)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = fs::metadata(&cached)?.permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&invocation.runner_executable, permissions)?;
-    }
-    Ok(true)
-}
-
-pub(super) fn publish(invocation: &BuildInvocation, key: &str) -> io::Result<()> {
-    let source = &invocation.runner_executable;
-    let metadata = fs::metadata(source)?;
-    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_RUNNER_BYTES {
-        return Ok(());
-    }
-    let bytes = fs::read(source)?;
-    let digest = blake3::hash(&bytes);
-    let (cached, _) = paths(invocation, key);
-    let parent = cached.parent().expect("runner cache path has parent");
-    fs::create_dir_all(parent)?;
-    let temp = parent.join(format!(".{}.{}.tmp", key, std::process::id()));
-    let mut bundle = Vec::with_capacity(RUNNER_BUNDLE_HEADER_BYTES + bytes.len());
-    bundle.extend_from_slice(RUNNER_BUNDLE_MAGIC);
-    bundle.extend_from_slice(digest.as_bytes());
-    bundle.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
-    bundle.extend_from_slice(&bytes);
-    {
-        let mut file = fs::File::create(&temp)?;
-        file.write_all(&bundle)?;
-        file.sync_all()?;
-    }
-    match fs::rename(&temp, &cached) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            let _ = fs::remove_file(&temp);
-        }
-        Err(error) => return Err(error),
-    }
-    Ok(())
 }
