@@ -23,6 +23,12 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 .structs
                 .get(&def_id.def_id)
                 .is_none_or(|signature| signature.generics.is_empty())
+                && self
+                    .input
+                    .program
+                    .structs()
+                    .get(def_id)
+                    .is_none_or(|signature| signature.signature.generics.is_empty())
         });
         layouts.unions.retain(|(def_id, _)| {
             self.input
@@ -30,6 +36,12 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 .unions
                 .get(&def_id.def_id)
                 .is_none_or(|signature| signature.generics.is_empty())
+                && self
+                    .input
+                    .program
+                    .unions()
+                    .get(def_id)
+                    .is_none_or(|signature| signature.signature.generics.is_empty())
         });
     }
 
@@ -96,7 +108,18 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             .signatures
             .structs
             .iter()
-            .filter(|(_, signature)| !signature.generics.is_empty())
+            .filter(|(def_id, signature)| {
+                !signature.generics.is_empty()
+                    || self
+                        .input
+                        .program
+                        .structs()
+                        .get(&GlobalDefId {
+                            module_id: self.input.module_id,
+                            def_id: **def_id,
+                        })
+                        .is_some_and(|signature| !signature.signature.generics.is_empty())
+            })
             .map(|(def_id, _)| *def_id)
             .collect::<HashSet<_>>();
         let generic_unions = self
@@ -104,7 +127,18 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             .signatures
             .unions
             .iter()
-            .filter(|(_, signature)| !signature.generics.is_empty())
+            .filter(|(def_id, signature)| {
+                !signature.generics.is_empty()
+                    || self
+                        .input
+                        .program
+                        .unions()
+                        .get(&GlobalDefId {
+                            module_id: self.input.module_id,
+                            def_id: **def_id,
+                        })
+                        .is_some_and(|signature| !signature.signature.generics.is_empty())
+            })
             .map(|(def_id, _)| *def_id)
             .collect::<HashSet<_>>();
         append_missing_nominal_layouts_filtered(
