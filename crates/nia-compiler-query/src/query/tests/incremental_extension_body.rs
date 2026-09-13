@@ -10,7 +10,7 @@ fn executable_incremental_body_check_preserves_extension_method_receiver_types()
 module writer;
 using entry::writer;
 
-fn main() i32 {
+pub fn main() i32 {
 let mut sink = writer::Sink::init();
 match sink.write(b"ok") {
     !value => {
@@ -66,8 +66,7 @@ pub fn write(&mut self, bytes: &[u8]) Error!usize {
 }
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -324,7 +323,7 @@ fn fail() platform::Errno!i32 {
 platform::Errno::Bad!
 }
 
-fn main() Error!i32 {
+pub fn main() Error!i32 {
 fail().cast_error()
 }
 "#,
@@ -352,8 +351,7 @@ _,
 }
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);

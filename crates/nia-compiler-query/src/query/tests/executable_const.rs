@@ -9,14 +9,13 @@ fn executable_full_lowering_reuses_explicit_and_inferred_const_types() {
 const explicit: usize = 19usize;
 const inferred = 4usize;
 
-fn main() usize {
+pub fn main() usize {
 explicit + inferred
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -51,14 +50,13 @@ fn f1() i32 {
 f2()
 }
 
-fn main() i32 {
+pub fn main() i32 {
 f1()
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -86,7 +84,7 @@ fn executable_filtered_const_resolves_forwarded_array_len_values() {
 module facade;
 using entry::facade;
 
-fn main() i32 {
+pub fn main() i32 {
 let mut values: [u8; facade::LEN] = [0; facade::LEN];
 values[0] as i32
 }
@@ -112,8 +110,7 @@ pub const LEN: usize = raw::LEN;
 pub const LEN: usize = 4usize;
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -156,7 +153,7 @@ fn value(&self) usize {
 }
 }
 
-fn main() usize {
+pub fn main() usize {
 let box = Box {};
 box.value()
 }
@@ -171,8 +168,7 @@ box.value()
 pub const LEN: usize = 4usize;
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -204,7 +200,7 @@ fn signature_const_resolves_receiver_locals_for_omitted_patterns() {
 module palette;
 using entry::palette;
 
-fn main() i32 {
+pub fn main() i32 {
     let values: [u8; palette::SIZE] = [0; palette::SIZE];
     values[0] as i32
 }
@@ -230,8 +226,7 @@ extend Color {
 pub const SIZE: usize = Color::Red.score();
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);

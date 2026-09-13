@@ -6,7 +6,7 @@ fn lowered_closure_entries_remain_owned_by_the_source_body_query() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn main(base: i32) i32 {
+pub fn main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     let view: &Fn(i32) i32 = &callback;
     callback(1) + view(2)
@@ -14,8 +14,7 @@ fn main(base: i32) i32 {
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
     let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
     let module = facts
@@ -146,13 +145,13 @@ fn main(base: i32) i32 {
 #[test]
 fn incremental_closure_entry_identity_matches_clean_recomputation() {
     let source_v1 = r#"
-fn main(base: i32) i32 {
+pub fn main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     callback(1)
 }
 "#;
     let source_v2 = r#"
-fn main(base: i32) i32 {
+pub fn main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value + 1 };
     callback(1)
 }
@@ -236,7 +235,7 @@ fn no_capture_function_pointer_retains_its_owned_closure_entry_identity() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn main() i32 {
+pub fn main() i32 {
     let callback = \value: i32 -> { value + 1 };
     let pointer: &fn(i32) i32 = &callback;
     pointer(2)
@@ -244,8 +243,7 @@ fn main() i32 {
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
     let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
     let module = facts
@@ -295,14 +293,13 @@ fn apply[T](value: T) T {
     callback()
 }
 
-fn main() i32 {
+pub fn main() i32 {
     apply[i32](7)
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let backend = db.expect_get(BackendLoweringQuery);
@@ -370,7 +367,7 @@ extend[Value] ?Value {
     }
 }
 
-fn main(base: i32) i32 {
+pub fn main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     let value: ?i32 = ?1;
     match value.map[i32](&callback) {
@@ -380,8 +377,7 @@ fn main(base: i32) i32 {
 }
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let backend = db.expect_get(BackendLoweringQuery);
@@ -416,15 +412,14 @@ fn closure_entry_bodies_participate_in_backend_reachability() {
         r#"
 fn helper(value: i32) i32 { value + 1 }
 
-fn main() i32 {
+pub fn main() i32 {
     let callback = \value: i32 -> { helper(value) };
     callback(1)
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let backend = db.expect_get(BackendLoweringQuery);
@@ -459,14 +454,13 @@ fn unused(value: Recursive) i32 {
 1
 }
 
-fn main() i32 {
+pub fn main() i32 {
 0
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -518,7 +512,7 @@ module bounds;
 using entry::ext;
 using entry::bounds;
 
-fn main() i32 {
+pub fn main() i32 {
 let value = ext::Box[bounds::Token]::init(bounds::Token {});
 value.get()
 }
@@ -563,8 +557,7 @@ pub struct Token {}
 extend Token : Marker {}
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let backend_lowering = db.expect_get(BackendLoweringQuery);
@@ -584,7 +577,7 @@ fn executable_backend_lowering_includes_shallow_primitive_extension_owners() {
 module unicode;
 using entry::unicode;
 
-fn main() i32 {
+pub fn main() i32 {
 'a'.encoded_len()
 }
 "#,
@@ -616,8 +609,7 @@ pub fn unreachable(self) i32 {
 }
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let defs = module_defs_semantic(&db, unicode_id).expect("unicode defs");
@@ -700,7 +692,7 @@ fn executable_backend_signatures_include_checked_shallow_provider_impls() {
 module provider;
 using entry::provider;
 
-fn main() i32 {
+pub fn main() i32 {
 'a'.activate()
 }
 "#,
@@ -732,8 +724,7 @@ self.value()
 "#,
     );
     fixture.graph.mark_semantic_selected(provider_id);
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -760,7 +751,7 @@ module module2;
 using entry::module1;
 using entry::module2;
 
-fn main() i32 {
+pub fn main() i32 {
 let mut page = module2::Page::init();
 let allocator: &mut module1::Allocator = &mut page;
 allocator.remap()
@@ -811,8 +802,7 @@ fn alloc(&mut self) i32 {
 }
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let codegen = CompilerDatabase::new(
         CompileRequest::new(loaded).with_optimization(NiaOptimizationLevel::O1),
     )
@@ -947,7 +937,7 @@ fn executable_backend_lowering_closes_vtables_from_generic_function_instances() 
 module dispatch;
 using entry::dispatch;
 
-fn main() i32 {
+pub fn main() i32 {
 let mut page = dispatch::Page::init();
 dispatch::call[dispatch::Page](&mut page)
 }
@@ -990,8 +980,7 @@ allocator.remap()
 }
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let backend_lowering = db.expect_get(BackendLoweringQuery);
@@ -1104,7 +1093,7 @@ module right;
 using entry::left;
 using entry::right;
 
-fn main() i32 {
+pub fn main() i32 {
 left::read() + right::read()
 }
 "#,
@@ -1157,8 +1146,7 @@ value.read()
 }
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
 
     let backend = query_db(loaded).expect_get(BackendLoweringQuery);
     assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
@@ -1183,7 +1171,7 @@ fn executable_backend_lowering_closes_cross_module_generic_local_static_instance
 module slots;
 using entry::slots;
 
-fn main() i32 {
+pub fn main() i32 {
 let mut left = slots::slot[i32]();
 let mut right = slots::slot[u64]();
 _ = left;
@@ -1204,8 +1192,7 @@ static mut item: T;
 }
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let backend_lowering = db.expect_get(BackendLoweringQuery);

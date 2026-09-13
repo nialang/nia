@@ -5,8 +5,7 @@ use super::*;
 #[test]
 fn executable_function_body_produces_factless_empty_body() {
     let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() () {}");
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);

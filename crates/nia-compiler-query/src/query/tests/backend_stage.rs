@@ -3,8 +3,10 @@ use super::*;
 
 #[test]
 fn backend_lowering_uses_executable_per_item_ir() {
-    let fixture =
-        LoadedProgramFixture::new("main.nia", "fn main() i32 { static value: i32 = 1; value }");
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "pub fn main() i32 { static value: i32 = 1; value }",
+    );
     let db = query_db(fixture.program());
 
     let _ = db.expect_get(BackendLoweringQuery);
@@ -87,7 +89,7 @@ fn backend_lowering_uses_executable_per_item_ir() {
 fn codegen_tracks_and_reuses_backend_stage_products() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "module helper; using entry::helper; fn main() i32 { helper::id[i32](1) }",
+        "module helper; using entry::helper; pub fn main() i32 { helper::id[i32](1) }",
     );
     let module_id = fixture.entry_id();
     let helper_id = fixture.add_child(
@@ -96,8 +98,7 @@ fn codegen_tracks_and_reuses_backend_stage_products() {
         "helper.nia",
         "pub fn id[T](value: T) T { value }",
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let first_codegen = db.expect_get(CodegenProgramQuery);
@@ -197,14 +198,14 @@ fn codegen_tracks_and_reuses_backend_stage_products() {
         query_executions(&trace, "backend_finalization_task_context"),
         1
     );
-    assert_eq!(query_executions(&trace, "backend_module_finalization"), 2);
+    assert_eq!(query_executions(&trace, "backend_module_finalization"), 3);
     assert_eq!(
         query_executions(&trace, "backend_module_source_item_plan"),
-        2
+        3
     );
     assert_eq!(
         query_executions(&trace, "backend_module_function_instance_plan"),
-        2
+        3
     );
     assert_eq!(query_executions(&trace, "backend_lowering"), 1);
 }
@@ -218,15 +219,14 @@ fn identity[T](value: T) T {
     value
 }
 
-fn main() i32 {
+pub fn main() i32 {
     let pointer: &fn(i32) i32 = &identity[i32];
     pointer(7)
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let codegen = db.expect_get(CodegenProgramQuery);
@@ -281,15 +281,14 @@ extend Counter {
     }
 }
 
-fn main() usize {
+pub fn main() usize {
     let counter = Counter {};
     counter.value[3]()
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let codegen = db.expect_get(CodegenProgramQuery);
@@ -395,7 +394,7 @@ total
 
 const compileCount: usize = count(Pair[u8] { first: 1u8, second: 2u8 });
 
-fn main() usize {
+pub fn main() usize {
 let values: [u8; compileCount] = [0; compileCount];
 count(Pair[usize] { first: 1, second: 2 })
 + count(Pair[bool] { first: true, second: false })
@@ -404,8 +403,7 @@ count(Pair[usize] { first: 1, second: 2 })
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let codegen = db.expect_get(CodegenProgramQuery);
@@ -464,7 +462,7 @@ count(Pair[usize] { first: 1, second: 2 })
 fn backend_module_plan_slots_are_consumed_and_republished_after_invalidation() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "module helper; using entry::helper; fn main() i32 { helper::value() }",
+        "module helper; using entry::helper; pub fn main() i32 { helper::value() }",
     );
     let module_id = fixture.entry_id();
     let helper_id = fixture.add_child(
@@ -560,7 +558,7 @@ fn unused() i32 {
 9
 }
 
-fn main() i32 {
+pub fn main() i32 {
 helper() + child::value()
 }
 "#,
@@ -581,8 +579,7 @@ value.number
 }
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
@@ -673,7 +670,7 @@ value.number
 fn codegen_reuses_per_function_lowering_between_mono_and_backend() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "fn helper() i32 { 1 } fn main() i32 { helper() }",
+        "fn helper() i32 { 1 } pub fn main() i32 { helper() }",
     );
     let db = query_db(fixture.program());
 

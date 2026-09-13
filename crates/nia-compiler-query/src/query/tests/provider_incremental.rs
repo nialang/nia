@@ -3,7 +3,7 @@ use super::*;
 
 #[test]
 fn provider_graph_growth_recomputes_query_derived_executable_roots() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let entry_id = fixture.entry_id();
     let provider_id = fixture.add_shallow_child(
         entry_id,
@@ -39,7 +39,7 @@ fn provider_graph_growth_recomputes_query_derived_executable_roots() {
 
 #[test]
 fn additive_provider_graph_growth_reuses_existing_executable_facts() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let entry_id = fixture.entry_id();
     let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
@@ -86,7 +86,7 @@ fn additive_provider_graph_growth_reuses_existing_executable_facts() {
 
 #[test]
 fn provider_changes_discard_affected_executable_fact_caches() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let entry_id = fixture.entry_id();
     let revision = crate::ProviderFactRevision::new_store();
     let mut program = fixture.program();
@@ -236,7 +236,7 @@ fn check_certificate_input_covers_stable_graph_and_provider_demands() {
 
 #[test]
 fn compiler_inputs_preserve_provider_fact_revision() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let mut program = fixture.program();
     let revision = crate::ProviderFactRevision::new_store().next();
     program.provider_fact_revision = revision;
@@ -250,7 +250,7 @@ fn compiler_inputs_preserve_provider_fact_revision() {
 
 #[test]
 fn executable_products_depend_on_incremental_worklists() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let revision = crate::ProviderFactRevision::new_store();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;
@@ -304,8 +304,7 @@ fn executable_products_depend_on_incremental_worklists() {
 #[test]
 fn executable_products_serialize_the_shared_fact_session() {
     let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
-    let mut program = fixture.program();
-    program.runtime = RuntimeModel::FreestandingExecutable;
+    let program = fixture.freestanding_program();
     let revision = program.provider_fact_revision;
     let db = query_db(program);
 
@@ -360,7 +359,7 @@ fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
 
 #[test]
 fn executable_fact_epoch_defers_full_reset_to_query_boundary() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let database = fixture.database();
     let first_epoch = database.db.expect_get(ExecutableFactEpochQuery);
     let _ = database.db.expect_get(ExecutableCheckedModulesQuery);
@@ -383,8 +382,7 @@ fn executable_fact_epoch_defers_full_reset_to_query_boundary() {
         session.applied_provider_changes.insert(sentinel.clone());
     }
 
-    let mut reset = fixture.program();
-    reset.runtime = RuntimeModel::FreestandingExecutable;
+    let reset = fixture.freestanding_program();
     database.update(CompileRequest::new(reset));
     {
         let session = database
@@ -412,7 +410,7 @@ fn executable_fact_epoch_defers_full_reset_to_query_boundary() {
 
 #[test]
 fn provider_revision_update_invalidates_executable_products() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let revision = crate::ProviderFactRevision::new_store();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;
@@ -466,7 +464,7 @@ fn provider_revision_update_invalidates_executable_products() {
 
 #[test]
 fn provider_worklist_accumulates_until_consumed() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let revision = crate::ProviderFactRevision::new_store();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;
@@ -542,7 +540,7 @@ fn provider_worklist_reset_watermark_survives_skipped_revisions() {
             trait_name: sym("Current"),
         },
     };
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let database = fixture.database();
     let mut session = ExecutableFactSession {
         applied_provider_fact_revision: Some(initial_revision),
@@ -565,7 +563,7 @@ fn provider_worklist_reset_watermark_survives_skipped_revisions() {
 
 #[test]
 fn body_activation_worklist_accumulates_until_consumed() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let entry_id = fixture.entry_id();
     let first_module = fixture.add_shallow_child(
         entry_id,
@@ -634,7 +632,7 @@ fn body_activation_worklist_accumulates_until_consumed() {
 
 #[test]
 fn content_identical_input_replacement_keeps_executable_facts_green() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let revision = crate::ProviderFactRevision::new_store();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;

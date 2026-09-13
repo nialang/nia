@@ -15,15 +15,14 @@ fn unused() i32 {
 missing_symbol
 }
 
-fn main() i32 {
+pub fn main() i32 {
 let mut values: [i32; len()] = [0; len()];
 values[0]
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
@@ -118,15 +117,14 @@ const fn unused(value: i32) i32 {
 value - 100
 }
 
-fn main() i32 {
+pub fn main() i32 {
 let callback = & referenced;
 callback(12)
 }
 "#,
     );
     let module_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
@@ -170,7 +168,7 @@ fn executable_checked_modules_do_not_body_check_modules_for_generic_metadata_onl
 module helper;
 using entry::helper;
 
-fn main() i32 {
+pub fn main() i32 {
 helper::id[i32](1)
 }
 "#,
@@ -190,8 +188,7 @@ missing_symbol
 }
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);

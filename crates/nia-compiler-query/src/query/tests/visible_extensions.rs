@@ -9,7 +9,7 @@ fn executable_visible_extensions_follow_facade_provider_chains() {
 module facade;
 using entry::facade;
 
-fn main() i32 {
+pub fn main() i32 {
 let init = facade::Init::init();
 let args = init.args();
 let mut iter = args.iter();
@@ -87,8 +87,7 @@ pub struct Args {}
 pub struct ArgsIter {}
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let checked = db.expect_get(CodegenProgramQuery);
@@ -104,7 +103,7 @@ fn visible_extensions_do_not_expand_using_type_modules_as_provider_modules() {
 module facade;
 using entry::facade;
 
-fn main(value: facade::Used) i32 {
+pub fn main(value: facade::Used) i32 {
 value.len()
 }
 "#,
@@ -147,8 +146,7 @@ pub struct Used {}
     );
     let entry_description = format!("{entry_id:?}");
     let types_description = format!("{types_id:?}");
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let checked = db.expect_get(CodegenProgramQuery);
@@ -174,7 +172,7 @@ fn visible_trait_impls_follow_facade_reexport_item_modules() {
 module parse;
 using entry::parse;
 
-fn main() i32 {
+pub fn main() i32 {
 (&"abc").parse[i32]()
 }
 "#,

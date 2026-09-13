@@ -31,7 +31,7 @@ fn intoError(self) Target {
 }
 }
 
-fn main() i32 {
+pub fn main() i32 {
 let value: Source!i32 = Source { value: 1 }!;
 match value.cast_error() {
     !ok => {
@@ -78,8 +78,7 @@ pub fn cast_error(self) Target!T {
 using entry::error;
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -117,7 +116,7 @@ module impls;
 using entry::error;
 using entry::impls;
 
-fn main() i32 {
+pub fn main() i32 {
 let value: impls::Source!i32 = impls::Source { value: 1 }!;
 match value.cast_error() {
     !ok => {
@@ -178,8 +177,7 @@ fn intoError(self) Target {
 }
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -217,7 +215,7 @@ module impls;
 using entry::error;
 using entry::impls;
 
-fn main() i32 {
+pub fn main() i32 {
 let value: impls::Source!i32 = impls::Source { value: 1 }!;
 match value.as_target_error() {
     !ok => {
@@ -284,8 +282,7 @@ pub fn as_target_error(self) Target!T {
 }
 "#,
     );
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
@@ -345,15 +342,14 @@ where Buffer[T, N]: Marker
     }
 }
 
-fn main() i32 {
+pub fn main() i32 {
     let buffer = Buffer[i32, 3] { values: [1, 2, 3] };
     buffer.summarize()
 }
 "#,
     );
     let entry_id = fixture.entry_id();
-    let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
