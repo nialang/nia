@@ -1302,7 +1302,11 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
         .with_profile(invocation.profile)
         .with_compilation_mode(invocation.compilation_mode)
         .with_timings(invocation.timings);
-    let std_artifact = invocation.toolchain.std_package_artifact();
+    let std_artifact = invocation.toolchain.std_package_artifact(
+        invocation.toolchain.host_target(),
+        invocation.profile,
+        invocation.compilation_mode,
+    );
     if std_artifact.is_file() {
         check = check.with_package_artifact(std_artifact);
     }

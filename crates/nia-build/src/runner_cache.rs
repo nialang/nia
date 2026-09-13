@@ -22,7 +22,11 @@ pub(super) fn cache_key(
     hasher.update(b"nia.build.runner-cache.v1");
     hasher.update(runner.source.as_bytes());
     hash_file(&mut hasher, &invocation.build_script, runner)?;
-    let std_artifact = invocation.toolchain.std_package_artifact();
+    let std_artifact = invocation.toolchain.std_package_artifact(
+        invocation.toolchain.host_target(),
+        invocation.profile,
+        invocation.compilation_mode,
+    );
     if std_artifact.is_file() {
         hasher.update(b"std-package-artifact");
         hash_file(&mut hasher, &std_artifact, runner)?;
@@ -246,7 +250,11 @@ mod tests {
             std::env::temp_dir().join(format!("nia-runner-cache-key-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let invocation = invocation(&root);
-        let artifact = invocation.toolchain.std_package_artifact();
+        let artifact = invocation.toolchain.std_package_artifact(
+            invocation.toolchain.host_target(),
+            invocation.profile,
+            invocation.compilation_mode,
+        );
         fs::create_dir_all(artifact.parent().unwrap()).unwrap();
         fs::write(&artifact, b"artifact-v1").unwrap();
         let runner = BuildRunnerSource {

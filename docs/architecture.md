@@ -717,6 +717,9 @@ Compiled package manifests identify the exact target, build profile, and normal/
 compilation mode used for conditional source selection. Loader selection validates this
 semantic context before exposing any declaration, template, or native section; products
 compiled from a different conditional source view are never partially reused.
+Toolchain package paths are derived from the same target/profile/mode identity, so
+installed variants cannot overwrite one another and relocation does not change their
+relative resource path.
 
 ## 13. CLI
 

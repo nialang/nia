@@ -76,6 +76,14 @@ fn standard_library_manifest() -> PackageManifest {
     manifest_for(PackageId::standard_library())
 }
 
+fn std_artifact_path(toolchain: &nia_toolchain::ToolchainLayout) -> std::path::PathBuf {
+    toolchain.std_package_artifact(
+        &nia_target_config::TargetConfig::host(),
+        nia_target_config::BuildProfile::Debug,
+        nia_target_config::CompilationMode::Normal,
+    )
+}
+
 #[test]
 fn optional_artifact_loads_and_preserves_relocation_independent_identity() {
     let path = temp_artifact("valid");
@@ -106,7 +114,7 @@ fn optional_artifact_loads_and_preserves_relocation_independent_identity() {
 #[test]
 fn toolchain_standard_library_artifact_is_discovered_automatically() {
     let toolchain = temporary_toolchain("valid");
-    let artifact_path = toolchain.std_package_artifact();
+    let artifact_path = std_artifact_path(&toolchain);
     fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
     fs::write(
         &artifact_path,
@@ -123,7 +131,7 @@ fn toolchain_standard_library_artifact_is_discovered_automatically() {
 #[test]
 fn automatic_standard_library_artifact_rejects_nonstandard_package_identity() {
     let toolchain = temporary_toolchain("reject");
-    let artifact_path = toolchain.std_package_artifact();
+    let artifact_path = std_artifact_path(&toolchain);
     fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
     fs::write(&artifact_path, encode(&manifest()).unwrap()).unwrap();
     let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_toolchain_layout(toolchain));
@@ -140,7 +148,7 @@ fn automatic_standard_library_artifact_rejects_nonstandard_package_identity() {
 #[test]
 fn selected_standard_library_artifact_supplies_source_free_module_topology() {
     let toolchain = temporary_toolchain("topology");
-    let artifact_path = toolchain.std_package_artifact();
+    let artifact_path = std_artifact_path(&toolchain);
     fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
     let mut metadata = standard_library_manifest();
     metadata.modules = vec![
