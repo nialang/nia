@@ -45,6 +45,27 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
         });
     }
 
+    pub(crate) fn remove_generic_nominal_layouts_for_module(
+        &self,
+        layouts: &mut BackendLayouts,
+        module: &BackendModule,
+    ) {
+        layouts.structs.retain(|(def_id, _)| {
+            module
+                .structs
+                .iter()
+                .find(|item| item.def_id == *def_id)
+                .is_none_or(|item| item.generics.is_empty())
+        });
+        layouts.unions.retain(|(def_id, _)| {
+            module
+                .unions
+                .iter()
+                .find(|item| item.def_id == *def_id)
+                .is_none_or(|item| item.generics.is_empty())
+        });
+    }
+
     pub(crate) fn new(
         input: &'ctx BackendLowerModuleInput<'input>,
         type_store: &'ctx nia_ty::TypeStore,

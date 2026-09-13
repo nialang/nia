@@ -22,7 +22,7 @@ impl<'a> ModuleLowerer<'a> {
         let mut layouts = BackendLayouts::from_module_layouts(self.input.layouts);
         if self.input.artifact_module {
             crate::layout_extender::BackendLayoutExtender::new(self.input, self.type_store)
-                .remove_generic_nominal_layouts(&mut layouts);
+                .remove_generic_nominal_layouts_for_module(&mut layouts, module);
         }
         self.extend_backend_layouts_for_finalized_module(&mut layouts, module);
         module.layouts = layouts;
