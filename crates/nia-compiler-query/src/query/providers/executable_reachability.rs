@@ -1248,7 +1248,6 @@ fn package_root_defs(
             };
             if matches!(definition.kind, DefKind::Function | DefKind::Method)
                 && signature.has_body
-                && !signature.is_const
                 && effective_function_generic_params(&signatures.semantic, &defs, *def_id)
                     .is_empty()
             {

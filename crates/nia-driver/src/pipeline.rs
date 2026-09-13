@@ -764,29 +764,30 @@ impl Driver {
                     .link_inputs
                     .into_vec()
                     .into_iter()
-                    .filter(|input| match &input.key {
-                        nia_codegen_llvm::CodegenUnitKey::SourceModule {
-                            source_identity, ..
-                        } => owned_sources.contains(source_identity),
-                        nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins
-                        | nia_codegen_llvm::CodegenUnitKey::CompiledPackage { .. } => false,
-                    })
                     .filter_map(|input| {
-                        let nia_codegen_llvm::CodegenUnitKey::SourceModule {
-                            source_identity,
-                            ordinal,
-                        } = &input.key
-                        else {
-                            return None;
+                        let owner = match &input.key {
+                            nia_codegen_llvm::CodegenUnitKey::SourceModule {
+                                source_identity,
+                                ordinal,
+                            } if owned_sources.contains(source_identity) => {
+                                nia_package_metadata::NativeObjectOwner::PackageModule {
+                                    module: nia_package_metadata::ModuleId {
+                                        package: package.clone(),
+                                        path: source_identity.normalized_path().to_owned(),
+                                    },
+                                    ordinal: *ordinal,
+                                }
+                            }
+                            nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins => {
+                                nia_package_metadata::NativeObjectOwner::CompilerBuiltins
+                            }
+                            nia_codegen_llvm::CodegenUnitKey::SourceModule { .. }
+                            | nia_codegen_llvm::CodegenUnitKey::CompiledPackage { .. } => {
+                                return None;
+                            }
                         };
                         Some(NativeObject {
-                            owner: nia_package_metadata::NativeObjectOwner::PackageModule {
-                                module: nia_package_metadata::ModuleId {
-                                    package: package.clone(),
-                                    path: source_identity.normalized_path().to_owned(),
-                                },
-                                ordinal: *ordinal,
-                            },
+                            owner,
                             key: native_object_key(&input.key),
                             fingerprint: input.fingerprint.parts(),
                             bytes: input.object.bytes,
@@ -2548,13 +2549,30 @@ fn append_compiled_package_native_inputs(
             _ => None,
         })
         .collect::<std::collections::BTreeSet<_>>();
+    let mut compiler_builtins_present = inputs.iter().any(|input| {
+        matches!(
+            &input.key,
+            nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins
+        )
+    });
     for product in database
         .compiled_package_native_products()
         .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?
     {
         let package = product.package();
         for object in &product.section().objects {
-            if object.owner.module().package != *package {
+            if matches!(
+                &object.owner,
+                nia_package_metadata::NativeObjectOwner::CompilerBuiltins
+            ) {
+                if compiler_builtins_present {
+                    continue;
+                }
+                compiler_builtins_present = true;
+            }
+            if let Some(module) = object.owner.module()
+                && module.package != *package
+            {
                 return Err(DriverError::InvalidArtifactRequest(
                     "compiled package native object owner does not match its package".to_string(),
                 ));
