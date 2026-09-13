@@ -134,6 +134,7 @@ pub struct LoaderDatabase {
     package_artifact: Option<PackageArtifactRequest>,
     expected_package: Option<PackageId>,
     artifact_compatibility: package_artifact::ArtifactCompatibility,
+    required_native_optimization: Option<u8>,
     artifact_selection_cache: Arc<Mutex<Option<CachedPackageArtifact>>>,
 }
 
@@ -316,6 +317,7 @@ impl LoaderDatabase {
                     &artifact_request,
                     expected_package.as_ref(),
                     &artifact_compatibility,
+                    request.required_native_optimization,
                 ) {
                     Ok(PackageArtifactLoad::Loaded { interface, .. }) => Some(interface),
                     _ => None,
@@ -476,6 +478,7 @@ impl LoaderDatabase {
                 .or_else(|| toolchain_std_artifact.map(PackageArtifactRequest::Optional)),
             expected_package,
             artifact_compatibility,
+            required_native_optimization: request.required_native_optimization,
             artifact_selection_cache: Arc::new(Mutex::new(None)),
         }
     }
@@ -548,6 +551,7 @@ impl LoaderDatabase {
             request,
             self.expected_package.as_ref(),
             &self.artifact_compatibility,
+            self.required_native_optimization,
         )
         .map(Some)?;
         if let Ok(stamp) = artifact_file_stamp(request.path()) {
@@ -1109,6 +1113,9 @@ pub struct LoadRequest {
     pub package_artifact: Option<PackageArtifactRequest>,
     /// Optional stable package identity expected from the selected artifact.
     pub expected_package: Option<PackageId>,
+    /// Native optimization variant required before selecting an artifact.
+    /// Semantic-only requests leave this unset.
+    pub required_native_optimization: Option<u8>,
 }
 
 impl LoadRequest {
@@ -1135,6 +1142,7 @@ impl LoadRequest {
             toolchain: None,
             package_artifact: None,
             expected_package: None,
+            required_native_optimization: None,
         }
     }
 
@@ -1171,6 +1179,12 @@ impl LoadRequest {
     /// Selects whether test-only source participates in compilation.
     pub fn with_compilation_mode(mut self, mode: CompilationMode) -> Self {
         self.compilation_mode = mode;
+        self
+    }
+
+    /// Requires an exact native optimization variant from a selected artifact.
+    pub fn with_required_native_optimization(mut self, optimization: u8) -> Self {
+        self.required_native_optimization = Some(optimization);
         self
     }
 

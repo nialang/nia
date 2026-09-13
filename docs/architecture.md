@@ -720,6 +720,11 @@ compiled from a different conditional source view are never partially reused.
 Toolchain package paths are derived from the same target/profile/mode identity, so
 installed variants cannot overwrite one another and relocation does not change their
 relative resource path.
+Semantic-only requests may select a context-compatible package without native code.
+Object and executable requests additionally require an exact optimization variant;
+an optional package that lacks it falls back as a whole to source, while a required
+package reports a typed selection error. Interface metadata and source definitions are
+never mixed after native selection fails.
 
 ## 13. CLI
 
