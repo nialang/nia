@@ -168,7 +168,7 @@ impl ToolchainLayout {
 
         let std_module = resource_root.join("std/pkg.nia");
         validate_file(&std_module, ResourceRole::StandardLibrary)?;
-        let freestanding_start_module = resource_root.join("std/start.nia");
+        let freestanding_start_module = resource_root.join("runtime/start.nia");
         validate_file(
             &freestanding_start_module,
             ResourceRole::FreestandingRuntime,
@@ -210,6 +210,14 @@ impl ToolchainLayout {
     /// Returns the validated standard-library root module.
     pub fn std_module(&self) -> &std::path::Path {
         &self.std_module
+    }
+
+    /// Returns the validated physical source module for freestanding startup.
+    ///
+    /// Runtime startup is a toolchain resource, not a module owned by the
+    /// standard-library package artifact.
+    pub fn freestanding_start_module(&self) -> &std::path::Path {
+        self.runtime.freestanding_start_module()
     }
 
     /// Conventional compiled-package snapshot for the standard library.
@@ -746,7 +754,7 @@ mod tests {
         )
         .expect("write manifest");
         fs::write(resources.join("std/pkg.nia"), "pub module start;").expect("write std root");
-        fs::write(resources.join("std/start.nia"), "").expect("write runtime");
+        fs::write(resources.join("runtime/start.nia"), "").expect("write runtime");
         executable
     }
 

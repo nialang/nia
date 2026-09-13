@@ -28,7 +28,7 @@ fn temporary_toolchain(name: &str) -> Arc<nia_toolchain::ToolchainLayout> {
     )
     .unwrap();
     fs::write(resources.join("std/pkg.nia"), "pub module start;").unwrap();
-    fs::write(resources.join("std/start.nia"), "").unwrap();
+    fs::write(resources.join("runtime/start.nia"), "").unwrap();
     Arc::new(
         nia_toolchain::ToolchainLayout::resolve(nia_toolchain::ToolchainLayoutRequest::explicit(
             &executable,
@@ -348,6 +348,13 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
         profile: 0,
         optimization: 0,
         objects: vec![nia_package_metadata::NativeObject {
+            owner: nia_package_metadata::NativeObjectOwner::PackageModule {
+                module: nia_package_metadata::ModuleId {
+                    package: package.clone(),
+                    path: "src/lib.nia".into(),
+                },
+                ordinal: 0,
+            },
             key: "unit-0".into(),
             fingerprint: [0, 0],
             bytes: vec![1, 2, 3],

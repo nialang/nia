@@ -551,6 +551,37 @@ fn collect_nominal_signature_owner_type_ids<'a>(
             seen,
         );
     }
+    if let Some(signature) = (program_signatures.enum_)(def_id) {
+        let payload_types = signature
+            .signature
+            .variants
+            .iter()
+            .flat_map(|variant| match &variant.payload {
+                nia_item_signatures::EnumVariantPayloadSignature::Unit => Vec::new(),
+                nia_item_signatures::EnumVariantPayloadSignature::Tuple(fields) => fields.clone(),
+                nia_item_signatures::EnumVariantPayloadSignature::Named(fields) => {
+                    fields.iter().map(|field| field.ty).collect()
+                }
+            });
+        collect_ty_ids_owner_modules_with_store(
+            std::iter::once(signature.signature.backing_type).chain(payload_types),
+            program_signatures,
+            type_store,
+            type_modules,
+            traits,
+            seen,
+        );
+    }
+    if let Some(signature) = (program_signatures.type_alias)(def_id) {
+        collect_ty_ids_owner_modules_with_store(
+            [signature.signature.target],
+            program_signatures,
+            type_store,
+            type_modules,
+            traits,
+            seen,
+        );
+    }
 }
 
 fn collect_ty_ids_owner_modules_with_store<'a>(
@@ -680,5 +711,110 @@ mod tests {
             &mut array_modules,
         );
         assert!(array_modules.contains(&const_owner));
+    }
+
+    #[test]
+    fn enum_payloads_and_alias_targets_contribute_type_owner_modules() {
+        let mut modules = ModuleIdAllocator::new();
+        let use_module = modules.allocate();
+        let outer_module = modules.allocate();
+        let alias_module = modules.allocate();
+        let leaf_module = modules.allocate();
+        let outer_id = GlobalDefId {
+            module_id: outer_module,
+            def_id: nia_defs::DefId(1),
+        };
+        let alias_id = GlobalDefId {
+            module_id: alias_module,
+            def_id: nia_defs::DefId(2),
+        };
+        let leaf_id = GlobalDefId {
+            module_id: leaf_module,
+            def_id: nia_defs::DefId(3),
+        };
+        let types = TypeStore::new();
+        let append = types.append_for_module(use_module);
+        let backing = append.primitive(PrimitiveTy::U8);
+        let leaf_ty = append.intern(TyKind::Nominal {
+            def_id: leaf_id,
+            args: Vec::new(),
+            const_args: Vec::new(),
+        });
+        let alias_ty = append.intern(TyKind::Nominal {
+            def_id: alias_id,
+            args: Vec::new(),
+            const_args: Vec::new(),
+        });
+        let outer_ty = append.intern(TyKind::Nominal {
+            def_id: outer_id,
+            args: Vec::new(),
+            const_args: Vec::new(),
+        });
+        let enum_signature = |def_id| {
+            let payload = if def_id == outer_id {
+                vec![nia_item_signatures::EnumVariantSignature {
+                    def_id: nia_defs::DefId(4),
+                    name: SymbolId::from_stable_hash(nia_symbol::stable_hash("Wrapped")),
+                    payload: nia_item_signatures::EnumVariantPayloadSignature::Tuple(vec![
+                        alias_ty,
+                    ]),
+                    span: nia_span::Span::default(),
+                }]
+            } else if def_id == leaf_id {
+                vec![nia_item_signatures::EnumVariantSignature {
+                    def_id: nia_defs::DefId(5),
+                    name: SymbolId::from_stable_hash(nia_symbol::stable_hash("Leaf")),
+                    payload: nia_item_signatures::EnumVariantPayloadSignature::Unit,
+                    span: nia_span::Span::default(),
+                }]
+            } else {
+                return None;
+            };
+            Some(ProgramEnumSignature {
+                signature: nia_item_signatures::EnumSignature {
+                    backing_type: backing,
+                    is_open: false,
+                    variants: payload,
+                    span: nia_span::Span::default(),
+                },
+            })
+        };
+        let alias_signature = |def_id| {
+            (def_id == alias_id).then(|| ProgramTypeAliasSignature {
+                signature: nia_item_signatures::TypeAliasSignature {
+                    generics: Vec::new(),
+                    generic_params: Vec::new(),
+                    target: leaf_ty,
+                    span: nia_span::Span::default(),
+                },
+            })
+        };
+        let no_function = |_| None;
+        let no_struct = |_| None;
+        let no_union = |_| None;
+        let no_trait = |_| None;
+        let no_default_method = |_| None;
+        let signatures = ExecutableSignatureIndex {
+            function: &no_function,
+            struct_: &no_struct,
+            union: &no_union,
+            enum_: &enum_signature,
+            type_alias: &alias_signature,
+            trait_: &no_trait,
+            trait_default_method: &no_default_method,
+        };
+        let mut type_modules = HashSet::new();
+        let mut traits = ReachableTraitRefs::default();
+        collect_ty_ids_owner_modules(
+            [outer_ty],
+            signatures,
+            &types,
+            &mut type_modules,
+            &mut traits,
+        );
+
+        assert!(type_modules.contains(&outer_module));
+        assert!(type_modules.contains(&alias_module));
+        assert!(type_modules.contains(&leaf_module));
     }
 }

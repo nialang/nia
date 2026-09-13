@@ -21,6 +21,7 @@ impl BackendValidator<'_> {
     pub(super) fn validate_runtime_type(&mut self, ty: InternedTyId, span: Span) {
         self.validate_type(ty, span);
         if self.layout_of(ty).is_none() {
+            let kind = self.index.ty_kind(ty);
             let subject = self
                 .current_subject
                 .map(|subject| format!(" {subject}"))
@@ -30,10 +31,10 @@ impl BackendValidator<'_> {
                 span,
                 match self.current_item.as_deref() {
                     Some(item) => format!(
-                        "backend IR type {ty:?}{subject} in {item} has no ABI layout before LLVM codegen"
+                        "backend IR type {ty:?} ({kind:?}){subject} in {item} has no ABI layout before LLVM codegen"
                     ),
                     None => format!(
-                        "backend IR type {ty:?}{subject} has no ABI layout before LLVM codegen"
+                        "backend IR type {ty:?} ({kind:?}){subject} has no ABI layout before LLVM codegen"
                     ),
                 },
             ));

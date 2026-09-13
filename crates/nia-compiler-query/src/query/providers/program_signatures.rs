@@ -367,8 +367,15 @@ pub(super) fn executable_program_functions_for_modules(
     module_ids
         .into_iter()
         .map(|module_id| {
-            let lowered = type_lowering_semantic(db, module_id)?;
-            let signatures = body_local_item_signatures(db, module_id, &lowered)?;
+            let signatures = if is_compiled_artifact_module(db, module_id) {
+                db.get(ItemSignaturesQuery(module_id))?
+                    .semantic
+                    .as_ref()
+                    .clone()
+            } else {
+                let lowered = type_lowering_semantic(db, module_id)?;
+                body_local_item_signatures(db, module_id, &lowered)?
+            };
             Ok(signatures
                 .functions
                 .into_iter()

@@ -535,6 +535,13 @@ impl<'a> ModuleLowerer<'a> {
         self.backend_function_template_for_program_def_with_body(def_id, true)
     }
 
+    pub(crate) fn backend_function_declaration_for_program_def(
+        &mut self,
+        def_id: GlobalDefId,
+    ) -> Option<BackendFunction> {
+        self.backend_function_template_for_program_def_with_body(def_id, false)
+    }
+
     fn backend_function_template_for_program_def_with_body(
         &mut self,
         def_id: GlobalDefId,
@@ -610,6 +617,18 @@ impl<'a> ModuleLowerer<'a> {
                     let local_ty = if param.receiver.is_some() {
                         param_local
                             .map(|(_, ty)| self.normalized_type_from_module(def_id.module_id, ty))
+                            .or_else(|| {
+                                (!include_body)
+                                    .then(|| self.extension_method_source(def_id))
+                                    .flatten()
+                                    .cloned()
+                                    .map(|source| {
+                                        self.normalized_type_from_module(
+                                            source.module_id,
+                                            source.target_ty,
+                                        )
+                                    })
+                            })
                             .unwrap_or(signature_ty)
                     } else {
                         signature_ty

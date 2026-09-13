@@ -25,8 +25,9 @@ use nia_ids::{
     BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId, TraitId, TraitImplId,
 };
 use nia_item_signatures::{
-    ProgramFunctionSignature, ProgramStructSignature, ProgramTraitImplSignature,
-    ProgramTraitSignature, ProgramUnionSignature,
+    ProgramEnumSignature, ProgramFunctionSignature, ProgramStructSignature,
+    ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
+    ProgramUnionSignature,
 };
 use nia_sema_ir::FunctionSemanticFacts;
 use nia_symbol::{SymbolId, SymbolMap, known};

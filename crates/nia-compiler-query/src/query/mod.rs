@@ -789,6 +789,8 @@ pub struct CompileRequest {
     pub optimization: NiaOptimizationLevel,
     /// Compiler timing collection policy.
     pub timings: TimingMode,
+    /// Definition-root scope used by executable and package code generation.
+    pub codegen_scope: crate::CodegenScope,
     frontend_cache_dir: Option<PathBuf>,
     verify_frontend_cache: bool,
 }
@@ -801,6 +803,7 @@ impl CompileRequest {
             loader_facts,
             optimization: NiaOptimizationLevel::default(),
             timings: TimingMode::Off,
+            codegen_scope: crate::CodegenScope::Entry,
             frontend_cache_dir: None,
             verify_frontend_cache: false,
         }
@@ -815,6 +818,13 @@ impl CompileRequest {
     /// Selects compiler timing collection.
     pub fn with_timings(mut self, timings: TimingMode) -> Self {
         self.timings = timings;
+        self
+    }
+
+    /// Selects whether code generation starts from an entry or the complete
+    /// concrete definition inventory of the current package.
+    pub fn with_codegen_scope(mut self, scope: crate::CodegenScope) -> Self {
+        self.codegen_scope = scope;
         self
     }
 
@@ -4236,6 +4246,38 @@ impl CompilerDatabase {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Returns the canonical source identities owned by the entry package.
+    ///
+    /// Artifact-backed dependency modules are excluded even when their
+    /// physical paths overlap a local source tree. Drivers use this inventory
+    /// to bind package-native objects to the same module ownership snapshot as
+    /// semantic publication.
+    pub fn current_package_source_identities(
+        &self,
+    ) -> QueryResult<Vec<nia_source::SourceIdentity>> {
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let package_root = graph.current_package_root(graph.entry());
+        let mut identities = Vec::new();
+        for module in graph.modules() {
+            if graph.current_package_root(module.id) != package_root
+                || self
+                    .db
+                    .context()
+                    .loader_facts()
+                    .compiled_package_module_identity(module.id)?
+                    .is_some()
+            {
+                continue;
+            }
+            if let Some(key) = graph.stable_key(module.id) {
+                identities.push(key.source_identity().clone());
+            }
+        }
+        identities.sort();
+        identities.dedup();
+        Ok(identities)
+    }
+
     /// Replaces session-compatible inputs and returns the resulting invalidation set.
     ///
     /// The loader session, frontend cache root, and verification policy cannot
@@ -4313,11 +4355,12 @@ impl CompilerDatabase {
             })
         };
         let new_inputs = CompilerInputs::new(request);
-        let optimization_changed = {
+        let (optimization_changed, codegen_scope_changed) = {
             let mut inputs = self.inputs.write().expect("compiler input lock poisoned");
             let optimization_changed = inputs.optimization != new_inputs.optimization;
+            let codegen_scope_changed = inputs.codegen_scope != new_inputs.codegen_scope;
             *inputs = new_inputs;
-            optimization_changed
+            (optimization_changed, codegen_scope_changed)
         };
         let mut invalidation = CompilerInvalidation::default();
         if graph_changed {
@@ -4366,7 +4409,8 @@ impl CompilerDatabase {
                 .expect("compiler native observation lock poisoned") =
                 Some(new_compiled_native_fingerprint);
         }
-        let inputs_invalidation = self.invalidate_inputs(optimization_changed)?;
+        let inputs_invalidation =
+            self.invalidate_inputs(optimization_changed, codegen_scope_changed)?;
         invalidation
             .invalidated
             .extend(inputs_invalidation.invalidated);
@@ -4404,7 +4448,11 @@ impl CompilerDatabase {
             .optimization
     }
 
-    fn invalidate_inputs(&self, optimization_changed: bool) -> QueryResult<CompilerInvalidation> {
+    fn invalidate_inputs(
+        &self,
+        optimization_changed: bool,
+        codegen_scope_changed: bool,
+    ) -> QueryResult<CompilerInvalidation> {
         let mut invalidation = CompilerInvalidation::default();
         let provider_worklist = self.db.context().provider_fact_worklist()?;
         invalidation.extend(
@@ -4413,6 +4461,9 @@ impl CompilerDatabase {
         );
         if optimization_changed {
             invalidation.extend(self.db.invalidate(CompilerOptimizationQuery));
+        }
+        if codegen_scope_changed {
+            invalidation.extend(self.db.invalidate(CompilerCodegenScopeQuery));
         }
         Ok(invalidation)
     }
@@ -6790,6 +6841,13 @@ impl CompilerContext {
             .read()
             .expect("compiler input lock poisoned")
             .optimization
+    }
+
+    fn codegen_scope(&self) -> crate::CodegenScope {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .codegen_scope
     }
 
     fn timings(&self) -> TimingMode {

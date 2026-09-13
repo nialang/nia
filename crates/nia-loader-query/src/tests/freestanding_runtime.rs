@@ -2,9 +2,9 @@ use super::*;
 
 fn host_freestanding_start_module() -> &'static str {
     if cfg!(target_arch = "x86") {
-        "lib/std/start/freestanding/linux/x86.nia"
+        "lib/runtime/start/freestanding/linux/x86.nia"
     } else {
-        "lib/std/start/freestanding/linux/x86_64.nia"
+        "lib/runtime/start/freestanding/linux/x86_64.nia"
     }
 }
 
@@ -29,7 +29,7 @@ fn query_loader_injects_freestanding_entry_runtime_through_std_start_facade() {
         program
             .modules
             .iter()
-            .any(|module| module.path.as_str().ends_with("lib/std/start.nia")),
+            .any(|module| module.path.as_str().ends_with("lib/runtime/start.nia")),
         "{:?}",
         program
             .modules
@@ -53,7 +53,7 @@ fn query_loader_injects_freestanding_entry_runtime_through_std_start_facade() {
         program
             .graph
             .modules()
-            .any(|module| module.path.as_str().ends_with("lib/std/start.nia"))
+            .any(|module| module.path.as_str().ends_with("lib/runtime/start.nia"))
     );
     let std_root = program
         .graph
@@ -137,8 +137,8 @@ fn query_loader_selects_i686_freestanding_start_and_syscall_facades() {
     .expect("i686 freestanding program load must succeed");
 
     assert_no_error_diagnostics(&program);
-    assert_module_loaded(&program, "lib/std/start/freestanding/linux/x86.nia");
+    assert_module_loaded(&program, "lib/runtime/start/freestanding/linux/x86.nia");
     assert_module_loaded(&program, "lib/std/os/linux/x86/syscall.nia");
-    assert_module_not_loaded(&program, "lib/std/start/freestanding/linux/x86_64.nia");
+    assert_module_not_loaded(&program, "lib/runtime/start/freestanding/linux/x86_64.nia");
     assert_module_not_loaded(&program, "lib/std/os/linux/x86_64/syscall.nia");
 }

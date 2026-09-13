@@ -1079,12 +1079,8 @@ pub(super) fn provide_visible_trait_impls(
     visible_modules.dedup();
     let mut trait_impls = Vec::new();
     for provider_module in visible_modules.iter().copied() {
-        trait_impls.extend(
-            db.get(ExtensionTraitSolvingModuleFactsQuery(provider_module))?
-                .trait_impls
-                .iter()
-                .cloned(),
-        );
+        let facts = db.get(ExtensionTraitSolvingModuleFactsQuery(provider_module))?;
+        trait_impls.extend(facts.trait_impls.iter().cloned());
     }
     let visible_trait_impls = visible_trait_impls_for_module(VisibleExtensionsInput {
         module_id,

@@ -553,6 +553,21 @@ impl QueryKey<CompilerContext> for CompilerRuntimeQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct CompilerCodegenScopeQuery;
+
+impl QueryKey<CompilerContext> for CompilerCodegenScopeQuery {
+    type Value = crate::CodegenScope;
+
+    fn name() -> &'static str {
+        "compiler_codegen_scope"
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        Ok(db.context().codegen_scope())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ProviderFactRevisionQuery;
 
 impl QueryKey<CompilerContext> for ProviderFactRevisionQuery {
@@ -664,6 +679,7 @@ impl QueryKey<CompilerContext> for ExecutableFactEpochQuery {
             modules,
             target: db.get(CompilerTargetQuery)?.as_ref().clone(),
             runtime: *db.get(CompilerRuntimeQuery)?,
+            codegen_scope: *db.get(CompilerCodegenScopeQuery)?,
         })
     }
 

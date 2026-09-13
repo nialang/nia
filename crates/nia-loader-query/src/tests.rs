@@ -215,6 +215,7 @@ fn test_loader_context(
         profile: nia_target_config::BuildProfile::Debug,
         compilation_mode: nia_target_config::CompilationMode::Normal,
         entry_runtime: EntryRuntime::None,
+        runtime_start_module: None,
         toolchain_identity: test_toolchain_layout().identity().fingerprint(),
         package_roots_with_used_paths: HashSet::new(),
         package_root_used_paths: false,

@@ -3,7 +3,9 @@ using pkg::process::types;
 using types::{Args, Env, Init};
 
 extend Init {
-    pub(pkg) fn init(argc: usize, argv: &&u8, envp: &&u8) Init {
+    // Runtime startup constructs the public process context before invoking
+    // the language-level entry::main contract.
+    pub fn init(argc: usize, argv: &&u8, envp: &&u8) Init {
         .{ args: .init(argc, argv), env: .init(envp) }
     }
 

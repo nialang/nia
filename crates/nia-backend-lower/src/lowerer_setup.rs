@@ -116,6 +116,17 @@ impl<'a> ModuleLowerer<'a> {
         let mut worklist = ReachabilityWorklist::default();
         let mut trait_object_vtables = Vec::new();
 
+        if self.input.artifact_module {
+            structs = self.lower_artifact_struct_declarations();
+            unions = self.lower_artifact_union_declarations();
+            enums = self.lower_artifact_enum_declarations();
+            for def_id in self.input.reachable_functions.into_iter().flatten() {
+                if def_id.module_id == self.input.module_id {
+                    worklist.enqueue_function(*def_id);
+                }
+            }
+        }
+
         for item in &self.input.active_item_tree.items {
             match &item.kind {
                 ItemTreeNodeKind::Struct(item_struct) => {

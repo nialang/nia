@@ -246,6 +246,17 @@ impl LoaderDatabase {
 
     /// Creates a loader sharing dependency and execution state with `session`.
     pub fn new_in_session(request: LoadRequest, session: QuerySession) -> Self {
+        let runtime_start_module = request.runtime_start_module.clone().or_else(|| {
+            request.toolchain.as_ref().map(|toolchain| {
+                SourcePath::with_identity(
+                    toolchain
+                        .freestanding_start_module()
+                        .to_string_lossy()
+                        .into_owned(),
+                    "toolchain:/runtime/start.nia",
+                )
+            })
+        });
         let toolchain_std_artifact = request
             .toolchain
             .as_ref()
@@ -409,6 +420,7 @@ impl LoaderDatabase {
                 profile: request.profile,
                 compilation_mode: request.compilation_mode,
                 entry_runtime: request.entry_runtime,
+                runtime_start_module,
                 toolchain_identity,
                 package_roots_with_used_paths,
                 package_root_used_paths: request.package_root_used_paths,
@@ -1047,6 +1059,9 @@ pub struct LoadRequest {
     pub compilation_mode: CompilationMode,
     /// Entry runtime model.
     pub entry_runtime: EntryRuntime,
+    /// Explicit physical/logical source selected for freestanding startup.
+    /// Runtime startup is a toolchain resource and is not owned by std.
+    pub runtime_start_module: Option<SourcePath>,
     /// Whether package-root `using` paths participate in the source manifest.
     pub package_root_used_paths: bool,
     /// Optional persistent frontend cache root.
@@ -1078,6 +1093,7 @@ impl LoadRequest {
             profile: BuildProfile::default(),
             compilation_mode: CompilationMode::default(),
             entry_runtime: EntryRuntime::None,
+            runtime_start_module: None,
             package_root_used_paths: false,
             frontend_cache_dir: None,
             verify_frontend_cache: false,
@@ -1126,6 +1142,12 @@ impl LoadRequest {
     /// Selects the entry runtime model.
     pub fn with_entry_runtime(mut self, entry_runtime: EntryRuntime) -> Self {
         self.entry_runtime = entry_runtime;
+        self
+    }
+
+    /// Selects the runtime startup source independently from std sources.
+    pub fn with_runtime_start_module(mut self, path: SourcePath) -> Self {
+        self.runtime_start_module = Some(path);
         self
     }
 
@@ -1224,6 +1246,7 @@ fn load_program_trace(
             profile: BuildProfile::default(),
             compilation_mode: CompilationMode::default(),
             entry_runtime: EntryRuntime::None,
+            runtime_start_module: None,
             toolchain_identity: tests::test_toolchain_layout().identity().fingerprint(),
             package_roots_with_used_paths: HashSet::new(),
             package_root_used_paths: false,
@@ -1278,6 +1301,7 @@ pub(crate) struct LoaderContext {
     pub(crate) profile: BuildProfile,
     pub(crate) compilation_mode: CompilationMode,
     pub(crate) entry_runtime: EntryRuntime,
+    pub(crate) runtime_start_module: Option<SourcePath>,
     pub(crate) toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     pub(crate) package_roots_with_used_paths: HashSet<nia_symbol::SymbolId>,
     pub(crate) package_root_used_paths: bool,
