@@ -386,7 +386,7 @@ pub(super) fn provide_semantic_module_ids(
         .filter(|module_id| {
             graph
                 .get(*module_id)
-                .is_some_and(|node| *module_id == entry || node.process_used_paths)
+                .is_some_and(|node| *module_id == entry || node.semantic_selected)
         })
         .collect::<Vec<_>>();
     stable_module_sequence(db, module_ids)

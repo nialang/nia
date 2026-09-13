@@ -6,7 +6,7 @@ use super::*;
 fn compiler_query_registry_covers_all_declared_query_contracts() {
     let descriptors = compiler_query_registry().descriptors();
 
-    assert_eq!(descriptors.len(), 141);
+    assert_eq!(descriptors.len(), 142);
     assert!(
         !descriptors
             .iter()

@@ -5963,11 +5963,18 @@ impl std::fmt::Debug for CompilerDatabase {
 }
 
 fn checked_provider_demands(program: &CheckedProgramAnalysis) -> Vec<crate::ProviderDemand> {
-    program
+    let mut demands = program
         .modules
         .iter()
         .flat_map(|module| module.provider_demands.iter().cloned())
-        .collect()
+        .collect::<Vec<_>>();
+    demands.extend(program.modules.iter().map(|module| crate::ProviderDemand {
+        source_path: module.path.clone(),
+        request: crate::ProviderRequest::ModuleBody {
+            module_path: module.path.clone(),
+        },
+    }));
+    demands
 }
 
 fn codegen_provider_demands(program: &CodegenProgram) -> Vec<crate::ProviderDemand> {

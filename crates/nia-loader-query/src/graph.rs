@@ -368,6 +368,15 @@ fn add_semantic_used_module_path(
 ) -> TraversalResult<()> {
     if matches!(
         path.processing(),
+        UsedModulePathProcessing::IfProvidesImplicitTraitImpl { .. }
+    ) {
+        // Implicit Iterable/Iterator/Len searches originate in function bodies.
+        // A semantic-only dependency must defer them until that module's body
+        // is activated, otherwise a shallow facade scans unrelated providers.
+        return Ok(());
+    }
+    if matches!(
+        path.processing(),
         UsedModulePathProcessing::IfProvidesExtensions
             | UsedModulePathProcessing::IfProvidesTraitImpl { .. }
             | UsedModulePathProcessing::IfProvidesImplicitTraitImpl { .. }
@@ -661,20 +670,7 @@ pub(crate) fn add_visible_declared_module_path(
                         mark_process_used_paths_and_process(db, graph, current)?;
                     }
                     UsedModulePathProcessing::IfSelectedItem => {
-                        let caller_processes = graph
-                            .get(accessing_module)
-                            .is_some_and(|node| node.process_used_paths);
-                        let current_processes = graph
-                            .get(current)
-                            .is_some_and(|node| node.process_used_paths);
-                        let current_is_package_root = graph
-                            .get(current)
-                            .is_some_and(|node| node.module_path.is_package_root());
-                        if caller_processes && !current_processes && !current_is_package_root {
-                            mark_process_used_paths_and_process(db, graph, current)?;
-                        } else {
-                            mark_semantic_used_paths_and_process(db, graph, current)?;
-                        }
+                        mark_semantic_used_paths_and_process(db, graph, current)?;
                     }
                     _ => {}
                 }
