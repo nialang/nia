@@ -22,7 +22,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 .signatures
                 .structs
                 .get(&def_id.def_id)
-                .is_none_or(|signature| signature.generics.is_empty())
+                .is_some_and(|signature| signature.generics.is_empty())
                 && self
                     .input
                     .program
@@ -35,7 +35,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 .signatures
                 .unions
                 .get(&def_id.def_id)
-                .is_none_or(|signature| signature.generics.is_empty())
+                .is_some_and(|signature| signature.generics.is_empty())
                 && self
                     .input
                     .program
