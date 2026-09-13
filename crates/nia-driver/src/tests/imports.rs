@@ -1934,7 +1934,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("could not be resolved")),
+            .contains("requires `runtime` to be a module namespace")),
         "{:?}",
         program.diagnostics
     );
