@@ -3,7 +3,7 @@ use std::process::Command;
 
 mod support;
 
-use support::{CommandExt, CommandStatusExt, temp_dir};
+use support::{CommandExt, CommandStatusExt, nia_command_with_resource_root, temp_dir};
 
 #[test]
 fn emit_exe_reports_private_entry_main_called_by_freestanding_start() {
@@ -35,21 +35,31 @@ fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
-fn emit_exe_entry_name_is_chosen_by_std_runtime_not_compiler() {
-    let root = temp_dir("emit_exe_entry_name_is_chosen_by_std_runtime_not_compiler");
+fn emit_exe_entry_name_is_chosen_by_selected_runtime_not_compiler() {
+    let root = temp_dir("emit_exe_entry_name_is_chosen_by_selected_runtime_not_compiler");
     let main = root.join("main.nia");
-    let std_root = root.join("custom_std/std.nia");
-    let std_builtin = root.join("custom_std/std/builtin.nia");
-    let std_process = root.join("custom_std/std/process.nia");
-    let std_start = root.join("custom_std/runtime/start.nia");
-    let std_start_freestanding = root.join("custom_std/runtime/start/freestanding.nia");
-    let std_start_freestanding_linux = root.join("custom_std/runtime/start/freestanding/linux.nia");
-    let std_start_linux_x86_64 =
-        root.join("custom_std/runtime/start/freestanding/linux/x86_64.nia");
-    let std_start_linux_x86 = root.join("custom_std/runtime/start/freestanding/linux/x86.nia");
+    let resource_root = root.join("custom_toolchain/lib");
+    let std_root = resource_root.join("std/pkg.nia");
+    let std_builtin = resource_root.join("std/builtin.nia");
+    let std_start = resource_root.join("runtime/start.nia");
+    let std_start_freestanding = resource_root.join("runtime/start/freestanding.nia");
+    let std_start_freestanding_linux = resource_root.join("runtime/start/freestanding/linux.nia");
+    let std_start_linux_x86_64 = resource_root.join("runtime/start/freestanding/linux/x86_64.nia");
+    let std_start_linux_x86 = resource_root.join("runtime/start/freestanding/linux/x86.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::create_dir_all(std_start_linux_x86_64.parent().expect("std start parent"))
-        .expect("create custom std dir");
+        .expect("create custom runtime dir");
+    std::fs::create_dir_all(std_builtin.parent().expect("custom std builtin parent"))
+        .expect("create custom std library dir");
+    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("nia-cli lives under crates/");
+    std::fs::copy(
+        workspace_root.join("lib/toolchain.meta"),
+        resource_root.join("toolchain.meta"),
+    )
+    .expect("copy toolchain manifest");
     std::fs::write(
         &std_root,
         r#"
@@ -74,7 +84,6 @@ pub fn asm(config: AsmConfig) ();
 "#,
     )
     .expect("write custom std builtin");
-    std::fs::write(&std_process, "").expect("write custom std process");
     std::fs::write(
         &std_start,
         r#"
@@ -193,12 +202,10 @@ pub fn mymain() i32 {
     )
     .expect("write test source");
 
-    let output = support::nia_command()
+    let output = nia_command_with_resource_root(&resource_root)
         .arg("emit")
         .arg("--exe")
         .arg(&main)
-        .arg("-M")
-        .arg(format!("std={}", std_root.display()))
         .arg("-o")
         .arg(&exe)
         .output_timeout_for_build("run nia emit --exe with custom std start");
