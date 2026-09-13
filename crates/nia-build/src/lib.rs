@@ -1301,6 +1301,14 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
         .with_module_map(build_runner_module_map(invocation))
         .with_profile(invocation.profile)
         .with_compilation_mode(invocation.compilation_mode)
+        .with_optimization(match invocation.optimization {
+            OptimizationMode::O0 => nia_driver::NiaOptimizationLevel::O0,
+            OptimizationMode::O1 => nia_driver::NiaOptimizationLevel::O1,
+            OptimizationMode::O2 => nia_driver::NiaOptimizationLevel::O2,
+            OptimizationMode::O3 => nia_driver::NiaOptimizationLevel::O3,
+            OptimizationMode::Os => nia_driver::NiaOptimizationLevel::Os,
+            OptimizationMode::Oz => nia_driver::NiaOptimizationLevel::Oz,
+        })
         .with_timings(invocation.timings);
     let std_artifact = invocation.toolchain.std_package_artifact(
         invocation.toolchain.host_target(),
