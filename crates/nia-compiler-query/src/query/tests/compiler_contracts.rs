@@ -1087,6 +1087,92 @@ fn main() i32 {
 }
 
 #[test]
+fn source_free_trait_method_reconstructs_owner_generic_parameters() {
+    let dependency = LoadedProgramFixture::new(
+        "src/dependency.nia",
+        r#"
+pub trait Convert[Input] {
+    fn convert(self, input: Input) Input;
+}
+"#,
+    );
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "generic-trait-dependency".into(),
+        version: "1.0.0".into(),
+    };
+    let artifact = nia_package_metadata::PackageArtifact::open(
+        dependency
+            .database()
+            .publish_package_artifact(package.clone())
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
+    let compiled =
+        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap();
+
+    let mut consumer = LoadedProgramFixture::new("src/main.nia", "fn main() i32 { 0 }");
+    let dependency_module =
+        consumer.add_child(consumer.entry_id(), "dependency", "src/dependency.nia", "");
+    let loader = TestLoaderFacts::new(
+        consumer.program(),
+        crate::ProviderFactSnapshot::empty(crate::ProviderFactRevision::default()),
+    );
+    let identity = compiled
+        .module_identities()
+        .next()
+        .expect("dependency module identity");
+    loader.replace_compiled_interfaces(vec![compiled]);
+    loader.replace_compiled_module_identities(HashMap::from([(dependency_module, identity)]));
+    let database = super::super::CompilerDatabase::new(
+        CompileRequest::new(consumer.program()).with_loader_facts(loader),
+    );
+    database
+        .install_compiled_package_module_interfaces()
+        .unwrap();
+    let resolver = |definition: &nia_package_metadata::DefinitionId| {
+        database.resolve_loaded_definition(definition, &package)
+    };
+    database
+        .install_compiled_interface_type_roots(&resolver)
+        .unwrap();
+    database.install_compiled_package_declarations().unwrap();
+    database.install_compiled_package_templates().unwrap();
+    database.install_compiled_package_signatures().unwrap();
+
+    let signatures = database
+        .db
+        .expect_get(ItemSignaturesQuery(dependency_module));
+    let convert = signatures
+        .semantic
+        .traits
+        .values()
+        .find(|signature| {
+            signature
+                .methods
+                .iter()
+                .any(|method| method.name == sym("convert"))
+        })
+        .expect("artifact Convert signature");
+    assert_eq!(
+        convert
+            .generic_params
+            .iter()
+            .map(|param| param.name)
+            .collect::<Vec<_>>(),
+        vec![sym("Input")]
+    );
+    let method = convert
+        .methods
+        .iter()
+        .find(|method| method.name == sym("convert"))
+        .expect("artifact convert method");
+    assert!(method.signature.generic_params.is_empty());
+    assert!(method.signature.generics.is_empty());
+}
+
+#[test]
 fn package_artifact_publication_embeds_validated_signatures() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
     let database = fixture.database();
