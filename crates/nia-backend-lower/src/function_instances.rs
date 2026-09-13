@@ -579,6 +579,7 @@ impl<'a> ModuleLowerer<'a> {
                 )
             })
             .collect::<SymbolMap<_>>();
+        let identity_substitution_id = self.intern_type_substitutions(&identity_substitutions);
         let raw_function_body = include_body
             .then(|| self.input.program.function_body(def_id))
             .flatten();
@@ -613,6 +614,8 @@ impl<'a> ModuleLowerer<'a> {
                 .enumerate()
                 .map(|(index, param)| {
                     let signature_ty = self.normalized_type_from_module(def_id.module_id, param.ty);
+                    let signature_ty =
+                        self.instantiate_ty_with_id(signature_ty, identity_substitution_id);
                     let param_local = param_locals.get(index).copied();
                     let local_ty = if param.receiver.is_some() {
                         param_local
@@ -633,6 +636,7 @@ impl<'a> ModuleLowerer<'a> {
                     } else {
                         signature_ty
                     };
+                    let local_ty = self.instantiate_ty_with_id(local_ty, identity_substitution_id);
                     let passing_ty = param
                         .receiver
                         .map(|receiver| self.receiver_passing_ty(receiver, local_ty))
@@ -647,8 +651,11 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 })
                 .collect(),
-            return_type: self
-                .normalized_type_from_module(def_id.module_id, signature.signature.return_type),
+            return_type: {
+                let return_type = self
+                    .normalized_type_from_module(def_id.module_id, signature.signature.return_type);
+                self.instantiate_ty_with_id(return_type, identity_substitution_id)
+            },
             is_extern: signature.signature.is_extern,
             is_variadic: signature.signature.is_variadic,
             attributes: self.backend_function_attributes(def_id, &signature.signature.attributes),

@@ -17,6 +17,14 @@ struct Unused {
     value: i64,
 }
 
+struct Bucket[T] {
+    value: T,
+}
+
+struct Selected {
+    bucket: Bucket[i32],
+}
+
 union UnusedPayload {
     value: i64,
 }
@@ -124,10 +132,22 @@ fn main() i32 {
         .types
         .get(&sym("Point"))
         .expect("Point def");
-    let reachable_structs = vec![GlobalDefId {
-        module_id,
-        def_id: point_id,
-    }];
+    let selected_id = defs
+        .module_scope
+        .types
+        .get(&sym("Selected"))
+        .expect("Selected def");
+    let mut reachable_structs = vec![
+        GlobalDefId {
+            module_id,
+            def_id: point_id,
+        },
+        GlobalDefId {
+            module_id,
+            def_id: selected_id,
+        },
+    ];
+    reachable_structs.sort_unstable();
     let reachable_unions = Vec::new();
     let make_id = defs
         .defs
@@ -136,6 +156,22 @@ fn main() i32 {
             (def.kind == DefKind::Method && def.name == sym("make")).then_some(def_id)
         })
         .expect("make def");
+    let main_id = defs
+        .module_scope
+        .values
+        .get(&sym("main"))
+        .expect("main def");
+    let mut reachable_functions = vec![
+        GlobalDefId {
+            module_id,
+            def_id: make_id,
+        },
+        GlobalDefId {
+            module_id,
+            def_id: main_id,
+        },
+    ];
+    reachable_functions.sort_unstable();
     let mut extensions = VisibleExtensionMethods::default();
     let point_ty = type_lowering
         .explicit_type_roots()
@@ -283,9 +319,9 @@ fn main() i32 {
         const_array_lengths: const_array_lengths.values.as_ref(),
         const_enum_values: const_enum_values.values.as_ref(),
         layouts: &layouts,
-        roots: BackendFunctionRoots::FunctionBodies,
+        roots: BackendFunctionRoots::EntryPoints,
         artifact_module: false,
-        reachable_functions: None,
+        reachable_functions: Some(&reachable_functions),
         reachable_globals: None,
         reachable_structs: Some(&reachable_structs),
         reachable_unions: Some(&reachable_unions),
@@ -311,10 +347,30 @@ fn main() i32 {
     assert_eq!(lowering.program.modules.len(), 1);
     assert_eq!(lowering.program.modules[0].globals.len(), 1);
     assert_eq!(lowering.program.modules[0].functions.len(), 2);
-    assert_eq!(lowering.program.modules[0].structs.len(), 1);
-    assert_eq!(
-        lowering.program.modules[0].structs[0].def_id.def_id,
-        point_id
+    assert_eq!(lowering.program.modules[0].structs.len(), 2);
+    assert!(
+        lowering.program.modules[0]
+            .structs
+            .iter()
+            .any(|item| item.def_id.def_id == point_id)
+    );
+    assert!(
+        lowering.program.modules[0]
+            .structs
+            .iter()
+            .any(|item| item.def_id.def_id == selected_id)
+    );
+    assert!(
+        lowering.program.modules[0]
+            .struct_instances
+            .iter()
+            .any(|item| item.name == sym("Bucket")
+                && item.args.len() == 1
+                && matches!(
+                    type_store.get(item.args[0]),
+                    Some(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32))
+                )),
+        "reachable aggregate fields must retain concrete generic instances"
     );
     assert!(lowering.program.modules[0].unions.is_empty());
     assert_eq!(

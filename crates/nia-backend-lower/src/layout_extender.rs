@@ -55,14 +55,14 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 .structs
                 .iter()
                 .find(|item| item.def_id == *def_id)
-                .is_none_or(|item| item.generics.is_empty())
+                .is_some_and(|item| item.generics.is_empty())
         });
         layouts.unions.retain(|(def_id, _)| {
             module
                 .unions
                 .iter()
                 .find(|item| item.def_id == *def_id)
-                .is_none_or(|item| item.generics.is_empty())
+                .is_some_and(|item| item.generics.is_empty())
         });
     }
 
@@ -124,7 +124,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 program,
             });
         append_missing_type_layouts(&mut layouts.types, computed.types);
-        let generic_structs = self
+        let mut generic_structs = self
             .input
             .signatures
             .structs
@@ -143,7 +143,14 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             })
             .map(|(def_id, _)| *def_id)
             .collect::<HashSet<_>>();
-        let generic_unions = self
+        generic_structs.extend(
+            module
+                .structs
+                .iter()
+                .filter(|item| !item.generics.is_empty())
+                .map(|item| item.def_id.def_id),
+        );
+        let mut generic_unions = self
             .input
             .signatures
             .unions
@@ -162,6 +169,13 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             })
             .map(|(def_id, _)| *def_id)
             .collect::<HashSet<_>>();
+        generic_unions.extend(
+            module
+                .unions
+                .iter()
+                .filter(|item| !item.generics.is_empty())
+                .map(|item| item.def_id.def_id),
+        );
         append_missing_nominal_layouts_filtered(
             &mut layouts.structs,
             computed.structs,

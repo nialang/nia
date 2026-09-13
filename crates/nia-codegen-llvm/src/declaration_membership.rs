@@ -164,6 +164,31 @@ impl<'a> MembershipBuilder<'a> {
     }
 
     fn add_closure_entry_definition(&mut self, item: &nia_backend_ir::BackendClosureEntry) {
+        match &item.key.owner {
+            nia_backend_ir::BackendClosureEntryOwner::Source(def_id) => {
+                if let Some(function) = self.index.function(*def_id) {
+                    self.add_function(function);
+                } else {
+                    self.wait_for_owner(self.owners.item_owner(*def_id), "closure function");
+                }
+            }
+            nia_backend_ir::BackendClosureEntryOwner::FunctionInstance(key) => {
+                if let Some(function) = self.index.function_instance(
+                    key.def_id,
+                    key.arg_module_id,
+                    key.self_arg,
+                    &key.args,
+                    &key.const_args,
+                ) {
+                    self.add_function_instance(function);
+                } else {
+                    self.wait_for_owner(
+                        self.owners.function_instance_owner(key),
+                        "closure function instance",
+                    );
+                }
+            }
+        }
         self.add_type(item.abi.state_type);
         self.add_type(item.abi.state_pointer_type);
         self.add_types(item.abi.params.iter().copied());
@@ -288,7 +313,7 @@ impl<'a> MembershipBuilder<'a> {
             } else {
                 self.wait_for_owner(
                     self.owners.function_instance_owner(&key),
-                    "function instance",
+                    &format!("function instance {key:?}"),
                 );
             }
         }
@@ -408,7 +433,7 @@ impl<'a> MembershipBuilder<'a> {
                     } else {
                         self.wait_for_owner(
                             self.owners.function_instance_owner(&key),
-                            "vtable function instance",
+                            &format!("vtable function instance {key:?}"),
                         );
                     }
                 }
@@ -567,14 +592,28 @@ impl<'a> MembershipBuilder<'a> {
                     self.add_types(item.fields.iter().map(|field| field.ty));
                 }
             } else if let Some(item) = self.index.struct_item(*def_id) {
-                self.add_dependency(self.index.struct_owner(*def_id), "struct");
-                if self.structs.insert(*def_id) {
-                    self.add_types(item.fields.iter().map(|field| field.ty));
+                if item.generics.is_empty() && args.is_empty() && const_args.is_empty() {
+                    self.add_dependency(self.index.struct_owner(*def_id), "struct");
+                    if self.structs.insert(*def_id) {
+                        self.add_types(item.fields.iter().map(|field| field.ty));
+                    }
+                } else if !args.is_empty() || !const_args.is_empty() {
+                    self.wait_for_owner(
+                        self.owners.struct_instance_owner(&key),
+                        &format!("struct instance {key:?}"),
+                    );
                 }
             } else if let Some(item) = self.index.union_item(*def_id) {
-                self.add_dependency(self.index.union_owner(*def_id), "union");
-                if self.unions.insert(*def_id) {
-                    self.add_types(item.fields.iter().map(|field| field.ty));
+                if item.generics.is_empty() && args.is_empty() && const_args.is_empty() {
+                    self.add_dependency(self.index.union_owner(*def_id), "union");
+                    if self.unions.insert(*def_id) {
+                        self.add_types(item.fields.iter().map(|field| field.ty));
+                    }
+                } else if !args.is_empty() || !const_args.is_empty() {
+                    self.wait_for_owner(
+                        self.owners.union_instance_owner(&key),
+                        &format!("union instance {key:?}"),
+                    );
                 }
             } else if self.index.enum_item(*def_id).is_none() {
                 let owner = self
@@ -582,7 +621,7 @@ impl<'a> MembershipBuilder<'a> {
                     .struct_instance_owner(&key)
                     .or_else(|| self.owners.union_instance_owner(&key))
                     .or_else(|| self.owners.item_owner(*def_id));
-                self.wait_for_owner(owner, "nominal type");
+                self.wait_for_owner(owner, &format!("nominal type {key:?}"));
             } else {
                 self.add_dependency(self.owners.item_owner(*def_id), "enum");
             }
@@ -834,7 +873,7 @@ mod tests {
 
     use nia_backend_ir::{
         BackendConstFacts, BackendFunctionInstance, BackendGlobal, BackendLayouts, BackendModule,
-        BackendModuleOwnerDirectory, BackendProgram, BackendStruct,
+        BackendModuleOwnerDirectory, BackendProgram, BackendStruct, BackendStructInstance,
     };
     use nia_ids::{ConstExprId, DefId, GlobalConstExprId, ModuleIdAllocator};
     use nia_layout::TargetDataLayout;
@@ -1087,7 +1126,20 @@ mod tests {
         caller_backend.structs.push(BackendStruct {
             def_id: nominal_def,
             name: SymbolId::EMPTY,
-            generics: Vec::new(),
+            generics: vec![SymbolId::EMPTY],
+            fields: Vec::new(),
+            is_extern: false,
+            span: Span::default(),
+        });
+        caller_backend.struct_instances.push(BackendStructInstance {
+            def_id: nominal_def,
+            name: SymbolId::EMPTY,
+            args: Vec::new(),
+            const_args: match types.get(nominal_ty) {
+                Some(TyKind::Nominal { const_args, .. }) => const_args.clone(),
+                _ => unreachable!(),
+            },
+            symbol: "const_nominal_instance".to_string(),
             fields: Vec::new(),
             is_extern: false,
             span: Span::default(),
@@ -1118,6 +1170,48 @@ mod tests {
             }
         };
         assert_eq!(pending.modules(), &[const_owner]);
+    }
+
+    #[test]
+    fn generic_nominal_descriptor_is_not_a_runtime_declaration() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let types = TypeStore::new();
+        let definition = GlobalDefId {
+            module_id,
+            def_id: DefId(9),
+        };
+        let nominal = types.append_for_module(module_id).intern(TyKind::Nominal {
+            def_id: definition,
+            args: Vec::new(),
+            const_args: Vec::new(),
+        });
+        let mut module = empty_module(module_id, "generic.nia");
+        module.structs.push(BackendStruct {
+            def_id: definition,
+            name: SymbolId::EMPTY,
+            generics: vec![SymbolId::EMPTY],
+            fields: Vec::new(),
+            is_extern: false,
+            span: Span::default(),
+        });
+        let owners = BackendModuleOwnerDirectory::from_modules([&module]);
+        let program = BackendProgram::new(vec![module]);
+        let (index, mut publisher) = ProgramIndex::new(program.module_store(), Arc::new(types));
+        publisher.publish(module_id);
+        let result = {
+            let mut builder = MembershipBuilder::new(&index, &owners);
+            builder.add_type(nominal);
+            builder.close_types();
+            builder.finish(CodegenUnitId::SourceModule {
+                module_id,
+                ordinal: 0,
+            })
+        };
+        let CodegenDeclarationMembershipBuild::Ready(membership) = result else {
+            panic!("generic descriptor did not produce ready membership")
+        };
+        assert!(membership.structs.is_empty());
+        assert!(membership.struct_instances.is_empty());
     }
 
     #[test]

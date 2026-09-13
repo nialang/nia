@@ -44,8 +44,8 @@ impl<'a> ModuleLowerer<'a> {
                 functions: &module.functions,
                 function_instances: &module.function_instances,
                 closure_entries: &module.closure_entries,
-                struct_instances: &module.struct_instances,
-                union_instances: &module.union_instances,
+                struct_instances: &mut module.struct_instances,
+                union_instances: &mut module.union_instances,
                 trait_object_vtables: &module.trait_object_vtables,
             },
         );
@@ -323,7 +323,7 @@ impl<'a> ModuleLowerer<'a> {
         for entry in input.closure_entries {
             roots.add_backend_closure_entry(self, entry);
         }
-        for instance in input.struct_instances {
+        for instance in input.struct_instances.iter() {
             roots.add_struct(instance.def_id);
             for arg in &instance.args {
                 roots.add_ty(self, *arg);
@@ -332,7 +332,7 @@ impl<'a> ModuleLowerer<'a> {
                 roots.add_ty(self, field.ty);
             }
         }
-        for instance in input.union_instances {
+        for instance in input.union_instances.iter() {
             roots.add_union(instance.def_id);
             for arg in &instance.args {
                 roots.add_ty(self, *arg);
@@ -360,11 +360,42 @@ impl<'a> ModuleLowerer<'a> {
         if let Some(reachable_structs) = self.input.reachable_structs {
             for def_id in reachable_structs {
                 roots.add_struct(*def_id);
+                for field_ty in self.struct_field_tys(*def_id) {
+                    roots.add_ty(self, field_ty);
+                }
             }
         }
         if let Some(reachable_unions) = self.input.reachable_unions {
             for def_id in reachable_unions {
                 roots.add_union(*def_id);
+                for field_ty in self.union_field_tys(*def_id) {
+                    roots.add_ty(self, field_ty);
+                }
+            }
+        }
+
+        // Explicit aggregate reachability can introduce field types that were
+        // not present in any executable function signature or body. Close
+        // concrete aggregate instances over the complete reachable type set
+        // before ownership is assigned. Newly instantiated fields feed back
+        // into the type closure until it stabilizes.
+        let struct_count = input.struct_instances.len();
+        let union_count = input.union_instances.len();
+        self.extend_struct_instances_from_types(
+            roots.seen_tys.iter().copied(),
+            input.struct_instances,
+            input.union_instances,
+        );
+        for instance in &input.struct_instances[struct_count..] {
+            roots.add_struct(instance.def_id);
+            for field in &instance.fields {
+                roots.add_ty(self, field.ty);
+            }
+        }
+        for instance in &input.union_instances[union_count..] {
+            roots.add_union(instance.def_id);
+            for field in &instance.fields {
+                roots.add_ty(self, field.ty);
             }
         }
 
