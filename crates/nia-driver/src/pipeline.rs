@@ -2833,7 +2833,11 @@ mod streamed_output_tests {
         fs::write(&staged_artifact, publication.bytes).unwrap();
 
         fs::remove_dir_all(layout.resource_root().join("std")).unwrap();
-        let installed_artifact = layout.std_package_artifact();
+        let installed_artifact = layout.std_package_artifact(
+            layout.artifact_target(),
+            BuildProfile::Debug,
+            nia_target_config::CompilationMode::Normal,
+        );
         fs::create_dir_all(installed_artifact.parent().unwrap()).unwrap();
         fs::rename(&staged_artifact, &installed_artifact).unwrap();
         assert!(!layout.std_module().exists());
@@ -2921,7 +2925,11 @@ pub fn main(init: Init) ExitCode!() {
             .expect("publish standard library native artifact");
 
         fs::remove_dir_all(layout.resource_root().join("std")).unwrap();
-        let installed_artifact = layout.std_package_artifact();
+        let installed_artifact = layout.std_package_artifact(
+            layout.artifact_target(),
+            BuildProfile::Debug,
+            nia_target_config::CompilationMode::Normal,
+        );
         fs::create_dir_all(installed_artifact.parent().unwrap()).unwrap();
         fs::rename(staged_artifact, &installed_artifact).unwrap();
 

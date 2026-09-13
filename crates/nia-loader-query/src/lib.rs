@@ -272,7 +272,13 @@ impl LoaderDatabase {
         let toolchain_std_artifact = request
             .toolchain
             .as_ref()
-            .map(|toolchain| toolchain.std_package_artifact())
+            .map(|toolchain| {
+                toolchain.std_package_artifact(
+                    &request.target,
+                    request.profile,
+                    request.compilation_mode,
+                )
+            })
             .filter(|path| path.is_file());
         let auto_std_artifact =
             request.package_artifact.is_none() && toolchain_std_artifact.is_some();
@@ -300,7 +306,11 @@ impl LoaderDatabase {
         let selected_std_interfaces = if std_artifact_requested {
             request.toolchain.as_ref().and_then(|toolchain| {
                 let artifact_request = request.package_artifact.clone().unwrap_or_else(|| {
-                    PackageArtifactRequest::Optional(toolchain.std_package_artifact())
+                    PackageArtifactRequest::Optional(toolchain.std_package_artifact(
+                        &request.target,
+                        request.profile,
+                        request.compilation_mode,
+                    ))
                 });
                 match package_artifact::load(
                     &artifact_request,
