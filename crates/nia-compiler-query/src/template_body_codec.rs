@@ -60,6 +60,18 @@ pub(crate) fn collect_checked_function_body_relocations(
     })
 }
 
+pub(crate) fn collect_checked_closure_entry_relocations(
+    entries: &[FunctionClosureEntry],
+) -> Result<TemplateBodyRelocations, TemplateBodyCodecError> {
+    let mut context = CollectContext::default();
+    let _ = encode_checked_closure_entries(entries, &mut context)?;
+    Ok(TemplateBodyRelocations {
+        types: context.types.into_inner(),
+        definitions: context.definitions.into_inner(),
+        modules: context.modules.into_inner(),
+    })
+}
+
 #[derive(Default)]
 struct CollectContext {
     types: RefCell<Vec<InternedTyId>>,
@@ -184,6 +196,84 @@ pub(crate) fn decode_checked_function_body(
     nia_function_ir::validate_function_body(&body)
         .map_err(|error| TemplateBodyCodecError::invalid(error.message))?;
     Ok(body)
+}
+
+pub(crate) fn encode_checked_closure_entries(
+    entries: &[FunctionClosureEntry],
+    context: &dyn TemplateBodyEncodeContext,
+) -> Result<Vec<u8>, TemplateBodyCodecError> {
+    for entry in entries {
+        nia_function_ir::validate_function_closure_entry(entry)
+            .map_err(|error| TemplateBodyCodecError::invalid(error.message))?;
+    }
+    let mut encoder = Encoder {
+        bytes: Vec::new(),
+        context,
+    };
+    encoder.len(entries.len())?;
+    for entry in entries {
+        encoder.closure(entry.closure_id)?;
+        encoder.ty(entry.state_ty)?;
+        encoder.u32(entry.state_param.0);
+        encoder.len(entry.params.len())?;
+        for param in &entry.params {
+            encoder.u32(param.0);
+        }
+        encoder.ty(entry.return_type)?;
+        encoder.body(&entry.body, 0)?;
+    }
+    if encoder.bytes.len() > MAX_BYTES {
+        return Err(TemplateBodyCodecError::invalid(
+            "checked closure entries exceed package size limit",
+        ));
+    }
+    Ok(encoder.bytes)
+}
+
+pub(crate) fn decode_checked_closure_entries(
+    bytes: &[u8],
+    context: &dyn TemplateBodyDecodeContext,
+) -> Result<Vec<FunctionClosureEntry>, TemplateBodyCodecError> {
+    if bytes.len() > MAX_BYTES {
+        return Err(TemplateBodyCodecError::invalid(
+            "checked closure entries exceed package size limit",
+        ));
+    }
+    let mut decoder = Decoder {
+        cursor: Cursor::new(bytes),
+        context,
+    };
+    let count = decoder.len()?;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let closure_id = decoder.closure()?;
+        let state_ty = decoder.ty()?;
+        let state_param = LocalId(decoder.u32()?);
+        let param_count = decoder.len()?;
+        let mut params = Vec::with_capacity(param_count);
+        for _ in 0..param_count {
+            params.push(LocalId(decoder.u32()?));
+        }
+        let return_type = decoder.ty()?;
+        let body = decoder.body(0)?;
+        let entry = FunctionClosureEntry {
+            closure_id,
+            state_ty,
+            state_param,
+            params,
+            return_type,
+            body,
+        };
+        nia_function_ir::validate_function_closure_entry(&entry)
+            .map_err(|error| TemplateBodyCodecError::invalid(error.message))?;
+        entries.push(entry);
+    }
+    if decoder.cursor.position() != bytes.len() as u64 {
+        return Err(TemplateBodyCodecError::invalid(
+            "checked closure entries have trailing bytes",
+        ));
+    }
+    Ok(entries)
 }
 
 struct Encoder<'a> {
