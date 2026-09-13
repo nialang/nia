@@ -1614,25 +1614,7 @@ fn provide_artifact_item_signatures(
                         span: Span::default(),
                     });
                 }
-                11 => {
-                    let signature = result
-                        .functions
-                        .get(&member_global.def_id)
-                        .cloned()
-                        .ok_or_else(|| {
-                            db.invalid_input(
-                                &CompiledPackageSignaturesQuery(identity.package.clone()),
-                                "artifact trait method has no function payload",
-                            )
-                        })?;
-                    methods.push(nia_item_signatures::TraitMethodSignature {
-                        def_id: member_global.def_id,
-                        name: member_name,
-                        has_default: signature.has_body,
-                        signature,
-                        span: Span::default(),
-                    });
-                }
+                11 => {}
                 _ => {
                     return Err(db.invalid_input(
                         &CompiledPackageSignaturesQuery(identity.package.clone()),
@@ -1640,6 +1622,42 @@ fn provide_artifact_item_signatures(
                     ));
                 }
             }
+        }
+        for method_definition in &trait_record.method_order {
+            let member = trait_record
+                .members
+                .iter()
+                .find(|member| member.definition == *method_definition)
+                .ok_or_else(|| {
+                    db.invalid_input(
+                        &CompiledPackageSignaturesQuery(identity.package.clone()),
+                        "artifact trait method order references a missing member",
+                    )
+                })?;
+            let method_global = resolve(method_definition)?;
+            let name = symbols.intern(&member.name).map_err(|error| {
+                db.invalid_input(
+                    &CompiledPackageSignaturesQuery(identity.package.clone()),
+                    error.to_string(),
+                )
+            })?;
+            let signature = result
+                .functions
+                .get(&method_global.def_id)
+                .cloned()
+                .ok_or_else(|| {
+                    db.invalid_input(
+                        &CompiledPackageSignaturesQuery(identity.package.clone()),
+                        "artifact trait method has no function payload",
+                    )
+                })?;
+            methods.push(nia_item_signatures::TraitMethodSignature {
+                def_id: method_global.def_id,
+                name,
+                has_default: signature.has_body,
+                signature,
+                span: Span::default(),
+            });
         }
         result.traits.insert(
             global.def_id,
@@ -1747,6 +1765,18 @@ fn provide_artifact_item_signatures(
         let mut methods = Vec::new();
         for member in &extension.members {
             let member_global = resolve(&member.definition)?;
+            let defs = db.get(FullModuleDefsQuery(member_global.module_id))?;
+            let visibility = defs
+                .semantic
+                .defs
+                .get(member_global.def_id)
+                .ok_or_else(|| {
+                    db.invalid_input(
+                        &CompiledPackageSignaturesQuery(identity.package.clone()),
+                        "artifact extension member has no reconstructed declaration",
+                    )
+                })?
+                .visibility;
             let name = symbols.intern(&member.name).map_err(|error| {
                 db.invalid_input(
                     &CompiledPackageSignaturesQuery(identity.package.clone()),
@@ -1758,16 +1788,43 @@ fn provide_artifact_item_signatures(
                     associated_values.push(nia_item_signatures::TraitImplAssociatedValueSignature {
                         def_id: member_global.def_id,
                         name,
-                        visibility: nia_ids::Visibility::Public,
+                        visibility,
                         span: Span::default(),
                     })
                 }
-                12 | 11 => methods.push(nia_item_signatures::TraitImplMethodSignature {
-                    def_id: member_global.def_id,
-                    name,
-                    visibility: nia_ids::Visibility::Public,
-                    span: Span::default(),
-                }),
+                12 | 11 => {
+                    let signature =
+                        result
+                            .functions
+                            .get_mut(&member_global.def_id)
+                            .ok_or_else(|| {
+                                db.invalid_input(
+                                    &CompiledPackageSignaturesQuery(identity.package.clone()),
+                                    "artifact extension method has no function payload",
+                                )
+                            })?;
+                    if !signature.generic_params.starts_with(&generic_params)
+                        || !signature.where_predicates.starts_with(&where_predicates)
+                    {
+                        return Err(db.invalid_input(
+                            &CompiledPackageSignaturesQuery(identity.package.clone()),
+                            "artifact extension method does not inherit its owner signature",
+                        ));
+                    }
+                    signature.generic_params.drain(..generic_params.len());
+                    signature.generics = signature
+                        .generic_params
+                        .iter()
+                        .map(|param| param.name)
+                        .collect();
+                    signature.where_predicates.drain(..where_predicates.len());
+                    methods.push(nia_item_signatures::TraitImplMethodSignature {
+                        def_id: member_global.def_id,
+                        name,
+                        visibility,
+                        span: Span::default(),
+                    });
+                }
                 _ => {}
             }
         }

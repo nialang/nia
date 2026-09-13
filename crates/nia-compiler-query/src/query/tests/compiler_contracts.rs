@@ -409,6 +409,386 @@ fn source_free_dependency_generic_body_reaches_backend_without_source_queries() 
 }
 
 #[test]
+fn source_free_generic_template_retains_private_aggregate_signature() {
+    let dependency = LoadedProgramFixture::new(
+        "src/dependency.nia",
+        r#"
+struct Hidden {
+    value: i32,
+}
+
+pub fn reveal[Marker](marker: Marker) i32 {
+    let hidden = Hidden { value: 7 };
+    hidden.value
+}
+"#,
+    );
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "private-aggregate-dependency".into(),
+        version: "1.0.0".into(),
+    };
+    let artifact = nia_package_metadata::PackageArtifact::open(
+        dependency
+            .database()
+            .publish_package_artifact(package.clone())
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
+    let signatures = artifact.signatures().unwrap().unwrap();
+    let hidden = signatures
+        .records
+        .iter()
+        .find(|record| record.definition.name == "Hidden")
+        .expect("private aggregate signature");
+    let nia_package_metadata::SignaturePayload::Aggregate { fields } =
+        hidden.payload.as_ref().expect("private aggregate payload")
+    else {
+        panic!("private aggregate has non-aggregate payload");
+    };
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].name, "value");
+    assert!(signatures.records.iter().any(|record| {
+        record.definition == fields[0].definition && record.definition.owner.is_some()
+    }));
+    let compiled =
+        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap();
+
+    let mut consumer = LoadedProgramFixture::new(
+        "src/main.nia",
+        "using dependency::reveal; fn main() i32 { reveal[i32](0) }",
+    );
+    let dependency_module =
+        consumer.add_child(consumer.entry_id(), "dependency", "src/dependency.nia", "");
+    let loader = TestLoaderFacts::new(
+        consumer.program(),
+        crate::ProviderFactSnapshot::empty(crate::ProviderFactRevision::default()),
+    );
+    let identity = compiled
+        .module_identities()
+        .next()
+        .expect("dependency module identity");
+    loader.replace_compiled_interfaces(vec![compiled]);
+    loader.replace_compiled_module_identities(HashMap::from([(dependency_module, identity)]));
+    let database = super::super::CompilerDatabase::new(
+        CompileRequest::new(consumer.program()).with_loader_facts(loader),
+    );
+    database
+        .install_compiled_package_module_interfaces()
+        .unwrap();
+    let resolver = |definition: &nia_package_metadata::DefinitionId| {
+        database.resolve_loaded_definition(definition, &package)
+    };
+    database
+        .install_compiled_interface_type_roots(&resolver)
+        .unwrap();
+    database.install_compiled_package_declarations().unwrap();
+    database.install_compiled_package_templates().unwrap();
+    database.install_compiled_package_signatures().unwrap();
+
+    let backend = database.db.expect_get(BackendLoweringQuery);
+    assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
+    let dependency = backend
+        .semantic
+        .program
+        .modules
+        .iter()
+        .find(|module| module.id == dependency_module)
+        .expect("dependency backend module");
+    assert_eq!(dependency.function_instances.len(), 1);
+}
+
+#[test]
+fn source_free_generic_template_retains_private_extension_membership() {
+    let dependency = LoadedProgramFixture::new(
+        "src/dependency.nia",
+        r#"
+pub struct Value {
+    value: i32,
+}
+
+extend Value {
+    fn addTo(&self, other: Value) i32 {
+        self.value + other.value
+    }
+}
+
+pub fn sum[Marker](marker: Marker) i32 {
+    Value { value: 3 }.addTo(Value { value: 4 })
+}
+"#,
+    );
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "private-extension-dependency".into(),
+        version: "1.0.0".into(),
+    };
+    let artifact = nia_package_metadata::PackageArtifact::open(
+        dependency
+            .database()
+            .publish_package_artifact(package.clone())
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
+    let signatures = artifact.signatures().unwrap().unwrap();
+    let extension = signatures
+        .extensions
+        .iter()
+        .find(|extension| {
+            extension
+                .members
+                .iter()
+                .any(|member| member.definition.name == "addTo")
+        })
+        .expect("private extension membership");
+    assert_eq!(extension.members.len(), 1);
+    let compiled =
+        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap();
+
+    let mut consumer = LoadedProgramFixture::new(
+        "src/main.nia",
+        "using dependency::sum; fn main() i32 { sum[i32](0) }",
+    );
+    let dependency_module =
+        consumer.add_child(consumer.entry_id(), "dependency", "src/dependency.nia", "");
+    let loader = TestLoaderFacts::new(
+        consumer.program(),
+        crate::ProviderFactSnapshot::empty(crate::ProviderFactRevision::default()),
+    );
+    let identity = compiled
+        .module_identities()
+        .next()
+        .expect("dependency module identity");
+    loader.replace_compiled_interfaces(vec![compiled]);
+    loader.replace_compiled_module_identities(HashMap::from([(dependency_module, identity)]));
+    let database = super::super::CompilerDatabase::new(
+        CompileRequest::new(consumer.program()).with_loader_facts(loader),
+    );
+    database
+        .install_compiled_package_module_interfaces()
+        .unwrap();
+    let resolver = |definition: &nia_package_metadata::DefinitionId| {
+        database.resolve_loaded_definition(definition, &package)
+    };
+    database
+        .install_compiled_interface_type_roots(&resolver)
+        .unwrap();
+    database.install_compiled_package_declarations().unwrap();
+    database.install_compiled_package_templates().unwrap();
+    database.install_compiled_package_signatures().unwrap();
+
+    let signatures = database
+        .db
+        .expect_get(ItemSignaturesQuery(dependency_module));
+    let extension = signatures
+        .semantic
+        .trait_impls
+        .iter()
+        .find(|extension| {
+            extension.methods.iter().any(|method| {
+                database
+                    .db
+                    .context()
+                    .symbols()
+                    .symbol_text(method.name)
+                    .as_deref()
+                    == Some("addTo")
+            })
+        })
+        .expect("rehydrated private extension membership");
+    assert_eq!(
+        extension.methods[0].visibility,
+        nia_ids::Visibility::Private
+    );
+    let backend = database.db.expect_get(BackendLoweringQuery);
+    assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
+}
+
+#[test]
+fn source_free_extension_declaration_resolves_associated_return_type() {
+    let dependency = LoadedProgramFixture::new(
+        "src/dependency.nia",
+        r#"
+pub trait Fallible {
+    type Error;
+
+    fn error(&self) Error;
+}
+
+pub struct Value {
+    code: i32,
+}
+
+extend Value : Fallible {
+    type Error = i32;
+
+    pub fn error(&self) Error {
+        self.code
+    }
+}
+
+pub fn invoke[Marker](marker: Marker) i32 {
+    Value { code: 7 }.error()
+}
+"#,
+    );
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "associated-return-dependency".into(),
+        version: "1.0.0".into(),
+    };
+    let artifact = nia_package_metadata::PackageArtifact::open(
+        dependency
+            .database()
+            .publish_package_artifact(package.clone())
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
+    let compiled =
+        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap();
+
+    let mut consumer = LoadedProgramFixture::new(
+        "src/main.nia",
+        "using dependency::invoke; fn main() i32 { invoke[i32](0) }",
+    );
+    let dependency_module =
+        consumer.add_child(consumer.entry_id(), "dependency", "src/dependency.nia", "");
+    let loader = TestLoaderFacts::new(
+        consumer.program(),
+        crate::ProviderFactSnapshot::empty(crate::ProviderFactRevision::default()),
+    );
+    let identity = compiled
+        .module_identities()
+        .next()
+        .expect("dependency module identity");
+    loader.replace_compiled_interfaces(vec![compiled]);
+    loader.replace_compiled_module_identities(HashMap::from([(dependency_module, identity)]));
+    let database = super::super::CompilerDatabase::new(
+        CompileRequest::new(consumer.program()).with_loader_facts(loader),
+    );
+    database
+        .install_compiled_package_module_interfaces()
+        .unwrap();
+    let resolver = |definition: &nia_package_metadata::DefinitionId| {
+        database.resolve_loaded_definition(definition, &package)
+    };
+    database
+        .install_compiled_interface_type_roots(&resolver)
+        .unwrap();
+    database.install_compiled_package_declarations().unwrap();
+    database.install_compiled_package_templates().unwrap();
+    database.install_compiled_package_signatures().unwrap();
+
+    let backend = database.db.expect_get(BackendLoweringQuery);
+    assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
+}
+
+#[test]
+fn source_free_trait_vtable_preserves_declaration_order() {
+    let dependency = LoadedProgramFixture::new(
+        "src/dependency.nia",
+        r#"
+pub trait Resource {
+    fn first(&mut self) i32;
+
+    fn defaulted(&mut self) i32 {
+        2
+    }
+
+    fn last(&mut self) i32;
+}
+
+struct Value {
+    code: i32,
+}
+
+extend Value : Resource {
+    pub fn first(&mut self) i32 {
+        1
+    }
+
+    pub fn last(&mut self) i32 {
+        self.code
+    }
+}
+
+pub fn invoke[Marker](marker: Marker) i32 {
+    let mut value = Value { code: 7 };
+    let resource: &mut Resource = &mut value;
+    resource.last()
+}
+"#,
+    );
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "vtable-order-dependency".into(),
+        version: "1.0.0".into(),
+    };
+    let artifact = nia_package_metadata::PackageArtifact::open(
+        dependency
+            .database()
+            .publish_package_artifact(package.clone())
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
+    let signatures = artifact.signatures().unwrap().unwrap();
+    let resource = signatures
+        .traits
+        .iter()
+        .find(|record| record.definition.name == "Resource")
+        .expect("resource trait record");
+    assert_eq!(
+        resource
+            .method_order
+            .iter()
+            .map(|definition| definition.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["first", "defaulted", "last"]
+    );
+    let compiled =
+        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap();
+
+    let mut consumer = LoadedProgramFixture::new(
+        "src/main.nia",
+        "using dependency::invoke; fn main() i32 { invoke[i32](0) }",
+    );
+    let dependency_module =
+        consumer.add_child(consumer.entry_id(), "dependency", "src/dependency.nia", "");
+    let loader = TestLoaderFacts::new(
+        consumer.program(),
+        crate::ProviderFactSnapshot::empty(crate::ProviderFactRevision::default()),
+    );
+    let identity = compiled
+        .module_identities()
+        .next()
+        .expect("dependency module identity");
+    loader.replace_compiled_interfaces(vec![compiled]);
+    loader.replace_compiled_module_identities(HashMap::from([(dependency_module, identity)]));
+    let database = super::super::CompilerDatabase::new(
+        CompileRequest::new(consumer.program()).with_loader_facts(loader),
+    );
+    database
+        .install_compiled_package_module_interfaces()
+        .unwrap();
+    let resolver = |definition: &nia_package_metadata::DefinitionId| {
+        database.resolve_loaded_definition(definition, &package)
+    };
+    database
+        .install_compiled_interface_type_roots(&resolver)
+        .unwrap();
+    database.install_compiled_package_declarations().unwrap();
+    database.install_compiled_package_templates().unwrap();
+    database.install_compiled_package_signatures().unwrap();
+
+    let backend = database.db.expect_get(BackendLoweringQuery);
+    assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
+}
+
+#[test]
 fn source_free_generic_closure_rehydrates_its_generated_entry() {
     let dependency = LoadedProgramFixture::new(
         "src/dependency.nia",
@@ -489,8 +869,8 @@ fn source_free_generic_extension_reconstructs_effective_parameters() {
         "src/dependency.nia",
         r#"
 extend[Value] ?Value {
-    pub fn map[Mapped](self, mapper: &Fn(Value) Mapped) ?Mapped {
-        if self is ?value { ?mapper(value) } else { null }
+    pub fn replace[Mapped](self, value: Mapped) Mapped {
+        value
     }
 }
 "#,
@@ -512,8 +892,8 @@ extend[Value] ?Value {
     let wire_map = wire_signatures
         .records
         .iter()
-        .find(|record| record.definition.name == "map")
-        .expect("published map signature");
+        .find(|record| record.definition.name == "replace")
+        .expect("published replace signature");
     assert_eq!(
         wire_map
             .generic_params
@@ -525,7 +905,17 @@ extend[Value] ?Value {
     let compiled =
         nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap();
 
-    let mut consumer = LoadedProgramFixture::new("src/main.nia", "fn main() () {}");
+    let mut consumer = LoadedProgramFixture::new(
+        "src/main.nia",
+        r#"
+using dependency;
+
+fn main() i32 {
+    let value: ?i32 = ?1;
+    value.replace[i32](2)
+}
+"#,
+    );
     let dependency_module =
         consumer.add_child(consumer.entry_id(), "dependency", "src/dependency.nia", "");
     let loader = TestLoaderFacts::new(
@@ -560,16 +950,16 @@ extend[Value] ?Value {
     let defs = database
         .db
         .expect_get(FullModuleDefsQuery(dependency_module));
-    let map = signatures
+    let replace = signatures
         .semantic
         .functions
         .iter()
-        .find_map(|(def_id, signature)| (signature.name == sym("map")).then_some(*def_id))
-        .expect("artifact map signature");
+        .find_map(|(def_id, signature)| (signature.name == sym("replace")).then_some(*def_id))
+        .expect("artifact replace signature");
     let params = providers::codegen::effective_function_generic_params(
         &signatures.semantic,
         &defs.semantic,
-        map,
+        replace,
     );
     assert_eq!(
         params.iter().map(|param| param.name).collect::<Vec<_>>(),
@@ -579,6 +969,121 @@ extend[Value] ?Value {
         param.kind,
         nia_item_signatures::GenericParamSignatureKind::Type
     )));
+
+    let checked = database
+        .db
+        .expect_get(CheckedModuleQuery(consumer.entry_id()));
+    let body_diagnostics =
+        resolve_diagnostic_bundle(database.db.context(), &checked.body_diagnostics);
+    assert!(body_diagnostics.is_empty(), "{:?}", body_diagnostics);
+    let mono = database.db.expect_get(MonomorphizationQuery);
+    assert_eq!(mono.semantic.instances.len(), 1);
+    let plans = database
+        .db
+        .expect_get(BackendModuleFunctionInstancePlanQuery(dependency_module));
+    assert_eq!(plans.instances.len(), 1);
+    assert_eq!(
+        plans.instances[0].def_id,
+        GlobalDefId {
+            module_id: dependency_module,
+            def_id: replace,
+        }
+    );
+    assert_eq!(plans.instances[0].args.len(), 2);
+    let backend = database.db.expect_get(BackendLoweringQuery);
+    assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
+}
+
+#[test]
+fn source_free_trait_default_specializes_implicit_self() {
+    let dependency = LoadedProgramFixture::new(
+        "src/dependency.nia",
+        r#"
+pub trait Identity {
+    fn identity(self) Self {
+        self
+    }
+}
+"#,
+    );
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "trait-default-dependency".into(),
+        version: "1.0.0".into(),
+    };
+    let artifact = nia_package_metadata::PackageArtifact::open(
+        dependency
+            .database()
+            .publish_package_artifact(package.clone())
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
+    let templates = artifact.templates().unwrap().unwrap();
+    assert!(
+        templates
+            .records
+            .iter()
+            .any(|record| record.definition.name == "identity")
+    );
+    let compiled =
+        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap();
+
+    let mut consumer = LoadedProgramFixture::new(
+        "src/main.nia",
+        r#"
+using dependency::Identity;
+
+struct Value {
+    value: i32,
+}
+
+extend Value : Identity {}
+
+fn main() i32 {
+    Value { value: 7 }.identity().value
+}
+"#,
+    );
+    let entry = consumer.entry_id();
+    let dependency_module = consumer.add_child(entry, "dependency", "src/dependency.nia", "");
+    let loader = TestLoaderFacts::new(
+        consumer.program(),
+        crate::ProviderFactSnapshot::empty(crate::ProviderFactRevision::default()),
+    );
+    let identity = compiled
+        .module_identities()
+        .next()
+        .expect("dependency module identity");
+    loader.replace_compiled_interfaces(vec![compiled]);
+    loader.replace_compiled_module_identities(HashMap::from([(dependency_module, identity)]));
+    let database = super::super::CompilerDatabase::new(
+        CompileRequest::new(consumer.program()).with_loader_facts(loader),
+    );
+    database
+        .install_compiled_package_module_interfaces()
+        .unwrap();
+    let resolver = |definition: &nia_package_metadata::DefinitionId| {
+        database.resolve_loaded_definition(definition, &package)
+    };
+    database
+        .install_compiled_interface_type_roots(&resolver)
+        .unwrap();
+    database.install_compiled_package_declarations().unwrap();
+    database.install_compiled_package_templates().unwrap();
+    database.install_compiled_package_signatures().unwrap();
+
+    let backend = database.db.expect_get(BackendLoweringQuery);
+    assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
+    let dependency = backend
+        .semantic
+        .program
+        .modules
+        .iter()
+        .find(|module| module.id == dependency_module)
+        .expect("dependency backend module");
+    assert_eq!(dependency.function_instances.len(), 1);
+    assert!(dependency.function_instances[0].self_arg.is_some());
 }
 
 #[test]
