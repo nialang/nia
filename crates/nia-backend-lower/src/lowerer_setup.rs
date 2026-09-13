@@ -2,7 +2,6 @@
 //! Module-lowerer construction and initial source-item materialization.
 
 use super::*;
-use crate::layout_extender::BackendLayoutExtender;
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn new(
@@ -259,7 +258,7 @@ impl<'a> ModuleLowerer<'a> {
             layouts: {
                 let mut layouts = BackendLayouts::from_module_layouts(self.input.layouts);
                 if self.input.artifact_module {
-                    BackendLayoutExtender::new(self.input, self.type_store)
+                    crate::layout_extender::BackendLayoutExtender::new(self.input, self.type_store)
                         .remove_generic_nominal_layouts(&mut layouts);
                 }
                 layouts
