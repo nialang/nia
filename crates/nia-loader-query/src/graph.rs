@@ -335,6 +335,17 @@ fn mark_semantic_used_paths_and_process(
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(());
     };
+    process_semantic_module_dependencies(db, graph, &node)
+}
+
+/// Processes a selected module's semantic dependencies without promoting it
+/// to the eager source-processing state. Provider paths may need declarations
+/// from a module whose own `using` graph must remain lazy.
+fn process_semantic_module_dependencies(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    node: &ModuleNode,
+) -> TraversalResult<()> {
     let declarations = db.get(module_declarations_query(db, &node.path)?)?;
     for package in &declarations.semantic.package_roots {
         if graph.package_root(package).is_none()
@@ -344,7 +355,7 @@ fn mark_semantic_used_paths_and_process(
         }
     }
     for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
-        add_semantic_used_module_path(db, graph, module_id, &path)?;
+        add_semantic_used_module_path(db, graph, node.id, &path)?;
     }
     Ok(())
 }
@@ -645,8 +656,24 @@ pub(crate) fn add_visible_declared_module_path(
             let Some(reexport_source) =
                 add_public_reexport_source_module(db, graph, current, segment, source_processing)?
             else {
-                if processing.should_process_module() {
-                    mark_process_used_paths_and_process(db, graph, current)?;
+                match processing {
+                    UsedModulePathProcessing::Always => {
+                        mark_process_used_paths_and_process(db, graph, current)?;
+                    }
+                    UsedModulePathProcessing::IfSelectedItem => {
+                        let caller_processes = graph
+                            .get(accessing_module)
+                            .is_some_and(|node| node.process_used_paths);
+                        let current_processes = graph
+                            .get(current)
+                            .is_some_and(|node| node.process_used_paths);
+                        if caller_processes && !current_processes {
+                            mark_process_used_paths_and_process(db, graph, current)?;
+                        } else {
+                            mark_semantic_used_paths_and_process(db, graph, current)?;
+                        }
+                    }
+                    _ => {}
                 }
                 return Ok(Some(current));
             };

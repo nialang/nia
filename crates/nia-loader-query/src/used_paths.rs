@@ -968,10 +968,6 @@ impl UsedModulePathProcessing {
         }
     }
 
-    pub(crate) fn should_process_module(self) -> bool {
-        matches!(self, Self::Always | Self::IfSelectedItem)
-    }
-
     pub(crate) fn is_provider_demand(&self) -> bool {
         matches!(
             self,

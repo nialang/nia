@@ -8,6 +8,7 @@ fn provider_plan_toolchain(root: &Path) -> Arc<nia_toolchain::ToolchainLayout> {
     fs::create_dir_all(executable.parent().expect("compiler parent"))
         .expect("create compiler directory");
     fs::create_dir_all(resources.join("std")).expect("create resource directories");
+    fs::create_dir_all(resources.join("runtime")).expect("create runtime directory");
     write(&executable, "compiler");
     write(
         &resources.join("toolchain.meta"),
