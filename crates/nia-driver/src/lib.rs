@@ -25,16 +25,17 @@ pub use nia_parser::ParseError;
 pub use nia_source::SourcePath;
 pub use nia_target_config::{BuildProfile, CompilationMode};
 pub use nia_toolchain::{
-    ToolchainIdentity, ToolchainLayout, ToolchainLayoutError, ToolchainLayoutRequest,
+    RuntimeSpec, RuntimeSpecError, ToolchainIdentity, ToolchainLayout, ToolchainLayoutError,
+    ToolchainLayoutRequest,
 };
 pub use pipeline::{
     CheckRequest, CheckedProgramWithSourceManifest, Driver, DriverConfig, DriverError,
     DriverOutput, EmitLlvmRequest, EmitObjectRequest, ExecutableArtifact,
     ExecutableCacheEnvironment, ExecutableCacheReference, ExecutableCacheRestore,
     LinkExecutableRequest, LinkedExecutableWithSourceManifest, LlvmIrArtifact, ObjectArtifact,
-    ObjectOutput, PublishedPackageArtifact, Runtime, StaticArchiveArtifact,
-    StaticArchiveCacheEnvironment, StaticArchiveCacheReference, StaticArchiveCacheRestore,
-    WriteObjectRequest, WrittenObjectArtifact,
+    ObjectOutput, PublishedPackageArtifact, StaticArchiveArtifact, StaticArchiveCacheEnvironment,
+    StaticArchiveCacheReference, StaticArchiveCacheRestore, WriteObjectRequest,
+    WrittenObjectArtifact,
 };
 pub use report::{
     llvm_ir_optimization_report, object_optimization_report, optimization_report,

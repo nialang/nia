@@ -17,14 +17,14 @@ fn query_loader_injects_freestanding_entry_runtime_through_runtime_start() {
         "using std::process; pub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }",
     );
 
-    let program = load_program_with_map_and_entry_runtime(
+    let program = load_program_with_map_and_runtime(
         main_path.to_string_lossy().into_owned(),
         ModuleMap::default(),
-        EntryRuntime::Freestanding,
+        test_freestanding_runtime(),
     );
 
     assert_no_error_diagnostics(&program);
-    assert_eq!(program.runtime, RuntimeModel::FreestandingExecutable);
+    assert_eq!(program.runtime, test_freestanding_runtime());
     assert!(
         program
             .modules
@@ -83,10 +83,10 @@ fn query_loader_loads_std_package_root_children_on_demand() {
         "using std::process; pub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }",
     );
 
-    let program = load_program_with_map_and_entry_runtime(
+    let program = load_program_with_map_and_runtime(
         main_path.to_string_lossy().into_owned(),
         ModuleMap::default(),
-        EntryRuntime::Freestanding,
+        test_freestanding_runtime(),
     );
 
     assert_no_error_diagnostics(&program);
@@ -131,10 +131,12 @@ fn query_loader_selects_i686_freestanding_start_and_syscall_facades() {
         endian: "little".to_string(),
         pointer_width: 32,
     };
+    let runtime = RuntimeSpec::freestanding(&test_toolchain_layout(), &target)
+        .expect("i686 freestanding runtime");
     let program = load_program_request(
         LoadRequest::new(main_path.to_string_lossy().into_owned())
             .with_target(target)
-            .with_entry_runtime(EntryRuntime::Freestanding)
+            .with_runtime(runtime)
             .with_toolchain_layout(test_toolchain_layout()),
     )
     .expect("i686 freestanding program load must succeed");
@@ -144,4 +146,29 @@ fn query_loader_selects_i686_freestanding_start_and_syscall_facades() {
     assert_module_loaded(&program, "lib/std/os/linux/x86/syscall.nia");
     assert_module_not_loaded(&program, "lib/runtime/start/freestanding/linux/x86_64.nia");
     assert_module_not_loaded(&program, "lib/std/os/linux/x86_64/syscall.nia");
+}
+
+#[test]
+fn query_loader_rejects_runtime_selected_for_a_different_target() {
+    let root = temp_dir("query_loader_rejects_mismatched_runtime_target");
+    let main_path = root.join("main.nia");
+    write(&main_path, "fn main() i32 { 0 }");
+    let runtime_target = TargetConfig::host();
+    let runtime = RuntimeSpec::freestanding(&test_toolchain_layout(), &runtime_target)
+        .expect("host freestanding runtime");
+    let mut request_target = runtime_target;
+    request_target.abi = "mismatched".to_string();
+
+    let error = load_program_request(
+        LoadRequest::new(main_path.to_string_lossy().into_owned())
+            .with_target(request_target)
+            .with_runtime(runtime)
+            .with_toolchain_layout(test_toolchain_layout()),
+    )
+    .expect_err("mismatched runtime target must be rejected");
+
+    assert!(
+        error.to_string().contains("runtime target"),
+        "unexpected query error: {error}"
+    );
 }

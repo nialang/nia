@@ -207,7 +207,7 @@ fn persistent_executable_value_ref_edges_skip_resolution_and_verify_replacement(
     let module = StableModuleKey::from_source_identity(SourceIdentity::new("main.nia"));
     let program_sources =
         crate::frontend_program_source_fingerprint([(&module, source_fingerprint, source.len())]);
-    let namespace = crate::FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
+    let namespace = crate::FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeSpec::Bare);
     let key = crate::FrontendExecutableValueRefEdgesCacheKey::new(
         namespace,
         &module,

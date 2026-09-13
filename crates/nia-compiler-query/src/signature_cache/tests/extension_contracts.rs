@@ -9,7 +9,7 @@ fn extension_validation_diagnostics_roundtrip_and_retire_corruption() {
     let program_sources = crate::frontend_program_source_fingerprint([(&module, source, 128)]);
     let namespace = crate::FrontendCacheNamespace::new(
         &nia_target_config::TargetConfig::host(),
-        crate::RuntimeModel::Bare,
+        crate::RuntimeSpec::Bare,
     );
     let key = crate::FrontendExtensionValidationDiagnosticsCacheKey::new(
         namespace,

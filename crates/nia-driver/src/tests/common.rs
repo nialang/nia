@@ -72,6 +72,12 @@ pub(super) fn test_driver() -> crate::Driver {
     crate::Driver::new(test_toolchain_layout())
 }
 
+pub(super) fn test_freestanding_runtime() -> crate::RuntimeSpec {
+    let toolchain = test_toolchain_layout();
+    crate::RuntimeSpec::freestanding(&toolchain, toolchain.artifact_target())
+        .expect("host freestanding runtime")
+}
+
 pub(super) fn check_program(
     entry_path: impl Into<String>,
 ) -> nia_compiler_query::CheckedProgramAnalysis {
@@ -120,7 +126,7 @@ pub(super) fn check_freestanding_executable_with_options(
     test_driver().analyze_all_modules(
         crate::CheckRequest::new(entry_path)
             .with_optimization(optimization)
-            .with_runtime(crate::Runtime::Freestanding),
+            .with_runtime(test_freestanding_runtime()),
     )
 }
 
@@ -133,7 +139,7 @@ pub(super) fn check_freestanding_executable_with_map_and_options(
         crate::CheckRequest::new(entry_path)
             .with_module_map(module_map)
             .with_optimization(optimization)
-            .with_runtime(crate::Runtime::Freestanding),
+            .with_runtime(test_freestanding_runtime()),
     )
 }
 

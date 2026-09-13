@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
-use nia_symbol::known;
 
 pub(in crate::query) fn provide_executable_checked_module_facts(
     db: &QueryDb<CompilerContext>,
@@ -1147,8 +1146,8 @@ fn executable_root_defs(
     if *db.get(CompilerCodegenScopeQuery)? == crate::CodegenScope::Package {
         return package_root_defs(db, entry, parse_ok);
     }
-    match *db.get(CompilerRuntimeQuery)? {
-        RuntimeModel::Bare => {
+    match db.get(CompilerRuntimeQuery)?.as_ref() {
+        RuntimeSpec::Bare => {
             let defs = full_module_defs_semantic(db, entry)?;
             let signatures = db.get(SignatureItemSignaturesQuery(
                 entry,
@@ -1179,19 +1178,44 @@ fn executable_root_defs(
             }
             Ok((functions, globals))
         }
-        RuntimeModel::FreestandingExecutable => {
-            let mut functions = Vec::new();
-            let parse_ok = parse_ok.iter().copied().collect::<HashSet<_>>();
-            for module_id in runtime_root_modules.iter().copied() {
-                if !parse_ok.contains(&module_id) {
-                    continue;
-                }
-                if let Some(start) = named_top_level_function(db, module_id, known::START_ENTRY)? {
-                    functions.push(start);
-                    break;
-                }
+        RuntimeSpec::Source(runtime) => {
+            let graph = db.get(ModuleGraphQuery)?;
+            let identity = nia_source::SourceIdentity::new(runtime.entry_point().module_identity());
+            let key = nia_imports::StableModuleKey::from_source_identity(identity);
+            let module_id = graph.module_id_for_stable_key(&key).ok_or_else(|| {
+                db.invalid_input(
+                    &CompilerRuntimeQuery,
+                    format!(
+                        "runtime entry module is not loaded: {}",
+                        runtime.entry_point().module_identity()
+                    ),
+                )
+            })?;
+            if !runtime_root_modules.contains(&module_id) || !parse_ok.contains(&module_id) {
+                return Ok((Vec::new(), Vec::new()));
             }
-            Ok((functions, Vec::new()))
+            let symbol = db
+                .context()
+                .loader_facts()
+                .symbols()
+                .intern(runtime.entry_point().definition_name())
+                .map_err(|error| {
+                    db.invalid_input(
+                        &CompilerRuntimeQuery,
+                        format!("runtime entry definition name is invalid: {error}"),
+                    )
+                })?;
+            let start = named_top_level_function(db, module_id, symbol)?.ok_or_else(|| {
+                db.invalid_input(
+                    &CompilerRuntimeQuery,
+                    format!(
+                        "runtime entry `{}` is absent from {}",
+                        runtime.entry_point().definition_name(),
+                        runtime.entry_point().module_identity()
+                    ),
+                )
+            })?;
+            Ok((vec![start], Vec::new()))
         }
     }
 }

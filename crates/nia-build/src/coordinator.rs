@@ -40,8 +40,7 @@ use std::{
 
 use nia_driver::{
     CheckRequest, Driver, DriverConfig, DriverError, EmitObjectRequest, ExecutableCacheRestore,
-    LinkExecutableRequest, ModuleMap, NiaOptimizationLevel, ObjectOutput, Runtime as DriverRuntime,
-    SourcePath,
+    LinkExecutableRequest, ModuleMap, NiaOptimizationLevel, ObjectOutput, RuntimeSpec, SourcePath,
 };
 use nia_linker::{ArchiveOptions, LinkOptions, StaticArchiveLinkInput};
 use nia_query::{QueryFingerprintBytesWriter, QuerySession};

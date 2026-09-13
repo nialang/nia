@@ -11,7 +11,7 @@ use crate::provider_loading::{
 };
 use crate::queries::module_declarations_query;
 use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
-use crate::{EntryRuntime, LoaderContext, runtime_package_root_path};
+use crate::{LoaderContext, RuntimeSpec, runtime_package_root_path, runtime_start_module_path};
 use nia_compiler_query::{ProgramDiagnostic, ProgramDiagnosticBundles};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
@@ -97,6 +97,10 @@ fn build_module_graph(
     seed: Option<std::sync::Arc<ModuleGraphValue>>,
     new_provider_demands: &std::collections::HashSet<nia_compiler_query::ProviderDemand>,
 ) -> QueryResult<ModuleGraphValue> {
+    db.context()
+        .runtime
+        .validate_for_target(&db.context().target)
+        .map_err(|error| db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
     let mut fresh_diagnostics = Vec::new();
     let (mut graph, prior_diagnostics, mut index) = match seed {
         Some(value) => {
@@ -824,13 +828,11 @@ fn inject_entry_runtime(
     graph: &mut ModuleGraph,
     diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
 ) {
-    match db.context().entry_runtime {
-        EntryRuntime::None => {}
-        EntryRuntime::Freestanding => {
-            let Some(runtime_start) = db.context().runtime_start_module.clone() else {
-                return;
-            };
-            let runtime_root_path = runtime_package_root_path(&runtime_start);
+    match &db.context().runtime {
+        RuntimeSpec::Bare => {}
+        RuntimeSpec::Source(runtime) => {
+            let runtime_start = runtime_start_module_path(runtime);
+            let runtime_root_path = runtime_package_root_path(runtime);
             let runtime_root = graph.intern_runtime_package_root(runtime_root_path);
             match graph.intern_declared_child_with_source_path(
                 runtime_root,
@@ -844,7 +846,7 @@ fn inject_entry_runtime(
                     let path = graph
                         .get(runtime_root)
                         .map(|node| node.path.clone())
-                        .or_else(|| db.context().runtime_start_module.clone())
+                        .or_else(|| Some(runtime_start_module_path(runtime)))
                         .unwrap_or_else(|| SourcePath::new("std"));
                     diagnostics.push((path, diagnostic));
                 }

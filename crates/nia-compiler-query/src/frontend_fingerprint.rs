@@ -9,7 +9,7 @@ use nia_span::Span;
 use nia_syntax::SyntaxTree;
 use nia_target_config::TargetConfig;
 
-use crate::RuntimeModel;
+use crate::RuntimeSpec;
 
 const SOURCE_CACHE_KEY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.frontend.cache-key.source.v1");
@@ -441,7 +441,7 @@ impl FrontendProviderDemandPlanCacheKey {
 
 impl FrontendCacheNamespace {
     /// Derives a namespace for the current toolchain, target, and runtime.
-    pub fn new(target: &TargetConfig, runtime: RuntimeModel) -> Self {
+    pub fn new(target: &TargetConfig, runtime: RuntimeSpec) -> Self {
         Self::for_toolchain(
             target,
             runtime,
@@ -452,7 +452,7 @@ impl FrontendCacheNamespace {
     /// Derives a namespace for an explicit toolchain identity.
     pub fn for_toolchain(
         target: &TargetConfig,
-        runtime: RuntimeModel,
+        runtime: RuntimeSpec,
         toolchain: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Self {
         Self::for_toolchain_with_profile(
@@ -466,7 +466,7 @@ impl FrontendCacheNamespace {
     /// Derives a namespace including the selected build profile.
     pub fn for_toolchain_with_profile(
         target: &TargetConfig,
-        runtime: RuntimeModel,
+        runtime: RuntimeSpec,
         profile: nia_target_config::BuildProfile,
         toolchain: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Self {
@@ -482,7 +482,7 @@ impl FrontendCacheNamespace {
     /// Derives a namespace including the selected profile and compilation mode.
     pub fn for_toolchain_with_profile_and_mode(
         target: &TargetConfig,
-        runtime: RuntimeModel,
+        runtime: RuntimeSpec,
         profile: nia_target_config::BuildProfile,
         mode: nia_target_config::CompilationMode,
         toolchain: nia_toolchain::ToolchainIdentityFingerprint,
@@ -503,10 +503,23 @@ impl FrontendCacheNamespace {
             builder.write_str(field);
         }
         builder.write_u64(u64::from(target.pointer_width));
-        builder.write_u8(match runtime {
-            RuntimeModel::Bare => 0,
-            RuntimeModel::FreestandingExecutable => 1,
-        });
+        match runtime {
+            RuntimeSpec::Bare => builder.write_u8(0),
+            RuntimeSpec::Source(runtime) => {
+                builder.write_u8(1);
+                builder.write_str(runtime.package_root_identity());
+                builder.write_str(runtime.start_module_identity());
+                builder.write_str(runtime.entry_point().module_identity());
+                builder.write_str(runtime.entry_point().definition_name());
+                builder.write_str(runtime.entry_point().linker_symbol());
+                builder.write_u64(runtime.dependencies().len() as u64);
+                for dependency in runtime.dependencies() {
+                    builder.write_u8(match dependency {
+                        nia_toolchain::RuntimeDependency::EntryPackage => 0,
+                    });
+                }
+            }
+        }
         builder.write_u8(match profile {
             nia_target_config::BuildProfile::Debug => 0,
             nia_target_config::BuildProfile::Release => 1,
@@ -817,7 +830,7 @@ extend Value {
             endian: "little".to_string(),
             pointer_width: 64,
         };
-        let baseline = FrontendCacheNamespace::new(&target, RuntimeModel::Bare);
+        let baseline = FrontendCacheNamespace::new(&target, RuntimeSpec::Bare);
         let mut variants = Vec::new();
         for field in 0..7 {
             let mut changed = target.clone();
@@ -831,19 +844,23 @@ extend Value {
                 6 => changed.pointer_width = 32,
                 _ => unreachable!(),
             }
-            variants.push(FrontendCacheNamespace::new(&changed, RuntimeModel::Bare));
+            variants.push(FrontendCacheNamespace::new(&changed, RuntimeSpec::Bare));
         }
 
         assert!(variants.iter().all(|variant| *variant != baseline));
         assert_ne!(
             baseline,
-            FrontendCacheNamespace::new(&target, RuntimeModel::FreestandingExecutable)
+            FrontendCacheNamespace::new(
+                &target,
+                RuntimeSpec::freestanding_from_start_module("runtime/start.nia", &target)
+                    .expect("test runtime"),
+            )
         );
         assert_ne!(
             baseline,
             FrontendCacheNamespace::for_toolchain(
                 &target,
-                RuntimeModel::Bare,
+                RuntimeSpec::Bare,
                 nia_toolchain::ToolchainIdentityFingerprint::from_parts([9, 11]),
             )
         );
@@ -851,7 +868,7 @@ extend Value {
             baseline,
             FrontendCacheNamespace::for_toolchain_with_profile(
                 &target,
-                RuntimeModel::Bare,
+                RuntimeSpec::Bare,
                 nia_target_config::BuildProfile::Release,
                 nia_toolchain::ToolchainIdentityFingerprint::current(),
             )
@@ -860,7 +877,7 @@ extend Value {
             baseline,
             FrontendCacheNamespace::for_toolchain_with_profile_and_mode(
                 &target,
-                RuntimeModel::Bare,
+                RuntimeSpec::Bare,
                 nia_target_config::BuildProfile::Debug,
                 nia_target_config::CompilationMode::Test,
                 nia_toolchain::ToolchainIdentityFingerprint::current(),
@@ -899,7 +916,7 @@ extend Value {
 
     #[test]
     fn check_certificate_key_separates_entry_scope_and_input() {
-        let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
+        let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeSpec::Bare);
         let entry = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
         let other_entry =
             StableModuleKey::from_source_identity(SourceIdentity::new("src/tool.nia"));
@@ -947,7 +964,7 @@ extend Value {
 
     #[test]
     fn provider_demand_plan_key_covers_loader_graph_identity() {
-        let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
+        let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeSpec::Bare);
         let entry = SourceIdentity::new("src/main.nia");
         let other_entry = SourceIdentity::new("src/tool.nia");
         let mut module_map = ModuleMap::new();
@@ -1002,7 +1019,7 @@ extend Value {
 
     #[test]
     fn signature_resolution_keys_cover_program_sources_module_and_item_set() {
-        let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
+        let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeSpec::Bare);
         let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
         let dependency =
             StableModuleKey::from_source_identity(SourceIdentity::new("src/dependency.nia"));
@@ -1140,7 +1157,7 @@ extend Value {
     #[test]
     fn frontend_product_keys_separate_domains_modules_and_body_edits() {
         let target = TargetConfig::host();
-        let namespace = FrontendCacheNamespace::new(&target, RuntimeModel::Bare);
+        let namespace = FrontendCacheNamespace::new(&target, RuntimeSpec::Bare);
         let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
         let other_module =
             StableModuleKey::from_source_identity(SourceIdentity::new("src/other.nia"));

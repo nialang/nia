@@ -17,7 +17,7 @@ use std::{
     sync::Arc,
 };
 
-use nia_driver::{ModuleMap, NiaOptimizationLevel, Runtime, SourcePath};
+use nia_driver::{ModuleMap, NiaOptimizationLevel, RuntimeSpec, SourcePath};
 use nia_target_config::BuildProfile;
 use nia_timing::{TimingFormat, TimingOptions, TimingTrace};
 
@@ -131,7 +131,7 @@ enum CliCommand {
     Check {
         path: String,
         opt_report: bool,
-        runtime: Runtime,
+        runtime: RuntimeMode,
         cache_dir: Option<PathBuf>,
     },
     Emit {
@@ -141,13 +141,31 @@ enum CliCommand {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeMode {
+    Bare,
+    Freestanding,
+}
+
+impl RuntimeMode {
+    fn resolve(
+        self,
+        toolchain: &nia_toolchain::ToolchainLayout,
+    ) -> Result<RuntimeSpec, nia_toolchain::RuntimeSpecError> {
+        match self {
+            Self::Bare => Ok(RuntimeSpec::Bare),
+            Self::Freestanding => RuntimeSpec::freestanding(toolchain, toolchain.artifact_target()),
+        }
+    }
+}
+
 #[derive(Debug)]
 enum EmitTarget {
     Tokens,
     Ast,
-    Checked { runtime: Runtime },
-    Backend { runtime: Runtime },
-    Llvm { runtime: Runtime },
+    Checked { runtime: RuntimeMode },
+    Backend { runtime: RuntimeMode },
+    Llvm { runtime: RuntimeMode },
     Obj { args: Vec<String> },
     Exe { args: Vec<String> },
     Package { args: Vec<String> },
@@ -938,7 +956,7 @@ fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     }
     let mut path = None;
     let mut opt_report = false;
-    let mut runtime = Runtime::Bare;
+    let mut runtime = RuntimeMode::Bare;
     let mut cache_dir = None;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
@@ -1087,7 +1105,7 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     let (runtime, target_args) = if target.accepts_runtime() {
         parse_emit_runtime_args(target_args, target_help)?
     } else {
-        (Runtime::Bare, target_args)
+        (RuntimeMode::Bare, target_args)
     };
     let Some(path) = path else {
         return Err(CliError::new(
@@ -1187,8 +1205,8 @@ impl ParsedEmitTarget {
 fn parse_emit_runtime_args(
     args: Vec<String>,
     help: HelpTopic,
-) -> Result<(Runtime, Vec<String>), CliError> {
-    let mut runtime = Runtime::Bare;
+) -> Result<(RuntimeMode, Vec<String>), CliError> {
+    let mut runtime = RuntimeMode::Bare;
     let mut remaining = Vec::new();
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
@@ -1329,7 +1347,7 @@ struct CheckRunOptions {
     profile: BuildProfile,
     timings: nia_driver::TimingMode,
     opt_report: bool,
-    runtime: Runtime,
+    runtime: RuntimeMode,
     cache_dir: Option<PathBuf>,
     package_root: Option<SourcePath>,
 }
@@ -1340,7 +1358,7 @@ struct DriverCheckOptions {
     optimization: NiaOptimizationLevel,
     profile: BuildProfile,
     timings: nia_driver::TimingMode,
-    runtime: Runtime,
+    runtime: RuntimeSpec,
 }
 
 fn run_check(
@@ -1350,6 +1368,13 @@ fn run_check(
     options: CheckRunOptions,
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
 ) -> ExitCode {
+    let runtime = match options.runtime.resolve(&toolchain) {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("error: invalid runtime configuration: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
         artifact_cache_dir: options.cache_dir,
         ..nia_driver::DriverConfig::new(toolchain)
@@ -1361,7 +1386,7 @@ fn run_check(
                 .with_optimization(options.optimization)
                 .with_profile(options.profile)
                 .with_timings(options.timings)
-                .with_runtime(options.runtime),
+                .with_runtime(runtime.clone()),
         )
     });
     match checked_program_from_output(output, path, source) {
@@ -1379,7 +1404,7 @@ fn run_check(
                     optimization: options.optimization,
                     profile: options.profile,
                     timings: options.timings,
-                    runtime: options.runtime,
+                    runtime,
                 },
             )
         });
@@ -1632,7 +1657,19 @@ fn time_summary_stage<T>(timings: nia_driver::TimingMode, name: &str, f: impl Fn
     nia_timing::time_stage(timings, nia_timing::TimingLevel::Summary, name, f)
 }
 
-fn run_emit_checked(path: &str, source: &str, runtime: Runtime, context: EmitContext) -> ExitCode {
+fn run_emit_checked(
+    path: &str,
+    source: &str,
+    runtime: RuntimeMode,
+    context: EmitContext,
+) -> ExitCode {
+    let runtime = match runtime.resolve(&context.toolchain) {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("error: invalid runtime configuration: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let output = time_summary_stage(context.timings, "check", || {
         check_with_driver(
             path,
@@ -1654,7 +1691,19 @@ fn run_emit_checked(path: &str, source: &str, runtime: Runtime, context: EmitCon
     write_stdout(format_args!("{program:#?}\n"))
 }
 
-fn run_emit_backend(path: &str, source: &str, runtime: Runtime, context: EmitContext) -> ExitCode {
+fn run_emit_backend(
+    path: &str,
+    source: &str,
+    runtime: RuntimeMode,
+    context: EmitContext,
+) -> ExitCode {
+    let runtime = match runtime.resolve(&context.toolchain) {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("error: invalid runtime configuration: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let driver = nia_driver::Driver::new(context.toolchain);
     let output = time_summary_stage(context.timings, "codegen", || {
         codegen_with_driver(
@@ -1680,7 +1729,14 @@ fn run_emit_backend(path: &str, source: &str, runtime: Runtime, context: EmitCon
     write_stdout(format_args!("{:#?}\n", program.backend_lowering.program))
 }
 
-fn run_emit_llvm(path: &str, source: &str, runtime: Runtime, context: EmitContext) -> ExitCode {
+fn run_emit_llvm(path: &str, source: &str, runtime: RuntimeMode, context: EmitContext) -> ExitCode {
+    let runtime = match runtime.resolve(&context.toolchain) {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("error: invalid runtime configuration: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let driver = nia_driver::Driver::new(context.toolchain);
     let output = time_summary_stage(context.timings, "emit_llvm_ir", || {
         driver.emit_llvm_ir(nia_driver::EmitLlvmRequest::new(
@@ -1727,6 +1783,13 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
             return ExitCode::FAILURE;
         }
     };
+    let runtime = match options.runtime.resolve(&context.toolchain) {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("error: invalid runtime configuration: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
         artifact_cache_dir: options.cache_dir.clone(),
         ..nia_driver::DriverConfig::new(context.toolchain)
@@ -1738,7 +1801,7 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
                 .with_optimization(context.optimization)
                 .with_profile(context.profile)
                 .with_timings(context.timings)
-                .with_runtime(options.runtime),
+                .with_runtime(runtime),
         ))
     });
     let objects = match output.result {
@@ -1923,7 +1986,7 @@ fn run_emit_package(path: &str, source: &str, args: Vec<String>, context: EmitCo
         .with_optimization(context.optimization)
         .with_profile(context.profile)
         .with_timings(context.timings)
-        .with_runtime(Runtime::Bare);
+        .with_runtime(RuntimeSpec::Bare);
     let output = time_summary_stage(context.timings, "publish_package", || {
         driver.publish_package_artifact_with_native(request, options.package, options.output)
     });
@@ -1957,8 +2020,7 @@ fn run_emit_exe(path: &str, source: &str, args: Vec<String>, context: EmitContex
                 .with_module_map(context.module_map)
                 .with_optimization(context.optimization)
                 .with_profile(context.profile)
-                .with_timings(context.timings)
-                .with_runtime(Runtime::Freestanding),
+                .with_timings(context.timings),
             output: options.output.clone(),
             link_options: options.link_options.clone(),
         })
@@ -1993,7 +2055,7 @@ fn run_emit_exe(path: &str, source: &str, args: Vec<String>, context: EmitContex
 
 struct EmitObjOptions {
     output: EmitObjOutput,
-    runtime: Runtime,
+    runtime: RuntimeMode,
     cache_dir: Option<PathBuf>,
 }
 
@@ -2014,7 +2076,7 @@ impl EmitObjOutput {
 fn parse_emit_obj_options(source: &str, args: Vec<String>) -> Result<EmitObjOptions, String> {
     let mut output = None::<PathBuf>;
     let mut out_dir = None::<PathBuf>;
-    let mut runtime = Runtime::Bare;
+    let mut runtime = RuntimeMode::Bare;
     let mut cache_dir = None;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
@@ -2089,7 +2151,7 @@ fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<EmitExeOpti
         if let Some(value) = arg.strip_prefix("--runtime=") {
             let runtime = parse_runtime(value)
                 .map_err(|message| format!("{message} for `nia emit --exe`"))?;
-            if runtime != Runtime::Freestanding {
+            if runtime != RuntimeMode::Freestanding {
                 return Err(
                     "`nia emit --exe` currently supports only `--runtime freestanding`".to_string(),
                 );
@@ -2162,7 +2224,7 @@ fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<EmitExeOpti
                 };
                 let runtime = parse_runtime(&value)
                     .map_err(|message| format!("{message} for `nia emit --exe`"))?;
-                if runtime != Runtime::Freestanding {
+                if runtime != RuntimeMode::Freestanding {
                     return Err(
                         "`nia emit --exe` currently supports only `--runtime freestanding`"
                             .to_string(),
@@ -2252,10 +2314,10 @@ fn parse_dynamic_linker(value: &str) -> nia_linker::DynamicLinker {
     }
 }
 
-fn parse_runtime(value: &str) -> Result<Runtime, String> {
+fn parse_runtime(value: &str) -> Result<RuntimeMode, String> {
     match value {
-        "bare" => Ok(Runtime::Bare),
-        "freestanding" => Ok(Runtime::Freestanding),
+        "bare" => Ok(RuntimeMode::Bare),
+        "freestanding" => Ok(RuntimeMode::Freestanding),
         _ => Err(format!(
             "unknown runtime `{value}`; expected `bare` or `freestanding`"
         )),

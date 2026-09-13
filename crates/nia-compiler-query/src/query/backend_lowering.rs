@@ -27,7 +27,7 @@ pub(super) struct BackendLoweringInputs {
     non_function_signatures: ProgramExecutableNonFunctionSignatures,
     functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
     artifact_generic_params: HashMap<GlobalDefId, Vec<(nia_symbol::SymbolId, bool)>>,
-    runtime: RuntimeModel,
+    runtime: RuntimeSpec,
 }
 
 pub(super) struct BackendLoweringInputsParts {
@@ -51,7 +51,7 @@ pub(super) struct BackendLoweringInputsParts {
     pub(super) non_function_signatures: ProgramExecutableNonFunctionSignatures,
     pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
     pub(super) artifact_generic_params: HashMap<GlobalDefId, Vec<(nia_symbol::SymbolId, bool)>>,
-    pub(super) runtime: RuntimeModel,
+    pub(super) runtime: RuntimeSpec,
 }
 
 impl BackendLoweringInputs {
@@ -167,7 +167,7 @@ impl BackendLoweringInputs {
             const_enum_values: self.const_enum_values[index].as_ref(),
             layouts: &checked_module.layouts,
             roots: backend_function_roots(
-                self.runtime,
+                &self.runtime,
                 checked_module,
                 self.artifact_modules.contains(&checked_module.id),
             ),
@@ -365,7 +365,7 @@ impl BackendFinalizationTaskContext {
 }
 
 fn backend_function_roots(
-    runtime: RuntimeModel,
+    runtime: &RuntimeSpec,
     checked_module: &CheckedModule,
     artifact_module: bool,
 ) -> nia_backend_lower::BackendFunctionRoots {
@@ -373,10 +373,8 @@ fn backend_function_roots(
         return nia_backend_lower::BackendFunctionRoots::NoFunctions;
     }
     match runtime {
-        RuntimeModel::Bare => nia_backend_lower::BackendFunctionRoots::FunctionBodies,
-        RuntimeModel::FreestandingExecutable => {
-            nia_backend_lower::BackendFunctionRoots::EntryPoints
-        }
+        RuntimeSpec::Bare => nia_backend_lower::BackendFunctionRoots::FunctionBodies,
+        RuntimeSpec::Source(_) => nia_backend_lower::BackendFunctionRoots::EntryPoints,
     }
 }
 
@@ -464,7 +462,7 @@ mod tests {
             },
             functions: HashMap::new(),
             artifact_generic_params: HashMap::new(),
-            runtime: RuntimeModel::Bare,
+            runtime: RuntimeSpec::Bare,
         };
         let indexed = inputs.function_body(def_id).expect("indexed function body");
 

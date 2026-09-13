@@ -32,6 +32,7 @@ use nia_symbol::ToSymbolId;
 use nia_symbol_table::SymbolTable;
 use nia_target_config::{BuildProfile, CompilationMode, TargetConfig};
 use nia_toolchain::ToolchainLayout;
+use nia_toolchain::{RuntimeSpec, SourceRuntimeSpec};
 use provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use queries::{LoadedProgramQuery, SourceTextQuery};
 use std::{
@@ -44,13 +45,21 @@ use std::{
 /// Returns the synthetic, stable package-root identity for toolchain runtime
 /// resources. The root is graph-owned and source-backed with an empty facade;
 /// only its injected `start` child is a real runtime source module.
-pub(crate) fn runtime_package_root_path(runtime_start: &SourcePath) -> SourcePath {
-    let physical = runtime_start
-        .as_str()
+pub(crate) fn runtime_start_module_path(runtime: &SourceRuntimeSpec) -> SourcePath {
+    SourcePath::with_identity(
+        runtime.start_module().to_string_lossy().into_owned(),
+        runtime.start_module_identity(),
+    )
+}
+
+pub(crate) fn runtime_package_root_path(runtime: &SourceRuntimeSpec) -> SourcePath {
+    let physical = runtime
+        .start_module()
+        .to_string_lossy()
         .rsplit_once('/')
         .map(|(parent, _)| format!("{parent}/pkg.nia"))
         .unwrap_or_else(|| "runtime/pkg.nia".to_owned());
-    SourcePath::with_identity(physical, "toolchain:/runtime/pkg.nia")
+    SourcePath::with_identity(physical, runtime.package_root_identity())
 }
 
 pub use nia_package_metadata::CompiledPackageInterface;
@@ -103,20 +112,20 @@ pub fn load_program_with_map(
     module_map: ModuleMap,
     toolchain: Arc<ToolchainLayout>,
 ) -> QueryResult<LoadedProgram> {
-    load_program_with_map_and_entry_runtime(entry_path, module_map, EntryRuntime::None, toolchain)
+    load_program_with_map_and_runtime(entry_path, module_map, RuntimeSpec::Bare, toolchain)
 }
 
-/// Loads a program with mappings and an explicit entry runtime model.
-pub fn load_program_with_map_and_entry_runtime(
+/// Loads a program with mappings and an explicit validated runtime.
+pub fn load_program_with_map_and_runtime(
     entry_path: impl Into<String>,
     module_map: ModuleMap,
-    entry_runtime: EntryRuntime,
+    runtime: RuntimeSpec,
     toolchain: Arc<ToolchainLayout>,
 ) -> QueryResult<LoadedProgram> {
     load_program_request(
         LoadRequest::new(entry_path)
             .with_module_map(module_map)
-            .with_entry_runtime(entry_runtime)
+            .with_runtime(runtime)
             .with_toolchain_layout(toolchain),
     )
 }
@@ -259,17 +268,7 @@ impl LoaderDatabase {
 
     /// Creates a loader sharing dependency and execution state with `session`.
     pub fn new_in_session(request: LoadRequest, session: QuerySession) -> Self {
-        let runtime_start_module = request.runtime_start_module.clone().or_else(|| {
-            request.toolchain.as_ref().map(|toolchain| {
-                SourcePath::with_identity(
-                    toolchain
-                        .freestanding_start_module()
-                        .to_string_lossy()
-                        .into_owned(),
-                    "toolchain:/runtime/start.nia",
-                )
-            })
-        });
+        let runtime_start_module = request.runtime.source().map(runtime_start_module_path);
         let toolchain_std_artifact = request
             .discover_toolchain_std_artifact
             .then_some(request.toolchain.as_ref())
@@ -358,11 +357,15 @@ impl LoaderDatabase {
             std_artifact_root.as_deref(),
         );
         let sources = request.sources;
-        if let Some(runtime_start) = runtime_start_module.as_ref() {
+        if runtime_start_module.is_some() {
             // The runtime package root is a synthetic facade used only for
             // graph ownership. Keep it source-backed so normal query loading
             // does not manufacture a missing-file diagnostic.
-            sources.set_source(runtime_package_root_path(runtime_start), "");
+            let runtime = request
+                .runtime
+                .source()
+                .expect("runtime start requires source runtime");
+            sources.set_source(runtime_package_root_path(runtime), "");
         }
         for module in &selected_std_modules {
             sources.set_source(
@@ -384,10 +387,10 @@ impl LoaderDatabase {
             .unwrap_or_else(nia_toolchain::ToolchainIdentityFingerprint::current);
         let namespace = FrontendCacheNamespace::for_toolchain(
             &request.target,
-            queries::runtime_model(request.entry_runtime),
+            request.runtime.clone(),
             toolchain_identity,
         );
-        let runtime_package_root = runtime_start_module.as_ref().map(runtime_package_root_path);
+        let runtime_package_root = request.runtime.source().map(runtime_package_root_path);
         let source_roots = std::iter::once(entry_path.clone())
             .chain(request.package_root.clone())
             .chain(module_map.entries().map(|(_, path)| path.clone()))
@@ -457,8 +460,7 @@ impl LoaderDatabase {
                 target: request.target,
                 profile: request.profile,
                 compilation_mode: request.compilation_mode,
-                entry_runtime: request.entry_runtime,
-                runtime_start_module,
+                runtime: request.runtime,
                 toolchain_identity,
                 package_roots_with_used_paths,
                 package_root_used_paths: request.package_root_used_paths,
@@ -1002,8 +1004,8 @@ impl LoaderFactProvider for LoaderDatabase {
         self.db.context().compilation_mode
     }
 
-    fn runtime(&self) -> nia_compiler_query::RuntimeModel {
-        queries::runtime_model(self.db.context().entry_runtime)
+    fn runtime(&self) -> nia_compiler_query::RuntimeSpec {
+        self.db.context().runtime.clone()
     }
 
     fn toolchain_identity(&self) -> nia_toolchain::ToolchainIdentityFingerprint {
@@ -1097,11 +1099,8 @@ pub struct LoadRequest {
     pub profile: BuildProfile,
     /// Whether test-only source participates in frontend selection.
     pub compilation_mode: CompilationMode,
-    /// Entry runtime model.
-    pub entry_runtime: EntryRuntime,
-    /// Explicit physical/logical source selected for freestanding startup.
-    /// Runtime startup is a toolchain resource and is not owned by std.
-    pub runtime_start_module: Option<SourcePath>,
+    /// Validated runtime startup selection.
+    pub runtime: RuntimeSpec,
     /// Whether package-root `using` paths participate in the source manifest.
     pub package_root_used_paths: bool,
     /// Optional persistent frontend cache root.
@@ -1137,8 +1136,7 @@ impl LoadRequest {
             target: TargetConfig::host(),
             profile: BuildProfile::default(),
             compilation_mode: CompilationMode::default(),
-            entry_runtime: EntryRuntime::None,
-            runtime_start_module: None,
+            runtime: RuntimeSpec::Bare,
             package_root_used_paths: false,
             frontend_cache_dir: None,
             verify_frontend_cache: false,
@@ -1198,15 +1196,9 @@ impl LoadRequest {
         self
     }
 
-    /// Selects the entry runtime model.
-    pub fn with_entry_runtime(mut self, entry_runtime: EntryRuntime) -> Self {
-        self.entry_runtime = entry_runtime;
-        self
-    }
-
-    /// Selects the runtime startup source independently from std sources.
-    pub fn with_runtime_start_module(mut self, path: SourcePath) -> Self {
-        self.runtime_start_module = Some(path);
+    /// Selects a validated runtime startup specification.
+    pub fn with_runtime(mut self, runtime: RuntimeSpec) -> Self {
+        self.runtime = runtime;
         self
     }
 
@@ -1253,16 +1245,6 @@ impl LoadRequest {
     }
 }
 
-/// Runtime mode injected for the entry module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum EntryRuntime {
-    #[default]
-    /// No freestanding startup module is injected.
-    None,
-    /// Inject the freestanding startup module and executable entry behavior.
-    Freestanding,
-}
-
 #[cfg(test)]
 fn load_program_from_sources(
     entry_path: impl Into<String>,
@@ -1304,8 +1286,7 @@ fn load_program_trace(
             target: TargetConfig::host(),
             profile: BuildProfile::default(),
             compilation_mode: CompilationMode::default(),
-            entry_runtime: EntryRuntime::None,
-            runtime_start_module: None,
+            runtime: RuntimeSpec::Bare,
             toolchain_identity: tests::test_toolchain_layout().identity().fingerprint(),
             package_roots_with_used_paths: HashSet::new(),
             package_root_used_paths: false,
@@ -1359,8 +1340,7 @@ pub(crate) struct LoaderContext {
     pub(crate) target: TargetConfig,
     pub(crate) profile: BuildProfile,
     pub(crate) compilation_mode: CompilationMode,
-    pub(crate) entry_runtime: EntryRuntime,
-    pub(crate) runtime_start_module: Option<SourcePath>,
+    pub(crate) runtime: RuntimeSpec,
     pub(crate) toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     pub(crate) package_roots_with_used_paths: HashSet<nia_symbol::SymbolId>,
     pub(crate) package_root_used_paths: bool,
@@ -1435,7 +1415,7 @@ impl LoaderContext {
     pub(crate) fn frontend_cache_namespace(&self) -> FrontendCacheNamespace {
         FrontendCacheNamespace::for_toolchain_with_profile_and_mode(
             &self.target,
-            queries::runtime_model(self.entry_runtime),
+            self.runtime.clone(),
             self.profile,
             self.compilation_mode,
             self.toolchain_identity,

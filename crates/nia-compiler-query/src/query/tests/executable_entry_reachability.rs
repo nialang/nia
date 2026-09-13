@@ -11,7 +11,7 @@ fn executable_checked_program_uses_query_backed_extension_method_lookup() {
     fixture
         .add_freestanding_runtime("using entry; pub extern fn _start() () { _ = entry::main(); }");
     let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    loaded.runtime = test_freestanding_runtime();
     let db = query_db(loaded);
 
     let checked = db.expect_get(CodegenProgramQuery);
@@ -56,7 +56,7 @@ fn freestanding_runtime_source_is_the_only_user_entry_root() {
     );
     let entry_id = fixture.entry_id();
     let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    loaded.runtime = test_freestanding_runtime();
     let db = query_db(loaded);
 
     let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
@@ -211,7 +211,7 @@ fn freestanding_entry_checked_program_uses_executable_reachability() {
     fixture
         .add_freestanding_runtime("using entry; pub extern fn _start() () { _ = entry::main(); }");
     let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    loaded.runtime = test_freestanding_runtime();
     let db = query_db(loaded);
 
     let checked = db.expect_get(EntryCheckedProgramQuery);
@@ -282,7 +282,7 @@ fn from(input: Input) i32 {
     fixture
         .add_freestanding_runtime("using entry; pub extern fn _start() () { _ = entry::main(); }");
     let mut loaded = fixture.program();
-    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    loaded.runtime = test_freestanding_runtime();
     let db = query_db(loaded);
 
     let checked = db.expect_get(ExecutableCheckedModulesQuery);

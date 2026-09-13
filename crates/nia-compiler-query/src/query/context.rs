@@ -2,7 +2,7 @@
 use super::{CompileRequest, CompilerQueryProviders, ExecutableFactSession};
 use crate::{
     CodegenScope, FrontendCheckCertificateCacheKey, FrontendCheckInputFingerprint,
-    FrontendCheckScope, RuntimeModel, TimingMode,
+    FrontendCheckScope, RuntimeSpec, TimingMode,
 };
 use nia_ids::ModuleId;
 use nia_imports::{ModuleGraphSnapshot, StableModuleKey};
@@ -126,7 +126,7 @@ pub(super) struct ExecutableFactEpoch {
     pub(super) runtime_root_modules: Vec<ModuleId>,
     pub(super) modules: Vec<(ModuleId, SourceVersion)>,
     pub(super) target: TargetConfig,
-    pub(super) runtime: RuntimeModel,
+    pub(super) runtime: RuntimeSpec,
     pub(super) codegen_scope: CodegenScope,
 }
 

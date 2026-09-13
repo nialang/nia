@@ -12,7 +12,7 @@ use crate::template_body_codec::{
 use crate::{
     ActiveModuleItemTreeFactKind, CheckedModule, CheckedProgram, CheckedProgramAnalysis,
     CodegenPreparation, CodegenProgram, FrontendCheckInputFingerprint, FrontendCheckScope,
-    ProgramDiagnostic, ProgramDiagnosticBundles, RuntimeModel, TimingMode, module_diagnostics,
+    ProgramDiagnostic, ProgramDiagnosticBundles, RuntimeSpec, TimingMode, module_diagnostics,
 };
 #[cfg(test)]
 use crate::{LoadedModule, LoadedProgram};
@@ -7284,7 +7284,7 @@ impl CompilerContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::RuntimeModel;
+    use crate::RuntimeSpec;
     use nia_sema_ir::SemanticValueUse;
     use nia_source::{SourceId, SourceIdentity, SourceRevision};
     #[path = "backend_closure.rs"]

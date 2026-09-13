@@ -14,7 +14,7 @@ fn type_resolution_rehydrates_current_source_module_and_symbol_owners() {
     ]);
     let namespace = crate::FrontendCacheNamespace::new(
         &nia_target_config::TargetConfig::host(),
-        crate::RuntimeModel::Bare,
+        crate::RuntimeSpec::Bare,
     );
     let key = crate::FrontendSignatureTypeResolutionCacheKey::new(
         namespace,

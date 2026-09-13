@@ -341,7 +341,7 @@ pub trait LoaderFactProvider: Send + Sync {
         nia_target_config::CompilationMode::default()
     }
     /// Returns the runtime model used for this compilation.
-    fn runtime(&self) -> RuntimeModel;
+    fn runtime(&self) -> nia_toolchain::RuntimeSpec;
     /// Returns the toolchain identity used for cache compatibility.
     fn toolchain_identity(&self) -> nia_toolchain::ToolchainIdentityFingerprint {
         nia_toolchain::ToolchainIdentityFingerprint::current()
@@ -398,7 +398,7 @@ pub struct LoadedProgram {
     /// Compilation mode used to load the program.
     pub compilation_mode: nia_target_config::CompilationMode,
     /// Runtime model selected for the program.
-    pub runtime: RuntimeModel,
+    pub runtime: nia_toolchain::RuntimeSpec,
     /// Toolchain identity captured with the loaded products.
     pub toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     /// Loaded per-module source and semantic facts.
@@ -562,8 +562,8 @@ impl LoaderFactProvider for LoadedProgram {
         self.compilation_mode
     }
 
-    fn runtime(&self) -> RuntimeModel {
-        self.runtime
+    fn runtime(&self) -> nia_toolchain::RuntimeSpec {
+        self.runtime.clone()
     }
 
     fn toolchain_identity(&self) -> nia_toolchain::ToolchainIdentityFingerprint {
@@ -571,19 +571,11 @@ impl LoaderFactProvider for LoadedProgram {
     }
 }
 
-/// Runtime model contributing to frontend and executable query identity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum RuntimeModel {
-    /// Compile without runtime support.
-    #[default]
-    Bare,
-    /// Compile a freestanding executable with its runtime resources.
-    FreestandingExecutable,
-}
+pub use nia_toolchain::RuntimeSpec;
 
 /// Root-selection scope for backend code generation.
 ///
-/// This is deliberately independent from [`RuntimeModel`]: runtime startup
+/// This is deliberately independent from [`RuntimeSpec`]: runtime startup
 /// controls executable semantics, while package publication selects every
 /// concrete runtime definition owned by the current package.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]

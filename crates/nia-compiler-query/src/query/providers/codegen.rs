@@ -847,7 +847,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
             );
         }
     }
-    let runtime = *db.get(CompilerRuntimeQuery)?;
+    let runtime = db.get(CompilerRuntimeQuery)?.as_ref().clone();
     let source_identities = db
         .context()
         .loader_facts

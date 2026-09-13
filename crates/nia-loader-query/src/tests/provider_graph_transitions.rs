@@ -111,7 +111,7 @@ fn body_provider_demand_uses_canonical_source_identity() {
     );
     let database = LoaderDatabase::new(
         LoadRequest::new(main_path.to_string_lossy())
-            .with_entry_runtime(EntryRuntime::Freestanding)
+            .with_runtime(test_freestanding_runtime())
             .with_toolchain_layout(test_toolchain_layout()),
     );
     let initial = database.db.expect_get(crate::graph::ModuleGraphQuery);

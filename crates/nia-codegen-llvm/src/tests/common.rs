@@ -99,10 +99,13 @@ pub(super) fn codegen_freestanding_executable_with_options(
     entry_path: impl Into<String>,
     optimization: NiaOptimizationLevel,
 ) -> nia_compiler_query::CodegenProgram {
+    let toolchain = test_toolchain_layout();
+    let runtime = nia_toolchain::RuntimeSpec::freestanding(&toolchain, toolchain.artifact_target())
+        .expect("host freestanding runtime");
     codegen_program_request(
         nia_loader_query::LoadRequest::new(entry_path)
             .with_module_map(nia_imports::ModuleMap::new())
-            .with_entry_runtime(nia_loader_query::EntryRuntime::Freestanding),
+            .with_runtime(runtime),
         optimization,
     )
 }

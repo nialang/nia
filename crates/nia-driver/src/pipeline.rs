@@ -23,28 +23,16 @@ use nia_linker::{
     LinkResultCacheKey, LinkResultEnvironmentFingerprint, LinkResultFingerprint,
     LinkResultFingerprintComponents, LinkResultFingerprintSet, LinkTarget,
 };
-use nia_loader_query::{
-    EntryRuntime, LoadRequest, LoaderDatabase, PackageArtifactRequest, SourceInputManifest,
-};
+use nia_loader_query::{LoadRequest, LoaderDatabase, PackageArtifactRequest, SourceInputManifest};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_package_metadata::{
     NativeObject, NativeSection, NativeVariant, PackageId, PackageManifest,
 };
 use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::{BuildProfile, TargetConfig};
-use nia_toolchain::ToolchainLayout;
+use nia_toolchain::{RuntimeSpec, ToolchainLayout};
 
 use crate::{CheckedProgram, CodegenProgram, ProgramDiagnostic};
-
-/// Runtime startup mode selected for an artifact request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Runtime {
-    /// No runtime startup contract.
-    #[default]
-    Bare,
-    /// Freestanding runtime startup contract.
-    Freestanding,
-}
 
 /// Frontend and semantic options shared by driver requests.
 #[derive(Debug, Clone)]
@@ -59,8 +47,8 @@ pub struct CheckRequest {
     pub optimization: NiaOptimizationLevel,
     /// Timing collection mode.
     pub timings: TimingMode,
-    /// Runtime startup mode.
-    pub runtime: Runtime,
+    /// Validated runtime startup selection.
+    pub runtime: RuntimeSpec,
     /// Build profile used for conditional source selection.
     pub profile: BuildProfile,
     /// Whether test-only source participates in compilation.
@@ -1500,13 +1488,23 @@ impl Driver {
                     .with_bundled_program(lld.to_string_lossy());
             }
             let timings = request.check.timings;
+            let runtime = match RuntimeSpec::freestanding(
+                &self.config.toolchain,
+                &self.config.artifact_target,
+            ) {
+                Ok(runtime) => runtime,
+                Err(error) => return DriverOutput::from_error(DriverError::Runtime(error)),
+            };
+            request.link_options.entry = runtime
+                .source()
+                .map(|runtime| runtime.entry_point().linker_symbol().to_owned());
             let output = nia_timing::time_stage(
                 timings,
                 nia_timing::TimingLevel::Summary,
                 "emit_native_objects",
                 || {
                     self.emit_native_objects_with_source_manifest(EmitObjectRequest {
-                        check: request.check.with_runtime(Runtime::Freestanding),
+                        check: request.check.with_runtime(runtime),
                     })
                 },
             );
@@ -1878,7 +1876,7 @@ impl Driver {
             target: self.config.artifact_target.clone(),
             profile: request.profile,
             compilation_mode: request.compilation_mode,
-            entry_runtime: entry_runtime(request.runtime),
+            runtime: request.runtime.clone(),
             package_artifact: request.package_artifact.clone(),
             discover_toolchain_std_artifact: request.discover_toolchain_std_artifact,
             required_native_optimization,
@@ -1893,7 +1891,7 @@ impl Driver {
                     .with_target(key.target.clone())
                     .with_profile(key.profile)
                     .with_compilation_mode(key.compilation_mode)
-                    .with_entry_runtime(key.entry_runtime)
+                    .with_runtime(key.runtime.clone())
                     .with_toolchain_std_artifact_discovery(key.discover_toolchain_std_artifact)
                     .with_toolchain_layout(std::sync::Arc::clone(&self.config.toolchain))
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
@@ -2166,7 +2164,7 @@ struct LoaderKey {
     target: TargetConfig,
     profile: BuildProfile,
     compilation_mode: nia_target_config::CompilationMode,
-    entry_runtime: EntryRuntime,
+    runtime: RuntimeSpec,
     package_artifact: Option<PackageArtifactRequest>,
     discover_toolchain_std_artifact: bool,
     required_native_optimization: Option<u8>,
@@ -2211,7 +2209,7 @@ impl CheckRequest {
             module_map: ModuleMap::default(),
             optimization: NiaOptimizationLevel::default(),
             timings: TimingMode::Off,
-            runtime: Runtime::Bare,
+            runtime: RuntimeSpec::Bare,
             profile: BuildProfile::default(),
             compilation_mode: nia_target_config::CompilationMode::default(),
             package_artifact: None,
@@ -2244,7 +2242,7 @@ impl CheckRequest {
     }
 
     /// Selects runtime startup semantics.
-    pub fn with_runtime(mut self, runtime: Runtime) -> Self {
+    pub fn with_runtime(mut self, runtime: RuntimeSpec) -> Self {
         self.runtime = runtime;
         self
     }
@@ -2278,13 +2276,6 @@ impl CheckRequest {
     pub fn with_compilation_mode(mut self, mode: nia_target_config::CompilationMode) -> Self {
         self.compilation_mode = mode;
         self
-    }
-}
-
-fn entry_runtime(runtime: Runtime) -> EntryRuntime {
-    match runtime {
-        Runtime::Bare => EntryRuntime::None,
-        Runtime::Freestanding => EntryRuntime::Freestanding,
     }
 }
 
@@ -2513,6 +2504,8 @@ pub enum DriverError {
     InternalDiagnostic(Diagnostic),
     /// Request shape cannot produce the requested artifact.
     InvalidArtifactRequest(String),
+    /// Runtime startup selection is unsupported for the artifact target.
+    Runtime(nia_toolchain::RuntimeSpecError),
     /// Filesystem operation failed while publishing an artifact.
     Io {
         /// Destination path.
@@ -2983,7 +2976,7 @@ pub fn main(init: Init) ExitCode!() {
         let staged_artifact = root.path().join("std.niapkg");
         publisher
             .publish_package_artifact_with_native(
-                publication_request.with_runtime(Runtime::Bare),
+                publication_request.with_runtime(RuntimeSpec::Bare),
                 package,
                 staged_artifact.clone(),
             )
@@ -3015,9 +3008,11 @@ pub fn main(init: Init) ExitCode!() {
         )
         .unwrap();
         let consumer = Driver::new(Arc::clone(&layout));
+        let runtime = RuntimeSpec::freestanding(&layout, layout.artifact_target())
+            .expect("host freestanding runtime");
         let objects = consumer
             .emit_native_objects(EmitObjectRequest::new(
-                CheckRequest::new(hello.to_string_lossy()).with_runtime(Runtime::Freestanding),
+                CheckRequest::new(hello.to_string_lossy()).with_runtime(runtime),
             ))
             .result
             .expect("source-free standard library native consumption");

@@ -20,7 +20,7 @@ fn query_loader_uses_package_module_map() {
     );
 
     assert_no_error_diagnostics(&program);
-    assert_eq!(program.runtime, RuntimeModel::Bare);
+    assert_eq!(program.runtime, RuntimeSpec::Bare);
     assert!(program.graph.package_root(&sym("std")).is_some());
     assert!(
         program.modules.iter().any(
