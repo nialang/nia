@@ -430,31 +430,39 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
         }],
     };
     let interface_bytes = encode_interface(&interface).unwrap();
-    let target = nia_target_config::TargetConfig::host();
     let native = nia_package_metadata::NativeSection {
-        target: nia_package_metadata::CompilationTarget {
-            arch: target.arch,
-            vendor: target.vendor,
-            os: target.os,
-            env: target.env,
-            abi: target.abi,
-            endian: target.endian,
-            pointer_width: target.pointer_width,
-        },
-        profile: 0,
-        optimization: 0,
-        objects: vec![nia_package_metadata::NativeObject {
-            owner: nia_package_metadata::NativeObjectOwner::PackageModule {
-                module: nia_package_metadata::ModuleId {
-                    package: package.clone(),
-                    path: "src/lib.nia".into(),
-                },
-                ordinal: 0,
+        variants: vec![
+            nia_package_metadata::NativeVariant {
+                optimization: 0,
+                objects: vec![nia_package_metadata::NativeObject {
+                    owner: nia_package_metadata::NativeObjectOwner::PackageModule {
+                        module: nia_package_metadata::ModuleId {
+                            package: package.clone(),
+                            path: "src/lib.nia".into(),
+                        },
+                        ordinal: 0,
+                    },
+                    key: "unit-0".into(),
+                    fingerprint: [0, 0],
+                    bytes: vec![1, 2, 3],
+                }],
             },
-            key: "unit-0".into(),
-            fingerprint: [0, 0],
-            bytes: vec![1, 2, 3],
-        }],
+            nia_package_metadata::NativeVariant {
+                optimization: 2,
+                objects: vec![nia_package_metadata::NativeObject {
+                    owner: nia_package_metadata::NativeObjectOwner::PackageModule {
+                        module: nia_package_metadata::ModuleId {
+                            package: package.clone(),
+                            path: "src/lib.nia".into(),
+                        },
+                        ordinal: 0,
+                    },
+                    key: "unit-0".into(),
+                    fingerprint: [2, 2],
+                    bytes: vec![4, 5, 6],
+                }],
+            },
+        ],
     };
     let native_bytes = nia_package_metadata::encode_native(&native).unwrap();
     let mut metadata = manifest_for(package.clone());
@@ -496,8 +504,10 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
     assert_eq!(modules[0].package, package);
     assert_eq!(modules[0].path, "src/lib.nia");
 
-    let compiler =
-        nia_compiler_query::CompilerDatabase::new(nia_compiler_query::CompileRequest::new(loader));
+    let compiler = nia_compiler_query::CompilerDatabase::new(
+        nia_compiler_query::CompileRequest::new(loader)
+            .with_optimization(nia_opt::NiaOptimizationLevel::O2),
+    );
     let installed = compiler
         .install_compiled_package_module_interfaces()
         .unwrap();
@@ -516,7 +526,8 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
     let products = compiler.compiled_package_native_products().unwrap();
     assert_eq!(products.len(), 1);
     assert_eq!(products[0].package(), &package);
-    assert_eq!(products[0].section().objects[0].fingerprint, [0, 0]);
+    assert_eq!(products[0].variant().optimization, 2);
+    assert_eq!(products[0].variant().objects[0].fingerprint, [2, 2]);
 }
 
 #[test]

@@ -34,9 +34,9 @@ const TEMPLATE_SCHEMA: u32 = 5;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
 const TEMPLATE_SUMMARY_SCHEMA: u32 = 1;
 const NATIVE_MAGIC: &[u8; 8] = b"NIANAT01";
-// Version 4 adds an explicit compiler-builtins ownership role. Builtins are
-// target products shared by package objects, not members of a source module.
-const NATIVE_SCHEMA: u32 = 4;
+// Version 5 stores all optimization variants for one manifest-owned semantic
+// target/profile context. There is intentionally no legacy decode path.
+const NATIVE_SCHEMA: u32 = 5;
 const PUBLIC_SURFACE_MAGIC: &[u8; 8] = b"NIAPUB01";
 const PUBLIC_SURFACE_SCHEMA: u32 = 2;
 
@@ -888,13 +888,17 @@ pub struct NativeObject {
     pub bytes: Vec<u8>,
 }
 
-/// Canonical target-native package payload.
+/// Native objects emitted at one optimization level.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NativeSection {
-    pub target: CompilationTarget,
-    pub profile: u8,
+pub struct NativeVariant {
     pub optimization: u8,
     pub objects: Vec<NativeObject>,
+}
+
+/// Canonical native package payload for the enclosing manifest context.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSection {
+    pub variants: Vec<NativeVariant>,
 }
 
 /// One stable export in a package module's public surface.
@@ -968,8 +972,33 @@ impl PublicSurfaceSection {
 
 impl NativeSection {
     pub fn validate(&self) -> Result<(), MetadataError> {
-        validate_target(&self.target)?;
-        if self.profile > 1 || self.optimization > 5 {
+        if self.variants.is_empty()
+            || self.variants.len() > 6
+            || self
+                .variants
+                .windows(2)
+                .any(|pair| pair[0].optimization >= pair[1].optimization)
+        {
+            return Err(MetadataError::InvalidManifest);
+        }
+        for variant in &self.variants {
+            variant.validate()?;
+        }
+        Ok(())
+    }
+
+    /// Selects the exact optimization variant requested by a consumer.
+    pub fn variant(&self, optimization: u8) -> Option<&NativeVariant> {
+        self.variants
+            .binary_search_by_key(&optimization, |variant| variant.optimization)
+            .ok()
+            .map(|index| &self.variants[index])
+    }
+}
+
+impl NativeVariant {
+    pub fn validate(&self) -> Result<(), MetadataError> {
+        if self.optimization > 5 {
             return Err(MetadataError::InvalidManifest);
         }
         if self.objects.len() > MAX_ITEMS {
@@ -1517,12 +1546,6 @@ impl CompiledPackageInterface {
         let native = artifact.native()?;
         let public_surface = artifact.public_surface()?;
         let signatures = artifact.signatures()?;
-        if native.as_ref().is_some_and(|native| {
-            native.target != artifact.manifest().target
-                || native.profile != artifact.manifest().profile
-        }) {
-            return Err(MetadataError::InvalidManifest);
-        }
         if let Some(surface) = &public_surface {
             surface.validate()?;
             if surface.package != artifact.manifest().package {
@@ -2845,16 +2868,17 @@ pub fn encode_native(section: &NativeSection) -> Result<Vec<u8>, MetadataError> 
     let mut output = Vec::new();
     output.extend_from_slice(NATIVE_MAGIC);
     put_u32(&mut output, NATIVE_SCHEMA);
-    put_target(&mut output, &section.target)?;
-    output.push(section.profile);
-    output.push(section.optimization);
-    put_list_len(&mut output, section.objects.len())?;
-    for object in &section.objects {
-        put_native_object_owner(&mut output, &object.owner)?;
-        put_string(&mut output, &object.key)?;
-        output.extend_from_slice(&object.fingerprint[0].to_le_bytes());
-        output.extend_from_slice(&object.fingerprint[1].to_le_bytes());
-        put_bytes(&mut output, &object.bytes)?;
+    put_list_len(&mut output, section.variants.len())?;
+    for variant in &section.variants {
+        output.push(variant.optimization);
+        put_list_len(&mut output, variant.objects.len())?;
+        for object in &variant.objects {
+            put_native_object_owner(&mut output, &object.owner)?;
+            put_string(&mut output, &object.key)?;
+            output.extend_from_slice(&object.fingerprint[0].to_le_bytes());
+            output.extend_from_slice(&object.fingerprint[1].to_le_bytes());
+            put_bytes(&mut output, &object.bytes)?;
+        }
     }
     Ok(output)
 }
@@ -2871,28 +2895,29 @@ pub fn decode_native(bytes: &[u8]) -> Result<NativeSection, MetadataError> {
     if schema != NATIVE_SCHEMA {
         return Err(MetadataError::Schema(schema));
     }
-    let target = get_target(&mut cursor)?;
-    let profile = read_u8(&mut cursor)?;
-    let optimization = read_u8(&mut cursor)?;
-    let count = bounded_count(get_u32(&mut cursor)?)?;
-    let mut objects = Vec::with_capacity(count);
-    for _ in 0..count {
-        objects.push(NativeObject {
-            owner: read_native_object_owner(&mut cursor)?,
-            key: get_string(&mut cursor)?,
-            fingerprint: [get_u64(&mut cursor)?, get_u64(&mut cursor)?],
-            bytes: get_bytes(&mut cursor)?,
+    let variant_count = bounded_count(get_u32(&mut cursor)?)?;
+    let mut variants = Vec::with_capacity(variant_count);
+    for _ in 0..variant_count {
+        let optimization = read_u8(&mut cursor)?;
+        let object_count = bounded_count(get_u32(&mut cursor)?)?;
+        let mut objects = Vec::with_capacity(object_count);
+        for _ in 0..object_count {
+            objects.push(NativeObject {
+                owner: read_native_object_owner(&mut cursor)?,
+                key: get_string(&mut cursor)?,
+                fingerprint: [get_u64(&mut cursor)?, get_u64(&mut cursor)?],
+                bytes: get_bytes(&mut cursor)?,
+            });
+        }
+        variants.push(NativeVariant {
+            optimization,
+            objects,
         });
     }
     if cursor.position() != bytes.len() as u64 {
         return Err(MetadataError::InvalidManifest);
     }
-    let section = NativeSection {
-        target,
-        profile,
-        optimization,
-        objects,
-    };
+    let section = NativeSection { variants };
     section.validate()?;
     Ok(section)
 }
@@ -4016,39 +4041,44 @@ mod tests {
     }
 
     #[test]
-    fn native_section_round_trips_target_identity_and_objects() {
+    fn native_section_round_trips_optimization_variants_and_objects() {
         let package = PackageId {
             namespace: "nia".into(),
             name: "sample".into(),
             version: "1".into(),
         };
         let section = NativeSection {
-            target: CompilationTarget {
-                arch: "x86_64".into(),
-                vendor: "unknown".into(),
-                os: "linux".into(),
-                env: "gnu".into(),
-                abi: "".into(),
-                endian: "little".into(),
-                pointer_width: 64,
-            },
-            profile: 1,
-            optimization: 2,
-            objects: vec![NativeObject {
-                owner: NativeObjectOwner::PackageModule {
-                    module: ModuleId {
-                        package: package.clone(),
-                        path: "src/lib.nia".into(),
-                    },
-                    ordinal: 0,
+            variants: vec![
+                NativeVariant {
+                    optimization: 0,
+                    objects: vec![NativeObject {
+                        owner: NativeObjectOwner::CompilerBuiltins,
+                        key: "builtins".into(),
+                        fingerprint: [0, 1],
+                        bytes: vec![9],
+                    }],
                 },
-                key: "unit-0".into(),
-                fingerprint: [1, 2],
-                bytes: vec![0, 1, 2, 3],
-            }],
+                NativeVariant {
+                    optimization: 2,
+                    objects: vec![NativeObject {
+                        owner: NativeObjectOwner::PackageModule {
+                            module: ModuleId {
+                                package: package.clone(),
+                                path: "src/lib.nia".into(),
+                            },
+                            ordinal: 0,
+                        },
+                        key: "unit-0".into(),
+                        fingerprint: [1, 2],
+                        bytes: vec![0, 1, 2, 3],
+                    }],
+                },
+            ],
         };
         let bytes = encode_native(&section).unwrap();
         assert_eq!(decode_native(&bytes).unwrap(), section);
+        assert_eq!(section.variant(2).unwrap().objects[0].key, "unit-0");
+        assert!(section.variant(1).is_none());
         let mut trailing = bytes;
         trailing.push(0);
         assert_eq!(
@@ -4058,29 +4088,20 @@ mod tests {
     }
 
     #[test]
-    fn compiled_interface_rejects_native_from_another_compilation_context() {
-        let manifest = sample();
-        let mut native = NativeSection {
-            target: manifest.target.clone(),
-            profile: manifest.profile,
-            optimization: 0,
-            objects: vec![NativeObject {
-                owner: NativeObjectOwner::CompilerBuiltins,
-                key: "builtins".into(),
-                fingerprint: [1, 2],
-                bytes: vec![1],
-            }],
+    fn native_section_rejects_duplicate_optimization_variants() {
+        let section = NativeSection {
+            variants: vec![
+                NativeVariant {
+                    optimization: 0,
+                    objects: Vec::new(),
+                },
+                NativeVariant {
+                    optimization: 0,
+                    objects: Vec::new(),
+                },
+            ],
         };
-        native.profile = 1;
-        let native_bytes = encode_native(&native).unwrap();
-        let artifact = PackageArtifact::open(
-            encode_artifact(&manifest, &[(SectionKind::Native, &native_bytes)]).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            CompiledPackageInterface::from_artifact(&artifact),
-            Err(MetadataError::InvalidManifest)
-        );
+        assert_eq!(encode_native(&section), Err(MetadataError::InvalidManifest));
     }
 
     #[test]
@@ -4106,41 +4127,33 @@ mod tests {
         assert_ne!(startup, ordinary);
         assert_eq!(builtins.module(), None);
         let mut section = NativeSection {
-            target: CompilationTarget {
-                arch: "x86_64".into(),
-                vendor: "unknown".into(),
-                os: "linux".into(),
-                env: "gnu".into(),
-                abi: "gnu".into(),
-                endian: "little".into(),
-                pointer_width: 64,
-            },
-            profile: 0,
-            optimization: 0,
-            objects: vec![
-                NativeObject {
-                    owner: builtins,
-                    key: "compiler-builtins".into(),
-                    fingerprint: [0, 0],
-                    bytes: vec![3],
-                },
-                NativeObject {
-                    owner: ordinary.clone(),
-                    key: "ordinary".into(),
-                    fingerprint: [1, 0],
-                    bytes: vec![1],
-                },
-                NativeObject {
-                    owner: startup,
-                    key: "startup".into(),
-                    fingerprint: [2, 0],
-                    bytes: vec![2],
-                },
-            ],
+            variants: vec![NativeVariant {
+                optimization: 0,
+                objects: vec![
+                    NativeObject {
+                        owner: builtins,
+                        key: "compiler-builtins".into(),
+                        fingerprint: [0, 0],
+                        bytes: vec![3],
+                    },
+                    NativeObject {
+                        owner: ordinary.clone(),
+                        key: "ordinary".into(),
+                        fingerprint: [1, 0],
+                        bytes: vec![1],
+                    },
+                    NativeObject {
+                        owner: startup,
+                        key: "startup".into(),
+                        fingerprint: [2, 0],
+                        bytes: vec![2],
+                    },
+                ],
+            }],
         };
         let bytes = encode_native(&section).expect("distinct native owners encode");
         assert_eq!(decode_native(&bytes).unwrap(), section);
-        section.objects[2].owner = ordinary;
+        section.variants[0].objects[2].owner = ordinary;
         assert_eq!(encode_native(&section), Err(MetadataError::InvalidManifest));
     }
 

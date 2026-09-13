@@ -30,3 +30,6 @@ nia-toolchain.workspace = true
 
 [lib]
 path = "src/lib.rs"
+
+[dev-dependencies]
+nia-opt.workspace = true
