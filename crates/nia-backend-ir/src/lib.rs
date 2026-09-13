@@ -28,7 +28,6 @@ use nia_symbol::SymbolId;
 use nia_ty::{ConstGenericArg, TraitId};
 
 const SOURCE_CODEGEN_BUCKETS: usize = 4;
-#[cfg(test)]
 const SOURCE_CODEGEN_SPLIT_THRESHOLD: usize = 8;
 
 #[derive(Debug, PartialEq)]
@@ -1018,14 +1017,10 @@ impl CodegenPartitionDefinitions {
         if definitions.is_empty() {
             return Vec::new();
         }
-        // Partition ordinals are part of the stable native-object identity.
-        // Demand-driven compilation may materialize only a subset of a
-        // module's definitions; using a size threshold here would then move
-        // those definitions into ordinal 0 while a published artifact keeps
-        // them in hash buckets 1..N.  That produces duplicate definitions (or
-        // missing symbols) when source and artifact objects are linked
-        // together.  Always assign definitions to the fixed hash buckets so
-        // ordinals remain stable across demand sets.
+        if definitions.len() < SOURCE_CODEGEN_SPLIT_THRESHOLD {
+            return vec![(0, definitions)];
+        }
+
         let mut buckets = (0..SOURCE_CODEGEN_BUCKETS)
             .map(|_| Self::default())
             .collect::<Vec<_>>();
