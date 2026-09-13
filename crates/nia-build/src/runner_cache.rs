@@ -14,6 +14,23 @@ const MAX_RUNNER_BYTES: u64 = 256 * 1024 * 1024;
 const RUNNER_BUNDLE_MAGIC: &[u8; 8] = b"NIARUNR2";
 const RUNNER_BUNDLE_HEADER_BYTES: usize = 8 + 32 + 8;
 
+/// Canonical compiled-package product path for a generated build runner.
+pub(super) fn package_path(invocation: &BuildInvocation, key: &str) -> PathBuf {
+    invocation
+        .cache_dir
+        .join("runner")
+        .join(CACHE_SCHEMA)
+        .join(format!("{key}.niapkg"))
+}
+
+pub(super) fn package_id(key: &str) -> nia_package_metadata::PackageId {
+    nia_package_metadata::PackageId {
+        namespace: "nia".to_string(),
+        name: "build-runner".to_string(),
+        version: key.to_string(),
+    }
+}
+
 pub(super) fn cache_key(
     invocation: &BuildInvocation,
     runner: &BuildRunnerSource,

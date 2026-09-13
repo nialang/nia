@@ -138,6 +138,7 @@ impl RuntimeEntryPoint {
 pub struct SourceRuntimeSpec {
     package_root: PathBuf,
     package_root_identity: String,
+    package: nia_package_metadata::PackageId,
     entry_point: RuntimeEntryPoint,
     target: TargetConfig,
     dependencies: Vec<RuntimeDependency>,
@@ -152,6 +153,11 @@ impl SourceRuntimeSpec {
     /// Stable identity of the private runtime package facade.
     pub fn package_root_identity(&self) -> &str {
         &self.package_root_identity
+    }
+
+    /// Stable package identity owning source and cached native startup units.
+    pub fn package(&self) -> &nia_package_metadata::PackageId {
+        &self.package
     }
 
     /// Exact external entry point supplied by this runtime.
@@ -219,6 +225,15 @@ impl RuntimeSpec {
         Ok(Self::Source(SourceRuntimeSpec {
             package_root: package_root.into(),
             package_root_identity: RUNTIME_PACKAGE_IDENTITY.to_string(),
+            package: nia_package_metadata::PackageId {
+                namespace: "nia".to_string(),
+                name: "runtime".to_string(),
+                version: format!(
+                    "{}+runtime{}",
+                    COMPILER_VERSION,
+                    toolchain::RESOURCE_LAYOUT
+                ),
+            },
             entry_point: RuntimeEntryPoint {
                 module_identity: format!(
                     "toolchain:/runtime/start/freestanding/linux/{implementation}.nia"

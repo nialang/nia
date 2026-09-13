@@ -1318,15 +1318,43 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
     if std_artifact.is_file() {
         check = check.with_package_artifact(std_artifact);
     }
+    let runtime = nia_toolchain::RuntimeSpec::freestanding(
+        &invocation.toolchain,
+        &invocation.toolchain.host_target().clone(),
+    )
+    .map_err(|error| BuildError::CompileRunner {
+        path: runner.path.clone(),
+        source: runner.source.clone(),
+        error: Box::new(crate::DriverError::Runtime(error)),
+    })?;
+    let check = check.with_runtime(runtime);
     let output = driver.link_executable(LinkExecutableRequest::new(
-        check,
+        check.clone(),
         &invocation.runner_executable,
     ));
     output.result.map_err(|error| BuildError::CompileRunner {
-        path: runner.path,
-        source: runner.source,
+        path: runner.path.clone(),
+        source: runner.source.clone(),
         error: Box::new(error),
     })?;
+    // Keep the ordinary package artifact as the canonical runner product. The
+    // executable bundle remains a derived fast-path for process startup; it
+    // is never the semantic cache boundary.
+    let package = runner_cache::package_id(&cache_key);
+    let package_artifact = runner_cache::package_path(invocation, &cache_key);
+    let package_check = check.clone().with_runtime(nia_toolchain::RuntimeSpec::Bare);
+    let publication = driver.publish_package_artifact_with_native(
+        package_check,
+        package,
+        package_artifact,
+    );
+    if let Err(error) = publication.result {
+        return Err(BuildError::CompileRunner {
+            path: runner.path,
+            source: runner.source,
+            error: Box::new(error),
+        });
+    }
     let _ = runner_cache::publish(invocation, &cache_key);
     Ok(invocation.runner_executable.clone())
 }

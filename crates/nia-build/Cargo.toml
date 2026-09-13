@@ -18,6 +18,7 @@ nia-compiler-query.workspace = true
 nia-driver = { workspace = true, default-features = false }
 nia-imports.workspace = true
 nia-loader-query.workspace = true
+nia-package-metadata.workspace = true
 nia-linker.workspace = true
 nia-query.workspace = true
 nia-source.workspace = true

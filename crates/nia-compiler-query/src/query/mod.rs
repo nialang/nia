@@ -4589,6 +4589,33 @@ impl CompilerDatabase {
         Ok(identities)
     }
 
+    /// Returns the canonical source identities owned by the selected runtime
+    /// package. Runtime source remains part of the ordinary module graph; this
+    /// inventory only gives artifact publication a stable ownership boundary.
+    pub fn runtime_source_identities(&self) -> QueryResult<Vec<nia_source::SourceIdentity>> {
+        let runtime = self.db.get(CompilerRuntimeQuery)?;
+        let Some(runtime) = runtime.source() else {
+            return Ok(Vec::new());
+        };
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let root_identity = nia_source::SourceIdentity::new(runtime.package_root_identity());
+        let Some(runtime_root) = graph.module_id_for_source_identity(&root_identity) else {
+            return Err(self.db.invalid_input(
+                &ModuleGraphQuery,
+                "selected runtime package root is absent from the module graph".to_string(),
+            ));
+        };
+        let mut identities = graph
+            .modules()
+            .filter(|module| graph.current_package_root(module.id) == Some(runtime_root))
+            .filter_map(|module| graph.stable_key(module.id))
+            .map(|key| key.source_identity().clone())
+            .collect::<Vec<_>>();
+        identities.sort();
+        identities.dedup();
+        Ok(identities)
+    }
+
     /// Replaces session-compatible inputs and returns the resulting invalidation set.
     ///
     /// The loader session, frontend cache root, and verification policy cannot
