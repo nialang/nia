@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn runner_package_artifact_publication_is_atomic_and_validated() {
         let root = std::env::temp_dir().join(format!(
-            "nia-runner-cache-bundle-{}-{}",
+            "nia-runner-cache-package-{}-{}",
             std::process::id(),
             CACHE_SCHEMA
         ));
