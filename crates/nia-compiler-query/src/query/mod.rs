@@ -4620,6 +4620,22 @@ impl CompilerDatabase {
         Ok(identities)
     }
 
+    /// Resolves a source codegen identity to the canonical compiled-package
+    /// module that supplied it. Local and runtime source modules return none.
+    pub fn compiled_package_module_for_source_identity(
+        &self,
+        identity: &nia_source::SourceIdentity,
+    ) -> QueryResult<Option<nia_package_metadata::ModuleId>> {
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let Some(module_id) = graph.module_id_for_source_identity(identity) else {
+            return Ok(None);
+        };
+        self.db
+            .context()
+            .loader_facts()
+            .compiled_package_module_identity(module_id)
+    }
+
     /// Replaces session-compatible inputs and returns the resulting invalidation set.
     ///
     /// The loader session, frontend cache root, and verification policy cannot
