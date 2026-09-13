@@ -1012,6 +1012,15 @@ impl CodegenPartitionDefinitions {
             && self.vtables.is_empty()
     }
 
+    fn len(&self) -> usize {
+        self.globals.len()
+            + self.global_instances.len()
+            + self.functions.len()
+            + self.function_instances.len()
+            + self.closure_entries.len()
+            + self.vtables.len()
+    }
+
     fn for_module(module: &BackendModule) -> Vec<(u32, Self)> {
         let definitions = Self::from_module(module);
         if definitions.is_empty() {
