@@ -594,7 +594,7 @@ impl CompiledPackageSignatures {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledPackageNative {
     package: PackageId,
-    section: nia_package_metadata::NativeSection,
+    variant: nia_package_metadata::NativeVariant,
 }
 
 impl CompiledPackageNative {
@@ -602,8 +602,8 @@ impl CompiledPackageNative {
         &self.package
     }
 
-    pub fn section(&self) -> &nia_package_metadata::NativeSection {
-        &self.section
+    pub fn variant(&self) -> &nia_package_metadata::NativeVariant {
+        &self.variant
     }
 }
 
@@ -1418,19 +1418,16 @@ impl CompilerDatabase {
             let Some(section) = interface.native() else {
                 continue;
             };
-            if !native_target_matches(&section.target, &self.db.context().loader_facts().target()) {
+            let Some(variant) = section.variant(native_optimization_tag(self)) else {
                 continue;
-            }
-            if !native_profile_matches(section.profile, section.optimization, self) {
-                continue;
-            }
+            };
             let key = CompiledPackageNativeQuery(package.clone());
             if self.db.can_publish_owned(key.clone()) {
                 self.db.publish_owned(
                     key,
                     CompiledPackageNative {
                         package: package.clone(),
-                        section: section.clone(),
+                        variant: variant.clone(),
                     },
                     &CompiledPackageNativeObservationQuery,
                 );
@@ -3947,14 +3944,6 @@ impl CompilerDatabase {
                 self.db
                     .invalid_input(&ModuleGraphQuery, format!("surface bytes: {error}"))
             })?;
-        if native.as_ref().is_some_and(|native| {
-            native.target != manifest.target || native.profile != manifest.profile
-        }) {
-            return Err(self.db.invalid_input(
-                &ModuleGraphQuery,
-                "native product does not match the package compilation context".to_string(),
-            ));
-        }
         let native_bytes = native
             .as_ref()
             .map(nia_package_metadata::encode_native)
@@ -4500,33 +4489,15 @@ impl CompilerDatabase {
     }
 }
 
-fn native_target_matches(
-    native: &nia_package_metadata::CompilationTarget,
-    target: &nia_target_config::TargetConfig,
-) -> bool {
-    native.arch == target.arch
-        && native.vendor == target.vendor
-        && native.os == target.os
-        && native.env == target.env
-        && native.abi == target.abi
-        && native.endian == target.endian
-        && native.pointer_width == target.pointer_width
-}
-
-fn native_profile_matches(profile: u8, optimization: u8, database: &CompilerDatabase) -> bool {
-    let expected_profile = match database.db.context().loader_facts().profile() {
-        nia_target_config::BuildProfile::Debug => 0,
-        nia_target_config::BuildProfile::Release => 1,
-    };
-    let expected_optimization = match database.current_optimization().level {
+fn native_optimization_tag(database: &CompilerDatabase) -> u8 {
+    match database.current_optimization().level {
         NiaOptimizationLevel::O0 => 0,
         NiaOptimizationLevel::O1 => 1,
         NiaOptimizationLevel::O2 => 2,
         NiaOptimizationLevel::O3 => 3,
         NiaOptimizationLevel::Os => 4,
         NiaOptimizationLevel::Oz => 5,
-    };
-    profile == expected_profile && optimization == expected_optimization
+    }
 }
 
 fn stable_primitive_from_tag(tag: u8) -> Option<nia_ty::PrimitiveTy> {

@@ -28,7 +28,7 @@ use nia_loader_query::{
 };
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_package_metadata::{
-    CompilationTarget, NativeObject, NativeSection, PackageId, PackageManifest,
+    NativeObject, NativeSection, NativeVariant, PackageId, PackageManifest,
 };
 use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::{BuildProfile, TargetConfig};
@@ -746,20 +746,7 @@ impl Driver {
                     ));
                 }
             };
-            let mut native = NativeSection {
-                target: CompilationTarget {
-                    arch: self.config.artifact_target.arch.clone(),
-                    vendor: self.config.artifact_target.vendor.clone(),
-                    os: self.config.artifact_target.os.clone(),
-                    env: self.config.artifact_target.env.clone(),
-                    abi: self.config.artifact_target.abi.clone(),
-                    endian: self.config.artifact_target.endian.clone(),
-                    pointer_width: self.config.artifact_target.pointer_width,
-                },
-                profile: match request.profile {
-                    BuildProfile::Debug => 0,
-                    BuildProfile::Release => 1,
-                },
+            let mut native = NativeVariant {
                 optimization: optimization_wire_tag(emission.artifact.optimization.level),
                 objects: emission
                     .artifact
@@ -809,6 +796,9 @@ impl Driver {
                     "package-native objects contain duplicate stable unit keys".to_string(),
                 ));
             }
+            let native = NativeSection {
+                variants: vec![native],
+            };
             let publication = database
                 .publish_package_artifact_with_native(package, native)
                 .map_err(query_error_diagnostic);
@@ -2562,7 +2552,7 @@ fn append_compiled_package_native_inputs(
         .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?
     {
         let package = product.package();
-        for object in &product.section().objects {
+        for object in &product.variant().objects {
             if matches!(
                 &object.owner,
                 nia_package_metadata::NativeObjectOwner::CompilerBuiltins

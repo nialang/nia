@@ -1004,28 +1004,20 @@ fn package_artifact_publication_can_embed_validated_native_product() {
         version: "1.0.0".into(),
     };
     let native = nia_package_metadata::NativeSection {
-        target: nia_package_metadata::CompilationTarget {
-            arch: "x86_64".into(),
-            vendor: "unknown".into(),
-            os: "linux".into(),
-            env: String::new(),
-            abi: String::new(),
-            endian: "little".into(),
-            pointer_width: 64,
-        },
-        profile: 0,
-        optimization: 0,
-        objects: vec![nia_package_metadata::NativeObject {
-            owner: nia_package_metadata::NativeObjectOwner::PackageModule {
-                module: nia_package_metadata::ModuleId {
-                    package: package.clone(),
-                    path: "src/main.nia".into(),
+        variants: vec![nia_package_metadata::NativeVariant {
+            optimization: 0,
+            objects: vec![nia_package_metadata::NativeObject {
+                owner: nia_package_metadata::NativeObjectOwner::PackageModule {
+                    module: nia_package_metadata::ModuleId {
+                        package: package.clone(),
+                        path: "src/main.nia".into(),
+                    },
+                    ordinal: 0,
                 },
-                ordinal: 0,
-            },
-            key: "unit-0".into(),
-            fingerprint: [1, 2],
-            bytes: vec![1, 2, 3],
+                key: "unit-0".into(),
+                fingerprint: [1, 2],
+                bytes: vec![1, 2, 3],
+            }],
         }],
     };
     let publication = database
@@ -1172,30 +1164,21 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
                 }],
             };
             let template_bytes = nia_package_metadata::encode_templates(&templates).unwrap();
-            let native_target = nia_target_config::TargetConfig::host();
             let native = nia_package_metadata::NativeSection {
-                target: nia_package_metadata::CompilationTarget {
-                    arch: native_target.arch,
-                    vendor: native_target.vendor,
-                    os: native_target.os,
-                    env: native_target.env,
-                    abi: native_target.abi,
-                    endian: native_target.endian,
-                    pointer_width: native_target.pointer_width,
-                },
-                profile: 0,
-                optimization: 0,
-                objects: vec![nia_package_metadata::NativeObject {
-                    owner: nia_package_metadata::NativeObjectOwner::PackageModule {
-                        module: nia_package_metadata::ModuleId {
-                            package: package.clone(),
-                            path: "src/main.nia".into(),
+                variants: vec![nia_package_metadata::NativeVariant {
+                    optimization: 0,
+                    objects: vec![nia_package_metadata::NativeObject {
+                        owner: nia_package_metadata::NativeObjectOwner::PackageModule {
+                            module: nia_package_metadata::ModuleId {
+                                package: package.clone(),
+                                path: "src/main.nia".into(),
+                            },
+                            ordinal: 0,
                         },
-                        ordinal: 0,
-                    },
-                    key: "unit".into(),
-                    fingerprint: [0, 0],
-                    bytes: vec![native_byte],
+                        key: "unit".into(),
+                        fingerprint: [0, 0],
+                        bytes: vec![native_byte],
+                    }],
                 }],
             };
             let native_bytes = nia_package_metadata::encode_native(&native).unwrap();
