@@ -1653,8 +1653,8 @@ struct ReachableAggregateInputs<'a> {
     functions: &'a [BackendFunction],
     function_instances: &'a [BackendFunctionInstance],
     closure_entries: &'a [BackendClosureEntry],
-    struct_instances: &'a [nia_backend_ir::BackendStructInstance],
-    union_instances: &'a [nia_backend_ir::BackendUnionInstance],
+    struct_instances: &'a mut Vec<nia_backend_ir::BackendStructInstance>,
+    union_instances: &'a mut Vec<nia_backend_ir::BackendUnionInstance>,
     trait_object_vtables: &'a [BackendTraitObjectVtable],
 }
 

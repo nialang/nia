@@ -215,6 +215,46 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
+    pub(crate) fn extend_struct_instances_from_types(
+        &mut self,
+        types: impl IntoIterator<Item = InternedTyId>,
+        struct_instances: &mut Vec<BackendStructInstance>,
+        union_instances: &mut Vec<BackendUnionInstance>,
+    ) {
+        let mut seen = struct_instances
+            .iter()
+            .map(|item| (item.def_id, item.args.clone(), item.const_args.clone()))
+            .collect::<HashSet<_>>();
+        let mut seen_unions = union_instances
+            .iter()
+            .map(|item| (item.def_id, item.args.clone(), item.const_args.clone()))
+            .collect::<HashSet<_>>();
+        for ty in types {
+            self.collect_struct_instance_ty(ty, &mut seen, struct_instances);
+            self.collect_union_instance_ty(ty, &mut seen_unions, union_instances);
+        }
+        let mut struct_index = 0usize;
+        let mut union_index = 0usize;
+        while struct_index < struct_instances.len() || union_index < union_instances.len() {
+            while struct_index < struct_instances.len() {
+                let fields = struct_instances[struct_index].fields.clone();
+                for field in fields {
+                    self.collect_struct_instance_ty(field.ty, &mut seen, struct_instances);
+                    self.collect_union_instance_ty(field.ty, &mut seen_unions, union_instances);
+                }
+                struct_index += 1;
+            }
+            while union_index < union_instances.len() {
+                let fields = union_instances[union_index].fields.clone();
+                for field in fields {
+                    self.collect_struct_instance_ty(field.ty, &mut seen, struct_instances);
+                    self.collect_union_instance_ty(field.ty, &mut seen_unions, union_instances);
+                }
+                union_index += 1;
+            }
+        }
+    }
+
     fn collect_struct_instances_body(
         &mut self,
         body: &FunctionBody,

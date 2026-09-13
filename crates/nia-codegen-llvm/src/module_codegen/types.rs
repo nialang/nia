@@ -937,7 +937,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         span: Span,
     ) -> Result<Vec<&BackendField>, Diagnostic> {
         let Some(layout) = self.struct_layout(def_id, args, const_args) else {
-            return Err(self.error(span, "missing struct layout"));
+            return Err(self.error(
+                span,
+                format!(
+                    "missing struct layout for {def_id:?} with args {args:?} and const args {const_args:?}"
+                ),
+            ));
         };
         layout
             .fields

@@ -2588,6 +2588,20 @@ mod tests {
                 ty: i32_ty,
             };
             let mut module = module_with_global(module_id, "main.nia", i32_ty, 1);
+            module.functions.push(BackendFunction {
+                def_id: closure_id.owner,
+                name: SymbolId::EMPTY,
+                link_name: Some("closure_owner".to_string()),
+                generics: Vec::new(),
+                params: Vec::new(),
+                return_type: i32_ty,
+                is_extern: true,
+                is_variadic: false,
+                attributes: Vec::new(),
+                local_names: Default::default(),
+                function_body: None,
+                span,
+            });
             module.closure_entries.push(BackendClosureEntry {
                 key: BackendClosureEntryKey {
                     closure_id,
