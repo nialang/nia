@@ -2,7 +2,7 @@
 use super::*;
 
 #[test]
-fn semantic_module_ids_exclude_shallow_facade_modules() {
+fn semantic_module_ids_include_semantic_only_modules_and_exclude_shallow_facades() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
@@ -14,6 +14,9 @@ fn main() i32 {
 "#,
     );
     let entry_id = fixture.entry_id();
+    let semantic_id =
+        fixture.add_shallow_child(entry_id, "semantic", "semantic.nia", "pub struct Needed {}");
+    assert!(fixture.graph.mark_semantic_selected(semantic_id));
     let facade_id = fixture.add_shallow_child(
         entry_id,
         "facade",
@@ -30,16 +33,21 @@ missing_symbol
         resolve_stable_module_sequence(&db, &db.expect_get(ParseOkModuleIdsQuery))
             .expect("parse-ok module sequence")
             .as_slice(),
-        &[entry_id, facade_id]
+        &[entry_id, semantic_id, facade_id]
     );
     assert_eq!(
         resolve_stable_module_sequence(&db, &db.expect_get(SemanticModuleIdsQuery))
             .expect("semantic module sequence")
             .as_slice(),
-        &[entry_id]
+        &[entry_id, semantic_id]
     );
 
-    assert_eq!(db.expect_get(CheckedModuleIdsQuery).as_slice(), &[entry_id]);
+    let body_worklist = db.expect_get(BodyActivationWorklistQuery);
+    assert_eq!(body_worklist.modules.len(), 1);
+    assert_eq!(
+        body_worklist.modules.values().copied().next(),
+        Some(entry_id)
+    );
 }
 
 #[test]
