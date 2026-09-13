@@ -602,7 +602,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     if instance.is_extern || !is_definition {
                         Some(Linkage::External)
                     } else {
-                        None
+                        Some(Linkage::LinkOnceOdr)
                     },
                 )
                 .map_err(Self::diagnostic_from_llvm_error)?;
@@ -649,7 +649,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             })?;
             let value = self
                 .module
-                .add_function(&entry.symbol, ty, None)
+                .add_function(&entry.symbol, ty, Some(Linkage::LinkOnceOdr))
                 .map_err(Self::diagnostic_from_llvm_error)?;
             self.closure_entries.insert(entry.key.clone(), value);
         }
@@ -729,6 +729,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 });
             if !is_definition {
                 value.set_linkage(Linkage::External);
+            } else {
+                value.set_linkage(Linkage::LinkOnceOdr);
             }
             if global.is_let {
                 value.set_constant(true);
@@ -855,6 +857,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     )
                     .map_err(Self::diagnostic_from_llvm_error)?;
                 global.set_constant(true);
+                global.set_linkage(Linkage::LinkOnceOdr);
             } else {
                 global.set_linkage(Linkage::External);
             }
