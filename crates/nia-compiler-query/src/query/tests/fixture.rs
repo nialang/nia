@@ -256,7 +256,7 @@ fn loaded_module_with_source_path(id: ModuleId, path: SourcePath, source: &str) 
 }
 
 pub(super) fn test_freestanding_runtime() -> RuntimeSpec {
-    RuntimeSpec::freestanding_from_start_module("runtime/start.nia", &TargetConfig::host())
+    RuntimeSpec::freestanding_from_package_root("runtime/pkg.nia", &TargetConfig::host())
         .expect("host test runtime")
 }
 

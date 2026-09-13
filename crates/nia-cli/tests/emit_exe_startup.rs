@@ -41,6 +41,7 @@ fn emit_exe_entry_name_is_chosen_by_selected_runtime_not_compiler() {
     let resource_root = root.join("custom_toolchain/lib");
     let std_root = resource_root.join("std/pkg.nia");
     let std_builtin = resource_root.join("std/builtin.nia");
+    let runtime_root = resource_root.join("runtime/pkg.nia");
     let std_start = resource_root.join("runtime/start.nia");
     let std_start_freestanding = resource_root.join("runtime/start/freestanding.nia");
     let std_start_freestanding_linux = resource_root.join("runtime/start/freestanding/linux.nia");
@@ -67,6 +68,7 @@ pub module builtin;
 "#,
     )
     .expect("write custom std root");
+    std::fs::write(&runtime_root, "pub(pkg) module start;").expect("write custom runtime root");
     std::fs::write(
         &std_builtin,
         r#"

@@ -29,6 +29,7 @@ fn temporary_toolchain(name: &str) -> Arc<nia_toolchain::ToolchainLayout> {
     )
     .unwrap();
     fs::write(resources.join("std/pkg.nia"), "pub module start;").unwrap();
+    fs::write(resources.join("runtime/pkg.nia"), "pub(pkg) module start;").unwrap();
     fs::write(resources.join("runtime/start.nia"), "").unwrap();
     Arc::new(
         nia_toolchain::ToolchainLayout::resolve(nia_toolchain::ToolchainLayoutRequest::explicit(

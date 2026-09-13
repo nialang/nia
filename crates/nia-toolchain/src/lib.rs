@@ -19,7 +19,6 @@ const PACKAGE_TARGET_PATH_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.toolchain.package-target-path.v1");
 const MAX_RESOURCE_MANIFEST_BYTES: usize = 64 * 1024;
 const RUNTIME_PACKAGE_IDENTITY: &str = "toolchain:/runtime/pkg.nia";
-const RUNTIME_START_IDENTITY: &str = "toolchain:/runtime/start.nia";
 
 /// File name of the versioned compatibility manifest under a resource root.
 pub const RESOURCE_MANIFEST_NAME: &str = "toolchain.meta";
@@ -105,6 +104,8 @@ impl ToolchainIdentity {
 pub enum RuntimeDependency {
     /// The package containing the user-selected entry module.
     EntryPackage,
+    /// The standard-library package selected for this compilation.
+    StandardLibrary,
 }
 
 /// External entry point selected from a runtime source package.
@@ -135,28 +136,22 @@ impl RuntimeEntryPoint {
 /// Validated private source package implementing executable startup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceRuntimeSpec {
+    package_root: PathBuf,
     package_root_identity: String,
-    start_module: PathBuf,
-    start_module_identity: String,
     entry_point: RuntimeEntryPoint,
     target: TargetConfig,
     dependencies: Vec<RuntimeDependency>,
 }
 
 impl SourceRuntimeSpec {
+    /// Validated physical root of the private runtime source package.
+    pub fn package_root(&self) -> &std::path::Path {
+        &self.package_root
+    }
+
     /// Stable identity of the private runtime package facade.
     pub fn package_root_identity(&self) -> &str {
         &self.package_root_identity
-    }
-
-    /// Validated physical root source of the selected runtime.
-    pub fn start_module(&self) -> &std::path::Path {
-        &self.start_module
-    }
-
-    /// Relocation-independent logical identity of the root source.
-    pub fn start_module_identity(&self) -> &str {
-        &self.start_module_identity
     }
 
     /// Exact external entry point supplied by this runtime.
@@ -199,7 +194,7 @@ impl RuntimeSpec {
         toolchain: &ToolchainLayout,
         target: &TargetConfig,
     ) -> Result<Self, RuntimeSpecError> {
-        Self::freestanding_from_start_module(toolchain.freestanding_start_module(), target)
+        Self::freestanding_from_package_root(toolchain.freestanding_runtime_package(), target)
     }
 
     /// Builds a freestanding runtime from an already validated start module.
@@ -207,8 +202,8 @@ impl RuntimeSpec {
     /// Toolchain consumers should normally use [`Self::freestanding`]. This
     /// constructor lets in-memory compiler fixtures preserve the same runtime
     /// identity and target validation without constructing a second mode flag.
-    pub fn freestanding_from_start_module(
-        start_module: impl Into<PathBuf>,
+    pub fn freestanding_from_package_root(
+        package_root: impl Into<PathBuf>,
         target: &TargetConfig,
     ) -> Result<Self, RuntimeSpecError> {
         let implementation = match (target.os.as_str(), target.arch.as_str()) {
@@ -222,9 +217,8 @@ impl RuntimeSpec {
             }
         };
         Ok(Self::Source(SourceRuntimeSpec {
+            package_root: package_root.into(),
             package_root_identity: RUNTIME_PACKAGE_IDENTITY.to_string(),
-            start_module: start_module.into(),
-            start_module_identity: RUNTIME_START_IDENTITY.to_string(),
             entry_point: RuntimeEntryPoint {
                 module_identity: format!(
                     "toolchain:/runtime/start/freestanding/linux/{implementation}.nia"
@@ -233,7 +227,10 @@ impl RuntimeSpec {
                 linker_symbol: "_start".to_string(),
             },
             target: target.clone(),
-            dependencies: vec![RuntimeDependency::EntryPackage],
+            dependencies: vec![
+                RuntimeDependency::EntryPackage,
+                RuntimeDependency::StandardLibrary,
+            ],
         }))
     }
 
@@ -248,7 +245,12 @@ impl RuntimeSpec {
                 request: Box::new(target.clone()),
             });
         }
-        if runtime.dependencies.as_slice() != [RuntimeDependency::EntryPackage] {
+        if runtime.dependencies.as_slice()
+            != [
+                RuntimeDependency::EntryPackage,
+                RuntimeDependency::StandardLibrary,
+            ]
+        {
             return Err(RuntimeSpecError::InvalidDependencies);
         }
         Ok(())
@@ -295,13 +297,13 @@ impl std::error::Error for RuntimeSpecError {}
 /// Runtime source modules shipped in the resolved resource bundle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeResources {
-    freestanding_start_module: PathBuf,
+    freestanding_package_root: PathBuf,
 }
 
 impl RuntimeResources {
-    /// Returns the startup module used for freestanding executables.
-    pub fn freestanding_start_module(&self) -> &std::path::Path {
-        &self.freestanding_start_module
+    /// Returns the private source package implementing freestanding startup.
+    pub fn freestanding_package_root(&self) -> &std::path::Path {
+        &self.freestanding_package_root
     }
 }
 
@@ -364,9 +366,9 @@ impl ToolchainLayout {
 
         let std_module = resource_root.join("std/pkg.nia");
         validate_file(&std_module, ResourceRole::StandardLibrary)?;
-        let freestanding_start_module = resource_root.join("runtime/start.nia");
+        let freestanding_package_root = resource_root.join("runtime/pkg.nia");
         validate_file(
-            &freestanding_start_module,
+            &freestanding_package_root,
             ResourceRole::FreestandingRuntime,
         )?;
         let bundled_lld = resource_root
@@ -387,7 +389,7 @@ impl ToolchainLayout {
             host_target: TargetConfig::host(),
             artifact_target: request.artifact_target,
             runtime: RuntimeResources {
-                freestanding_start_module,
+                freestanding_package_root,
             },
             bundled_lld,
         })
@@ -408,12 +410,12 @@ impl ToolchainLayout {
         &self.std_module
     }
 
-    /// Returns the validated physical source module for freestanding startup.
+    /// Returns the validated private source package for freestanding startup.
     ///
     /// Runtime startup is a toolchain resource, not a module owned by the
     /// standard-library package artifact.
-    pub fn freestanding_start_module(&self) -> &std::path::Path {
-        self.runtime.freestanding_start_module()
+    pub fn freestanding_runtime_package(&self) -> &std::path::Path {
+        self.runtime.freestanding_package_root()
     }
 
     /// Compiled-package snapshot for one standard-library semantic context.
@@ -978,6 +980,8 @@ mod tests {
         )
         .expect("write manifest");
         fs::write(resources.join("std/pkg.nia"), "pub module start;").expect("write std root");
+        fs::write(resources.join("runtime/pkg.nia"), "pub(pkg) module start;")
+            .expect("write runtime root");
         fs::write(resources.join("runtime/start.nia"), "").expect("write runtime");
         executable
     }
@@ -1060,8 +1064,7 @@ mod tests {
         let source = runtime.source().expect("source runtime");
 
         assert_eq!(source.package_root_identity(), RUNTIME_PACKAGE_IDENTITY);
-        assert_eq!(source.start_module_identity(), RUNTIME_START_IDENTITY);
-        assert_eq!(source.start_module(), root.join("lib/runtime/start.nia"));
+        assert_eq!(source.package_root(), root.join("lib/runtime/pkg.nia"));
         let implementation = if target.arch == "x86_64" {
             "x86_64"
         } else {
@@ -1073,7 +1076,13 @@ mod tests {
         );
         assert_eq!(source.entry_point().definition_name(), "_start");
         assert_eq!(source.entry_point().linker_symbol(), "_start");
-        assert_eq!(source.dependencies(), [RuntimeDependency::EntryPackage]);
+        assert_eq!(
+            source.dependencies(),
+            [
+                RuntimeDependency::EntryPackage,
+                RuntimeDependency::StandardLibrary
+            ]
+        );
         assert_eq!(source.target(), &target);
         assert_eq!(runtime.validate_for_target(&target), Ok(()));
     }
@@ -1085,13 +1094,13 @@ mod tests {
             ..TargetConfig::host()
         };
         assert!(matches!(
-            RuntimeSpec::freestanding_from_start_module("runtime/start.nia", &unsupported),
+            RuntimeSpec::freestanding_from_package_root("runtime/pkg.nia", &unsupported),
             Err(RuntimeSpecError::UnsupportedTarget { .. })
         ));
 
         let target = TargetConfig::host();
         let runtime =
-            RuntimeSpec::freestanding_from_start_module("runtime/start.nia", &target).unwrap();
+            RuntimeSpec::freestanding_from_package_root("runtime/pkg.nia", &target).unwrap();
         let mut different = target;
         different.abi = "different".to_string();
         assert!(matches!(
