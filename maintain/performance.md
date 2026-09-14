@@ -118,7 +118,7 @@ or action-cache work. The representative fixture continues to cover clean,
 warm, source-edit, module-map-edit, corruption recovery, clean-equivalent
 artifacts, and failed-action behavior.
 
-Generated build runners use content-addressed `.nia-cache/runner/v3/<key>.niapkg`
+Generated build runners use content-addressed `.nia-cache/runner/v4/<key>.niapkg`
 package artifacts. The key includes the generated source, build-script bytes,
 selected standard-library artifact, toolchain identity, host target, profile,
 test mode, optimization mode, and build protocol. A hit restores the package

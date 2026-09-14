@@ -9,7 +9,7 @@ use nia_compat::toolchain::BUILD_PROTOCOL;
 
 use crate::{BuildError, BuildInvocation, BuildRunnerSource, OptimizationMode};
 
-const CACHE_SCHEMA: &str = "v3";
+const CACHE_SCHEMA: &str = "v4";
 
 /// Canonical compiled-package product path for a generated build runner.
 pub(super) fn package_path(invocation: &BuildInvocation, key: &str) -> PathBuf {
