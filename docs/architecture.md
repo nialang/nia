@@ -717,6 +717,18 @@ Compiled package manifests identify the exact target, build profile, and normal/
 compilation mode used for conditional source selection. Loader selection validates this
 semantic context before exposing any declaration, template, or native section; products
 compiled from a different conditional source view are never partially reused.
+The target-independent signature section carries every fact that can affect downstream
+semantics or ABI. In particular, enum variants store their evaluated discriminant bits and
+signedness rather than asking an artifact consumer to infer values from declaration order,
+and implementation methods store effective ABI attributes inherited from their trait.
+Artifact const queries rehydrate those values directly from the validated package product;
+they do not run source const lowering over an empty synthetic module.
+
+Method declarations reconstructed without a body derive their receiver value type from the
+canonical pair of receiver kind and extension target. References to slice, trait-object, and
+callable pointees become the corresponding fat value types before ABI classification. This
+keeps a package-native definition and every downstream declaration of its symbol on one
+calling convention even though source-local parameter facts are absent.
 Toolchain package paths are derived from the same target/profile/mode identity, so
 installed variants cannot overwrite one another and relocation does not change their
 relative resource path.
@@ -725,6 +737,11 @@ Object and executable requests additionally require an exact optimization varian
 an optional package that lacks it falls back as a whole to source, while a required
 package reports a typed selection error. Interface metadata and source definitions are
 never mixed after native selection fails.
+Optional artifact fallback is a whole-package loader decision and is allowed only for a
+missing, corrupt, incompatible, or unavailable required-native variant. Once an artifact is
+selected, compiler query providers must use its validated declarations, signatures,
+templates, const facts, and native ownership without probing dependency source. Required
+artifact requests report the selection failure and never enter source providers.
 
 ## 13. CLI
 

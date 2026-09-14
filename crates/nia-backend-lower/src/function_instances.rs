@@ -626,9 +626,13 @@ impl<'a> ModuleLowerer<'a> {
                                     .flatten()
                                     .cloned()
                                     .map(|source| {
-                                        self.normalized_type_from_module(
+                                        let target_ty = self.normalized_type_from_module(
                                             source.module_id,
                                             source.target_ty,
+                                        );
+                                        self.receiver_local_ty_for_target(
+                                            param.receiver.expect("receiver checked above"),
+                                            target_ty,
                                         )
                                     })
                             })

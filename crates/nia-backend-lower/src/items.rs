@@ -592,6 +592,51 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
+    /// Reconstructs the source-level receiver value from an extension target.
+    ///
+    /// Artifact declarations have no body locals to carry this fact. In
+    /// particular, an unsized extension target denotes the pointee while a
+    /// reference receiver crosses the ABI as its corresponding fat value.
+    pub(crate) fn receiver_local_ty_for_target(
+        &mut self,
+        receiver: ReceiverKind,
+        target_ty: nia_ids::InternedTyId,
+    ) -> nia_ids::InternedTyId {
+        let is_readonly = match receiver {
+            ReceiverKind::Value => return target_ty,
+            ReceiverKind::RefReadOnly => true,
+            ReceiverKind::Ref => false,
+        };
+        let kind = match self.ty_kind(target_ty).cloned() {
+            Some(TyKind::SlicePointee { elem }) => TyKind::Slice { is_readonly, elem },
+            Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                trait_const_args,
+                associated_type_bindings,
+            }) => TyKind::TraitObject {
+                is_readonly,
+                trait_id,
+                trait_args,
+                trait_const_args,
+                associated_type_bindings,
+            },
+            Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            }) => TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            },
+            _ => TyKind::Pointer {
+                is_readonly,
+                elem: target_ty,
+            },
+        };
+        self.type_context.append.intern(kind)
+    }
+
     fn receiver_base_ty(&self, ty: nia_ids::InternedTyId) -> Option<nia_ids::InternedTyId> {
         match self.ty_kind(ty) {
             Some(TyKind::Pointer { elem, .. }) => Some(*elem),
@@ -602,7 +647,7 @@ impl<'a> ModuleLowerer<'a> {
     fn is_fat_receiver_local_ty(&self, ty: nia_ids::InternedTyId) -> bool {
         matches!(
             self.ty_kind(ty),
-            Some(TyKind::Slice { .. } | TyKind::TraitObject { .. })
+            Some(TyKind::Slice { .. } | TyKind::TraitObject { .. } | TyKind::Callable { .. })
         )
     }
 }
