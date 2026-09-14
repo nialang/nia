@@ -3819,12 +3819,18 @@ impl CompilerDatabase {
         resolver: &dyn StableDefinitionPackageResolver,
     ) -> QueryResult<PublicSurfaceSection> {
         let parse_ok = self.db.get(ParseOkModuleIdsQuery)?;
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let entry_package_root = graph.current_package_root(graph.entry());
         let module_ids = self
             .db
             .context()
             .resolve_stable_module_sequence(&parse_ok)?;
         let defs = module_ids
             .into_iter()
+            .filter(|module_id| {
+                entry_package_root.is_none()
+                    || graph.current_package_root(*module_id) == entry_package_root
+            })
             .map(|module_id| {
                 Ok(self
                     .db
@@ -3832,7 +3838,6 @@ impl CompilerDatabase {
                     .materialize_for_public_surface(module_id))
             })
             .collect::<QueryResult<Vec<_>>>()?;
-        let graph = self.db.get(ModuleGraphQuery)?;
         let symbols = self.db.context().loader_facts().symbols();
         let exports = compute_exported_public_surfaces_with_symbols(&defs, &graph, &symbols);
         let stable_target = |module_id: ModuleId, def_id: DefId| -> QueryResult<DefinitionId> {

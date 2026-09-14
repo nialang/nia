@@ -228,11 +228,7 @@ impl RuntimeSpec {
             package: nia_package_metadata::PackageId {
                 namespace: "nia".to_string(),
                 name: "runtime".to_string(),
-                version: format!(
-                    "{}+runtime{}",
-                    COMPILER_VERSION,
-                    toolchain::RESOURCE_LAYOUT
-                ),
+                version: format!("{}+runtime{}", COMPILER_VERSION, toolchain::RESOURCE_LAYOUT),
             },
             entry_point: RuntimeEntryPoint {
                 module_identity: format!(
