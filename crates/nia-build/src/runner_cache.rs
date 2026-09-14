@@ -24,7 +24,10 @@ pub(super) fn package_id(key: &str) -> nia_package_metadata::PackageId {
     nia_package_metadata::PackageId {
         namespace: "nia".to_string(),
         name: "build-runner".to_string(),
-        version: key.to_string(),
+        // Package versions follow the canonical semver contract. Keep the
+        // content-addressed cache key in build metadata so every runner still
+        // has a unique package identity without producing an invalid manifest.
+        version: format!("0.0.0+{key}"),
     }
 }
 
