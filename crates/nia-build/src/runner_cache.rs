@@ -43,6 +43,8 @@ pub(super) fn restore_package(invocation: &BuildInvocation, key: &str) -> io::Re
     let valid = nia_package_metadata::PackageArtifact::open(bytes)
         .and_then(|artifact| {
             artifact.validate_sections()?;
+            nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact)
+                .map_err(|_| nia_package_metadata::MetadataError::InvalidManifest)?;
             if artifact.native()?.is_none() {
                 return Err(nia_package_metadata::MetadataError::InvalidManifest);
             }
