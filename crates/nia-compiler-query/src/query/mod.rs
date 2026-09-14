@@ -4660,6 +4660,11 @@ impl CompilerDatabase {
         {
             return Ok(identity.package);
         }
+        if graph.current_package_root(def_id.module_id) == graph.package_root(&nia_symbol::known::RUNTIME)
+            && let RuntimeSpec::Source(runtime) = self.db.get(CompilerRuntimeQuery)?.as_ref()
+        {
+            return Ok(runtime.package().clone());
+        }
         Err(self.db.invalid_input(
             &ModuleGraphQuery,
             format!("definition has no canonical package identity: {def_id:?}"),
