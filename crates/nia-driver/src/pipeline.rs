@@ -1764,7 +1764,7 @@ impl Driver {
                 if let Err(error) = append_native_variant_inputs(
                     &package.package,
                     variant,
-                    &std::collections::BTreeSet::new(),
+                    &std::collections::BTreeMap::new(),
                     &mut owners,
                     &mut compiler_builtins_present,
                     &mut inputs,
@@ -2708,12 +2708,12 @@ fn append_compiled_package_native_inputs(
     database: &CompilerDatabase,
     inputs: &mut Vec<nia_codegen_llvm::IncrementalLinkInput<nia_codegen_llvm::NativeObject>>,
 ) -> Result<(), DriverError> {
-    let mut source_modules = std::collections::BTreeSet::new();
+    let mut source_owners = std::collections::BTreeMap::new();
     for input in inputs.iter() {
-        let nia_codegen_llvm::CodegenUnitKey::SourceModule { source_identity, .. } = &input.key else {
+        let nia_codegen_llvm::CodegenUnitKey::SourceModule { .. } = &input.key else {
             continue;
         };
-        source_modules.insert(source_identity.normalized_path().to_owned());
+        source_owners.insert(native_object_key(&input.key), input.fingerprint.parts());
     }
     let mut compiler_builtins_present = inputs.iter().any(|input| {
         matches!(
@@ -2741,7 +2741,7 @@ fn append_compiled_package_native_inputs(
         append_native_variant_inputs(
             package,
             product.variant(),
-            &source_modules,
+            &source_owners,
             &mut owners,
             &mut compiler_builtins_present,
             inputs,
@@ -2753,7 +2753,7 @@ fn append_compiled_package_native_inputs(
 fn append_native_variant_inputs(
     enclosing_package: &PackageId,
     variant: &NativeVariant,
-    source_modules: &std::collections::BTreeSet<String>,
+    source_owners: &std::collections::BTreeMap<String, [u64; 2]>,
     owners: &mut std::collections::BTreeSet<(String, String, String, String)>,
     compiler_builtins_present: &mut bool,
     inputs: &mut Vec<nia_codegen_llvm::IncrementalLinkInput<nia_codegen_llvm::NativeObject>>,
@@ -2774,8 +2774,10 @@ fn append_native_variant_inputs(
                 "package-native object owner does not match its enclosing package".to_string(),
             ));
         }
-        if let NativeObjectOwner::PackageModule { module, .. } = &object.owner
-            && source_modules.contains(&module.path)
+        if matches!(object.owner, NativeObjectOwner::PackageModule { .. })
+            && source_owners
+                .get(&object.key)
+                .is_some_and(|fingerprint| *fingerprint == object.fingerprint)
         {
             continue;
         }
