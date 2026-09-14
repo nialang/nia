@@ -4210,21 +4210,54 @@ impl CompilerDatabase {
         // Public-surface re-exports are the canonical graph evidence for such
         // packages; omitting them makes an otherwise valid artifact fail
         // source-free manifest validation.
-        let mut surface_packages = std::collections::BTreeSet::new();
+        // Public re-exports identify package dependencies. A dependency hash
+        // is only meaningful when it comes from that package's canonical
+        // interface artifact; never encode an all-zero sentinel that would
+        // make an unverified source dependency look like a valid product.
+        let mut surface_dependencies = std::collections::BTreeSet::<PackageId>::new();
         for module in &public_surface.modules {
             for export in &module.exports {
-                surface_packages.insert(export.target.module.package.clone());
-                if let Some(parent) = &export.parent_enum {
-                    surface_packages.insert(parent.module.package.clone());
+                let target_package = export.target.module.package.clone();
+                if target_package != package {
+                    surface_dependencies.insert(target_package);
+                }
+                if let Some(parent) = &export.parent_enum
+                    && parent.module.package != package
+                {
+                    surface_dependencies.insert(parent.module.package.clone());
                 }
             }
         }
-        dependencies.extend(surface_packages.into_iter().filter(|dep| dep != &package).map(|dep| {
-            nia_package_metadata::PackageDependency {
+        for dep in surface_dependencies {
+            // The dependency hash must describe the dependency's canonical
+            // interface, not the consumer's re-export projection. Resolve it
+            // from a selected artifact when available; otherwise this package
+            // cannot claim a verifiable binary dependency and publication
+            // fails rather than emitting a sentinel hash.
+            let Some(interface) = self
+                .db
+                .context()
+                .loader_facts()
+                .compiled_package_interfaces()?
+                .into_iter()
+                .find(|interface| interface.manifest().package == dep)
+            else {
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    format!(
+                        "public surface references source-backed dependency without compiled interface: {dep:?}"
+                    ),
+                ));
+            };
+            let bytes = nia_package_metadata::encode_interface(&InterfaceSection {
+                records: interface.records().to_vec(),
+            })
+            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+            dependencies.push(nia_package_metadata::PackageDependency {
                 package: dep,
-                interface_hash: [0; 32],
-            }
-        }));
+                interface_hash: nia_package_metadata::section_hash(&bytes),
+            });
+        }
         dependencies.sort_by(|left, right| left.package.cmp(&right.package));
         dependencies.dedup_by(|left, right| left.package == right.package);
         let compilation_target = self.db.context().loader_facts().target();
@@ -4674,8 +4707,7 @@ impl CompilerDatabase {
         current_package: &PackageId,
     ) -> QueryResult<PackageId> {
         let graph = self.db.get(ModuleGraphQuery)?;
-        if graph.current_package_root(def_id.module_id)
-            == graph.current_package_root(graph.entry())
+        if graph.current_package_root(def_id.module_id) == graph.current_package_root(graph.entry())
         {
             return Ok(current_package.clone());
         }
@@ -4690,7 +4722,8 @@ impl CompilerDatabase {
         {
             return Ok(identity.package);
         }
-        if graph.current_package_root(def_id.module_id) == graph.package_root(&nia_symbol::known::RUNTIME)
+        if graph.current_package_root(def_id.module_id)
+            == graph.package_root(&nia_symbol::known::RUNTIME)
             && let RuntimeSpec::Source(runtime) = self.db.get(CompilerRuntimeQuery)?.as_ref()
         {
             return Ok(runtime.package().clone());
