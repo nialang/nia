@@ -116,12 +116,79 @@ pub(super) fn provide_const_enum_values(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<nia_const_check::ConstEnumValues> {
+    if super::executable::is_compiled_artifact_module(db, module_id) {
+        return provide_compiled_const_enum_values(db, module_id);
+    }
     let array_lengths = Arc::unwrap_or_clone(db.get(ConstArrayLengthsQuery(module_id))?);
     with_const_input(db, module_id, |input, module| {
         let mut enum_values =
             nia_const_check::compute_module_const_enum_values(input, array_lengths);
         enum_values.diagnostics.extend(module.diagnostics.clone());
         enum_values
+    })
+}
+
+fn provide_compiled_const_enum_values(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<nia_const_check::ConstEnumValues> {
+    let identity = db
+        .context()
+        .loader_facts()
+        .compiled_package_module_identity(module_id)?
+        .ok_or_else(|| {
+            db.invalid_input(
+                &ConstEnumValuesQuery(module_id),
+                "compiled enum module has no package identity",
+            )
+        })?;
+    let package = db.get(CompiledPackageSignaturesQuery(identity.package.clone()))?;
+    let graph = db.get(CompiledPackageTypeGraphQuery(identity.package.clone()))?;
+    let mut values = HashMap::new();
+    let mut typed_values = HashMap::new();
+    for (definition, record) in package.iter() {
+        if definition.module != identity {
+            continue;
+        }
+        let Some(nia_package_metadata::SignaturePayload::Enum {
+            backing_type,
+            variants,
+        }) = record.payload.as_ref()
+        else {
+            continue;
+        };
+        let backing_type = graph.get(*backing_type).ok_or_else(|| {
+            db.invalid_input(
+                &ConstEnumValuesQuery(module_id),
+                "artifact enum backing root is unavailable",
+            )
+        })?;
+        for variant in variants {
+            let global = crate::query::resolve_loaded_definition_in_query(
+                db,
+                &variant.definition,
+                &identity.package,
+            )?;
+            let integer = if variant.discriminant.signed {
+                nia_ty::IntConst::signed_bits(variant.discriminant.bits)
+            } else {
+                nia_ty::IntConst::unsigned(variant.discriminant.bits)
+            };
+            let value = nia_const_check::ConstValue::Int(integer);
+            values.insert(global.def_id, value.clone());
+            typed_values.insert(
+                global.def_id,
+                nia_const_check::TypedConstValue {
+                    value,
+                    ty: nia_const_check::ConstValueType::Runtime(backing_type),
+                },
+            );
+        }
+    }
+    Ok(nia_const_check::ConstEnumValues {
+        values: Arc::new(values),
+        typed_values: Arc::new(typed_values),
+        diagnostics: Vec::new(),
     })
 }
 

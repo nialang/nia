@@ -1925,19 +1925,30 @@ pub(super) fn executable_signature_checked_module(
         nia_item_tree::SignatureItemSet::Types,
     ))?;
     let definitions = db.get(ModuleDefsQuery(module_id))?;
-    let (array_lengths, enum_values) = with_type_signature_const_input(
-        db,
-        module_id,
-        Some(program_signatures),
-        |input, module| {
-            let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input);
-            array_lengths.diagnostics.extend(module.diagnostics.clone());
-            let mut enum_values =
-                nia_const_check::compute_module_const_enum_values(input, array_lengths.clone());
-            enum_values.diagnostics.extend(module.diagnostics.clone());
-            (array_lengths, enum_values)
-        },
-    )?;
+    let (array_lengths, enum_values) =
+        if super::executable::is_compiled_artifact_module(db, module_id) {
+            (
+                Arc::unwrap_or_clone(db.get(ConstArrayLengthsQuery(module_id))?),
+                Arc::unwrap_or_clone(db.get(ConstEnumValuesQuery(module_id))?),
+            )
+        } else {
+            with_type_signature_const_input(
+                db,
+                module_id,
+                Some(program_signatures),
+                |input, module| {
+                    let mut array_lengths =
+                        nia_const_check::compute_module_const_array_lengths(input);
+                    array_lengths.diagnostics.extend(module.diagnostics.clone());
+                    let mut enum_values = nia_const_check::compute_module_const_enum_values(
+                        input,
+                        array_lengths.clone(),
+                    );
+                    enum_values.diagnostics.extend(module.diagnostics.clone());
+                    (array_lengths, enum_values)
+                },
+            )?
+        };
     let mut const_diagnostics = array_lengths.diagnostics.clone();
     const_diagnostics.extend(enum_values.diagnostics.clone());
     let mut const_eval = ConstCheck {

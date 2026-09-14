@@ -27,7 +27,7 @@ const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 5;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG01";
-const SIGNATURE_SCHEMA: u32 = 10;
+const SIGNATURE_SCHEMA: u32 = 11;
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
 // Version 4 adds explicit stable definition/module/type relocations for the
 // checked Function IR body. There is intentionally no legacy decode path:
@@ -276,7 +276,16 @@ pub struct SignatureField {
 pub struct SignatureVariant {
     pub definition: DefinitionId,
     pub name: String,
+    /// Evaluated discriminant bits and signedness. This is an ABI fact: the
+    /// declaration order is not a substitute for an explicit enum value.
+    pub discriminant: SignatureInteger,
     pub payload: SignatureVariantPayload,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SignatureInteger {
+    pub bits: u128,
+    pub signed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1861,26 +1870,26 @@ impl CompiledPackageInterface {
 
     /// Returns the canonical signature type graph, when published.
     pub fn type_graph(&self) -> Option<&StableTypeGraph> {
-        self.type_graph.as_ref().map(|graph| &**graph)
+        self.type_graph.as_deref()
     }
 
     /// Returns the optional checked template section.
     pub fn templates(&self) -> Option<&TemplateSection> {
-        self.templates.as_ref().map(|templates| &**templates)
+        self.templates.as_deref()
     }
 
     /// Returns the optional target-specific native payload.
     pub fn native(&self) -> Option<&NativeSection> {
-        self.native.as_ref().map(|native| &**native)
+        self.native.as_deref()
     }
 
     pub fn public_surface(&self) -> Option<&PublicSurfaceSection> {
-        self.public_surface.as_ref().map(|surface| &**surface)
+        self.public_surface.as_deref()
     }
 
     /// Returns the optional target-independent signature section.
     pub fn signatures(&self) -> Option<&SignatureSection> {
-        self.signatures.as_ref().map(|section| &**section)
+        self.signatures.as_deref()
     }
 
     /// Resolves one stable definition identity without source loading.
@@ -2394,6 +2403,8 @@ fn put_signature_payload(
             for variant in variants {
                 put_definition(output, &variant.definition)?;
                 put_string(output, &variant.name)?;
+                output.extend_from_slice(&variant.discriminant.bits.to_le_bytes());
+                output.push(u8::from(variant.discriminant.signed));
                 match &variant.payload {
                     SignatureVariantPayload::Unit => output.push(0),
                     SignatureVariantPayload::Tuple(types) => {
@@ -2491,6 +2502,14 @@ fn read_signature_payload(
                 for _ in 0..count {
                     let definition = read_definition(cursor)?;
                     let name = get_string(cursor)?;
+                    let discriminant = SignatureInteger {
+                        bits: get_u128(cursor)?,
+                        signed: match read_u8(cursor)? {
+                            0 => false,
+                            1 => true,
+                            _ => return Err(MetadataError::InvalidManifest),
+                        },
+                    };
                     let payload = match read_u8(cursor)? {
                         0 => SignatureVariantPayload::Unit,
                         1 => SignatureVariantPayload::Tuple(read_refs(cursor)?),
@@ -2500,6 +2519,7 @@ fn read_signature_payload(
                     variants.push(SignatureVariant {
                         definition,
                         name,
+                        discriminant,
                         payload,
                     });
                 }
@@ -4682,6 +4702,62 @@ mod tests {
     }
 
     #[test]
+    fn signature_enum_payload_round_trips_explicit_discriminants() {
+        let package = sample().package;
+        let module = ModuleId {
+            package,
+            path: "m".into(),
+        };
+        let owner = DefinitionId {
+            module: module.clone(),
+            name: "Choice".into(),
+            kind: 13,
+            disambiguator: 0,
+            owner: None,
+        };
+        let payload = SignaturePayload::Enum {
+            backing_type: 0,
+            variants: vec![
+                SignatureVariant {
+                    definition: DefinitionId {
+                        module: module.clone(),
+                        name: "Negative".into(),
+                        kind: 14,
+                        disambiguator: 0,
+                        owner: Some(Box::new(owner.clone())),
+                    },
+                    name: "Negative".into(),
+                    discriminant: SignatureInteger {
+                        bits: (-17_i128) as u128,
+                        signed: true,
+                    },
+                    payload: SignatureVariantPayload::Unit,
+                },
+                SignatureVariant {
+                    definition: DefinitionId {
+                        module,
+                        name: "Large".into(),
+                        kind: 14,
+                        disambiguator: 0,
+                        owner: Some(Box::new(owner)),
+                    },
+                    name: "Large".into(),
+                    discriminant: SignatureInteger {
+                        bits: u128::MAX,
+                        signed: false,
+                    },
+                    payload: SignatureVariantPayload::Tuple(vec![1]),
+                },
+            ],
+        };
+        let mut bytes = Vec::new();
+        put_signature_payload(&mut bytes, Some(&payload)).unwrap();
+        let mut cursor = Cursor::new(bytes.as_slice());
+        assert_eq!(read_signature_payload(&mut cursor).unwrap(), Some(payload));
+        assert_eq!(cursor.position(), bytes.len() as u64);
+    }
+
+    #[test]
     fn signature_section_rejects_unsorted_roots_and_trailing_bytes() {
         let definition = DefinitionId {
             module: ModuleId {
@@ -5425,7 +5501,7 @@ mod tests {
             name: "run".into(),
             namespace: 0,
             target: DefinitionId {
-                module: module,
+                module,
                 name: "other".into(),
                 kind: 2,
                 disambiguator: 0,

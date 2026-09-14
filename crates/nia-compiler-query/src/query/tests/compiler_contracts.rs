@@ -342,6 +342,74 @@ fn source_free_dependency_const_function_evaluates_from_ctfe_template() {
 }
 
 #[test]
+fn source_free_dependency_preserves_explicit_enum_discriminants() {
+    let dependency =
+        LoadedProgramFixture::new("src/dependency.nia", "pub enum Choice: i32 { Odd = 37, _ }");
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "enum-dependency".into(),
+        version: "1.0.0".into(),
+    };
+    let artifact = nia_package_metadata::PackageArtifact::open(
+        dependency
+            .database()
+            .publish_package_artifact(package.clone())
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
+    let compiled =
+        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap();
+
+    let mut consumer = LoadedProgramFixture::new(
+        "src/main.nia",
+        "using dependency::Choice; fn main() Choice { .Odd }",
+    );
+    let dependency_module =
+        consumer.add_child(consumer.entry_id(), "dependency", "src/dependency.nia", "");
+    let loader = TestLoaderFacts::new(
+        consumer.program(),
+        crate::ProviderFactSnapshot::empty(crate::ProviderFactRevision::default()),
+    );
+    let identity = compiled
+        .module_identities()
+        .next()
+        .expect("dependency module identity");
+    loader.replace_compiled_interfaces(vec![compiled]);
+    loader.replace_compiled_module_identities(HashMap::from([(dependency_module, identity)]));
+    let database = super::super::CompilerDatabase::new(
+        CompileRequest::new(consumer.program()).with_loader_facts(loader),
+    );
+    database
+        .install_compiled_package_module_interfaces()
+        .unwrap();
+    let resolver = |definition: &nia_package_metadata::DefinitionId| {
+        database.resolve_loaded_definition(definition, &package)
+    };
+    database
+        .install_compiled_interface_type_roots(&resolver)
+        .unwrap();
+    database.install_compiled_package_declarations().unwrap();
+    database.install_compiled_package_templates().unwrap();
+    database.install_compiled_package_signatures().unwrap();
+
+    let backend = database.db.expect_get(BackendLoweringQuery);
+    assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
+    let dependency = backend
+        .semantic
+        .program
+        .modules
+        .iter()
+        .find(|module| module.id == dependency_module)
+        .expect("dependency backend module");
+    assert!(dependency.enums.iter().any(|item| {
+        item.variants
+            .iter()
+            .any(|variant| variant.value == Some(37))
+    }));
+}
+
+#[test]
 fn source_free_dependency_generic_body_reaches_backend_without_source_queries() {
     let dependency = LoadedProgramFixture::new(
         "src/dependency.nia",
@@ -1239,6 +1307,46 @@ fn package_signature_section_derives_function_flags_and_roots() {
 }
 
 #[test]
+fn package_signature_section_publishes_effective_track_caller_for_impl_methods() {
+    let fixture = LoadedProgramFixture::new(
+        "src/lib.nia",
+        r#"
+pub struct Record { value: i32 }
+pub trait CallerAware {
+@[trackCaller]
+fn call(&self) i32;
+}
+extend Record : CallerAware {
+fn call(&self) i32 { self.value }
+}
+"#,
+    );
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "track-caller-signature".into(),
+        version: "1.0.0".into(),
+    };
+    let section = database
+        .package_signature_section_with_resolver(package.clone(), &|_| Ok(package.clone()))
+        .unwrap();
+    let implementation = section
+        .records
+        .iter()
+        .find(|record| record.definition.name == "call" && record.definition.owner.is_some())
+        .expect("implementation method signature");
+    let nia_package_metadata::SignaturePayload::Function { attributes, .. } =
+        implementation.payload.as_ref().expect("function payload")
+    else {
+        panic!("implementation method payload is not a function");
+    };
+    assert!(
+        attributes.contains(&2),
+        "effective trackCaller attribute missing"
+    );
+}
+
+#[test]
 fn artifact_item_signatures_materialize_without_dependency_source() {
     let source = r#"
 pub struct Record {
@@ -1246,7 +1354,7 @@ value: i32,
 }
 
 pub enum Choice: i32 {
-First = 1,
+First = 37,
 _,
 }
 
@@ -1276,6 +1384,7 @@ type Item;
 
 pub trait Measure {
 const SCALE: i32;
+@[trackCaller]
 fn measure(&self, scale: i32) i32;
 }
 
@@ -1368,6 +1477,18 @@ pub fn probe(&self) usize;
         .expect("artifact function signature");
     assert_eq!(transform.params.len(), 1);
     assert!(transform.has_body);
+    let measure = signatures
+        .semantic
+        .functions
+        .values()
+        .find(|signature| signature.name == sym("measure"))
+        .expect("artifact implementation method signature");
+    assert!(
+        measure
+            .attributes
+            .contains(&nia_item_signatures::FunctionAttribute::TrackCaller),
+        "artifact implementation method must retain effective trackCaller ABI"
+    );
     let halt = signatures
         .semantic
         .functions
@@ -1412,6 +1533,11 @@ pub fn probe(&self) usize;
     let choice = signatures.semantic.enums.values().next().unwrap();
     assert_eq!(choice.variants.len(), 1);
     assert!(choice.is_open);
+    let enum_values = database.db.expect_get(ConstEnumValuesQuery(module_id));
+    assert!(matches!(
+        enum_values.values.get(&choice.variants[0].def_id),
+        Some(nia_const_check::ConstValue::Int(value)) if value.as_i128() == Some(37)
+    ));
     let iterator = signatures
         .semantic
         .traits
