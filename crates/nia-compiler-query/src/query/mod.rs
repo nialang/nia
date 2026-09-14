@@ -2429,6 +2429,11 @@ impl CompilerDatabase {
         let stable_index = self.stable_definition_index(resolver)?;
         let entry_root = graph.current_package_root(graph.entry());
         let std_root = graph.std_package_root();
+        let runtime_root = graph.package_root(&nia_symbol::known::RUNTIME);
+        let runtime_package = match self.db.get(CompilerRuntimeQuery)?.as_ref() {
+            RuntimeSpec::Source(runtime) => Some(runtime.package().clone()),
+            RuntimeSpec::Bare => None,
+        };
         let mut module_identities = HashMap::new();
         for module in graph.modules() {
             let Some(key) = graph.stable_key(module.id) else {
@@ -2438,8 +2443,18 @@ impl CompilerDatabase {
                 && std_root.is_some_and(|root| {
                     module.id == root || graph.current_package_root(module.id) == Some(root)
                 });
+            let is_runtime_module = runtime_root.is_some_and(|root| {
+                module.id == root || graph.current_package_root(module.id) == Some(root)
+            });
             let owner = if graph.current_package_root(module.id) == entry_root || is_std_module {
                 package.clone()
+            } else if is_runtime_module {
+                runtime_package.clone().ok_or_else(|| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        "runtime module present without a source runtime package".to_string(),
+                    )
+                })?
             } else {
                 self.db
                     .context()
