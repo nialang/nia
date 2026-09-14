@@ -728,17 +728,15 @@ impl Driver {
                 }
             };
             let package_for_resolver = package.clone();
-            let resolver = |def_id| {
-                database.package_for_definition_in_package(def_id, &package_for_resolver)
-            };
+            let resolver =
+                |def_id| database.package_for_definition_in_package(def_id, &package_for_resolver);
             // Materialize the complete package interface before package-scoped
             // native demand can leave the loader graph at a partial frontier.
             // The query result is cached in this database and reused by the
             // final native publication below.
-            if let Err(error) = database.publish_package_artifact_with_resolver(
-                package.clone(),
-                &resolver,
-            ) {
+            if let Err(error) =
+                database.publish_package_artifact_with_resolver(package.clone(), &resolver)
+            {
                 return DriverOutput::from_error(DriverError::InternalDiagnostic(
                     query_error_diagnostic(error),
                 ));
@@ -757,97 +755,14 @@ impl Driver {
                 },
                 database.provider_demand_rounds(),
             );
-            let owned_sources = match database.current_package_source_identities() {
-                Ok(identities) => identities
-                    .into_iter()
-                    .collect::<std::collections::BTreeSet<_>>(),
-                Err(error) => {
-                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
-                        query_error_diagnostic(error),
-                    ));
-                }
-            };
-            let runtime_sources = match database.runtime_source_identities() {
-                Ok(identities) => identities
-                    .into_iter()
-                    .collect::<std::collections::BTreeSet<_>>(),
-                Err(error) => {
-                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
-                        query_error_diagnostic(error),
-                    ));
-                }
-            };
-            let runtime_package = request
-                .runtime
-                .source()
-                .map(|runtime| runtime.package().clone());
-            let mut native = NativeVariant {
-                optimization: optimization_wire_tag(emission.artifact.optimization.level),
-                objects: emission
-                    .artifact
-                    .link_inputs
-                    .into_vec()
-                    .into_iter()
-                    .filter_map(|input| {
-                        let owner = match &input.key {
-                            nia_codegen_llvm::CodegenUnitKey::SourceModule {
-                                source_identity,
-                                ordinal,
-                            } if owned_sources.contains(source_identity) => {
-                                nia_package_metadata::NativeObjectOwner::PackageModule {
-                                    module: nia_package_metadata::ModuleId {
-                                        package: package.clone(),
-                                        path: source_identity.normalized_path().to_owned(),
-                                    },
-                                    ordinal: *ordinal,
-                                }
-                            }
-                            nia_codegen_llvm::CodegenUnitKey::SourceModule {
-                                source_identity,
-                                ordinal,
-                            } if runtime_sources.contains(source_identity) => {
-                                let Some(runtime_package) = runtime_package.clone() else {
-                                    return None;
-                                };
-                                NativeObjectOwner::RuntimeStartup {
-                                    module: nia_package_metadata::ModuleId {
-                                        package: runtime_package,
-                                        path: source_identity.normalized_path().to_owned(),
-                                    },
-                                    ordinal: *ordinal,
-                                }
-                            }
-                            nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins => {
-                                nia_package_metadata::NativeObjectOwner::CompilerBuiltins
-                            }
-                            nia_codegen_llvm::CodegenUnitKey::SourceModule { .. }
-                            | nia_codegen_llvm::CodegenUnitKey::CompiledPackage { .. } => {
-                                return None;
-                            }
-                        };
-                        Some(NativeObject {
-                            owner,
-                            key: native_object_key(&input.key),
-                            fingerprint: input.fingerprint.parts(),
-                            bytes: input.object.bytes,
-                        })
-                    })
-                    .collect(),
-            };
-            native.objects.sort_by(|left, right| {
-                (left.owner.clone(), &left.key).cmp(&(right.owner.clone(), &right.key))
-            });
-            if native
-                .objects
-                .windows(2)
-                .any(|pair| pair[0].owner == pair[1].owner)
-            {
-                return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
-                    "package-native objects contain duplicate stable unit keys".to_string(),
-                ));
-            }
-            let native = NativeSection {
-                variants: vec![native],
+            let native = match self.native_section_from_objects(
+                &database,
+                &request,
+                package.clone(),
+                emission.artifact,
+            ) {
+                Ok(native) => native,
+                Err(error) => return DriverOutput::from_error(error),
             };
             let publication = database
                 .publish_package_artifact_with_resolver_and_native(package, &resolver, Some(native))
@@ -872,6 +787,151 @@ impl Driver {
         })
     }
 
+    /// Publishes package metadata using already-emitted native objects. This
+    /// keeps runner compilation single-pass: callers can emit once, link the
+    /// executable, and persist the exact same objects without re-running
+    /// backend codegen.
+    pub fn publish_package_artifact_from_native_objects(
+        &self,
+        mut request: CheckRequest,
+        package: PackageId,
+        output: PathBuf,
+        objects: ObjectArtifact,
+    ) -> DriverOutput<PublishedPackageArtifact> {
+        if package == PackageId::standard_library() {
+            request.discover_toolchain_std_artifact = false;
+        }
+        DriverOutput::catch_ice(|| {
+            let (database, _) = match self
+                .compilation_databases_with_codegen_scope(&request, CodegenScope::Package)
+            {
+                Ok(databases) => databases,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
+            let package_for_resolver = package.clone();
+            let resolver =
+                |def_id| database.package_for_definition_in_package(def_id, &package_for_resolver);
+            let native = match self.native_section_from_objects(
+                &database,
+                &request,
+                package.clone(),
+                objects,
+            ) {
+                Ok(native) => native,
+                Err(error) => return DriverOutput::from_error(error),
+            };
+            let publication = database
+                .publish_package_artifact_with_resolver_and_native(package, &resolver, Some(native))
+                .map_err(query_error_diagnostic);
+            let publication = match publication {
+                Ok(publication) => publication,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(error));
+                }
+            };
+            if let Err(error) = write_atomic_bytes(&output, &publication.bytes) {
+                return DriverOutput::from_error(DriverError::Io {
+                    path: output,
+                    operation: "publish package artifact",
+                    error,
+                });
+            }
+            DriverOutput::success(PublishedPackageArtifact {
+                path: output,
+                manifest: publication.manifest,
+            })
+        })
+    }
+
+    fn native_section_from_objects(
+        &self,
+        database: &CompilerDatabase,
+        request: &CheckRequest,
+        package: PackageId,
+        artifact: ObjectArtifact,
+    ) -> Result<NativeSection, DriverError> {
+        let owned_sources = database
+            .current_package_source_identities()
+            .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        let runtime_sources = database
+            .runtime_source_identities()
+            .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        let runtime_package = request
+            .runtime
+            .source()
+            .map(|runtime| runtime.package().clone());
+        let mut native = NativeVariant {
+            optimization: optimization_wire_tag(artifact.optimization.level),
+            objects: artifact
+                .link_inputs
+                .into_vec()
+                .into_iter()
+                .filter_map(|input| {
+                    let owner = match &input.key {
+                        nia_codegen_llvm::CodegenUnitKey::SourceModule {
+                            source_identity,
+                            ordinal,
+                        } if owned_sources.contains(source_identity) => {
+                            NativeObjectOwner::PackageModule {
+                                module: nia_package_metadata::ModuleId {
+                                    package: package.clone(),
+                                    path: source_identity.normalized_path().to_owned(),
+                                },
+                                ordinal: *ordinal,
+                            }
+                        }
+                        nia_codegen_llvm::CodegenUnitKey::SourceModule {
+                            source_identity,
+                            ordinal,
+                        } if runtime_sources.contains(source_identity) => {
+                            let runtime_package = runtime_package.clone()?;
+                            NativeObjectOwner::RuntimeStartup {
+                                module: nia_package_metadata::ModuleId {
+                                    package: runtime_package,
+                                    path: source_identity.normalized_path().to_owned(),
+                                },
+                                ordinal: *ordinal,
+                            }
+                        }
+                        nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins => {
+                            NativeObjectOwner::CompilerBuiltins
+                        }
+                        nia_codegen_llvm::CodegenUnitKey::SourceModule { .. }
+                        | nia_codegen_llvm::CodegenUnitKey::CompiledPackage { .. } => return None,
+                    };
+                    Some(NativeObject {
+                        owner,
+                        key: native_object_key(&input.key),
+                        fingerprint: input.fingerprint.parts(),
+                        bytes: input.object.bytes,
+                    })
+                })
+                .collect(),
+        };
+        native.objects.sort_by(|left, right| {
+            (left.owner.clone(), &left.key).cmp(&(right.owner.clone(), &right.key))
+        });
+        if native
+            .objects
+            .windows(2)
+            .any(|pair| pair[0].owner == pair[1].owner)
+        {
+            return Err(DriverError::InvalidArtifactRequest(
+                "package-native objects contain duplicate stable unit keys".to_string(),
+            ));
+        }
+        Ok(NativeSection {
+            variants: vec![native],
+        })
+    }
 
     /// Checks an entry and returns its exact source manifest alongside it.
     pub fn check_entry_with_source_manifest(
@@ -1774,6 +1834,13 @@ impl Driver {
                 ) {
                     return DriverOutput::from_error(error);
                 }
+            }
+            inputs.sort_by(|left, right| left.key.cmp(&right.key));
+            if inputs.windows(2).any(|pair| pair[0].key == pair[1].key) {
+                return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
+                    "compiled package native objects contain duplicate stable unit keys"
+                        .to_string(),
+                ));
             }
             DriverOutput::success(ObjectArtifact {
                 link_inputs: nia_codegen_llvm::IncrementalLinkInputs::new(inputs),
@@ -2732,7 +2799,12 @@ fn append_compiled_package_native_inputs(
                 package,
                 version,
                 object,
-            } => Some((namespace.clone(), package.clone(), version.clone(), object.clone())),
+            } => Some((
+                namespace.clone(),
+                package.clone(),
+                version.clone(),
+                object.clone(),
+            )),
             _ => None,
         })
         .collect::<std::collections::BTreeSet<_>>();

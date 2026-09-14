@@ -41,9 +41,7 @@ fn main() i32 {
         "{ir}"
     );
     assert!(
-        ir.contains(&format!(
-            "define linkonce_odr void {make}(ptr %0, i32 %1)"
-        )),
+        ir.contains(&format!("define linkonce_odr void {make}(ptr %0, i32 %1)")),
         "{ir}"
     );
     assert!(ir.contains("ret i32"));
