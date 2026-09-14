@@ -140,9 +140,7 @@ impl QueryKey<CompilerContext> for CompiledPackageNativeObservationQuery {
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
-        let mut builder = QueryFingerprintBuilder::new(FingerprintDomain::new(
-            "nia.compiler.compiled-native-observation.v1",
-        ));
+        let mut builder = QueryFingerprintBuilder::new(COMPILED_NATIVE_OBSERVATION_DOMAIN);
         for (package, hash) in &value.packages {
             builder.write_str(&package.namespace);
             builder.write_str(&package.name);

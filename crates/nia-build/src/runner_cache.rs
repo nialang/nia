@@ -6,10 +6,12 @@ use std::io;
 use std::path::PathBuf;
 
 use nia_compat::toolchain::BUILD_PROTOCOL;
+use nia_query::FingerprintDomain;
 
 use crate::{BuildError, BuildInvocation, BuildRunnerSource, OptimizationMode};
 
 const CACHE_SCHEMA: &str = "v4";
+const RUNNER_CACHE_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.build.runner-cache.v2");
 
 /// Canonical compiled-package product path for a generated build runner.
 pub(super) fn package_path(invocation: &BuildInvocation, key: &str) -> PathBuf {
@@ -64,7 +66,7 @@ pub(super) fn cache_key(
     // The cache schema and identity inputs are versioned together. Bumping
     // this domain forces a miss whenever the key construction changes,
     // without relying on stale products from an older implementation.
-    hasher.update(b"nia.build.runner-cache.v2");
+    hasher.update(RUNNER_CACHE_DOMAIN.as_str().as_bytes());
     hasher.update(runner.source.as_bytes());
     hash_file(&mut hasher, &invocation.build_script, runner)?;
     let std_artifact = invocation.toolchain.std_package_artifact(
