@@ -61,11 +61,7 @@ pub enum PackageArtifactMismatch {
         expected: String,
         found: String,
     },
-    StandardLibrarySchema {
-        expected: u32,
-        found: u32,
-    },
-    MetadataSchema {
+    ReleaseCompatibility {
         expected: u32,
         found: u32,
     },
@@ -253,18 +249,10 @@ pub(crate) fn load(
             found: manifest.compiler_version.clone(),
         })
         .or_else(|| {
-            (manifest.std_schema != compatibility.release_compatibility).then(|| {
-                PackageArtifactMismatch::StandardLibrarySchema {
+            (manifest.release_compatibility != compatibility.release_compatibility).then(|| {
+                PackageArtifactMismatch::ReleaseCompatibility {
                     expected: compatibility.release_compatibility,
-                    found: manifest.std_schema,
-                }
-            })
-        })
-        .or_else(|| {
-            (manifest.schema_version != compatibility.release_compatibility).then(|| {
-                PackageArtifactMismatch::MetadataSchema {
-                    expected: compatibility.release_compatibility,
-                    found: manifest.schema_version,
+                    found: manifest.release_compatibility,
                 }
             })
         })

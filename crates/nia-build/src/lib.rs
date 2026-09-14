@@ -1255,7 +1255,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let source = source
         .replace(
             "__NIA_RUNNER_CONFIG_SCHEMA_VERSION__",
-            &RUNNER_CONFIG.schema.to_string(),
+            &RUNNER_CONFIG.release_compatibility.to_string(),
         )
         .replace(
             "__NIA_RUNNER_CONFIG_MAX_BYTES__",
@@ -1928,7 +1928,7 @@ mod tests {
         assert!(runner.source.contains("runnerConfigChecksum(payload)"));
         assert!(runner.source.contains(&format!(
             "envelope.u32().reportAndExit(init).? != {}u32",
-            RUNNER_CONFIG.schema
+            RUNNER_CONFIG.release_compatibility
         )));
         assert!(runner.source.contains(&format!(
             "configLen64 > {}u64",
@@ -2013,7 +2013,7 @@ mod tests {
         assert_eq!(&encoded[..8], RUNNER_CONFIG.magic);
         assert_eq!(
             u32::from_le_bytes(encoded[8..12].try_into().unwrap()),
-            RUNNER_CONFIG.schema
+            RUNNER_CONFIG.release_compatibility
         );
         assert!(
             encoded

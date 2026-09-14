@@ -115,7 +115,7 @@ impl BuildPlan {
             return Err(PlanCodecError::BadMagic);
         }
         let version = reader.u32()?;
-        if version != BUILD_PLAN.schema {
+        if version != BUILD_PLAN.release_compatibility {
             return Err(PlanCodecError::UnsupportedVersion(version));
         }
         let root_package = reader.package_key()?;
@@ -939,7 +939,7 @@ mod tests {
     fn encode_draft_without_freeze(draft: &BuildPlanDraft) -> Vec<u8> {
         let mut writer = Writer::new();
         writer.bytes(BUILD_PLAN.magic);
-        writer.u32(BUILD_PLAN.schema);
+        writer.u32(BUILD_PLAN.release_compatibility);
         writer.package_key(&draft.root_package).unwrap();
         writer.count(draft.packages.len()).unwrap();
         for package in &draft.packages {
@@ -1296,10 +1296,12 @@ mod tests {
         let plan = BuildPlan::freeze(draft(false)).unwrap();
         let bytes = plan.encode().unwrap();
         let mut unknown = bytes.clone();
-        unknown[8..12].copy_from_slice(&(BUILD_PLAN.schema + 1).to_le_bytes());
+        unknown[8..12].copy_from_slice(&(BUILD_PLAN.release_compatibility + 1).to_le_bytes());
         assert_eq!(
             BuildPlan::decode(&unknown),
-            Err(PlanCodecError::UnsupportedVersion(BUILD_PLAN.schema + 1))
+            Err(PlanCodecError::UnsupportedVersion(
+                BUILD_PLAN.release_compatibility + 1
+            ))
         );
         assert!(matches!(
             BuildPlan::decode(&bytes[..bytes.len() - 1]),

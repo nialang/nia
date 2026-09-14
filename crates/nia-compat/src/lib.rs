@@ -12,9 +12,13 @@ pub const COMPILER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Release-scoped compatibility epoch shared by every persisted compiler
 /// product and ABI boundary. The epoch is derived from the public release
-/// line (`0.1.x` => 1, `0.2.x` => 2, `1.0.x` => 100) rather than from the
+/// line (`0.1.x` => 1, `0.2.x` => 2, `1.0.x` => 1000) rather than from the
 /// number of implementation changes made during development.
 pub const RELEASE_COMPATIBILITY: u32 = release_compatibility(COMPILER_VERSION);
+/// Canonical directory component for release-scoped persistent namespaces.
+/// This is maintained in one place; individual products do not carry their
+/// own directory version counters.
+pub const RELEASE_NAMESPACE_PATH: &str = "v2";
 
 const fn decimal_component(bytes: &[u8], start: usize, end: usize) -> u32 {
     let mut value = 0;
@@ -64,9 +68,8 @@ pub mod toolchain {
 }
 
 /// Binary payload identity consisting of a diagnostic name, magic, and the
-/// release compatibility epoch. The third constructor argument is retained
-/// only at the call sites during this migration and is intentionally ignored;
-/// all payloads share the same release-derived value.
+/// release compatibility epoch. All payloads share the same release-derived
+/// value; the magic only identifies the payload kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PersistedFormat {
     /// Human-readable registry identity.
@@ -74,7 +77,7 @@ pub struct PersistedFormat {
     /// Exact eight-byte prefix distinguishing this payload kind and generation.
     pub magic: &'static [u8; 8],
     /// Release compatibility epoch.
-    pub schema: u32,
+    pub release_compatibility: u32,
 }
 
 impl PersistedFormat {
@@ -83,7 +86,7 @@ impl PersistedFormat {
         Self {
             name,
             magic,
-            schema: RELEASE_COMPATIBILITY,
+            release_compatibility: RELEASE_COMPATIBILITY,
         }
     }
 }
@@ -94,18 +97,18 @@ pub struct PersistedNamespace {
     /// Human-readable registry identity.
     pub name: &'static str,
     /// Release compatibility epoch.
-    pub schema: u32,
+    pub release_compatibility: u32,
     /// Directory component for this release line.
     pub path_component: &'static str,
 }
 
 impl PersistedNamespace {
     /// Defines one versioned persistence namespace.
-    pub const fn new(name: &'static str, path_component: &'static str) -> Self {
+    pub const fn new(name: &'static str) -> Self {
         Self {
             name,
-            schema: RELEASE_COMPATIBILITY,
-            path_component,
+            release_compatibility: RELEASE_COMPATIBILITY,
+            path_component: RELEASE_NAMESPACE_PATH,
         }
     }
 }
@@ -120,7 +123,7 @@ pub mod formats {
     pub const RUNNER_CONFIG: PersistedFormat = PersistedFormat::new("runner-config", b"NIARUNCF");
 
     /// Shared namespace for persistent frontend products.
-    pub const FRONTEND_CACHE: PersistedNamespace = PersistedNamespace::new("frontend-cache", "v2");
+    pub const FRONTEND_CACHE: PersistedNamespace = PersistedNamespace::new("frontend-cache");
     /// Source dependency manifest for validating a frontend cache entry.
     pub const FRONTEND_DEPENDENCY_MANIFEST: PersistedFormat =
         PersistedFormat::new("frontend-dependency-manifest", b"NIAFDM01");
@@ -167,32 +170,32 @@ pub mod formats {
 
     /// Build-action cache namespace for generated files.
     pub const GENERATED_FILE_CACHE: PersistedNamespace =
-        PersistedNamespace::new("generated-file-cache", "v2");
+        PersistedNamespace::new("generated-file-cache");
     /// Cached generated-file action result.
     pub const GENERATED_FILE_ENTRY: PersistedFormat =
         PersistedFormat::new("generated-file-entry", b"NIAGEN01");
     /// Build-action cache namespace for external commands.
     pub const EXTERNAL_COMMAND_CACHE: PersistedNamespace =
-        PersistedNamespace::new("external-command-cache", "v2");
+        PersistedNamespace::new("external-command-cache");
     /// Cached external-command action result.
     pub const EXTERNAL_COMMAND_ENTRY: PersistedFormat =
         PersistedFormat::new("external-command-entry", b"NIACMD01");
     /// Build-action cache namespace for compiler checks.
     pub const COMPILER_CHECK_CACHE: PersistedNamespace =
-        PersistedNamespace::new("compiler-check-cache", "v2");
+        PersistedNamespace::new("compiler-check-cache");
     /// Cached compiler-check action result.
     pub const COMPILER_CHECK_ENTRY: PersistedFormat =
         PersistedFormat::new("compiler-check-entry", b"NIACKC01");
     /// Build-action cache namespace for compiler emission.
     pub const COMPILER_EMIT_CACHE: PersistedNamespace =
-        PersistedNamespace::new("compiler-emit-cache", "v2");
+        PersistedNamespace::new("compiler-emit-cache");
     /// Cached compiler-emission action result.
     pub const COMPILER_EMIT_ENTRY: PersistedFormat =
         PersistedFormat::new("compiler-emit-entry", b"NIAKCE01");
 
     /// Namespace for recoverable output publication transactions.
     pub const OUTPUT_TRANSACTION: PersistedNamespace =
-        PersistedNamespace::new("output-transaction", "v2");
+        PersistedNamespace::new("output-transaction");
     /// Journal recording output transaction state and recovery intent.
     pub const OUTPUT_TRANSACTION_JOURNAL: PersistedFormat =
         PersistedFormat::new("output-transaction-journal", b"NIATXN01");
@@ -202,18 +205,17 @@ pub mod formats {
 
     /// Driver namespace for incremental object work products.
     pub const OBJECT_WORK_PRODUCT_CACHE: PersistedNamespace =
-        PersistedNamespace::new("object-work-product-cache", "v2");
+        PersistedNamespace::new("object-work-product-cache");
     /// Persisted object work product and validation metadata.
     pub const OBJECT_WORK_PRODUCT: PersistedFormat =
         PersistedFormat::new("object-work-product", b"NIAOBJ01");
     /// Driver namespace for executable link results.
-    pub const LINK_RESULT_CACHE: PersistedNamespace =
-        PersistedNamespace::new("link-result-cache", "v2");
+    pub const LINK_RESULT_CACHE: PersistedNamespace = PersistedNamespace::new("link-result-cache");
     /// Persisted executable link result and component fingerprints.
     pub const LINK_RESULT: PersistedFormat = PersistedFormat::new("link-result", b"NIALNK01");
     /// Driver namespace for static archive results.
     pub const ARCHIVE_RESULT_CACHE: PersistedNamespace =
-        PersistedNamespace::new("archive-result-cache", "v2");
+        PersistedNamespace::new("archive-result-cache");
     /// Persisted static archive result and component fingerprints.
     pub const ARCHIVE_RESULT: PersistedFormat = PersistedFormat::new("archive-result", b"NIAARC01");
     /// Compiled package metadata container.
@@ -277,7 +279,7 @@ pub fn toolchain_manifest() -> String {
 mod tests {
     use std::{collections::BTreeSet, fs, path::PathBuf};
 
-    use super::{formats, toolchain_manifest};
+    use super::{RELEASE_COMPATIBILITY, formats, toolchain_manifest};
 
     #[test]
     fn release_compatibility_follows_public_release_line() {
@@ -292,7 +294,11 @@ mod tests {
         let mut names = BTreeSet::new();
         let mut magics = BTreeSet::new();
         for format in formats::ALL {
-            assert!(format.schema > 0, "{} has no schema", format.name);
+            assert!(
+                format.release_compatibility > 0,
+                "{} has no release compatibility",
+                format.name
+            );
             assert!(
                 names.insert(format.name),
                 "duplicate format name {}",
@@ -315,7 +321,8 @@ mod tests {
                 "duplicate namespace name {}",
                 namespace.name
             );
-            assert_eq!(namespace.path_component, "v2");
+            assert_eq!(namespace.release_compatibility, RELEASE_COMPATIBILITY);
+            assert_eq!(namespace.path_component, super::RELEASE_NAMESPACE_PATH);
         }
     }
 
