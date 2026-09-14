@@ -118,6 +118,18 @@ or action-cache work. The representative fixture continues to cover clean,
 warm, source-edit, module-map-edit, corruption recovery, clean-equivalent
 artifacts, and failed-action behavior.
 
+The current cold-build evidence is split into two different claims. The
+runner-only clean baseline was about 36.1 seconds before native emission reuse;
+the current implementation measures about 24.5--24.8 seconds on the same
+workload (roughly a 31% reduction). This is a material improvement to the
+build-script path, but it is not a claim that every cold Nia compilation now
+matches Rust or Zig. The older empty-build clean baseline remains about 34.0
+seconds and needs its own frontend/query investigation. Conversely, an
+unchanged source-free runner rebuild is a warm artifact case: the v6 package
+artifact restores 258 native inputs and relinks in about 0.63 seconds without
+semantic or codegen fallback. That result must not be conflated with cold
+compilation.
+
 Generated build runners use content-addressed `.nia-cache/runner/v4/<key>.niapkg`
 package artifacts. The key includes the generated source, build-script bytes,
 selected standard-library artifact, toolchain identity, host target, profile,

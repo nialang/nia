@@ -36,9 +36,9 @@ const TEMPLATE_SCHEMA: u32 = 6;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
 const TEMPLATE_SUMMARY_SCHEMA: u32 = 1;
 const NATIVE_MAGIC: &[u8; 8] = b"NIANAT01";
-// Version 5 stores all optimization variants for one manifest-owned semantic
-// target/profile context. There is intentionally no legacy decode path.
-const NATIVE_SCHEMA: u32 = 5;
+// Version 6 stores consumer-owned specialization objects with their
+// dependency module identity. There is intentionally no legacy decode path.
+const NATIVE_SCHEMA: u32 = 6;
 const PUBLIC_SURFACE_MAGIC: &[u8; 8] = b"NIAPUB01";
 const PUBLIC_SURFACE_SCHEMA: u32 = 2;
 
@@ -897,6 +897,15 @@ pub enum NativeObjectOwner {
     PackageModule { module: ModuleId, ordinal: u32 },
     /// Runtime startup object specialized for the selected runtime contract.
     RuntimeStartup { module: ModuleId, ordinal: u32 },
+    /// Object emitted for a dependency module in the consuming package's
+    /// specialization context. The dependency identity is retained so the
+    /// linker can distinguish it from the dependency's ordinary package
+    /// object with the same source partition.
+    PackageSpecialization {
+        package: PackageId,
+        module: ModuleId,
+        ordinal: u32,
+    },
 }
 
 impl NativeObjectOwner {
@@ -904,15 +913,27 @@ impl NativeObjectOwner {
     pub fn module(&self) -> Option<&ModuleId> {
         match self {
             Self::CompilerBuiltins => None,
-            Self::PackageModule { module, .. } | Self::RuntimeStartup { module, .. } => {
-                Some(module)
-            }
+            Self::PackageModule { module, .. }
+            | Self::RuntimeStartup { module, .. }
+            | Self::PackageSpecialization { module, .. } => Some(module),
         }
     }
 
     /// Returns whether this object supplies runtime startup code.
     pub fn is_runtime_startup(&self) -> bool {
         matches!(self, Self::RuntimeStartup { .. })
+    }
+
+    /// Returns the package that owns the emitted object, when the role has an
+    /// explicit package boundary.
+    pub fn package(&self) -> Option<&PackageId> {
+        match self {
+            Self::CompilerBuiltins => None,
+            Self::PackageModule { module, .. } | Self::RuntimeStartup { module, .. } => {
+                Some(&module.package)
+            }
+            Self::PackageSpecialization { package, .. } => Some(package),
+        }
     }
 }
 
@@ -1605,6 +1626,19 @@ impl CompiledPackageInterface {
         let native = artifact.native()?;
         let public_surface = artifact.public_surface()?;
         let signatures = artifact.signatures()?;
+        if let Some(native) = &native
+            && native.variants.iter().any(|variant| {
+                variant.objects.iter().any(|object| {
+                    matches!(
+                        &object.owner,
+                        NativeObjectOwner::PackageSpecialization { package, .. }
+                            if package != &artifact.manifest().package
+                    )
+                })
+            })
+        {
+            return Err(MetadataError::InvalidManifest);
+        }
         if let Some(surface) = &public_surface {
             surface.validate()?;
             if surface.package != artifact.manifest().package {
@@ -3024,6 +3058,16 @@ fn put_native_object_owner(
             put_module_id(output, module)?;
             put_u32(output, *ordinal);
         }
+        NativeObjectOwner::PackageSpecialization {
+            package,
+            module,
+            ordinal,
+        } => {
+            output.push(3);
+            put_id(output, package)?;
+            put_module_id(output, module)?;
+            put_u32(output, *ordinal);
+        }
     }
     Ok(())
 }
@@ -3041,6 +3085,11 @@ fn read_native_object_owner(
             ordinal: get_u32(cursor)?,
         },
         2 => NativeObjectOwner::CompilerBuiltins,
+        3 => NativeObjectOwner::PackageSpecialization {
+            package: get_id(cursor)?,
+            module: read_module_id(cursor)?,
+            ordinal: get_u32(cursor)?,
+        },
         _ => return Err(MetadataError::InvalidManifest),
     };
     if let Some(module) = owner.module() {
@@ -4279,7 +4328,20 @@ mod tests {
             module: module("src/lib.nia"),
             ordinal: 0,
         };
+        let specialization = NativeObjectOwner::PackageSpecialization {
+            package: package.clone(),
+            module: ModuleId {
+                package: PackageId {
+                    namespace: "dependency".into(),
+                    name: "library".into(),
+                    version: "1".into(),
+                },
+                path: "src/generic.nia".into(),
+            },
+            ordinal: 1,
+        };
         assert_ne!(startup, ordinary);
+        assert_ne!(specialization, ordinary);
         assert_eq!(builtins.module(), None);
         let mut section = NativeSection {
             variants: vec![NativeVariant {
@@ -4303,6 +4365,12 @@ mod tests {
                         fingerprint: [2, 0],
                         bytes: vec![2],
                     },
+                    NativeObject {
+                        owner: specialization,
+                        key: "specialization".into(),
+                        fingerprint: [3, 0],
+                        bytes: vec![4],
+                    },
                 ],
             }],
         };
@@ -4310,6 +4378,82 @@ mod tests {
         assert_eq!(decode_native(&bytes).unwrap(), section);
         section.variants[0].objects[2].owner = ordinary;
         assert_eq!(encode_native(&section), Err(MetadataError::InvalidManifest));
+    }
+
+    #[test]
+    fn specialization_owner_must_match_artifact_package() {
+        let manifest = sample();
+        let owner = NativeObjectOwner::PackageSpecialization {
+            package: PackageId {
+                namespace: "other".into(),
+                name: "consumer".into(),
+                version: "1".into(),
+            },
+            module: ModuleId {
+                package: PackageId {
+                    namespace: "dependency".into(),
+                    name: "library".into(),
+                    version: "1".into(),
+                },
+                path: "src/generic.nia".into(),
+            },
+            ordinal: 0,
+        };
+        let native = NativeSection {
+            variants: vec![NativeVariant {
+                optimization: 0,
+                objects: vec![NativeObject {
+                    owner,
+                    key: "specialization".into(),
+                    fingerprint: [1, 2],
+                    bytes: vec![1],
+                }],
+            }],
+        };
+        let native_bytes = encode_native(&native).unwrap();
+        let bytes = encode_artifact(&manifest, &[(SectionKind::Native, &native_bytes)]).unwrap();
+        let artifact = PackageArtifact::open(bytes).unwrap();
+        assert_eq!(
+            CompiledPackageInterface::from_artifact(&artifact),
+            Err(MetadataError::InvalidManifest)
+        );
+    }
+
+    #[test]
+    fn published_artifact_retains_consumer_owned_specialization() {
+        let manifest = sample();
+        let owner = NativeObjectOwner::PackageSpecialization {
+            package: manifest.package.clone(),
+            module: ModuleId {
+                package: PackageId {
+                    namespace: "dependency".into(),
+                    name: "library".into(),
+                    version: "1".into(),
+                },
+                path: "src/generic.nia".into(),
+            },
+            ordinal: 7,
+        };
+        let native = NativeSection {
+            variants: vec![NativeVariant {
+                optimization: 0,
+                objects: vec![NativeObject {
+                    owner: owner.clone(),
+                    key: "specialization".into(),
+                    fingerprint: [9, 4],
+                    bytes: vec![1, 2, 3],
+                }],
+            }],
+        };
+        let native_bytes = encode_native(&native).unwrap();
+        let artifact_bytes =
+            encode_artifact(&manifest, &[(SectionKind::Native, &native_bytes)]).unwrap();
+        let artifact = PackageArtifact::open(artifact_bytes).unwrap();
+        let restored = artifact
+            .native()
+            .unwrap()
+            .expect("published native section");
+        assert_eq!(restored.variants[0].objects[0].owner, owner);
     }
 
     #[test]
