@@ -283,7 +283,7 @@ impl nia_query::QueryKey<LoaderContext> for SemanticFieldParent {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<nia_query::QueryFingerprint> {
         let mut builder = nia_query::QueryFingerprintBuilder::new(
-            nia_query::FingerprintDomain::new("nia.loader.test.semantic-field-parent.v1"),
+            nia_query::FingerprintDomain::new("nia.loader.test.semantic-field-parent"),
         );
         builder.write_u64(*value as u64);
         Some(builder.finish())

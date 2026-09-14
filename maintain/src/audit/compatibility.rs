@@ -8,9 +8,8 @@ use regex::Regex;
 use crate::MaintainResult;
 
 const REGISTRY: &str = "crates/nia-compat/src/lib.rs";
-const DOMAIN_IDENTITY: &str =
-    r"nia\.[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)*\.v[1-9][0-9]*";
-const FORBIDDEN_IDENTITY_NAMES: [&str; 13] = [
+const DOMAIN_IDENTITY: &str = r"nia\.[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)*";
+const FORBIDDEN_IDENTITY_NAMES: [&str; 14] = [
     "RESOURCE_LAYOUT_SCHEMA",
     "STD_SCHEMA",
     "BUILD_PROTOCOL_SCHEMA",
@@ -24,6 +23,7 @@ const FORBIDDEN_IDENTITY_NAMES: [&str; 13] = [
     "OBJECT_WORK_PRODUCT_SCHEMA",
     "LINK_RESULT_SCHEMA",
     "ARCHIVE_SCHEMA",
+    "SCHEMA_VERSION",
 ];
 const TEXT_SUFFIXES: [&str; 12] = [
     "json", "md", "meta", "nia", "py", "rs", "sh", "toml", "txt", "yaml", "yml", "lock",
@@ -179,6 +179,13 @@ fn decode_byte_string(value: &str) -> Option<Vec<u8>> {
     Some(decoded)
 }
 
+fn has_numeric_version_suffix(domain: &str) -> bool {
+    let Some((_, suffix)) = domain.rsplit_once(".v") else {
+        return false;
+    };
+    !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+}
+
 fn registered_magics(root: &Path) -> MaintainResult<BTreeSet<Vec<u8>>> {
     let registry = root.join(REGISTRY);
     let source = fs::read_to_string(&registry)
@@ -201,7 +208,7 @@ pub fn fingerprint_domain_errors(root: &Path) -> MaintainResult<Vec<String>> {
             let matched = captures.get(1).expect("constructor domain capture");
             let domain = matched.as_str();
             checked.insert((matched.start(), domain.to_owned()));
-            if !DOMAIN.is_match(domain) {
+            if !DOMAIN.is_match(domain) || has_numeric_version_suffix(domain) {
                 errors.push(format!("{path}: invalid fingerprint domain `{domain}`"));
             }
         }
@@ -211,7 +218,9 @@ pub fn fingerprint_domain_errors(root: &Path) -> MaintainResult<Vec<String>> {
             if !value.starts_with("nia.") || value == "nia.compiler_builtins" {
                 continue;
             }
-            if !DOMAIN.is_match(value) && !checked.contains(&(matched.start(), value.to_owned())) {
+            if (!DOMAIN.is_match(value) || has_numeric_version_suffix(value))
+                && !checked.contains(&(matched.start(), value.to_owned()))
+            {
                 errors.push(format!("{path}: invalid Nia identity string `{value}`"));
             }
         }
@@ -235,10 +244,17 @@ pub fn typed_fingerprint_domain_errors(root: &Path) -> MaintainResult<Vec<String
                 .filter(|byte| *byte == b'\n')
                 .count()
                 + 1;
-            declarations
-                .entry(domain.as_str().to_owned())
-                .or_default()
-                .push(format!("{path}:{line}"));
+            if has_numeric_version_suffix(domain.as_str()) {
+                errors.push(format!(
+                    "{path}:{line}: fingerprint domain uses numeric version suffix `{}`",
+                    domain.as_str()
+                ));
+            } else {
+                declarations
+                    .entry(domain.as_str().to_owned())
+                    .or_default()
+                    .push(format!("{path}:{line}"));
+            }
         }
         for captures in CONSTRUCTOR_DOMAIN.captures_iter(&source) {
             errors.push(format!(
@@ -383,18 +399,18 @@ mod tests {
         );
         directory.write(
             "crates/nia-compat/src/lib.rs",
-            "pub const FORMAT: &[u8; 8] = b\"NIAFMT01\";\n",
+            "pub const FORMAT: &[u8; 8] = b\"NIAFMT\\0\\0\";\n",
         );
         directory.write("crates/owner/src/lib.rs", "");
         directory
     }
 
     #[test]
-    fn accepts_versioned_fingerprint_domains() {
+    fn accepts_semantic_fingerprint_domains() {
         let directory = repository("valid-domain");
         directory.write(
             "crates/owner/src/lib.rs",
-            "const PRODUCT_DOMAIN: FingerprintDomain =\n    FingerprintDomain::new(\"nia.owner.product.v2\");\nQueryFingerprintBuilder::new(PRODUCT_DOMAIN);\n",
+            "const PRODUCT_DOMAIN: FingerprintDomain =\n    FingerprintDomain::new(\"nia.owner.product\");\nQueryFingerprintBuilder::new(PRODUCT_DOMAIN);\n",
         );
         assert!(
             fingerprint_domain_errors(directory.path())
@@ -409,11 +425,11 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unversioned_and_raw_constructor_domains() {
+    fn rejects_raw_constructor_domains() {
         let directory = repository("raw-domain");
         directory.write(
             "crates/owner/src/lib.rs",
-            "QueryFingerprintBuilder::new(\"nia.owner.product.v2\");\nQueryFingerprintBuilder::new(\"owner-product\");\n",
+            "QueryFingerprintBuilder::new(\"nia.owner.product\");\nQueryFingerprintBuilder::new(\"owner-product\");\n",
         );
         assert!(fingerprint_domain_errors(directory.path()).unwrap()[0].contains("owner-product"));
         assert!(
@@ -426,7 +442,7 @@ mod tests {
         let directory = repository("duplicate-domain");
         directory.write(
             "crates/owner/src/lib.rs",
-            "const BAD_DOMAIN: FingerprintDomain = FingerprintDomain::new(\"nia.owner..product.v2\");\nconst FIRST_DOMAIN: FingerprintDomain = FingerprintDomain::new(\"nia.owner.product.v2\");\nconst SECOND_DOMAIN: FingerprintDomain = FingerprintDomain::new(\"nia.owner.product.v2\");\n",
+            "const BAD_DOMAIN: FingerprintDomain = FingerprintDomain::new(\"nia.owner..product\");\nconst FIRST_DOMAIN: FingerprintDomain = FingerprintDomain::new(\"nia.owner.product\");\nconst SECOND_DOMAIN: FingerprintDomain = FingerprintDomain::new(\"nia.owner.product\");\n",
         );
         assert!(fingerprint_domain_errors(directory.path()).unwrap()[0].contains("owner..product"));
         assert!(
@@ -442,7 +458,7 @@ mod tests {
         let directory = repository("duplicate-magic");
         directory.write(
             "crates/owner/src/lib.rs",
-            "const MAGIC: &[u8; 8] = b\"NIAFMT01\";\n",
+            "const MAGIC: &[u8; 8] = b\"NIAFMT\\0\\0\";\n",
         );
         assert!(
             global_identity_errors(directory.path()).unwrap()[0].contains("outside nia-compat")

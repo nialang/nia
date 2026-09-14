@@ -135,7 +135,7 @@ mod tests {
         host_target: TargetConfig,
         artifact_target: TargetConfig,
         optimization: u32,
-        plan_schema: u32,
+        plan_compatibility: u32,
         plan_draft: String,
         step: Option<String>,
         test_mode: bool,
@@ -168,7 +168,7 @@ mod tests {
             *invocation.toolchain.artifact_target()
         );
         assert_eq!(decoded.optimization, 5);
-        assert_eq!(decoded.plan_schema, BUILD_PLAN.release_compatibility);
+        assert_eq!(decoded.plan_compatibility, BUILD_PLAN.release_compatibility);
         assert_eq!(decoded.step.as_deref(), Some("install"));
     }
 
@@ -322,7 +322,7 @@ mod tests {
         if optimization > 5 {
             return Err(DecodeError::Tag);
         }
-        let plan_schema = cursor.u32()?;
+        let plan_compatibility = cursor.u32()?;
         let plan_draft = cursor.text()?;
         let (step, test_mode) = match cursor.byte()? {
             0 => (None, false),
@@ -342,7 +342,7 @@ mod tests {
             host_target,
             artifact_target,
             optimization,
-            plan_schema,
+            plan_compatibility,
             plan_draft,
             step,
             test_mode,

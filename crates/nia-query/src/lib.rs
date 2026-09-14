@@ -20,8 +20,7 @@ pub use resources::{
     effective_memory_limit_bytes, llvm_memory_task_capacity,
 };
 
-const SEMANTIC_VALUE_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.query.semantic-value.v1");
+const SEMANTIC_VALUE_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.query.semantic-value");
 
 use std::{
     any::{Any, TypeId},

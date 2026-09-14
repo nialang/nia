@@ -95,51 +95,51 @@ mod providers;
 mod registry;
 
 const PROVIDER_FACT_WORKLIST_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.provider-fact-worklist.v1");
+    FingerprintDomain::new("nia.compiler.provider-fact-worklist");
 const PROVIDER_FACT_REVISION_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.provider-fact-revision.v1");
+    FingerprintDomain::new("nia.compiler.provider-fact-revision");
 const PROVIDER_DEMAND_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.provider-demand.v1");
+    FingerprintDomain::new("nia.compiler.provider-demand");
 const CHECK_CERTIFICATE_INPUT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.check-certificate-input.v1");
+    FingerprintDomain::new("nia.compiler.check-certificate-input");
 const MODULE_GRAPH_PATH_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.module-graph-path.v1");
+    FingerprintDomain::new("nia.compiler.module-graph-path");
 const MODULE_GRAPH_ENTRY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.module-graph-entry.v1");
+    FingerprintDomain::new("nia.compiler.module-graph-entry");
 const MODULE_GRAPH_PARENT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.module-graph-parent.v1");
+    FingerprintDomain::new("nia.compiler.module-graph-parent");
 const MODULE_GRAPH_CHILD_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.module-graph-child.v1");
+    FingerprintDomain::new("nia.compiler.module-graph-child");
 const MODULE_PACKAGE_ROOT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.module-package-root.v1");
+    FingerprintDomain::new("nia.compiler.module-package-root");
 const LOADED_MODULES_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.loaded-modules.v1");
+    FingerprintDomain::new("nia.compiler.loaded-modules");
 const PARSE_OK_MODULE_IDS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.parse-ok-module-ids.v1");
+    FingerprintDomain::new("nia.compiler.parse-ok-module-ids");
 const SEMANTIC_MODULE_IDS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.semantic-module-ids.v1");
+    FingerprintDomain::new("nia.compiler.semantic-module-ids");
 const MODULE_SOURCE_PATH_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.module-source-path.v1");
+    FingerprintDomain::new("nia.compiler.module-source-path");
 const MODULE_SOURCE_VERSION_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.module-source-version.v1");
+    FingerprintDomain::new("nia.compiler.module-source-version");
 const PUBLIC_SURFACE_MODULE_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.public-surface-module.v1");
+    FingerprintDomain::new("nia.compiler.public-surface-module");
 const USING_SCOPE_MODULE_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.using-scope-module.v1");
+    FingerprintDomain::new("nia.compiler.using-scope-module");
 const PROGRAM_SIGNATURE_MODULE_IDS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.program-signature-module-ids.v1");
+    FingerprintDomain::new("nia.compiler.program-signature-module-ids");
 const PROGRAM_SIGNATURE_MODULE_ELIGIBILITY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.program-signature-module-eligibility.v1");
+    FingerprintDomain::new("nia.compiler.program-signature-module-eligibility");
 const EXTENSION_PROVIDER_MODULE_IDS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.extension-provider-module-ids.v1");
+    FingerprintDomain::new("nia.compiler.extension-provider-module-ids");
 const EXTENSION_PROVIDER_MODULE_ELIGIBILITY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.extension-provider-module-eligibility.v1");
+    FingerprintDomain::new("nia.compiler.extension-provider-module-eligibility");
 const PROVIDER_SUMMARY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.provider-summary.v1");
+    FingerprintDomain::new("nia.compiler.provider-summary");
 const COMPILED_INTERFACE_INDEX_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.compiled-interface-index.v1");
+    FingerprintDomain::new("nia.compiler.compiled-interface-index");
 const COMPILED_NATIVE_OBSERVATION_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.compiled-native-observation.v1");
+    FingerprintDomain::new("nia.compiler.compiled-native-observation");
 mod resolve;
 mod static_init_queries;
 mod types;
@@ -5933,7 +5933,7 @@ fn append_definition_key(bytes: &mut Vec<u8>, definition: &DefinitionId) {
 
 fn declaration_signature(def: &nia_defs::Def) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(24 + def.generics.len() * 8);
-    bytes.extend_from_slice(b"NIADECL01");
+    bytes.extend_from_slice(nia_package_metadata::DECLARATION_MAGIC);
     bytes.push(def_kind_tag(def.kind));
     bytes.push(match def.visibility {
         nia_defs::Visibility::Private => 0,

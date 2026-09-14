@@ -131,7 +131,7 @@ pub fn run(options: &Options) -> MaintainResult<()> {
         .map(|run| workload_acceptance(run))
         .collect::<MaintainResult<Vec<_>>>()?;
     let baseline = BuildBaseline {
-        schema_version: 2,
+        release_compatibility: nia_compat::RELEASE_COMPATIBILITY,
         kind: "nia-build-baseline",
         machine: machine_metadata(None),
         fixture: "benchmarks/build/representative",

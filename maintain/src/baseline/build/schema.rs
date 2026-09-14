@@ -8,8 +8,8 @@ use crate::system::machine::MachineMetadata;
 #[derive(Debug, Clone, Serialize)]
 /// Action-execution outcome emitted by the build coordinator.
 pub struct ActionReport {
-    /// Report schema version.
-    pub schema_version: u32,
+    /// Nia release compatibility recorded by the report.
+    pub release_compatibility: u32,
     /// Stable report kind discriminator.
     pub kind: String,
     /// Whether every selected action succeeded.
@@ -192,8 +192,8 @@ pub(super) struct AggregateAcceptance {
 #[derive(Debug, Serialize)]
 /// Schema-v2 representative and runner-only build baseline report.
 pub(super) struct BuildBaseline<'a> {
-    /// Baseline schema version.
-    pub(super) schema_version: u32,
+    /// Nia release compatibility recorded by the baseline.
+    pub(super) release_compatibility: u32,
     /// Stable report kind discriminator.
     pub(super) kind: &'static str,
     /// Machine and resource identity for the run.

@@ -47,25 +47,25 @@ static CACHE_STAGE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 /// object payloads. Keep their budget aligned with compiler persistence files.
 const MAX_COMPILER_CACHE_ENTRY_BYTES: usize = 64 * 1024 * 1024;
 const GENERATED_FILE_COMPILER_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.generated-file-compiler.v1");
+    FingerprintDomain::new("nia.build.generated-file-compiler");
 const GENERATED_FILE_RESOURCE_LAYOUT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.generated-file-resource-layout.v1");
+    FingerprintDomain::new("nia.build.generated-file-resource-layout");
 const GENERATED_FILE_STANDARD_LIBRARY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.generated-file-standard-library.v1");
+    FingerprintDomain::new("nia.build.generated-file-standard-library");
 const GENERATED_FILE_BUILD_PROTOCOL_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.generated-file-build-protocol.v1");
+    FingerprintDomain::new("nia.build.generated-file-build-protocol");
 const GENERATED_FILE_FINGERPRINT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.generated-file-fingerprint.v1");
+    FingerprintDomain::new("nia.build.generated-file-fingerprint");
 const ACTION_CACHE_MUTATION_LOCK_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.action-cache-mutation-lock.v1");
+    FingerprintDomain::new("nia.build.action-cache-mutation-lock");
 const GENERATED_FILE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.generated-file-key.v1");
+    FingerprintDomain::new("nia.build.generated-file-key");
 const GENERATED_FILE_CONTENTS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.generated-file-contents.v1");
+    FingerprintDomain::new("nia.build.generated-file-contents");
 const GENERATED_FILE_OUTPUT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.generated-file-output.v1");
+    FingerprintDomain::new("nia.build.generated-file-output");
 const GENERATED_FILE_PAYLOAD_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.generated-file-payload.v1");
+    FingerprintDomain::new("nia.build.generated-file-payload");
 const GENERATED_FILE_STREAM_BUFFER_BYTES: usize = 64 * 1024;
 // An artifact-rooted logical path contains at most package, artifact, and path
 // strings, each bounded by the canonical build-plan codec.

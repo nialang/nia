@@ -67,15 +67,15 @@ pub(crate) use type_graph::*;
 const MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SEQUENCE_LEN: usize = 1_000_000;
 const TYPE_RESOLUTION_ENTRY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.signature-type-resolution.entry.v1");
+    FingerprintDomain::new("nia.signature-type-resolution.entry");
 const TYPE_LOWERING_ENTRY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.signature-type-lowering.entry.v1");
+    FingerprintDomain::new("nia.signature-type-lowering.entry");
 const ITEM_SIGNATURES_ENTRY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.signature-item-signatures.entry.v1");
+    FingerprintDomain::new("nia.signature-item-signatures.entry");
 const EXTENSION_VALIDATION_DIAGNOSTICS_ENTRY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.extension-validation-diagnostics.entry.v1");
+    FingerprintDomain::new("nia.extension-validation-diagnostics.entry");
 const EXECUTABLE_VALUE_REF_EDGES_ENTRY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.executable-value-ref-edges.entry.v1");
+    FingerprintDomain::new("nia.executable-value-ref-edges.entry");
 static STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]

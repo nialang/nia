@@ -29,7 +29,8 @@ fn json_lines(stderr: &str) -> Vec<Map<String, Value>> {
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .filter_map(|value| match value {
             Value::Object(report)
-                if report.get("schema_version").and_then(Value::as_u64) == Some(1) =>
+                if report.get("release_compatibility").and_then(Value::as_u64)
+                    == Some(u64::from(nia_compat::RELEASE_COMPATIBILITY)) =>
             {
                 Some(report)
             }
@@ -119,7 +120,7 @@ pub fn parse_build_reports(stderr: &str, succeeded: bool) -> MaintainResult<Buil
     }
     Ok(BuildReports {
         actions: ActionReport {
-            schema_version: 1,
+            release_compatibility: nia_compat::RELEASE_COMPATIBILITY,
             kind: "nia-build-coordinator-actions".to_owned(),
             success: succeeded,
             counters: action_counters,

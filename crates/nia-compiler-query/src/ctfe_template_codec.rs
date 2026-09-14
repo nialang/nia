@@ -22,8 +22,8 @@ use crate::template_body_codec::{
     TemplateBodyDecodeContext, TemplateBodyEncodeContext, TemplateBodyRelocations,
 };
 
-const MAGIC: &[u8; 8] = b"NIACTF01";
-const SCHEMA: u32 = 1;
+const MAGIC: &[u8; 8] = b"NIACTF\0\0";
+const SCHEMA: u32 = nia_compat::RELEASE_COMPATIBILITY;
 const MAX_BYTES: usize = nia_package_metadata::MAX_PACKAGE_BYTES;
 const MAX_ITEMS: usize = 1_000_000;
 const MAX_DEPTH: usize = 256;

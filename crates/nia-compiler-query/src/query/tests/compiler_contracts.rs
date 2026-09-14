@@ -1950,7 +1950,11 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
                         disambiguator: 0,
                         owner: None,
                     },
-                    declaration: [b"NIADECL01".as_slice(), &[2, 3, 0, 0, 0, 0]].concat(),
+                    declaration: [
+                        nia_package_metadata::DECLARATION_MAGIC.as_slice(),
+                        &[2, 3, 0, 0, 0, 0],
+                    ]
+                    .concat(),
                     type_roots: Vec::new(),
                 }],
             };
@@ -2660,7 +2664,7 @@ fn compiled_interface_index_resolves_stable_definitions_without_session_handles(
                 disambiguator: 0,
                 owner: None,
             },
-            declaration: b"NIADECL01".to_vec(),
+            declaration: nia_package_metadata::DECLARATION_MAGIC.to_vec(),
             type_roots: Vec::new(),
         }],
     };

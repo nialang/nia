@@ -33,31 +33,31 @@ use crate::{
 };
 
 pub(super) const COMPILER_CHECK_COMPILER_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-check.compiler.v1");
+    FingerprintDomain::new("nia.build.compiler-check.compiler");
 pub(super) const COMPILER_CHECK_RESOURCE_LAYOUT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-check.resource-layout.v1");
+    FingerprintDomain::new("nia.build.compiler-check.resource-layout");
 pub(super) const COMPILER_CHECK_STANDARD_LIBRARY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-check.standard-library.v1");
+    FingerprintDomain::new("nia.build.compiler-check.standard-library");
 pub(super) const COMPILER_CHECK_BUILD_PROTOCOL_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-check.build-protocol.v1");
+    FingerprintDomain::new("nia.build.compiler-check.build-protocol");
 pub(super) const COMPILER_CHECK_MODULE_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-check.module.v1");
+    FingerprintDomain::new("nia.build.compiler-check.module");
 pub(super) const COMPILER_CHECK_PACKAGE_ROOTS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-check.package-roots.v1");
+    FingerprintDomain::new("nia.build.compiler-check.package-roots");
 pub(super) const COMPILER_CHECK_TARGET_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-check.target.v1");
+    FingerprintDomain::new("nia.build.compiler-check.target");
 pub(super) const COMPILER_CHECK_PROFILE_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-check.profile.v1");
+    FingerprintDomain::new("nia.build.compiler-check.profile");
 pub(super) const COMPILER_CHECK_COMPILATION_MODE_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-check.compilation-mode.v1");
+    FingerprintDomain::new("nia.build.compiler-check.compilation-mode");
 pub(super) const COMPILER_CHECK_OPTIMIZATION_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-check.optimization.v1");
+    FingerprintDomain::new("nia.build.compiler-check.optimization");
 pub(super) const COMPILER_CHECK_RUNTIME_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-check.runtime.v1");
+    FingerprintDomain::new("nia.build.compiler-check.runtime");
 const COMPILER_CHECK_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-check.key.v1");
+    FingerprintDomain::new("nia.build.compiler-check.key");
 const COMPILER_CHECK_FINGERPRINT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-check.fingerprint.v1");
+    FingerprintDomain::new("nia.build.compiler-check.fingerprint");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ToolchainComponents {

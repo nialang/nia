@@ -51,17 +51,17 @@ const MAX_CACHE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_CACHE_ENTRY_BYTES: usize = MAX_CACHE_PAYLOAD_BYTES + 1024 * 1024;
 const MAX_CACHE_SEQUENCE_LEN: usize = 1_000_000;
 const PROVIDER_SUMMARY_PAYLOAD_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.provider-summary-payload.v1");
+    FingerprintDomain::new("nia.frontend.provider-summary-payload");
 const PROVIDER_DEMAND_PLAN_PAYLOAD_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.provider-demand-plan-payload.v1");
+    FingerprintDomain::new("nia.frontend.provider-demand-plan-payload");
 const DEPENDENCY_MANIFEST_PAYLOAD_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.dependency-manifest-payload.v1");
+    FingerprintDomain::new("nia.frontend.dependency-manifest-payload");
 const FACADE_FACTS_PAYLOAD_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.facade-facts-payload.v1");
+    FingerprintDomain::new("nia.frontend.facade-facts-payload");
 const MODULE_DEPENDENCIES_PAYLOAD_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.module-dependencies-payload.v1");
+    FingerprintDomain::new("nia.frontend.module-dependencies-payload");
 const PUBLIC_SURFACE_FACTS_PAYLOAD_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.public-surface-facts-payload.v1");
+    FingerprintDomain::new("nia.frontend.public-surface-facts-payload");
 static FRONTEND_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]

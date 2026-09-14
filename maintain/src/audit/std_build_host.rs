@@ -42,8 +42,8 @@ impl Options {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Serializable standard-library build-host closure evidence.
 pub struct Snapshot {
-    /// Snapshot schema version.
-    pub schema_version: u32,
+    /// Nia release compatibility recorded by the snapshot.
+    pub release_compatibility: u32,
     /// Stable snapshot kind discriminator.
     pub kind: String,
     /// Root modules from which closure traversal starts.
@@ -147,7 +147,7 @@ pub fn build_host_closure(std_root: &Path) -> MaintainResult<Vec<String>> {
 /// Builds the repository's current standard-library closure snapshot.
 pub fn snapshot(root: &Path) -> MaintainResult<Snapshot> {
     Ok(Snapshot {
-        schema_version: 1,
+        release_compatibility: nia_compat::RELEASE_COMPATIBILITY,
         kind: "nia-std-build-host-source-closure".to_owned(),
         roots: vec![
             "std/builtin.nia".to_owned(),

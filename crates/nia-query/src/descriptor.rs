@@ -77,15 +77,16 @@ impl QueryFingerprint {
     }
 }
 
-/// Versioned namespace that separates otherwise identical fingerprint inputs.
+/// Namespace that separates otherwise identical fingerprint inputs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FingerprintDomain(&'static str);
 
 impl FingerprintDomain {
-    /// Creates a domain named `nia.<segments>.vN`.
+    /// Creates a domain named `nia.<segments>`.
     ///
     /// Segments contain lowercase ASCII letters or digits and may be separated
-    /// by `.` or `-`. Versions start at one and may not contain leading zeroes.
+    /// by `.` or `-`. Numeric version suffixes are intentionally rejected;
+    /// release compatibility is owned by the persisted payload contract.
     /// This function panics in const evaluation when `domain` is invalid.
     pub const fn new(domain: &'static str) -> Self {
         assert!(
@@ -103,8 +104,8 @@ impl FingerprintDomain {
 
 const fn valid_fingerprint_domain(domain: &str) -> bool {
     // Domains are persisted identity, not display text. Requiring a structured
-    // `nia.<segments>.vN` spelling makes format changes explicit and prevents
-    // accidental reuse of an unversioned hash namespace.
+    // `nia.<segments>` spelling prevents accidental reuse of an unrelated hash
+    // namespace while keeping domain identity independent from release numbers.
     let bytes = domain.as_bytes();
     if bytes.len() < 8
         || bytes[0] != b'n'
@@ -114,19 +115,18 @@ const fn valid_fingerprint_domain(domain: &str) -> bool {
     {
         return false;
     }
-    let mut version_start = bytes.len();
-    while version_start > 0 && bytes[version_start - 1].is_ascii_digit() {
-        version_start -= 1;
+    let mut suffix_start = bytes.len();
+    while suffix_start > 0 && bytes[suffix_start - 1].is_ascii_digit() {
+        suffix_start -= 1;
     }
-    if version_start < 2
-        || version_start == bytes.len()
-        || bytes[version_start - 2] != b'.'
-        || bytes[version_start - 1] != b'v'
-        || bytes[version_start] == b'0'
+    if suffix_start < bytes.len()
+        && suffix_start >= 2
+        && bytes[suffix_start - 2] == b'.'
+        && bytes[suffix_start - 1] == b'v'
     {
         return false;
     }
-    let domain_end = version_start - 2;
+    let domain_end = bytes.len();
     if domain_end <= 4 {
         return false;
     }

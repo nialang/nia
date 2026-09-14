@@ -25,22 +25,22 @@ use crate::{
 
 mod declarations;
 
-const SOURCE_POLICY_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.llvm.source-policy.v1");
+const SOURCE_POLICY_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.llvm.source-policy");
 const SOURCE_DEFINITION_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.llvm.source-definition.v1");
+    FingerprintDomain::new("nia.llvm.source-definition");
 const SOURCE_DECLARATIONS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.llvm.source-declarations.v1");
-const SOURCE_TARGET_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.llvm.source-target.v1");
+    FingerprintDomain::new("nia.llvm.source-declarations");
+const SOURCE_TARGET_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.llvm.source-target");
 const BUILTINS_POLICY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.llvm.builtins-policy.v1");
+    FingerprintDomain::new("nia.llvm.builtins-policy");
 const BUILTINS_DEFINITION_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.llvm.builtins-definition.v1");
+    FingerprintDomain::new("nia.llvm.builtins-definition");
 const BUILTINS_DECLARATIONS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.llvm.builtins-declarations.v1");
+    FingerprintDomain::new("nia.llvm.builtins-declarations");
 const BUILTINS_TARGET_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.llvm.builtins-target.v1");
+    FingerprintDomain::new("nia.llvm.builtins-target");
 #[cfg(test)]
-const TEST_EXPRESSION_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.llvm.test-expr.v1");
+const TEST_EXPRESSION_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.llvm.test-expr");
 
 #[derive(Clone, Copy)]
 pub(super) enum ArtifactTarget<'a> {

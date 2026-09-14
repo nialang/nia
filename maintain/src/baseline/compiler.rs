@@ -174,11 +174,16 @@ fn timing_json(stderr: &str) -> MaintainResult<Map<String, Value>> {
         let Ok(Value::Object(report)) = serde_json::from_str(line) else {
             continue;
         };
-        if report.get("schema_version").and_then(Value::as_u64) == Some(1) {
+        if report.get("release_compatibility").and_then(Value::as_u64)
+            == Some(u64::from(nia_compat::RELEASE_COMPATIBILITY))
+        {
             return Ok(report);
         }
     }
-    Err("compiler did not emit a schema_version=1 timing report".to_owned())
+    Err(format!(
+        "compiler did not emit a release_compatibility={} timing report",
+        nia_compat::RELEASE_COMPATIBILITY
+    ))
 }
 
 fn normalize_report_paths(value: &mut Value, root: &Path) {
@@ -476,7 +481,7 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
     let dirty = command_output(root, git, &["status", "--porcelain"]).is_some();
     let version = command_output(root, &compiler, &["--version"]);
     let baseline = json!({
-        "schema_version": 1,
+        "release_compatibility": nia_compat::RELEASE_COMPATIBILITY,
         "compiler": {
             "path": command_label(root, &compiler.to_string_lossy()),
             "resource_root": command_label(root, &resource_root.to_string_lossy()),
@@ -514,8 +519,11 @@ mod tests {
     use super::*;
 
     fn report(counters: Value) -> Map<String, Value> {
-        serde_json::from_value(json!({"schema_version": 1, "counters": counters}))
-            .expect("report object")
+        serde_json::from_value(json!({
+            "release_compatibility": nia_compat::RELEASE_COMPATIBILITY,
+            "counters": counters
+        }))
+        .expect("report object")
     }
 
     #[test]

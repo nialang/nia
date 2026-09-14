@@ -40,19 +40,19 @@ use super::{
 use crate::{ActionKey, PlanArtifact, PlanModule, PlanPackage, TargetSpec, lock::ScopedFileLock};
 
 const COMPILER_EMIT_LINK_INPUT_CONTENT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-emit.link-input-content.v1");
+    FingerprintDomain::new("nia.build.compiler-emit.link-input-content");
 const COMPILER_EMIT_ARTIFACT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-emit.artifact.v1");
+    FingerprintDomain::new("nia.build.compiler-emit.artifact");
 const COMPILER_EMIT_OUTPUT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-emit.output.v1");
+    FingerprintDomain::new("nia.build.compiler-emit.output");
 const COMPILER_EMIT_LINK_ENVIRONMENT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-emit.link-environment.v1");
+    FingerprintDomain::new("nia.build.compiler-emit.link-environment");
 const COMPILER_EMIT_LINK_INPUTS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-emit.link-inputs.v1");
+    FingerprintDomain::new("nia.build.compiler-emit.link-inputs");
 const COMPILER_EMIT_FINGERPRINT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-emit.fingerprint.v1");
+    FingerprintDomain::new("nia.build.compiler-emit.fingerprint");
 const COMPILER_EMIT_REFERENCE_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-emit.reference.v1");
+    FingerprintDomain::new("nia.build.compiler-emit.reference");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct EmitFingerprintComponents {

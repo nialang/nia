@@ -37,39 +37,39 @@ use crate::{
 };
 
 const EXTERNAL_COMMAND_FINGERPRINT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command.v1");
+    FingerprintDomain::new("nia.build.external-command");
 const EXTERNAL_COMMAND_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-key.v1");
+    FingerprintDomain::new("nia.build.external-command-key");
 const EXTERNAL_COMMAND_DECLARATION_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-declaration.v1");
+    FingerprintDomain::new("nia.build.external-command-declaration");
 const EXTERNAL_COMMAND_TOOL_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-tool.v1");
+    FingerprintDomain::new("nia.build.external-command-tool");
 const EXTERNAL_COMMAND_ENVIRONMENT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-environment.v1");
+    FingerprintDomain::new("nia.build.external-command-environment");
 const EXTERNAL_COMMAND_INPUTS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-inputs.v1");
+    FingerprintDomain::new("nia.build.external-command-inputs");
 const EXTERNAL_COMMAND_DEPENDENCIES_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-dependencies.v1");
+    FingerprintDomain::new("nia.build.external-command-dependencies");
 const EXTERNAL_COMMAND_WORKING_DIRECTORY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-working-directory.v1");
+    FingerprintDomain::new("nia.build.external-command-working-directory");
 const EXTERNAL_COMMAND_PACKAGE_ROOTS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-package-roots.v1");
+    FingerprintDomain::new("nia.build.external-command-package-roots");
 const EXTERNAL_COMMAND_OUTPUTS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-outputs.v1");
+    FingerprintDomain::new("nia.build.external-command-outputs");
 const EXTERNAL_COMMAND_COMPILER_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-compiler.v1");
+    FingerprintDomain::new("nia.build.external-command-compiler");
 const EXTERNAL_COMMAND_RESOURCE_LAYOUT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-resource-layout.v1");
+    FingerprintDomain::new("nia.build.external-command-resource-layout");
 const EXTERNAL_COMMAND_STANDARD_LIBRARY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-standard-library.v1");
+    FingerprintDomain::new("nia.build.external-command-standard-library");
 const EXTERNAL_COMMAND_BUILD_PROTOCOL_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-build-protocol.v1");
+    FingerprintDomain::new("nia.build.external-command-build-protocol");
 const EXTERNAL_COMMAND_PAYLOAD_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-payload.v1");
+    FingerprintDomain::new("nia.build.external-command-payload");
 const EXTERNAL_COMMAND_TOOL_CONTENTS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-tool-contents.v1");
+    FingerprintDomain::new("nia.build.external-command-tool-contents");
 const EXTERNAL_COMMAND_INPUT_CONTENTS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-input-contents.v1");
+    FingerprintDomain::new("nia.build.external-command-input-contents");
 const EXTERNAL_COMMAND_IDENTITY_STREAM_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

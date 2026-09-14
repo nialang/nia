@@ -14,7 +14,7 @@ use nia_linker::{
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 
 const ARCHIVE_RESULT_PAYLOAD_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.archive-result-payload.v1");
+    FingerprintDomain::new("nia.archive-result-payload");
 const ARCHIVE_CACHE_STREAM_BYTES: usize = 64 * 1024;
 static ARCHIVE_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 

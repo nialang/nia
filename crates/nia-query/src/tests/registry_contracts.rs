@@ -78,19 +78,19 @@ fn fingerprint_builder_is_deterministic_and_domain_separated() {
     };
 
     assert_eq!(
-        fingerprint(FingerprintDomain::new("nia.query-a.v1")),
-        fingerprint(FingerprintDomain::new("nia.query-a.v1"))
+        fingerprint(FingerprintDomain::new("nia.query-a")),
+        fingerprint(FingerprintDomain::new("nia.query-a"))
     );
     assert_ne!(
-        fingerprint(FingerprintDomain::new("nia.query-a.v1")),
-        fingerprint(FingerprintDomain::new("nia.query-b.v1"))
+        fingerprint(FingerprintDomain::new("nia.query-a")),
+        fingerprint(FingerprintDomain::new("nia.query-b"))
     );
     assert_eq!(std::mem::size_of::<QueryFingerprint>(), 16);
 }
 
 #[test]
 fn fingerprint_byte_stream_matches_one_shot_bytes_and_enforces_length() {
-    let domain = FingerprintDomain::new("nia.query.stream-test.v1");
+    let domain = FingerprintDomain::new("nia.query.stream-test");
     let mut direct = QueryFingerprintBuilder::new(domain);
     direct.write_bytes(b"streamed payload");
 
@@ -120,14 +120,14 @@ fn fingerprint_byte_stream_matches_one_shot_bytes_and_enforces_length() {
 }
 
 #[test]
-fn fingerprint_domains_require_a_versioned_nia_identity() {
+fn fingerprint_domains_require_a_structured_nia_identity() {
     assert_eq!(
-        FingerprintDomain::new("nia.query.product.v12").as_str(),
-        "nia.query.product.v12"
+        FingerprintDomain::new("nia.query.product").as_str(),
+        "nia.query.product"
     );
     for invalid in [
         "query.product.v1",
-        "nia.query.product",
+        "nia.query.product.v1",
         "nia..v1",
         "nia.query..product.v1",
         "nia.-query.product.v1",

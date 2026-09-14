@@ -66,7 +66,7 @@ impl QueryKey<SessionInputContext> for SessionInput {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(test_usize_fingerprint(
-            FingerprintDomain::new("nia.query.test.session-input.v1"),
+            FingerprintDomain::new("nia.query.test.session-input"),
             *value,
         ))
     }
@@ -100,7 +100,7 @@ impl QueryKey<SessionParentContext> for SessionParent {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         Some(test_usize_fingerprint(
-            FingerprintDomain::new("nia.query.test.session-parent.v1"),
+            FingerprintDomain::new("nia.query.test.session-parent"),
             *value,
         ))
     }

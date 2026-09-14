@@ -673,9 +673,13 @@ fn main() i32 {
         String::from_utf8_lossy(&json.stderr)
     );
     let stderr = String::from_utf8_lossy(&json.stderr);
+    let prefix = format!(
+        "{{\"release_compatibility\":{},",
+        nia_compat::RELEASE_COMPATIBILITY
+    );
     let report = stderr
         .lines()
-        .find(|line| line.starts_with("{\"schema_version\":1,"))
+        .find(|line| line.starts_with(&prefix))
         .expect("missing JSON timing report");
     assert!(report.contains("\"max_rss_bytes\":"), "{report}");
     if cfg!(feature = "perf-alloc") {
