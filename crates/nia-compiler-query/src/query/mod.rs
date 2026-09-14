@@ -2471,7 +2471,11 @@ impl CompilerDatabase {
                 },
             );
         }
-        let bodies = self.checked_template_bodies(interface, resolver)?;
+        let bodies = self
+            .checked_template_bodies(interface, resolver)?
+            .into_iter()
+            .filter(|body| body.definition.module.package == package)
+            .collect::<Vec<_>>();
         let checked_modules = graph
             .modules()
             .filter(|module| graph.current_package_root(module.id) == entry_root)
