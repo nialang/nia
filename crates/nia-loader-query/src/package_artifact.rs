@@ -3,7 +3,6 @@
 
 use nia_package_metadata::{
     CompilationTarget, CompiledPackageInterface, MetadataError, PackageArtifact, PackageId,
-    SCHEMA_VERSION,
 };
 use nia_target_config::{BuildProfile, CompilationMode, TargetConfig};
 use nia_toolchain::ToolchainLayout;
@@ -165,8 +164,7 @@ impl std::error::Error for PackageArtifactError {}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ArtifactCompatibility {
     compiler_version: String,
-    std_schema: u32,
-    metadata_schema: u32,
+    release_compatibility: u32,
     target: CompilationTarget,
     profile: BuildProfile,
     compilation_mode: CompilationMode,
@@ -179,22 +177,19 @@ impl ArtifactCompatibility {
         profile: BuildProfile,
         compilation_mode: CompilationMode,
     ) -> Self {
-        let (compiler_version, std_schema, metadata_schema) = match toolchain {
+        let (compiler_version, release_compatibility) = match toolchain {
             Some(toolchain) => (
                 toolchain.identity().compiler_version().to_owned(),
-                toolchain.identity().std_schema(),
-                toolchain.identity().package_metadata_schema(),
+                toolchain.identity().release_compatibility(),
             ),
             None => (
                 nia_compat::COMPILER_VERSION.to_owned(),
-                nia_compat::toolchain::STANDARD_LIBRARY,
-                SCHEMA_VERSION,
+                nia_compat::RELEASE_COMPATIBILITY,
             ),
         };
         Self {
             compiler_version,
-            std_schema,
-            metadata_schema,
+            release_compatibility,
             target: metadata_target(target),
             profile,
             compilation_mode,
@@ -258,17 +253,17 @@ pub(crate) fn load(
             found: manifest.compiler_version.clone(),
         })
         .or_else(|| {
-            (manifest.std_schema != compatibility.std_schema).then(|| {
+            (manifest.std_schema != compatibility.release_compatibility).then(|| {
                 PackageArtifactMismatch::StandardLibrarySchema {
-                    expected: compatibility.std_schema,
+                    expected: compatibility.release_compatibility,
                     found: manifest.std_schema,
                 }
             })
         })
         .or_else(|| {
-            (manifest.schema_version != compatibility.metadata_schema).then(|| {
+            (manifest.schema_version != compatibility.release_compatibility).then(|| {
                 PackageArtifactMismatch::MetadataSchema {
-                    expected: compatibility.metadata_schema,
+                    expected: compatibility.release_compatibility,
                     found: manifest.schema_version,
                 }
             })

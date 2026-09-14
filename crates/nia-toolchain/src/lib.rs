@@ -8,7 +8,7 @@
 //! Compatibility identity deliberately excludes filesystem paths so an intact
 //! installation can be relocated without invalidating compiler caches.
 
-use nia_compat::{COMPILER_VERSION, formats, toolchain};
+use nia_compat::{COMPILER_VERSION, RELEASE_COMPATIBILITY};
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use nia_target_config::{BuildProfile, CompilationMode, TargetConfig};
 use std::{fmt, fs, io, io::Read, path::PathBuf};
@@ -27,10 +27,7 @@ pub const RESOURCE_MANIFEST_NAME: &str = "toolchain.meta";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolchainIdentity {
     compiler_version: String,
-    resource_layout_schema: u32,
-    std_schema: u32,
-    build_protocol_schema: u32,
-    package_metadata_schema: u32,
+    release_compatibility: u32,
 }
 
 /// Stable fingerprint of all fields in [`ToolchainIdentity`].
@@ -42,10 +39,7 @@ impl ToolchainIdentityFingerprint {
     pub fn current() -> Self {
         ToolchainIdentity {
             compiler_version: COMPILER_VERSION.to_string(),
-            resource_layout_schema: toolchain::RESOURCE_LAYOUT,
-            std_schema: toolchain::STANDARD_LIBRARY,
-            build_protocol_schema: toolchain::BUILD_PROTOCOL,
-            package_metadata_schema: formats::PACKAGE_METADATA.schema,
+            release_compatibility: RELEASE_COMPATIBILITY,
         }
         .fingerprint()
     }
@@ -67,34 +61,17 @@ impl ToolchainIdentity {
         &self.compiler_version
     }
 
-    /// Returns the resource directory layout schema version.
-    pub const fn resource_layout_schema(&self) -> u32 {
-        self.resource_layout_schema
-    }
-
-    /// Returns the standard-library source schema version.
-    pub const fn std_schema(&self) -> u32 {
-        self.std_schema
-    }
-
-    /// Returns the build runner protocol schema version.
-    pub const fn build_protocol_schema(&self) -> u32 {
-        self.build_protocol_schema
-    }
-
-    /// Returns the compiled package metadata schema.
-    pub const fn package_metadata_schema(&self) -> u32 {
-        self.package_metadata_schema
+    /// Returns the release-scoped compatibility epoch shared by all
+    /// toolchain resources, persisted artifacts, and ABI boundaries.
+    pub const fn release_compatibility(&self) -> u32 {
+        self.release_compatibility
     }
 
     /// Computes a deterministic fingerprint over every compatibility field.
     pub fn fingerprint(&self) -> ToolchainIdentityFingerprint {
         let mut builder = QueryFingerprintBuilder::new(COMPATIBILITY_IDENTITY_DOMAIN);
         builder.write_str(&self.compiler_version);
-        builder.write_u64(u64::from(self.resource_layout_schema));
-        builder.write_u64(u64::from(self.std_schema));
-        builder.write_u64(u64::from(self.build_protocol_schema));
-        builder.write_u64(u64::from(self.package_metadata_schema));
+        builder.write_u64(u64::from(self.release_compatibility));
         ToolchainIdentityFingerprint(builder.finish())
     }
 }
@@ -228,7 +205,7 @@ impl RuntimeSpec {
             package: nia_package_metadata::PackageId {
                 namespace: "nia".to_string(),
                 name: "runtime".to_string(),
-                version: format!("{}+runtime{}", COMPILER_VERSION, toolchain::RESOURCE_LAYOUT),
+                version: format!("{}+runtime{}", COMPILER_VERSION, RELEASE_COMPATIBILITY),
             },
             entry_point: RuntimeEntryPoint {
                 module_identity: format!(
@@ -335,8 +312,8 @@ impl ToolchainLayout {
     /// Resolves and validates every resource named by `request`.
     ///
     /// The resource root is canonicalized before exposure. The manifest must
-    /// exactly match this compiler's layout, standard-library, build-protocol,
-    /// and compiler versions; required standard-library and runtime files must
+    /// exactly match this compiler's release compatibility and compiler
+    /// version; required standard-library and runtime files must
     /// be regular files.
     pub fn resolve(request: ToolchainLayoutRequest) -> Result<Self, ToolchainLayoutError> {
         validate_file(
@@ -784,11 +761,8 @@ fn validate_optional_file(
 
 #[derive(Default)]
 struct ManifestFields {
-    resource_layout_schema: Option<ManifestValue>,
     compiler_version: Option<ManifestValue>,
-    std_schema: Option<ManifestValue>,
-    build_protocol_schema: Option<ManifestValue>,
-    package_metadata_schema: Option<ManifestValue>,
+    release_compatibility: Option<ManifestValue>,
 }
 
 struct ManifestValue {
@@ -815,11 +789,8 @@ fn parse_manifest(
             return Err(malformed(path, index, format!("`{name}` cannot be empty")));
         }
         let slot = match name {
-            "resource-layout-schema" => &mut fields.resource_layout_schema,
             "compiler-version" => &mut fields.compiler_version,
-            "std-schema" => &mut fields.std_schema,
-            "build-protocol-schema" => &mut fields.build_protocol_schema,
-            "package-metadata-schema" => &mut fields.package_metadata_schema,
+            "release-compatibility" => &mut fields.release_compatibility,
             _ => {
                 return Err(malformed(path, index, format!("unknown field `{name}`")));
             }
@@ -837,33 +808,10 @@ fn parse_manifest(
 
     Ok(ToolchainIdentity {
         compiler_version: required(path, "compiler-version", fields.compiler_version)?.text,
-        resource_layout_schema: parse_u32(
+        release_compatibility: parse_u32(
             path,
-            "resource-layout-schema",
-            required(
-                path,
-                "resource-layout-schema",
-                fields.resource_layout_schema,
-            )?,
-        )?,
-        std_schema: parse_u32(
-            path,
-            "std-schema",
-            required(path, "std-schema", fields.std_schema)?,
-        )?,
-        build_protocol_schema: parse_u32(
-            path,
-            "build-protocol-schema",
-            required(path, "build-protocol-schema", fields.build_protocol_schema)?,
-        )?,
-        package_metadata_schema: parse_u32(
-            path,
-            "package-metadata-schema",
-            required(
-                path,
-                "package-metadata-schema",
-                fields.package_metadata_schema,
-            )?,
+            "release-compatibility",
+            required(path, "release-compatibility", fields.release_compatibility)?,
         )?,
     })
 }
@@ -915,33 +863,15 @@ fn validate_identity(
 ) -> Result<(), ToolchainLayoutError> {
     validate_field(
         path,
-        "resource-layout-schema",
-        toolchain::RESOURCE_LAYOUT.to_string(),
-        identity.resource_layout_schema.to_string(),
-    )?;
-    validate_field(
-        path,
         "compiler-version",
         COMPILER_VERSION.to_string(),
         identity.compiler_version.clone(),
     )?;
     validate_field(
         path,
-        "std-schema",
-        toolchain::STANDARD_LIBRARY.to_string(),
-        identity.std_schema.to_string(),
-    )?;
-    validate_field(
-        path,
-        "build-protocol-schema",
-        toolchain::BUILD_PROTOCOL.to_string(),
-        identity.build_protocol_schema.to_string(),
-    )?;
-    validate_field(
-        path,
-        "package-metadata-schema",
-        formats::PACKAGE_METADATA.schema.to_string(),
-        identity.package_metadata_schema.to_string(),
+        "release-compatibility",
+        RELEASE_COMPATIBILITY.to_string(),
+        identity.release_compatibility.to_string(),
     )
 }
 
@@ -1139,7 +1069,7 @@ mod tests {
         let executable = write_layout(&root);
         fs::write(
             root.join("lib/toolchain.meta"),
-            "resource-layout-schema=2\ncompiler-version=incompatible\nstd-schema=1\nbuild-protocol-schema=3\npackage-metadata-schema=4\n",
+            "release-compatibility=1\ncompiler-version=incompatible\n",
         )
         .expect("replace manifest");
         let error = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
@@ -1156,7 +1086,7 @@ mod tests {
     fn malformed_numeric_manifest_field_reports_its_source_line() {
         let path = PathBuf::from("toolchain.meta");
         let manifest = format!(
-            "# identity\ncompiler-version={COMPILER_VERSION}\nresource-layout-schema=invalid\nstd-schema=1\nbuild-protocol-schema=3\npackage-metadata-schema=4\n"
+            "# identity\ncompiler-version={COMPILER_VERSION}\nrelease-compatibility=invalid\n"
         );
         let error = parse_manifest(&path, &manifest).expect_err("invalid numeric schema");
 
@@ -1199,10 +1129,7 @@ mod tests {
     fn compatibility_fingerprint_is_path_independent_and_tracks_every_identity_field() {
         let baseline = ToolchainIdentity {
             compiler_version: "compiler".to_string(),
-            resource_layout_schema: 1,
-            std_schema: 2,
-            build_protocol_schema: 3,
-            package_metadata_schema: 4,
+            release_compatibility: 1,
         };
         let baseline_fingerprint = baseline.fingerprint();
         for changed in [
@@ -1211,19 +1138,7 @@ mod tests {
                 ..baseline.clone()
             },
             ToolchainIdentity {
-                resource_layout_schema: 9,
-                ..baseline.clone()
-            },
-            ToolchainIdentity {
-                std_schema: 9,
-                ..baseline.clone()
-            },
-            ToolchainIdentity {
-                build_protocol_schema: 9,
-                ..baseline.clone()
-            },
-            ToolchainIdentity {
-                package_metadata_schema: 9,
+                release_compatibility: 9,
                 ..baseline.clone()
             },
         ] {
@@ -1234,10 +1149,7 @@ mod tests {
             ToolchainIdentityFingerprint::current(),
             ToolchainIdentity {
                 compiler_version: COMPILER_VERSION.to_string(),
-                resource_layout_schema: toolchain::RESOURCE_LAYOUT,
-                std_schema: toolchain::STANDARD_LIBRARY,
-                build_protocol_schema: toolchain::BUILD_PROTOCOL,
-                package_metadata_schema: formats::PACKAGE_METADATA.schema,
+                release_compatibility: RELEASE_COMPATIBILITY,
             }
             .fingerprint()
         );

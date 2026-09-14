@@ -278,15 +278,15 @@ impl ExternalCommandCacheIdentity {
             ),
             resource_layout: integer_component(
                 EXTERNAL_COMMAND_RESOURCE_LAYOUT_DOMAIN,
-                toolchain.resource_layout_schema(),
+                toolchain.release_compatibility(),
             ),
             standard_library: integer_component(
                 EXTERNAL_COMMAND_STANDARD_LIBRARY_DOMAIN,
-                toolchain.std_schema(),
+                toolchain.release_compatibility(),
             ),
             build_protocol: integer_component(
                 EXTERNAL_COMMAND_BUILD_PROTOCOL_DOMAIN,
-                toolchain.build_protocol_schema(),
+                toolchain.release_compatibility(),
             ),
         };
         Some(Self {
