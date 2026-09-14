@@ -865,6 +865,7 @@ impl Driver {
         })
     }
 
+
     /// Checks an entry and returns its exact source manifest alongside it.
     pub fn check_entry_with_source_manifest(
         &self,
