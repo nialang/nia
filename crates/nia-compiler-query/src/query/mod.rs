@@ -4649,6 +4649,9 @@ impl CompilerDatabase {
         {
             return Ok(current_package.clone());
         }
+        if graph.current_package_root(def_id.module_id) == graph.std_package_root() {
+            return Ok(PackageId::standard_library());
+        }
         if let Some(identity) = self
             .db
             .context()
