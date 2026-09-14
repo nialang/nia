@@ -4205,6 +4205,26 @@ impl CompilerDatabase {
                 })
             })
             .collect::<QueryResult<Vec<_>>>()?;
+        // Source-backed dependencies (not yet published as selected
+        // compiled interfaces) still need to be represented in the manifest.
+        // Public-surface re-exports are the canonical graph evidence for such
+        // packages; omitting them makes an otherwise valid artifact fail
+        // source-free manifest validation.
+        let mut surface_packages = std::collections::BTreeSet::new();
+        for module in &public_surface.modules {
+            for export in &module.exports {
+                surface_packages.insert(export.target.module.package.clone());
+                if let Some(parent) = &export.parent_enum {
+                    surface_packages.insert(parent.module.package.clone());
+                }
+            }
+        }
+        dependencies.extend(surface_packages.into_iter().filter(|dep| dep != &package).map(|dep| {
+            nia_package_metadata::PackageDependency {
+                package: dep,
+                interface_hash: [0; 32],
+            }
+        }));
         dependencies.sort_by(|left, right| left.package.cmp(&right.package));
         dependencies.dedup_by(|left, right| left.package == right.package);
         let compilation_target = self.db.context().loader_facts().target();
