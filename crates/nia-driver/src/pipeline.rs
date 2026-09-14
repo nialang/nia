@@ -842,8 +842,12 @@ impl Driver {
             let native = NativeSection {
                 variants: vec![native],
             };
+            let package_for_resolver = package.clone();
+            let resolver = |def_id| {
+                database.package_for_definition_in_package(def_id, &package_for_resolver)
+            };
             let publication = database
-                .publish_package_artifact_with_native(package, native)
+                .publish_package_artifact_with_resolver_and_native(package, &resolver, Some(native))
                 .map_err(query_error_diagnostic);
             let publication = match publication {
                 Ok(publication) => publication,
