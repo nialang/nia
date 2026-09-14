@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use nia_compat::{COMPILER_VERSION, formats, toolchain};
+use nia_compat::{COMPILER_VERSION, RELEASE_COMPATIBILITY, formats, toolchain};
 
 /// Current package container schema.
 pub const SCHEMA_VERSION: u32 = formats::PACKAGE_METADATA.schema;
@@ -19,28 +19,29 @@ const MAX_DEFINITION_DEPTH: usize = 256;
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4;
 const SECTION_ENTRY_BYTES: usize = 1 + 8 + 8 + 32;
 const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT01";
-// Version 6 adds a stable declaration disambiguator for overloads.
-const INTERFACE_SCHEMA: u32 = 6;
+// The section uses the release compatibility epoch; incompatible changes are
+// intentionally rejected as a whole rather than counted independently.
+const INTERFACE_SCHEMA: u32 = RELEASE_COMPATIBILITY;
 const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
-// Version 5 gives closure-state types a package-stable owner identity. There
-// is intentionally no legacy decode path.
-const TYPE_GRAPH_SCHEMA: u32 = 5;
+// Closure-state types carry a package-stable owner identity. There is
+// intentionally no legacy decode path.
+const TYPE_GRAPH_SCHEMA: u32 = RELEASE_COMPATIBILITY;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG01";
-const SIGNATURE_SCHEMA: u32 = 11;
+const SIGNATURE_SCHEMA: u32 = RELEASE_COMPATIBILITY;
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
-// Version 4 adds explicit stable definition/module/type relocations for the
-// checked Function IR body. There is intentionally no legacy decode path:
+// Checked Function IR bodies carry explicit stable definition/module/type
+// relocations. There is intentionally no legacy decode path:
 // bodies without relocation tables are not executable package products.
-const TEMPLATE_SCHEMA: u32 = 6;
+const TEMPLATE_SCHEMA: u32 = RELEASE_COMPATIBILITY;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
-const TEMPLATE_SUMMARY_SCHEMA: u32 = 1;
+const TEMPLATE_SUMMARY_SCHEMA: u32 = RELEASE_COMPATIBILITY;
 const NATIVE_MAGIC: &[u8; 8] = b"NIANAT01";
-// Version 6 stores consumer-owned specialization objects with their
-// dependency module identity. There is intentionally no legacy decode path.
-const NATIVE_SCHEMA: u32 = 6;
+// Consumer-owned specialization objects carry their dependency module
+// identity. There is intentionally no legacy decode path.
+const NATIVE_SCHEMA: u32 = RELEASE_COMPATIBILITY;
 const PUBLIC_SURFACE_MAGIC: &[u8; 8] = b"NIAPUB01";
-const PUBLIC_SURFACE_SCHEMA: u32 = 2;
+const PUBLIC_SURFACE_SCHEMA: u32 = RELEASE_COMPATIBILITY;
 
 /// Relocation-independent identity of one package.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
