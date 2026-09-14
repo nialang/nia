@@ -4636,6 +4636,33 @@ impl CompilerDatabase {
             .compiled_package_module_identity(module_id)
     }
 
+    /// Resolves a definition to its canonical package while publishing the
+    /// supplied package as the owner of the current source root.
+    pub fn package_for_definition_in_package(
+        &self,
+        def_id: GlobalDefId,
+        current_package: &PackageId,
+    ) -> QueryResult<PackageId> {
+        let graph = self.db.get(ModuleGraphQuery)?;
+        if graph.current_package_root(def_id.module_id)
+            == graph.current_package_root(graph.entry())
+        {
+            return Ok(current_package.clone());
+        }
+        if let Some(identity) = self
+            .db
+            .context()
+            .loader_facts()
+            .compiled_package_module_identity(def_id.module_id)?
+        {
+            return Ok(identity.package);
+        }
+        Err(self.db.invalid_input(
+            &ModuleGraphQuery,
+            format!("definition has no canonical package identity: {def_id:?}"),
+        ))
+    }
+
     /// Replaces session-compatible inputs and returns the resulting invalidation set.
     ///
     /// The loader session, frontend cache root, and verification policy cannot
