@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::MaintainResult;
 
-const ROOT_MODULES: [&str; 3] = ["builtin.nia", "start.nia", "build.nia"];
+const STD_ROOT_MODULES: [&str; 2] = ["builtin.nia", "build.nia"];
+const RUNTIME_ROOT_MODULE: &str = "start.nia";
 
 static USING: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*using\s+pkg::([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)")
@@ -95,10 +96,15 @@ fn source_dependencies(path: &Path, std_root: &Path) -> MaintainResult<BTreeSet<
 
 /// Traverses package imports and child modules from the build-host roots.
 pub fn build_host_closure(std_root: &Path) -> MaintainResult<Vec<String>> {
-    let mut queue = ROOT_MODULES
+    let runtime_root = std_root
+        .parent()
+        .ok_or_else(|| format!("std root has no parent: {}", std_root.display()))?
+        .join("runtime");
+    let mut queue = STD_ROOT_MODULES
         .iter()
         .map(|name| std_root.join(name))
         .collect::<VecDeque<_>>();
+    queue.push_back(runtime_root.join(RUNTIME_ROOT_MODULE));
     let mut visited = BTreeSet::new();
     while let Some(path) = queue.pop_front() {
         if visited.contains(&path) {
@@ -128,7 +134,13 @@ pub fn build_host_closure(std_root: &Path) -> MaintainResult<Vec<String>> {
                 .map_err(|error| format!("failed to normalize {}: {error}", path.display()))
         })
         .collect::<MaintainResult<Vec<_>>>()?;
-    modules.sort();
+    modules.sort_by(|left, right| {
+        let left_runtime = left.starts_with("runtime/");
+        let right_runtime = right.starts_with("runtime/");
+        left_runtime
+            .cmp(&right_runtime)
+            .then_with(|| left.cmp(right))
+    });
     Ok(modules)
 }
 
@@ -137,10 +149,11 @@ pub fn snapshot(root: &Path) -> MaintainResult<Snapshot> {
     Ok(Snapshot {
         schema_version: 1,
         kind: "nia-std-build-host-source-closure".to_owned(),
-        roots: ROOT_MODULES
-            .iter()
-            .map(|name| format!("std/{name}"))
-            .collect(),
+        roots: vec![
+            "std/builtin.nia".to_owned(),
+            "runtime/start.nia".to_owned(),
+            "std/build.nia".to_owned(),
+        ],
         modules: build_host_closure(&root.join("lib/std"))?,
     })
 }
@@ -185,9 +198,10 @@ mod tests {
     use crate::test_support::TestDirectory;
 
     fn create_roots(directory: &TestDirectory) -> PathBuf {
-        for root in ROOT_MODULES {
+        for root in STD_ROOT_MODULES {
             directory.write(&format!("std/{root}"), "");
         }
+        directory.write("runtime/start.nia", "");
         directory.path().join("std")
     }
 
@@ -220,9 +234,9 @@ mod tests {
                 "std/build.nia",
                 "std/build/core.nia",
                 "std/builtin.nia",
-                "runtime/start.nia",
                 "std/support.nia",
                 "std/support/provider.nia",
+                "runtime/start.nia",
             ]
         );
     }

@@ -119,14 +119,14 @@
     "std/result.nia",
     "std/slice.nia",
     "std/source.nia",
+    "std/string.nia",
+    "std/string/hash.nia",
+    "std/test.nia",
+    "std/unicode.nia",
     "runtime/start.nia",
     "runtime/start/freestanding.nia",
     "runtime/start/freestanding/linux.nia",
     "runtime/start/freestanding/linux/x86.nia",
-    "runtime/start/freestanding/linux/x86_64.nia",
-    "std/string.nia",
-    "std/string/hash.nia",
-    "std/test.nia",
-    "std/unicode.nia"
+    "runtime/start/freestanding/linux/x86_64.nia"
   ]
 }
