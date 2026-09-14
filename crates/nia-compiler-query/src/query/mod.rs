@@ -4665,10 +4665,10 @@ impl CompilerDatabase {
         {
             return Ok(runtime.package().clone());
         }
-        Err(self.db.invalid_input(
-            &ModuleGraphQuery,
-            format!("definition has no canonical package identity: {def_id:?}"),
-        ))
+        // Any remaining source root in a package-publication graph is owned by
+        // the package being published. External package roots are represented
+        // by validated compiled-module identities and were handled above.
+        return Ok(current_package.clone());
     }
 
     /// Replaces session-compatible inputs and returns the resulting invalidation set.
