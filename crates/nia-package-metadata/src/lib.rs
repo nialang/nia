@@ -1648,11 +1648,6 @@ impl CompiledPackageInterface {
                     {
                         return Err(MetadataError::InvalidManifest);
                     }
-                    if export.source == 0
-                        && export.target.module.package != artifact.manifest().package
-                    {
-                        return Err(MetadataError::InvalidManifest);
-                    }
                     if let Some(parent) = &export.parent_enum {
                         if !allowed_packages.contains(&parent.module.package) {
                             return Err(MetadataError::InvalidManifest);
