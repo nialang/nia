@@ -4731,6 +4731,38 @@ impl CompilerDatabase {
             .compiled_package_module_identity(module_id)
     }
 
+    /// Resolves the package owning a source codegen identity without using
+    /// its physical path as a package heuristic. Current-package modules are
+    /// returned as `None`; dependency and toolchain roots return their
+    /// canonical package identity.
+    pub fn package_for_source_identity(
+        &self,
+        identity: &nia_source::SourceIdentity,
+    ) -> QueryResult<Option<PackageId>> {
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let Some(module_id) = graph.module_id_for_source_identity(identity) else {
+            return Ok(None);
+        };
+        let root = graph.current_package_root(module_id);
+        if root == graph.current_package_root(graph.entry()) {
+            return Ok(None);
+        }
+        if root == graph.std_package_root() {
+            return Ok(Some(PackageId::standard_library()));
+        }
+        if root == graph.package_root(&nia_symbol::known::RUNTIME)
+            && let RuntimeSpec::Source(runtime) = self.db.get(CompilerRuntimeQuery)?.as_ref()
+        {
+            return Ok(Some(runtime.package().clone()));
+        }
+        Ok(self
+            .db
+            .context()
+            .loader_facts()
+            .compiled_package_module_identity(module_id)?
+            .map(|module| module.package))
+    }
+
     /// Resolves a definition to its canonical package while publishing the
     /// supplied package as the owner of the current source root.
     pub fn package_for_definition_in_package(

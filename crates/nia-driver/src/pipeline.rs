@@ -868,53 +868,84 @@ impl Driver {
             .runtime
             .source()
             .map(|runtime| runtime.package().clone());
-        let mut native = NativeVariant {
-            optimization: optimization_wire_tag(artifact.optimization.level),
-            objects: artifact
-                .link_inputs
-                .into_vec()
-                .into_iter()
-                .filter_map(|input| {
-                    let owner = match &input.key {
-                        nia_codegen_llvm::CodegenUnitKey::SourceModule {
-                            source_identity,
-                            ordinal,
-                        } if owned_sources.contains(source_identity) => {
-                            NativeObjectOwner::PackageModule {
+        let objects = artifact
+            .link_inputs
+            .into_vec()
+            .into_iter()
+            .map(|input| -> Result<Option<NativeObject>, DriverError> {
+                let owner = match &input.key {
+                    nia_codegen_llvm::CodegenUnitKey::SourceModule {
+                        source_identity,
+                        ordinal,
+                    } if owned_sources.contains(source_identity) => {
+                        NativeObjectOwner::PackageModule {
+                            module: nia_package_metadata::ModuleId {
+                                package: package.clone(),
+                                path: source_identity.normalized_path().to_owned(),
+                            },
+                            ordinal: *ordinal,
+                        }
+                    }
+                    nia_codegen_llvm::CodegenUnitKey::SourceModule {
+                        source_identity,
+                        ordinal,
+                    } if runtime_sources.contains(source_identity) => {
+                        let Some(runtime_package) = runtime_package.clone() else {
+                            return Ok(None);
+                        };
+                        NativeObjectOwner::RuntimeStartup {
+                            module: nia_package_metadata::ModuleId {
+                                package: runtime_package,
+                                path: source_identity.normalized_path().to_owned(),
+                            },
+                            ordinal: *ordinal,
+                        }
+                    }
+                    nia_codegen_llvm::CodegenUnitKey::SourceModule {
+                        source_identity,
+                        ordinal,
+                    } => {
+                        match database
+                            .package_for_source_identity(source_identity)
+                            .map_err(|error| {
+                                DriverError::InternalDiagnostic(query_error_diagnostic(error))
+                            })? {
+                            Some(dependency_package) => NativeObjectOwner::PackageSpecialization {
+                                package: package.clone(),
+                                module: nia_package_metadata::ModuleId {
+                                    package: dependency_package,
+                                    path: source_identity.normalized_path().to_owned(),
+                                },
+                                ordinal: *ordinal,
+                            },
+                            None => NativeObjectOwner::PackageModule {
                                 module: nia_package_metadata::ModuleId {
                                     package: package.clone(),
                                     path: source_identity.normalized_path().to_owned(),
                                 },
                                 ordinal: *ordinal,
-                            }
+                            },
                         }
-                        nia_codegen_llvm::CodegenUnitKey::SourceModule {
-                            source_identity,
-                            ordinal,
-                        } if runtime_sources.contains(source_identity) => {
-                            let runtime_package = runtime_package.clone()?;
-                            NativeObjectOwner::RuntimeStartup {
-                                module: nia_package_metadata::ModuleId {
-                                    package: runtime_package,
-                                    path: source_identity.normalized_path().to_owned(),
-                                },
-                                ordinal: *ordinal,
-                            }
-                        }
-                        nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins => {
-                            NativeObjectOwner::CompilerBuiltins
-                        }
-                        nia_codegen_llvm::CodegenUnitKey::SourceModule { .. }
-                        | nia_codegen_llvm::CodegenUnitKey::CompiledPackage { .. } => return None,
-                    };
-                    Some(NativeObject {
-                        owner,
-                        key: native_object_key(&input.key),
-                        fingerprint: input.fingerprint.parts(),
-                        bytes: input.object.bytes,
-                    })
-                })
-                .collect(),
+                    }
+                    nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins => {
+                        NativeObjectOwner::CompilerBuiltins
+                    }
+                    nia_codegen_llvm::CodegenUnitKey::CompiledPackage { .. } => return Ok(None),
+                };
+                Ok(Some(NativeObject {
+                    owner,
+                    key: native_object_key(&input.key),
+                    fingerprint: input.fingerprint.parts(),
+                    bytes: input.object.bytes,
+                }))
+            })
+            .collect::<Result<Vec<_>, DriverError>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        let mut native = NativeVariant {
+            optimization: optimization_wire_tag(artifact.optimization.level),
+            objects,
         };
         native.objects.sort_by(|left, right| {
             (left.owner.clone(), &left.key).cmp(&(right.owner.clone(), &right.key))
@@ -2770,6 +2801,26 @@ fn native_object_key(key: &nia_codegen_llvm::CodegenUnitKey) -> String {
     }
 }
 
+fn specialization_native_object_key(
+    module: &nia_package_metadata::ModuleId,
+    ordinal: u32,
+) -> String {
+    let mut key = String::from("specialization:");
+    for field in [
+        &module.package.namespace,
+        &module.package.name,
+        &module.package.version,
+        &module.path,
+    ] {
+        use std::fmt::Write as _;
+        write!(&mut key, "{}:{field}", field.len())
+            .expect("writing a specialization object key cannot fail");
+    }
+    use std::fmt::Write as _;
+    write!(&mut key, ":{ordinal}").expect("writing a specialization ordinal cannot fail");
+    key
+}
+
 /// Appends native objects supplied by selected compiled package artifacts to
 /// the source codegen inputs. Artifact objects retain their canonical package
 /// identity and metadata fingerprint; the numeric unit id is deliberately
@@ -2849,6 +2900,15 @@ fn append_native_variant_inputs(
                 "package-native object owner does not match its enclosing package".to_string(),
             ));
         }
+        if matches!(
+            &object.owner,
+            NativeObjectOwner::PackageSpecialization { package, .. }
+                if package != enclosing_package
+        ) {
+            return Err(DriverError::InvalidArtifactRequest(
+                "package-specialization owner does not match its enclosing package".to_string(),
+            ));
+        }
         if matches!(object.owner, NativeObjectOwner::PackageModule { .. })
             && source_owners
                 .get(&object.key)
@@ -2856,16 +2916,18 @@ fn append_native_variant_inputs(
         {
             continue;
         }
-        let owner_package = object
-            .owner
-            .module()
-            .map(|module| &module.package)
-            .unwrap_or(enclosing_package);
+        let owner_package = object.owner.package().unwrap_or(enclosing_package);
+        let object_key = match &object.owner {
+            NativeObjectOwner::PackageSpecialization {
+                module, ordinal, ..
+            } => specialization_native_object_key(module, *ordinal),
+            _ => object.key.clone(),
+        };
         let stable_key = (
             owner_package.namespace.clone(),
             owner_package.name.clone(),
             owner_package.version.clone(),
-            object.key.clone(),
+            object_key,
         );
         if !owners.insert(stable_key.clone()) {
             return Err(DriverError::InvalidArtifactRequest(
