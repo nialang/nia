@@ -15,10 +15,13 @@ pub const COMPILER_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// line (`0.1.x` => 1, `0.2.x` => 2, `1.0.x` => 1000) rather than from the
 /// number of implementation changes made during development.
 pub const RELEASE_COMPATIBILITY: u32 = release_compatibility(COMPILER_VERSION);
-/// Canonical directory component for release-scoped persistent namespaces.
-/// This is maintained in one place; individual products do not carry their
-/// own directory version counters.
-pub const RELEASE_NAMESPACE_PATH: &str = "v2";
+/// Stable directory component for persistent namespaces.
+///
+/// Compatibility is validated from each payload's release identity. Keeping
+/// the directory spelling stable avoids another manually bumped version track;
+/// incompatible entries are rejected by their owning decoder and naturally
+/// replaced under the same namespace.
+pub const RELEASE_NAMESPACE_PATH: &str = "release";
 
 const fn decimal_component(bytes: &[u8], start: usize, end: usize) -> u32 {
     let mut value = 0;
