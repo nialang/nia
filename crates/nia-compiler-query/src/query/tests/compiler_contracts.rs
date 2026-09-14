@@ -1878,7 +1878,10 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
                         name: "base".into(),
                         version: "1.0.0".into(),
                     },
-                    interface_hash: dependency_hash,
+                    fingerprint:
+                        nia_package_metadata::PackageDependencyFingerprint::ArtifactInterface(
+                            dependency_hash,
+                        ),
                 });
             manifest
                 .modules
@@ -1907,7 +1910,7 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
             .unwrap();
             nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap()
         };
-    loader.replace_compiled_interfaces(vec![make_interface("first", b"a", [0; 32], 0)]);
+    loader.replace_compiled_interfaces(vec![make_interface("first", b"a", [1; 32], 0)]);
     assert_eq!(
         database.install_compiled_package_declarations().unwrap(),
         vec![package.clone()]
@@ -1915,7 +1918,7 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
     let declarations = database.compiled_package_declarations(&package).unwrap();
     assert_eq!(declarations.iter().count(), 1);
     let _ = database.compiled_package_interface_index().unwrap();
-    loader.replace_compiled_interfaces(vec![make_interface("first", b"a", [1; 32], 0)]);
+    loader.replace_compiled_interfaces(vec![make_interface("first", b"a", [2; 32], 0)]);
     let dependency_invalidation = database
         .update(CompileRequest::new(fixture.program()).with_loader_facts(loader.clone()))
         .unwrap();
@@ -1925,7 +1928,7 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
             .iter()
             .any(|frame| frame.name == "compiled_package_interface_index")
     );
-    loader.replace_compiled_interfaces(vec![make_interface("first", b"b", [1; 32], 0)]);
+    loader.replace_compiled_interfaces(vec![make_interface("first", b"b", [2; 32], 0)]);
     let template_invalidation = database
         .update(CompileRequest::new(fixture.program()).with_loader_facts(loader.clone()))
         .unwrap();
@@ -1935,7 +1938,7 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
             .iter()
             .any(|frame| frame.name == "compiled_package_interface_index")
     );
-    loader.replace_compiled_interfaces(vec![make_interface("first", b"b", [1; 32], 1)]);
+    loader.replace_compiled_interfaces(vec![make_interface("first", b"b", [2; 32], 1)]);
     let native_invalidation = database
         .update(CompileRequest::new(fixture.program()).with_loader_facts(loader.clone()))
         .unwrap();
