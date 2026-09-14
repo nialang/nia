@@ -32,7 +32,7 @@ pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError
     write_target(&mut payload, invocation.toolchain.host_target())?;
     write_target(&mut payload, invocation.toolchain.artifact_target())?;
     write_u32(&mut payload, optimization_tag(invocation.optimization));
-    write_u32(&mut payload, BUILD_PLAN.schema);
+    write_u32(&mut payload, BUILD_PLAN.release_compatibility);
     write_path(&mut payload, "build-plan draft", &invocation.plan_draft)?;
     match &invocation.step {
         BuildStepSelection::Default => payload.push(0),
@@ -48,7 +48,7 @@ pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError
     }
     let mut encoded = Vec::with_capacity(24 + payload.len());
     encoded.extend_from_slice(RUNNER_CONFIG.magic);
-    write_u32(&mut encoded, RUNNER_CONFIG.schema);
+    write_u32(&mut encoded, RUNNER_CONFIG.release_compatibility);
     write_u32(&mut encoded, payload.len() as u32);
     write_u64(&mut encoded, payload_checksum(&payload));
     encoded.extend_from_slice(&payload);
@@ -168,7 +168,7 @@ mod tests {
             *invocation.toolchain.artifact_target()
         );
         assert_eq!(decoded.optimization, 5);
-        assert_eq!(decoded.plan_schema, BUILD_PLAN.schema);
+        assert_eq!(decoded.plan_schema, BUILD_PLAN.release_compatibility);
         assert_eq!(decoded.step.as_deref(), Some("install"));
     }
 
@@ -200,7 +200,8 @@ mod tests {
         assert_eq!(decode(&bad_magic), Err(DecodeError::Magic));
 
         let mut bad_version = baseline.clone();
-        bad_version[8..12].copy_from_slice(&(RUNNER_CONFIG.schema + 1).to_le_bytes());
+        bad_version[8..12]
+            .copy_from_slice(&(RUNNER_CONFIG.release_compatibility + 1).to_le_bytes());
         assert_eq!(decode(&bad_version), Err(DecodeError::Version));
 
         let mut bad_length = baseline.clone();
@@ -294,7 +295,7 @@ mod tests {
             return Err(DecodeError::Magic);
         }
         let version = u32::from_le_bytes(encoded[8..12].try_into().unwrap());
-        if version != RUNNER_CONFIG.schema {
+        if version != RUNNER_CONFIG.release_compatibility {
             return Err(DecodeError::Version);
         }
         let payload_len = u32::from_le_bytes(encoded[12..16].try_into().unwrap()) as usize;

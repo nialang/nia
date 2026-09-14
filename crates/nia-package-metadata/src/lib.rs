@@ -9,8 +9,12 @@ use std::{
 
 use nia_compat::{COMPILER_VERSION, RELEASE_COMPATIBILITY, formats, toolchain};
 
-/// Current package container schema.
-pub const SCHEMA_VERSION: u32 = formats::PACKAGE_METADATA.schema;
+/// Release compatibility encoded in the package container header.
+///
+/// The header retains one version word so decoders can reject incompatible
+/// payloads before reading the manifest, but it is not an independently
+/// bumpable package-metadata schema.
+pub const SCHEMA_VERSION: u32 = RELEASE_COMPATIBILITY;
 /// Maximum accepted complete container size.
 pub const MAX_PACKAGE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_STRING_BYTES: usize = 16 * 1024 * 1024;
@@ -1947,8 +1951,7 @@ struct SectionEntry {
 pub struct PackageManifest {
     pub package: PackageId,
     pub compiler_version: String,
-    pub std_schema: u32,
-    pub schema_version: u32,
+    pub release_compatibility: u32,
     /// Target under which conditional source was selected.
     pub target: CompilationTarget,
     /// Build-profile tag under which conditional source was selected.
@@ -1970,8 +1973,7 @@ impl PackageManifest {
         Self {
             package,
             compiler_version: COMPILER_VERSION.to_owned(),
-            std_schema: toolchain::STANDARD_LIBRARY,
-            schema_version: SCHEMA_VERSION,
+            release_compatibility: nia_compat::RELEASE_COMPATIBILITY,
             target,
             profile,
             compilation_mode,
@@ -1983,7 +1985,7 @@ impl PackageManifest {
         self.validate()?;
         put_id(output, &self.package)?;
         put_string(output, &self.compiler_version)?;
-        put_u32(output, self.std_schema);
+        put_u32(output, self.release_compatibility);
         put_target(output, &self.target)?;
         output.push(self.profile);
         output.push(self.compilation_mode);
@@ -2012,8 +2014,7 @@ impl PackageManifest {
         let manifest = Self {
             package: get_id(cursor)?,
             compiler_version: get_string(cursor)?,
-            std_schema: get_u32(cursor)?,
-            schema_version: SCHEMA_VERSION,
+            release_compatibility: get_u32(cursor)?,
             target: get_target(cursor)?,
             profile: read_u8(cursor)?,
             compilation_mode: read_u8(cursor)?,
@@ -2028,9 +2029,6 @@ impl PackageManifest {
         validate_id(&self.package)?;
         validate_string(&self.compiler_version)?;
         validate_target(&self.target)?;
-        if self.schema_version != SCHEMA_VERSION {
-            return Err(MetadataError::Schema(self.schema_version));
-        }
         if self.profile > 1 || self.compilation_mode > 1 {
             return Err(MetadataError::InvalidManifest);
         }

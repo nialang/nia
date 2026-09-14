@@ -763,7 +763,7 @@ impl BuildPlan {
         validate_generated_source_dependencies(&draft)?;
 
         Ok(Self {
-            schema_version: BUILD_PLAN.schema,
+            schema_version: BUILD_PLAN.release_compatibility,
             root_package: draft.root_package,
             packages: draft.packages,
             host_target: draft.host_target,
