@@ -727,11 +727,18 @@ impl Driver {
                     ));
                 }
             };
+            let package_for_resolver = package.clone();
+            let resolver = |def_id| {
+                database.package_for_definition_in_package(def_id, &package_for_resolver)
+            };
             // Materialize the complete package interface before package-scoped
             // native demand can leave the loader graph at a partial frontier.
             // The query result is cached in this database and reused by the
             // final native publication below.
-            if let Err(error) = database.publish_package_artifact(package.clone()) {
+            if let Err(error) = database.publish_package_artifact_with_resolver(
+                package.clone(),
+                &resolver,
+            ) {
                 return DriverOutput::from_error(DriverError::InternalDiagnostic(
                     query_error_diagnostic(error),
                 ));
@@ -841,10 +848,6 @@ impl Driver {
             }
             let native = NativeSection {
                 variants: vec![native],
-            };
-            let package_for_resolver = package.clone();
-            let resolver = |def_id| {
-                database.package_for_definition_in_package(def_id, &package_for_resolver)
             };
             let publication = database
                 .publish_package_artifact_with_resolver_and_native(package, &resolver, Some(native))
