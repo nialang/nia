@@ -2461,16 +2461,7 @@ impl CompilerDatabase {
                     .loader_facts()
                     .compiled_package_module_identity(module.id)?
                     .map(|identity| identity.package)
-                    .ok_or_else(|| {
-                        self.db.invalid_input(
-                            &ModuleGraphQuery,
-                            format!(
-                                "template module has no stable package identity: {:?} {:?}",
-                                module.id,
-                                key.source_identity()
-                            ),
-                        )
-                    })?
+                    .unwrap_or_else(|| package.clone())
             };
             module_identities.insert(
                 module.id,
