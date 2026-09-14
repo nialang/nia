@@ -138,6 +138,8 @@ const PROVIDER_SUMMARY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.compiler.provider-summary.v1");
 const COMPILED_INTERFACE_INDEX_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.compiler.compiled-interface-index.v1");
+const COMPILED_NATIVE_OBSERVATION_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.compiled-native-observation.v1");
 mod resolve;
 mod static_init_queries;
 mod types;
@@ -7131,9 +7133,7 @@ fn compiled_interface_fingerprint(
 fn compiled_native_observation_fingerprint(
     interfaces: Vec<nia_package_metadata::CompiledPackageInterface>,
 ) -> QueryResult<QueryFingerprint> {
-    let mut builder = QueryFingerprintBuilder::new(FingerprintDomain::new(
-        "nia.compiler.compiled-native-observation.v1",
-    ));
+    let mut builder = QueryFingerprintBuilder::new(COMPILED_NATIVE_OBSERVATION_DOMAIN);
     for interface in interfaces {
         let package = &interface.manifest().package;
         builder.write_str(&package.namespace);
