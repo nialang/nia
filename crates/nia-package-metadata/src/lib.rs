@@ -173,7 +173,17 @@ pub enum StableArrayLength {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageDependency {
     pub package: PackageId,
-    pub interface_hash: [u8; 32],
+    pub fingerprint: PackageDependencyFingerprint,
+}
+
+/// Provenance of one package dependency fingerprint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackageDependencyFingerprint {
+    /// Hash of the dependency's canonical compiled interface section.
+    ArtifactInterface([u8; 32]),
+    /// Hash of the stable source definitions consumed by this package's
+    /// exported surface.
+    SourceSurface([u8; 32]),
 }
 
 /// Public module declaration exported by a package.
@@ -1936,7 +1946,16 @@ impl PackageManifest {
         put_list_len(output, self.dependencies.len())?;
         for dependency in &self.dependencies {
             put_id(output, &dependency.package)?;
-            output.extend_from_slice(&dependency.interface_hash);
+            match dependency.fingerprint {
+                PackageDependencyFingerprint::ArtifactInterface(hash) => {
+                    output.push(0);
+                    output.extend_from_slice(&hash);
+                }
+                PackageDependencyFingerprint::SourceSurface(hash) => {
+                    output.push(1);
+                    output.extend_from_slice(&hash);
+                }
+            }
         }
         put_list_len(output, self.modules.len())?;
         for module in &self.modules {
@@ -1977,6 +1996,13 @@ impl PackageManifest {
         for dependency in &self.dependencies {
             validate_id(&dependency.package)?;
             if dependency.package == self.package {
+                return Err(MetadataError::InvalidManifest);
+            }
+            let hash = match dependency.fingerprint {
+                PackageDependencyFingerprint::ArtifactInterface(hash)
+                | PackageDependencyFingerprint::SourceSurface(hash) => hash,
+            };
+            if hash == [0; 32] {
                 return Err(MetadataError::InvalidManifest);
             }
         }
@@ -3979,11 +4005,17 @@ fn get_dependencies(cursor: &mut Cursor<&[u8]>) -> Result<Vec<PackageDependency>
     (0..count)
         .map(|_| {
             let package = get_id(cursor)?;
-            let mut interface_hash = [0; 32];
-            read_exact(cursor, &mut interface_hash)?;
+            let tag = read_u8(cursor)?;
+            let mut hash = [0; 32];
+            read_exact(cursor, &mut hash)?;
+            let fingerprint = match tag {
+                0 => PackageDependencyFingerprint::ArtifactInterface(hash),
+                1 => PackageDependencyFingerprint::SourceSurface(hash),
+                _ => return Err(MetadataError::InvalidManifest),
+            };
             Ok(PackageDependency {
                 package,
-                interface_hash,
+                fingerprint,
             })
         })
         .collect()
@@ -4114,9 +4146,53 @@ mod tests {
         let mut manifest = sample();
         manifest.dependencies.push(PackageDependency {
             package: manifest.package.clone(),
-            interface_hash: [1; 32],
+            fingerprint: PackageDependencyFingerprint::ArtifactInterface([1; 32]),
         });
         assert_eq!(encode(&manifest), Err(MetadataError::InvalidManifest));
+    }
+
+    #[test]
+    fn dependency_fingerprint_provenance_round_trips() {
+        let mut manifest = sample();
+        manifest.dependencies = vec![
+            PackageDependency {
+                package: PackageId {
+                    namespace: "example".into(),
+                    name: "artifact".into(),
+                    version: "1.0.0".into(),
+                },
+                fingerprint: PackageDependencyFingerprint::ArtifactInterface([3; 32]),
+            },
+            PackageDependency {
+                package: PackageId {
+                    namespace: "example".into(),
+                    name: "source".into(),
+                    version: "1.0.0".into(),
+                },
+                fingerprint: PackageDependencyFingerprint::SourceSurface([4; 32]),
+            },
+        ];
+        let bytes = encode(&manifest).expect("encode manifest");
+        assert_eq!(decode(&bytes).expect("decode manifest"), manifest);
+    }
+
+    #[test]
+    fn manifest_rejects_zero_dependency_fingerprints() {
+        for fingerprint in [
+            PackageDependencyFingerprint::ArtifactInterface([0; 32]),
+            PackageDependencyFingerprint::SourceSurface([0; 32]),
+        ] {
+            let mut manifest = sample();
+            manifest.dependencies.push(PackageDependency {
+                package: PackageId {
+                    namespace: "example".into(),
+                    name: "dep".into(),
+                    version: "1.0.0".into(),
+                },
+                fingerprint,
+            });
+            assert_eq!(encode(&manifest), Err(MetadataError::InvalidManifest));
+        }
     }
 
     #[test]

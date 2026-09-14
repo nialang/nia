@@ -4201,7 +4201,10 @@ impl CompilerDatabase {
                 .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
                 Ok(nia_package_metadata::PackageDependency {
                     package: interface.manifest().package.clone(),
-                    interface_hash: nia_package_metadata::section_hash(&bytes),
+                    fingerprint:
+                        nia_package_metadata::PackageDependencyFingerprint::ArtifactInterface(
+                            nia_package_metadata::section_hash(&bytes),
+                        ),
                 })
             })
             .collect::<QueryResult<Vec<_>>>()?;
@@ -4229,33 +4232,57 @@ impl CompilerDatabase {
             }
         }
         for dep in surface_dependencies {
-            // The dependency hash must describe the dependency's canonical
-            // interface, not the consumer's re-export projection. Resolve it
-            // from a selected artifact when available; otherwise this package
-            // cannot claim a verifiable binary dependency and publication
-            // fails rather than emitting a sentinel hash.
-            let Some(interface) = self
+            let fingerprint = if let Some(interface) = self
                 .db
                 .context()
                 .loader_facts()
                 .compiled_package_interfaces()?
                 .into_iter()
                 .find(|interface| interface.manifest().package == dep)
-            else {
-                return Err(self.db.invalid_input(
-                    &ModuleGraphQuery,
-                    format!(
-                        "public surface references source-backed dependency without compiled interface: {dep:?}"
-                    ),
-                ));
+            {
+                let bytes = nia_package_metadata::encode_interface(&InterfaceSection {
+                    records: interface.records().to_vec(),
+                })
+                .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+                nia_package_metadata::PackageDependencyFingerprint::ArtifactInterface(
+                    nia_package_metadata::section_hash(&bytes),
+                )
+            } else {
+                let modules = public_surface
+                    .modules
+                    .iter()
+                    .filter_map(|module| {
+                        let exports = module
+                            .exports
+                            .iter()
+                            .filter(|export| {
+                                export.target.module.package == dep
+                                    || export
+                                        .parent_enum
+                                        .as_ref()
+                                        .is_some_and(|parent| parent.module.package == dep)
+                            })
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        (!exports.is_empty()).then(|| PublicSurfaceModule {
+                            path: module.path.clone(),
+                            modules: Vec::new(),
+                            exports,
+                        })
+                    })
+                    .collect();
+                let bytes = nia_package_metadata::encode_public_surface(&PublicSurfaceSection {
+                    package: dep.clone(),
+                    modules,
+                })
+                .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+                nia_package_metadata::PackageDependencyFingerprint::SourceSurface(
+                    nia_package_metadata::section_hash(&bytes),
+                )
             };
-            let bytes = nia_package_metadata::encode_interface(&InterfaceSection {
-                records: interface.records().to_vec(),
-            })
-            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
             dependencies.push(nia_package_metadata::PackageDependency {
                 package: dep,
-                interface_hash: nia_package_metadata::section_hash(&bytes),
+                fingerprint,
             });
         }
         dependencies.sort_by(|left, right| left.package.cmp(&right.package));
@@ -6982,7 +7009,16 @@ fn compiled_interface_index_fingerprint(
             builder.write_str(&dependency.package.namespace);
             builder.write_str(&dependency.package.name);
             builder.write_str(&dependency.package.version);
-            builder.write_bytes(&dependency.interface_hash);
+            match dependency.fingerprint {
+                nia_package_metadata::PackageDependencyFingerprint::ArtifactInterface(hash) => {
+                    builder.write_u8(0);
+                    builder.write_bytes(&hash);
+                }
+                nia_package_metadata::PackageDependencyFingerprint::SourceSurface(hash) => {
+                    builder.write_u8(1);
+                    builder.write_bytes(&hash);
+                }
+            }
         }
         builder.write_u64(interface.manifest().modules.len() as u64);
         for module in &interface.manifest().modules {
