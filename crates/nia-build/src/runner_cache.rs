@@ -62,7 +62,10 @@ pub(super) fn cache_key(
     runner: &BuildRunnerSource,
 ) -> Result<String, BuildError> {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"nia.build.runner-cache.v1");
+    // The cache schema and identity inputs are versioned together. Bumping
+    // this domain forces a miss whenever the key construction changes,
+    // without relying on stale products from an older implementation.
+    hasher.update(b"nia.build.runner-cache.v2");
     hasher.update(runner.source.as_bytes());
     hash_file(&mut hasher, &invocation.build_script, runner)?;
     let std_artifact = invocation.toolchain.std_package_artifact(
@@ -319,24 +322,34 @@ mod tests {
         let manifest = nia_package_metadata::PackageManifest::current(
             package_id(key),
             nia_package_metadata::CompilationTarget {
-                arch: "x86_64".into(), vendor: "unknown".into(), os: "linux".into(),
-                env: "gnu".into(), abi: "".into(), endian: "little".into(), pointer_width: 64,
+                arch: "x86_64".into(),
+                vendor: "unknown".into(),
+                os: "linux".into(),
+                env: "gnu".into(),
+                abi: "".into(),
+                endian: "little".into(),
+                pointer_width: 64,
             },
-            0, 0,
+            0,
+            0,
         );
-        let native = nia_package_metadata::NativeSection { variants: vec![
-            nia_package_metadata::NativeVariant { optimization: 0, objects: vec![
-                nia_package_metadata::NativeObject {
+        let native = nia_package_metadata::NativeSection {
+            variants: vec![nia_package_metadata::NativeVariant {
+                optimization: 0,
+                objects: vec![nia_package_metadata::NativeObject {
                     owner: nia_package_metadata::NativeObjectOwner::CompilerBuiltins,
-                    key: "builtins".into(), fingerprint: [1, 2], bytes: vec![1],
-                }
-            ] }
-        ]};
+                    key: "builtins".into(),
+                    fingerprint: [1, 2],
+                    bytes: vec![1],
+                }],
+            }],
+        };
         let native_bytes = nia_package_metadata::encode_native(&native).unwrap();
         let bytes = nia_package_metadata::encode_artifact(
             &manifest,
             &[(nia_package_metadata::SectionKind::Native, &native_bytes)],
-        ).unwrap();
+        )
+        .unwrap();
         let artifact = package_path(&invocation, key);
         fs::create_dir_all(artifact.parent().unwrap()).unwrap();
         fs::write(&artifact, bytes).unwrap();
