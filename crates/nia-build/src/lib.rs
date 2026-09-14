@@ -1328,6 +1328,7 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
                 nia_timing::emit_counter("build.runner_cache_hits", 1);
                 return Ok(invocation.runner_executable.clone());
             }
+            nia_timing::emit_counter("build.runner_cache_relink_fallbacks", 1);
         }
     }
     nia_timing::emit_counter("build.runner_cache_misses", 1);
