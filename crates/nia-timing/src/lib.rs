@@ -1316,7 +1316,9 @@ fn format_report_entry(entry: &TimingReportEntry) -> String {
 
 fn format_json_report(report: &TimingReport, process: ProcessMeasurement) -> String {
     let mut output = String::new();
-    output.push_str("{\"schema_version\":1,\"process\":{");
+    output.push_str("{\"release_compatibility\":");
+    output.push_str(&nia_compat::RELEASE_COMPATIBILITY.to_string());
+    output.push_str(",\"process\":{");
     push_json_duration(&mut output, "wall_seconds", Some(process.wall));
     output.push(',');
     push_json_duration(&mut output, "user_seconds", process.user);
@@ -1815,7 +1817,13 @@ mod tests {
             },
         );
 
-        assert!(json.starts_with("{\"schema_version\":1,"), "{json}");
+        assert!(
+            json.starts_with(&format!(
+                "{{\"release_compatibility\":{},",
+                nia_compat::RELEASE_COMPATIBILITY
+            )),
+            "{json}"
+        );
         assert!(
             json.contains("\"cpu_utilization_percent\":50.000000000"),
             "{json}"

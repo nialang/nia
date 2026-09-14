@@ -11,7 +11,7 @@ use nia_query::FingerprintDomain;
 use crate::{BuildError, BuildInvocation, BuildRunnerSource, OptimizationMode};
 
 const CACHE_SCHEMA: &str = "v4";
-const RUNNER_CACHE_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.build.runner-cache.v2");
+const RUNNER_CACHE_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.build.runner-cache");
 
 /// Canonical compiled-package product path for a generated build runner.
 pub(super) fn package_path(invocation: &BuildInvocation, key: &str) -> PathBuf {

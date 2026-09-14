@@ -84,9 +84,9 @@ type PromotedAllocationKey = (PromotedAllocationId, Option<FunctionInstanceKey>)
 type PromotedAllocationEntry<'ctx> = (InternedTyId, BasicValueEnum<'ctx>);
 
 const SOURCE_FILE_GLOBAL_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.llvm.source-file-global.v1");
+    FingerprintDomain::new("nia.llvm.source-file-global");
 const SOURCE_LOCATION_GLOBAL_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.llvm.source-location-global.v1");
+    FingerprintDomain::new("nia.llvm.source-location-global");
 
 fn source_global_symbol(
     prefix: &str,

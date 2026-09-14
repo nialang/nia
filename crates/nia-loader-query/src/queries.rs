@@ -25,8 +25,7 @@ use nia_source::{SourceFile, SourceId, SourcePath, SourceRevision, SourceVersion
 use nia_target_config::prune_module_for_target_with_profile_mode_and_symbols;
 use std::sync::Arc;
 
-const SOURCE_STATUS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.loader.source-status.v1");
+const SOURCE_STATUS_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.loader.source-status");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct LoadedProgramQuery;

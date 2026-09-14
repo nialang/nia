@@ -854,6 +854,7 @@ dependencies = [
 name = "nia-maintain"
 version = "0.2.0-dev"
 dependencies = [
+ "nia-compat",
  "regex",
  "serde",
  "serde_json",
@@ -1113,6 +1114,7 @@ name = "nia-timing"
 version = "0.2.0-dev"
 dependencies = [
  "libc",
+ "nia-compat",
 ]
 
 [[package]]

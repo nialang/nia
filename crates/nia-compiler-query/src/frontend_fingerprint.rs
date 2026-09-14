@@ -12,44 +12,44 @@ use nia_target_config::TargetConfig;
 use crate::RuntimeSpec;
 
 const SOURCE_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-key.source.v1");
+    FingerprintDomain::new("nia.frontend.cache-key.source");
 const SIGNATURE_TYPE_RESOLUTION_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-key.signature-type-resolution.v1");
+    FingerprintDomain::new("nia.frontend.cache-key.signature-type-resolution");
 const SIGNATURE_TYPE_LOWERING_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-key.signature-type-lowering.v1");
+    FingerprintDomain::new("nia.frontend.cache-key.signature-type-lowering");
 const SIGNATURE_ITEM_SIGNATURES_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-key.signature-item-signatures.v1");
+    FingerprintDomain::new("nia.frontend.cache-key.signature-item-signatures");
 const EXTENSION_VALIDATION_DIAGNOSTICS_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-key.extension-validation-diagnostics.v1");
+    FingerprintDomain::new("nia.frontend.cache-key.extension-validation-diagnostics");
 const EXECUTABLE_VALUE_REF_EDGES_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-key.executable-value-ref-edges.v1");
+    FingerprintDomain::new("nia.frontend.cache-key.executable-value-ref-edges");
 const CHECK_CERTIFICATE_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-key.check-certificate.v1");
+    FingerprintDomain::new("nia.frontend.cache-key.check-certificate");
 const SYNTAX_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-key.syntax.v1");
+    FingerprintDomain::new("nia.frontend.cache-key.syntax");
 const ITEM_SIGNATURE_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-key.item-signature.v1");
+    FingerprintDomain::new("nia.frontend.cache-key.item-signature");
 const PROVIDER_SUMMARY_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-key.provider-summary.v1");
+    FingerprintDomain::new("nia.frontend.cache-key.provider-summary");
 const PUBLIC_SURFACE_FACTS_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-key.public-surface-facts.v1");
+    FingerprintDomain::new("nia.frontend.cache-key.public-surface-facts");
 const FACADE_FACTS_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-key.facade-facts.v1");
+    FingerprintDomain::new("nia.frontend.cache-key.facade-facts");
 const MODULE_DEPENDENCIES_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-key.module-dependencies.v1");
+    FingerprintDomain::new("nia.frontend.cache-key.module-dependencies");
 const PROVIDER_DEMAND_PLAN_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-key.provider-demand-plan.v1");
+    FingerprintDomain::new("nia.frontend.cache-key.provider-demand-plan");
 const CACHE_NAMESPACE_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-namespace.v1");
+    FingerprintDomain::new("nia.frontend.cache-namespace");
 const SOURCE_CONTENT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.source-content.v1");
+    FingerprintDomain::new("nia.frontend.source-content");
 const PROGRAM_SOURCES_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.program-sources.v1");
-const MODULE_MAP_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.frontend.module-map.v1");
+    FingerprintDomain::new("nia.frontend.program-sources");
+const MODULE_MAP_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.frontend.module-map");
 const LOSSLESS_SYNTAX_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.lossless-syntax.v1");
+    FingerprintDomain::new("nia.frontend.lossless-syntax");
 const ITEM_SIGNATURE_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.item-signature.v1");
+    FingerprintDomain::new("nia.frontend.item-signature");
 
 macro_rules! frontend_fingerprint {
     ($name:ident) => {

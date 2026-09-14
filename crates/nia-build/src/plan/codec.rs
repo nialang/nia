@@ -25,8 +25,8 @@ pub enum PlanCodecError {
     },
     /// Payload magic does not match the registered format.
     BadMagic,
-    /// Payload uses an unsupported schema version.
-    UnsupportedVersion(u32),
+    /// Payload uses an unsupported release compatibility.
+    UnsupportedCompatibility(u32),
     /// Payload ended before the required field at this offset.
     Truncated {
         /// Byte offset where decoding stopped.
@@ -72,7 +72,7 @@ impl BuildPlan {
     pub fn encode(&self) -> Result<Vec<u8>, PlanCodecError> {
         let mut writer = Writer::new();
         writer.bytes(BUILD_PLAN.magic);
-        writer.u32(self.schema_version);
+        writer.u32(self.release_compatibility);
         writer.package_key(&self.root_package)?;
         writer.count(self.packages.len())?;
         for package in &self.packages {
@@ -116,7 +116,7 @@ impl BuildPlan {
         }
         let version = reader.u32()?;
         if version != BUILD_PLAN.release_compatibility {
-            return Err(PlanCodecError::UnsupportedVersion(version));
+            return Err(PlanCodecError::UnsupportedCompatibility(version));
         }
         let root_package = reader.package_key()?;
         let packages = reader.list(|reader| {
@@ -1299,7 +1299,7 @@ mod tests {
         unknown[8..12].copy_from_slice(&(BUILD_PLAN.release_compatibility + 1).to_le_bytes());
         assert_eq!(
             BuildPlan::decode(&unknown),
-            Err(PlanCodecError::UnsupportedVersion(
+            Err(PlanCodecError::UnsupportedCompatibility(
                 BUILD_PLAN.release_compatibility + 1
             ))
         );

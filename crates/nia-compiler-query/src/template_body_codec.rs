@@ -19,8 +19,8 @@ use nia_span::Span;
 use nia_symbol::SymbolId;
 use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, ConstGenericValue, IntConst, TraitId};
 
-const MAGIC: &[u8; 8] = b"NIAFIR01";
-const SCHEMA: u32 = 1;
+const MAGIC: &[u8; 8] = b"NIAFIR\0\0";
+const SCHEMA: u32 = nia_compat::RELEASE_COMPATIBILITY;
 const MAX_BYTES: usize = nia_package_metadata::MAX_PACKAGE_BYTES;
 const MAX_ITEMS: usize = 1_000_000;
 const MAX_DEPTH: usize = 256;

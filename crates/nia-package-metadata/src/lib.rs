@@ -7,14 +7,16 @@ use std::{
     sync::Arc,
 };
 
-use nia_compat::{COMPILER_VERSION, RELEASE_COMPATIBILITY, formats, toolchain};
+use nia_compat::{
+    COMPILER_VERSION, RELEASE_COMPATIBILITY as NIA_RELEASE_COMPATIBILITY, formats, toolchain,
+};
 
 /// Release compatibility encoded in the package container header.
 ///
 /// The header retains one version word so decoders can reject incompatible
 /// payloads before reading the manifest, but it is not an independently
 /// bumpable package-metadata schema.
-pub const SCHEMA_VERSION: u32 = RELEASE_COMPATIBILITY;
+pub const RELEASE_COMPATIBILITY: u32 = NIA_RELEASE_COMPATIBILITY;
 /// Maximum accepted complete container size.
 pub const MAX_PACKAGE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_STRING_BYTES: usize = 16 * 1024 * 1024;
@@ -22,29 +24,29 @@ const MAX_ITEMS: usize = 1_000_000;
 const MAX_DEFINITION_DEPTH: usize = 256;
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4;
 const SECTION_ENTRY_BYTES: usize = 1 + 8 + 8 + 32;
-const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT01";
+const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT\0\0";
 // The section uses the release compatibility epoch; incompatible changes are
 // intentionally rejected as a whole rather than counted independently.
 const INTERFACE_SCHEMA: u32 = RELEASE_COMPATIBILITY;
-const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
+const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP\0\0";
 // Closure-state types carry a package-stable owner identity. There is
 // intentionally no legacy decode path.
 const TYPE_GRAPH_SCHEMA: u32 = RELEASE_COMPATIBILITY;
-const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
-const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG01";
+pub const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL\0\0";
+const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG\0\0";
 const SIGNATURE_SCHEMA: u32 = RELEASE_COMPATIBILITY;
-const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
+const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL\0\0";
 // Checked Function IR bodies carry explicit stable definition/module/type
 // relocations. There is intentionally no legacy decode path:
 // bodies without relocation tables are not executable package products.
 const TEMPLATE_SCHEMA: u32 = RELEASE_COMPATIBILITY;
-const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
+const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM\0\0";
 const TEMPLATE_SUMMARY_SCHEMA: u32 = RELEASE_COMPATIBILITY;
-const NATIVE_MAGIC: &[u8; 8] = b"NIANAT01";
+const NATIVE_MAGIC: &[u8; 8] = b"NIANAT\0\0";
 // Consumer-owned specialization objects carry their dependency module
 // identity. There is intentionally no legacy decode path.
 const NATIVE_SCHEMA: u32 = RELEASE_COMPATIBILITY;
-const PUBLIC_SURFACE_MAGIC: &[u8; 8] = b"NIAPUB01";
+const PUBLIC_SURFACE_MAGIC: &[u8; 8] = b"NIAPUB\0\0";
 const PUBLIC_SURFACE_SCHEMA: u32 = RELEASE_COMPATIBILITY;
 
 /// Relocation-independent identity of one package.
@@ -2087,7 +2089,7 @@ impl PackageArtifact {
             return Err(MetadataError::BadMagic);
         }
         let schema = get_u32(&mut cursor)?;
-        if schema != SCHEMA_VERSION {
+        if schema != RELEASE_COMPATIBILITY {
             return Err(MetadataError::Schema(schema));
         }
         let manifest_len = bounded_len(get_u32(&mut cursor)?)?;
@@ -2246,7 +2248,7 @@ pub fn encode_artifact(
         .ok_or(MetadataError::TooLarge)?;
     let mut output = Vec::with_capacity(directory_end);
     output.extend_from_slice(formats::PACKAGE_METADATA.magic);
-    put_u32(&mut output, SCHEMA_VERSION);
+    put_u32(&mut output, RELEASE_COMPATIBILITY);
     put_u32(
         &mut output,
         u32::try_from(manifest_bytes.len()).map_err(|_| MetadataError::TooLarge)?,
@@ -5428,7 +5430,7 @@ mod tests {
 
     #[test]
     fn stable_declaration_decoder_round_trips_compiler_payload() {
-        let mut bytes = Vec::from(&b"NIADECL01"[..]);
+        let mut bytes = Vec::from(&b"NIADECL\0\0"[..]);
         bytes.extend_from_slice(&[2, 3]);
         bytes.extend_from_slice(&2u32.to_le_bytes());
         bytes.extend_from_slice(&11u64.to_le_bytes());
@@ -5445,7 +5447,7 @@ mod tests {
 
     #[test]
     fn stable_declaration_decoder_rejects_invalid_payloads() {
-        let mut bytes = Vec::from(&b"NIADECL01"[..]);
+        let mut bytes = Vec::from(&b"NIADECL\0\0"[..]);
         bytes.extend_from_slice(&[0, 3]);
         bytes.extend_from_slice(&0u32.to_le_bytes());
         assert!(matches!(

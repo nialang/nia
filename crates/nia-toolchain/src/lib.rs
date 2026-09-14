@@ -14,9 +14,9 @@ use nia_target_config::{BuildProfile, CompilationMode, TargetConfig};
 use std::{fmt, fs, io, io::Read, path::PathBuf};
 
 const COMPATIBILITY_IDENTITY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.toolchain.compatibility-identity.v1");
+    FingerprintDomain::new("nia.toolchain.compatibility-identity");
 const PACKAGE_TARGET_PATH_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.toolchain.package-target-path.v1");
+    FingerprintDomain::new("nia.toolchain.package-target-path");
 const MAX_RESOURCE_MANIFEST_BYTES: usize = 64 * 1024;
 const RUNTIME_PACKAGE_IDENTITY: &str = "toolchain:/runtime/pkg.nia";
 

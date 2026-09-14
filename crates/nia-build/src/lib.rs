@@ -1113,7 +1113,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let mut envelope = ConfigCursor::init(configBytes.asSlice());
     if not envelope.take(8).reportAndExit(init).?.equals(&b"__NIA_RUNNER_CONFIG_MAGIC__")
-        or envelope.u32().reportAndExit(init).? != __NIA_RUNNER_CONFIG_SCHEMA_VERSION__u32
+        or envelope.u32().reportAndExit(init).? != __NIA_RUNNER_CONFIG_COMPATIBILITY__u32
     {
         return build::Error::Invalid {
             operation: build::ErrorOperation::Validate,
@@ -1254,7 +1254,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
     let source = source
         .replace(
-            "__NIA_RUNNER_CONFIG_SCHEMA_VERSION__",
+            "__NIA_RUNNER_CONFIG_COMPATIBILITY__",
             &RUNNER_CONFIG.release_compatibility.to_string(),
         )
         .replace(

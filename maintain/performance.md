@@ -140,7 +140,7 @@ publication is atomic, and malformed, incompatible, or corrupted artifacts are
 retired as misses.
 
 Diagnostics and the JSON record both use stderr, but the JSON record is one
-complete line beginning with `{"schema_version":1`; the baseline runner selects
+complete line beginning with `{"release_compatibility":2`; the baseline runner selects
 that record structurally rather than parsing diagnostic or timing prose.
 
 ## Machine Resource Model
