@@ -59,13 +59,25 @@ pub enum AbiReturn {
     Never,
 }
 
-/// Compiler-inserted parameters that precede source parameters.
+/// Placement of a compiler-inserted ABI parameter relative to source params.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AbiHiddenParamPosition {
+    /// Parameter is inserted before source parameters.
+    Prefix,
+    /// Parameter is inserted after source parameters.
+    Suffix,
+}
+
+/// Compiler-inserted parameter in a function ABI signature.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AbiHiddenParam {
     /// Destination for an indirect aggregate return.
-    SRet { align: u64 },
+    SRet {
+        align: u64,
+        position: AbiHiddenParamPosition,
+    },
     /// Caller source-location pointer used by `track_caller`.
-    CallerLocation,
+    CallerLocation { position: AbiHiddenParamPosition },
 }
 
 /// Complete, cacheable ABI product for one function signature.
@@ -107,10 +119,15 @@ pub fn classify_nia_signature(
         .collect::<Vec<_>>();
     let mut hidden_parameters = Vec::new();
     if let AbiReturn::SRet { align, .. } = return_mode {
-        hidden_parameters.push(AbiHiddenParam::SRet { align });
+        hidden_parameters.push(AbiHiddenParam::SRet {
+            align,
+            position: AbiHiddenParamPosition::Prefix,
+        });
     }
     if tracks_caller {
-        hidden_parameters.push(AbiHiddenParam::CallerLocation);
+        hidden_parameters.push(AbiHiddenParam::CallerLocation {
+            position: AbiHiddenParamPosition::Suffix,
+        });
     }
     AbiSignature {
         domain: AbiDomain::Nia,
@@ -1317,7 +1334,9 @@ extern fn bad_return() (i32, bool);
         assert_eq!(signature.return_mode, AbiReturn::IgnoreZst);
         assert_eq!(
             signature.hidden_parameters,
-            vec![AbiHiddenParam::CallerLocation]
+            vec![AbiHiddenParam::CallerLocation {
+                position: AbiHiddenParamPosition::Suffix
+            }]
         );
     }
 
@@ -1354,7 +1373,10 @@ extern fn bad_return() (i32, bool);
         );
         assert_eq!(
             signature.hidden_parameters,
-            vec![AbiHiddenParam::SRet { align: 8 }]
+            vec![AbiHiddenParam::SRet {
+                align: 8,
+                position: AbiHiddenParamPosition::Prefix
+            }]
         );
     }
 
