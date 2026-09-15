@@ -351,7 +351,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         params: impl IntoIterator<Item = InternedTyId>,
     ) -> Vec<AbiParam> {
-        self.classify_params_in(params)
+        params
+            .into_iter()
+            .map(|ty| self.classify_function_param(ty))
+            .collect()
     }
 
     fn canonical_nia_abi_signature(
@@ -376,116 +379,37 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(crate) fn classify_function_return(&self, ty: InternedTyId) -> AbiReturn {
-        self.classify_return_in(ty)
-    }
-
-    fn classify_params_in(&self, params: impl IntoIterator<Item = InternedTyId>) -> Vec<AbiParam> {
-        params
-            .into_iter()
-            .map(|ty| self.classify_param_in(ty))
-            .collect()
-    }
-
-    fn classify_param_in(&self, ty: InternedTyId) -> AbiParam {
-        if self.layout_of(ty).is_some_and(|layout| layout.size == 0) {
-            return AbiParam::Omit;
-        }
-        match self.ty_kind(ty) {
-            Some(
-                TyKind::Primitive(_)
-                | TyKind::Vector { .. }
-                | TyKind::Pointer { .. }
-                | TyKind::VolatilePointer { .. }
-                | TyKind::FunctionPointer { .. }
-                | TyKind::Slice { .. }
-                | TyKind::TraitObject { .. }
-                | TyKind::Callable { .. }
-                | TyKind::Range { .. },
-            ) => AbiParam::Direct(ty),
-            Some(TyKind::Nominal { def_id, .. })
-                if self
-                    .program
-                    .enum_layout(*def_id)
-                    .is_some_and(|layout| layout.payload_offset.is_none()) =>
-            {
-                AbiParam::Direct(ty)
-            }
-            Some(
-                TyKind::Tuple(_)
-                | TyKind::Array { .. }
-                | TyKind::Nominal { .. }
-                | TyKind::ClosureState { .. },
-            ) => AbiParam::IndirectReadonly(ty),
-            Some(TyKind::Optional { .. } | TyKind::ErrorUnion { .. }) => {
-                AbiParam::IndirectReadonly(ty)
-            }
-            Some(
-                TyKind::GenericParam(_)
-                | TyKind::Opaque
-                | TyKind::SelfParam
-                | TyKind::BuiltinType(_)
-                | TyKind::BuiltinTrait { .. }
-                | TyKind::SlicePointee { .. }
-                | TyKind::TraitObjectPointee { .. }
-                | TyKind::CallablePointee { .. }
-                | TyKind::Projection { .. }
-                | TyKind::ConstOnly
-                | TyKind::Error,
-            )
-            | None => AbiParam::Direct(ty),
+        match nia_abi_check::classify_nia_return(
+            self.program.type_store(),
+            ty,
+            |ty| self.layout_of(ty),
+            |def_id| {
+                self.program
+                    .enum_layout(def_id)
+                    .is_some_and(|layout| layout.payload_offset.is_none())
+            },
+        ) {
+            nia_abi_check::AbiReturn::Direct { ty } => AbiReturn::Direct(ty),
+            nia_abi_check::AbiReturn::SRet { ty, .. } => AbiReturn::IndirectOut(ty),
+            nia_abi_check::AbiReturn::IgnoreZst => AbiReturn::Void,
+            nia_abi_check::AbiReturn::Never => AbiReturn::Never,
         }
     }
 
-    fn classify_return_in(&self, ty: InternedTyId) -> AbiReturn {
-        match self.ty_kind(ty) {
-            Some(kind) if kind.is_unit() => return AbiReturn::Void,
-            Some(TyKind::Primitive(PrimitiveTy::Never)) => return AbiReturn::Never,
-            _ => {}
-        }
-        if self.layout_of(ty).is_some_and(|layout| layout.size == 0) {
-            return AbiReturn::Void;
-        }
-        match self.ty_kind(ty) {
-            Some(
-                TyKind::Primitive(_)
-                | TyKind::Vector { .. }
-                | TyKind::Pointer { .. }
-                | TyKind::VolatilePointer { .. }
-                | TyKind::FunctionPointer { .. }
-                | TyKind::Slice { .. }
-                | TyKind::TraitObject { .. }
-                | TyKind::Callable { .. }
-                | TyKind::Range { .. },
-            ) => AbiReturn::Direct(ty),
-            Some(TyKind::Nominal { def_id, .. })
-                if self
-                    .program
-                    .enum_layout(*def_id)
-                    .is_some_and(|layout| layout.payload_offset.is_none()) =>
-            {
-                AbiReturn::Direct(ty)
-            }
-            Some(
-                TyKind::Tuple(_)
-                | TyKind::Array { .. }
-                | TyKind::Nominal { .. }
-                | TyKind::ClosureState { .. },
-            ) => AbiReturn::IndirectOut(ty),
-            Some(TyKind::Optional { .. } | TyKind::ErrorUnion { .. }) => AbiReturn::IndirectOut(ty),
-            Some(
-                TyKind::GenericParam(_)
-                | TyKind::Opaque
-                | TyKind::SelfParam
-                | TyKind::BuiltinType(_)
-                | TyKind::BuiltinTrait { .. }
-                | TyKind::SlicePointee { .. }
-                | TyKind::TraitObjectPointee { .. }
-                | TyKind::CallablePointee { .. }
-                | TyKind::Projection { .. }
-                | TyKind::ConstOnly
-                | TyKind::Error,
-            )
-            | None => AbiReturn::Direct(ty),
+    fn classify_function_param(&self, ty: InternedTyId) -> AbiParam {
+        match nia_abi_check::classify_nia_param(
+            self.program.type_store(),
+            ty,
+            |ty| self.layout_of(ty),
+            |def_id| {
+                self.program
+                    .enum_layout(def_id)
+                    .is_some_and(|layout| layout.payload_offset.is_none())
+            },
+        ) {
+            nia_abi_check::AbiParam::Direct { ty } => AbiParam::Direct(ty),
+            nia_abi_check::AbiParam::Indirect { ty, .. } => AbiParam::IndirectReadonly(ty),
+            nia_abi_check::AbiParam::IgnoreZst => AbiParam::Omit,
         }
     }
 
