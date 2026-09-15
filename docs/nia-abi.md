@@ -124,7 +124,10 @@ entry points continue to use explicit external names such as `_start`.
 
 Function ABI classification is represented by the cacheable `AbiSignature`
 product in `nia-abi-check`. It records the ABI domain, target data model,
-parameter modes, return mode, hidden sret state, and caller-location tracking.
+parameter modes, return mode, and an ordered hidden-parameter list containing
+items such as sret and caller-location pointers. Both Nia and C domains use
+this product; C legality is still checked separately at the declaration
+boundary.
 The product consumes demand-driven type/layout queries; LLVM is a consumer and
 does not independently derive a second calling convention.
 
