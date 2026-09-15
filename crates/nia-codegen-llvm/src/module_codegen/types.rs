@@ -110,30 +110,38 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 signature.span,
             );
         }
+        let param_tys = signature.param_tys.into_iter().collect::<Vec<_>>();
+        let abi = self.canonical_nia_abi_signature(
+            param_tys.iter().map(|(ty, _)| *ty),
+            signature.return_type,
+            signature.tracks_caller,
+        );
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        if let AbiReturn::IndirectOut(ty) = self.classify_return_in(signature.return_type) {
+        if let nia_abi_check::AbiReturn::SRet { ty, .. } = abi.return_mode {
             llvm_params.push(self.pointer_abi_type(ty, signature.span)?);
         }
-        for param in self.classify_params_in(signature.param_tys.into_iter().map(|(ty, _)| ty)) {
+        for param in abi.parameters {
             match param {
-                AbiParam::Direct(ty) => {
+                nia_abi_check::AbiParam::Direct { ty } => {
                     llvm_params.push(self.llvm_basic_type_in(ty, signature.span)?);
                 }
-                AbiParam::IndirectReadonly(ty) => {
+                nia_abi_check::AbiParam::Indirect { ty, .. } => {
                     llvm_params.push(self.pointer_abi_type(ty, signature.span)?);
                 }
-                AbiParam::Omit => {}
+                nia_abi_check::AbiParam::IgnoreZst => {}
             }
         }
         if signature.tracks_caller {
             llvm_params.push(self.context.ptr_type(Default::default()).into());
         }
-        match self.classify_return_in(signature.return_type) {
-            AbiReturn::Direct(ty) => self
+        match abi.return_mode {
+            nia_abi_check::AbiReturn::Direct { ty } => self
                 .llvm_basic_type_in(ty, signature.span)?
                 .fn_type(&llvm_params, signature.is_variadic)
                 .map_err(Self::diagnostic_from_llvm_error),
-            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => self
+            nia_abi_check::AbiReturn::IgnoreZst
+            | nia_abi_check::AbiReturn::SRet { .. }
+            | nia_abi_check::AbiReturn::Never => self
                 .context
                 .void_type()
                 .fn_type(&llvm_params, signature.is_variadic)
@@ -280,6 +288,27 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         params: impl IntoIterator<Item = InternedTyId>,
     ) -> Vec<AbiParam> {
         self.classify_params_in(params)
+    }
+
+    fn canonical_nia_abi_signature(
+        &self,
+        params: impl IntoIterator<Item = InternedTyId>,
+        return_type: InternedTyId,
+        tracks_caller: bool,
+    ) -> nia_abi_check::AbiSignature {
+        nia_abi_check::classify_nia_signature(
+            self.program.type_store(),
+            self.source.layouts.target,
+            params,
+            return_type,
+            tracks_caller,
+            |ty| self.layout_of(ty),
+            |def_id| {
+                self.program
+                    .enum_layout(def_id)
+                    .is_some_and(|layout| layout.payload_offset.is_none())
+            },
+        )
     }
 
     pub(crate) fn classify_function_return(&self, ty: InternedTyId) -> AbiReturn {

@@ -363,6 +363,7 @@ dependencies = [
 name = "nia-codegen-llvm"
 version = "0.2.0-dev"
 dependencies = [
+ "nia-abi-check",
  "nia-ast",
  "nia-backend-ir",
  "nia-backend-lower",

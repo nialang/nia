@@ -139,6 +139,20 @@ fn classify_param(
         Some(TyKind::Nominal { def_id, .. }) if payloadless_enum(*def_id) => {
             AbiParam::Direct { ty }
         }
+        Some(
+            TyKind::GenericParam(_)
+            | TyKind::Opaque
+            | TyKind::SelfParam
+            | TyKind::BuiltinType(_)
+            | TyKind::BuiltinTrait { .. }
+            | TyKind::SlicePointee { .. }
+            | TyKind::TraitObjectPointee { .. }
+            | TyKind::CallablePointee { .. }
+            | TyKind::Projection { .. }
+            | TyKind::ConstOnly
+            | TyKind::Error,
+        )
+        | None => AbiParam::Direct { ty },
         _ => AbiParam::Indirect {
             ty,
             align: layout_of(ty).map_or(1, |layout| layout.align),
@@ -175,6 +189,20 @@ fn classify_return(
         Some(TyKind::Nominal { def_id, .. }) if payloadless_enum(*def_id) => {
             AbiReturn::Direct { ty }
         }
+        Some(
+            TyKind::GenericParam(_)
+            | TyKind::Opaque
+            | TyKind::SelfParam
+            | TyKind::BuiltinType(_)
+            | TyKind::BuiltinTrait { .. }
+            | TyKind::SlicePointee { .. }
+            | TyKind::TraitObjectPointee { .. }
+            | TyKind::CallablePointee { .. }
+            | TyKind::Projection { .. }
+            | TyKind::ConstOnly
+            | TyKind::Error,
+        )
+        | None => AbiReturn::Direct { ty },
         _ => AbiReturn::SRet {
             ty,
             align: layout_of(ty).map_or(1, |layout| layout.align),
