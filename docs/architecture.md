@@ -552,6 +552,12 @@ structural types created by generic substitution through a module-scoped
 
 ### `nia-abi-check`
 
+`nia-abi-check` owns two related but separate products. `AbiCheck` validates
+explicit C ABI declarations. `AbiSignature` classifies an internal Nia
+function signature from type and target-layout facts into direct, indirect,
+zero-sized, and sret modes. Both products are query-friendly and consume
+on-demand facts rather than introducing a linear HIR/MIR representation.
+
 Checks C ABI boundaries for `extern` functions, globals, and structs. Rejects Nia-only
 types that cannot be passed directly through the C ABI, such as slices, arrays by
 value, closed enums where not supported, `bool`, `char`, and variadic function pointers.
