@@ -117,8 +117,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             signature.tracks_caller,
         );
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        if let nia_abi_check::AbiReturn::SRet { ty, .. } = abi.return_mode {
-            llvm_params.push(self.pointer_abi_type(ty, signature.span)?);
+        for hidden in &abi.hidden_parameters {
+            if let nia_abi_check::AbiHiddenParam::SRet {
+                position: nia_abi_check::AbiHiddenParamPosition::Prefix,
+                ..
+            } = hidden
+                && let nia_abi_check::AbiReturn::SRet { ty, .. } = abi.return_mode
+            {
+                llvm_params.push(self.pointer_abi_type(ty, signature.span)?);
+            }
         }
         for param in abi.parameters {
             match param {
@@ -131,8 +138,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 nia_abi_check::AbiParam::IgnoreZst => {}
             }
         }
-        if signature.tracks_caller {
-            llvm_params.push(self.context.ptr_type(Default::default()).into());
+        for hidden in &abi.hidden_parameters {
+            if matches!(
+                hidden,
+                nia_abi_check::AbiHiddenParam::CallerLocation {
+                    position: nia_abi_check::AbiHiddenParamPosition::Suffix
+                }
+            ) {
+                llvm_params.push(self.context.ptr_type(Default::default()).into());
+            }
         }
         match abi.return_mode {
             nia_abi_check::AbiReturn::Direct { ty } => self
@@ -194,8 +208,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
         let abi = self.canonical_nia_abi_signature(params.iter().copied(), return_type, false);
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        if let nia_abi_check::AbiReturn::SRet { ty, .. } = abi.return_mode {
-            llvm_params.push(self.pointer_abi_type(ty, span)?);
+        for hidden in &abi.hidden_parameters {
+            if let nia_abi_check::AbiHiddenParam::SRet {
+                position: nia_abi_check::AbiHiddenParamPosition::Prefix,
+                ..
+            } = hidden
+                && let nia_abi_check::AbiReturn::SRet { ty, .. } = abi.return_mode
+            {
+                llvm_params.push(self.pointer_abi_type(ty, span)?);
+            }
         }
         for param in abi.parameters {
             match param {
@@ -231,8 +252,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
         let abi = self.canonical_nia_abi_signature(params.iter().copied(), return_type, false);
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        if let nia_abi_check::AbiReturn::SRet { ty, .. } = abi.return_mode {
-            llvm_params.push(self.pointer_abi_type(ty, span)?);
+        for hidden in &abi.hidden_parameters {
+            if let nia_abi_check::AbiHiddenParam::SRet {
+                position: nia_abi_check::AbiHiddenParamPosition::Prefix,
+                ..
+            } = hidden
+                && let nia_abi_check::AbiReturn::SRet { ty, .. } = abi.return_mode
+            {
+                llvm_params.push(self.pointer_abi_type(ty, span)?);
+            }
         }
         llvm_params.push(self.context.ptr_type(Default::default()).into());
         for param in abi.parameters {
@@ -272,8 +300,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let abi =
             self.canonical_nia_abi_signature(params.iter().copied(), return_type, tracks_caller);
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        if let nia_abi_check::AbiReturn::SRet { ty, .. } = abi.return_mode {
-            llvm_params.push(self.pointer_abi_type(ty, span)?);
+        for hidden in &abi.hidden_parameters {
+            if let nia_abi_check::AbiHiddenParam::SRet {
+                position: nia_abi_check::AbiHiddenParamPosition::Prefix,
+                ..
+            } = hidden
+                && let nia_abi_check::AbiReturn::SRet { ty, .. } = abi.return_mode
+            {
+                llvm_params.push(self.pointer_abi_type(ty, span)?);
+            }
         }
         llvm_params.push(self.context.ptr_type(Default::default()).into());
         for param in abi.parameters {
@@ -287,8 +322,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 nia_abi_check::AbiParam::IgnoreZst => {}
             }
         }
-        if tracks_caller {
-            llvm_params.push(self.context.ptr_type(Default::default()).into());
+        for hidden in &abi.hidden_parameters {
+            if matches!(
+                hidden,
+                nia_abi_check::AbiHiddenParam::CallerLocation {
+                    position: nia_abi_check::AbiHiddenParamPosition::Suffix
+                }
+            ) {
+                llvm_params.push(self.context.ptr_type(Default::default()).into());
+            }
         }
         match abi.return_mode {
             nia_abi_check::AbiReturn::Direct { ty } => self
