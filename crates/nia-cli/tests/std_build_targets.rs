@@ -71,7 +71,7 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
             32u32,
         ),
         build::OptimizationMode::O0,
-        1u32,
+        __NIA_BUILD_PLAN_COMPATIBILITY__u32,
         null,
         false,
     );
@@ -707,7 +707,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
     api.writePlanDraft(fs::PathView::init(&"plan.draft")).exit().?;
     !()
 }
-"#,
+"#
+    .replace(
+        "__NIA_BUILD_PLAN_COMPATIBILITY__",
+        &nia_compat::formats::BUILD_PLAN
+            .release_compatibility
+            .to_string(),
+    )
+    .as_bytes(),
     )
     .expect("write target conformance source");
 

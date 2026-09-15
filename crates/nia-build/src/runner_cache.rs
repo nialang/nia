@@ -5,7 +5,9 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
-use nia_compat::toolchain::BUILD_PROTOCOL;
+use nia_compat::{
+    COMPILER_VERSION, RELEASE_COMPATIBILITY, toolchain::BUILD_PROTOCOL,
+};
 use nia_query::FingerprintDomain;
 
 use crate::{BuildError, BuildInvocation, BuildRunnerSource, OptimizationMode};
@@ -44,6 +46,13 @@ pub(super) fn restore_package(invocation: &BuildInvocation, key: &str) -> io::Re
     };
     let validation = nia_package_metadata::PackageArtifact::open(bytes).and_then(|artifact| {
         artifact.validate_sections()?;
+        let manifest = artifact.manifest();
+        if manifest.compiler_version != COMPILER_VERSION
+            || manifest.release_compatibility != RELEASE_COMPATIBILITY
+            || manifest.package != package_id(key)
+        {
+            return Err(nia_package_metadata::MetadataError::InvalidManifest);
+        }
         nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact)
             .map_err(|_| nia_package_metadata::MetadataError::InvalidManifest)?;
         if artifact.native()?.is_none() {
