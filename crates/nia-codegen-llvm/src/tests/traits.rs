@@ -151,7 +151,10 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("nia__vtable__"), "{ir}");
+    assert!(
+        contains_mangled_kind(ir, '@', MangleSymbolKind::Vtable),
+        "{ir}"
+    );
     assert!(ir.contains("vtable.fn"), "{ir}");
     assert!(ir.contains("call i32 %vtable.fn"), "{ir}");
 }
@@ -300,7 +303,10 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("fir.tmp."), "{ir}");
-    assert!(ir.contains("nia__vtable__"), "{ir}");
+    assert!(
+        contains_mangled_kind(ir, '@', MangleSymbolKind::Vtable),
+        "{ir}"
+    );
     assert!(ir.contains("call i32 %vtable.fn"), "{ir}");
 }
 
@@ -340,7 +346,10 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("traitobj.self"), "{ir}");
-    assert!(ir.contains("nia__traitobj_adapter__"), "{ir}");
+    assert!(
+        contains_mangled_kind(ir, '@', MangleSymbolKind::Vtable),
+        "{ir}"
+    );
     assert!(ir.contains("define internal"), "{ir}");
     assert!(ir.contains("call i32 %vtable.fn"), "{ir}");
 }
@@ -385,7 +394,10 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("traitobj.self"), "{ir}");
-    assert!(ir.contains("nia__traitobj_adapter__"), "{ir}");
+    assert!(
+        contains_mangled_kind(ir, '@', MangleSymbolKind::Adapter),
+        "{ir}"
+    );
     assert!(ir.contains("call i32 %vtable.fn"), "{ir}");
 }
 
@@ -430,7 +442,10 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("nia__traitobj_adapter__"), "{ir}");
+    assert!(
+        contains_mangled_kind(ir, '@', MangleSymbolKind::Adapter),
+        "{ir}"
+    );
     assert!(ir.contains("ret i32 2"), "{ir}");
 }
 
@@ -472,7 +487,10 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("nia__traitobj_adapter__"), "{ir}");
+    assert!(
+        contains_mangled_kind(ir, '@', MangleSymbolKind::Adapter),
+        "{ir}"
+    );
     assert!(ir.contains("call i32 %vtable.fn(ptr %"), "{ir}");
 }
 
@@ -531,7 +549,14 @@ fn main() i32 {
         let ir = &output.modules[0].ir;
         let vtable_defs = ir
             .lines()
-            .filter(|line| line.starts_with("@nia__vtable__"))
+            .filter(|line| {
+                line.split_whitespace().next().is_some_and(|token| {
+                    token
+                        .strip_prefix('@')
+                        .and_then(demangle_stable_symbol)
+                        .is_some_and(|decoded| decoded.kind == MangleSymbolKind::Vtable)
+                })
+            })
             .count();
         assert_eq!(vtable_defs, 1, "{level:?}\n{ir}");
     }
@@ -581,7 +606,10 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("nia__vtable__"), "{ir}");
+    assert!(
+        contains_mangled_kind(ir, '@', MangleSymbolKind::Vtable),
+        "{ir}"
+    );
     assert!(ir.contains("vtable.fn"), "{ir}");
     assert!(ir.contains("call i32 %vtable.fn"), "{ir}");
     assert!(ir.contains("call void @log"), "{ir}");
@@ -633,7 +661,14 @@ fn main() i32 {{
     let vtable_symbol = output.modules[0]
         .ir
         .lines()
-        .find(|line| line.starts_with("@nia__vtable__"))
+        .find(|line| {
+            line.split_whitespace().next().is_some_and(|token| {
+                token
+                    .strip_prefix('@')
+                    .and_then(demangle_stable_symbol)
+                    .is_some_and(|decoded| decoded.kind == MangleSymbolKind::Vtable)
+            })
+        })
         .and_then(|line| line.split_whitespace().next())
         .expect("emitted vtable global")
         .trim_start_matches('@')
