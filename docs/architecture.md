@@ -664,9 +664,12 @@ are instantiated once for a given substitution map.
 ### `nia-mangle`
 
 Produces stable symbol names for functions, methods, globals, and generic instances.
-Symbol format is deterministic and includes module id, definition id, source name, and
-for generic instances, encoded type and const arguments. Mangling is traceable for
-debugging and linking.
+The canonical path builds a `StableSymbolKey` from package/module metadata,
+definition identity, item kind, source name, and canonical generic arguments,
+then emits a length-delimited `_N` linker symbol. The decoder is strict and
+reversible; debug names remain a separate source-oriented product. Session-local
+module and definition handles, ABI details, and layout hashes are never placed
+in the symbol grammar.
 
 ## 11. Backend IR
 
