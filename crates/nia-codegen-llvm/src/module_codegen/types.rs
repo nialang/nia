@@ -180,27 +180,30 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         is_variadic: bool,
         span: Span,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
+        let abi = self.canonical_nia_abi_signature(params.iter().copied(), return_type, false);
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        if let AbiReturn::IndirectOut(ty) = self.classify_return_in(return_type) {
+        if let nia_abi_check::AbiReturn::SRet { ty, .. } = abi.return_mode {
             llvm_params.push(self.pointer_abi_type(ty, span)?);
         }
-        for param in self.classify_params_in(params.iter().copied()) {
+        for param in abi.parameters {
             match param {
-                AbiParam::Direct(ty) => {
+                nia_abi_check::AbiParam::Direct { ty } => {
                     llvm_params.push(self.llvm_basic_type_in(ty, span)?);
                 }
-                AbiParam::IndirectReadonly(ty) => {
+                nia_abi_check::AbiParam::Indirect { ty, .. } => {
                     llvm_params.push(self.pointer_abi_type(ty, span)?);
                 }
-                AbiParam::Omit => {}
+                nia_abi_check::AbiParam::IgnoreZst => {}
             }
         }
-        match self.classify_return_in(return_type) {
-            AbiReturn::Direct(ty) => self
+        match abi.return_mode {
+            nia_abi_check::AbiReturn::Direct { ty } => self
                 .llvm_basic_type_in(ty, span)?
                 .fn_type(&llvm_params, is_variadic)
                 .map_err(Self::diagnostic_from_llvm_error),
-            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => self
+            nia_abi_check::AbiReturn::IgnoreZst
+            | nia_abi_check::AbiReturn::SRet { .. }
+            | nia_abi_check::AbiReturn::Never => self
                 .context
                 .void_type()
                 .fn_type(&llvm_params, is_variadic)
@@ -214,28 +217,31 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         return_type: InternedTyId,
         span: Span,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
+        let abi = self.canonical_nia_abi_signature(params.iter().copied(), return_type, false);
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        if let AbiReturn::IndirectOut(ty) = self.classify_return_in(return_type) {
+        if let nia_abi_check::AbiReturn::SRet { ty, .. } = abi.return_mode {
             llvm_params.push(self.pointer_abi_type(ty, span)?);
         }
         llvm_params.push(self.context.ptr_type(Default::default()).into());
-        for param in self.classify_params_in(params.iter().copied()) {
+        for param in abi.parameters {
             match param {
-                AbiParam::Direct(ty) => {
+                nia_abi_check::AbiParam::Direct { ty } => {
                     llvm_params.push(self.llvm_basic_type_in(ty, span)?);
                 }
-                AbiParam::IndirectReadonly(ty) => {
+                nia_abi_check::AbiParam::Indirect { ty, .. } => {
                     llvm_params.push(self.pointer_abi_type(ty, span)?);
                 }
-                AbiParam::Omit => {}
+                nia_abi_check::AbiParam::IgnoreZst => {}
             }
         }
-        match self.classify_return_in(return_type) {
-            AbiReturn::Direct(ty) => self
+        match abi.return_mode {
+            nia_abi_check::AbiReturn::Direct { ty } => self
                 .llvm_basic_type_in(ty, span)?
                 .fn_type(&llvm_params, false)
                 .map_err(Self::diagnostic_from_llvm_error),
-            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => self
+            nia_abi_check::AbiReturn::IgnoreZst
+            | nia_abi_check::AbiReturn::SRet { .. }
+            | nia_abi_check::AbiReturn::Never => self
                 .context
                 .void_type()
                 .fn_type(&llvm_params, false)
@@ -251,31 +257,35 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         tracks_caller: bool,
         span: Span,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
+        let abi =
+            self.canonical_nia_abi_signature(params.iter().copied(), return_type, tracks_caller);
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        if let AbiReturn::IndirectOut(ty) = self.classify_function_return(return_type) {
+        if let nia_abi_check::AbiReturn::SRet { ty, .. } = abi.return_mode {
             llvm_params.push(self.pointer_abi_type(ty, span)?);
         }
         llvm_params.push(self.context.ptr_type(Default::default()).into());
-        for param in self.classify_function_params(params.iter().copied()) {
+        for param in abi.parameters {
             match param {
-                AbiParam::Direct(ty) => {
+                nia_abi_check::AbiParam::Direct { ty } => {
                     llvm_params.push(self.llvm_basic_type(ty, span)?);
                 }
-                AbiParam::IndirectReadonly(ty) => {
+                nia_abi_check::AbiParam::Indirect { ty, .. } => {
                     llvm_params.push(self.pointer_abi_type(ty, span)?);
                 }
-                AbiParam::Omit => {}
+                nia_abi_check::AbiParam::IgnoreZst => {}
             }
         }
         if tracks_caller {
             llvm_params.push(self.context.ptr_type(Default::default()).into());
         }
-        match self.classify_function_return(return_type) {
-            AbiReturn::Direct(ty) => self
+        match abi.return_mode {
+            nia_abi_check::AbiReturn::Direct { ty } => self
                 .llvm_basic_type(ty, span)?
                 .fn_type(&llvm_params, false)
                 .map_err(Self::diagnostic_from_llvm_error),
-            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => self
+            nia_abi_check::AbiReturn::IgnoreZst
+            | nia_abi_check::AbiReturn::SRet { .. }
+            | nia_abi_check::AbiReturn::Never => self
                 .context
                 .void_type()
                 .fn_type(&llvm_params, false)
