@@ -644,6 +644,39 @@ pub(super) fn has_canonical_symbol_name<'a>(
     })
 }
 
+pub(super) fn canonical_symbol(
+    ir: &str,
+    sigil: char,
+    name: &str,
+    kind: MangleSymbolKind,
+) -> String {
+    let prefix = format!("{sigil}_N");
+    ir.match_indices(&prefix)
+        .find_map(|(start, _)| {
+            let token = symbol_token(&ir[start..]);
+            demangle_stable_symbol(token.trim_start_matches(sigil))
+                .is_some_and(|decoded| decoded.name == name && decoded.kind == kind)
+                .then(|| token.to_string())
+        })
+        .unwrap_or_else(|| panic!("missing canonical {kind:?} symbol `{name}`"))
+}
+
+pub(super) fn count_canonical_symbols(
+    ir: &str,
+    sigil: char,
+    name: &str,
+    kind: MangleSymbolKind,
+) -> usize {
+    let prefix = format!("{sigil}_N");
+    ir.match_indices(&prefix)
+        .filter(|(start, _)| {
+            let token = symbol_token(&ir[*start..]);
+            demangle_stable_symbol(token.trim_start_matches(sigil))
+                .is_some_and(|decoded| decoded.name == name && decoded.kind == kind)
+        })
+        .count()
+}
+
 fn expected_backend_symbol_suffix(name: &str) -> String {
     let Some((base, rest)) = name.split_once("__") else {
         return mangle_symbol_id(sym(name));

@@ -87,7 +87,13 @@ fn main() bool {
         ir.contains(&format!("linkonce_odr constant {} 34", native_llvm_int())),
         "{ir}"
     );
-    assert!(ir.contains("store ptr @nia__promoted__"), "{ir}");
+    assert!(
+        ir.contains(&format!(
+            "store ptr {}",
+            canonical_symbol(ir, '@', "promoted_allocation", MangleSymbolKind::Global)
+        )),
+        "{ir}"
+    );
 }
 
 #[test]
@@ -167,7 +173,13 @@ fn main() usize {
         ir.contains(&format!("linkonce_odr constant {} 55", native_llvm_int())),
         "{ir}"
     );
-    assert!(ir.contains("store ptr @nia__promoted__"), "{ir}");
+    assert!(
+        ir.contains(&format!(
+            "store ptr {}",
+            canonical_symbol(ir, '@', "promoted_allocation", MangleSymbolKind::Global)
+        )),
+        "{ir}"
+    );
 }
 
 #[test]
@@ -301,7 +313,15 @@ fn main() usize {
         1,
         "{ir}"
     );
-    assert!(ir.contains("@nia__promoted__"), "{ir}");
+    assert!(
+        ir.contains(&canonical_symbol(
+            ir,
+            '@',
+            "promoted_allocation",
+            MangleSymbolKind::Global
+        )),
+        "{ir}"
+    );
 }
 
 #[test]
