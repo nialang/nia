@@ -448,7 +448,15 @@ fn expected_trait_object_vtable_symbol(
     };
     let self_part = mangle_ty(key.self_ty);
     let object_part = mangle_ty(key.object_ty);
-    (!missing.get()).then(|| format!("nia__vtable__{self_part}__as__{object_part}"))
+    (!missing.get()).then(|| {
+        nia_mangle::mangle_derived_symbol_canonical(
+            MangleModuleId::from_normalized_source_path("nia:vtable"),
+            "vtable",
+            "trait_object",
+            MangleSymbolKind::Vtable,
+            [self_part, object_part],
+        )
+    })
 }
 
 /// Reserves compiler-generated trait-object vtable symbols in the program value

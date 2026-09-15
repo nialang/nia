@@ -33,7 +33,7 @@ use nia_llvm::{
 };
 use nia_mangle::{
     MangleModuleId, MangleResolvers, MangleSymbolKind, mangle_definition_symbol_canonical,
-    mangle_symbol_id, mangle_type_with,
+    mangle_derived_symbol_canonical, mangle_symbol_id, mangle_type_with,
 };
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use nia_source::SourceLocation;
@@ -896,7 +896,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     ) -> String {
         let self_part = self.mangle_ty(self_ty);
         let object_part = self.mangle_ty(object_ty);
-        format!("nia__vtable__{self_part}__as__{object_part}")
+        mangle_derived_symbol_canonical(
+            MangleModuleId::from_normalized_source_path("nia:vtable"),
+            "vtable",
+            "trait_object",
+            nia_mangle::MangleSymbolKind::Vtable,
+            [self_part, object_part],
+        )
     }
 
     pub(super) fn add_internal_helper_function(

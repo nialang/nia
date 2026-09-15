@@ -382,6 +382,24 @@ pub fn mangle_definition_symbol_canonical(
     mangle_base_symbol_canonical(module, stable_definition_key(def_id), name, kind)
 }
 
+/// Encodes a generated symbol whose identity is derived from a stable owner
+/// and structured arguments rather than a source definition.
+pub fn mangle_derived_symbol_canonical(
+    module: MangleModuleId,
+    definition: impl Into<String>,
+    name: impl Into<String>,
+    kind: MangleSymbolKind,
+    generic_args: impl IntoIterator<Item = String>,
+) -> String {
+    mangle_stable_symbol(&StableSymbolKey::new(
+        module,
+        definition,
+        name,
+        kind,
+        generic_args,
+    ))
+}
+
 /// Encodes a concrete generic instance with the canonical linker grammar.
 ///
 /// The type and const resolver output is treated as an already canonical
@@ -468,6 +486,21 @@ where
 /// distinct generic function instances disjoint without inventing synthetic
 /// source definition ids.
 pub fn mangle_closure_entry_symbol(owner_symbol: &str, closure_id: ClosureId) -> String {
+    if let Some(owner) = demangle_stable_symbol(owner_symbol) {
+        return mangle_derived_symbol_canonical(
+            owner.module,
+            owner.definition,
+            owner.name,
+            MangleSymbolKind::ClosureEntry,
+            owner
+                .generic_args
+                .into_iter()
+                .chain(std::iter::once(format!(
+                    "closure:ord:{}",
+                    closure_id.ordinal
+                ))),
+        );
+    }
     format!(
         "{}__closure_entry__ord__{}",
         sanitize_symbol_part(owner_symbol),
