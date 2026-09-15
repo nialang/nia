@@ -56,6 +56,10 @@ impl MangleSymbolKind {
 /// encoder to remain independent of the compiler's type-store handles.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StableSymbolKey {
+    /// Stable package identity (registry coordinate, source root, or toolchain
+    /// package key). An empty value is reserved for package-local callers that
+    /// have not yet been migrated to package metadata.
+    pub package: String,
     pub module: MangleModuleId,
     pub definition: u64,
     pub name: String,
@@ -72,12 +76,20 @@ impl StableSymbolKey {
         generic_args: impl IntoIterator<Item = String>,
     ) -> Self {
         Self {
+            package: String::new(),
             module,
             definition,
             name: name.into(),
             kind,
             generic_args: generic_args.into_iter().collect(),
         }
+    }
+
+    /// Sets the package identity used to disambiguate equal module paths from
+    /// different packages.
+    pub fn with_package(mut self, package: impl Into<String>) -> Self {
+        self.package = package.into();
+        self
     }
 }
 
@@ -94,6 +106,7 @@ pub fn mangle_stable_symbol(key: &StableSymbolKey) -> String {
     put_varint(&mut bytes, key.module.raw());
     put_varint(&mut bytes, key.definition);
     bytes.push(key.kind.tag());
+    put_bytes(&mut bytes, key.package.as_bytes());
     put_bytes(&mut bytes, key.name.as_bytes());
     put_varint(&mut bytes, key.generic_args.len() as u64);
     for arg in &key.generic_args {
@@ -105,6 +118,7 @@ pub fn mangle_stable_symbol(key: &StableSymbolKey) -> String {
 /// Decoded form of [`mangle_stable_symbol`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedStableSymbol {
+    pub package: String,
     pub module: MangleModuleId,
     pub definition: u64,
     pub name: String,
@@ -124,6 +138,7 @@ pub fn demangle_stable_symbol(symbol: &str) -> Option<DecodedStableSymbol> {
     let definition = get_varint(&bytes, &mut cursor)?;
     let kind = MangleSymbolKind::from_tag(*bytes.get(cursor)?)?;
     cursor += 1;
+    let package = String::from_utf8(get_bytes(&bytes, &mut cursor)?.to_vec()).ok()?;
     let name = String::from_utf8(get_bytes(&bytes, &mut cursor)?.to_vec()).ok()?;
     let arg_count = usize::try_from(get_varint(&bytes, &mut cursor)?).ok()?;
     let mut generic_args = Vec::with_capacity(arg_count);
@@ -133,6 +148,7 @@ pub fn demangle_stable_symbol(symbol: &str) -> Option<DecodedStableSymbol> {
     (cursor == bytes.len()).then_some(DecodedStableSymbol {
         module,
         definition,
+        package,
         name,
         kind,
         generic_args,
@@ -967,7 +983,8 @@ mod tests {
             "name_with::delimiters/\u{03bb}",
             MangleSymbolKind::Function,
             ["tuple(i32,bool)".to_string(), "const:17".to_string()],
-        );
+        )
+        .with_package("acme/demo@0.2.0");
         let symbol = mangle_stable_symbol(&key);
         assert!(symbol.starts_with("_N"));
         assert!(
@@ -978,6 +995,7 @@ mod tests {
         let decoded = demangle_stable_symbol(&symbol).expect("canonical symbol must decode");
         assert_eq!(decoded.module, key.module);
         assert_eq!(decoded.definition, key.definition);
+        assert_eq!(decoded.package, key.package);
         assert_eq!(decoded.name, key.name);
         assert_eq!(decoded.kind, key.kind);
         assert_eq!(decoded.generic_args, key.generic_args);
