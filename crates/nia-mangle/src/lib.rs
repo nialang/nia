@@ -233,7 +233,7 @@ fn decode_base64url(text: &str) -> Option<Vec<u8>> {
     } else if count != 0 {
         return None;
     }
-    Some(output)
+    (encode_base64url(&output) == text).then_some(output)
 }
 
 /// Providers used while encoding module, nominal, and array identities.
@@ -1111,6 +1111,7 @@ mod tests {
         assert!(demangle_stable_symbol("_NAA").is_none());
         assert!(demangle_stable_symbol("_Zabcdef").is_none());
         assert!(demangle_stable_symbol("_N!!!!").is_none());
+        assert!(demangle_stable_symbol("_NAB").is_none());
     }
 
     #[test]
