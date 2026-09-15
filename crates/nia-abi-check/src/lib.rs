@@ -138,6 +138,26 @@ pub fn classify_nia_signature(
     }
 }
 
+/// Classifies one Nia parameter using the canonical ABI rules.
+pub fn classify_nia_param(
+    type_store: &TypeStore,
+    ty: nia_ids::InternedTyId,
+    mut layout_of: impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
+    mut payloadless_enum: impl FnMut(nia_ids::GlobalDefId) -> bool,
+) -> AbiParam {
+    classify_param(type_store, ty, &mut layout_of, &mut payloadless_enum)
+}
+
+/// Classifies one Nia return value using the canonical ABI rules.
+pub fn classify_nia_return(
+    type_store: &TypeStore,
+    ty: nia_ids::InternedTyId,
+    mut layout_of: impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
+    mut payloadless_enum: impl FnMut(nia_ids::GlobalDefId) -> bool,
+) -> AbiReturn {
+    classify_return(type_store, ty, &mut layout_of, &mut payloadless_enum)
+}
+
 /// Produces the C-domain signature for an already validated extern function.
 /// C ABI legality remains the responsibility of [`check_module_abi`]; this
 /// product only records the machine-level direct/void shape consumed by LLVM.
