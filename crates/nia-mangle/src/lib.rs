@@ -311,6 +311,15 @@ pub fn mangle_symbol_id(symbol: SymbolId) -> String {
     format!("sym_{:016x}", symbol.raw())
 }
 
+/// Returns the canonical textual key for a definition identity.
+///
+/// `DefId` is derived from `nia-defs::DefIdentity` with collision checking, so
+/// its numeric payload is stable metadata identity. The surrounding
+/// `GlobalDefId::module_id` remains session-local and is intentionally ignored.
+pub fn stable_definition_key(def_id: GlobalDefId) -> String {
+    format!("def:{:016x}", def_id.def_id.0)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// Stable module identity derived from a normalized source path.
 pub struct MangleModuleId(u64);
@@ -360,6 +369,17 @@ pub fn mangle_base_symbol_canonical(
         kind,
         std::iter::empty(),
     ))
+}
+
+/// Canonical spelling for a definition when the caller only has a
+/// session-qualified id and its stable module identity.
+pub fn mangle_definition_symbol_canonical(
+    def_id: GlobalDefId,
+    module: MangleModuleId,
+    name: impl Into<String>,
+    kind: MangleSymbolKind,
+) -> String {
+    mangle_base_symbol_canonical(module, stable_definition_key(def_id), name, kind)
 }
 
 /// Encodes a concrete generic instance with the canonical linker grammar.
@@ -1214,6 +1234,24 @@ mod tests {
         assert_eq!(
             mangle_stable_symbol(&first),
             mangle_stable_symbol(&relocated)
+        );
+    }
+
+    #[test]
+    fn stable_definition_key_ignores_session_local_module_owner() {
+        let mut first = ModuleIdAllocator::new();
+        let first_module = first.allocate();
+        let mut second = ModuleIdAllocator::new();
+        let second_module = second.allocate();
+        assert_eq!(
+            stable_definition_key(GlobalDefId {
+                module_id: first_module,
+                def_id: DefId(7),
+            }),
+            stable_definition_key(GlobalDefId {
+                module_id: second_module,
+                def_id: DefId(7),
+            })
         );
     }
 
