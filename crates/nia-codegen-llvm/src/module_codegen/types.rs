@@ -156,20 +156,32 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         is_variadic: bool,
         span: Span,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
+        let param_tys = param_tys.into_iter().collect::<Vec<_>>();
+        let abi = nia_abi_check::classify_c_signature(
+            self.source.layouts.target,
+            param_tys.iter().map(|(ty, _)| *ty),
+            return_type,
+            self.program.type_store(),
+        );
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        for (param_ty, param_span) in param_tys {
-            llvm_params.push(self.llvm_basic_type_in(param_ty, param_span)?);
+        for (param, (_, param_span)) in abi.parameters.into_iter().zip(param_tys) {
+            if let nia_abi_check::AbiParam::Direct { ty } = param {
+                llvm_params.push(self.llvm_basic_type_in(ty, param_span)?);
+            }
         }
-        match self.ty_kind(return_type) {
-            Some(kind) if kind.is_unit() => self
+        match abi.return_mode {
+            nia_abi_check::AbiReturn::IgnoreZst => self
                 .context
                 .void_type()
                 .fn_type(&llvm_params, is_variadic)
                 .map_err(Self::diagnostic_from_llvm_error),
-            _ => self
-                .llvm_basic_type_in(return_type, span)?
+            nia_abi_check::AbiReturn::Direct { ty } => self
+                .llvm_basic_type_in(ty, span)?
                 .fn_type(&llvm_params, is_variadic)
                 .map_err(Self::diagnostic_from_llvm_error),
+            nia_abi_check::AbiReturn::SRet { .. } | nia_abi_check::AbiReturn::Never => {
+                Err(self.error(span, "invalid C ABI return classification"))
+            }
         }
     }
 

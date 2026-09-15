@@ -121,6 +121,39 @@ pub fn classify_nia_signature(
     }
 }
 
+/// Produces the C-domain signature for an already validated extern function.
+/// C ABI legality remains the responsibility of [`check_module_abi`]; this
+/// product only records the machine-level direct/void shape consumed by LLVM.
+pub fn classify_c_signature(
+    target: TargetDataLayout,
+    params: impl IntoIterator<Item = nia_ids::InternedTyId>,
+    return_type: nia_ids::InternedTyId,
+    type_store: &TypeStore,
+) -> AbiSignature {
+    let parameters = params
+        .into_iter()
+        .map(|ty| {
+            if type_store.get(ty).is_some_and(TyKind::is_unit) {
+                AbiParam::IgnoreZst
+            } else {
+                AbiParam::Direct { ty }
+            }
+        })
+        .collect();
+    let return_mode = if type_store.get(return_type).is_some_and(TyKind::is_unit) {
+        AbiReturn::IgnoreZst
+    } else {
+        AbiReturn::Direct { ty: return_type }
+    };
+    AbiSignature {
+        domain: AbiDomain::C,
+        target,
+        parameters,
+        return_mode,
+        hidden_parameters: Vec::new(),
+    }
+}
+
 fn is_zst(
     layout_of: &mut impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
     ty: nia_ids::InternedTyId,
@@ -1323,5 +1356,24 @@ extern fn bad_return() (i32, bool);
             signature.hidden_parameters,
             vec![AbiHiddenParam::SRet { align: 8 }]
         );
+    }
+
+    #[test]
+    fn c_signature_is_a_distinct_direct_domain() {
+        use nia_ids::ModuleIdAllocator;
+        use nia_layout::TargetDataLayout;
+        use nia_ty::PrimitiveTy;
+
+        let store = TypeStore::new();
+        let module = ModuleIdAllocator::new().allocate();
+        let append = store.append_for_module(module);
+        let unit = append.intern(TyKind::Tuple(Vec::new()));
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let signature = classify_c_signature(TargetDataLayout::LP64, [i32_ty, unit], unit, &store);
+        assert_eq!(signature.domain, AbiDomain::C);
+        assert!(matches!(signature.parameters[0], AbiParam::Direct { ty } if ty == i32_ty));
+        assert_eq!(signature.parameters[1], AbiParam::IgnoreZst);
+        assert_eq!(signature.return_mode, AbiReturn::IgnoreZst);
+        assert!(signature.hidden_parameters.is_empty());
     }
 }
