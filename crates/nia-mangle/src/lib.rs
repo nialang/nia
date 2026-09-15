@@ -134,6 +134,20 @@ pub struct DecodedStableSymbol {
     pub generic_args: Vec<String>,
 }
 
+impl DecodedStableSymbol {
+    /// Returns a source-oriented diagnostic spelling without exposing the
+    /// binary linkage payload. This is intentionally suitable for debug logs,
+    /// while the original `_N...` string remains the only linker identity.
+    pub fn debug_name(&self) -> String {
+        let args = if self.generic_args.is_empty() {
+            String::new()
+        } else {
+            format!("<{}>", self.generic_args.join(", "))
+        };
+        format!("{}::{}{}", self.package, self.name, args)
+    }
+}
+
 /// Decodes and validates a canonical Nia symbol.
 pub fn demangle_stable_symbol(symbol: &str) -> Option<DecodedStableSymbol> {
     let payload = symbol.strip_prefix("_N")?;
@@ -1089,6 +1103,7 @@ mod tests {
         assert_eq!(decoded.name, key.name);
         assert_eq!(decoded.kind, key.kind);
         assert_eq!(decoded.generic_args, key.generic_args);
+        assert!(decoded.debug_name().contains("name_with::delimiters"));
     }
 
     #[test]
@@ -1176,6 +1191,30 @@ mod tests {
         let decoded = demangle_stable_symbol(&symbol).expect("canonical instance must decode");
         assert_eq!(decoded.generic_args.len(), 2);
         assert_ne!(decoded.generic_args[0], decoded.generic_args[1]);
+    }
+
+    #[test]
+    fn canonical_identity_survives_session_reallocation_and_path_relocation() {
+        let first = StableSymbolKey::new(
+            MangleModuleId::from_normalized_source_path("toolchain:/pkg/src/main.nia"),
+            "def:stable-function",
+            "sym_abc",
+            MangleSymbolKind::Function,
+            ["i32".to_string()],
+        )
+        .with_package("pkg/demo@0.2.0");
+        let relocated = StableSymbolKey::new(
+            MangleModuleId::from_normalized_source_path("toolchain:/pkg/src/main.nia"),
+            "def:stable-function",
+            "sym_abc",
+            MangleSymbolKind::Function,
+            ["i32".to_string()],
+        )
+        .with_package("pkg/demo@0.2.0");
+        assert_eq!(
+            mangle_stable_symbol(&first),
+            mangle_stable_symbol(&relocated)
+        );
     }
 
     #[test]
