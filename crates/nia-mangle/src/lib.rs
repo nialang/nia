@@ -61,7 +61,7 @@ pub struct StableSymbolKey {
     /// have not yet been migrated to package metadata.
     pub package: String,
     pub module: MangleModuleId,
-    pub definition: u64,
+    pub definition: String,
     pub name: String,
     pub kind: MangleSymbolKind,
     pub generic_args: Vec<String>,
@@ -70,7 +70,7 @@ pub struct StableSymbolKey {
 impl StableSymbolKey {
     pub fn new(
         module: MangleModuleId,
-        definition: u64,
+        definition: impl Into<String>,
         name: impl Into<String>,
         kind: MangleSymbolKind,
         generic_args: impl IntoIterator<Item = String>,
@@ -78,7 +78,7 @@ impl StableSymbolKey {
         Self {
             package: String::new(),
             module,
-            definition,
+            definition: definition.into(),
             name: name.into(),
             kind,
             generic_args: generic_args.into_iter().collect(),
@@ -104,7 +104,7 @@ pub fn mangle_stable_symbol(key: &StableSymbolKey) -> String {
     bytes.extend_from_slice(b"NIA");
     bytes.push(1); // canonical record format, not a public compatibility track
     put_varint(&mut bytes, key.module.raw());
-    put_varint(&mut bytes, key.definition);
+    put_bytes(&mut bytes, key.definition.as_bytes());
     bytes.push(key.kind.tag());
     put_bytes(&mut bytes, key.package.as_bytes());
     put_bytes(&mut bytes, key.name.as_bytes());
@@ -120,7 +120,7 @@ pub fn mangle_stable_symbol(key: &StableSymbolKey) -> String {
 pub struct DecodedStableSymbol {
     pub package: String,
     pub module: MangleModuleId,
-    pub definition: u64,
+    pub definition: String,
     pub name: String,
     pub kind: MangleSymbolKind,
     pub generic_args: Vec<String>,
@@ -135,7 +135,7 @@ pub fn demangle_stable_symbol(symbol: &str) -> Option<DecodedStableSymbol> {
     }
     let mut cursor = 4;
     let module = MangleModuleId(get_varint(&bytes, &mut cursor)?);
-    let definition = get_varint(&bytes, &mut cursor)?;
+    let definition = String::from_utf8(get_bytes(&bytes, &mut cursor)?.to_vec()).ok()?;
     let kind = MangleSymbolKind::from_tag(*bytes.get(cursor)?)?;
     cursor += 1;
     let package = String::from_utf8(get_bytes(&bytes, &mut cursor)?.to_vec()).ok()?;
@@ -314,14 +314,14 @@ pub fn mangle_base_symbol_id(
 
 /// Encodes a non-generic definition with the canonical linker grammar.
 pub fn mangle_base_symbol_canonical(
-    def_id: GlobalDefId,
     module: MangleModuleId,
+    definition: impl Into<String>,
     name: impl Into<String>,
     kind: MangleSymbolKind,
 ) -> String {
     mangle_stable_symbol(&StableSymbolKey::new(
         module,
-        def_id.def_id.0,
+        definition,
         name,
         kind,
         std::iter::empty(),
@@ -334,7 +334,8 @@ pub fn mangle_base_symbol_canonical(
 /// argument representation. The binary key still length-delimits each item,
 /// so nested delimiters and arbitrary source names remain unambiguous.
 pub fn mangle_instance_symbol_canonical<F, G, H>(
-    def_id: GlobalDefId,
+    module: MangleModuleId,
+    definition: impl Into<String>,
     name: &str,
     args: &[InternedTyId],
     const_args: &[ConstGenericArg],
@@ -352,7 +353,7 @@ where
         mut nominal_name,
         mut array_len,
     } = resolvers;
-    let module = module_id(def_id.module_id);
+    let _ = &mut module_id;
     let encoded_args = args
         .iter()
         .map(|arg| {
@@ -377,11 +378,7 @@ where
         )
     }));
     mangle_stable_symbol(&StableSymbolKey::new(
-        module,
-        def_id.def_id.0,
-        name,
-        kind,
-        all_args,
+        module, definition, name, kind, all_args,
     ))
 }
 
@@ -1052,7 +1049,7 @@ mod tests {
     fn canonical_symbol_round_trips_and_is_linker_safe() {
         let key = StableSymbolKey::new(
             MangleModuleId::from_normalized_source_path("pkg/unicode-模块.nia"),
-            42,
+            "def:42",
             "name_with::delimiters/\u{03bb}",
             MangleSymbolKind::Function,
             ["tuple(i32,bool)".to_string(), "const:17".to_string()],
@@ -1079,14 +1076,14 @@ mod tests {
         let module = MangleModuleId::from_normalized_source_path("main.nia");
         let first = mangle_stable_symbol(&StableSymbolKey::new(
             module,
-            1,
+            "def:1",
             "ab",
             MangleSymbolKind::Function,
             ["c".to_string()],
         ));
         let second = mangle_stable_symbol(&StableSymbolKey::new(
             module,
-            1,
+            "def:1",
             "a",
             MangleSymbolKind::Function,
             ["bc".to_string()],
@@ -1096,11 +1093,11 @@ mod tests {
         assert!(demangle_stable_symbol(&second).is_some());
 
         let package_a = mangle_stable_symbol(
-            &StableSymbolKey::new(module, 1, "same", MangleSymbolKind::Function, [])
+            &StableSymbolKey::new(module, "def:1", "same", MangleSymbolKind::Function, [])
                 .with_package("a"),
         );
         let package_b = mangle_stable_symbol(
-            &StableSymbolKey::new(module, 1, "same", MangleSymbolKind::Function, [])
+            &StableSymbolKey::new(module, "def:1", "same", MangleSymbolKind::Function, [])
                 .with_package("b"),
         );
         assert_ne!(package_a, package_b);
@@ -1122,10 +1119,8 @@ mod tests {
         let first = append.primitive(PrimitiveTy::I32);
         let second = append.primitive(PrimitiveTy::Bool);
         let symbol = mangle_instance_symbol_canonical(
-            GlobalDefId {
-                module_id,
-                def_id: DefId(9),
-            },
+            MangleModuleId::from_normalized_source_path("main.nia"),
+            "def:9",
             "run",
             &[first, second],
             &[],

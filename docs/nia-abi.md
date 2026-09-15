@@ -110,8 +110,8 @@ the same ABI model.
 ### 4.1 Canonical symbol identity
 
 Linkage names use the `nia-mangle` canonical encoder. A `StableSymbolKey`
-contains the normalized module identity, stable definition identity, item kind,
-source name, and canonical generic arguments. The encoder writes a
+contains the normalized module identity, package identity, stable definition
+identity, item kind, source name, and canonical generic arguments. The encoder writes a
 length-delimited binary record and renders it in the linker-safe `_N` namespace;
 `demangle_stable_symbol` validates and decodes the record. Names are therefore
 self-terminating and cannot collide because of delimiter escaping or Unicode
