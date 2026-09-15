@@ -729,7 +729,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         for &index in self.partition.function_definitions() {
             let function = &self.source.functions[index];
             let Some(function_body) = &function.function_body else {
-                if !function.is_extern {
+                if !function.linkage.is_extern() {
                     return Err(self.error(
                         function.span,
                         format!(
@@ -756,7 +756,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         for &index in self.partition.function_instance_definitions() {
             let instance = &self.source.function_instances[index];
             let Some(function_body) = &instance.function_body else {
-                if !instance.is_extern {
+                if !instance.linkage.is_extern() {
                     return Err(self.error(
                         instance.span,
                         format!(
@@ -878,22 +878,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     fn function_symbol_name(&self, function: &BackendFunction) -> String {
-        if function.is_extern {
-            function
-                .link_name
-                .clone()
-                .unwrap_or_else(|| self.symbol_debug_name(function.name))
+        if let Some(symbol) = function.linkage.external_symbol() {
+            symbol.to_string()
         } else {
             self.symbol_name(function.def_id, function.name, MangleSymbolKind::Function)
         }
     }
 
     fn global_symbol_name(&self, global: &nia_backend_ir::BackendGlobal) -> String {
-        if global.is_extern {
-            global
-                .link_name
-                .clone()
-                .unwrap_or_else(|| self.symbol_debug_name(global.name))
+        if let Some(symbol) = global.linkage.external_symbol() {
+            symbol.to_string()
         } else {
             self.symbol_name(global.def_id, global.name, MangleSymbolKind::Global)
         }

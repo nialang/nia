@@ -141,10 +141,9 @@ impl Encoder<'_> {
     fn global_declaration(&mut self, item: &BackendGlobal) {
         self.global_def(item.def_id);
         self.symbol(item.name);
-        self.optional_str(item.link_name.as_deref());
+        self.linkage(&item.linkage);
         self.ty(item.ty);
         self.bool(item.is_let);
-        self.bool(item.is_extern);
     }
 
     fn global_instance_declaration(&mut self, item: &BackendGlobalInstance) {
@@ -157,10 +156,9 @@ impl Encoder<'_> {
     fn function_declaration(&mut self, item: &BackendFunction) {
         self.global_def(item.def_id);
         self.symbol(item.name);
-        self.optional_str(item.link_name.as_deref());
+        self.linkage(&item.linkage);
         self.declaration_params(&item.params);
         self.ty(item.return_type);
-        self.bool(item.is_extern);
         self.bool(item.is_variadic);
         self.function_attributes(&item.attributes);
     }
@@ -170,7 +168,7 @@ impl Encoder<'_> {
         self.builder.write_str(&item.symbol);
         self.declaration_params(&item.params);
         self.ty(item.return_type);
-        self.bool(item.is_extern);
+        self.linkage(&item.linkage);
         self.bool(item.is_variadic);
         self.function_attributes(&item.attributes);
     }

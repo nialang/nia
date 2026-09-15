@@ -343,6 +343,8 @@ pub struct FunctionSignature {
     pub return_type: InternedTyId,
     /// Whether external linkage is requested.
     pub is_extern: bool,
+    /// Explicit external symbol name from `linkName` or `exportName`.
+    pub external_name: Option<String>,
     /// Whether const evaluation is permitted.
     pub is_const: bool,
     /// Whether variadic arguments are accepted.
@@ -740,6 +742,8 @@ pub struct GlobalSignature {
     pub is_mutable: bool,
     /// Whether storage is externally defined.
     pub is_extern: bool,
+    /// Explicit external symbol name from `linkName`.
+    pub external_name: Option<String>,
     /// Source span.
     pub span: Span,
 }

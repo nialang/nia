@@ -38,10 +38,15 @@ fn module_with_global(
                 def_id: DefId(0),
             },
             name: SymbolId::EMPTY,
-            link_name: None,
+            linkage: if is_extern {
+                BackendLinkage::ExternImport {
+                    symbol: name.to_string(),
+                }
+            } else {
+                BackendLinkage::Nia
+            },
             ty,
             is_let: false,
-            is_extern,
             init: None,
             span: Span::default(),
         }],
@@ -312,7 +317,7 @@ fn codegen_partition_membership_canonicalizes_instance_order() {
         symbol: symbol.to_string(),
         params: Vec::new(),
         return_type: ty,
-        is_extern: false,
+        linkage: BackendLinkage::Nia,
         is_variadic: false,
         attributes: Vec::new(),
         local_names: HashMap::new(),

@@ -251,6 +251,7 @@ pub enum SignaturePayload {
         params: Vec<SignatureParameter>,
         return_type: u32,
         attributes: Vec<u32>,
+        external_name: Option<String>,
     },
     Aggregate {
         fields: Vec<SignatureField>,
@@ -266,6 +267,8 @@ pub enum SignaturePayload {
         explicit_type: Option<u32>,
         /// Stable builtin-const tag. Valid only for const declarations.
         builtin: Option<u32>,
+        /// Explicit external symbol name for an extern global.
+        external_name: Option<String>,
     },
 }
 
@@ -452,10 +455,20 @@ fn validate_signature_payload(
         return Err(MetadataError::InvalidManifest);
     }
     match payload {
-        SignaturePayload::Function { params, .. } => {
+        SignaturePayload::Function {
+            params,
+            external_name,
+            ..
+        } => {
             for param in params {
                 if let Some(name) = &param.name {
                     validate_string(name)?;
+                }
+            }
+            if let Some(name) = external_name {
+                validate_string(name)?;
+                if name.is_empty() || name.contains('\0') {
+                    return Err(MetadataError::InvalidManifest);
                 }
             }
         }
@@ -482,7 +495,15 @@ fn validate_signature_payload(
                 }
             }
         }
-        SignaturePayload::TypeAlias { .. } | SignaturePayload::Value { .. } => {}
+        SignaturePayload::Value { external_name, .. } => {
+            if let Some(name) = external_name {
+                validate_string(name)?;
+                if name.is_empty() || name.contains('\0') {
+                    return Err(MetadataError::InvalidManifest);
+                }
+            }
+        }
+        SignaturePayload::TypeAlias { .. } => {}
     }
     Ok(())
 }
@@ -593,6 +614,19 @@ impl SignatureSection {
             validate_signature_generic_params(&record.generic_params)?;
             validate_signature_where_predicates(&record.where_predicates)?;
             validate_signature_payload(record.kind, record.payload.as_ref())?;
+            match record.payload.as_ref() {
+                Some(SignaturePayload::Function { external_name, .. })
+                    if external_name.is_some() && record.flags & SIGNATURE_FLAG_EXTERN == 0 =>
+                {
+                    return Err(MetadataError::InvalidManifest);
+                }
+                Some(SignaturePayload::Value { external_name, .. })
+                    if external_name.is_some() && record.flags & SIGNATURE_FLAG_EXTERN == 0 =>
+                {
+                    return Err(MetadataError::InvalidManifest);
+                }
+                _ => {}
+            }
             if record
                 .members
                 .windows(2)
@@ -2375,6 +2409,7 @@ fn put_signature_payload(
             params,
             return_type,
             attributes,
+            external_name,
         } => {
             output.push(1);
             put_list_len(output, params.len())?;
@@ -2393,6 +2428,13 @@ fn put_signature_payload(
             put_list_len(output, attributes.len())?;
             for attribute in attributes {
                 put_u32(output, *attribute);
+            }
+            match external_name {
+                Some(name) => {
+                    output.push(1);
+                    put_string(output, name)?;
+                }
+                None => output.push(0),
             }
         }
         SignaturePayload::Aggregate { fields } => {
@@ -2431,6 +2473,7 @@ fn put_signature_payload(
         SignaturePayload::Value {
             explicit_type,
             builtin,
+            external_name,
         } => {
             output.push(5);
             match explicit_type {
@@ -2444,6 +2487,13 @@ fn put_signature_payload(
                 Some(tag) => {
                     output.push(1);
                     put_u32(output, *tag);
+                }
+                None => output.push(0),
+            }
+            match external_name {
+                Some(name) => {
+                    output.push(1);
+                    put_string(output, name)?;
                 }
                 None => output.push(0),
             }
@@ -2492,10 +2542,16 @@ fn read_signature_payload(
                 for _ in 0..attr_count {
                     attributes.push(get_u32(cursor)?);
                 }
+                let external_name = match read_u8(cursor)? {
+                    0 => None,
+                    1 => Some(get_string(cursor)?),
+                    _ => return Err(MetadataError::InvalidManifest),
+                };
                 SignaturePayload::Function {
                     params,
                     return_type,
                     attributes,
+                    external_name,
                 }
             }
             2 => SignaturePayload::Aggregate {
@@ -2546,6 +2602,11 @@ fn read_signature_payload(
                 builtin: match read_u8(cursor)? {
                     0 => None,
                     1 => Some(get_u32(cursor)?),
+                    _ => return Err(MetadataError::InvalidManifest),
+                },
+                external_name: match read_u8(cursor)? {
+                    0 => None,
+                    1 => Some(get_string(cursor)?),
                     _ => return Err(MetadataError::InvalidManifest),
                 },
             },
@@ -4678,6 +4739,7 @@ mod tests {
                 }],
                 return_type: 2,
                 attributes: vec![1, 0x101],
+                external_name: None,
             }),
         };
         let section = SignatureSection {
@@ -4705,6 +4767,87 @@ mod tests {
             encode_signatures(&invalid),
             Err(MetadataError::InvalidManifest)
         );
+    }
+
+    #[test]
+    fn signature_section_preserves_and_validates_external_names() {
+        let package = sample().package;
+        let module = ModuleId {
+            package,
+            path: "m".into(),
+        };
+        let section = SignatureSection {
+            records: vec![
+                SignatureRecord {
+                    definition: DefinitionId {
+                        module: module.clone(),
+                        name: "exported".into(),
+                        kind: 2,
+                        disambiguator: 0,
+                        owner: None,
+                    },
+                    kind: 2,
+                    flags: SIGNATURE_FLAG_EXTERN | SIGNATURE_FLAG_HAS_BODY,
+                    type_roots: Vec::new(),
+                    members: Vec::new(),
+                    generic_params: Vec::new(),
+                    where_predicates: Vec::new(),
+                    payload: Some(SignaturePayload::Function {
+                        params: Vec::new(),
+                        return_type: 0,
+                        attributes: Vec::new(),
+                        external_name: Some("published_symbol".into()),
+                    }),
+                },
+                SignatureRecord {
+                    definition: DefinitionId {
+                        module,
+                        name: "imported".into(),
+                        kind: 3,
+                        disambiguator: 0,
+                        owner: None,
+                    },
+                    kind: 3,
+                    flags: SIGNATURE_FLAG_EXTERN,
+                    type_roots: Vec::new(),
+                    members: Vec::new(),
+                    generic_params: Vec::new(),
+                    where_predicates: Vec::new(),
+                    payload: Some(SignaturePayload::Value {
+                        explicit_type: None,
+                        builtin: None,
+                        external_name: Some("foreign_slot".into()),
+                    }),
+                },
+            ],
+            traits: Vec::new(),
+            extensions: Vec::new(),
+        };
+
+        let bytes = encode_signatures(&section).unwrap();
+        assert_eq!(decode_signatures(&bytes).unwrap(), section);
+
+        let mut invalid = section.clone();
+        invalid.records[0].flags &= !SIGNATURE_FLAG_EXTERN;
+        assert_eq!(
+            encode_signatures(&invalid),
+            Err(MetadataError::InvalidManifest)
+        );
+        for external_name in ["", "bad\0symbol"] {
+            let mut invalid = section.clone();
+            let Some(SignaturePayload::Value {
+                external_name: name,
+                ..
+            }) = invalid.records[1].payload.as_mut()
+            else {
+                unreachable!()
+            };
+            *name = Some(external_name.into());
+            assert!(matches!(
+                encode_signatures(&invalid),
+                Err(MetadataError::InvalidManifest | MetadataError::InvalidString)
+            ));
+        }
     }
 
     #[test]
@@ -4788,6 +4931,7 @@ mod tests {
                     params: Vec::new(),
                     return_type: 0,
                     attributes: Vec::new(),
+                    external_name: None,
                 }),
             }],
             traits: Vec::new(),
@@ -4981,6 +5125,7 @@ mod tests {
                     params: Vec::new(),
                     return_type: 0,
                     attributes: Vec::new(),
+                    external_name: None,
                 }),
             }],
             traits: Vec::new(),

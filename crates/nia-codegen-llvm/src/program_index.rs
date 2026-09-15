@@ -4,6 +4,8 @@ use std::{
     sync::{Arc, RwLock, RwLockReadGuard},
 };
 
+#[cfg(test)]
+use nia_backend_ir::BackendLinkage;
 use nia_backend_ir::{
     BackendEnum, BackendEnumVariant, BackendFunctionInstance, BackendModuleStore,
     BackendStructInstanceKey, BackendTraitObjectVtable, CodegenPartition, CodegenUnitId,
@@ -1525,7 +1527,7 @@ mod tests {
                 span: Span::default(),
             }],
             return_type: i32_ty,
-            is_extern: false,
+            linkage: BackendLinkage::Nia,
             is_variadic: false,
             attributes: Vec::new(),
             local_names: Default::default(),
@@ -1820,7 +1822,7 @@ mod tests {
                 symbol: "compute_i32_13".to_string(),
                 params: Vec::new(),
                 return_type: owner_i32,
-                is_extern: false,
+                linkage: BackendLinkage::Nia,
                 is_variadic: false,
                 attributes: Vec::new(),
                 local_names: Default::default(),

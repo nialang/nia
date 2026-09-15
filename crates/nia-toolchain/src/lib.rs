@@ -18,7 +18,22 @@ const COMPATIBILITY_IDENTITY_DOMAIN: FingerprintDomain =
 const PACKAGE_TARGET_PATH_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.toolchain.package-target-path");
 const MAX_RESOURCE_MANIFEST_BYTES: usize = 64 * 1024;
-const RUNTIME_PACKAGE_IDENTITY: &str = "toolchain:/runtime/pkg.nia";
+/// Stable package identity owned by the compiler-provided startup runtime.
+pub const RUNTIME_PACKAGE_IDENTITY: &str = "toolchain:/runtime/pkg.nia";
+
+/// Canonical symbol namespace used by the compiler-provided startup runtime.
+///
+/// This is derived from the same release identity used to construct
+/// [`SourceRuntimeSpec::package`], so backend ownership checks cannot drift
+/// when the compiler release changes.
+pub fn runtime_symbol_package_identity() -> String {
+    nia_package_metadata::PackageId {
+        namespace: "nia".to_string(),
+        name: "runtime".to_string(),
+        version: format!("{}+runtime{}", COMPILER_VERSION, RELEASE_COMPATIBILITY),
+    }
+    .canonical_text()
+}
 
 /// File name of the versioned compatibility manifest under a resource root.
 pub const RESOURCE_MANIFEST_NAME: &str = "toolchain.meta";
@@ -1005,6 +1020,10 @@ mod tests {
         let source = runtime.source().expect("source runtime");
 
         assert_eq!(source.package_root_identity(), RUNTIME_PACKAGE_IDENTITY);
+        assert_eq!(
+            source.package().canonical_text(),
+            runtime_symbol_package_identity()
+        );
         assert_eq!(source.package_root(), root.join("lib/runtime/pkg.nia"));
         let implementation = if target.arch == "x86_64" {
             "x86_64"

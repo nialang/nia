@@ -675,7 +675,10 @@ Package identity is mandatory for every source-owned canonical symbol, so equal
 module paths from different packages cannot alias at link time. Vtables and
 other compiler-owned derived symbols use a reserved compiler-generated package
 identity. External names such as `extern` functions and runtime `_start` remain
-outside `_N` and are resolved by their explicit external ABI contracts.
+outside `_N` and are resolved by the typed `ExternImport`/`ExternExport` ABI
+contracts. Ordinary Nia items have no `noMangle` path and always use the
+canonical Nia linkage name. The runtime package is the sole owner of the
+reserved `_start` export.
 
 ## 11. Backend IR
 

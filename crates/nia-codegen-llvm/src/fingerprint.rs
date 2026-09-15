@@ -266,11 +266,10 @@ impl<'a> Encoder<'a> {
             self.function(
                 item.def_id,
                 item.name,
-                item.link_name.as_deref(),
+                &item.linkage,
                 &item.generics,
                 &item.params,
                 item.return_type,
-                item.is_extern,
                 item.is_variadic,
                 &item.attributes,
                 item.function_body.as_ref(),
@@ -294,10 +293,9 @@ impl<'a> Encoder<'a> {
     fn global(&mut self, item: &BackendGlobal, init: Option<&StaticInit>) {
         self.global_def(item.def_id);
         self.symbol(item.name);
-        self.optional_str(item.link_name.as_deref());
+        self.linkage(&item.linkage);
         self.ty(item.ty);
         self.bool(item.is_let);
-        self.bool(item.is_extern);
         self.optional_static_init(init);
     }
 
@@ -323,7 +321,7 @@ impl<'a> Encoder<'a> {
         self.builder.write_str(&item.symbol);
         self.params(&item.params);
         self.ty(item.return_type);
-        self.bool(item.is_extern);
+        self.linkage(&item.linkage);
         self.bool(item.is_variadic);
         self.function_attributes(&item.attributes);
         self.optional_function_body(body);
@@ -431,6 +429,20 @@ impl<'a> Encoder<'a> {
         self.bool(is_extern);
     }
 
+    fn linkage(&mut self, linkage: &BackendLinkage) {
+        match linkage {
+            BackendLinkage::Nia => self.tag(0),
+            BackendLinkage::ExternImport { symbol } => {
+                self.tag(1);
+                self.builder.write_str(symbol);
+            }
+            BackendLinkage::ExternExport { symbol } => {
+                self.tag(2);
+                self.builder.write_str(symbol);
+            }
+        }
+    }
+
     fn fields(&mut self, fields: &[BackendField]) {
         self.len(fields.len());
         for field in fields {
@@ -445,22 +457,20 @@ impl<'a> Encoder<'a> {
         &mut self,
         def_id: GlobalDefId,
         name: nia_symbol::SymbolId,
-        link_name: Option<&str>,
+        linkage: &BackendLinkage,
         generics: &[nia_symbol::SymbolId],
         params: &[BackendParam],
         return_type: InternedTyId,
-        is_extern: bool,
         is_variadic: bool,
         attributes: &[BackendFunctionAttribute],
         body: Option<&FunctionBody>,
     ) {
         self.global_def(def_id);
         self.symbol(name);
-        self.optional_str(link_name);
+        self.linkage(linkage);
         self.symbols(generics);
         self.params(params);
         self.ty(return_type);
-        self.bool(is_extern);
         self.bool(is_variadic);
         self.function_attributes(attributes);
         self.optional_function_body(body);
@@ -1807,16 +1817,6 @@ impl<'a> Encoder<'a> {
         }
     }
 
-    fn optional_str(&mut self, value: Option<&str>) {
-        match value {
-            Some(value) => {
-                self.tag(1);
-                self.builder.write_str(value);
-            }
-            None => self.tag(0),
-        }
-    }
-
     fn optional_ty(&mut self, ty: Option<InternedTyId>) {
         match ty {
             Some(ty) => {
@@ -2025,10 +2025,9 @@ mod tests {
                     def_id: DefId(0),
                 },
                 name: SymbolId::EMPTY,
-                link_name: None,
+                linkage: BackendLinkage::Nia,
                 ty,
                 is_let: true,
-                is_extern: false,
                 init: Some(StaticInit::Int(IntConst::signed(init))),
                 span: Span::default(),
             }],
@@ -2075,11 +2074,12 @@ mod tests {
                     def_id: DefId(0),
                 },
                 name: SymbolId::EMPTY,
-                link_name: Some("foreign_value".to_string()),
+                linkage: BackendLinkage::ExternImport {
+                    symbol: "foreign_value".to_string(),
+                },
                 generics: Vec::new(),
                 params: Vec::new(),
                 return_type,
-                is_extern: true,
                 is_variadic: false,
                 attributes: Vec::new(),
                 local_names: Default::default(),
@@ -2146,6 +2146,36 @@ mod tests {
             ArtifactTarget::LlvmIr,
         )
         .expect("valid fingerprint fixture")
+    }
+
+    #[test]
+    fn linkage_fingerprint_distinguishes_imports_from_exports() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let store = TypeStore::new();
+        let ty = store
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::I32);
+        let fixture = fixture(
+            BackendProgram {
+                modules: vec![module_with_global(module_id, "main.nia", ty, 0)].into(),
+            },
+            store,
+            "main.nia",
+        );
+        let fingerprint = |linkage: BackendLinkage| {
+            let mut encoder = Encoder::new(TEST_EXPRESSION_DOMAIN, &fixture.index);
+            encoder.linkage(&linkage);
+            encoder.finish()
+        };
+
+        assert_ne!(
+            fingerprint(BackendLinkage::ExternImport {
+                symbol: "shared".into(),
+            }),
+            fingerprint(BackendLinkage::ExternExport {
+                symbol: "shared".into(),
+            })
+        );
     }
 
     #[test]
@@ -2594,11 +2624,12 @@ mod tests {
             module.functions.push(BackendFunction {
                 def_id: closure_id.owner,
                 name: SymbolId::EMPTY,
-                link_name: Some("closure_owner".to_string()),
+                linkage: BackendLinkage::ExternImport {
+                    symbol: "closure_owner".to_string(),
+                },
                 generics: Vec::new(),
                 params: Vec::new(),
                 return_type: i32_ty,
-                is_extern: true,
                 is_variadic: false,
                 attributes: Vec::new(),
                 local_names: Default::default(),

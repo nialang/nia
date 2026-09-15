@@ -1471,7 +1471,7 @@ fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCall
         FunctionCallee::Function(def_id) => codegen
             .module
             .function_item(*def_id)
-            .is_some_and(|function| function.is_extern),
+            .is_some_and(|function| function.linkage.is_extern()),
         FunctionCallee::FunctionInstance {
             def_id,
             arg_module_id,
@@ -1487,7 +1487,7 @@ fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCall
                 args,
                 const_args,
             )
-            .is_some_and(|function| function.is_extern),
+            .is_some_and(|function| function.linkage.is_extern()),
         FunctionCallee::Method {
             def_id,
             arg_module_id,
@@ -1500,7 +1500,7 @@ fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCall
                 codegen
                     .module
                     .function_item(*def_id)
-                    .is_some_and(|function| function.is_extern)
+                    .is_some_and(|function| function.linkage.is_extern())
             } else {
                 codegen
                     .module
@@ -1511,7 +1511,7 @@ fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCall
                         args,
                         const_args,
                     )
-                    .is_some_and(|function| function.is_extern)
+                    .is_some_and(|function| function.linkage.is_extern())
             }
         }
         FunctionCallee::Callable(_) | FunctionCallee::FunctionPointer(_) => false,

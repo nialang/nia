@@ -76,7 +76,8 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
             span,
         }],
         return_type: primitive,
-        is_extern: false,
+        is_extern: true,
+        external_name: Some("external_transform".into()),
         is_const: true,
         is_variadic: false,
         attributes: vec![
@@ -227,7 +228,8 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
             item_signatures::GlobalSignature {
                 explicit_type: Some(primitive),
                 is_mutable: true,
-                is_extern: false,
+                is_extern: true,
+                external_name: Some("external_state".into()),
                 span,
             },
         )]),
@@ -303,6 +305,20 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
             .type_roots()
             .iter()
             .all(|ty| ty.store_id == new_store.id())
+    );
+    assert_eq!(
+        loaded
+            .functions
+            .get(&DefId(1))
+            .and_then(|signature| signature.external_name.as_deref()),
+        Some("external_transform")
+    );
+    assert_eq!(
+        loaded
+            .globals
+            .get(&DefId(7))
+            .and_then(|signature| signature.external_name.as_deref()),
+        Some("external_state")
     );
     let new_paths = HashMap::from([
         (new_module, "src/main.nia".to_string()),

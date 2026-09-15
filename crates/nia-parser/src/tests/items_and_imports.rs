@@ -171,7 +171,7 @@ fn main() {
 fn parses_item_and_field_attributes() {
     let (module, errors) = parse_module(
         r#"
-@[link_name("runtime_start")]
+@[linkName("runtime_start")]
 pub extern fn start(argc: i32) i32;
 
 @[layout.version(1, true)]
@@ -191,7 +191,7 @@ struct Header {
     let AttributeKind::Meta(meta) = &attr.kind else {
         panic!("expected metadata attribute");
     };
-    assert_eq!(meta.path, vec![sym("link_name")]);
+    assert_eq!(meta.path, vec![sym("linkName")]);
     assert_eq!(meta.args.len(), 1);
     assert!(matches!(meta.args[0].kind, ExprKind::String(_)));
     assert!(matches!(module.items[0].vis, Visibility::Public));
@@ -264,7 +264,7 @@ extend Value {
 fn rejects_bare_at_item_attribute_without_brackets() {
     let (_, errors) = parse_module(
         r#"
-@link_name("runtime_start")
+@linkName("runtime_start")
 extern fn start() i32;
 "#,
     );

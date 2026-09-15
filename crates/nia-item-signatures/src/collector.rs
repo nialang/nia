@@ -396,7 +396,11 @@ impl<'a> SignatureCollector<'a> {
                 &method.function,
                 FunctionAttributeContext::TraitMethod,
             );
-            let signature = self.function_signature_with_attributes(&method.function, attributes);
+            let signature = self.function_signature_with_attributes(
+                &method.function,
+                &method.attributes,
+                attributes,
+            );
             methods.push(TraitMethodSignature {
                 def_id: method_id,
                 name: method.function.name,
@@ -434,18 +438,18 @@ impl<'a> SignatureCollector<'a> {
     fn collect_method(
         &mut self,
         signatures: &mut ItemSignatures,
-        attributes: &[Attribute],
+        source_attributes: &[Attribute],
         method: &FunctionItem,
     ) -> Option<DefId> {
         let def_id = self.def_id_for_node(&method.node_key, method.span, DefKind::Method)?;
-        let attributes = self.function_attributes(
-            attributes,
+        let parsed_attributes = self.function_attributes(
+            source_attributes,
             method,
             FunctionAttributeContext::ExtensionMethod,
         );
         signatures.functions.insert(
             def_id,
-            self.function_signature_with_attributes(method, attributes),
+            self.function_signature_with_attributes(method, source_attributes, parsed_attributes),
         );
         Some(def_id)
     }
@@ -608,7 +612,7 @@ impl<'a> SignatureCollector<'a> {
         );
         signatures.functions.insert(
             def_id,
-            self.function_signature_with_attributes(function, attributes),
+            self.function_signature_with_attributes(function, &item.attributes, attributes),
         );
     }
 
@@ -639,6 +643,7 @@ impl<'a> SignatureCollector<'a> {
                     explicit_type,
                     is_mutable: binding.is_mutable(),
                     is_extern: false,
+                    external_name: None,
                     span: stmt.span,
                 },
             );
@@ -655,15 +660,50 @@ impl<'a> SignatureCollector<'a> {
         else {
             return;
         };
+        self.validate_global_attributes(&item.attributes);
         signatures.globals.insert(
             def_id,
             GlobalSignature {
                 explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
                 is_mutable: binding.is_mutable(),
                 is_extern: binding.is_extern(),
+                external_name: self.external_name_attribute(
+                    &item.attributes,
+                    binding.is_extern(),
+                    false,
+                    "static",
+                ),
                 span: item.span,
             },
         );
+    }
+
+    fn validate_global_attributes(&mut self, attributes: &[Attribute]) {
+        for attribute in attributes {
+            let AttributeKind::Meta(meta) = &attribute.kind else {
+                continue;
+            };
+            match meta.path.as_slice() {
+                [name] if *name == known::LINK_NAME || *name == known::EXPORT_NAME => {}
+                [name] if *name == known::NO_MANGLE => {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::ITEM_SIGNATURE,
+                        attribute.span,
+                        "`@[noMangle]` is not supported; use an `extern static` declaration and optional `@[linkName]`",
+                    ));
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::ITEM_SIGNATURE,
+                        attribute.span,
+                        format!(
+                            "unknown static attribute `@[{}]`",
+                            self.attribute_path_text(&meta.path)
+                        ),
+                    ));
+                }
+            }
+        }
     }
 
     fn collect_const(
@@ -788,6 +828,7 @@ impl<'a> SignatureCollector<'a> {
             params,
             return_type,
             is_extern: function.is_extern,
+            external_name: None,
             is_const: function.is_const,
             is_variadic: function.is_variadic,
             attributes: Vec::new(),
@@ -817,10 +858,17 @@ impl<'a> SignatureCollector<'a> {
     fn function_signature_with_attributes(
         &mut self,
         function: &FunctionItem,
+        source_attributes: &[Attribute],
         attributes: Vec<FunctionAttribute>,
     ) -> FunctionSignature {
         let mut signature = self.function_signature(function);
         signature.attributes = attributes;
+        signature.external_name = self.external_name_attribute(
+            source_attributes,
+            function.is_extern,
+            function.body.is_some(),
+            "function",
+        );
         signature
     }
 
@@ -903,6 +951,14 @@ impl<'a> SignatureCollector<'a> {
                         out.push(FunctionAttribute::TrackCaller);
                     }
                 }
+                [name] if *name == known::LINK_NAME || *name == known::EXPORT_NAME => {}
+                [name] if *name == known::NO_MANGLE => {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::ITEM_SIGNATURE,
+                        attribute.span,
+                        "`@[noMangle]` is not supported; use an `extern fn` definition and optional `@[exportName]`",
+                    ));
+                }
                 _ => {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::ITEM_SIGNATURE,
@@ -929,6 +985,108 @@ impl<'a> SignatureCollector<'a> {
             ));
         }
         out
+    }
+
+    fn external_name_attribute(
+        &mut self,
+        attributes: &[Attribute],
+        is_extern: bool,
+        has_body: bool,
+        kind: &'static str,
+    ) -> Option<String> {
+        let mut name = None;
+        let mut seen = false;
+        for attribute in attributes {
+            let AttributeKind::Meta(meta) = &attribute.kind else {
+                continue;
+            };
+            let (attribute_name, is_link) = if meta.path.as_slice() == [known::LINK_NAME] {
+                ("linkName", true)
+            } else if meta.path.as_slice() == [known::EXPORT_NAME] {
+                ("exportName", false)
+            } else {
+                continue;
+            };
+            let duplicate = seen;
+            if duplicate {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::ITEM_SIGNATURE,
+                    attribute.span,
+                    format!("duplicate external symbol attribute on {kind}"),
+                ));
+            }
+            seen = true;
+            if !is_extern {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::ITEM_SIGNATURE,
+                    attribute.span,
+                    format!("`@[{attribute_name}]` requires an `extern` {kind}"),
+                ));
+            } else if is_link && has_body {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::ITEM_SIGNATURE,
+                    attribute.span,
+                    format!("`@[linkName]` is only valid on an external {kind} declaration"),
+                ));
+            } else if !is_link && !has_body {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::ITEM_SIGNATURE,
+                    attribute.span,
+                    format!("`@[exportName]` requires an extern {kind} definition"),
+                ));
+            }
+            if let Some(value) = self.parse_external_name(attribute, meta.args.as_slice())
+                && !duplicate
+            {
+                name = Some(value);
+            }
+        }
+        name
+    }
+
+    fn parse_external_name(
+        &mut self,
+        attribute: &Attribute,
+        args: &[nia_ast::Expr],
+    ) -> Option<String> {
+        match args {
+            [arg] => match &arg.kind {
+                nia_ast::ExprKind::String(text) => {
+                    let value = nia_literals::eval_string_literal_parts(
+                        text.parts.iter().map(String::as_str),
+                    );
+                    if value
+                        .as_deref()
+                        .is_none_or(|value| value.is_empty() || value.contains('\0'))
+                    {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::ITEM_SIGNATURE,
+                            arg.span,
+                            "external symbol name must be non-empty and contain no NUL bytes",
+                        ));
+                        None
+                    } else {
+                        value
+                    }
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::ITEM_SIGNATURE,
+                        arg.span,
+                        "external symbol attribute expects one string literal",
+                    ));
+                    None
+                }
+            },
+            _ => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::ITEM_SIGNATURE,
+                    attribute.span,
+                    "external symbol attribute expects exactly one string literal",
+                ));
+                None
+            }
+        }
     }
 
     fn builtin_trait_attribute(&mut self, attributes: &[Attribute]) -> Option<BuiltinTrait> {
