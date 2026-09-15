@@ -949,6 +949,7 @@ impl BackendValidator<'_> {
         self.validate_generated_symbol("function instance", &function.symbol, function.span);
         self.validate_instance_symbol(
             "function instance",
+            MangleSymbolKind::Function,
             &function.symbol,
             function.def_id,
             Some(function.arg_module_id),
@@ -1694,6 +1695,7 @@ impl BackendValidator<'_> {
     fn validate_instance_symbol(
         &mut self,
         kind: &'static str,
+        symbol_kind: MangleSymbolKind,
         symbol: &str,
         def_id: GlobalDefId,
         arg_module_id: Option<ModuleId>,
@@ -1702,9 +1704,14 @@ impl BackendValidator<'_> {
         const_args: &[ConstGenericArg],
         span: nia_span::Span,
     ) {
-        let Some(expected) =
-            self.expected_instance_symbol(def_id, arg_module_id, self_arg, args, const_args)
-        else {
+        let Some(expected) = self.expected_instance_symbol(
+            def_id,
+            arg_module_id,
+            self_arg,
+            args,
+            const_args,
+            symbol_kind,
+        ) else {
             return;
         };
         if symbol != expected {
@@ -1723,6 +1730,7 @@ impl BackendValidator<'_> {
         self_arg: Option<InternedTyId>,
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
+        kind: MangleSymbolKind,
     ) -> Option<String> {
         if self_arg
             .into_iter()
@@ -1786,7 +1794,7 @@ impl BackendValidator<'_> {
                 },
             ),
             context,
-            MangleSymbolKind::Function,
+            kind,
         );
         (!missing_module.get()).then_some(symbol)
     }
@@ -1795,6 +1803,7 @@ impl BackendValidator<'_> {
         self.validate_generated_symbol("global instance", &global.symbol, global.span);
         self.validate_instance_symbol(
             "global instance",
+            MangleSymbolKind::Global,
             &global.symbol,
             global.def_id,
             Some(global.arg_module_id),
@@ -1907,6 +1916,7 @@ impl BackendValidator<'_> {
         self.validate_generated_symbol("struct instance", &item.symbol, item.span);
         self.validate_instance_symbol(
             "struct instance",
+            MangleSymbolKind::Type,
             &item.symbol,
             item.def_id,
             None,
@@ -1972,6 +1982,7 @@ impl BackendValidator<'_> {
         self.validate_generated_symbol("union instance", &item.symbol, item.span);
         self.validate_instance_symbol(
             "union instance",
+            MangleSymbolKind::Type,
             &item.symbol,
             item.def_id,
             None,

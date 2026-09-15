@@ -300,8 +300,13 @@ impl<'a> ModuleLowerer<'a> {
             if !function.generics.is_empty() || function.function_body.is_none() {
                 continue;
             }
-            let owner_symbol =
-                self.mangle_instance_symbol(function.def_id, function.name, None, &[], &[]);
+            let owner_symbol = self.mangle_function_instance_symbol(
+                function.def_id,
+                function.name,
+                None,
+                &[],
+                &[],
+            );
             for entry in self.input.program.closure_entries(function.def_id) {
                 if let Some(lowered_entry) = self.materialize_closure_entry(
                     entry,

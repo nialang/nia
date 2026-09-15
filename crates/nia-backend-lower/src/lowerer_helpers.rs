@@ -86,6 +86,7 @@ impl ModuleLowerer<'_> {
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
         context: Option<MangleModuleId>,
+        kind: nia_mangle::MangleSymbolKind,
     ) -> String {
         let defs = &self.input.defs.defs;
         let input = self.input;
@@ -150,7 +151,7 @@ impl ModuleLowerer<'_> {
                 },
             ),
             context,
-            nia_mangle::MangleSymbolKind::Function,
+            kind,
         );
         for module_id in missing_source_identities {
             record_missing_source_identity(
@@ -162,7 +163,7 @@ impl ModuleLowerer<'_> {
         symbol
     }
 
-    pub(crate) fn mangle_instance_symbol(
+    pub(crate) fn mangle_function_instance_symbol(
         &mut self,
         def_id: GlobalDefId,
         name: SymbolId,
@@ -170,7 +171,33 @@ impl ModuleLowerer<'_> {
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
     ) -> String {
-        self.mangle_instance_symbol_with_context(def_id, name, self_arg, args, const_args, None)
+        self.mangle_instance_symbol_with_context(
+            def_id,
+            name,
+            self_arg,
+            args,
+            const_args,
+            None,
+            nia_mangle::MangleSymbolKind::Function,
+        )
+    }
+
+    pub(crate) fn mangle_type_instance_symbol(
+        &mut self,
+        def_id: GlobalDefId,
+        name: SymbolId,
+        args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
+    ) -> String {
+        self.mangle_instance_symbol_with_context(
+            def_id,
+            name,
+            None,
+            args,
+            const_args,
+            None,
+            nia_mangle::MangleSymbolKind::Type,
+        )
     }
 
     pub(crate) fn mangle_contextual_instance_symbol(
@@ -193,7 +220,45 @@ impl ModuleLowerer<'_> {
         let context = source_identity.map(|identity| {
             MangleModuleId::from_normalized_source_path(identity.normalized_path())
         });
-        self.mangle_instance_symbol_with_context(def_id, name, self_arg, args, const_args, context)
+        self.mangle_instance_symbol_with_context(
+            def_id,
+            name,
+            self_arg,
+            args,
+            const_args,
+            context,
+            nia_mangle::MangleSymbolKind::Function,
+        )
+    }
+
+    pub(crate) fn mangle_contextual_global_instance_symbol(
+        &mut self,
+        def_id: GlobalDefId,
+        name: SymbolId,
+        arg_module_id: ModuleId,
+        args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
+    ) -> String {
+        let source_identity = self.shared.source_identities.get(&arg_module_id);
+        if source_identity.is_none() {
+            record_missing_source_identity(
+                arg_module_id,
+                &mut self.diagnostics,
+                &mut self.missing_source_identity_diagnostics,
+            );
+        }
+        let context = source_identity.map(|identity| {
+            MangleModuleId::from_normalized_source_path(identity.normalized_path())
+        });
+        self.mangle_instance_symbol_with_context(
+            def_id,
+            name,
+            None,
+            args,
+            const_args,
+            context,
+            nia_mangle::MangleSymbolKind::Global,
+        )
     }
 
     pub(crate) fn symbol_name(&self, symbol: SymbolId) -> String {
