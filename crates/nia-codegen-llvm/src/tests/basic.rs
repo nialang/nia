@@ -120,8 +120,8 @@ fn main() i32 {
     let ir = &output.modules[0].ir;
     assert!(ir.contains("declare i32 @puts"));
     assert!(!ir.contains("@use_point"), "{ir}");
-    assert!(ir.contains("@nia__s"));
-    assert!(!ir.contains("%nia__s"), "{ir}");
+    assert!(contains_mangled_kind(ir, '@', MangleSymbolKind::Function));
+    assert!(!ir.contains("%_N"), "{ir}");
     assert!(ir.contains("define i32 @"));
     assert!(ir.contains("alloca i32"));
     assert!(ir.contains("store i32 40"));

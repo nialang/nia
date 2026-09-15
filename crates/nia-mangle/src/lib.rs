@@ -402,6 +402,30 @@ where
     G: FnMut(GlobalDefId) -> String,
     H: FnMut(GlobalConstExprId) -> Option<u64>,
 {
+    mangle_instance_symbol_canonical_with_context(
+        module, definition, name, args, const_args, type_store, resolvers, None, kind,
+    )
+}
+
+/// Encodes a concrete generic instance and, when needed, its instantiation
+/// context. The context is an explicit canonical argument rather than an
+/// opaque textual suffix, so it remains part of the reversible identity.
+pub fn mangle_instance_symbol_canonical_with_context<F, G, H>(
+    module: MangleModuleId,
+    definition: impl Into<String>,
+    name: &str,
+    args: &[InternedTyId],
+    const_args: &[ConstGenericArg],
+    type_store: &TypeStore,
+    resolvers: MangleResolvers<F, G, H>,
+    context: Option<MangleModuleId>,
+    kind: MangleSymbolKind,
+) -> String
+where
+    F: FnMut(ModuleId) -> MangleModuleId,
+    G: FnMut(GlobalDefId) -> String,
+    H: FnMut(GlobalConstExprId) -> Option<u64>,
+{
     let MangleResolvers {
         mut module_id,
         mut nominal_name,
@@ -431,6 +455,9 @@ where
             )
         )
     }));
+    if let Some(context) = context {
+        all_args.push(format!("context:{:016x}", context.raw()));
+    }
     mangle_stable_symbol(&StableSymbolKey::new(
         module, definition, name, kind, all_args,
     ))

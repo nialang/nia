@@ -221,7 +221,7 @@ fn main() usize {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = source_module_ir(&output, "main.nia");
-    assert!(ir.contains("linkonce_odr constant %nia__s"), "{ir}");
+    assert!(ir.contains("linkonce_odr constant %_N"), "{ir}");
     assert!(ir.contains("linkonce_odr constant [3 x i8]"), "{ir}");
     assert!(ir.contains("linkonce_odr constant [2 x i32]"), "{ir}");
 }
@@ -739,7 +739,7 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("ret i32 42"), "{ir}");
-    assert!(ir.contains("@nia__s"));
+    assert!(ir.contains("@_N"));
     assert!(!ir.contains("answer"), "{ir}");
     assert!(!ir.contains("local"), "{ir}");
 }

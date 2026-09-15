@@ -2075,10 +2075,18 @@ fn rejects_external_collisions_with_compiler_owned_symbols() {
     let module_mangle = nia_mangle::MangleModuleId::from_normalized_source_path("main");
     let owned_global_name = sym("owned_global");
     let owned_function_name = sym("owned_function");
-    let owned_global_symbol =
-        nia_mangle::mangle_base_symbol_id(def_id(0), module_mangle, owned_global_name);
-    let owned_function_symbol =
-        nia_mangle::mangle_base_symbol_id(def_id(1), module_mangle, owned_function_name);
+    let owned_global_symbol = nia_mangle::mangle_definition_symbol_canonical(
+        def_id(0),
+        module_mangle,
+        nia_mangle::mangle_symbol_id(owned_global_name),
+        MangleSymbolKind::Global,
+    );
+    let owned_function_symbol = nia_mangle::mangle_definition_symbol_canonical(
+        def_id(1),
+        module_mangle,
+        nia_mangle::mangle_symbol_id(owned_function_name),
+        MangleSymbolKind::Function,
+    );
     let extern_function = |index, name: &str, link_name: &str| BackendFunction {
         def_id: def_id(index),
         name: sym(name),

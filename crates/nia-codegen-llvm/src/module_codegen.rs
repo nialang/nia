@@ -32,7 +32,8 @@ use nia_llvm::{
     values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue},
 };
 use nia_mangle::{
-    MangleModuleId, MangleResolvers, mangle_base_symbol_id, mangle_symbol_id, mangle_type_with,
+    MangleModuleId, MangleResolvers, MangleSymbolKind, mangle_definition_symbol_canonical,
+    mangle_symbol_id, mangle_type_with,
 };
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use nia_source::SourceLocation;
@@ -845,8 +846,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         mangle_symbol_id(name)
     }
 
-    fn symbol_name(&self, def_id: GlobalDefId, name: SymbolId) -> String {
-        mangle_base_symbol_id(def_id, self.mangle_module_id(def_id.module_id), name)
+    fn symbol_name(&self, def_id: GlobalDefId, name: SymbolId, kind: MangleSymbolKind) -> String {
+        mangle_definition_symbol_canonical(
+            def_id,
+            self.mangle_module_id(def_id.module_id),
+            mangle_symbol_id(name),
+            kind,
+        )
     }
 
     fn mangle_module_id(&self, module_id: ModuleId) -> MangleModuleId {
@@ -858,7 +864,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     fn struct_symbol_name(&self, def_id: GlobalDefId, name: SymbolId) -> String {
-        self.symbol_name(def_id, name)
+        self.symbol_name(def_id, name, MangleSymbolKind::Type)
     }
 
     fn function_symbol_name(&self, function: &BackendFunction) -> String {
@@ -868,7 +874,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .clone()
                 .unwrap_or_else(|| self.symbol_debug_name(function.name))
         } else {
-            self.symbol_name(function.def_id, function.name)
+            self.symbol_name(function.def_id, function.name, MangleSymbolKind::Function)
         }
     }
 
@@ -879,7 +885,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .clone()
                 .unwrap_or_else(|| self.symbol_debug_name(global.name))
         } else {
-            self.symbol_name(global.def_id, global.name)
+            self.symbol_name(global.def_id, global.name, MangleSymbolKind::Global)
         }
     }
 

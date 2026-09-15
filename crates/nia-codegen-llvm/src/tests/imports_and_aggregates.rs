@@ -198,8 +198,16 @@ extend Item {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
-    assert!(main_ir.ir.contains(&backend_symbol_suffix("HoldsItem")));
-    assert!(main_ir.ir.contains(&backend_symbol_suffix("Item")));
+    assert!(
+        main_ir
+            .ir
+            .contains(&mangled_symbol(&main_ir.ir, '%', "HoldsItem"))
+    );
+    assert!(
+        main_ir
+            .ir
+            .contains(&mangled_symbol(&main_ir.ir, '%', "Item"))
+    );
     assert!(main_ir.ir.contains("ret i32"));
 }
 
@@ -248,7 +256,7 @@ pub fn value() i32 {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
-    assert!(main_ir.ir.contains("[256 x %nia__s"), "{}", main_ir.ir);
+    assert!(main_ir.ir.contains("[256 x %_N"), "{}", main_ir.ir);
 }
 
 #[test]

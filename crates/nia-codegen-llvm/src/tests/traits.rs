@@ -1134,28 +1134,19 @@ fn main() i32 {
     assert!(
         !instance_symbols
             .iter()
-            .any(|symbol| symbol.contains(&format!(
-                "__inst__ptr__nom__{}",
-                backend_symbol_suffix("Sink")
-            ))),
+            .any(|symbol| has_canonical_symbol_name([*symbol], "Sink")),
         "{instance_symbols:#?}"
     );
     assert!(
         instance_symbols
             .iter()
-            .any(|symbol| symbol.contains(&format!(
-                "{}__inst__t_self_nom__",
-                backend_symbol_suffix("write_all")
-            ))),
+            .any(|symbol| has_canonical_symbol_name([*symbol], "write_all")),
         "{instance_symbols:#?}"
     );
     assert!(
         instance_symbols
             .iter()
-            .any(|symbol| symbol.contains(&format!(
-                "{}__inst__t_nom__",
-                backend_symbol_suffix("writeFmtBytes")
-            ))),
+            .any(|symbol| has_canonical_symbol_name([*symbol], "writeFmtBytes")),
         "{instance_symbols:#?}"
     );
 
@@ -1163,14 +1154,11 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(
-        ir.contains(&format!("{}__inst__", backend_symbol_suffix("write_all"))),
+        contains_mangled_name(&ir, '@', "write_all__inst__t_i32"),
         "{ir}"
     );
     assert!(
-        ir.contains(&format!(
-            "{}__inst__",
-            backend_symbol_suffix("writeFmtBytes")
-        )),
+        contains_mangled_name(&ir, '@', "writeFmtBytes__inst__t_i32"),
         "{ir}"
     );
     assert!(ir.contains("ret i32"), "{ir}");
