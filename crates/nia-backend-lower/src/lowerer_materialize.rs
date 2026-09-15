@@ -405,11 +405,10 @@ impl ModuleLowerer<'_> {
             arg_module_id,
             args: args.clone(),
             const_args: const_args.clone(),
-            symbol: self.mangle_contextual_instance_symbol(
+            symbol: self.mangle_contextual_global_instance_symbol(
                 def_id,
                 def.name,
                 arg_module_id,
-                None,
                 &args,
                 &const_args,
             ),

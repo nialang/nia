@@ -61,10 +61,9 @@ impl<'a> ModuleLowerer<'a> {
                 name: item.name,
                 args: key.args.clone(),
                 const_args: key.const_args.clone(),
-                symbol: self.mangle_instance_symbol(
+                symbol: self.mangle_type_instance_symbol(
                     self.global_def_id(def_id),
                     item.name,
-                    None,
                     &key.args,
                     &key.const_args,
                 ),
@@ -126,10 +125,9 @@ impl<'a> ModuleLowerer<'a> {
                 name: item.name,
                 args: key.args.clone(),
                 const_args: key.const_args.clone(),
-                symbol: self.mangle_instance_symbol(
+                symbol: self.mangle_type_instance_symbol(
                     self.global_def_id(def_id),
                     item.name,
-                    None,
                     &key.args,
                     &key.const_args,
                 ),
@@ -875,7 +873,7 @@ impl<'a> ModuleLowerer<'a> {
             name: def.name,
             args: args.clone(),
             const_args: const_args.clone(),
-            symbol: self.mangle_instance_symbol(def_id, def.name, None, &args, &const_args),
+            symbol: self.mangle_type_instance_symbol(def_id, def.name, &args, &const_args),
             fields: signature
                 .fields
                 .iter()
@@ -938,7 +936,7 @@ impl<'a> ModuleLowerer<'a> {
             name: symbol_name,
             args: args.clone(),
             const_args: const_args.clone(),
-            symbol: self.mangle_instance_symbol(def_id, symbol_name, None, &args, &const_args),
+            symbol: self.mangle_type_instance_symbol(def_id, symbol_name, &args, &const_args),
             fields: signature
                 .fields
                 .iter()
@@ -1580,7 +1578,7 @@ impl<'a> ModuleLowerer<'a> {
             name: def.name,
             args: args.clone(),
             const_args: const_args.clone(),
-            symbol: self.mangle_instance_symbol(def_id, def.name, None, &args, &const_args),
+            symbol: self.mangle_type_instance_symbol(def_id, def.name, &args, &const_args),
             fields: signature
                 .fields
                 .iter()
@@ -1643,7 +1641,7 @@ impl<'a> ModuleLowerer<'a> {
             name: symbol_name,
             args: args.clone(),
             const_args: const_args.clone(),
-            symbol: self.mangle_instance_symbol(def_id, symbol_name, None, &args, &const_args),
+            symbol: self.mangle_type_instance_symbol(def_id, symbol_name, &args, &const_args),
             fields: signature
                 .fields
                 .iter()
