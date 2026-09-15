@@ -7,10 +7,73 @@ use nia_ty::{
     ArrayLenTy, ConstGenericArg, ConstGenericValue, PrimitiveTy, RangeTyKind, TraitId, TyKind,
     TypeStore,
 };
+use std::fmt;
 
 /// Reserved package identity for compiler-generated symbols without a source
 /// package owner, such as vtables and source-location metadata.
 pub const COMPILER_GENERATED_PACKAGE_IDENTITY: &str = "nia:compiler-generated";
+
+/// Validated package namespace carried by canonical linkage producers.
+///
+/// Package identity is intentionally opaque to the mangler: package metadata
+/// owns its coordinate syntax, while this type guarantees only the invariant
+/// needed by linkage, namely that the namespace is present and non-empty.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SymbolPackageIdentity(String);
+
+impl SymbolPackageIdentity {
+    pub fn try_new(value: impl Into<String>) -> Option<Self> {
+        let value = value.into();
+        (!value.is_empty()).then_some(Self(value))
+    }
+
+    pub fn new(value: impl Into<String>) -> Self {
+        let value = value.into();
+        assert!(
+            !value.is_empty(),
+            "Nia ICE: canonical symbol is missing package identity"
+        );
+        Self(value)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl From<String> for SymbolPackageIdentity {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<&str> for SymbolPackageIdentity {
+    fn from(value: &str) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<&String> for SymbolPackageIdentity {
+    fn from(value: &String) -> Self {
+        Self::new(value.clone())
+    }
+}
+
+impl AsRef<str> for SymbolPackageIdentity {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl fmt::Display for SymbolPackageIdentity {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
 
 /// Canonical kind of a linker-visible Nia symbol.
 ///
@@ -62,7 +125,7 @@ impl MangleSymbolKind {
 pub struct StableSymbolKey {
     /// Stable package identity (registry coordinate, source root, or toolchain
     /// package key). Canonical symbols never admit an empty package identity.
-    pub package: String,
+    pub package: SymbolPackageIdentity,
     pub module: MangleModuleId,
     pub definition: String,
     pub name: String,
@@ -72,7 +135,7 @@ pub struct StableSymbolKey {
 
 impl StableSymbolKey {
     pub fn new(
-        package: impl Into<String>,
+        package: impl Into<SymbolPackageIdentity>,
         module: MangleModuleId,
         definition: impl Into<String>,
         name: impl Into<String>,
@@ -98,7 +161,7 @@ impl StableSymbolKey {
 /// both Itanium (`_Z`) and Rust v0 (`_R`) namespaces.
 pub fn mangle_stable_symbol(key: &StableSymbolKey) -> String {
     assert!(
-        !key.package.is_empty(),
+        !key.package.as_str().is_empty(),
         "Nia ICE: canonical symbol is missing package identity"
     );
     let mut bytes = Vec::with_capacity(32);
@@ -107,7 +170,7 @@ pub fn mangle_stable_symbol(key: &StableSymbolKey) -> String {
     put_varint(&mut bytes, key.module.raw());
     put_bytes(&mut bytes, key.definition.as_bytes());
     bytes.push(key.kind.tag());
-    put_bytes(&mut bytes, key.package.as_bytes());
+    put_bytes(&mut bytes, key.package.as_ref().as_bytes());
     put_bytes(&mut bytes, key.name.as_bytes());
     put_varint(&mut bytes, key.generic_args.len() as u64);
     let mut substitutions = Vec::<&str>::new();
@@ -127,7 +190,7 @@ pub fn mangle_stable_symbol(key: &StableSymbolKey) -> String {
 /// Decoded form of [`mangle_stable_symbol`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedStableSymbol {
-    pub package: String,
+    pub package: SymbolPackageIdentity,
     pub module: MangleModuleId,
     pub definition: String,
     pub name: String,
@@ -161,10 +224,9 @@ pub fn demangle_stable_symbol(symbol: &str) -> Option<DecodedStableSymbol> {
     let definition = String::from_utf8(get_bytes(&bytes, &mut cursor)?.to_vec()).ok()?;
     let kind = MangleSymbolKind::from_tag(*bytes.get(cursor)?)?;
     cursor += 1;
-    let package = String::from_utf8(get_bytes(&bytes, &mut cursor)?.to_vec()).ok()?;
-    if package.is_empty() {
-        return None;
-    }
+    let package = SymbolPackageIdentity::try_new(
+        String::from_utf8(get_bytes(&bytes, &mut cursor)?.to_vec()).ok()?,
+    )?;
     let name = String::from_utf8(get_bytes(&bytes, &mut cursor)?.to_vec()).ok()?;
     let arg_count = usize::try_from(get_varint(&bytes, &mut cursor)?).ok()?;
     let mut generic_args = Vec::with_capacity(arg_count);
@@ -342,7 +404,7 @@ impl MangleModuleId {
 
 /// Encodes a non-generic definition with the canonical linker grammar.
 pub fn mangle_base_symbol_canonical(
-    package: impl Into<String>,
+    package: impl Into<SymbolPackageIdentity>,
     module: MangleModuleId,
     definition: impl Into<String>,
     name: impl Into<String>,
@@ -361,7 +423,7 @@ pub fn mangle_base_symbol_canonical(
 /// Canonical spelling for a definition when the caller only has a
 /// session-qualified id and its stable module identity.
 pub fn mangle_definition_symbol_canonical(
-    package: impl Into<String>,
+    package: impl Into<SymbolPackageIdentity>,
     def_id: GlobalDefId,
     module: MangleModuleId,
     name: impl Into<String>,
@@ -373,7 +435,7 @@ pub fn mangle_definition_symbol_canonical(
 /// Encodes a generated symbol whose identity is derived from a stable owner
 /// and structured arguments rather than a source definition.
 pub fn mangle_derived_symbol_canonical(
-    package: impl Into<String>,
+    package: impl Into<SymbolPackageIdentity>,
     module: MangleModuleId,
     definition: impl Into<String>,
     name: impl Into<String>,
@@ -396,7 +458,7 @@ pub fn mangle_derived_symbol_canonical(
 /// argument representation. The binary key still length-delimits each item,
 /// so nested delimiters and arbitrary source names remain unambiguous.
 pub fn mangle_instance_symbol_canonical<F, G, H>(
-    package: impl Into<String>,
+    package: impl Into<SymbolPackageIdentity>,
     module: MangleModuleId,
     definition: impl Into<String>,
     name: &str,
@@ -420,7 +482,7 @@ where
 /// context. The context is an explicit canonical argument rather than an
 /// opaque textual suffix, so it remains part of the reversible identity.
 pub fn mangle_instance_symbol_canonical_with_context<F, G, H>(
-    package: impl Into<String>,
+    package: impl Into<SymbolPackageIdentity>,
     module: MangleModuleId,
     definition: impl Into<String>,
     name: &str,
@@ -1095,17 +1157,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "canonical symbol is missing package identity")]
     fn canonical_symbol_rejects_an_empty_package_identity() {
-        let key = StableSymbolKey {
-            package: String::new(),
-            module: MangleModuleId::from_normalized_source_path("main.nia"),
-            definition: "def:1".into(),
-            name: "main".into(),
-            kind: MangleSymbolKind::Function,
-            generic_args: Vec::new(),
-        };
-        let _ = mangle_stable_symbol(&key);
+        assert!(SymbolPackageIdentity::try_new("").is_none());
     }
 
     #[test]
@@ -1148,8 +1201,14 @@ mod tests {
             [],
         ));
         assert_ne!(package_a, package_b);
-        assert_eq!(demangle_stable_symbol(&package_a).unwrap().package, "a");
-        assert_eq!(demangle_stable_symbol(&package_b).unwrap().package, "b");
+        assert_eq!(
+            demangle_stable_symbol(&package_a).unwrap().package,
+            SymbolPackageIdentity::from("a")
+        );
+        assert_eq!(
+            demangle_stable_symbol(&package_b).unwrap().package,
+            SymbolPackageIdentity::from("b")
+        );
 
         let repeated = mangle_stable_symbol(&StableSymbolKey::new(
             TEST_PACKAGE,
