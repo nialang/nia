@@ -312,6 +312,79 @@ pub fn mangle_base_symbol_id(
     mangle_base_symbol(def_id, module, &mangle_symbol_id(name))
 }
 
+/// Encodes a non-generic definition with the canonical linker grammar.
+pub fn mangle_base_symbol_canonical(
+    def_id: GlobalDefId,
+    module: MangleModuleId,
+    name: impl Into<String>,
+    kind: MangleSymbolKind,
+) -> String {
+    mangle_stable_symbol(&StableSymbolKey::new(
+        module,
+        def_id.def_id.0,
+        name,
+        kind,
+        std::iter::empty(),
+    ))
+}
+
+/// Encodes a concrete generic instance with the canonical linker grammar.
+///
+/// The type and const resolver output is treated as an already canonical
+/// argument representation. The binary key still length-delimits each item,
+/// so nested delimiters and arbitrary source names remain unambiguous.
+pub fn mangle_instance_symbol_canonical<F, G, H>(
+    def_id: GlobalDefId,
+    name: &str,
+    args: &[InternedTyId],
+    const_args: &[ConstGenericArg],
+    type_store: &TypeStore,
+    resolvers: MangleResolvers<F, G, H>,
+    kind: MangleSymbolKind,
+) -> String
+where
+    F: FnMut(ModuleId) -> MangleModuleId,
+    G: FnMut(GlobalDefId) -> String,
+    H: FnMut(GlobalConstExprId) -> Option<u64>,
+{
+    let MangleResolvers {
+        mut module_id,
+        mut nominal_name,
+        mut array_len,
+    } = resolvers;
+    let module = module_id(def_id.module_id);
+    let encoded_args = args
+        .iter()
+        .map(|arg| {
+            mangle_type_with(
+                type_store,
+                *arg,
+                MangleResolvers::new(&mut module_id, &mut nominal_name, &mut array_len),
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut all_args = encoded_args;
+    all_args.extend(const_args.iter().map(|arg| {
+        format!(
+            "const:{}",
+            mangle_const_generic_arg(
+                type_store,
+                arg,
+                &mut module_id,
+                &mut nominal_name,
+                &mut array_len,
+            )
+        )
+    }));
+    mangle_stable_symbol(&StableSymbolKey::new(
+        module,
+        def_id.def_id.0,
+        name,
+        kind,
+        all_args,
+    ))
+}
+
 /// Derives the generated entry symbol for a closure from its concrete owner
 /// symbol. Passing the already-instantiated owner symbol keeps entries from
 /// distinct generic function instances disjoint without inventing synthetic
@@ -1021,6 +1094,16 @@ mod tests {
         assert_ne!(first, second);
         assert!(demangle_stable_symbol(&first).is_some());
         assert!(demangle_stable_symbol(&second).is_some());
+
+        let package_a = mangle_stable_symbol(
+            &StableSymbolKey::new(module, 1, "same", MangleSymbolKind::Function, [])
+                .with_package("a"),
+        );
+        let package_b = mangle_stable_symbol(
+            &StableSymbolKey::new(module, 1, "same", MangleSymbolKind::Function, [])
+                .with_package("b"),
+        );
+        assert_ne!(package_a, package_b);
     }
 
     #[test]
@@ -1028,6 +1111,34 @@ mod tests {
         assert!(demangle_stable_symbol("_NAA").is_none());
         assert!(demangle_stable_symbol("_Zabcdef").is_none());
         assert!(demangle_stable_symbol("_N!!!!").is_none());
+    }
+
+    #[test]
+    fn canonical_instance_api_preserves_argument_order() {
+        let store = TypeStore::new();
+        let module_id = ModuleIdAllocator::new().allocate();
+        let append = store.append_for_module(module_id);
+        let first = append.primitive(PrimitiveTy::I32);
+        let second = append.primitive(PrimitiveTy::Bool);
+        let symbol = mangle_instance_symbol_canonical(
+            GlobalDefId {
+                module_id,
+                def_id: DefId(9),
+            },
+            "run",
+            &[first, second],
+            &[],
+            &store,
+            MangleResolvers::new(
+                |_| MangleModuleId::from_normalized_source_path("main.nia"),
+                |_| "item".into(),
+                |_| None,
+            ),
+            MangleSymbolKind::Function,
+        );
+        let decoded = demangle_stable_symbol(&symbol).expect("canonical instance must decode");
+        assert_eq!(decoded.generic_args.len(), 2);
+        assert_ne!(decoded.generic_args[0], decoded.generic_args[1]);
     }
 
     #[test]
