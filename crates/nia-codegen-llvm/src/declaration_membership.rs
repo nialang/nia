@@ -890,6 +890,7 @@ mod tests {
         BackendModule {
             id: module_id,
             source_identity: SourceIdentity::new(name),
+            symbol_package_identity: "test/package@0".into(),
             name: name.to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {

@@ -94,6 +94,7 @@ fn mono_input<'a>(
             "test/module-{}.nia",
             defs.module_id.local_index()
         )),
+        symbol_package_identity: "test/package@0".into(),
         defs,
         generic_params: &EMPTY_GENERIC_PARAMS,
         normalization,

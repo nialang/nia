@@ -98,6 +98,7 @@ fn source_global_symbol(
     write(&mut fingerprint);
     let [first, second] = fingerprint.finish().parts();
     mangle_derived_symbol_canonical(
+        nia_mangle::COMPILER_GENERATED_PACKAGE_IDENTITY,
         MangleModuleId::from_normalized_source_path("nia:source-metadata"),
         format!("fingerprint:{first:016x}{second:016x}"),
         name,
@@ -477,6 +478,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let module = self.mangle_module_id(allocation.module_id());
         let span = allocation.span();
         mangle_derived_symbol_canonical(
+            self.symbol_package_identity(allocation.module_id()),
             module,
             format!("promoted:{}:{}", span.start, span.end),
             "promoted_allocation",
@@ -847,6 +849,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     fn symbol_name(&self, def_id: GlobalDefId, name: SymbolId, kind: MangleSymbolKind) -> String {
         mangle_definition_symbol_canonical(
+            self.symbol_package_identity(def_id.module_id),
             def_id,
             self.mangle_module_id(def_id.module_id),
             mangle_symbol_id(name),
@@ -860,6 +863,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .module(module_id)
             .map(|module| module.source_identity.normalized_path());
         mangle_module_id_path(module_id, path)
+    }
+
+    fn symbol_package_identity(&self, module_id: ModuleId) -> &str {
+        &self
+            .program
+            .module(module_id)
+            .expect("Nia ICE: codegen module is missing package symbol identity")
+            .symbol_package_identity
     }
 
     fn struct_symbol_name(&self, def_id: GlobalDefId, name: SymbolId) -> String {
@@ -896,6 +907,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let self_part = self.mangle_ty(self_ty);
         let object_part = self.mangle_ty(object_ty);
         mangle_derived_symbol_canonical(
+            nia_mangle::COMPILER_GENERATED_PACKAGE_IDENTITY,
             MangleModuleId::from_normalized_source_path("nia:vtable"),
             "vtable",
             "trait_object",

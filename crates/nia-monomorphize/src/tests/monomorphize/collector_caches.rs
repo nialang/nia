@@ -68,6 +68,7 @@ fn empty_collector() -> (ModuleId, MonoCollector<'static>) {
             *module_id,
             nia_source::SourceIdentity::new("test/collector.nia"),
         )]),
+        symbol_package_identities: HashMap::from([(*module_id, "test/package@0".into())]),
         defs_by_module: HashMap::new(),
         generic_params_by_def: HashMap::new(),
         normalizations_by_module: HashMap::new(),

@@ -796,6 +796,10 @@ pub struct CompileRequest {
     pub timings: TimingMode,
     /// Definition-root scope used by executable and package code generation.
     pub codegen_scope: crate::CodegenScope,
+    /// Canonical identity of the current source package when producing a
+    /// publishable package artifact. Standalone source compilations remain
+    /// anonymous and derive an identity from their stable source root.
+    pub current_package: Option<PackageId>,
     frontend_cache_dir: Option<PathBuf>,
     verify_frontend_cache: bool,
 }
@@ -809,6 +813,7 @@ impl CompileRequest {
             optimization: NiaOptimizationLevel::default(),
             timings: TimingMode::Off,
             codegen_scope: crate::CodegenScope::Entry,
+            current_package: None,
             frontend_cache_dir: None,
             verify_frontend_cache: false,
         }
@@ -830,6 +835,12 @@ impl CompileRequest {
     /// concrete definition inventory of the current package.
     pub fn with_codegen_scope(mut self, scope: crate::CodegenScope) -> Self {
         self.codegen_scope = scope;
+        self
+    }
+
+    /// Binds current-source linkage to a canonical package identity.
+    pub fn with_current_package(mut self, package: Option<PackageId>) -> Self {
+        self.current_package = package;
         self
     }
 
@@ -4877,12 +4888,17 @@ impl CompilerDatabase {
             })
         };
         let new_inputs = CompilerInputs::new(request);
-        let (optimization_changed, codegen_scope_changed) = {
+        let (optimization_changed, codegen_scope_changed, current_package_changed) = {
             let mut inputs = self.inputs.write().expect("compiler input lock poisoned");
             let optimization_changed = inputs.optimization != new_inputs.optimization;
             let codegen_scope_changed = inputs.codegen_scope != new_inputs.codegen_scope;
+            let current_package_changed = inputs.current_package != new_inputs.current_package;
             *inputs = new_inputs;
-            (optimization_changed, codegen_scope_changed)
+            (
+                optimization_changed,
+                codegen_scope_changed,
+                current_package_changed,
+            )
         };
         let mut invalidation = CompilerInvalidation::default();
         if graph_changed {
@@ -4931,8 +4947,11 @@ impl CompilerDatabase {
                 .expect("compiler native observation lock poisoned") =
                 Some(new_compiled_native_fingerprint);
         }
-        let inputs_invalidation =
-            self.invalidate_inputs(optimization_changed, codegen_scope_changed)?;
+        let inputs_invalidation = self.invalidate_inputs(
+            optimization_changed,
+            codegen_scope_changed,
+            current_package_changed,
+        )?;
         invalidation
             .invalidated
             .extend(inputs_invalidation.invalidated);
@@ -4974,6 +4993,7 @@ impl CompilerDatabase {
         &self,
         optimization_changed: bool,
         codegen_scope_changed: bool,
+        current_package_changed: bool,
     ) -> QueryResult<CompilerInvalidation> {
         let mut invalidation = CompilerInvalidation::default();
         let provider_worklist = self.db.context().provider_fact_worklist()?;
@@ -4986,6 +5006,10 @@ impl CompilerDatabase {
         }
         if codegen_scope_changed {
             invalidation.extend(self.db.invalidate(CompilerCodegenScopeQuery));
+        }
+        if current_package_changed {
+            invalidation.extend(self.db.invalidate(MonomorphizationQuery));
+            invalidation.extend(self.db.invalidate(BackendLoweringInputsQuery));
         }
         Ok(invalidation)
     }

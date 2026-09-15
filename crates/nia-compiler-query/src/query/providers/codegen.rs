@@ -1,6 +1,45 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+fn symbol_package_identities(
+    db: &QueryDb<CompilerContext>,
+    graph: &nia_imports::ModuleGraphSnapshot,
+) -> QueryResult<HashMap<ModuleId, String>> {
+    let runtime = db.context().loader_facts().runtime();
+    let runtime_root = graph.package_root(&nia_symbol::known::RUNTIME);
+    let entry_root = graph.current_package_root(graph.entry());
+    let current_package = db.context().current_package();
+    let mut identities = HashMap::new();
+    for module in graph.modules() {
+        let package = if let Some(compiled) = db
+            .context()
+            .loader_facts()
+            .compiled_package_module_identity(module.id)?
+        {
+            compiled.package.canonical_text()
+        } else if graph.current_package_root(module.id) == graph.std_package_root() {
+            nia_package_metadata::PackageId::standard_library().canonical_text()
+        } else if graph.current_package_root(module.id) == runtime_root
+            && let nia_toolchain::RuntimeSpec::Source(runtime) = &runtime
+        {
+            runtime.package().canonical_text()
+        } else if graph.current_package_root(module.id) == entry_root
+            && let Some(current_package) = &current_package
+        {
+            current_package.canonical_text()
+        } else {
+            let root = graph
+                .current_package_root(module.id)
+                .and_then(|root| graph.stable_key(root))
+                .map(|key| key.source_identity().normalized_path())
+                .unwrap_or_else(|| module.stable_key.source_identity().normalized_path());
+            format!("source-root:{root}")
+        };
+        identities.insert(module.id, package);
+    }
+    Ok(identities)
+}
+
 pub(in crate::query) fn provide_backend_module_source_item_plan(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
@@ -114,13 +153,12 @@ pub(super) fn monomorphization_for_checked_modules(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
 ) -> QueryResult<nia_monomorphize::Monomorphization> {
-    let source_identities = db
-        .context()
-        .loader_facts
-        .module_graph()?
+    let graph = db.context().loader_facts.module_graph()?;
+    let source_identities = graph
         .modules()
         .map(|module| (module.id, module.stable_key.source_identity().clone()))
         .collect::<Vec<_>>();
+    let symbol_package_identities = symbol_package_identities(db, &graph)?;
     let executable_signatures = executable_program_non_function_signatures_for_modules(
         db,
         checked_modules.iter().map(|module| module.id),
@@ -197,6 +235,10 @@ pub(super) fn monomorphization_for_checked_modules(
                 |(module, semantic_instantiations)| MonomorphizeModuleInput {
                     module_id: module.id,
                     source_identity: module.path.identity(),
+                    symbol_package_identity: symbol_package_identities
+                        .get(&module.id)
+                        .cloned()
+                        .expect("Nia ICE: monomorphization module is missing package identity"),
                     defs: &module.defs,
                     generic_params: &generic_params,
                     normalization: &module.type_normalization,
@@ -848,13 +890,12 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
         }
     }
     let runtime = db.get(CompilerRuntimeQuery)?.as_ref().clone();
-    let source_identities = db
-        .context()
-        .loader_facts
-        .module_graph()?
+    let graph = db.context().loader_facts.module_graph()?;
+    let source_identities = graph
         .modules()
         .map(|module| (module.id, module.stable_key.source_identity().clone()))
         .collect();
+    let symbol_package_identities = symbol_package_identities(db, &graph)?;
     let inputs = time_provider(
         db.context().timings(),
         "backend_lowering.module_inputs",
@@ -862,6 +903,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
             BackendLoweringInputs::new(BackendLoweringInputsParts {
                 symbols: db.context().symbols(),
                 source_identities,
+                symbol_package_identities,
                 checked_modules,
                 runtime,
                 active_item_trees,

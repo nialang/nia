@@ -1101,6 +1101,8 @@ pub struct BackendModule {
     pub id: ModuleId,
     /// Stable source identity used in partition and cache keys.
     pub source_identity: SourceIdentity,
+    /// Stable package namespace used by every canonical linkage symbol.
+    pub symbol_package_identity: String,
     /// Human-readable module name retained for diagnostics.
     pub name: String,
     /// Const-evaluation facts consumed by backend lowering.

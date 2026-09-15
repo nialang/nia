@@ -41,6 +41,9 @@ pub struct CheckRequest {
     pub entry_path: SourcePath,
     /// Optional package root source path shared by the entry module.
     pub package_root: Option<SourcePath>,
+    /// Canonical identity used for current-package linkage when publishing
+    /// reusable native objects.
+    pub current_package: Option<PackageId>,
     /// Explicit module-name to source-path mappings.
     pub module_map: ModuleMap,
     /// Nia optimization level.
@@ -713,6 +716,7 @@ impl Driver {
         package: PackageId,
         output: PathBuf,
     ) -> DriverOutput<PublishedPackageArtifact> {
+        request = request.with_current_package(package.clone());
         if package == PackageId::standard_library() {
             request.discover_toolchain_std_artifact = false;
         }
@@ -798,6 +802,12 @@ impl Driver {
         output: PathBuf,
         objects: ObjectArtifact,
     ) -> DriverOutput<PublishedPackageArtifact> {
+        if request.current_package.as_ref() != Some(&package) {
+            return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
+                "native objects must be emitted with the package identity they are published under"
+                    .to_string(),
+            ));
+        }
         if package == PackageId::standard_library() {
             request.discover_toolchain_std_artifact = false;
         }
@@ -1130,6 +1140,7 @@ impl Driver {
                     .with_optimization(request.optimization)
                     .with_timings(request.timings)
                     .with_codegen_scope(codegen_scope)
+                    .with_current_package(request.current_package.clone())
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
                     .with_frontend_cache_verification(self.config.verify_frontend_cache),
             )?;
@@ -1140,6 +1151,7 @@ impl Driver {
                     .with_optimization(request.optimization)
                     .with_timings(request.timings)
                     .with_codegen_scope(codegen_scope)
+                    .with_current_package(request.current_package.clone())
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
                     .with_frontend_cache_verification(self.config.verify_frontend_cache),
             );
@@ -2435,6 +2447,7 @@ impl CheckRequest {
         Self {
             entry_path,
             package_root: None,
+            current_package: None,
             module_map: ModuleMap::default(),
             optimization: NiaOptimizationLevel::default(),
             timings: TimingMode::Off,
@@ -2449,6 +2462,13 @@ impl CheckRequest {
     /// Selects a separate `pkg.nia` package root for this entry.
     pub fn with_package_root(mut self, package_root: SourcePath) -> Self {
         self.package_root = Some(package_root);
+        self
+    }
+
+    /// Binds current-source linkage to the package identity that will own the
+    /// emitted native objects.
+    pub fn with_current_package(mut self, package: PackageId) -> Self {
+        self.current_package = Some(package);
         self
     }
 

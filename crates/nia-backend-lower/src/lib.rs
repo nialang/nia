@@ -441,6 +441,8 @@ pub enum BackendOptimizationChange {
 pub trait BackendProgramFacts: Sync {
     /// Returns source identities for every module that may own generated items.
     fn source_identities(&self) -> &HashMap<ModuleId, nia_source::SourceIdentity>;
+    /// Returns stable package namespaces for every module that may own symbols.
+    fn symbol_package_identities(&self) -> &HashMap<ModuleId, String>;
     /// Returns evaluated array lengths owned by `module_id`.
     fn const_array_lengths(&self, module_id: ModuleId) -> Option<&HashMap<GlobalConstExprId, u64>>;
     /// Returns all source definitions with available checked function bodies.
@@ -503,6 +505,8 @@ pub struct BackendLowerModuleInput<'a> {
     pub module_id: ModuleId,
     /// Path-independent source identity used for deterministic ownership.
     pub source_identity: nia_source::SourceIdentity,
+    /// Stable package namespace for canonical symbol generation.
+    pub symbol_package_identity: String,
     /// Human-readable module name used in emitted backend metadata.
     pub module_name: String,
     /// Symbol text resolver for names and diagnostics.
@@ -1428,6 +1432,7 @@ pub(crate) struct ExtensionMethodSource {
 
 pub(crate) struct BackendLowerShared {
     source_identities: HashMap<ModuleId, nia_source::SourceIdentity>,
+    symbol_package_identities: HashMap<ModuleId, String>,
     program_extension_generics_by_method: HashMap<GlobalDefId, Vec<SymbolId>>,
     program_extension_method_sources_by_def: HashMap<GlobalDefId, ExtensionMethodSource>,
     program_trait_impls_by_method: HashMap<GlobalDefId, usize>,
@@ -1443,6 +1448,9 @@ impl BackendLowerShared {
         Self {
             source_identities: first
                 .map(|input| input.program.source_identities().clone())
+                .unwrap_or_default(),
+            symbol_package_identities: first
+                .map(|input| input.program.symbol_package_identities().clone())
                 .unwrap_or_default(),
             program_extension_generics_by_method: first
                 .map(|input| index_extension_generics_by_method(input.program.extension_methods()))

@@ -18,6 +18,7 @@ fn module_finalizations_merge_in_program_order() {
         BackendModule {
             id,
             source_identity: nia_source::SourceIdentity::new(name),
+            symbol_package_identity: "test/package@0".into(),
             name: name.to_string(),
             const_eval: nia_backend_ir::BackendConstFacts::default(),
             layouts: BackendLayouts {

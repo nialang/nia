@@ -761,6 +761,7 @@ mod tests {
         BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("test"),
+            symbol_package_identity: "test/package@0".into(),
             name: "test".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {

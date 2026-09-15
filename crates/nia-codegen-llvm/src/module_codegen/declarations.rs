@@ -115,6 +115,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
         let function_ty = self.function_pointer_type_in(params, *return_type, false, span)?;
         let name = nia_mangle::mangle_derived_symbol_canonical(
+            self.symbol_package_identity(variant_id.module_id),
             self.mangle_module_id(variant_id.module_id),
             nia_mangle::stable_definition_key(variant_id),
             "enum_ctor",
@@ -989,6 +990,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             span,
         )?;
         let name = nia_mangle::mangle_derived_symbol_canonical(
+            self.symbol_package_identity(def_id.module_id),
             self.mangle_module_id(def_id.module_id),
             nia_mangle::stable_definition_key(def_id),
             "trait_object_adapter",

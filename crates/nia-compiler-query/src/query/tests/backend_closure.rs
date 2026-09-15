@@ -116,6 +116,7 @@ pub fn main(base: i32) i32 {
         nia_backend_ir::BackendClosureEntryOwner::Source(main)
     );
     let owner_symbol = nia_mangle::mangle_definition_symbol_canonical(
+        &backend_module.symbol_package_identity,
         main,
         nia_mangle::MangleModuleId::from_normalized_source_path("main.nia"),
         nia_mangle::mangle_symbol_id(sym("main")),
