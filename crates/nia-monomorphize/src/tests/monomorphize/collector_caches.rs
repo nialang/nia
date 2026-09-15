@@ -85,7 +85,6 @@ fn empty_collector() -> (ModuleId, MonoCollector<'static>) {
         seen: HashSet::new(),
         type_symbols: HashMap::new(),
         def_names: HashMap::new(),
-        base_symbols: HashMap::new(),
         type_instantiations: HashMap::new(),
         type_substitutions: Vec::new(),
         type_substitution_ids: HashMap::new(),

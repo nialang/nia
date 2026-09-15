@@ -104,10 +104,13 @@ fn main(value: Box[[u8; N]]) () {}
         .find(|instance| instance.name == sym("Box"))
         .expect("Box instance");
 
+    let decoded = nia_mangle::demangle_stable_symbol(&instance.symbol)
+        .expect("canonical struct instance symbol");
     assert!(
-        instance.symbol.contains("len_unresolved__s") && instance.symbol.contains("__c0"),
-        "{}",
-        instance.symbol
+        decoded
+            .generic_args
+            .iter()
+            .any(|arg| arg.contains("len_unresolved"))
     );
     assert_eq!(lowering.diagnostics.len(), 1);
     assert!(
