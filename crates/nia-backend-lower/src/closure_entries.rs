@@ -51,12 +51,13 @@ impl ModuleLowerer<'_> {
                 &mut self.diagnostics,
             )?);
         }
+        let symbol = nia_mangle::mangle_closure_entry_symbol(owner_symbol, entry.closure_id)?;
         Some(BackendClosureEntry {
             key: BackendClosureEntryKey {
                 closure_id: entry.closure_id,
                 owner,
             },
-            symbol: nia_mangle::mangle_closure_entry_symbol(owner_symbol, entry.closure_id),
+            symbol,
             abi: BackendClosureEntryAbi {
                 state_type,
                 state_pointer_type,
