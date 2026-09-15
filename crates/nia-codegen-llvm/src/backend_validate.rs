@@ -27,8 +27,8 @@ use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::{TargetDataLayout, TypeLayout};
 use nia_mangle::{
     MangleModuleId, MangleResolvers, MangleSymbolKind, mangle_closure_entry_symbol,
-    mangle_definition_symbol_canonical, mangle_instance_symbol_id, mangle_symbol_id,
-    mangle_type_with,
+    mangle_definition_symbol_canonical, mangle_instance_symbol_canonical_with_context,
+    mangle_symbol_id, mangle_type_with,
 };
 use nia_symbol::SymbolId;
 use nia_ty::{ArrayLenTy, ConstGenericArg, PrimitiveTy, TyKind};
@@ -1738,9 +1738,22 @@ impl BackendValidator<'_> {
         if let Some(self_arg) = self_arg {
             mangled_args.insert(0, self_arg);
         }
-        let mut symbol = mangle_instance_symbol_id(
-            def_id,
-            name,
+        let context = arg_module_id.and_then(|module_id| {
+            self.index.module(module_id).map(|module| {
+                MangleModuleId::from_normalized_source_path(
+                    module.source_identity.normalized_path(),
+                )
+            })
+        });
+        let symbol = mangle_instance_symbol_canonical_with_context(
+            MangleModuleId::from_normalized_source_path(
+                self.index
+                    .module(def_id.module_id)?
+                    .source_identity
+                    .normalized_path(),
+            ),
+            nia_mangle::stable_definition_key(def_id),
+            &mangle_symbol_id(name),
             &mangled_args,
             const_args,
             self.index.type_store(),
@@ -1772,20 +1785,10 @@ impl BackendValidator<'_> {
                     })
                 },
             ),
+            context,
+            MangleSymbolKind::Function,
         );
-        if self_arg.is_some() {
-            symbol = symbol.replacen("__inst__t_", "__inst__t_self_", 1);
-        }
-        let Some(arg_module_id) = arg_module_id else {
-            return (!missing_module.get()).then_some(symbol);
-        };
-        let context = self
-            .index
-            .module(arg_module_id)
-            .map(|module| nia_symbol::stable_hash(module.source_identity.normalized_path()));
-        context
-            .filter(|_| !missing_module.get())
-            .map(|context| format!("{symbol}__ctx_s{context:016x}"))
+        (!missing_module.get()).then_some(symbol)
     }
 
     fn validate_global_instance(&mut self, global: &BackendGlobalInstance, init: bool) {
