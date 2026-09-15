@@ -114,10 +114,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .ok_or_else(|| self.error(span, "missing enum constructor variant layout"))?;
 
         let function_ty = self.function_pointer_type_in(params, *return_type, false, span)?;
-        let name = format!(
-            "nia__enum_ctor__{:016x}__{}",
-            self.mangle_module_id(variant_id.module_id).raw(),
-            variant_id.def_id.0
+        let name = nia_mangle::mangle_derived_symbol_canonical(
+            self.mangle_module_id(variant_id.module_id),
+            nia_mangle::stable_definition_key(variant_id),
+            "enum_ctor",
+            nia_mangle::MangleSymbolKind::Function,
+            [format!(
+                "owner:{}",
+                nia_mangle::stable_definition_key(owner_id)
+            )],
         );
         let function = self.add_internal_helper_function(&name, function_ty)?;
         let builder = self
@@ -983,12 +988,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             item.tracks_caller(),
             span,
         )?;
-        let name = format!(
-            "nia__traitobj_adapter__{}__s{:016x}__{}__{}",
-            self.mangle_ty(self_ty),
-            self.mangle_module_id(def_id.module_id).raw(),
-            def_id.def_id.0,
-            self.trait_object_adapters.borrow().len()
+        let name = nia_mangle::mangle_derived_symbol_canonical(
+            self.mangle_module_id(def_id.module_id),
+            nia_mangle::stable_definition_key(def_id),
+            "trait_object_adapter",
+            nia_mangle::MangleSymbolKind::Adapter,
+            [
+                self.mangle_ty(self_ty),
+                format!("ordinal:{}", self.trait_object_adapters.borrow().len()),
+            ],
         );
         let adapter = self.add_internal_helper_function(&name, function_ty)?;
         let builder = self
