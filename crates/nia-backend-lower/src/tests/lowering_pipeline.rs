@@ -209,6 +209,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         &[nia_monomorphize::MonomorphizeModuleInput {
             module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             defs: &defs,
             generic_params: &HashMap::new(),
             normalization: &normalization,
@@ -259,6 +260,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
     let input = BackendLowerModuleInput {
         module_id,
         source_identity: nia_source::SourceIdentity::new("main"),
+        symbol_package_identity: "test/package@0".into(),
         module_name: "main".to_string(),
         symbols: &symbols,
         active_item_tree: &active_item_tree,

@@ -110,8 +110,10 @@ the same ABI model.
 ### 4.1 Canonical symbol identity
 
 Linkage names use the `nia-mangle` canonical encoder. A `StableSymbolKey`
-contains the normalized module identity, package identity, stable definition
-identity, item kind, source name, and canonical generic arguments. The encoder writes a
+contains the canonical package identity, normalized module identity, stable
+definition identity, item kind, source name, and canonical generic arguments.
+The package identity is mandatory: two packages may contain the same module and
+definition spellings without sharing a linker namespace. The encoder writes a
 length-delimited binary record and renders it in the linker-safe `_N` namespace;
 `demangle_stable_symbol` validates and decodes the record. Names are therefore
 self-terminating and cannot collide because of delimiter escaping or Unicode
@@ -121,6 +123,11 @@ The record does not contain release versions, layout hashes, calling
 conventions, or target details. Those facts belong to the program's ABI
 metadata and the unified release compatibility identity. Runtime and `extern`
 entry points continue to use explicit external names such as `_start`.
+
+Compiler-generated symbols that have no source-package owner, such as vtables
+and source-metadata records, use the reserved compiler-generated package
+identity. They remain ordinary `_N` symbols while staying separate from user
+and toolchain package namespaces.
 
 Function ABI classification is represented by the cacheable `AbiSignature`
 product in `nia-abi-check`. It records the ABI domain, target data model,

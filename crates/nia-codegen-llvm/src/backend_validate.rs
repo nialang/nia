@@ -181,6 +181,7 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
                 &mut values,
                 diagnostics,
                 mangle_definition_symbol_canonical(
+                    &module.symbol_package_identity,
                     function.def_id,
                     module_mangle,
                     mangle_symbol_id(function.name),
@@ -196,6 +197,7 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
                     &mut values,
                     diagnostics,
                     mangle_definition_symbol_canonical(
+                        &module.symbol_package_identity,
                         global.def_id,
                         module_mangle,
                         mangle_symbol_id(global.name),
@@ -236,6 +238,7 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
                     &mut types,
                     diagnostics,
                     mangle_definition_symbol_canonical(
+                        &module.symbol_package_identity,
                         item.def_id,
                         module_mangle,
                         mangle_symbol_id(item.name),
@@ -252,6 +255,7 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
                     &mut types,
                     diagnostics,
                     mangle_definition_symbol_canonical(
+                        &module.symbol_package_identity,
                         item.def_id,
                         module_mangle,
                         mangle_symbol_id(item.name),
@@ -450,6 +454,7 @@ fn expected_trait_object_vtable_symbol(
     let object_part = mangle_ty(key.object_ty);
     (!missing.get()).then(|| {
         nia_mangle::mangle_derived_symbol_canonical(
+            nia_mangle::COMPILER_GENERATED_PACKAGE_IDENTITY,
             MangleModuleId::from_normalized_source_path("nia:vtable"),
             "vtable",
             "trait_object",
@@ -1089,6 +1094,7 @@ impl BackendValidator<'_> {
                 .zip(self.index.module(owner.module_id))
                 .map(|(function, module)| {
                     mangle_definition_symbol_canonical(
+                        &module.symbol_package_identity,
                         *owner,
                         MangleModuleId::from_normalized_source_path(
                             module.source_identity.normalized_path(),
@@ -1754,12 +1760,11 @@ impl BackendValidator<'_> {
                 )
             })
         });
+        let definition_module = self.index.module(def_id.module_id)?;
         let symbol = mangle_instance_symbol_canonical_with_context(
+            &definition_module.symbol_package_identity,
             MangleModuleId::from_normalized_source_path(
-                self.index
-                    .module(def_id.module_id)?
-                    .source_identity
-                    .normalized_path(),
+                definition_module.source_identity.normalized_path(),
             ),
             nia_mangle::stable_definition_key(def_id),
             &mangle_symbol_id(name),
@@ -2401,6 +2406,7 @@ mod owner_tests {
         let module = BackendModule {
             id: module_id,
             source_identity: SourceIdentity::new("stale-membership.nia"),
+            symbol_package_identity: "test/package@0".into(),
             name: "stale-membership".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -2490,6 +2496,7 @@ mod owner_tests {
         let mut module = BackendModule {
             id: module_id,
             source_identity: SourceIdentity::new("vtable-symbols.nia"),
+            symbol_package_identity: "test/package@0".into(),
             name: "vtable-symbols".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {

@@ -671,6 +671,12 @@ reversible; debug names remain a separate source-oriented product. Session-local
 module and definition handles, ABI details, and layout hashes are never placed
 in the symbol grammar.
 
+Package identity is mandatory for every source-owned canonical symbol, so equal
+module paths from different packages cannot alias at link time. Vtables and
+other compiler-owned derived symbols use a reserved compiler-generated package
+identity. External names such as `extern` functions and runtime `_start` remain
+outside `_N` and are resolved by their explicit external ABI contracts.
+
 ## 11. Backend IR
 
 ### `nia-backend-ir`

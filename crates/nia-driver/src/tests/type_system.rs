@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
 use crate::{CheckRequest, DriverError, DriverOutput, NiaOptimizationLevel};
+use nia_mangle::{MangleModuleId, MangleSymbolKind, demangle_stable_symbol};
 use nia_symbol::{SymbolId, known, stable_hash};
 
 fn test_symbol(text: &str) -> SymbolId {
     SymbolId::from_stable_hash(stable_hash(text))
-}
-
-fn test_backend_symbol_suffix(symbol: SymbolId) -> String {
-    format!("sym_{:016x}", symbol.raw())
 }
 
 #[test]
@@ -1382,21 +1379,28 @@ fn main() i32 {
     assert_eq!(module.function_instances.len(), 1);
     let symbol = &module.function_instances[0].symbol;
     let source_identity = nia_source::SourceIdentity::new(main_path.to_string_lossy());
-    assert!(
-        symbol.starts_with(&format!(
-            "nia__s{:016x}__d",
-            stable_hash(source_identity.normalized_path())
-        )),
-        "{symbol}"
+    let decoded = demangle_stable_symbol(symbol)
+        .unwrap_or_else(|| panic!("invalid canonical function instance symbol: {symbol}"));
+    assert_eq!(decoded.kind, MangleSymbolKind::Function);
+    assert_eq!(
+        decoded.module,
+        MangleModuleId::from_normalized_source_path(source_identity.normalized_path())
     );
-    assert!(
-        symbol.contains(&format!(
-            "{}__inst__",
-            test_backend_symbol_suffix(test_symbol("id"))
-        )),
-        "{symbol}"
+    assert_eq!(
+        decoded.name,
+        format!("sym_{:016x}", test_symbol("id").raw())
     );
-    assert!(symbol.contains("i32"), "{symbol}");
+    assert_eq!(decoded.generic_args.len(), 2);
+    assert_eq!(decoded.generic_args[0], "i32");
+    assert!(
+        decoded.generic_args[1]
+            .strip_prefix("context:")
+            .is_some_and(|context| {
+                context.len() == 16 && context.bytes().all(|byte| byte.is_ascii_hexdigit())
+            }),
+        "{:?}",
+        decoded.generic_args
+    );
     assert_eq!(module.function_instances[0].name, test_symbol("id"));
     assert_eq!(module.function_instances[0].args.len(), 1);
     assert_eq!(

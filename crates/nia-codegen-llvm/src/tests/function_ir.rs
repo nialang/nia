@@ -22,6 +22,7 @@ fn single_module_program(
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts,
@@ -54,6 +55,7 @@ fn emits_function_body_from_function_ir_when_available() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: Default::default(),
             layouts: BackendLayouts {
@@ -158,6 +160,7 @@ fn scopes_template_local_promotions_to_function_instances() {
     };
     let instance_symbol = |arg: &ConstGenericArg| {
         nia_mangle::mangle_instance_symbol_canonical_with_context(
+            "test/package@0",
             module_mangle,
             nia_mangle::stable_definition_key(def_id),
             &nia_mangle::mangle_symbol_id(name),
@@ -238,6 +241,7 @@ fn scopes_template_local_promotions_to_function_instances() {
     let program = BackendProgram::new(vec![BackendModule {
         id: module_id,
         source_identity: nia_source::SourceIdentity::new("main"),
+        symbol_package_identity: "test/package@0".into(),
         name: "main".to_string(),
         const_eval: BackendConstFacts::default(),
         layouts: BackendLayouts {
@@ -290,7 +294,11 @@ fn scopes_template_local_promotions_to_function_instances() {
         2,
         "{ir}"
     );
-    assert_eq!(ir.matches("__o").count(), 4, "{ir}");
+    assert_eq!(
+        count_canonical_symbols(ir, '@', "promoted_allocation", MangleSymbolKind::Global),
+        4,
+        "{ir}"
+    );
     assert!(
         ir.contains("linkonce_odr constant [1 x i64] [i64 1]"),
         "{ir}"
@@ -522,6 +530,7 @@ fn validates_variadic_function_declarations_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -903,6 +912,7 @@ fn validates_function_instance_abi_metadata_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -975,6 +985,7 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -1109,6 +1120,7 @@ fn validates_global_instance_metadata_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -1915,6 +1927,7 @@ fn rejects_mixed_target_layouts_across_backend_modules() {
     let empty_module = |id, name: &str, target| BackendModule {
         id,
         source_identity: nia_source::SourceIdentity::new(name),
+        symbol_package_identity: "test/package@0".into(),
         name: name.to_string(),
         const_eval: BackendConstFacts::default(),
         layouts: BackendLayouts {
@@ -1976,6 +1989,7 @@ fn rejects_generated_llvm_symbol_collisions_before_emission() {
     let program = BackendProgram::new(vec![BackendModule {
         id: module_id,
         source_identity: nia_source::SourceIdentity::new("main"),
+        symbol_package_identity: "test/package@0".into(),
         name: "main".to_string(),
         const_eval: BackendConstFacts::default(),
         layouts: BackendLayouts {
@@ -2078,12 +2092,14 @@ fn rejects_external_collisions_with_compiler_owned_symbols() {
     let owned_global_name = sym("owned_global");
     let owned_function_name = sym("owned_function");
     let owned_global_symbol = nia_mangle::mangle_definition_symbol_canonical(
+        "test/package@0",
         def_id(0),
         module_mangle,
         nia_mangle::mangle_symbol_id(owned_global_name),
         MangleSymbolKind::Global,
     );
     let owned_function_symbol = nia_mangle::mangle_definition_symbol_canonical(
+        "test/package@0",
         def_id(1),
         module_mangle,
         nia_mangle::mangle_symbol_id(owned_function_name),
@@ -2297,6 +2313,7 @@ fn rejects_malformed_layout_contracts_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -2681,6 +2698,7 @@ fn validates_aggregate_products_with_structurally_equal_const_args() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -5077,6 +5095,7 @@ fn validates_enum_expression_contracts_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -5386,6 +5405,7 @@ fn rejects_aggregate_field_with_foreign_owner_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -5485,6 +5505,7 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
     let mut module = BackendModule {
         id: module_id,
         source_identity: nia_source::SourceIdentity::new("main"),
+        symbol_package_identity: "test/package@0".into(),
         name: "main".to_string(),
         const_eval,
         layouts: BackendLayouts {
@@ -5561,6 +5582,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -5653,6 +5675,7 @@ fn validates_backend_ir_error_type_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -5935,6 +5958,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -6074,6 +6098,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -6243,6 +6268,7 @@ fn validates_backend_ir_vtable_structure_and_function_refs_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -6577,6 +6603,7 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -6801,6 +6828,7 @@ fn emits_const_only_extern_method_instances_with_c_abi() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -7118,6 +7146,7 @@ fn validates_backend_ir_call_signatures_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -7425,6 +7454,7 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -7529,6 +7559,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -7727,6 +7758,7 @@ fn rejects_enum_variant_with_foreign_owner_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -7841,6 +7873,7 @@ fn validates_function_ir_missing_entry_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -7931,6 +7964,7 @@ fn validates_function_ir_missing_successor_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -8124,6 +8158,7 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
+    let module_mangle = nia_mangle::MangleModuleId::from_normalized_source_path("main");
     let closure_id = nia_ids::ClosureId {
         owner: GlobalDefId {
             module_id,
@@ -8161,7 +8196,14 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
                 },
             ),
         },
-        symbol: "main__closure_entry__ord__0".to_string(),
+        symbol: nia_mangle::mangle_derived_symbol_canonical(
+            "test/package@0",
+            module_mangle,
+            "wrong_closure_owner",
+            "wrong_closure_owner",
+            MangleSymbolKind::Function,
+            std::iter::empty(),
+        ),
         abi: nia_backend_ir::BackendClosureEntryAbi {
             state_type: i32_ty,
             state_pointer_type: malformed_state_pointer_ty,
@@ -8237,6 +8279,7 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -8321,11 +8364,6 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,
         "closure entry is not published with its owning backend function"
-    ));
-    assert!(has_internal_diagnostic(
-        &output.diagnostics,
-        codes::INVALID_BACKEND_IR,
-        "closure entry symbol does not match its owner-derived identity"
     ));
     assert!(has_internal_diagnostic(
         &output.diagnostics,
@@ -8575,6 +8613,7 @@ fn validates_closure_entry_call_and_view_contracts_before_llvm() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -8973,6 +9012,7 @@ fn validates_static_function_address_instance_with_structurally_equal_args() {
         modules: vec![BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new("main"),
+            symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {

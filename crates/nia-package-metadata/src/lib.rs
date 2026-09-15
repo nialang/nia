@@ -58,6 +58,11 @@ pub struct PackageId {
 }
 
 impl PackageId {
+    /// Returns the canonical text used at compiler identity boundaries.
+    pub fn canonical_text(&self) -> String {
+        format!("{}/{}@{}", self.namespace, self.name, self.version)
+    }
+
     /// Returns the canonical identity published by the toolchain standard
     /// library artifact.
     pub fn standard_library() -> Self {

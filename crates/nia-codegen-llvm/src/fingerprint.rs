@@ -183,6 +183,7 @@ impl<'a> Encoder<'a> {
 
     fn module_id(&mut self, module_id: ModuleId) {
         if let Some(module) = self.index.module(module_id) {
+            self.builder.write_str(&module.symbol_package_identity);
             self.builder
                 .write_str(module.source_identity.normalized_path());
         } else {
@@ -2001,6 +2002,7 @@ mod tests {
         BackendModule {
             id: module_id,
             source_identity: SourceIdentity::new(identity),
+            symbol_package_identity: "test/package@0".into(),
             name: identity.to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -2048,6 +2050,7 @@ mod tests {
         BackendModule {
             id: module_id,
             source_identity: SourceIdentity::new(identity),
+            symbol_package_identity: "test/package@0".into(),
             name: identity.to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {

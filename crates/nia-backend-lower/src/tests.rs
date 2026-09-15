@@ -326,6 +326,7 @@ fn vtable_owner_deduplicates_semantically_equal_rebuilt_keys() {
             nia_backend_ir::BackendModule {
                 id,
                 source_identity: nia_source::SourceIdentity::new(source_identity),
+                symbol_package_identity: "test/package@0".into(),
                 name: source_identity.to_string(),
                 const_eval: nia_backend_ir::BackendConstFacts::default(),
                 layouts: empty_layouts(),
@@ -432,6 +433,7 @@ fn aggregate_owner_deduplicates_semantically_equal_instance_keys() {
         nia_backend_ir::BackendModule {
             id,
             source_identity: nia_source::SourceIdentity::new(source_identity),
+            symbol_package_identity: "test/package@0".into(),
             name: source_identity.to_string(),
             const_eval: nia_backend_ir::BackendConstFacts::default(),
             layouts: empty_layouts(),

@@ -1283,6 +1283,7 @@ mod tests {
         BackendModule {
             id: module_id,
             source_identity: nia_source::SourceIdentity::new(name),
+            symbol_package_identity: "test/package@0".into(),
             name: name.to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -1546,6 +1547,7 @@ mod tests {
             modules: vec![BackendModule {
                 id: module_id,
                 source_identity: nia_source::SourceIdentity::new("main"),
+                symbol_package_identity: "test/package@0".into(),
                 name: "main".to_string(),
                 const_eval: BackendConstFacts::default(),
                 layouts: BackendLayouts {
@@ -1739,6 +1741,7 @@ mod tests {
         let module = BackendModule {
             id: owner_module,
             source_identity: nia_source::SourceIdentity::new("owner"),
+            symbol_package_identity: "test/package@0".into(),
             name: "owner".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -1982,6 +1985,7 @@ mod tests {
         let left_module_data = BackendModule {
             id: left_module,
             source_identity: nia_source::SourceIdentity::new("left"),
+            symbol_package_identity: "test/package@0".into(),
             name: "left".to_string(),
             const_eval: BackendConstFacts {
                 array_lengths: [(left_expr, 4)].into_iter().collect(),
@@ -1999,6 +2003,7 @@ mod tests {
         let right_module_data = BackendModule {
             id: right_module,
             source_identity: nia_source::SourceIdentity::new("right"),
+            symbol_package_identity: "test/package@0".into(),
             name: "right".to_string(),
             const_eval: BackendConstFacts {
                 array_lengths: [(right_expr, 4)].into_iter().collect(),

@@ -1370,7 +1370,10 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
         source: runner.source.clone(),
         error: Box::new(crate::DriverError::Runtime(error)),
     })?;
-    let check = check.with_runtime(runtime);
+    let package = runner_cache::package_id(&cache_key);
+    let check = check
+        .with_runtime(runtime)
+        .with_current_package(package.clone());
     let objects = driver.emit_native_objects(EmitObjectRequest::new(check.clone()));
     let objects = objects.result.map_err(|error| BuildError::CompileRunner {
         path: runner.path.clone(),
@@ -1392,7 +1395,6 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
         error: Box::new(error),
     })?;
     // Keep the ordinary package artifact as the canonical runner product.
-    let package = runner_cache::package_id(&cache_key);
     let package_artifact = runner_cache::package_path(invocation, &cache_key);
     let publication = driver.publish_package_artifact_from_native_objects(
         check,

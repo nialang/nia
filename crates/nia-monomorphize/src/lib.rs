@@ -83,6 +83,8 @@ pub struct MonomorphizeModuleInput<'a> {
     pub module_id: ModuleId,
     /// Stable source identity used by symbol mangling.
     pub source_identity: SourceIdentity,
+    /// Stable package namespace used by canonical linkage symbols.
+    pub symbol_package_identity: String,
     /// Definitions used to recover generic parameter kinds and names.
     pub defs: &'a DefCollection,
     /// Effective generic parameter names for source and artifact definitions.
@@ -120,6 +122,10 @@ pub fn collect_monomorphizations(
     let mut collector = MonoCollector {
         type_store,
         source_identities: source_identities.into_iter().collect(),
+        symbol_package_identities: inputs
+            .iter()
+            .map(|input| (input.module_id, input.symbol_package_identity.clone()))
+            .collect(),
         defs_by_module: inputs
             .iter()
             .map(|input| (input.module_id, input.defs))
@@ -190,6 +196,7 @@ pub fn collect_monomorphizations(
 struct MonoCollector<'a> {
     type_store: &'a TypeStore,
     source_identities: HashMap<ModuleId, SourceIdentity>,
+    symbol_package_identities: HashMap<ModuleId, String>,
     defs_by_module: HashMap<ModuleId, &'a DefCollection>,
     generic_params_by_def: HashMap<GlobalDefId, Vec<SymbolId>>,
     normalizations_by_module: HashMap<ModuleId, &'a TypeNormalization>,
@@ -1500,7 +1507,13 @@ impl MonoCollector<'_> {
             self.module_mangle_id(key.arg_module_id).raw()
         ));
         let name = mangle_symbol_id(self.def_name(key.def_id));
+        let package = self
+            .symbol_package_identities
+            .get(&key.def_id.module_id)
+            .expect("Nia ICE: monomorphized definition is missing package symbol identity")
+            .clone();
         mangle_stable_symbol(&StableSymbolKey::new(
+            package,
             self.module_mangle_id(key.def_id.module_id),
             stable_definition_key(key.def_id),
             name,

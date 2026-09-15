@@ -3,6 +3,7 @@ use super::*;
 
 pub(super) struct TestBackendProgramFacts<'a> {
     source_identities: HashMap<ModuleId, nia_source::SourceIdentity>,
+    symbol_package_identities: HashMap<ModuleId, String>,
     const_array_lengths: HashMap<ModuleId, &'a HashMap<GlobalConstExprId, u64>>,
     function_body_ids: Vec<GlobalDefId>,
     function_bodies: HashMap<GlobalDefId, &'a nia_function_ir::FunctionBody>,
@@ -35,6 +36,7 @@ impl<'a> TestBackendProgramFacts<'a> {
                 module_id,
                 nia_source::SourceIdentity::new("main"),
             )]),
+            symbol_package_identities: HashMap::from([(module_id, "test/main@0".into())]),
             const_array_lengths,
             function_body_ids,
             function_bodies,
@@ -56,6 +58,10 @@ impl<'a> TestBackendProgramFacts<'a> {
 impl BackendProgramFacts for TestBackendProgramFacts<'_> {
     fn source_identities(&self) -> &HashMap<ModuleId, nia_source::SourceIdentity> {
         &self.source_identities
+    }
+
+    fn symbol_package_identities(&self) -> &HashMap<ModuleId, String> {
+        &self.symbol_package_identities
     }
 
     fn const_array_lengths(&self, module_id: ModuleId) -> Option<&HashMap<GlobalConstExprId, u64>> {

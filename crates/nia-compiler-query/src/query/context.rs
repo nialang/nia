@@ -42,6 +42,14 @@ impl CompilerContext {
             self.loader_facts.toolchain_identity(),
         )
     }
+
+    pub(super) fn current_package(&self) -> Option<nia_package_metadata::PackageId> {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .current_package
+            .clone()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,6 +116,7 @@ pub(super) struct CompilerInputs {
     pub(super) optimization: OptimizationPolicy,
     pub(super) timings: TimingMode,
     pub(super) codegen_scope: CodegenScope,
+    pub(super) current_package: Option<nia_package_metadata::PackageId>,
 }
 
 impl CompilerInputs {
@@ -116,6 +125,7 @@ impl CompilerInputs {
             optimization: request.optimization.policy(),
             timings: request.timings,
             codegen_scope: request.codegen_scope,
+            current_package: request.current_package,
         }
     }
 }

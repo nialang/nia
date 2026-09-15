@@ -5,6 +5,7 @@ use nia_item_signatures::ItemSignatures;
 pub(super) struct BackendLoweringInputs {
     symbols: nia_symbol_table::SymbolTable,
     source_identities: HashMap<ModuleId, nia_source::SourceIdentity>,
+    symbol_package_identities: HashMap<ModuleId, String>,
     checked_modules: Vec<Arc<CheckedModule>>,
     module_indices: HashMap<ModuleId, usize>,
     active_item_trees: Vec<Arc<ActiveModuleItemTree>>,
@@ -33,6 +34,7 @@ pub(super) struct BackendLoweringInputs {
 pub(super) struct BackendLoweringInputsParts {
     pub(super) symbols: nia_symbol_table::SymbolTable,
     pub(super) source_identities: HashMap<ModuleId, nia_source::SourceIdentity>,
+    pub(super) symbol_package_identities: HashMap<ModuleId, String>,
     pub(super) checked_modules: Vec<Arc<CheckedModule>>,
     pub(super) active_item_trees: Vec<Arc<ActiveModuleItemTree>>,
     pub(super) item_signatures: Vec<ItemSignatures>,
@@ -113,6 +115,7 @@ impl BackendLoweringInputs {
         Self {
             symbols: parts.symbols,
             source_identities: parts.source_identities,
+            symbol_package_identities: parts.symbol_package_identities,
             checked_modules: parts.checked_modules,
             module_indices,
             active_item_trees: parts.active_item_trees,
@@ -152,6 +155,11 @@ impl BackendLoweringInputs {
         BackendLowerModuleInput {
             module_id: checked_module.id,
             source_identity: checked_module.path.identity(),
+            symbol_package_identity: self
+                .symbol_package_identities
+                .get(&checked_module.id)
+                .cloned()
+                .expect("Nia ICE: backend module is missing package symbol identity"),
             module_name: checked_module.path.as_str().to_string(),
             symbols: &self.symbols,
             active_item_tree: self.active_item_trees[index].as_ref(),
@@ -185,6 +193,10 @@ impl BackendLoweringInputs {
 impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
     fn source_identities(&self) -> &HashMap<ModuleId, nia_source::SourceIdentity> {
         &self.source_identities
+    }
+
+    fn symbol_package_identities(&self) -> &HashMap<ModuleId, String> {
+        &self.symbol_package_identities
     }
 
     fn const_array_lengths(&self, module_id: ModuleId) -> Option<&HashMap<GlobalConstExprId, u64>> {
@@ -427,6 +439,7 @@ mod tests {
         let inputs = BackendLoweringInputs {
             symbols: nia_symbol_table::SymbolTable::new(),
             source_identities: HashMap::new(),
+            symbol_package_identities: HashMap::new(),
             checked_modules: Vec::new(),
             module_indices: HashMap::new(),
             active_item_trees: Vec::new(),

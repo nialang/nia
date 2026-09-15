@@ -8,6 +8,10 @@ use nia_ty::{
     TypeStore,
 };
 
+/// Reserved package identity for compiler-generated symbols without a source
+/// package owner, such as vtables and source-location metadata.
+pub const COMPILER_GENERATED_PACKAGE_IDENTITY: &str = "nia:compiler-generated";
+
 /// Canonical kind of a linker-visible Nia symbol.
 ///
 /// This is deliberately separate from source syntax and from ABI details. The
@@ -57,8 +61,7 @@ impl MangleSymbolKind {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StableSymbolKey {
     /// Stable package identity (registry coordinate, source root, or toolchain
-    /// package key). An empty value is reserved for package-local callers that
-    /// have not yet been migrated to package metadata.
+    /// package key). Canonical symbols never admit an empty package identity.
     pub package: String,
     pub module: MangleModuleId,
     pub definition: String,
@@ -69,6 +72,7 @@ pub struct StableSymbolKey {
 
 impl StableSymbolKey {
     pub fn new(
+        package: impl Into<String>,
         module: MangleModuleId,
         definition: impl Into<String>,
         name: impl Into<String>,
@@ -76,20 +80,13 @@ impl StableSymbolKey {
         generic_args: impl IntoIterator<Item = String>,
     ) -> Self {
         Self {
-            package: String::new(),
+            package: package.into(),
             module,
             definition: definition.into(),
             name: name.into(),
             kind,
             generic_args: generic_args.into_iter().collect(),
         }
-    }
-
-    /// Sets the package identity used to disambiguate equal module paths from
-    /// different packages.
-    pub fn with_package(mut self, package: impl Into<String>) -> Self {
-        self.package = package.into();
-        self
     }
 }
 
@@ -100,6 +97,10 @@ impl StableSymbolKey {
 /// delimiter escaping or sanitization. `_N` is intentionally distinct from
 /// both Itanium (`_Z`) and Rust v0 (`_R`) namespaces.
 pub fn mangle_stable_symbol(key: &StableSymbolKey) -> String {
+    assert!(
+        !key.package.is_empty(),
+        "Nia ICE: canonical symbol is missing package identity"
+    );
     let mut bytes = Vec::with_capacity(32);
     bytes.extend_from_slice(b"NIA");
     bytes.push(1); // canonical record format, not a public compatibility track
@@ -161,6 +162,9 @@ pub fn demangle_stable_symbol(symbol: &str) -> Option<DecodedStableSymbol> {
     let kind = MangleSymbolKind::from_tag(*bytes.get(cursor)?)?;
     cursor += 1;
     let package = String::from_utf8(get_bytes(&bytes, &mut cursor)?.to_vec()).ok()?;
+    if package.is_empty() {
+        return None;
+    }
     let name = String::from_utf8(get_bytes(&bytes, &mut cursor)?.to_vec()).ok()?;
     let arg_count = usize::try_from(get_varint(&bytes, &mut cursor)?).ok()?;
     let mut generic_args = Vec::with_capacity(arg_count);
@@ -338,12 +342,14 @@ impl MangleModuleId {
 
 /// Encodes a non-generic definition with the canonical linker grammar.
 pub fn mangle_base_symbol_canonical(
+    package: impl Into<String>,
     module: MangleModuleId,
     definition: impl Into<String>,
     name: impl Into<String>,
     kind: MangleSymbolKind,
 ) -> String {
     mangle_stable_symbol(&StableSymbolKey::new(
+        package,
         module,
         definition,
         name,
@@ -355,17 +361,19 @@ pub fn mangle_base_symbol_canonical(
 /// Canonical spelling for a definition when the caller only has a
 /// session-qualified id and its stable module identity.
 pub fn mangle_definition_symbol_canonical(
+    package: impl Into<String>,
     def_id: GlobalDefId,
     module: MangleModuleId,
     name: impl Into<String>,
     kind: MangleSymbolKind,
 ) -> String {
-    mangle_base_symbol_canonical(module, stable_definition_key(def_id), name, kind)
+    mangle_base_symbol_canonical(package, module, stable_definition_key(def_id), name, kind)
 }
 
 /// Encodes a generated symbol whose identity is derived from a stable owner
 /// and structured arguments rather than a source definition.
 pub fn mangle_derived_symbol_canonical(
+    package: impl Into<String>,
     module: MangleModuleId,
     definition: impl Into<String>,
     name: impl Into<String>,
@@ -373,6 +381,7 @@ pub fn mangle_derived_symbol_canonical(
     generic_args: impl IntoIterator<Item = String>,
 ) -> String {
     mangle_stable_symbol(&StableSymbolKey::new(
+        package,
         module,
         definition,
         name,
@@ -387,6 +396,7 @@ pub fn mangle_derived_symbol_canonical(
 /// argument representation. The binary key still length-delimits each item,
 /// so nested delimiters and arbitrary source names remain unambiguous.
 pub fn mangle_instance_symbol_canonical<F, G, H>(
+    package: impl Into<String>,
     module: MangleModuleId,
     definition: impl Into<String>,
     name: &str,
@@ -402,7 +412,7 @@ where
     H: FnMut(GlobalConstExprId) -> Option<u64>,
 {
     mangle_instance_symbol_canonical_with_context(
-        module, definition, name, args, const_args, type_store, resolvers, None, kind,
+        package, module, definition, name, args, const_args, type_store, resolvers, None, kind,
     )
 }
 
@@ -410,6 +420,7 @@ where
 /// context. The context is an explicit canonical argument rather than an
 /// opaque textual suffix, so it remains part of the reversible identity.
 pub fn mangle_instance_symbol_canonical_with_context<F, G, H>(
+    package: impl Into<String>,
     module: MangleModuleId,
     definition: impl Into<String>,
     name: &str,
@@ -458,7 +469,7 @@ where
         all_args.push(format!("context:{:016x}", context.raw()));
     }
     mangle_stable_symbol(&StableSymbolKey::new(
-        module, definition, name, kind, all_args,
+        package, module, definition, name, kind, all_args,
     ))
 }
 
@@ -469,6 +480,7 @@ where
 pub fn mangle_closure_entry_symbol(owner_symbol: &str, closure_id: ClosureId) -> Option<String> {
     let owner = demangle_stable_symbol(owner_symbol)?;
     Some(mangle_derived_symbol_canonical(
+        owner.package,
         owner.module,
         owner.definition,
         owner.name,
@@ -1053,16 +1065,18 @@ mod tests {
     use super::*;
     use nia_ids::{BuiltinTrait, DefId, ModuleIdAllocator, TypeStoreIndex};
 
+    const TEST_PACKAGE: &str = "test/package@0";
+
     #[test]
     fn canonical_symbol_round_trips_and_is_linker_safe() {
         let key = StableSymbolKey::new(
+            "acme/demo@0.2.0",
             MangleModuleId::from_normalized_source_path("pkg/unicode-模块.nia"),
             "def:42",
             "name_with::delimiters/\u{03bb}",
             MangleSymbolKind::Function,
             ["tuple(i32,bool)".to_string(), "const:17".to_string()],
-        )
-        .with_package("acme/demo@0.2.0");
+        );
         let symbol = mangle_stable_symbol(&key);
         assert!(symbol.starts_with("_N"));
         assert!(
@@ -1081,9 +1095,24 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "canonical symbol is missing package identity")]
+    fn canonical_symbol_rejects_an_empty_package_identity() {
+        let key = StableSymbolKey {
+            package: String::new(),
+            module: MangleModuleId::from_normalized_source_path("main.nia"),
+            definition: "def:1".into(),
+            name: "main".into(),
+            kind: MangleSymbolKind::Function,
+            generic_args: Vec::new(),
+        };
+        let _ = mangle_stable_symbol(&key);
+    }
+
+    #[test]
     fn canonical_symbol_framing_prevents_name_and_argument_collisions() {
         let module = MangleModuleId::from_normalized_source_path("main.nia");
         let first = mangle_stable_symbol(&StableSymbolKey::new(
+            TEST_PACKAGE,
             module,
             "def:1",
             "ab",
@@ -1091,6 +1120,7 @@ mod tests {
             ["c".to_string()],
         ));
         let second = mangle_stable_symbol(&StableSymbolKey::new(
+            TEST_PACKAGE,
             module,
             "def:1",
             "a",
@@ -1101,17 +1131,28 @@ mod tests {
         assert!(demangle_stable_symbol(&first).is_some());
         assert!(demangle_stable_symbol(&second).is_some());
 
-        let package_a = mangle_stable_symbol(
-            &StableSymbolKey::new(module, "def:1", "same", MangleSymbolKind::Function, [])
-                .with_package("a"),
-        );
-        let package_b = mangle_stable_symbol(
-            &StableSymbolKey::new(module, "def:1", "same", MangleSymbolKind::Function, [])
-                .with_package("b"),
-        );
+        let package_a = mangle_stable_symbol(&StableSymbolKey::new(
+            "a",
+            module,
+            "def:1",
+            "same",
+            MangleSymbolKind::Function,
+            [],
+        ));
+        let package_b = mangle_stable_symbol(&StableSymbolKey::new(
+            "b",
+            module,
+            "def:1",
+            "same",
+            MangleSymbolKind::Function,
+            [],
+        ));
         assert_ne!(package_a, package_b);
+        assert_eq!(demangle_stable_symbol(&package_a).unwrap().package, "a");
+        assert_eq!(demangle_stable_symbol(&package_b).unwrap().package, "b");
 
         let repeated = mangle_stable_symbol(&StableSymbolKey::new(
+            TEST_PACKAGE,
             module,
             "def:2",
             "repeat",
@@ -1119,6 +1160,7 @@ mod tests {
             (0..4).map(|_| "very-long-type-name".to_string()),
         ));
         let distinct = mangle_stable_symbol(&StableSymbolKey::new(
+            TEST_PACKAGE,
             module,
             "def:2",
             "repeat",
@@ -1149,6 +1191,7 @@ mod tests {
         let first = append.primitive(PrimitiveTy::I32);
         let second = append.primitive(PrimitiveTy::Bool);
         let symbol = mangle_instance_symbol_canonical(
+            TEST_PACKAGE,
             MangleModuleId::from_normalized_source_path("main.nia"),
             "def:9",
             "run",
@@ -1170,21 +1213,21 @@ mod tests {
     #[test]
     fn canonical_identity_survives_session_reallocation_and_path_relocation() {
         let first = StableSymbolKey::new(
+            "pkg/demo@0.2.0",
             MangleModuleId::from_normalized_source_path("toolchain:/pkg/src/main.nia"),
             "def:stable-function",
             "sym_abc",
             MangleSymbolKind::Function,
             ["i32".to_string()],
-        )
-        .with_package("pkg/demo@0.2.0");
+        );
         let relocated = StableSymbolKey::new(
+            "pkg/demo@0.2.0",
             MangleModuleId::from_normalized_source_path("toolchain:/pkg/src/main.nia"),
             "def:stable-function",
             "sym_abc",
             MangleSymbolKind::Function,
             ["i32".to_string()],
-        )
-        .with_package("pkg/demo@0.2.0");
+        );
         assert_eq!(
             mangle_stable_symbol(&first),
             mangle_stable_symbol(&relocated)
@@ -1220,6 +1263,7 @@ mod tests {
 
         assert_eq!(
             mangle_definition_symbol_canonical(
+                TEST_PACKAGE,
                 GlobalDefId {
                     module_id: first_module,
                     def_id: DefId(7),
@@ -1229,6 +1273,7 @@ mod tests {
                 MangleSymbolKind::Type,
             ),
             mangle_definition_symbol_canonical(
+                TEST_PACKAGE,
                 GlobalDefId {
                     module_id: second_module,
                     def_id: DefId(7),
@@ -1340,6 +1385,7 @@ mod tests {
         };
         let module = MangleModuleId::from_normalized_source_path("main.nia");
         let source_owner = mangle_derived_symbol_canonical(
+            TEST_PACKAGE,
             module,
             "def:7",
             "owner",
@@ -1347,6 +1393,7 @@ mod tests {
             std::iter::empty(),
         );
         let instance_owner = mangle_derived_symbol_canonical(
+            TEST_PACKAGE,
             module,
             "def:7",
             "owner",

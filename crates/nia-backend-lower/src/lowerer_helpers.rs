@@ -93,6 +93,12 @@ impl ModuleLowerer<'_> {
         let const_expr_summaries = &self.input.type_lowering.const_expr_summaries;
         let const_array_lengths = self.input.const_array_lengths;
         let source_identities = &self.shared.source_identities;
+        let package = self
+            .shared
+            .symbol_package_identities
+            .get(&def_id.module_id)
+            .cloned()
+            .expect("Nia ICE: backend definition is missing package symbol identity");
         let self_arg = self_arg.map(|ty| self.normalize_instance_arg_type(ty));
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
         let mut missing_source_identities = HashSet::new();
@@ -103,6 +109,7 @@ impl ModuleLowerer<'_> {
             args.insert(0, self_arg);
         }
         let symbol = nia_mangle::mangle_instance_symbol_canonical_with_context(
+            package,
             mangle_module_id_or_diagnose(
                 source_identities,
                 def_id.module_id,
