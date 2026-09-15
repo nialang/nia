@@ -41,8 +41,10 @@ fn main() u32 {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(ir.contains("@nia__source_location__"), "{ir}");
-    assert!(ir.contains("@nia__source_file__"), "{ir}");
+    let source_location = canonical_symbol(&ir, '@', "source_location", MangleSymbolKind::Global);
+    let source_file = canonical_symbol(&ir, '@', "source_file", MangleSymbolKind::Global);
+    assert!(ir.contains(&source_location), "{ir}");
+    assert!(ir.contains(&source_file), "{ir}");
     assert!(ir.contains(main.to_string_lossy().as_ref()), "{ir}");
 
     let leaf = mangled_symbol(&ir, '@', "leaf");
@@ -96,7 +98,14 @@ fn main() u32 {
         .join("\n");
     let embedded_file = ir
         .lines()
-        .find(|line| line.starts_with("@nia__source_file__"))
+        .find(|line| {
+            line.contains(&canonical_symbol(
+                &ir,
+                '@',
+                "source_file",
+                MangleSymbolKind::Global,
+            ))
+        })
         .expect("embedded source identity global");
     assert!(embedded_file.contains(logical), "{embedded_file}");
     assert!(
@@ -156,7 +165,11 @@ fn main() u32 {
     assert_eq!(definition.matches("ptr ").count(), 3, "{definition}");
     assert!(
         ir.lines().any(|line| {
-            line.contains("call void %") && line.contains("ptr @nia__source_location__")
+            line.contains("call void %")
+                && line.contains(&format!(
+                    "ptr {}",
+                    canonical_symbol(&ir, '@', "source_location", MangleSymbolKind::Global)
+                ))
         }),
         "dynamic trait call must carry a static caller pointer: {ir}",
     );
@@ -220,7 +233,7 @@ fn main() u32 {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(
-            ir.matches("ptr @nia__source_location__").count() >= 2,
+            count_canonical_symbols(&ir, '@', "source_location", MangleSymbolKind::Global) >= 4,
             "{ir}"
         );
     }

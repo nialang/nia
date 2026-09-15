@@ -90,14 +90,20 @@ const SOURCE_LOCATION_GLOBAL_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.llvm.source-location-global");
 
 fn source_global_symbol(
-    prefix: &str,
+    name: &str,
     domain: FingerprintDomain,
     write: impl FnOnce(&mut QueryFingerprintBuilder),
 ) -> String {
     let mut fingerprint = QueryFingerprintBuilder::new(domain);
     write(&mut fingerprint);
     let [first, second] = fingerprint.finish().parts();
-    format!("{prefix}__{first:016x}{second:016x}")
+    mangle_derived_symbol_canonical(
+        MangleModuleId::from_normalized_source_path("nia:source-metadata"),
+        format!("fingerprint:{first:016x}{second:016x}"),
+        name,
+        MangleSymbolKind::Global,
+        std::iter::empty(),
+    )
 }
 
 struct FunctionSignature<P> {
@@ -227,11 +233,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 let file_ty = initializer_value
                     .get_type()
                     .map_err(Self::diagnostic_from_llvm_error)?;
-                let symbol = source_global_symbol(
-                    "nia__source_file",
-                    SOURCE_FILE_GLOBAL_DOMAIN,
-                    |fingerprint| fingerprint.write_str(&location.file),
-                );
+                let symbol =
+                    source_global_symbol("source_file", SOURCE_FILE_GLOBAL_DOMAIN, |fingerprint| {
+                        fingerprint.write_str(&location.file)
+                    });
                 let global = self
                     .module
                     .add_global(file_ty, None, &symbol)
@@ -273,7 +278,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             ])
             .map_err(Self::diagnostic_from_llvm_error)?;
         let symbol = source_global_symbol(
-            "nia__source_location",
+            "source_location",
             SOURCE_LOCATION_GLOBAL_DOMAIN,
             |fingerprint| {
                 fingerprint.write_str(&location.file);
@@ -469,21 +474,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         allocation: PromotedAllocationId,
         instance_symbol: Option<&str>,
     ) -> String {
-        let module = self.mangle_module_id(allocation.module_id()).raw();
+        let module = self.mangle_module_id(allocation.module_id());
         let span = allocation.span();
-        match instance_symbol {
-            Some(instance_symbol) => {
-                let owner = nia_symbol::stable_hash(instance_symbol);
-                format!(
-                    "nia__promoted__s{module:016x}__o{owner:016x}__b{:x}__e{:x}",
-                    span.start, span.end
-                )
-            }
-            None => format!(
-                "nia__promoted__s{module:016x}__b{:x}__e{:x}",
-                span.start, span.end
-            ),
-        }
+        mangle_derived_symbol_canonical(
+            module,
+            format!("promoted:{}:{}", span.start, span.end),
+            "promoted_allocation",
+            MangleSymbolKind::Global,
+            instance_symbol.into_iter().map(ToOwned::to_owned),
+        )
     }
 
     pub(super) fn emit_object(&mut self, target: &TargetMachine) -> Result<Vec<u8>, Diagnostic> {
