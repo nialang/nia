@@ -2610,7 +2610,14 @@ mod tests {
                     closure_id,
                     owner: BackendClosureEntryOwner::Source(closure_id.owner),
                 },
-                symbol: "main__closure_entry__ord__0".to_string(),
+                symbol: nia_mangle::mangle_derived_symbol_canonical(
+                    "test/package@0",
+                    nia_mangle::MangleModuleId::from_normalized_source_path("main.nia"),
+                    "closure_fixture",
+                    "closure_fixture",
+                    nia_mangle::MangleSymbolKind::ClosureEntry,
+                    ["ordinal:0".to_string()],
+                ),
                 abi: BackendClosureEntryAbi {
                     state_type: state_ty,
                     state_pointer_type: state_pointer_ty,

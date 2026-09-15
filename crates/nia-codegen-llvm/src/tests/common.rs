@@ -603,7 +603,7 @@ pub(super) fn assert_substrings_in_order(haystack: &str, needles: &[&str]) {
 }
 
 pub(super) fn mangled_symbol(ir: &str, sigil: char, name: &str) -> String {
-    let expected = expected_backend_symbol_suffix(name);
+    let expected = expected_symbol_name(name);
     find_mangled_symbol(ir, sigil, &expected)
         .unwrap_or_else(|| panic!("missing canonical symbol `{name}` with sigil `{sigil}`"))
 }
@@ -613,7 +613,7 @@ pub(super) fn assert_contains_mangled_symbol(ir: &str, sigil: char, name: &str) 
 }
 
 pub(super) fn assert_not_contains_mangled_symbol(ir: &str, sigil: char, name: &str) {
-    let name = expected_backend_symbol_suffix(name);
+    let name = expected_symbol_name(name);
     if let Some(symbol) = find_mangled_symbol(ir, sigil, &name) {
         panic!("unexpected mangled symbol `{symbol}` in IR:\n{ir}");
     }
@@ -629,7 +629,7 @@ pub(super) fn contains_mangled_kind(ir: &str, sigil: char, kind: MangleSymbolKin
 }
 
 pub(super) fn contains_mangled_name(ir: &str, sigil: char, name: &str) -> bool {
-    let expected = expected_backend_symbol_suffix(name);
+    let expected = expected_symbol_name(name);
     find_mangled_symbol(ir, sigil, &expected).is_some()
 }
 
@@ -676,7 +676,7 @@ pub(super) fn count_canonical_symbols(
         .count()
 }
 
-fn expected_backend_symbol_suffix(name: &str) -> String {
+fn expected_symbol_name(name: &str) -> String {
     let Some((base, rest)) = name.split_once("__") else {
         return mangle_symbol_id(sym(name));
     };

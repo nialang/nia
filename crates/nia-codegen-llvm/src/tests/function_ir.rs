@@ -8561,7 +8561,14 @@ fn validates_closure_entry_call_and_view_contracts_before_llvm() {
             closure_id,
             owner: nia_backend_ir::BackendClosureEntryOwner::Source(main_id),
         },
-        symbol: "main__closure_entry__ord__0".to_string(),
+        symbol: nia_mangle::mangle_derived_symbol_canonical(
+            "test/package@0",
+            nia_mangle::MangleModuleId::from_normalized_source_path("main"),
+            "closure_fixture",
+            "closure_fixture",
+            MangleSymbolKind::ClosureEntry,
+            ["ordinal:0".to_string()],
+        ),
         abi: nia_backend_ir::BackendClosureEntryAbi {
             state_type: state_ty,
             state_pointer_type: state_pointer_ty,
