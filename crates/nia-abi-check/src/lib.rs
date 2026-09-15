@@ -59,6 +59,15 @@ pub enum AbiReturn {
     Never,
 }
 
+/// Compiler-inserted parameters that precede source parameters.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AbiHiddenParam {
+    /// Destination for an indirect aggregate return.
+    SRet { align: u64 },
+    /// Caller source-location pointer used by `track_caller`.
+    CallerLocation,
+}
+
 /// Complete, cacheable ABI product for one function signature.
 ///
 /// This product is intentionally independent of LLVM handles. Consumers use
@@ -71,8 +80,7 @@ pub struct AbiSignature {
     pub target: TargetDataLayout,
     pub parameters: Vec<AbiParam>,
     pub return_mode: AbiReturn,
-    pub hidden_sret: bool,
-    pub tracks_caller: bool,
+    pub hidden_parameters: Vec<AbiHiddenParam>,
 }
 
 /// Produces the canonical internal Nia ABI signature from demand-driven type
@@ -97,14 +105,19 @@ pub fn classify_nia_signature(
         .into_iter()
         .map(|ty| classify_param(type_store, ty, &mut layout_of, &mut payloadless_enum))
         .collect::<Vec<_>>();
-    let hidden_sret = matches!(return_mode, AbiReturn::SRet { .. });
+    let mut hidden_parameters = Vec::new();
+    if let AbiReturn::SRet { align, .. } = return_mode {
+        hidden_parameters.push(AbiHiddenParam::SRet { align });
+    }
+    if tracks_caller {
+        hidden_parameters.push(AbiHiddenParam::CallerLocation);
+    }
     AbiSignature {
         domain: AbiDomain::Nia,
         target,
         parameters,
         return_mode,
-        hidden_sret,
-        tracks_caller,
+        hidden_parameters,
     }
 }
 
@@ -1269,8 +1282,10 @@ extern fn bad_return() (i32, bool);
         assert_eq!(signature.parameters[0], AbiParam::IgnoreZst);
         assert!(matches!(signature.parameters[1], AbiParam::Direct { ty } if ty == i32_ty));
         assert_eq!(signature.return_mode, AbiReturn::IgnoreZst);
-        assert!(!signature.hidden_sret);
-        assert!(signature.tracks_caller);
+        assert_eq!(
+            signature.hidden_parameters,
+            vec![AbiHiddenParam::CallerLocation]
+        );
     }
 
     #[test]
@@ -1304,6 +1319,9 @@ extern fn bad_return() (i32, bool);
                 align: 8
             }
         );
-        assert!(signature.hidden_sret);
+        assert_eq!(
+            signature.hidden_parameters,
+            vec![AbiHiddenParam::SRet { align: 8 }]
+        );
     }
 }
