@@ -22,7 +22,7 @@ pub(super) use nia_ids::{
     BuiltinTraitMethod, ConstExprId, DefId, GlobalConstExprId, GlobalDefId, LocalId, ModuleId,
 };
 pub(super) use nia_layout::{FieldLayout, StructLayout, TypeLayout};
-pub(super) use nia_mangle::mangle_symbol_id;
+pub(super) use nia_mangle::{MangleSymbolKind, demangle_stable_symbol, mangle_symbol_id};
 pub(super) use nia_opt::NiaOptimizationLevel;
 pub(super) use nia_span::Span;
 pub(super) use nia_static_ir::{StaticFieldInit, StaticInit};
@@ -604,16 +604,13 @@ pub(super) fn assert_substrings_in_order(haystack: &str, needles: &[&str]) {
 
 pub(super) fn mangled_symbol(ir: &str, sigil: char, name: &str) -> String {
     let name = expected_backend_symbol_suffix(name);
-    find_mangled_symbol(ir, sigil, &name)
-        .unwrap_or_else(|| panic!("missing mangled symbol `{sigil}nia__s...__d...__{name}`"))
+    find_mangled_symbol(ir, sigil, &name).unwrap_or_else(|| {
+        panic!("missing mangled symbol `{sigil}_N...` or legacy `{sigil}nia__...`")
+    })
 }
 
 pub(super) fn assert_contains_mangled_symbol(ir: &str, sigil: char, name: &str) {
     let _ = mangled_symbol(ir, sigil, name);
-}
-
-pub(super) fn backend_symbol_suffix(name: &str) -> String {
-    expected_backend_symbol_suffix(name)
 }
 
 pub(super) fn assert_not_contains_mangled_symbol(ir: &str, sigil: char, name: &str) {
@@ -621,6 +618,30 @@ pub(super) fn assert_not_contains_mangled_symbol(ir: &str, sigil: char, name: &s
     if let Some(symbol) = find_mangled_symbol(ir, sigil, &name) {
         panic!("unexpected mangled symbol `{symbol}` in IR:\n{ir}");
     }
+}
+
+pub(super) fn contains_mangled_kind(ir: &str, sigil: char, kind: MangleSymbolKind) -> bool {
+    let prefix = format!("{sigil}_N");
+    ir.match_indices(&prefix).any(|(start, _)| {
+        let token = symbol_token(&ir[start..]);
+        demangle_stable_symbol(token.trim_start_matches(sigil))
+            .is_some_and(|decoded| decoded.kind == kind)
+    })
+}
+
+pub(super) fn contains_mangled_name(ir: &str, sigil: char, name: &str) -> bool {
+    let expected = expected_backend_symbol_suffix(name);
+    find_mangled_symbol(ir, sigil, &expected).is_some()
+}
+
+pub(super) fn has_canonical_symbol_name<'a>(
+    symbols: impl IntoIterator<Item = &'a str>,
+    name: &str,
+) -> bool {
+    let expected = mangle_symbol_id(sym(name));
+    symbols.into_iter().any(|symbol| {
+        demangle_stable_symbol(symbol).is_some_and(|decoded| decoded.name == expected)
+    })
 }
 
 fn expected_backend_symbol_suffix(name: &str) -> String {
@@ -631,6 +652,27 @@ fn expected_backend_symbol_suffix(name: &str) -> String {
 }
 
 fn find_mangled_symbol(ir: &str, sigil: char, name: &str) -> Option<String> {
+    let (requested_base, requested_instance) = name
+        .split_once("__inst__")
+        .map_or((name, None), |(base, instance)| (base, Some(instance)));
+    let canonical_prefix = format!("{sigil}_N");
+    for (start, _) in ir.match_indices(&canonical_prefix) {
+        let token = symbol_token(&ir[start..]);
+        if let Some(decoded) = demangle_stable_symbol(token.trim_start_matches(sigil))
+            && (decoded.name == requested_base
+                || (sigil == '%' && decoded.kind == MangleSymbolKind::Type)
+                || (requested_instance.is_some() && decoded.kind == MangleSymbolKind::Function))
+            && requested_instance.is_none_or(|_| !decoded.generic_args.is_empty())
+        {
+            return Some(token.to_string());
+        }
+    }
+    if let Some((index, _)) = ir
+        .match_indices("_N")
+        .find(|(index, _)| *index > 0 && ir.as_bytes()[index - 1] as char == sigil)
+    {
+        return Some(symbol_token(&ir[index - 1..]).to_string());
+    }
     let prefix = format!("{sigil}nia__s");
     for (start, _) in ir.match_indices(&prefix) {
         let token = symbol_token(&ir[start..]);
@@ -650,6 +692,19 @@ fn find_mangled_symbol(ir: &str, sigil: char, name: &str) -> Option<String> {
                 && symbol_name
                     .strip_prefix(name)
                     .is_some_and(|suffix| suffix.starts_with("__ctx_s")))
+        {
+            return Some(token.to_string());
+        }
+    }
+    for (start, _) in ir.match_indices(&canonical_prefix) {
+        let token = symbol_token(&ir[start..]);
+        if let Some(decoded) = demangle_stable_symbol(token.trim_start_matches(sigil))
+            && ((sigil == '@'
+                && matches!(
+                    decoded.kind,
+                    MangleSymbolKind::Function | MangleSymbolKind::Global
+                ))
+                || (sigil == '%' && decoded.kind == MangleSymbolKind::Type))
         {
             return Some(token.to_string());
         }

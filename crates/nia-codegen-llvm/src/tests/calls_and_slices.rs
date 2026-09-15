@@ -59,8 +59,8 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("define i32 @nia__s"));
-    assert!(ir.contains("call i32 @nia__s"));
+    assert!(ir.contains("define i32 @_N"));
+    assert!(ir.contains("call i32 @_N"));
     assert!(ir.contains("ret i32"));
 }
 
@@ -193,8 +193,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(ir.contains("define void @_start("), "{ir}");
-    assert!(ir.contains("define void @nia__s"), "{ir}");
-    assert!(ir.contains("call void @nia__s"), "{ir}");
+    assert!(ir.contains("define void @_N"), "{ir}");
+    assert!(ir.contains("call void @_N"), "{ir}");
 }
 
 #[test]
@@ -239,8 +239,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(ir.contains("syscall"), "{ir}");
-    assert!(ir.contains(&backend_symbol_suffix("writeSome")), "{ir}");
-    assert!(ir.contains(&backend_symbol_suffix("FileWriter")), "{ir}");
+    assert!(ir.contains(&mangled_symbol(&ir, '@', "writeSome")), "{ir}");
+    assert!(ir.contains(&mangled_symbol(&ir, '%', "FileWriter")), "{ir}");
 }
 
 #[test]
@@ -295,11 +295,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
-        ir.contains(&backend_symbol_suffix("BufferedWriter")),
+        ir.contains(&mangled_symbol(&ir, '%', "BufferedWriter")),
         "{ir}"
     );
-    assert!(ir.contains(&backend_symbol_suffix("flush")), "{ir}");
-    assert!(ir.contains(&backend_symbol_suffix("writeSome")), "{ir}");
+    assert!(ir.contains(&mangled_symbol(&ir, '@', "flush")), "{ir}");
+    assert!(ir.contains(&mangled_symbol(&ir, '@', "writeSome")), "{ir}");
 }
 
 #[test]
@@ -382,7 +382,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("call void @nia__s"), "{ir}");
+    assert!(ir.contains("call void @_N"), "{ir}");
     assert!(ir.contains("tagged.payload"), "{ir}");
 }
 
@@ -633,7 +633,7 @@ fn main() i32 {
     assert!(ir.contains("declare i32 @puts"));
     assert!(ir.contains("c\"hello\\00\""));
     assert!(ir.contains("call i32 @puts"));
-    assert!(ir.contains("@nia__s"));
+    assert!(ir.contains("@_N"));
 }
 
 #[test]

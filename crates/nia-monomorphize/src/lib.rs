@@ -31,7 +31,8 @@ use nia_item_signatures::{
 };
 use nia_layout::Layouts;
 use nia_mangle::{
-    MangleModuleId, MangleResolvers, mangle_base_symbol_id, mangle_symbol_id, mangle_type_with,
+    MangleModuleId, MangleResolvers, MangleSymbolKind, StableSymbolKey, mangle_stable_symbol,
+    mangle_symbol_id, mangle_type_with, stable_definition_key,
 };
 use nia_sema_ir::GenericInstantiation;
 use nia_source::SourceIdentity;
@@ -168,7 +169,6 @@ pub fn collect_monomorphizations(
         seen: HashSet::new(),
         type_symbols: HashMap::new(),
         def_names: HashMap::new(),
-        base_symbols: HashMap::new(),
         type_instantiations: HashMap::new(),
         type_substitutions: Vec::new(),
         type_substitution_ids: HashMap::new(),
@@ -208,7 +208,6 @@ struct MonoCollector<'a> {
     seen: HashSet<MonoInstanceKey>,
     type_symbols: HashMap<(ModuleId, InternedTyId), String>,
     def_names: HashMap<GlobalDefId, SymbolId>,
-    base_symbols: HashMap<GlobalDefId, String>,
     type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
     type_substitutions: Vec<TypeSubstitution>,
     type_substitution_ids: HashMap<TypeSubstitutionKey, TypeSubstitutionId>,
@@ -1482,37 +1481,32 @@ impl MonoCollector<'_> {
     }
 
     fn instance_symbol(&mut self, key: &MonoInstanceKey) -> String {
-        let args = key
-            .args
-            .iter()
-            .map(|arg| self.type_symbol(key.arg_module_id, *arg))
-            .collect::<Vec<_>>()
-            .join("_");
-        let self_arg = key
-            .self_arg
-            .map(|self_arg| format!("self_{}", self.type_symbol(key.arg_module_id, self_arg)));
-        let const_args = key
-            .const_args
-            .iter()
-            .map(|arg| self.const_arg_symbol(key.arg_module_id, arg))
-            .collect::<Vec<_>>()
-            .join("_");
-        let base_symbol = self.base_symbol(key.def_id);
-        let mut parts = Vec::new();
-        if let Some(self_arg) = self_arg {
-            parts.push(self_arg);
+        let mut args = Vec::new();
+        if let Some(self_arg) = key.self_arg {
+            args.push(self.type_symbol(key.arg_module_id, self_arg));
         }
-        if !args.is_empty() {
-            parts.push(args);
-        }
-        if !const_args.is_empty() {
-            parts.push(const_args);
-        }
-        if parts.is_empty() {
-            base_symbol
-        } else {
-            format!("{base_symbol}__inst__{}", parts.join("_"))
-        }
+        args.extend(
+            key.args
+                .iter()
+                .map(|arg| self.type_symbol(key.arg_module_id, *arg)),
+        );
+        args.extend(
+            key.const_args
+                .iter()
+                .map(|arg| self.const_arg_symbol(key.arg_module_id, arg)),
+        );
+        args.push(format!(
+            "context:{:016x}",
+            self.module_mangle_id(key.arg_module_id).raw()
+        ));
+        let name = mangle_symbol_id(self.def_name(key.def_id));
+        mangle_stable_symbol(&StableSymbolKey::new(
+            self.module_mangle_id(key.def_id.module_id),
+            stable_definition_key(key.def_id),
+            name,
+            MangleSymbolKind::Function,
+            args,
+        ))
     }
 
     fn const_arg_symbol(&mut self, module_id: ModuleId, arg: &ConstGenericArg) -> String {
@@ -1536,16 +1530,6 @@ impl MonoCollector<'_> {
             ConstGenericValue::Char(value) => format!("c{}", *value as u32),
         };
         format!("c_{ty}_{value}")
-    }
-
-    fn base_symbol(&mut self, def_id: GlobalDefId) -> String {
-        if let Some(symbol) = self.base_symbols.get(&def_id) {
-            return symbol.clone();
-        }
-        let name = self.def_name(def_id);
-        let symbol = mangle_base_symbol_id(def_id, self.module_mangle_id(def_id.module_id), name);
-        self.base_symbols.insert(def_id, symbol.clone());
-        symbol
     }
 
     fn def_name(&mut self, def_id: GlobalDefId) -> SymbolId {

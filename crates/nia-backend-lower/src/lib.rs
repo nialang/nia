@@ -58,11 +58,11 @@ use nia_item_signatures::{
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_layout::{Layouts, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
-use nia_mangle::{MangleModuleId, MangleResolvers, mangle_instance_symbol_id, mangle_symbol_id};
+use nia_mangle::{MangleModuleId, MangleResolvers, mangle_symbol_id};
 use nia_node_id::VersionedNodeKey;
 use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
 use nia_sema_ir::SemanticFacts;
-use nia_symbol::{SymbolId, SymbolText, known, stable_hash, symbol_text_or_unresolved};
+use nia_symbol::{SymbolId, SymbolText, known, symbol_text_or_unresolved};
 use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue, TyKind, TypeEquivalence};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;

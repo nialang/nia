@@ -26,8 +26,9 @@ use nia_function_ir::{FunctionBody, FunctionInstanceKey, FunctionLocalKind};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::{TargetDataLayout, TypeLayout};
 use nia_mangle::{
-    MangleModuleId, MangleResolvers, mangle_base_symbol_id, mangle_closure_entry_symbol,
-    mangle_instance_symbol_id, mangle_symbol_id, mangle_type_with,
+    MangleModuleId, MangleResolvers, MangleSymbolKind, mangle_closure_entry_symbol,
+    mangle_definition_symbol_canonical, mangle_instance_symbol_id, mangle_symbol_id,
+    mangle_type_with,
 };
 use nia_symbol::SymbolId;
 use nia_ty::{ArrayLenTy, ConstGenericArg, PrimitiveTy, TyKind};
@@ -179,7 +180,12 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
             record_generated_symbol(
                 &mut values,
                 diagnostics,
-                mangle_base_symbol_id(function.def_id, module_mangle, function.name),
+                mangle_definition_symbol_canonical(
+                    function.def_id,
+                    module_mangle,
+                    mangle_symbol_id(function.name),
+                    MangleSymbolKind::Function,
+                ),
                 "function",
                 function.span,
             );
@@ -189,7 +195,12 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
                 record_generated_symbol(
                     &mut values,
                     diagnostics,
-                    mangle_base_symbol_id(global.def_id, module_mangle, global.name),
+                    mangle_definition_symbol_canonical(
+                        global.def_id,
+                        module_mangle,
+                        mangle_symbol_id(global.name),
+                        MangleSymbolKind::Global,
+                    ),
                     "global",
                     global.span,
                 );
@@ -224,7 +235,12 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
                 record_generated_symbol(
                     &mut types,
                     diagnostics,
-                    mangle_base_symbol_id(item.def_id, module_mangle, item.name),
+                    mangle_definition_symbol_canonical(
+                        item.def_id,
+                        module_mangle,
+                        mangle_symbol_id(item.name),
+                        MangleSymbolKind::Type,
+                    ),
                     "struct",
                     item.span,
                 );
@@ -235,7 +251,12 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
                 record_generated_symbol(
                     &mut types,
                     diagnostics,
-                    mangle_base_symbol_id(item.def_id, module_mangle, item.name),
+                    mangle_definition_symbol_canonical(
+                        item.def_id,
+                        module_mangle,
+                        mangle_symbol_id(item.name),
+                        MangleSymbolKind::Type,
+                    ),
                     "union",
                     item.span,
                 );
@@ -1058,12 +1079,13 @@ impl BackendValidator<'_> {
                 .function(*owner)
                 .zip(self.index.module(owner.module_id))
                 .map(|(function, module)| {
-                    mangle_base_symbol_id(
+                    mangle_definition_symbol_canonical(
                         *owner,
                         MangleModuleId::from_normalized_source_path(
                             module.source_identity.normalized_path(),
                         ),
-                        function.name,
+                        mangle_symbol_id(function.name),
+                        MangleSymbolKind::Function,
                     )
                 }),
             BackendClosureEntryOwner::FunctionInstance(owner) => self
