@@ -180,6 +180,7 @@ pub(crate) fn write_function_signature(
     }
     write_type_index(encoded, graph.intern(signature.return_type)?);
     write_bool(encoded, signature.is_extern);
+    write_optional_string(encoded, signature.external_name.as_deref());
     write_bool(encoded, signature.is_const);
     write_bool(encoded, signature.is_variadic);
     write_u64(encoded, signature.attributes.len() as u64);
@@ -220,6 +221,7 @@ pub(crate) fn read_function_signature(
     }
     let return_type = read_type_index(cursor, types)?;
     let is_extern = read_bool(cursor)?;
+    let external_name = read_optional_string(cursor)?;
     let is_const = read_bool(cursor)?;
     let is_variadic = read_bool(cursor)?;
     let attribute_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
@@ -240,6 +242,7 @@ pub(crate) fn read_function_signature(
         params,
         return_type,
         is_extern,
+        external_name,
         is_const,
         is_variadic,
         attributes,
@@ -707,6 +710,7 @@ pub(crate) fn write_global_signature(
     write_optional_type(encoded, signature.explicit_type, graph)?;
     write_bool(encoded, signature.is_mutable);
     write_bool(encoded, signature.is_extern);
+    write_optional_string(encoded, signature.external_name.as_deref());
     write_span(encoded, signature.span);
     Ok(())
 }
@@ -720,6 +724,7 @@ pub(crate) fn read_global_signature(
         explicit_type: read_optional_type(cursor, types)?,
         is_mutable: read_bool(cursor)?,
         is_extern: read_bool(cursor)?,
+        external_name: read_optional_string(cursor)?,
         span: read_span(cursor, source_len)?,
     })
 }

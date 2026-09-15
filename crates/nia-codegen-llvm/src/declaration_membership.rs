@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
+#[cfg(test)]
+use nia_backend_ir::BackendLinkage;
 use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendGlobal, BackendGlobalInstance,
     BackendGlobalInstanceKey, BackendModuleOwnerDirectory, BackendStructInstanceKey,
@@ -929,10 +931,9 @@ mod tests {
                 def_id: DefId(0),
             },
             name: SymbolId::EMPTY,
-            link_name: None,
+            linkage: BackendLinkage::Nia,
             ty,
             is_let: false,
-            is_extern: false,
             init: Some(StaticInit::AddrOfFunction {
                 function: referenced_function,
                 args: vec![ty],
@@ -960,7 +961,9 @@ mod tests {
             symbol: "instance".to_string(),
             params: Vec::new(),
             return_type: ty,
-            is_extern: true,
+            linkage: BackendLinkage::ExternImport {
+                symbol: "instance".to_string(),
+            },
             is_variadic: false,
             attributes: Vec::new(),
             local_names: Default::default(),
@@ -988,7 +991,9 @@ mod tests {
             symbol: "instance".to_string(),
             params: Vec::new(),
             return_type: ty,
-            is_extern: true,
+            linkage: BackendLinkage::ExternImport {
+                symbol: "instance".to_string(),
+            },
             is_variadic: false,
             attributes: Vec::new(),
             local_names: Default::default(),
@@ -1007,11 +1012,12 @@ mod tests {
         module.functions.push(BackendFunction {
             def_id,
             name: SymbolId::EMPTY,
-            link_name: None,
+            linkage: BackendLinkage::ExternImport {
+                symbol: "instance".to_string(),
+            },
             generics: Vec::new(),
             params: Vec::new(),
             return_type: ty,
-            is_extern: true,
             is_variadic: false,
             attributes: Vec::new(),
             local_names: Default::default(),
@@ -1117,10 +1123,11 @@ mod tests {
                 def_id: DefId(0),
             },
             name: SymbolId::EMPTY,
-            link_name: None,
             ty: nominal_ty,
             is_let: false,
-            is_extern: true,
+            linkage: BackendLinkage::ExternImport {
+                symbol: "instance".to_string(),
+            },
             init: None,
             span: Span::default(),
         });
@@ -1241,10 +1248,9 @@ mod tests {
                 def_id: DefId(0),
             },
             name: SymbolId::EMPTY,
-            link_name: None,
+            linkage: BackendLinkage::Nia,
             ty,
             is_let: false,
-            is_extern: false,
             init: Some(StaticInit::AddrOfFunction {
                 function: semantic_def,
                 args: vec![ty],

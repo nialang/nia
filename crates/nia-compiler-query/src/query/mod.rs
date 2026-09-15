@@ -6253,6 +6253,7 @@ fn signature_payload_for_definition(
                 params,
                 return_type: root(signature.return_type)?,
                 attributes,
+                external_name: signature.external_name.clone(),
             })
         }),
         5 => signatures.structs.get(&def_id).and_then(|signature| {
@@ -6382,6 +6383,7 @@ fn signature_payload_for_definition(
             Ok(nia_package_metadata::SignaturePayload::Value {
                 explicit_type: signature.explicit_type.map(root).transpose()?,
                 builtin: None,
+                external_name: signature.external_name.clone(),
             })
         }),
         4 => signatures
@@ -6393,6 +6395,7 @@ fn signature_payload_for_definition(
                     builtin: signature
                         .builtin
                         .map(nia_ids::BuiltinConstValue::stable_tag),
+                    external_name: None,
                 })
             })
             .or_else(|| {
@@ -6405,6 +6408,7 @@ fn signature_payload_for_definition(
                             Ok(nia_package_metadata::SignaturePayload::Value {
                                 explicit_type: Some(root(value.ty)?),
                                 builtin: None,
+                                external_name: None,
                             })
                         })
                 })

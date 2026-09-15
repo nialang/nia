@@ -17,8 +17,8 @@ use crate::{
 };
 use nia_backend_ir::{
     BackendClosureEntry, BackendClosureEntryKey, BackendClosureEntryOwner, BackendFunction,
-    BackendFunctionInstance, BackendGlobal, BackendGlobalInstance, BackendModule, BackendParam,
-    BackendStruct, BackendStructInstance, BackendTraitObjectVtable,
+    BackendFunctionInstance, BackendGlobal, BackendGlobalInstance, BackendLinkage, BackendModule,
+    BackendParam, BackendStruct, BackendStructInstance, BackendTraitObjectVtable,
     BackendTraitObjectVtableFunction, BackendUnion, BackendUnionInstance, CodegenPartition,
 };
 use nia_diagnostic::Diagnostic;
@@ -116,16 +116,14 @@ pub(super) fn validate_native_backend_program(
     let reserved = builtin_symbols
         .external_definitions()
         .collect::<HashSet<_>>();
-    if reserved.is_empty() {
-        return diagnostics;
-    }
+    let runtime_identity = nia_toolchain::runtime_symbol_package_identity();
     for module_id in index.module_ids() {
         let Some(module) = index.module(*module_id) else {
             continue;
         };
         for function in &module.functions {
-            if function.is_extern
-                && let Some(symbol) = function.link_name.as_deref()
+            if function.linkage.is_extern()
+                && let Some(symbol) = function.linkage.external_symbol()
                 && reserved.contains(symbol)
             {
                 diagnostics.push(compiler_builtin_collision_diagnostic(
@@ -136,14 +134,26 @@ pub(super) fn validate_native_backend_program(
             }
         }
         for global in &module.globals {
-            if global.is_extern
-                && let Some(symbol) = global.link_name.as_deref()
+            if global.linkage.is_extern()
+                && let Some(symbol) = global.linkage.external_symbol()
                 && reserved.contains(symbol)
             {
                 diagnostics.push(compiler_builtin_collision_diagnostic(
                     "extern global",
                     symbol,
                     global.span,
+                ));
+            }
+        }
+        for function in &module.functions {
+            if let BackendLinkage::ExternExport { symbol } = &function.linkage
+                && symbol == "_start"
+                && module.symbol_package_identity != runtime_identity
+            {
+                diagnostics.push(Diagnostic::user_error_at(
+                    nia_diagnostic::codes::LLVM_CODEGEN,
+                    function.span,
+                    "external export `_start` is reserved for the compiler-provided runtime",
                 ));
             }
         }
@@ -182,7 +192,7 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
         let module_mangle =
             MangleModuleId::from_normalized_source_path(module.source_identity.normalized_path());
         for function in &module.functions {
-            if function.is_extern || !function.generics.is_empty() {
+            if function.linkage.is_extern() || !function.generics.is_empty() {
                 continue;
             }
             record_generated_symbol(
@@ -200,7 +210,7 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
             );
         }
         for global in &module.globals {
-            if !global.is_extern {
+            if !global.linkage.is_extern() {
                 record_generated_symbol(
                     &mut values,
                     diagnostics,
@@ -308,8 +318,8 @@ fn validate_external_symbol_collisions(
             continue;
         };
         for function in &module.functions {
-            if function.is_extern
-                && let Some(symbol) = function.link_name.as_deref()
+            if function.linkage.is_extern()
+                && let Some(symbol) = function.linkage.external_symbol()
             {
                 record_external_symbol(
                     generated,
@@ -317,14 +327,14 @@ fn validate_external_symbol_collisions(
                     diagnostics,
                     symbol,
                     "extern function",
-                    function.function_body.is_some(),
+                    matches!(function.linkage, BackendLinkage::ExternExport { .. }),
                     function.span,
                 );
             }
         }
         for global in &module.globals {
-            if global.is_extern
-                && let Some(symbol) = global.link_name.as_deref()
+            if global.linkage.is_extern()
+                && let Some(symbol) = global.linkage.external_symbol()
             {
                 record_external_symbol(
                     generated,
@@ -901,13 +911,13 @@ pub(super) struct BackendValidator<'a> {
 
 impl BackendValidator<'_> {
     fn validate_function(&mut self, module_name: &str, function: &BackendFunction, body: bool) {
-        self.validate_link_name(
-            "function",
-            function.is_extern,
-            function.link_name.as_deref(),
+        self.validate_linkage("function", &function.linkage, function.span);
+        self.validate_function_linkage(
+            &function.linkage,
+            function.function_body.is_some(),
             function.span,
         );
-        if function.is_extern && !function.generics.is_empty() {
+        if function.linkage.is_extern() && !function.generics.is_empty() {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 function.span,
@@ -926,11 +936,11 @@ impl BackendValidator<'_> {
         self.current_closure_owner = Some(BackendClosureEntryOwner::Source(function.def_id));
         self.validate_function_attributes(
             &function.attributes,
-            function.is_extern,
+            function.linkage.is_extern(),
             function.function_body.is_some(),
             function.span,
         );
-        if function.is_extern {
+        if function.linkage.is_extern() {
             self.validate_extern_function_abi(
                 &function.params,
                 function.return_type,
@@ -939,7 +949,7 @@ impl BackendValidator<'_> {
         }
         self.validate_function_declaration_contract(
             &function.params,
-            function.is_extern,
+            function.linkage.is_extern(),
             function.is_variadic,
             function.function_body.is_some(),
             function.span,
@@ -960,6 +970,14 @@ impl BackendValidator<'_> {
         body: bool,
     ) {
         self.validate_generated_symbol("function instance", &function.symbol, function.span);
+        self.validate_linkage("function instance", &function.linkage, function.span);
+        if function.linkage.is_extern() {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                function.span,
+                "backend IR function instance cannot use external linkage",
+            ));
+        }
         self.validate_instance_symbol(
             "function instance",
             MangleSymbolKind::Function,
@@ -995,12 +1013,12 @@ impl BackendValidator<'_> {
         );
         self.validate_function_attributes(
             &function.attributes,
-            function.is_extern,
+            function.linkage.is_extern(),
             function.function_body.is_some(),
             function.span,
         );
         self.validate_function_instance_metadata(function);
-        if function.is_extern {
+        if function.linkage.is_extern() {
             self.validate_extern_function_abi(
                 &function.params,
                 function.return_type,
@@ -1009,7 +1027,7 @@ impl BackendValidator<'_> {
         }
         self.validate_function_declaration_contract(
             &function.params,
-            function.is_extern,
+            function.linkage.is_extern(),
             function.is_variadic,
             function.function_body.is_some(),
             function.span,
@@ -1316,11 +1334,11 @@ impl BackendValidator<'_> {
                 "backend IR function instance parameter metadata does not match its source template",
             ));
         }
-        if function.is_extern != template.is_extern {
+        if function.linkage != template.linkage {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 function.span,
-                "backend IR function instance extern flag does not match its source template",
+                "backend IR function instance linkage does not match its source template",
             ));
         }
         if function.is_variadic != template.is_variadic {
@@ -1641,14 +1659,26 @@ impl BackendValidator<'_> {
 
     fn validate_global(&mut self, global: &BackendGlobal, init: bool) {
         self.current_item = Some(format!("global {}", backend_symbol_debug_name(global.name)));
-        self.validate_link_name(
-            "global",
-            global.is_extern,
-            global.link_name.as_deref(),
-            global.span,
-        );
+        self.validate_linkage("global", &global.linkage, global.span);
+        match &global.linkage {
+            BackendLinkage::ExternImport { .. } if global.init.is_some() => {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    global.span,
+                    "backend IR imported global cannot have an initializer",
+                ));
+            }
+            BackendLinkage::ExternExport { .. } => {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    global.span,
+                    "backend IR global cannot use extern-export linkage",
+                ));
+            }
+            _ => {}
+        }
         self.validate_runtime_type(global.ty, global.span);
-        if global.is_extern {
+        if global.linkage.is_extern() {
             self.validate_extern_abi_type(
                 global.ty,
                 ExternAbiTypeContext::Global,
@@ -1662,31 +1692,44 @@ impl BackendValidator<'_> {
         self.current_item = None;
     }
 
-    fn validate_link_name(
+    fn validate_linkage(
         &mut self,
         kind: &'static str,
-        is_extern: bool,
-        link_name: Option<&str>,
+        linkage: &BackendLinkage,
         span: nia_span::Span,
     ) {
-        match (is_extern, link_name) {
-            (true, None) => self.diagnostics.push(Diagnostic::internal_error_at(
-                nia_diagnostic::codes::INVALID_BACKEND_IR,
-                span,
-                format!("backend IR extern {kind} requires an external link name"),
-            )),
-            (false, Some(_)) => self.diagnostics.push(Diagnostic::internal_error_at(
-                nia_diagnostic::codes::INVALID_BACKEND_IR,
-                span,
-                format!("backend IR non-extern {kind} cannot publish an external link name"),
-            )),
-            _ => {}
-        }
-        if link_name.is_some_and(|name| name.is_empty() || name.contains('\0')) {
+        if linkage
+            .external_symbol()
+            .is_some_and(|name| name.is_empty() || name.contains('\0'))
+        {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
-                format!("backend IR {kind} link name must not be empty or contain NUL"),
+                format!("backend IR {kind} external symbol must not be empty or contain NUL"),
+            ));
+        }
+    }
+
+    fn validate_function_linkage(
+        &mut self,
+        linkage: &BackendLinkage,
+        has_body: bool,
+        span: nia_span::Span,
+    ) {
+        let message = match (linkage, has_body) {
+            (BackendLinkage::ExternImport { .. }, true) => {
+                Some("backend IR imported function cannot have a body")
+            }
+            (BackendLinkage::ExternExport { .. }, false) => {
+                Some("backend IR exported function requires a body")
+            }
+            _ => None,
+        };
+        if let Some(message) = message {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                message,
             ));
         }
     }
@@ -1833,7 +1876,7 @@ impl BackendValidator<'_> {
         ));
         self.validate_instance_arguments(None, &global.args, &global.const_args, global.span);
         if let Some(template) = self.index.global(global.def_id) {
-            if template.is_extern {
+            if template.linkage.is_extern() {
                 self.diagnostics.push(Diagnostic::internal_error_at(
                     nia_diagnostic::codes::INVALID_BACKEND_IR,
                     global.span,
@@ -2329,18 +2372,20 @@ mod owner_tests {
     use super::{
         definition_owner_matches, expected_trait_object_vtable_symbol, member_owner_matches,
         missing_declaration_diagnostic, validate_backend_partition_declarations,
+        validate_native_backend_program,
     };
+    use crate::compiler_builtins::CompilerBuiltinSymbols;
     use crate::declaration_membership::CodegenDeclarationMembership;
     use crate::program_index::ProgramIndex;
     use nia_backend_ir::{
-        BackendConstFacts, BackendLayouts, BackendModule, BackendModuleStore,
-        CodegenUnitDependencies, CodegenUnitId,
+        BackendConstFacts, BackendFunction, BackendLayouts, BackendLinkage, BackendModule,
+        BackendModuleStore, CodegenUnitDependencies, CodegenUnitId,
     };
     use nia_function_ir::FunctionInstanceKey;
     use nia_ids::{ConstExprId, DefId, GlobalConstExprId, GlobalDefId, ModuleIdAllocator};
     use nia_layout::{TargetDataLayout, TypeLayout};
     use nia_source::SourceIdentity;
-    use nia_ty::{ArrayLenTy, TyKind, TypeStore};
+    use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind, TypeStore};
 
     #[test]
     fn aggregate_members_require_the_nominal_module_owner() {
@@ -2384,6 +2429,83 @@ mod owner_tests {
                 def_id: DefId(1),
             }
         ));
+    }
+
+    #[test]
+    fn native_validation_reserves_start_for_the_runtime_package() {
+        fn diagnostics_for(package_identity: &str) -> Vec<nia_diagnostic::Diagnostic> {
+            let module_id = ModuleIdAllocator::new().allocate();
+            let type_store = TypeStore::new();
+            let interner = type_store.append_for_module(module_id);
+            let return_type = interner.primitive(PrimitiveTy::I32);
+            drop(interner);
+            let module = BackendModule {
+                id: module_id,
+                source_identity: SourceIdentity::new("start.nia"),
+                symbol_package_identity: package_identity.to_string(),
+                name: "start".to_string(),
+                const_eval: BackendConstFacts::default(),
+                layouts: BackendLayouts {
+                    target: TargetDataLayout::LP64,
+                    types: Vec::new(),
+                    structs: Vec::new(),
+                    unions: Vec::new(),
+                    enums: Vec::new(),
+                    struct_instances: Vec::new(),
+                    union_instances: Vec::new(),
+                },
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+                enums: Vec::new(),
+                globals: Vec::new(),
+                global_instances: Vec::new(),
+                functions: vec![BackendFunction {
+                    def_id: GlobalDefId {
+                        module_id,
+                        def_id: DefId(0),
+                    },
+                    name: nia_symbol::SymbolId::from_stable_hash(0),
+                    linkage: BackendLinkage::ExternExport {
+                        symbol: "_start".to_string(),
+                    },
+                    generics: Vec::new(),
+                    params: Vec::new(),
+                    return_type,
+                    is_variadic: false,
+                    attributes: Vec::new(),
+                    local_names: Default::default(),
+                    function_body: None,
+                    span: nia_span::Span::default(),
+                }],
+                function_instances: Vec::new(),
+                closure_entries: Vec::new(),
+                trait_object_vtables: Vec::new(),
+                generic_instantiations: Vec::new(),
+            };
+            let store = Arc::new(BackendModuleStore::new([module_id]));
+            store.publish(module);
+            let (index, mut publisher) = ProgramIndex::new(store, Arc::new(type_store));
+            publisher.publish(module_id);
+            validate_native_backend_program(&index, CompilerBuiltinSymbols::default())
+        }
+
+        let user_diagnostics = diagnostics_for("user/package@0");
+        assert!(user_diagnostics.iter().any(|diagnostic| {
+            diagnostic.category == nia_diagnostic::DiagnosticCategory::User
+                && diagnostic.summary.contains(
+                    "external export `_start` is reserved for the compiler-provided runtime",
+                )
+        }));
+
+        let runtime_identity = nia_toolchain::runtime_symbol_package_identity();
+        let runtime_diagnostics = diagnostics_for(&runtime_identity);
+        assert!(!runtime_diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("external export `_start` is reserved for the compiler-provided runtime")
+        }));
     }
 
     #[test]

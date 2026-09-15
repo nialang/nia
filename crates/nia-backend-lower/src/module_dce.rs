@@ -185,7 +185,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn is_removable_private_function(&self, function: &BackendFunction) -> bool {
-        if function.is_extern || function.def_id.module_id != self.input.module_id {
+        if function.linkage.is_extern() || function.def_id.module_id != self.input.module_id {
             return false;
         }
         let Some(def) = self.input.defs.defs.get(function.def_id.def_id) else {
@@ -198,7 +198,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn is_removable_private_function_instance(&self, instance: &BackendFunctionInstance) -> bool {
-        if instance.is_extern || instance.def_id.module_id != self.input.module_id {
+        if instance.linkage.is_extern() || instance.def_id.module_id != self.input.module_id {
             return false;
         }
         let Some(def) = self.input.defs.defs.get(instance.def_id.def_id) else {

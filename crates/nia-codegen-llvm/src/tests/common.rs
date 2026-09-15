@@ -4,10 +4,10 @@ pub(super) use crate::{
 };
 pub(super) use nia_backend_ir::{
     BackendConstFacts, BackendEnum, BackendEnumVariant, BackendField, BackendFunction,
-    BackendFunctionInstance, BackendGlobal, BackendLayouts, BackendModule, BackendParam,
-    BackendProgram, BackendStruct, BackendTraitObjectVtable, BackendTraitObjectVtableEntry,
-    BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey, BackendUnion, CodegenUnitId,
-    CodegenUnitKey,
+    BackendFunctionInstance, BackendGlobal, BackendLayouts, BackendLinkage, BackendModule,
+    BackendParam, BackendProgram, BackendStruct, BackendTraitObjectVtable,
+    BackendTraitObjectVtableEntry, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
+    BackendUnion, CodegenUnitId, CodegenUnitKey,
 };
 pub(super) use nia_body_ir::{
     LocalName, TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind,

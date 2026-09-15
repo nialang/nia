@@ -7,7 +7,7 @@ use crate::{
 };
 use nia_backend_ir::{
     BackendClosureEntry, BackendClosureEntryOwner, BackendFunction, BackendFunctionInstance,
-    BackendParam,
+    BackendLinkage, BackendParam,
 };
 use nia_function_ir::{
     FunctionBody, FunctionInstanceKey, FunctionInstanceRef, FunctionLocal, FunctionLocalKind,
@@ -514,7 +514,7 @@ impl<'a> ModuleLowerer<'a> {
             symbol,
             params: self.instantiate_params_with_id(&base, substitution_id),
             return_type: self.instantiate_ty_with_id(base.return_type, substitution_id),
-            is_extern: base.is_extern,
+            linkage: base.linkage.clone(),
             is_variadic: base.is_variadic,
             attributes: base.attributes.clone(),
             local_names: function_body
@@ -602,10 +602,20 @@ impl<'a> ModuleLowerer<'a> {
         Some(BackendFunction {
             def_id,
             name: signature.name,
-            link_name: signature
-                .signature
-                .is_extern
-                .then(|| self.symbol_name(signature.name)),
+            linkage: if signature.signature.is_extern {
+                let symbol = signature
+                    .signature
+                    .external_name
+                    .clone()
+                    .unwrap_or_else(|| self.symbol_name(signature.name));
+                if signature.signature.has_body {
+                    BackendLinkage::ExternExport { symbol }
+                } else {
+                    BackendLinkage::ExternImport { symbol }
+                }
+            } else {
+                BackendLinkage::Nia
+            },
             generics: effective_generics,
             params: signature
                 .signature
@@ -660,7 +670,6 @@ impl<'a> ModuleLowerer<'a> {
                     .normalized_type_from_module(def_id.module_id, signature.signature.return_type);
                 self.instantiate_ty_with_id(return_type, identity_substitution_id)
             },
-            is_extern: signature.signature.is_extern,
             is_variadic: signature.signature.is_variadic,
             attributes: self.backend_function_attributes(def_id, &signature.signature.attributes),
             local_names: function_body

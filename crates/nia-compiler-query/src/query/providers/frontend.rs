@@ -1273,6 +1273,7 @@ fn provide_artifact_item_signatures(
                 params,
                 return_type,
                 attributes,
+                external_name,
             } => {
                 let params = params
                     .iter()
@@ -1347,6 +1348,7 @@ fn provide_artifact_item_signatures(
                             )
                         })?,
                         is_extern: record.flags & nia_package_metadata::SIGNATURE_FLAG_EXTERN != 0,
+                        external_name: external_name.clone(),
                         is_const: record.flags & nia_package_metadata::SIGNATURE_FLAG_CONST != 0,
                         is_variadic: record.flags & nia_package_metadata::SIGNATURE_FLAG_VARIADIC
                             != 0,
@@ -1480,6 +1482,7 @@ fn provide_artifact_item_signatures(
             nia_package_metadata::SignaturePayload::Value {
                 explicit_type,
                 builtin,
+                external_name,
             } => {
                 let ty = explicit_type
                     .map(|root| {
@@ -1500,6 +1503,7 @@ fn provide_artifact_item_signatures(
                                 != 0,
                             is_extern: record.flags & nia_package_metadata::SIGNATURE_FLAG_EXTERN
                                 != 0,
+                            external_name: external_name.clone(),
                             span: Span::default(),
                         },
                     );

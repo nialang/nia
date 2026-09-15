@@ -1107,6 +1107,7 @@ extern struct Header[N: usize] {
                 }],
                 return_type: append.intern(TyKind::Tuple(Vec::new())),
                 is_extern: true,
+                external_name: None,
                 is_const: false,
                 is_variadic: false,
                 attributes: Vec::new(),

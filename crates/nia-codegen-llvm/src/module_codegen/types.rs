@@ -86,7 +86,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .iter()
                 .map(|param| (param.passing_ty, param.span)),
             return_type: function.return_type,
-            is_extern: function.is_extern,
+            is_extern: function.linkage.is_extern(),
             is_variadic: function.is_variadic,
             tracks_caller: function
                 .attributes

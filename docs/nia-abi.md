@@ -121,8 +121,21 @@ sanitization.
 
 The record does not contain release versions, layout hashes, calling
 conventions, or target details. Those facts belong to the program's ABI
-metadata and the unified release compatibility identity. Runtime and `extern`
-entry points continue to use explicit external names such as `_start`.
+metadata and the unified release compatibility identity.
+
+Backend IR represents symbol linkage as a closed contract:
+
+```text
+Nia                         canonical Nia mangling
+ExternImport { symbol }     C ABI declaration resolved from `symbol`
+ExternExport { symbol }     C ABI definition published as `symbol`
+```
+
+Only bodyless `extern` declarations may use `@[linkName("...")]`; only
+body-bearing `extern` definitions may use `@[exportName("...")]`. Ordinary Nia
+items always use `Nia` linkage. There is no general `noMangle` escape hatch.
+The compiler-provided runtime owns the `_start` export; user packages cannot
+publish an external definition under that reserved symbol.
 
 Compiler-generated symbols that have no source-package owner, such as vtables
 and source-metadata records, use the reserved compiler-generated package
@@ -734,22 +747,23 @@ recomputed from source text in later phases.
 
 Normal Nia symbols use Nia mangling.
 
-Extern symbols use external names.
+Extern symbols use typed external linkage contracts and external names.
 
-Executable runtime entry points are `extern fn` definitions exported with their
-source names, such as `_start`.
+Executable runtime entry points are `extern fn` definitions represented as
+`ExternExport` and exported with their source names, such as `_start`.
 
 Symbol policy:
 
 ```text
-normal function              Nia-mangled
+normal function              Nia-mangled (`Nia`)
 generic function instance    Nia-mangled with type arguments
 method                       Nia-mangled
 generic method instance      Nia-mangled with type arguments
-normal global                Nia-mangled
-extern function              external source name
-extern global                external source name
-runtime entry extern fn      external source name
+normal global                Nia-mangled (`Nia`)
+bodyless extern function     `ExternImport`, source name or `linkName`
+extern function definition  `ExternExport`, source name or `exportName`
+extern global                `ExternImport`, source name or `linkName`
+runtime entry extern fn      `ExternExport`, reserved `_start`
 ```
 
 Nia mangling must be deterministic and must distinguish generic instances.

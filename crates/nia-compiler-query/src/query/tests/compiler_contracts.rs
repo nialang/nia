@@ -1368,6 +1368,14 @@ pub fn transform(value: Alias) i32 {
 value
 }
 
+@[linkName("dependency_read")]
+pub extern fn readExternal() i32;
+
+@[exportName("dependency_transform")]
+pub extern fn transformExternal(value: i32) i32 {
+value
+}
+
 @[builtin("trap")]
 pub fn halt() never;
 
@@ -1460,7 +1468,7 @@ pub fn probe(&self) usize;
 
     let signatures = database.db.expect_get(ItemSignaturesQuery(module_id));
     assert!(signatures.diagnostics.is_empty());
-    assert!(signatures.semantic.functions.len() >= 5);
+    assert!(signatures.semantic.functions.len() >= 7);
     assert_eq!(signatures.semantic.structs.len(), 1);
     assert_eq!(signatures.semantic.enums.len(), 1);
     assert_eq!(signatures.semantic.type_aliases.len(), 1);
@@ -1477,6 +1485,28 @@ pub fn probe(&self) usize;
         .expect("artifact function signature");
     assert_eq!(transform.params.len(), 1);
     assert!(transform.has_body);
+    let read_external = signatures
+        .semantic
+        .functions
+        .values()
+        .find(|signature| signature.name == sym("readExternal"))
+        .expect("artifact extern import signature");
+    assert_eq!(
+        read_external.external_name.as_deref(),
+        Some("dependency_read")
+    );
+    assert!(!read_external.has_body);
+    let transform_external = signatures
+        .semantic
+        .functions
+        .values()
+        .find(|signature| signature.name == sym("transformExternal"))
+        .expect("artifact extern export signature");
+    assert_eq!(
+        transform_external.external_name.as_deref(),
+        Some("dependency_transform")
+    );
+    assert!(transform_external.has_body);
     let measure = signatures
         .semantic
         .functions

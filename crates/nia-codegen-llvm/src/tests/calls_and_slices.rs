@@ -93,18 +93,22 @@ fn main() i32 {
 }
 
 #[test]
-fn emits_extern_function_definitions_with_unmangled_symbols() {
-    let root = temp_dir("emits_extern_function_definitions_with_unmangled_symbols");
+fn emits_explicit_import_and_export_symbol_names() {
+    let root = temp_dir("emits_explicit_import_and_export_symbol_names");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
         r#"
+@[exportName("nia_test_add")]
 extern fn add(a: i32, b: i32) i32 {
     a + b
 }
 
+@[linkName("nia_foreign_value")]
+extern fn foreignValue() i32;
+
 fn main() i32 {
-    add(40, 2)
+    add(40, 2) + foreignValue()
 }
 "#,
     )
@@ -116,9 +120,12 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("define i32 @add("), "{ir}");
+    assert!(ir.contains("define i32 @nia_test_add("), "{ir}");
+    assert!(ir.contains("declare i32 @nia_foreign_value("), "{ir}");
     assert_not_contains_mangled_symbol(ir, '@', "add");
-    assert!(ir.contains("call i32 @add"), "{ir}");
+    assert_not_contains_mangled_symbol(ir, '@', "foreignValue");
+    assert!(ir.contains("call i32 @nia_test_add"), "{ir}");
+    assert!(ir.contains("call i32 @nia_foreign_value"), "{ir}");
 }
 
 #[test]

@@ -954,7 +954,7 @@ impl CodegenPartitionDefinitions {
                 .globals
                 .iter()
                 .enumerate()
-                .filter_map(|(index, global)| (!global.is_extern).then_some(index))
+                .filter_map(|(index, global)| (!global.linkage.is_import()).then_some(index))
                 .collect(),
             global_instances: (0..module.global_instances.len()).collect(),
             functions: module
@@ -1469,14 +1469,12 @@ pub struct BackendGlobal {
     pub def_id: GlobalDefId,
     /// Interned source name.
     pub name: SymbolId,
-    /// Optional externally visible linker name.
-    pub link_name: Option<String>,
+    /// Validated ABI and linker visibility contract.
+    pub linkage: BackendLinkage,
     /// Declared storage type.
     pub ty: InternedTyId,
     /// Whether the global is immutable after initialization.
     pub is_let: bool,
-    /// Whether storage is supplied by foreign code.
-    pub is_extern: bool,
     /// Validated static initializer, if one is present.
     pub init: Option<StaticInit>,
     /// Source declaration span.
@@ -1528,16 +1526,14 @@ pub struct BackendFunction {
     pub def_id: GlobalDefId,
     /// Interned source name.
     pub name: SymbolId,
-    /// Optional externally visible linker name.
-    pub link_name: Option<String>,
+    /// Validated ABI and linker visibility contract.
+    pub linkage: BackendLinkage,
     /// Declared generic parameters in source order.
     pub generics: Vec<SymbolId>,
     /// ABI parameters in source order.
     pub params: Vec<BackendParam>,
     /// Declared return type.
     pub return_type: InternedTyId,
-    /// Whether the function uses a foreign calling convention.
-    pub is_extern: bool,
     /// Whether the final parameter is variadic.
     pub is_variadic: bool,
     /// Backend attributes already validated by semantic lowering.
@@ -1548,6 +1544,37 @@ pub struct BackendFunction {
     pub function_body: Option<FunctionBody>,
     /// Source declaration span.
     pub span: Span,
+}
+
+/// Complete source-level linkage contract for a function or global.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BackendLinkage {
+    /// Nia ABI with canonical Nia mangling.
+    Nia,
+    /// C ABI declaration resolved from an external symbol.
+    ExternImport { symbol: String },
+    /// C ABI definition published under an external symbol.
+    ExternExport { symbol: String },
+}
+
+impl BackendLinkage {
+    /// Reports whether this item uses the external C ABI.
+    pub const fn is_extern(&self) -> bool {
+        !matches!(self, Self::Nia)
+    }
+
+    /// Returns the validated external linker symbol, when present.
+    pub fn external_symbol(&self) -> Option<&str> {
+        match self {
+            Self::Nia => None,
+            Self::ExternImport { symbol } | Self::ExternExport { symbol } => Some(symbol),
+        }
+    }
+
+    /// Reports whether storage or code is supplied by another object.
+    pub const fn is_import(&self) -> bool {
+        matches!(self, Self::ExternImport { .. })
+    }
 }
 
 /// Backend attributes that affect function emission.
@@ -1580,8 +1607,8 @@ pub struct BackendFunctionInstance {
     pub params: Vec<BackendParam>,
     /// Instantiated return type.
     pub return_type: InternedTyId,
-    /// Whether the function uses a foreign calling convention.
-    pub is_extern: bool,
+    /// Validated ABI and linker visibility contract.
+    pub linkage: BackendLinkage,
     /// Whether the final parameter is variadic.
     pub is_variadic: bool,
     /// Backend attributes already validated by semantic lowering.

@@ -977,7 +977,7 @@ fn selected() i32 { 1 }
     fn preserves_item_attributes_in_tree_nodes_and_ast_projection() {
         let (module, errors) = parse_module(
             r#"
-@[link_name("runtime_start")]
+@[linkName("runtime_start")]
 pub extern fn start(argc: i32) i32;
 "#,
         );
@@ -987,14 +987,14 @@ pub extern fn start(argc: i32) i32;
         assert_eq!(tree.items[0].attributes.len(), 1);
         assert!(matches!(
             &tree.items[0].attributes[0].kind,
-            AttributeKind::Meta(meta) if meta.path == [sym("link_name")]
+            AttributeKind::Meta(meta) if meta.path == [sym("linkName")]
         ));
 
         let projected = ActiveModuleItemTree::new(tree.items.clone(), HashSet::new()).to_module();
         assert_eq!(projected.items[0].attributes.len(), 1);
         assert!(matches!(
             &projected.items[0].attributes[0].kind,
-            AttributeKind::Meta(meta) if meta.path == [sym("link_name")]
+            AttributeKind::Meta(meta) if meta.path == [sym("linkName")]
         ));
     }
 
@@ -1137,11 +1137,11 @@ fn selected() i32 { 2 }
     #[test]
     fn attribute_layout_and_source_revision_do_not_change_declaration_shape() {
         let before_tree = parse_versioned_item_tree(
-            "@[if true]\n@[link_name(\"main\")]\npub fn main() i32 { 0 }",
+            "@[if true]\n@[linkName(\"main\")]\npub fn main() i32 { 0 }",
             SourceRevision::INITIAL,
         );
         let after_tree = parse_versioned_item_tree(
-            "\n\n@[if true]\n@[link_name(\"main\")]\npub fn main() i32 { 1 }",
+            "\n\n@[if true]\n@[linkName(\"main\")]\npub fn main() i32 { 1 }",
             SourceRevision(1),
         );
 

@@ -1,6 +1,163 @@
 use super::*;
 
 #[test]
+fn external_symbol_attributes_are_typed_and_directional() {
+    let signatures = signatures(
+        r#"
+@[linkName("foreign_add")]
+extern fn add(a: i32, b: i32) i32;
+@[exportName("published_add")]
+pub extern fn publish(a: i32, b: i32) i32 { a + b }
+"#,
+    );
+    assert!(
+        signatures.diagnostics.is_empty(),
+        "{:?}",
+        signatures.diagnostics
+    );
+    assert_eq!(
+        signatures
+            .functions
+            .values()
+            .find(|signature| signature.name == sym("add"))
+            .and_then(|signature| signature.external_name.as_deref()),
+        Some("foreign_add")
+    );
+    assert_eq!(
+        signatures
+            .functions
+            .values()
+            .find(|signature| signature.name == sym("publish"))
+            .and_then(|signature| signature.external_name.as_deref()),
+        Some("published_add")
+    );
+}
+
+#[test]
+fn external_symbol_attributes_reject_wrong_direction_and_no_mangle() {
+    let signatures = signatures(
+        r#"
+@[linkName("bad")]
+fn internal() () {}
+@[linkName("bad")]
+extern fn defined() () {}
+@[exportName("bad")]
+extern fn imported();
+@[noMangle]
+fn plain() () {}
+"#,
+    );
+    let diagnostics = signatures
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        diagnostics
+            .iter()
+            .any(|message| message.contains("linkName")),
+        "{diagnostics:?}"
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|message| message.contains("exportName")),
+        "{diagnostics:?}"
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|message| message.contains("noMangle")),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn external_symbol_attributes_validate_statics_duplicates_and_arguments() {
+    let signatures = signatures(
+        r#"
+@[linkName("errno_slot")]
+extern static errno: i32;
+@[exportName("bad_export")]
+extern static exported: i32;
+@[linkName("bad_local")]
+static local: i32 = 0;
+@[noMangle]
+extern static raw: i32;
+@[unknown]
+static unknown: i32 = 0;
+@[linkName("first")]
+@[exportName("second")]
+extern fn conflict();
+@[linkName()]
+extern fn missing();
+@[linkName(1)]
+extern fn non_string();
+@[linkName("")]
+extern fn empty();
+@[linkName("bad\0symbol")]
+extern fn nul();
+"#,
+    );
+
+    assert_eq!(
+        signatures
+            .globals
+            .values()
+            .find(|signature| signature.external_name.as_deref() == Some("errno_slot"))
+            .and_then(|signature| signature.external_name.as_deref()),
+        Some("errno_slot")
+    );
+    let diagnostics = signatures
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        diagnostics
+            .iter()
+            .any(|message| message.contains("exportName"))
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|message| message.contains("requires an `extern` static"))
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|message| message.contains("noMangle"))
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|message| message.contains("unknown static attribute"))
+    );
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|message| message.contains("duplicate external symbol attribute"))
+            .count(),
+        1
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|message| message.contains("exactly one string literal"))
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|message| message.contains("expects one string literal"))
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|message| message.contains("contain no NUL"))
+    );
+}
+
+#[test]
 fn collects_item_signatures_without_checking_bodies() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

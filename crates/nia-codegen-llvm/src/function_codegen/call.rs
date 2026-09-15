@@ -495,7 +495,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let Some(function_item) = self.module.function_item(*def_id) else {
                     return Err(self.error(expr.span, "missing callee function metadata"));
                 };
-                let mut llvm_args = if function_item.is_extern {
+                let mut llvm_args = if function_item.linkage.is_extern() {
                     self.emit_c_call_args(
                         expr.span,
                         args,
@@ -529,7 +529,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 ) else {
                     return Err(self.error(expr.span, "missing callee function instance"));
                 };
-                let mut llvm_args = if instance.is_extern {
+                let mut llvm_args = if instance.linkage.is_extern() {
                     self.emit_c_call_args(
                         expr.span,
                         args,
@@ -575,7 +575,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         let item = self.module.function_item(*def_id);
                         (
                             self.module.function(*def_id),
-                            item.is_some_and(|item| item.is_extern),
+                            item.is_some_and(|item| item.linkage.is_extern()),
                             item.is_some_and(|item| item.is_variadic),
                             item.map(|item| {
                                 item.params
@@ -592,7 +592,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                             type_args,
                             const_args,
                         );
-                        let is_extern = instance.is_some_and(|instance| instance.is_extern);
+                        let is_extern =
+                            instance.is_some_and(|instance| instance.linkage.is_extern());
                         let is_variadic = instance.is_some_and(|instance| instance.is_variadic);
                         (
                             instance.and_then(|instance| {

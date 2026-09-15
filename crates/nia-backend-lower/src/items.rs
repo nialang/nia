@@ -3,7 +3,7 @@ use crate::ModuleLowerer;
 use nia_ast::{BindingItem, FunctionItem};
 use nia_backend_ir::{
     BackendEnum, BackendEnumVariant, BackendField, BackendFunction, BackendFunctionAttribute,
-    BackendGlobal, BackendParam, BackendStruct, BackendUnion,
+    BackendGlobal, BackendLinkage, BackendParam, BackendStruct, BackendUnion,
 };
 use nia_const_check::ConstValue;
 use nia_defs::DefKind;
@@ -326,10 +326,18 @@ impl<'a> ModuleLowerer<'a> {
         Some(BackendGlobal {
             def_id: global_def_id,
             name: binding.name,
-            link_name: signature.is_extern.then(|| self.symbol_name(binding.name)),
+            linkage: if signature.is_extern {
+                BackendLinkage::ExternImport {
+                    symbol: signature
+                        .external_name
+                        .clone()
+                        .unwrap_or_else(|| self.symbol_name(binding.name)),
+                }
+            } else {
+                BackendLinkage::Nia
+            },
             ty,
             is_let: !signature.is_mutable,
-            is_extern: signature.is_extern,
             init,
             span,
         })
@@ -359,12 +367,18 @@ impl<'a> ModuleLowerer<'a> {
         Some(BackendGlobal {
             def_id: global_def_id,
             name: def.name,
-            link_name: signature
-                .is_some_and(|signature| signature.is_extern)
-                .then(|| self.symbol_name(def.name)),
+            linkage: if let Some(signature) = signature.filter(|signature| signature.is_extern) {
+                BackendLinkage::ExternImport {
+                    symbol: signature
+                        .external_name
+                        .clone()
+                        .unwrap_or_else(|| self.symbol_name(def.name)),
+                }
+            } else {
+                BackendLinkage::Nia
+            },
             ty,
             is_let: signature.is_none_or(|signature| !signature.is_mutable),
-            is_extern: signature.is_some_and(|signature| signature.is_extern),
             init,
             span: def.span,
         })
@@ -471,7 +485,19 @@ impl<'a> ModuleLowerer<'a> {
         let backend_function = Some(BackendFunction {
             def_id: global_def_id,
             name: function.name,
-            link_name: signature.is_extern.then(|| self.symbol_name(function.name)),
+            linkage: if signature.is_extern {
+                let symbol = signature
+                    .external_name
+                    .clone()
+                    .unwrap_or_else(|| self.symbol_name(function.name));
+                if signature.has_body {
+                    BackendLinkage::ExternExport { symbol }
+                } else {
+                    BackendLinkage::ExternImport { symbol }
+                }
+            } else {
+                BackendLinkage::Nia
+            },
             generics: effective_generics,
             params: function
                 .params
@@ -526,7 +552,6 @@ impl<'a> ModuleLowerer<'a> {
                 })
                 .collect(),
             return_type: self.instantiate_ty(signature.return_type, &SymbolMap::default()),
-            is_extern: signature.is_extern,
             is_variadic: signature.is_variadic,
             attributes: self.backend_function_attributes(global_def_id, &signature.attributes),
             local_names: function_body

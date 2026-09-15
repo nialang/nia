@@ -1261,7 +1261,7 @@ require the function item to be a place. `&function_item` is not allowed.
 Attributes are AST marks written before an item, statement, or aggregate field:
 
 ```nia
-@[link_name("runtime_start")]
+@[linkName("runtime_start")]
 extern fn start(argc: i32) i32;
 
 struct Header {
@@ -1410,8 +1410,15 @@ pub extern fn add(a: i32, b: i32) i32 {
 }
 ```
 
-Both forms use the source function name as the symbol name and do not use Nia
-internal mangling.
+Both forms use the source function name as the symbol name by default and do
+not use Nia internal mangling. An external declaration may override the name
+of the symbol it references with `@[linkName("...")]`; an external definition
+may choose its exported symbol with `@[exportName("...")]`.
+
+`linkName` is valid only on bodyless `extern` declarations. `exportName` is
+valid only on `extern` definitions with a body. Neither attribute is valid on
+ordinary Nia functions, and Nia has no general `noMangle` attribute: ordinary
+functions always use the canonical Nia linkage name and ABI.
 
 Extern global bindings declare external symbols:
 
@@ -1419,6 +1426,10 @@ Extern global bindings declare external symbols:
 extern static errno: i32;
 extern static mut global_counter: usize;
 ```
+
+An extern static uses `ExternImport` linkage and may override the referenced
+symbol with `@[linkName("...")]`. Static definitions cannot use
+`@[exportName]`; external exports are function definitions only.
 
 Extern functions default to return type `()` when no return type is written.
 Variadic functions are only allowed as body-less `extern fn` declarations.

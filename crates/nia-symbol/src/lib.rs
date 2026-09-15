@@ -131,6 +131,9 @@ pub mod known {
     known_symbol!(RUNTIME, "runtime");
     known_symbol!(NAKED, "naked");
     known_symbol!(TRACK_CALLER, "trackCaller");
+    known_symbol!(LINK_NAME, "linkName");
+    known_symbol!(EXPORT_NAME, "exportName");
+    known_symbol!(NO_MANGLE, "noMangle");
     known_symbol!(DEBUG, "debug");
     known_symbol!(RELEASE, "release");
     known_symbol!(TEST, "test");

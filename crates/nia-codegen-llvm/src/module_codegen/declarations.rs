@@ -550,9 +550,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .function_definitions()
                 .iter()
                 .any(|&index| self.source.functions[index].def_id == function.def_id);
-            let linkage = if function.is_extern {
-                Some(Linkage::External)
-            } else if is_definition {
+            let linkage = if is_definition
+                && matches!(&function.linkage, nia_backend_ir::BackendLinkage::Nia)
+            {
                 None
             } else {
                 Some(Linkage::External)
@@ -581,7 +581,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     .iter()
                     .map(|param| (param.passing_ty, param.span)),
                 return_type: instance.return_type,
-                is_extern: instance.is_extern,
+                is_extern: instance.linkage.is_extern(),
                 is_variadic: instance.is_variadic,
                 tracks_caller: instance
                     .attributes
@@ -605,7 +605,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .add_function(
                     &instance.symbol,
                     ty,
-                    if instance.is_extern || !is_definition {
+                    if !is_definition || instance.linkage.is_extern() {
                         Some(Linkage::External)
                     } else {
                         Some(Linkage::LinkOnceOdr)
@@ -704,7 +704,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .global_definitions()
                 .iter()
                 .any(|&index| self.source.globals[index].def_id == global.def_id);
-            if global.is_extern || !is_definition {
+            if !is_definition || global.linkage.is_extern() {
                 value.set_linkage(Linkage::External);
             }
             if global.is_let {
