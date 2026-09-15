@@ -8,6 +8,218 @@ use nia_ty::{
     TypeStore,
 };
 
+/// Canonical kind of a linker-visible Nia symbol.
+///
+/// This is deliberately separate from source syntax and from ABI details. The
+/// encoded kind identifies the owner of a symbol; calling convention and type
+/// layout are supplied by the ABI metadata for the compilation unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MangleSymbolKind {
+    Function,
+    Global,
+    Type,
+    Vtable,
+    ClosureEntry,
+    Adapter,
+}
+
+impl MangleSymbolKind {
+    fn tag(self) -> u8 {
+        match self {
+            Self::Function => b'f',
+            Self::Global => b'g',
+            Self::Type => b't',
+            Self::Vtable => b'v',
+            Self::ClosureEntry => b'c',
+            Self::Adapter => b'a',
+        }
+    }
+
+    fn from_tag(tag: u8) -> Option<Self> {
+        Some(match tag {
+            b'f' => Self::Function,
+            b'g' => Self::Global,
+            b't' => Self::Type,
+            b'v' => Self::Vtable,
+            b'c' => Self::ClosureEntry,
+            b'a' => Self::Adapter,
+            _ => return None,
+        })
+    }
+}
+
+/// Stable, source-independent identity consumed by the canonical encoder.
+///
+/// `module` must be produced from the package's normalized source identity;
+/// session-local `ModuleId` and `DefId` values never appear in the wire form.
+/// Generic arguments are already canonical type/const encodings, allowing the
+/// encoder to remain independent of the compiler's type-store handles.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StableSymbolKey {
+    pub module: MangleModuleId,
+    pub definition: u64,
+    pub name: String,
+    pub kind: MangleSymbolKind,
+    pub generic_args: Vec<String>,
+}
+
+impl StableSymbolKey {
+    pub fn new(
+        module: MangleModuleId,
+        definition: u64,
+        name: impl Into<String>,
+        kind: MangleSymbolKind,
+        generic_args: impl IntoIterator<Item = String>,
+    ) -> Self {
+        Self {
+            module,
+            definition,
+            name: name.into(),
+            kind,
+            generic_args: generic_args.into_iter().collect(),
+        }
+    }
+}
+
+/// Encodes a stable key using Nia's linker namespace.
+///
+/// The payload is a length-delimited binary record rendered as unpadded
+/// base64url. Every field is self-terminating, so names cannot collide through
+/// delimiter escaping or sanitization. `_N` is intentionally distinct from
+/// both Itanium (`_Z`) and Rust v0 (`_R`) namespaces.
+pub fn mangle_stable_symbol(key: &StableSymbolKey) -> String {
+    let mut bytes = Vec::with_capacity(32);
+    bytes.extend_from_slice(b"NIA");
+    bytes.push(1); // canonical record format, not a public compatibility track
+    put_varint(&mut bytes, key.module.raw());
+    put_varint(&mut bytes, key.definition);
+    bytes.push(key.kind.tag());
+    put_bytes(&mut bytes, key.name.as_bytes());
+    put_varint(&mut bytes, key.generic_args.len() as u64);
+    for arg in &key.generic_args {
+        put_bytes(&mut bytes, arg.as_bytes());
+    }
+    format!("_N{}", encode_base64url(&bytes))
+}
+
+/// Decoded form of [`mangle_stable_symbol`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecodedStableSymbol {
+    pub module: MangleModuleId,
+    pub definition: u64,
+    pub name: String,
+    pub kind: MangleSymbolKind,
+    pub generic_args: Vec<String>,
+}
+
+/// Decodes and validates a canonical Nia symbol.
+pub fn demangle_stable_symbol(symbol: &str) -> Option<DecodedStableSymbol> {
+    let payload = symbol.strip_prefix("_N")?;
+    let bytes = decode_base64url(payload)?;
+    if bytes.get(..3)? != b"NIA" || *bytes.get(3)? != 1 {
+        return None;
+    }
+    let mut cursor = 4;
+    let module = MangleModuleId(get_varint(&bytes, &mut cursor)?);
+    let definition = get_varint(&bytes, &mut cursor)?;
+    let kind = MangleSymbolKind::from_tag(*bytes.get(cursor)?)?;
+    cursor += 1;
+    let name = String::from_utf8(get_bytes(&bytes, &mut cursor)?.to_vec()).ok()?;
+    let arg_count = usize::try_from(get_varint(&bytes, &mut cursor)?).ok()?;
+    let mut generic_args = Vec::with_capacity(arg_count);
+    for _ in 0..arg_count {
+        generic_args.push(String::from_utf8(get_bytes(&bytes, &mut cursor)?.to_vec()).ok()?);
+    }
+    (cursor == bytes.len()).then_some(DecodedStableSymbol {
+        module,
+        definition,
+        name,
+        kind,
+        generic_args,
+    })
+}
+
+fn put_varint(output: &mut Vec<u8>, mut value: u64) {
+    while value >= 0x80 {
+        output.push((value as u8) | 0x80);
+        value >>= 7;
+    }
+    output.push(value as u8);
+}
+
+fn get_varint(bytes: &[u8], cursor: &mut usize) -> Option<u64> {
+    let mut value = 0u64;
+    for shift in (0..70).step_by(7) {
+        let byte = *bytes.get(*cursor)?;
+        *cursor += 1;
+        value |= u64::from(byte & 0x7f) << shift;
+        if byte & 0x80 == 0 {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn put_bytes(output: &mut Vec<u8>, bytes: &[u8]) {
+    put_varint(output, bytes.len() as u64);
+    output.extend_from_slice(bytes);
+}
+
+fn get_bytes<'a>(bytes: &'a [u8], cursor: &mut usize) -> Option<&'a [u8]> {
+    let length = usize::try_from(get_varint(bytes, cursor)?).ok()?;
+    let end = (*cursor).checked_add(length)?;
+    let value = bytes.get(*cursor..end)?;
+    *cursor = end;
+    Some(value)
+}
+
+const BASE64URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+fn encode_base64url(bytes: &[u8]) -> String {
+    let mut output = String::with_capacity((bytes.len() * 4).div_ceil(3));
+    for chunk in bytes.chunks(3) {
+        let first = chunk[0];
+        output.push(BASE64URL[(first >> 2) as usize] as char);
+        let second = ((first & 3) << 4) | (chunk.get(1).copied().unwrap_or(0) >> 4);
+        output.push(BASE64URL[second as usize] as char);
+        if let Some(third) = chunk.get(1) {
+            output.push(
+                BASE64URL[((third & 0xf) << 2 | (chunk.get(2).copied().unwrap_or(0) >> 6)) as usize]
+                    as char,
+            );
+        }
+        if let Some(fourth) = chunk.get(2) {
+            output.push(BASE64URL[(fourth & 0x3f) as usize] as char);
+        }
+    }
+    output
+}
+
+fn decode_base64url(text: &str) -> Option<Vec<u8>> {
+    let mut output = Vec::with_capacity(text.len() * 3 / 4);
+    let mut values = [0u8; 4];
+    let mut count = 0;
+    for byte in text.bytes() {
+        values[count] = BASE64URL.iter().position(|candidate| *candidate == byte)? as u8;
+        count += 1;
+        if count == 4 {
+            output.push(values[0] << 2 | values[1] >> 4);
+            output.push(values[1] << 4 | values[2] >> 2);
+            output.push(values[2] << 6 | values[3]);
+            count = 0;
+        }
+    }
+    if count == 2 {
+        output.push(values[0] << 2 | values[1] >> 4);
+    } else if count == 3 {
+        output.push(values[0] << 2 | values[1] >> 4);
+        output.push(values[1] << 4 | values[2] >> 2);
+    } else if count != 0 {
+        return None;
+    }
+    Some(output)
+}
+
 /// Providers used while encoding module, nominal, and array identities.
 pub struct MangleResolvers<F, G, H> {
     module_id: F,
@@ -746,6 +958,59 @@ fn mangle_primitive(primitive: PrimitiveTy) -> String {
 mod tests {
     use super::*;
     use nia_ids::{BuiltinTrait, DefId, ModuleIdAllocator, TypeStoreIndex};
+
+    #[test]
+    fn canonical_symbol_round_trips_and_is_linker_safe() {
+        let key = StableSymbolKey::new(
+            MangleModuleId::from_normalized_source_path("pkg/unicode-模块.nia"),
+            42,
+            "name_with::delimiters/\u{03bb}",
+            MangleSymbolKind::Function,
+            ["tuple(i32,bool)".to_string(), "const:17".to_string()],
+        );
+        let symbol = mangle_stable_symbol(&key);
+        assert!(symbol.starts_with("_N"));
+        assert!(
+            symbol
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+        );
+        let decoded = demangle_stable_symbol(&symbol).expect("canonical symbol must decode");
+        assert_eq!(decoded.module, key.module);
+        assert_eq!(decoded.definition, key.definition);
+        assert_eq!(decoded.name, key.name);
+        assert_eq!(decoded.kind, key.kind);
+        assert_eq!(decoded.generic_args, key.generic_args);
+    }
+
+    #[test]
+    fn canonical_symbol_framing_prevents_name_and_argument_collisions() {
+        let module = MangleModuleId::from_normalized_source_path("main.nia");
+        let first = mangle_stable_symbol(&StableSymbolKey::new(
+            module,
+            1,
+            "ab",
+            MangleSymbolKind::Function,
+            ["c".to_string()],
+        ));
+        let second = mangle_stable_symbol(&StableSymbolKey::new(
+            module,
+            1,
+            "a",
+            MangleSymbolKind::Function,
+            ["bc".to_string()],
+        ));
+        assert_ne!(first, second);
+        assert!(demangle_stable_symbol(&first).is_some());
+        assert!(demangle_stable_symbol(&second).is_some());
+    }
+
+    #[test]
+    fn canonical_decoder_rejects_truncated_and_foreign_namespaces() {
+        assert!(demangle_stable_symbol("_NAA").is_none());
+        assert!(demangle_stable_symbol("_Zabcdef").is_none());
+        assert!(demangle_stable_symbol("_N!!!!").is_none());
+    }
 
     #[test]
     fn base_mangling_is_stable_across_module_allocator_universes() {

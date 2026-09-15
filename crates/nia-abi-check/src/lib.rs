@@ -16,8 +16,171 @@ use nia_item_signatures::{
     EnumSignature, FunctionAttribute, FunctionSignature, GlobalSignature, ItemSignatures,
     StructSignature, TypeAliasSignature, UnionSignature, generic_argument_substitutions,
 };
+use nia_layout::{TargetDataLayout, TypeLayout};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind, TypeStore};
+
+/// ABI domain used when producing a function signature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AbiDomain {
+    /// Internal Nia calling convention.
+    Nia,
+    /// Explicit foreign/C calling convention.
+    C,
+}
+
+/// Representation of one source parameter after ABI classification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AbiParam {
+    /// Value is passed in its LLVM/scalar representation.
+    Direct { ty: nia_ids::InternedTyId },
+    /// Value is passed by readonly address.
+    Indirect {
+        ty: nia_ids::InternedTyId,
+        align: u64,
+    },
+    /// Zero-sized value has no machine parameter.
+    IgnoreZst,
+}
+
+/// Representation of a function result after ABI classification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AbiReturn {
+    /// Value is returned directly.
+    Direct { ty: nia_ids::InternedTyId },
+    /// Result is written through a hidden first parameter.
+    SRet {
+        ty: nia_ids::InternedTyId,
+        align: u64,
+    },
+    /// Unit or another zero-sized result has no machine result.
+    IgnoreZst,
+    /// Diverging functions never return.
+    Never,
+}
+
+/// Complete, cacheable ABI product for one function signature.
+///
+/// This product is intentionally independent of LLVM handles. Consumers use
+/// the same classification for declarations, calls, function pointers,
+/// closures, and validation, while the target and layout facts remain query
+/// inputs supplied by the demand-driven compiler.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AbiSignature {
+    pub domain: AbiDomain,
+    pub target: TargetDataLayout,
+    pub parameters: Vec<AbiParam>,
+    pub return_mode: AbiReturn,
+    pub hidden_sret: bool,
+    pub tracks_caller: bool,
+}
+
+/// Produces the canonical internal Nia ABI signature from demand-driven type
+/// and layout products. The callbacks are deliberately generic so this crate
+/// does not own a global type arena or a linear IR.
+pub fn classify_nia_signature(
+    type_store: &TypeStore,
+    target: TargetDataLayout,
+    params: impl IntoIterator<Item = nia_ids::InternedTyId>,
+    return_type: nia_ids::InternedTyId,
+    tracks_caller: bool,
+    mut layout_of: impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
+    mut payloadless_enum: impl FnMut(nia_ids::GlobalDefId) -> bool,
+) -> AbiSignature {
+    let return_mode = classify_return(
+        type_store,
+        return_type,
+        &mut layout_of,
+        &mut payloadless_enum,
+    );
+    let parameters = params
+        .into_iter()
+        .map(|ty| classify_param(type_store, ty, &mut layout_of, &mut payloadless_enum))
+        .collect::<Vec<_>>();
+    let hidden_sret = matches!(return_mode, AbiReturn::SRet { .. });
+    AbiSignature {
+        domain: AbiDomain::Nia,
+        target,
+        parameters,
+        return_mode,
+        hidden_sret,
+        tracks_caller,
+    }
+}
+
+fn is_zst(
+    layout_of: &mut impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
+    ty: nia_ids::InternedTyId,
+) -> bool {
+    layout_of(ty).is_some_and(|layout| layout.size == 0)
+}
+
+fn classify_param(
+    store: &TypeStore,
+    ty: nia_ids::InternedTyId,
+    layout_of: &mut impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
+    payloadless_enum: &mut impl FnMut(nia_ids::GlobalDefId) -> bool,
+) -> AbiParam {
+    if is_zst(layout_of, ty) {
+        return AbiParam::IgnoreZst;
+    }
+    match store.get(ty) {
+        Some(
+            TyKind::Primitive(_)
+            | TyKind::Vector { .. }
+            | TyKind::Pointer { .. }
+            | TyKind::VolatilePointer { .. }
+            | TyKind::FunctionPointer { .. }
+            | TyKind::Slice { .. }
+            | TyKind::TraitObject { .. }
+            | TyKind::Callable { .. }
+            | TyKind::Range { .. },
+        ) => AbiParam::Direct { ty },
+        Some(TyKind::Nominal { def_id, .. }) if payloadless_enum(*def_id) => {
+            AbiParam::Direct { ty }
+        }
+        _ => AbiParam::Indirect {
+            ty,
+            align: layout_of(ty).map_or(1, |layout| layout.align),
+        },
+    }
+}
+
+fn classify_return(
+    store: &TypeStore,
+    ty: nia_ids::InternedTyId,
+    layout_of: &mut impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
+    payloadless_enum: &mut impl FnMut(nia_ids::GlobalDefId) -> bool,
+) -> AbiReturn {
+    match store.get(ty) {
+        Some(TyKind::Primitive(PrimitiveTy::Never)) => return AbiReturn::Never,
+        Some(kind) if kind.is_unit() => return AbiReturn::IgnoreZst,
+        _ => {}
+    }
+    if is_zst(layout_of, ty) {
+        return AbiReturn::IgnoreZst;
+    }
+    match store.get(ty) {
+        Some(
+            TyKind::Primitive(_)
+            | TyKind::Vector { .. }
+            | TyKind::Pointer { .. }
+            | TyKind::VolatilePointer { .. }
+            | TyKind::FunctionPointer { .. }
+            | TyKind::Slice { .. }
+            | TyKind::TraitObject { .. }
+            | TyKind::Callable { .. }
+            | TyKind::Range { .. },
+        ) => AbiReturn::Direct { ty },
+        Some(TyKind::Nominal { def_id, .. }) if payloadless_enum(*def_id) => {
+            AbiReturn::Direct { ty }
+        }
+        _ => AbiReturn::SRet {
+            ty,
+            align: layout_of(ty).map_or(1, |layout| layout.align),
+        },
+    }
+}
 
 /// Program-wide nominal declarations needed to classify imported ABI types.
 ///
@@ -1049,5 +1212,70 @@ extern fn bad_return() (i32, bool);
             "{:?}",
             checked.diagnostics
         );
+    }
+
+    #[test]
+    fn nia_signature_is_structured_and_omits_zst_values() {
+        use nia_ids::ModuleIdAllocator;
+        use nia_layout::TargetDataLayout;
+        use nia_ty::PrimitiveTy;
+
+        let store = TypeStore::new();
+        let module = ModuleIdAllocator::new().allocate();
+        let append = store.append_for_module(module);
+        let unit = append.intern(TyKind::Tuple(Vec::new()));
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let signature = classify_nia_signature(
+            &store,
+            TargetDataLayout::LP64,
+            [unit, i32_ty],
+            unit,
+            true,
+            |ty| match store.get(ty) {
+                Some(kind) if kind.is_unit() => Some(TypeLayout { size: 0, align: 1 }),
+                _ => Some(TypeLayout { size: 4, align: 4 }),
+            },
+            |_| false,
+        );
+        assert_eq!(signature.domain, AbiDomain::Nia);
+        assert_eq!(signature.parameters[0], AbiParam::IgnoreZst);
+        assert!(matches!(signature.parameters[1], AbiParam::Direct { ty } if ty == i32_ty));
+        assert_eq!(signature.return_mode, AbiReturn::IgnoreZst);
+        assert!(!signature.hidden_sret);
+        assert!(signature.tracks_caller);
+    }
+
+    #[test]
+    fn nia_signature_classifies_aggregate_returns_as_sret_with_layout_alignment() {
+        use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
+        use nia_layout::TargetDataLayout;
+
+        let store = TypeStore::new();
+        let module = ModuleIdAllocator::new().allocate();
+        let append = store.append_for_module(module);
+        let aggregate = append.intern(TyKind::Tuple(vec![append.primitive(PrimitiveTy::I64)]));
+        let signature = classify_nia_signature(
+            &store,
+            TargetDataLayout::LP64,
+            [],
+            aggregate,
+            false,
+            |_| Some(TypeLayout { size: 8, align: 8 }),
+            |def_id: GlobalDefId| {
+                def_id
+                    == GlobalDefId {
+                        module_id: module,
+                        def_id: DefId(1),
+                    }
+            },
+        );
+        assert_eq!(
+            signature.return_mode,
+            AbiReturn::SRet {
+                ty: aggregate,
+                align: 8
+            }
+        );
+        assert!(signature.hidden_sret);
     }
 }
