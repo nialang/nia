@@ -1160,7 +1160,6 @@ pub fn main(init: process::Init) process::ExitCode!() {
     defer artifactTargetText.deinit(&mut allocator, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
     let artifactTarget = readTarget(&mut config, &mut allocator, &mut artifactTargetText, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
     let defaultOptimization = readOptimization(&mut config).reportAndExit(init).?;
-    let planSchemaVersion = config.u32().reportAndExit(init).?;
     let mut planDraftPath = fs::Path::init();
     defer planDraftPath.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
     let planDraft = readPath(&mut config, &mut allocator, &mut planDraftPath, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
@@ -1206,7 +1205,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         hostTarget,
         artifactTarget,
         defaultOptimization,
-        planSchemaVersion,
+        __NIA_BUILD_PLAN_COMPATIBILITY__u32,
         requestedStep,
         testMode,
 "#,
@@ -1256,6 +1255,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .replace(
             "__NIA_RUNNER_CONFIG_COMPATIBILITY__",
             &RUNNER_CONFIG.release_compatibility.to_string(),
+        )
+        .replace(
+            "__NIA_BUILD_PLAN_COMPATIBILITY__",
+            &nia_compat::formats::BUILD_PLAN
+                .release_compatibility
+                .to_string(),
         )
         .replace(
             "__NIA_RUNNER_CONFIG_MAX_BYTES__",
@@ -1965,13 +1970,12 @@ mod tests {
                 .source
                 .contains("let defaultOptimization = readOptimization(&mut config)")
         );
-        assert!(
-            runner
-                .source
-                .contains("let planSchemaVersion = config.u32()")
-        );
+        assert!(!runner.source.contains("__NIA_BUILD_PLAN_COMPATIBILITY__"));
         assert!(runner.source.contains("defaultOptimization,"));
-        assert!(runner.source.contains("planSchemaVersion,"));
+        assert!(runner.source.contains(&format!(
+            "{}u32,",
+            nia_compat::formats::BUILD_PLAN.release_compatibility
+        )));
         assert!(runner.source.contains("        requestedStep,"));
         assert!(!runner.source.contains("pathArg("));
         assert!(!runner.source.contains("stepArgIndex"));

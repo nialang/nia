@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use nia_compat::formats::{BUILD_PLAN, RUNNER_CONFIG};
+use nia_compat::formats::RUNNER_CONFIG;
 use nia_target_config::TargetConfig;
 
 use crate::{BuildError, BuildInvocation, BuildStepSelection, OptimizationMode};
@@ -32,7 +32,6 @@ pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError
     write_target(&mut payload, invocation.toolchain.host_target())?;
     write_target(&mut payload, invocation.toolchain.artifact_target())?;
     write_u32(&mut payload, optimization_tag(invocation.optimization));
-    write_u32(&mut payload, BUILD_PLAN.release_compatibility);
     write_path(&mut payload, "build-plan draft", &invocation.plan_draft)?;
     match &invocation.step {
         BuildStepSelection::Default => payload.push(0),
@@ -135,7 +134,6 @@ mod tests {
         host_target: TargetConfig,
         artifact_target: TargetConfig,
         optimization: u32,
-        plan_compatibility: u32,
         plan_draft: String,
         step: Option<String>,
         test_mode: bool,
@@ -168,7 +166,6 @@ mod tests {
             *invocation.toolchain.artifact_target()
         );
         assert_eq!(decoded.optimization, 5);
-        assert_eq!(decoded.plan_compatibility, BUILD_PLAN.release_compatibility);
         assert_eq!(decoded.step.as_deref(), Some("install"));
     }
 
@@ -282,7 +279,6 @@ mod tests {
         let _ = cursor.target().unwrap();
         let _ = cursor.target().unwrap();
         let _ = cursor.u32().unwrap();
-        let _ = cursor.u32().unwrap();
         let _ = cursor.text().unwrap();
         24 + cursor.position
     }
@@ -322,7 +318,6 @@ mod tests {
         if optimization > 5 {
             return Err(DecodeError::Tag);
         }
-        let plan_compatibility = cursor.u32()?;
         let plan_draft = cursor.text()?;
         let (step, test_mode) = match cursor.byte()? {
             0 => (None, false),
@@ -342,7 +337,6 @@ mod tests {
             host_target,
             artifact_target,
             optimization,
-            plan_compatibility,
             plan_draft,
             step,
             test_mode,
