@@ -453,6 +453,17 @@ impl DefMap {
         self.defs.is_empty()
     }
 
+    /// Returns the canonical structural identity used to derive `id`.
+    ///
+    /// The returned text is intended for metadata and symbol-key consumers;
+    /// it is independent of collection order and session-local handles.
+    pub fn stable_identity(&self, id: DefId) -> Option<String> {
+        self.by_id
+            .get(&id)
+            .and_then(|index| self.defs.get(*index))
+            .map(|entry| entry.identity.display())
+    }
+
     fn push(&mut self, identity: DefIdentity, def: Def) -> DefId {
         let id = DefId(stable_def_id(&identity));
         if let Some(index) = self.by_id.get(&id).copied() {
