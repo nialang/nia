@@ -43,11 +43,13 @@ fn unresolved_array_lengths_in_symbols_are_diagnostic_not_panic() {
     );
 
     assert_eq!(mono.instances.len(), 1);
+    let decoded = nia_mangle::demangle_stable_symbol(&mono.instances[0].symbol)
+        .expect("canonical monomorphization symbol");
     assert!(
-        mono.instances[0].symbol.contains("len_unresolved__s")
-            && mono.instances[0].symbol.contains("__c0"),
-        "{}",
-        mono.instances[0].symbol
+        decoded
+            .generic_args
+            .iter()
+            .any(|arg| arg.contains("len_unresolved"))
     );
     assert_eq!(mono.diagnostics.len(), 1);
     assert!(
@@ -87,7 +89,7 @@ fn missing_source_identity_in_symbols_is_diagnostic_not_panic() {
     );
 
     assert_eq!(mono.instances.len(), 1);
-    assert!(mono.instances[0].symbol.contains("__inst__"));
+    assert!(nia_mangle::demangle_stable_symbol(&mono.instances[0].symbol).is_some());
     assert_eq!(mono.diagnostics.len(), 1);
     assert!(
         mono.diagnostics[0]
