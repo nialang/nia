@@ -109,8 +109,16 @@ pub fn mangle_stable_symbol(key: &StableSymbolKey) -> String {
     put_bytes(&mut bytes, key.package.as_bytes());
     put_bytes(&mut bytes, key.name.as_bytes());
     put_varint(&mut bytes, key.generic_args.len() as u64);
+    let mut substitutions = Vec::<&str>::new();
     for arg in &key.generic_args {
-        put_bytes(&mut bytes, arg.as_bytes());
+        if let Some(index) = substitutions.iter().position(|known| *known == arg) {
+            bytes.push(0);
+            put_varint(&mut bytes, index as u64);
+        } else {
+            bytes.push(1);
+            put_bytes(&mut bytes, arg.as_bytes());
+            substitutions.push(arg);
+        }
     }
     format!("_N{}", encode_base64url(&bytes))
 }
@@ -142,8 +150,20 @@ pub fn demangle_stable_symbol(symbol: &str) -> Option<DecodedStableSymbol> {
     let name = String::from_utf8(get_bytes(&bytes, &mut cursor)?.to_vec()).ok()?;
     let arg_count = usize::try_from(get_varint(&bytes, &mut cursor)?).ok()?;
     let mut generic_args = Vec::with_capacity(arg_count);
+    let mut substitutions = Vec::<String>::new();
     for _ in 0..arg_count {
-        generic_args.push(String::from_utf8(get_bytes(&bytes, &mut cursor)?.to_vec()).ok()?);
+        let tag = *bytes.get(cursor)?;
+        cursor += 1;
+        let arg = match tag {
+            0 => {
+                let index = usize::try_from(get_varint(&bytes, &mut cursor)?).ok()?;
+                substitutions.get(index)?.clone()
+            }
+            1 => String::from_utf8(get_bytes(&bytes, &mut cursor)?.to_vec()).ok()?,
+            _ => return None,
+        };
+        substitutions.push(arg.clone());
+        generic_args.push(arg);
     }
     (cursor == bytes.len()).then_some(DecodedStableSymbol {
         module,
@@ -1101,6 +1121,27 @@ mod tests {
                 .with_package("b"),
         );
         assert_ne!(package_a, package_b);
+
+        let repeated = mangle_stable_symbol(&StableSymbolKey::new(
+            module,
+            "def:2",
+            "repeat",
+            MangleSymbolKind::Function,
+            (0..4).map(|_| "very-long-type-name".to_string()),
+        ));
+        let distinct = mangle_stable_symbol(&StableSymbolKey::new(
+            module,
+            "def:2",
+            "repeat",
+            MangleSymbolKind::Function,
+            [
+                "very-long-type-name".to_string(),
+                "very-long-type-name-2".to_string(),
+                "very-long-type-name-3".to_string(),
+                "very-long-type-name-4".to_string(),
+            ],
+        ));
+        assert!(repeated.len() < distinct.len());
     }
 
     #[test]
