@@ -171,6 +171,14 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
         let Some(module) = index.module(*module_id) else {
             continue;
         };
+        if module.symbol_package_identity.is_empty() {
+            diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                nia_span::Span::default(),
+                "backend IR module is missing its canonical symbol package identity",
+            ));
+            continue;
+        }
         let module_mangle =
             MangleModuleId::from_normalized_source_path(module.source_identity.normalized_path());
         for function in &module.functions {
