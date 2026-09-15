@@ -157,9 +157,10 @@ fn scopes_template_local_promotions_to_function_instances() {
         value: ConstGenericValue::Int(IntConst::unsigned(value)),
     };
     let instance_symbol = |arg: &ConstGenericArg| {
-        let symbol = nia_mangle::mangle_instance_symbol_id(
-            def_id,
-            name,
+        nia_mangle::mangle_instance_symbol_canonical_with_context(
+            module_mangle,
+            nia_mangle::stable_definition_key(def_id),
+            &nia_mangle::mangle_symbol_id(name),
             &[],
             std::slice::from_ref(arg),
             &type_store,
@@ -168,8 +169,9 @@ fn scopes_template_local_promotions_to_function_instances() {
                 |_| "missing".to_string(),
                 |_| None,
             ),
-        );
-        format!("{symbol}__ctx_s{:016x}", stable_hash("main"))
+            Some(module_mangle),
+            MangleSymbolKind::Function,
+        )
     };
     let body = |value: u128| FunctionBody {
         span: function_span,

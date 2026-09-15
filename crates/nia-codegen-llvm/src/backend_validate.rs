@@ -1110,7 +1110,8 @@ impl BackendValidator<'_> {
         };
         if owner_symbol
             .as_deref()
-            .map(|symbol| mangle_closure_entry_symbol(symbol, entry.key.closure_id) != entry.symbol)
+            .and_then(|symbol| mangle_closure_entry_symbol(symbol, entry.key.closure_id))
+            .map(|symbol| symbol != entry.symbol)
             == Some(true)
         {
             self.diagnostics.push(Diagnostic::internal_error_at(

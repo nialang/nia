@@ -336,25 +336,6 @@ impl MangleModuleId {
     }
 }
 
-/// Encodes a definition's non-generic base symbol.
-pub fn mangle_base_symbol(def_id: GlobalDefId, module: MangleModuleId, name: &str) -> String {
-    format!(
-        "nia__s{:016x}__d{}__{}",
-        module.0,
-        def_id.def_id.0,
-        sanitize_symbol_part(name)
-    )
-}
-
-/// Encodes a definition's base symbol using a stable symbol id.
-pub fn mangle_base_symbol_id(
-    def_id: GlobalDefId,
-    module: MangleModuleId,
-    name: SymbolId,
-) -> String {
-    mangle_base_symbol(def_id, module, &mangle_symbol_id(name))
-}
-
 /// Encodes a non-generic definition with the canonical linker grammar.
 pub fn mangle_base_symbol_canonical(
     module: MangleModuleId,
@@ -485,108 +466,21 @@ where
 /// symbol. Passing the already-instantiated owner symbol keeps entries from
 /// distinct generic function instances disjoint without inventing synthetic
 /// source definition ids.
-pub fn mangle_closure_entry_symbol(owner_symbol: &str, closure_id: ClosureId) -> String {
-    if let Some(owner) = demangle_stable_symbol(owner_symbol) {
-        return mangle_derived_symbol_canonical(
-            owner.module,
-            owner.definition,
-            owner.name,
-            MangleSymbolKind::ClosureEntry,
-            owner
-                .generic_args
-                .into_iter()
-                .chain(std::iter::once(format!(
-                    "closure:ord:{}",
-                    closure_id.ordinal
-                ))),
-        );
-    }
-    format!(
-        "{}__closure_entry__ord__{}",
-        sanitize_symbol_part(owner_symbol),
-        closure_id.ordinal
-    )
-}
-
-/// Encodes a concrete instance while preserving type and const argument order.
-pub fn mangle_instance_symbol_id<F, G, H>(
-    def_id: GlobalDefId,
-    name: SymbolId,
-    args: &[InternedTyId],
-    const_args: &[ConstGenericArg],
-    type_store: &TypeStore,
-    resolvers: MangleResolvers<F, G, H>,
-) -> String
-where
-    F: FnMut(ModuleId) -> MangleModuleId,
-    G: FnMut(GlobalDefId) -> String,
-    H: FnMut(GlobalConstExprId) -> Option<u64>,
-{
-    mangle_instance_symbol(
-        def_id,
-        &mangle_symbol_id(name),
-        args,
-        const_args,
-        type_store,
-        resolvers,
-    )
-}
-
-/// Encodes a concrete instance from a source-level name and generic arguments.
-pub fn mangle_instance_symbol<F, G, H>(
-    def_id: GlobalDefId,
-    name: &str,
-    args: &[InternedTyId],
-    const_args: &[ConstGenericArg],
-    type_store: &TypeStore,
-    resolvers: MangleResolvers<F, G, H>,
-) -> String
-where
-    F: FnMut(ModuleId) -> MangleModuleId,
-    G: FnMut(GlobalDefId) -> String,
-    H: FnMut(GlobalConstExprId) -> Option<u64>,
-{
-    let MangleResolvers {
-        mut module_id,
-        mut nominal_name,
-        mut array_len,
-    } = resolvers;
-    let mut parts = args
-        .iter()
-        .map(|arg| {
-            format!(
-                "t_{}",
-                mangle_type_inner(
-                    type_store,
-                    *arg,
-                    &mut module_id,
-                    &mut nominal_name,
-                    &mut array_len,
-                )
-            )
-        })
-        .collect::<Vec<_>>();
-    parts.extend(const_args.iter().map(|arg| {
-        format!(
-            "c_{}",
-            mangle_const_generic_arg(
-                type_store,
-                arg,
-                &mut module_id,
-                &mut nominal_name,
-                &mut array_len,
-            )
-        )
-    }));
-    if parts.is_empty() {
-        mangle_base_symbol(def_id, module_id(def_id.module_id), name)
-    } else {
-        format!(
-            "{}__inst__{}",
-            mangle_base_symbol(def_id, module_id(def_id.module_id), name),
-            parts.join("__")
-        )
-    }
+pub fn mangle_closure_entry_symbol(owner_symbol: &str, closure_id: ClosureId) -> Option<String> {
+    let owner = demangle_stable_symbol(owner_symbol)?;
+    Some(mangle_derived_symbol_canonical(
+        owner.module,
+        owner.definition,
+        owner.name,
+        MangleSymbolKind::ClosureEntry,
+        owner
+            .generic_args
+            .into_iter()
+            .chain(std::iter::once(format!(
+                "closure:ord:{}",
+                closure_id.ordinal
+            ))),
+    ))
 }
 
 /// Encodes one canonical type using the supplied nominal and const resolvers.
@@ -1325,21 +1219,23 @@ mod tests {
         let stable_module = MangleModuleId::from_normalized_source_path("std/error.nia");
 
         assert_eq!(
-            mangle_base_symbol(
+            mangle_definition_symbol_canonical(
                 GlobalDefId {
                     module_id: first_module,
                     def_id: DefId(7),
                 },
                 stable_module,
                 "Error",
+                MangleSymbolKind::Type,
             ),
-            mangle_base_symbol(
+            mangle_definition_symbol_canonical(
                 GlobalDefId {
                     module_id: second_module,
                     def_id: DefId(7),
                 },
                 stable_module,
                 "Error",
+                MangleSymbolKind::Type,
             )
         );
     }
@@ -1442,22 +1338,48 @@ mod tests {
             },
             ordinal: 2,
         };
-        let source = mangle_closure_entry_symbol("nia__owner", closure_id);
-        let instance = mangle_closure_entry_symbol("nia__owner__inst__t_i32", closure_id);
+        let module = MangleModuleId::from_normalized_source_path("main.nia");
+        let source_owner = mangle_derived_symbol_canonical(
+            module,
+            "def:7",
+            "owner",
+            MangleSymbolKind::Function,
+            std::iter::empty(),
+        );
+        let instance_owner = mangle_derived_symbol_canonical(
+            module,
+            "def:7",
+            "owner",
+            MangleSymbolKind::Function,
+            ["i32".to_string()],
+        );
+        let source = mangle_closure_entry_symbol(&source_owner, closure_id).unwrap();
+        let instance = mangle_closure_entry_symbol(&instance_owner, closure_id).unwrap();
 
-        assert_eq!(source, "nia__owner__closure_entry__ord__2");
-        assert_eq!(instance, "nia__owner__inst__t_i32__closure_entry__ord__2");
+        assert_eq!(
+            demangle_stable_symbol(&source).unwrap().kind,
+            MangleSymbolKind::ClosureEntry
+        );
+        assert_eq!(
+            demangle_stable_symbol(&instance)
+                .unwrap()
+                .generic_args
+                .len(),
+            2
+        );
         assert_ne!(source, instance);
         assert_ne!(
             source,
             mangle_closure_entry_symbol(
-                "nia__owner",
+                &source_owner,
                 ClosureId {
                     ordinal: 3,
                     ..closure_id
                 }
             )
+            .unwrap()
         );
+        assert!(mangle_closure_entry_symbol("legacy-owner", closure_id).is_none());
     }
 
     #[test]
