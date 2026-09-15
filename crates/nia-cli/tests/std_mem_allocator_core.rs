@@ -460,7 +460,6 @@ fn main() () {}
         "is_last_allocation",
         "ownsBlock",
         "isLastAllocation",
-        "intoError",
         "asExitCode",
         "exit",
     ] {
