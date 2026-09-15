@@ -11,6 +11,7 @@ llvm-dynamic = ["nia-llvm/llvm-dynamic"]
 llvm-static = ["nia-llvm/llvm-static"]
 
 [dependencies]
+nia-abi-check.workspace = true
 nia-ast.workspace = true
 nia-backend-ir.workspace = true
 nia-backend-lower.workspace = true
