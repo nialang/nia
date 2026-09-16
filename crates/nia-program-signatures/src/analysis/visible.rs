@@ -25,7 +25,7 @@ pub type NominalExtensionProviderResolver<'a> =
 /// Extensions visible from one module after using-scope and visibility closure.
 pub struct VisibleExtensionsForModule {
     /// Visible methods and associated values grouped by target.
-    pub methods: VisibleExtensionMethods,
+    pub methods: Arc<VisibleExtensionMethods>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -279,7 +279,9 @@ pub fn visible_extensions_for_module(
             }
         },
     );
-    VisibleExtensionsForModule { methods: visible }
+    VisibleExtensionsForModule {
+        methods: Arc::new(visible),
+    }
 }
 
 /// Computes visible trait implementations and their candidate index.
