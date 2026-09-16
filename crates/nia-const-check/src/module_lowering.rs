@@ -770,9 +770,8 @@ impl ConstModuleLowerer<'_> {
         &self,
         allowed_locals: &HashSet<LocalId>,
     ) -> SemanticUseTable {
-        let mut builder = SemanticUseTable::builder();
-        for (key, value_use) in &self.input.semantic_uses.node_value_uses {
-            match value_use {
+        let node_value_uses = self.input.semantic_uses.node_value_uses.filter_map_values(
+            |value_use| match value_use {
                 SemanticValueUse::Local(local_id)
                     if allowed_locals.contains(local_id)
                         || self
@@ -782,57 +781,29 @@ impl ConstModuleLowerer<'_> {
                             .get(*local_id)
                             .is_some_and(|local| local.kind == LocalKind::ConstBinding) =>
                 {
-                    builder.insert_node_local_value_use(key.clone(), *local_id);
+                    Some(*value_use)
                 }
-                SemanticValueUse::Global(global_id) => {
-                    builder.insert_node_global_value_use(key.clone(), *global_id);
-                }
-                SemanticValueUse::Local(_) => {}
-            }
-        }
-        builder.extend_node_builtin_associated_values(
-            self.input
+                SemanticValueUse::Global(_) => Some(*value_use),
+                SemanticValueUse::Local(_) => None,
+            },
+        );
+        SemanticUseTable {
+            node_value_uses,
+            node_builtin_associated_values: self
+                .input
                 .semantic_uses
                 .node_builtin_associated_values
-                .iter()
-                .map(|(key, value)| (key.clone(), *value)),
-        );
-        builder.extend_node_associated_const_projections(
-            self.input
+                .clone(),
+            node_associated_const_projections: self
+                .input
                 .semantic_uses
                 .node_associated_const_projections
-                .iter()
-                .map(|(key, projection)| (key.clone(), projection.clone())),
-        );
-        builder.extend_node_const_generic_uses(
-            self.input
-                .semantic_uses
-                .node_const_generic_uses
-                .iter()
-                .map(|(key, name)| (key.clone(), *name)),
-        );
-        builder.extend_node_local_defs(
-            self.input
-                .semantic_uses
-                .node_local_defs
-                .iter()
-                .map(|(key, local_id)| (key.clone(), *local_id)),
-        );
-        builder.extend_node_type_uses(
-            self.input
-                .semantic_uses
-                .node_type_uses
-                .iter()
-                .map(|(key, ty)| (key.clone(), *ty)),
-        );
-        builder.extend_node_type_prefixes(
-            self.input
-                .semantic_uses
-                .node_type_prefixes
-                .iter()
-                .map(|(key, def_id)| (key.clone(), *def_id)),
-        );
-        builder.finish()
+                .clone(),
+            node_const_generic_uses: self.input.semantic_uses.node_const_generic_uses.clone(),
+            node_local_defs: self.input.semantic_uses.node_local_defs.clone(),
+            node_type_uses: self.input.semantic_uses.node_type_uses.clone(),
+            node_type_prefixes: self.input.semantic_uses.node_type_prefixes.clone(),
+        }
     }
 
     fn function_locals(&self, function: &nia_ast::FunctionItem) -> HashSet<LocalId> {

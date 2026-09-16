@@ -657,6 +657,22 @@ impl<V> NodeMap<V> {
         self.nodes.values()
     }
 
+    /// Projects stored values while preserving this map's node identities.
+    pub fn filter_map_values<U>(&self, mut project: impl FnMut(&V) -> Option<U>) -> NodeMap<U> {
+        let mut nodes =
+            FastHashMap::with_capacity_and_hasher(self.nodes.len(), FastBuildHasher::default());
+        nodes.extend(
+            self.nodes
+                .iter()
+                .filter_map(|(node_id, value)| project(value).map(|value| (*node_id, value))),
+        );
+        NodeMap {
+            store: self.store.clone(),
+            revisions: self.revisions.clone(),
+            nodes,
+        }
+    }
+
     /// Iterates stable locators in unspecified order.
     pub fn keys(&self) -> impl Iterator<Item = VersionedNodeKey> + '_ {
         self.nodes.keys().map(|node_id| {
@@ -1256,6 +1272,30 @@ mod tests {
         let mut builder = nodes.into_builder();
         assert_eq!(builder.remove(&locator), Some(17));
         assert!(builder.finish().is_empty());
+    }
+
+    #[test]
+    fn node_map_value_projection_preserves_node_ownership() {
+        let store = NodeStore::new();
+        let version = SourceVersion {
+            id: SourceId(3),
+            revision: SourceRevision(2),
+        };
+        let retained = VersionedNodeKey::span(version, SyntaxKind::Expr, Span::new(4, 8));
+        let removed = VersionedNodeKey::span(version, SyntaxKind::Expr, Span::new(9, 12));
+        let mut builder = NodeMap::builder(&store);
+        builder.insert(retained.clone(), 17);
+        builder.insert(removed.clone(), 18);
+        let nodes = builder.finish();
+        let retained_id = nodes.node_id(&retained).expect("retained node handle");
+
+        let projected = nodes.filter_map_values(|value| (*value % 2 == 1).then_some(value * 2));
+
+        assert_eq!(projected.store_id(), nodes.store_id());
+        assert_eq!(projected.node_id(&retained), Some(retained_id));
+        assert_eq!(projected.get(&retained), Some(&34));
+        assert!(!projected.contains_key(&removed));
+        assert_eq!(nodes.get(&removed), Some(&18));
     }
 
     #[test]
