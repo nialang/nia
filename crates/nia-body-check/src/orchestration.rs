@@ -278,7 +278,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
             loaded: std::cell::OnceCell::new(),
         }
     } else {
-        BodyVisibleExtensionSource::Eager(input.extensions.clone())
+        BodyVisibleExtensionSource::Eager(input.extensions)
     };
     let types = BodyTypeCx::new(input.type_store, module_id);
     let unit_ty = types.intern(TyKind::Tuple(Vec::new()));

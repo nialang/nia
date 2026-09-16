@@ -115,7 +115,7 @@ pub struct BodyProgramContext<'a> {
     /// Loads layouts for another module.
     pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Arc<Layouts>>>,
     /// Loads visible extension methods.
-    pub visible_extensions: Option<&'a dyn Fn(ModuleId) -> Option<VisibleExtensionMethods>>,
+    pub visible_extensions: Option<&'a dyn Fn(ModuleId) -> Option<Arc<VisibleExtensionMethods>>>,
     /// Resolves one extension method by stable identity.
     pub extension_method_by_id: Option<&'a dyn Fn(GlobalDefId) -> Option<ExtensionMethod>>,
     /// Resolves extension methods by source name.
@@ -171,7 +171,7 @@ pub struct BodyVisibleExtensions<'a> {
     /// Current visible extension set.
     pub methods: &'a VisibleExtensionMethods,
     /// Optional provider used when visibility is queried lazily.
-    pub lazy: Option<&'a dyn Fn() -> VisibleExtensionMethods>,
+    pub lazy: Option<&'a dyn Fn() -> Arc<VisibleExtensionMethods>>,
 }
 
 #[derive(Clone)]
@@ -220,7 +220,7 @@ pub struct BodyCheckInput<'a> {
     /// Visible extension methods.
     pub extensions: &'a VisibleExtensionMethods,
     /// Optional lazy extension refresh.
-    pub lazy_extensions: Option<&'a dyn Fn() -> VisibleExtensionMethods>,
+    pub lazy_extensions: Option<&'a dyn Fn() -> Arc<VisibleExtensionMethods>>,
     /// Program-local extension methods.
     pub program_extension_methods: &'a ExtensionMethods,
     /// Optional cross-module providers.

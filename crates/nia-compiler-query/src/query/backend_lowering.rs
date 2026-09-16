@@ -249,7 +249,7 @@ impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
     fn extensions(&self, module_id: ModuleId) -> Option<&nia_defs::VisibleExtensionMethods> {
         self.module_indices
             .get(&module_id)
-            .map(|index| &self.visible_extensions[*index].methods)
+            .map(|index| self.visible_extensions[*index].methods.as_ref())
     }
 
     fn defs(&self, module_id: ModuleId) -> Option<&DefCollection> {

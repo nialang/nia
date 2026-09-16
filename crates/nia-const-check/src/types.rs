@@ -280,7 +280,7 @@ pub struct ConstProgramContext<'a> {
     pub trait_impls_for_module:
         Option<&'a dyn Fn(ModuleId) -> Option<Vec<ProgramTraitImplSignature>>>,
     /// Lazily loads visible extension methods for another module.
-    pub visible_extensions: Option<&'a dyn Fn(ModuleId) -> Option<VisibleExtensionMethods>>,
+    pub visible_extensions: Option<&'a dyn Fn(ModuleId) -> Option<Arc<VisibleExtensionMethods>>>,
 }
 
 impl fmt::Debug for ConstProgramContext<'_> {

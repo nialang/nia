@@ -13,17 +13,17 @@ pub(super) struct ExtensionMethodLookup {
 }
 
 pub(super) enum BodyVisibleExtensionSource<'a> {
-    Eager(VisibleExtensionMethods),
+    Eager(&'a VisibleExtensionMethods),
     Lazy {
-        load: &'a dyn Fn() -> VisibleExtensionMethods,
-        loaded: OnceCell<VisibleExtensionMethods>,
+        load: &'a dyn Fn() -> Arc<VisibleExtensionMethods>,
+        loaded: OnceCell<Arc<VisibleExtensionMethods>>,
     },
 }
 
 impl Clone for BodyVisibleExtensionSource<'_> {
     fn clone(&self) -> Self {
         match self {
-            Self::Eager(methods) => Self::Eager(methods.clone()),
+            Self::Eager(methods) => Self::Eager(methods),
             Self::Lazy { load, loaded } => {
                 let cloned = OnceCell::new();
                 if let Some(methods) = loaded.get() {
@@ -42,7 +42,7 @@ impl<'a> BodyVisibleExtensionSource<'a> {
     fn with_methods<T>(&self, f: impl FnOnce(&VisibleExtensionMethods) -> T) -> T {
         match self {
             Self::Eager(methods) => f(methods),
-            Self::Lazy { load, loaded } => f(loaded.get_or_init(load)),
+            Self::Lazy { load, loaded } => f(loaded.get_or_init(load).as_ref()),
         }
     }
 }
