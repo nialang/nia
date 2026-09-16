@@ -442,13 +442,53 @@ pub fn check_closure_safety_with_support_and_summaries(
     let mut dependencies = HashMap::<CallableKey, HashSet<CallableKey>>::new();
     let mut dependents = HashMap::<CallableKey, HashSet<CallableKey>>::new();
     let mut initially_changed = Vec::new();
-    for (key, callable) in &callables {
-        let (summary, called) =
-            Analyzer::new(type_store, &summaries, None).summarize_with_dependencies(callable);
-        update_dependency_edges(*key, called, &mut dependencies, &mut dependents);
-        if summaries.get(key) != Some(&summary) {
-            summaries.insert(*key, summary);
-            initially_changed.push(*key);
+    let mut initial_callables = callables
+        .iter()
+        .map(|(key, callable)| (*key, callable.clone()))
+        .collect::<Vec<_>>();
+    initial_callables.sort_unstable_by_key(|(key, _)| *key);
+    let worker_count = std::thread::available_parallelism()
+        .map_or(1, |parallelism| parallelism.get().min(4))
+        .min(initial_callables.len().max(1));
+    let summaries_ref = &summaries;
+    let mut initial_results: Vec<(CallableKey, CallableSummary, HashSet<CallableKey>)> =
+        if worker_count <= 1 {
+            initial_callables
+                .iter()
+                .map(|(key, callable)| {
+                    let (summary, called) = Analyzer::new(type_store, summaries_ref, None)
+                        .summarize_with_dependencies(callable);
+                    (*key, summary, called)
+                })
+                .collect()
+        } else {
+            let chunk_size = initial_callables.len().div_ceil(worker_count);
+            std::thread::scope(|scope| {
+                let handles = initial_callables.chunks(chunk_size).map(|chunk| {
+                    scope.spawn(move || {
+                        chunk
+                            .iter()
+                            .map(|(key, callable)| {
+                                let (summary, called) =
+                                    Analyzer::new(type_store, summaries_ref, None)
+                                        .summarize_with_dependencies(callable);
+                                (*key, summary, called)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                });
+                handles
+                    .map(|handle| handle.join().expect("closure summary worker panicked"))
+                    .flatten()
+                    .collect()
+            })
+        };
+    initial_results.sort_unstable_by_key(|(key, _, _)| *key);
+    for (key, summary, called) in initial_results {
+        update_dependency_edges(key, called, &mut dependencies, &mut dependents);
+        if summaries.get(&key) != Some(&summary) {
+            summaries.insert(key, summary);
+            initially_changed.push(key);
         }
     }
     let mut worklist = initially_changed
