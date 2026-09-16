@@ -65,6 +65,7 @@ fn declarative_registry_records_and_enforces_query_contracts() {
 
     let missing = std::panic::catch_unwind(|| db.get(NonCloneValueQuery));
     assert!(missing.is_err());
+    assert_eq!(*db.expect_get(Double(22)), 44);
 }
 
 #[test]

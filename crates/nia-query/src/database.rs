@@ -1183,19 +1183,25 @@ impl<C> QueryDb<C> {
         K: QueryKey<C>,
     {
         let mut caches = self.inner.caches.lock().expect("query cache lock poisoned");
-        let cache = caches
-            .entry(TypeId::of::<K>())
-            .or_insert_with(|| {
-                if let Some(registry) = &self.inner.registry {
+        let cache = match caches.entry(TypeId::of::<K>()) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                if let Some(registry) = &self.inner.registry
+                    && !registry.is_registered::<K>()
+                {
+                    drop(entry);
+                    drop(caches);
                     registry.assert_registered::<C, K>();
+                    unreachable!("unregistered query assertion must panic");
                 }
-                Box::new(Mutex::new(
+                entry.insert(Box::new(Mutex::new(
                     FastHashMap::<Arc<K>, Arc<QuerySlot<K::Value>>>::default(),
-                )) as Box<dyn ErasedQueryCache>
-            })
-            .as_any()
-            .downcast_ref::<Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<K::Value>>>>>()
-            .expect("query cache type mismatch");
+                )) as Box<dyn ErasedQueryCache>)
+            }
+        }
+        .as_any()
+        .downcast_ref::<Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<K::Value>>>>>()
+        .expect("query cache type mismatch");
         let mut cache = cache.lock().expect("query cache lock poisoned");
         if let Some(slot) = cache.get(key) {
             return slot.clone();

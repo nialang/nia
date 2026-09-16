@@ -384,9 +384,13 @@ impl QueryRegistry {
         K: QueryKey<C>,
     {
         assert!(
-            self.descriptors.contains_key(&TypeId::of::<K>()),
+            self.is_registered::<K>(),
             "query key type `{}` is not in the declarative registry",
             std::any::type_name::<K>()
         );
+    }
+
+    pub(super) fn is_registered<K: 'static>(&self) -> bool {
+        self.descriptors.contains_key(&TypeId::of::<K>())
     }
 }
