@@ -1,5 +1,7 @@
 //! Namespace and type-path resolution state machine.
 
+use std::collections::HashMap;
+
 use super::*;
 
 pub(super) fn resolve_module_types_from_item_tree_inner(
@@ -55,8 +57,8 @@ pub(super) fn resolve_module_types_from_items_with_mode(
         public_surfaces,
         using_scope,
         symbols,
-        node_type_names: HashMap::new(),
-        node_qualified_type_names: HashMap::new(),
+        node_type_names: FastHashMap::default(),
+        node_qualified_type_names: FastHashMap::default(),
         node_const_generic_names: HashMap::new(),
         diagnostics: Vec::new(),
         generic_stack: Vec::new(),
@@ -90,8 +92,8 @@ struct TypeResolver<'a> {
     public_surfaces: Option<&'a dyn PublicSurfaceLookup>,
     using_scope: Option<&'a dyn UsingScopeLookup>,
     symbols: Option<&'a dyn SymbolText>,
-    node_type_names: HashMap<NodeSite, TypeNameResolution>,
-    node_qualified_type_names: HashMap<NodeSite, GlobalDefId>,
+    node_type_names: FastHashMap<NodeSite, TypeNameResolution>,
+    node_qualified_type_names: FastHashMap<NodeSite, GlobalDefId>,
     node_const_generic_names: HashMap<VersionedNodeKey, SymbolId>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<GenericParam>>,

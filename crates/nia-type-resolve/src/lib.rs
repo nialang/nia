@@ -3,7 +3,7 @@
 //!
 //! The resolver records node-local identities and diagnostics while keeping
 //! module/import visibility decisions in the supplied program context.
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use nia_ast::{
     ArrayLen, AssocBindingKey, FunctionItem, GenericParam, GenericParamKind, Item, ItemKind,
@@ -12,6 +12,7 @@ use nia_ast::{
 use nia_ast_walk::{Visitor, walk_function, walk_item};
 use nia_defs::{DefCollection, DefKind, PublicNamespace, PublicSurfaceLookup, UsingScopeLookup};
 use nia_diagnostic::{Diagnostic, codes};
+use nia_hash::FastHashMap;
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId, Visibility};
 use nia_imports::{
@@ -35,9 +36,9 @@ use resolver::{
 /// The complete type-name and const-generic resolution product for a module.
 pub struct TypeResolution {
     /// Type-name resolutions keyed by source node site.
-    pub node_type_names: HashMap<NodeSite, TypeNameResolution>,
+    pub node_type_names: FastHashMap<NodeSite, TypeNameResolution>,
     /// Qualified type references resolved to global definitions.
-    pub node_qualified_type_names: HashMap<NodeSite, GlobalDefId>,
+    pub node_qualified_type_names: FastHashMap<NodeSite, GlobalDefId>,
     /// Const-generic parameter names keyed by versioned node identity.
     pub node_const_generic_names: NodeMap<SymbolId>,
     /// Diagnostics emitted while resolving the module.
