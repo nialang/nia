@@ -5,9 +5,7 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
-use nia_compat::{
-    COMPILER_VERSION, RELEASE_COMPATIBILITY, toolchain::BUILD_PROTOCOL,
-};
+use nia_compat::{COMPILER_VERSION, RELEASE_COMPATIBILITY, toolchain::BUILD_PROTOCOL};
 use nia_query::FingerprintDomain;
 
 use crate::{BuildError, BuildInvocation, BuildRunnerSource, OptimizationMode};
