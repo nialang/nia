@@ -392,20 +392,46 @@ pub fn check_closure_safety_with_support_and_summaries(
             .copied()
             .map(|key| (key, CallableSummary::default())),
     );
-    // Summaries form a finite domain over callable inputs and widened aggregate
-    // paths. Replaying every body to stability handles recursive and mutually
-    // recursive calls without depending on discovery or hash iteration order.
-    loop {
-        let mut changed = false;
-        for (key, callable) in &callables {
-            let summary = Analyzer::new(type_store, &summaries, None).summarize(callable);
-            if summaries.get(key) != Some(&summary) {
-                summaries.insert(*key, summary);
-                changed = true;
-            }
+    // Discover the direct summary dependencies once, then propagate changes
+    // through the reverse call graph. The previous implementation replayed
+    // every callable on every fixed-point round; that made a large support
+    // module pay for several full-body walks even when only a small recursive
+    // component was still changing.
+    let mut dependencies = HashMap::<CallableKey, HashSet<CallableKey>>::new();
+    let mut dependents = HashMap::<CallableKey, HashSet<CallableKey>>::new();
+    let mut initially_changed = Vec::new();
+    for (key, callable) in &callables {
+        let (summary, called) =
+            Analyzer::new(type_store, &summaries, None).summarize_with_dependencies(callable);
+        update_dependency_edges(*key, called, &mut dependencies, &mut dependents);
+        if summaries.get(key) != Some(&summary) {
+            summaries.insert(*key, summary);
+            initially_changed.push(*key);
         }
-        if !changed {
-            break;
+    }
+    let mut worklist = initially_changed
+        .iter()
+        .flat_map(|key| dependents.get(key).into_iter().flatten().copied())
+        .collect::<Vec<_>>();
+    let mut queued = worklist.iter().copied().collect::<HashSet<_>>();
+    while let Some(key) = worklist.pop() {
+        queued.remove(&key);
+        let Some(callable) = callables.get(&key) else {
+            continue;
+        };
+        let (summary, called) =
+            Analyzer::new(type_store, &summaries, None).summarize_with_dependencies(callable);
+        update_dependency_edges(key, called, &mut dependencies, &mut dependents);
+        if summaries.get(&key) == Some(&summary) {
+            continue;
+        }
+        summaries.insert(key, summary);
+        if let Some(callers) = dependents.get(&key) {
+            for caller in callers {
+                if queued.insert(*caller) {
+                    worklist.push(*caller);
+                }
+            }
         }
     }
 
@@ -483,6 +509,26 @@ pub fn check_closure_safety_with_support_and_summaries(
     }
 }
 
+fn update_dependency_edges(
+    key: CallableKey,
+    next: HashSet<CallableKey>,
+    dependencies: &mut HashMap<CallableKey, HashSet<CallableKey>>,
+    dependents: &mut HashMap<CallableKey, HashSet<CallableKey>>,
+) {
+    let previous = dependencies.insert(key, next.clone()).unwrap_or_default();
+    for dependency in previous.difference(&next) {
+        if let Some(callers) = dependents.get_mut(dependency) {
+            callers.remove(&key);
+            if callers.is_empty() {
+                dependents.remove(dependency);
+            }
+        }
+    }
+    for dependency in next {
+        dependents.entry(dependency).or_default().insert(key);
+    }
+}
+
 struct DiagnosticSink<'a> {
     owner: GlobalDefId,
     diagnostics: &'a mut Vec<ClosureCheckDiagnostic>,
@@ -499,6 +545,7 @@ struct Analyzer<'a> {
     scope_depth: usize,
     closure_scopes: HashMap<ClosureId, usize>,
     defer_scopes: Vec<Vec<TypedExpr>>,
+    dependencies: HashSet<CallableKey>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -517,10 +564,18 @@ impl<'a> Analyzer<'a> {
             scope_depth: 0,
             closure_scopes: HashMap::new(),
             defer_scopes: Vec::new(),
+            dependencies: HashSet::new(),
         }
     }
 
-    fn summarize(mut self, callable: &CallableBody<'_>) -> CallableSummary {
+    fn summarize(self, callable: &CallableBody<'_>) -> CallableSummary {
+        self.summarize_with_dependencies(callable).0
+    }
+
+    fn summarize_with_dependencies(
+        mut self,
+        callable: &CallableBody<'_>,
+    ) -> (CallableSummary, HashSet<CallableKey>) {
         // Captures and parameters enter as distinct input origins. The body
         // walk then propagates those origins through assignments, calls,
         // closures, and defers without needing a path-sensitive heap model.
@@ -543,14 +598,15 @@ impl<'a> Analyzer<'a> {
         }
         let tail = self.analyze_body_contents(callable.body, &mut env);
         self.record_return(&tail, callable.body.span);
-        CallableSummary {
+        let summary = CallableSummary {
             returned_inputs: input_provenances(&self.returned, false),
             returned_error_inputs: input_provenances(&self.returned_errors, false),
             escaping_inputs: input_provenances(&self.escaped, false),
             returned_captured_addresses: input_provenances(&self.returned, true),
             returned_error_captured_addresses: input_provenances(&self.returned_errors, true),
             escaping_captured_addresses: input_provenances(&self.escaped, true),
-        }
+        };
+        (summary, self.dependencies)
     }
 
     fn analyze_body_contents(
@@ -1299,6 +1355,7 @@ impl<'a> Analyzer<'a> {
         span: Span,
         return_ty: nia_ids::InternedTyId,
     ) -> ValueProvenance {
+        self.dependencies.insert(key);
         // A known callable maps each summarized input slot back to the
         // caller's provenance. Escaping inputs are reported at the call site;
         // returned inputs remain in the value/error channels for outer flows.
