@@ -155,10 +155,11 @@ pub(super) fn program_signature_facts(
 ) -> QueryResult<Vec<Arc<ModuleProgramSignatureFactsValue>>> {
     let module_sequence = db.get(ProgramSignatureModuleIdsQuery(set))?;
     let module_ids = resolve_stable_module_sequence(db, &module_sequence)?;
-    module_ids
-        .into_iter()
-        .map(|module_id| db.get(ModuleProgramSignatureFactsQuery(module_id, set)))
-        .collect()
+    db.get_many(
+        module_ids
+            .into_iter()
+            .map(|module_id| ModuleProgramSignatureFactsQuery(module_id, set)),
+    )
 }
 
 fn collect_globals(
@@ -398,10 +399,7 @@ pub(super) fn provide_program_abi_signatures(
             nia_item_tree::SignatureItemSet::Types,
         ))?;
         let module_ids = resolve_stable_module_sequence(db, &module_sequence)?;
-        let facts = module_ids
-            .into_iter()
-            .map(|module_id| db.get(ModuleAbiSignatureFactsQuery(module_id)))
-            .collect::<QueryResult<Vec<_>>>()?;
+        let facts = db.get_many(module_ids.into_iter().map(ModuleAbiSignatureFactsQuery))?;
         let mut structs = HashMap::new();
         let mut unions = HashMap::new();
         let mut enums = HashMap::new();
