@@ -1455,7 +1455,7 @@ fn extend_reachability_from_value_ref_edges(
     function_signature: &dyn Fn(GlobalDefId) -> Option<Arc<ProgramFunctionSignature>>,
     fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
 ) -> QueryResult<bool> {
-    let mut changed = false;
+    let mut work = Vec::new();
     for module_id in parse_ok.iter().copied() {
         if !reachability.modules().contains(&module_id) {
             continue;
@@ -1465,12 +1465,26 @@ fn extend_reachability_from_value_ref_edges(
         if module_functions.is_empty() && module_globals.is_empty() {
             continue;
         }
-        let edges = executable_value_ref_edges_from_reachable_items(
-            db,
-            module_id,
-            &module_functions,
-            &module_globals,
-        )?;
+        work.push((module_id, module_functions, module_globals));
+    }
+    let tasks = work
+        .into_iter()
+        .map(|(module_id, module_functions, module_globals)| {
+            let db = db.clone();
+            move || {
+                executable_value_ref_edges_from_reachable_items(
+                    &db,
+                    module_id,
+                    &module_functions,
+                    &module_globals,
+                )
+                .map(|edges| (module_id, edges))
+            }
+        });
+    let results = db.session().run_tasks_bounded(tasks, 4);
+    let mut changed = false;
+    for result in results {
+        let (_, edges) = result?;
         for def_id in edges.functions {
             if (function_signature)(def_id).is_none() {
                 continue;
