@@ -9,6 +9,7 @@ use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind, tokenize_lossless};
 use nia_node_id::{NodeChildPath, SyntaxKind as NodeSyntaxKind, VersionedNodeKey};
 use nia_source::SourceVersion;
 use nia_span::Span;
+use std::sync::Arc;
 
 /// Lossless syntax tree for one source revision.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,7 +50,7 @@ pub struct GreenToken {
     /// Byte span occupied by the token.
     span: Span,
     /// Exact source text for the token.
-    text: String,
+    text: Arc<str>,
 }
 
 /// Token view carrying source text, location, and optional node identity.
@@ -60,7 +61,7 @@ pub struct SyntaxToken {
     /// Byte span in the owning source text.
     pub span: Span,
     /// Exact token text.
-    pub text: String,
+    pub text: Arc<str>,
     path: NodeChildPath,
     version: Option<SourceVersion>,
 }
@@ -594,7 +595,7 @@ impl NodeBuilder {
 }
 
 fn green_token(source: &str, kind: SyntaxKind, span: Span) -> GreenToken {
-    let text = source.get(span.start..span.end).unwrap_or("").to_string();
+    let text = Arc::from(source.get(span.start..span.end).unwrap_or(""));
     GreenToken { kind, span, text }
 }
 
@@ -671,7 +672,7 @@ fn try_partial_reparse(root: &GreenNode, source: &str, edit: &TextEdit) -> Optio
     Some(rewrite_after_single_token_edit(
         root,
         target.span(),
-        replacement_text,
+        &replacement_text,
         edit,
         source.len(),
     ))
@@ -738,7 +739,7 @@ fn token_kind_matches(kind: &SyntaxKind, text: &str) -> Option<()> {
 fn rewrite_after_single_token_edit(
     node: &GreenNode,
     target_span: Span,
-    replacement_text: String,
+    replacement_text: &str,
     edit: &TextEdit,
     source_len: usize,
 ) -> GreenNode {
@@ -749,14 +750,14 @@ fn rewrite_after_single_token_edit(
             GreenElement::Node(node) => GreenElement::Node(rewrite_after_single_token_edit(
                 node,
                 target_span,
-                replacement_text.clone(),
+                replacement_text,
                 edit,
                 source_len,
             )),
             GreenElement::Token(token) => GreenElement::Token(rewrite_token_after_edit(
                 token,
                 target_span,
-                replacement_text.clone(),
+                replacement_text,
                 edit,
             )),
         })
@@ -783,7 +784,7 @@ fn rewrite_after_single_token_edit(
 fn rewrite_token_after_edit(
     token: &GreenToken,
     target_span: Span,
-    replacement_text: String,
+    replacement_text: &str,
     edit: &TextEdit,
 ) -> GreenToken {
     if token.span() == target_span {
@@ -793,14 +794,14 @@ fn rewrite_token_after_edit(
                 token.span().start,
                 token.span().start + replacement_text.len(),
             ),
-            text: replacement_text,
+            text: Arc::from(replacement_text),
         };
     }
 
     GreenToken {
         kind: token.kind().clone(),
         span: shift_span(token.span(), edit),
-        text: token.text().to_string(),
+        text: Arc::clone(&token.text),
     }
 }
 
@@ -885,7 +886,7 @@ mod tests {
                 TokenKind::Eof,
             ]
         );
-        assert_eq!(tokens[1].text, "main");
+        assert_eq!(tokens[1].text.as_ref(), "main");
         assert!(matches!(
             tokens[1].node_key().map(|key| key.position().clone()),
             Some(NodePosition::ChildPath(path)) if !path.steps().is_empty()
@@ -894,6 +895,20 @@ mod tests {
             tokens[1].node_key().map(|key| key.source_version()),
             Some(version)
         );
+    }
+
+    #[test]
+    fn token_views_share_green_text_storage() {
+        let tree = parse_source("fn", None);
+        let green_text = match &tree.green_root().children()[0] {
+            GreenElement::Token(token) => &token.text,
+            GreenElement::Node(_) => panic!("expected source token"),
+        };
+        let mut cursor = SyntaxTokenCursor::new(&tree);
+
+        assert!(Arc::ptr_eq(green_text, &cursor.tokens()[0].text));
+        let bumped = cursor.bump();
+        assert!(Arc::ptr_eq(green_text, &bumped.text));
     }
 
     #[test]
@@ -982,7 +997,7 @@ mod tests {
             matches!(
                 token.kind,
                 TokenKind::Error(nia_lexer::LexError::UnexpectedByte(_))
-            ) && token.text == "中"
+            ) && token.text.as_ref() == "中"
         }));
     }
 
@@ -1091,7 +1106,13 @@ mod tests {
             &reparse.tree,
             &[TokenKind::Fn, TokenKind::Ident, TokenKind::LParen],
         );
-        assert!(reparse.tree.tokens().iter().any(|token| token.text == "2"));
+        assert!(
+            reparse
+                .tree
+                .tokens()
+                .iter()
+                .any(|token| token.text.as_ref() == "2")
+        );
     }
 
     #[test]
