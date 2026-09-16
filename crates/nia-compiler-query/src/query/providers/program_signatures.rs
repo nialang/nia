@@ -7,12 +7,17 @@ pub(super) fn provide_program_signature_module_ids(
 ) -> QueryResult<StableModuleSequence> {
     let semantic_modules = db.get(SemanticModuleIdsQuery)?;
     let module_ids = resolve_stable_module_sequence_from_current_inputs(db, &semantic_modules)?;
-    let mut eligible = Vec::new();
-    for module_id in module_ids {
-        if *db.get(ProgramSignatureModuleEligibilityQuery(module_id, set))? {
-            eligible.push(module_id);
-        }
-    }
+    let eligibility = db.get_many(
+        module_ids
+            .iter()
+            .copied()
+            .map(|module_id| ProgramSignatureModuleEligibilityQuery(module_id, set)),
+    )?;
+    let eligible: Vec<_> = module_ids
+        .into_iter()
+        .zip(eligibility)
+        .filter_map(|(module_id, eligible)| (*eligible).then_some(module_id))
+        .collect();
     stable_module_sequence(db, eligible)
 }
 
