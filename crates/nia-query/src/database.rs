@@ -109,7 +109,7 @@ impl<C> QueryDb<C> {
         Self::new_inner(context, timings, None, session)
     }
 
-    /// Creates a database that enforces membership in `registry` on every query access.
+    /// Creates a database that enforces membership in `registry` for every query type.
     pub fn new_registered(context: C, registry: QueryRegistry) -> Self
     where
         C: Send + Sync + 'static,
@@ -1182,13 +1182,13 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
-        if let Some(registry) = &self.inner.registry {
-            registry.assert_registered::<C, K>();
-        }
         let mut caches = self.inner.caches.lock().expect("query cache lock poisoned");
         let cache = caches
             .entry(TypeId::of::<K>())
             .or_insert_with(|| {
+                if let Some(registry) = &self.inner.registry {
+                    registry.assert_registered::<C, K>();
+                }
                 Box::new(Mutex::new(
                     FastHashMap::<Arc<K>, Arc<QuerySlot<K::Value>>>::default(),
                 )) as Box<dyn ErasedQueryCache>
