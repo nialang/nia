@@ -995,3 +995,39 @@ pub fn main(base: i32) &Fn(i32) i32 {
         preparation.diagnostics
     );
 }
+
+#[test]
+fn closure_safety_follows_direct_calls_into_support_modules() {
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+using helper;
+
+pub fn main(base: i32) () {
+    let callback = \[base] value: i32 -> { base + value };
+    helper::retain(&callback);
+}
+"#,
+    );
+    let entry = fixture.entry_id();
+    fixture.add_child(
+        entry,
+        "helper",
+        "helper.nia",
+        r#"
+extern fn sink(callback: &Fn(i32) i32) ();
+
+pub fn retain(callback: &Fn(i32) i32) () {
+    sink(callback);
+}
+"#,
+    );
+
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+    assert_eq!(
+        closure_diagnostics(&checked).len(),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+}
