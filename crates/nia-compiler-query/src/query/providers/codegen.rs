@@ -1072,6 +1072,65 @@ pub(super) fn closure_safety_diagnostics(
         .collect())
 }
 
+fn source_module_contains_closure(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<bool> {
+    let tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
+    let mut visitor = SourceClosureVisitor { found: false };
+    for item in tree.items.iter() {
+        match &item.kind {
+            nia_item_tree::ItemTreeNodeKind::Function(function) => {
+                nia_ast_walk::Visitor::visit_function(&mut visitor, function)
+            }
+            nia_item_tree::ItemTreeNodeKind::Binding(binding) => {
+                if let Some(value) = &binding.value {
+                    nia_ast_walk::Visitor::visit_expr(&mut visitor, value);
+                }
+            }
+            nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
+                for method in &item_trait.methods {
+                    nia_ast_walk::Visitor::visit_function(&mut visitor, &method.function);
+                }
+            }
+            nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
+                for value in &extend.associated_values {
+                    if let Some(value) = &value.binding.value {
+                        nia_ast_walk::Visitor::visit_expr(&mut visitor, value);
+                    }
+                }
+                for method in &extend.methods {
+                    nia_ast_walk::Visitor::visit_function(&mut visitor, &method.function);
+                }
+            }
+            nia_item_tree::ItemTreeNodeKind::Module(_)
+            | nia_item_tree::ItemTreeNodeKind::Using(_)
+            | nia_item_tree::ItemTreeNodeKind::Struct(_)
+            | nia_item_tree::ItemTreeNodeKind::Union(_)
+            | nia_item_tree::ItemTreeNodeKind::Enum(_)
+            | nia_item_tree::ItemTreeNodeKind::TypeAlias(_) => {}
+        }
+        if visitor.found {
+            break;
+        }
+    }
+    Ok(visitor.found)
+}
+
+struct SourceClosureVisitor {
+    found: bool,
+}
+
+impl<'ast> nia_ast_walk::Visitor<'ast> for SourceClosureVisitor {
+    fn visit_expr(&mut self, expr: &'ast nia_ast::Expr) {
+        if matches!(expr.kind, nia_ast::ExprKind::Closure { .. }) {
+            self.found = true;
+            return;
+        }
+        nia_ast_walk::walk_expr(self, expr);
+    }
+}
+
 pub(in crate::query) fn closure_safety_check(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
@@ -1104,10 +1163,21 @@ pub(in crate::query) fn closure_safety_check(
         .into_iter()
         .filter(|function| closure_modules.contains(&function.def_id.module_id))
         .collect::<Vec<_>>();
-    let support_module_ids = resolve_stable_module_sequence_from_current_inputs(
+    let checked_module_ids = checked_modules
+        .iter()
+        .map(|module| module.id)
+        .collect::<HashSet<_>>();
+    let loaded_module_ids = resolve_stable_module_sequence_from_current_inputs(
         db,
         db.get(LoadedModulesQuery)?.as_ref(),
     )?;
+    let mut support_module_ids = Vec::with_capacity(loaded_module_ids.len());
+    for module_id in loaded_module_ids {
+        if checked_module_ids.contains(&module_id) || source_module_contains_closure(db, module_id)?
+        {
+            support_module_ids.push(module_id);
+        }
+    }
     let support_modules = materialize_checked_modules(db, support_module_ids)?;
     let support_functions = support_modules
         .iter()
