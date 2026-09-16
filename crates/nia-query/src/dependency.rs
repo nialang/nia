@@ -58,35 +58,22 @@ impl QueryDependencyGraph {
         dependencies
     }
 
-    pub(super) fn collect_dependents(
-        &self,
-        session: &QuerySession,
-        root: QueryNodeId,
-    ) -> Vec<QueryNodeId> {
+    pub(super) fn collect_dependents(&self, root: QueryNodeId) -> Vec<QueryNodeId> {
         let mut seen = FastHashSet::default();
         let mut queue = vec![root];
         let mut invalidated = Vec::new();
 
-        // Reverse dependents are sorted before this depth-first walk so traces and invalidation
-        // reports remain stable despite hash-map iteration order.
         while let Some(identity) = queue.pop() {
             if !seen.insert(identity) {
                 continue;
             }
             invalidated.push(identity);
-
-            let mut dependents = self
-                .reverse
-                .get(&identity)
-                .into_iter()
-                .flat_map(|dependents| dependents.iter().cloned())
-                .collect::<Vec<_>>();
-            dependents.sort_by_key(|dependent| {
-                let frame = session.frame(*dependent);
-                (frame.name, frame.key)
-            });
-            dependents.reverse();
-            queue.extend(dependents);
+            queue.extend(
+                self.reverse
+                    .get(&identity)
+                    .into_iter()
+                    .flat_map(|dependents| dependents.iter().copied()),
+            );
         }
 
         invalidated
