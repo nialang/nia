@@ -1200,6 +1200,7 @@ dependencies = [
  "nia-ast-walk",
  "nia-defs",
  "nia-diagnostic",
+ "nia-hash",
  "nia-ids",
  "nia-imports",
  "nia-item-tree",

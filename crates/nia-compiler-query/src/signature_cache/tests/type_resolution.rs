@@ -60,7 +60,7 @@ fn type_resolution_rehydrates_current_source_module_and_symbol_owners() {
         generic,
     );
     let resolution = TypeResolution {
-        node_type_names: HashMap::from([
+        node_type_names: nia_hash::FastHashMap::from_iter([
             (
                 type_site.clone(),
                 TypeNameResolution::Primitive(PrimitiveTypeSpelling::Scalar(PrimitiveTy::Usize)),
@@ -73,7 +73,7 @@ fn type_resolution_rehydrates_current_source_module_and_symbol_owners() {
                 }),
             ),
         ]),
-        node_qualified_type_names: HashMap::from([(
+        node_qualified_type_names: nia_hash::FastHashMap::from_iter([(
             qualified_site,
             GlobalDefId {
                 module_id: old_dependency,

@@ -265,7 +265,7 @@ fn decode_type_resolution(
     node_store: &nia_node_id::NodeStore,
 ) -> Option<TypeResolution> {
     let mut cursor = Cursor::new(encoded);
-    let mut node_type_names = HashMap::new();
+    let mut node_type_names = nia_hash::FastHashMap::default();
     for entry in read_entries(&mut cursor, encoded.len())? {
         let mut entry = Cursor::new(entry);
         let site = read_node_site(&mut entry, source_version.id, source_len)?;
@@ -276,7 +276,7 @@ fn decode_type_resolution(
             return None;
         }
     }
-    let mut node_qualified_type_names = HashMap::new();
+    let mut node_qualified_type_names = nia_hash::FastHashMap::default();
     for entry in read_entries(&mut cursor, encoded.len())? {
         let mut entry = Cursor::new(entry);
         let site = read_node_site(&mut entry, source_version.id, source_len)?;
