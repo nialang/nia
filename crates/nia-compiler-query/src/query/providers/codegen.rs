@@ -1106,12 +1106,23 @@ pub(in crate::query) fn closure_safety_check(
             })
         })
         .collect::<Vec<_>>();
-    if !nia_closure_check::contains_closure_constructs(&functions) {
+    let closure_modules = functions
+        .iter()
+        .filter(|function| {
+            nia_closure_check::contains_closure_constructs(std::slice::from_ref(function))
+        })
+        .map(|function| function.def_id.module_id)
+        .collect::<HashSet<_>>();
+    if closure_modules.is_empty() {
         return Ok(nia_closure_check::ClosureCheck {
             summaries: HashMap::new(),
             diagnostics: Vec::new(),
         });
     }
+    let functions = functions
+        .into_iter()
+        .filter(|function| closure_modules.contains(&function.def_id.module_id))
+        .collect::<Vec<_>>();
     let support_module_ids = resolve_stable_module_sequence_from_current_inputs(
         db,
         db.get(LoadedModulesQuery)?.as_ref(),

@@ -353,9 +353,13 @@ pub fn check_closure_safety_with_support_and_summaries(
     imported_summaries: &HashMap<GlobalDefId, ImportedClosureEscapeSummary>,
     type_store: &TypeStore,
 ) -> ClosureCheck {
-    let mut callables = HashMap::new();
+    // Build a cheap index of all bodies, then restrict the expensive summary
+    // analysis to callables reachable from the diagnostic roots. This keeps
+    // support modules available for precise interprocedural calls without
+    // replaying unrelated standard-library functions.
+    let mut available = HashMap::with_capacity(support_functions.len() + functions.len());
     for function in support_functions.iter().chain(functions) {
-        callables.insert(
+        available.insert(
             CallableKey::Function(function.def_id),
             CallableBody {
                 captures: Vec::new(),
@@ -369,7 +373,6 @@ pub fn check_closure_safety_with_support_and_summaries(
                 body: function.body,
             },
         );
-        collect_body_closures(function.body, &mut callables);
     }
 
     let diagnostic_owners = functions
@@ -377,6 +380,45 @@ pub fn check_closure_safety_with_support_and_summaries(
         .map(|function| function.def_id)
         .collect::<HashSet<_>>();
 
+    let mut callables = HashMap::with_capacity(functions.len());
+    let mut worklist = Vec::with_capacity(functions.len());
+    for function in functions {
+        let key = CallableKey::Function(function.def_id);
+        if let Some(body) = available.get(&key).cloned() {
+            callables.insert(key, body);
+            worklist.push(key);
+            let mut nested = HashMap::new();
+            collect_body_closures(function.body, &mut nested);
+            for (nested_key, nested_body) in nested {
+                if callables.insert(nested_key, nested_body).is_none() {
+                    worklist.push(nested_key);
+                }
+            }
+        }
+    }
+    let empty_summaries = HashMap::new();
+    while let Some(key) = worklist.pop() {
+        let Some(callable) = callables.get(&key).cloned() else {
+            continue;
+        };
+        let (_, called) = Analyzer::new(type_store, &empty_summaries, None)
+            .summarize_with_dependencies(&callable);
+        for dependency in called {
+            let Some(body) = available.get(&dependency).cloned() else {
+                continue;
+            };
+            if callables.insert(dependency, body.clone()).is_none() {
+                worklist.push(dependency);
+                let mut nested = HashMap::new();
+                collect_body_closures(body.body, &mut nested);
+                for (nested_key, nested_body) in nested {
+                    if callables.insert(nested_key, nested_body).is_none() {
+                        worklist.push(nested_key);
+                    }
+                }
+            }
+        }
+    }
     let mut summaries = imported_summaries
         .iter()
         .map(|(def_id, summary)| {
