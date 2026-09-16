@@ -6,6 +6,11 @@ use std::hash::{BuildHasherDefault, Hasher};
 const FAST_HASH_SEED: u64 = 0xcbf2_9ce4_8422_2325;
 const FAST_HASH_MULTIPLIER: u64 = 0x517c_c1b7_2722_0a95;
 const FAST_HASH_WIDTH_MULTIPLIER: u64 = 0x9e37_79b1_85eb_ca87;
+const FAST_HASH_BYTES_DOMAIN: u64 = 0xa076_1d64_78bd_642f;
+const FAST_HASH_BYTE_CHUNK_DOMAIN: u64 = 0xe703_7ed1_a0b4_28db;
+const FAST_HASH_BYTE_TAIL_DOMAIN: u64 = 0x8ebc_6af0_9c88_c6e3;
+const FAST_HASH_SCALAR_DOMAIN: u64 = 0x5899_65cc_7537_4cc3;
+const FAST_HASH_U128_HIGH_DOMAIN: u64 = 0x1d8e_4e27_c47d_124f;
 
 #[derive(Debug, Clone, Copy)]
 /// Compact non-cryptographic hasher used for internal map/set keys.
@@ -23,10 +28,16 @@ impl Default for FastHasher {
 
 impl FastHasher {
     #[inline]
+    fn mix(&mut self, value: u64, domain: u64) {
+        self.hash = (self.hash.rotate_left(5) ^ value ^ domain).wrapping_mul(FAST_HASH_MULTIPLIER);
+    }
+
+    #[inline]
     fn write_scalar(&mut self, value: u64, width: u64) {
-        self.hash =
-            (self.hash.rotate_left(5) ^ value ^ width.wrapping_mul(FAST_HASH_WIDTH_MULTIPLIER))
-                .wrapping_mul(FAST_HASH_MULTIPLIER);
+        self.mix(
+            value,
+            FAST_HASH_SCALAR_DOMAIN ^ width.wrapping_mul(FAST_HASH_WIDTH_MULTIPLIER),
+        );
     }
 }
 
@@ -38,18 +49,23 @@ impl Hasher for FastHasher {
 
     #[inline]
     fn write(&mut self, bytes: &[u8]) {
+        self.mix(bytes.len() as u64, FAST_HASH_BYTES_DOMAIN);
         let mut chunks = bytes.chunks_exact(8);
         for chunk in &mut chunks {
-            self.write_scalar(
+            self.mix(
                 u64::from_le_bytes(chunk.try_into().expect("exact hash chunk width")),
-                8,
+                FAST_HASH_BYTE_CHUNK_DOMAIN,
             );
         }
         let remainder = chunks.remainder();
         if !remainder.is_empty() {
             let mut tail = [0u8; 8];
             tail[..remainder.len()].copy_from_slice(remainder);
-            self.write_scalar(u64::from_le_bytes(tail), remainder.len() as u64);
+            self.mix(
+                u64::from_le_bytes(tail),
+                FAST_HASH_BYTE_TAIL_DOMAIN
+                    ^ (remainder.len() as u64).wrapping_mul(FAST_HASH_WIDTH_MULTIPLIER),
+            );
         }
     }
 
@@ -71,6 +87,12 @@ impl Hasher for FastHasher {
     #[inline]
     fn write_u64(&mut self, i: u64) {
         self.write_scalar(i, 8);
+    }
+
+    #[inline]
+    fn write_u128(&mut self, i: u128) {
+        self.write_scalar(i as u64, 16);
+        self.mix((i >> 64) as u64, FAST_HASH_U128_HIGH_DOMAIN);
     }
 
     #[inline]
@@ -113,6 +135,11 @@ mod tests {
         assert_ne!(hash(&[b"a"]), hash(&[b"a\0"]));
         assert_ne!(hash(&[b"ab"]), hash(&[b"a", b"b"]));
         assert_ne!(hash(&[b"abcdefgh"]), hash(&[b"abcdefgh\0"]));
+        assert_ne!(
+            hash(&[b"abcdefghijklmnop"]),
+            hash(&[b"abcdefgh", b"ijklmnop"])
+        );
+        assert_ne!(hash(&[]), hash(&[b""]));
     }
 
     #[test]
@@ -122,6 +149,24 @@ mod tests {
         let mut wide = FastHasher::default();
         wide.write_u64(7);
         assert_ne!(narrow.finish(), wide.finish());
+    }
+
+    #[test]
+    fn byte_and_scalar_writes_have_separate_domains() {
+        let mut bytes = FastHasher::default();
+        bytes.write(&7u64.to_le_bytes());
+        let mut scalar = FastHasher::default();
+        scalar.write_u64(7);
+        assert_ne!(bytes.finish(), scalar.finish());
+    }
+
+    #[test]
+    fn both_halves_of_u128_contribute_to_the_hash() {
+        let mut low = FastHasher::default();
+        low.write_u128(7);
+        let mut high = FastHasher::default();
+        high.write_u128((1u128 << 64) | 7);
+        assert_ne!(low.finish(), high.finish());
     }
 
     #[test]
