@@ -2,7 +2,7 @@
 use super::*;
 
 struct ClosureOrdinalCollector {
-    ordinals: HashMap<VersionedNodeKey, u32>,
+    ordinals: FastHashMap<VersionedNodeKey, u32>,
 }
 
 impl<'ast> Visitor<'ast> for ClosureOrdinalCollector {
@@ -16,12 +16,12 @@ impl<'ast> Visitor<'ast> for ClosureOrdinalCollector {
     }
 }
 
-fn closure_ordinals(body: &Block) -> HashMap<VersionedNodeKey, u32> {
+fn closure_ordinals(body: &Block) -> FastHashMap<VersionedNodeKey, u32> {
     // Constraint probes may inspect expressions in candidate-dependent order.
     // Assign source identities up front so that order cannot leak into IR or
     // persistent object fingerprints.
     let mut collector = ClosureOrdinalCollector {
-        ordinals: HashMap::new(),
+        ordinals: FastHashMap::default(),
     };
     collector.visit_block(body);
     collector.ordinals

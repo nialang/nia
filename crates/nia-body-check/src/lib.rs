@@ -56,6 +56,7 @@ use nia_defs::{
     VisibleExtensionMethods,
 };
 use nia_diagnostic::{Diagnostic, codes};
+use nia_hash::FastHashMap;
 use nia_ids::{
     BuiltinTraitMethod, GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind, Visibility,
 };
@@ -174,20 +175,21 @@ struct BodyChecker<'a> {
     callable_extension_methods_by_name: SymbolMap<CallableExtensionMethods>,
     provider_demands: Rc<RefCell<HashSet<ProviderDemand>>>,
     provider_demands_by_function: Rc<RefCell<HashMap<GlobalDefId, HashSet<ProviderDemand>>>>,
-    node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
-    node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
-    node_pointer_array_to_slice_coercions: HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+    node_expr_types: FastHashMap<VersionedNodeKey, InternedTyId>,
+    node_bracket_suffix_resolutions: FastHashMap<VersionedNodeKey, BracketSuffixResolution>,
+    node_pointer_array_to_slice_coercions:
+        FastHashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
     node_function_pointer_to_callable_coercions:
-        HashMap<VersionedNodeKey, FunctionPointerToCallableCoercion>,
-    node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
-    node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
-    node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
-    node_associated_const_projections: HashMap<VersionedNodeKey, AssociatedConstProjection>,
-    node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
-    node_pattern_values: HashMap<VersionedNodeKey, i128>,
-    node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
-    node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
-    inferred_closures: HashMap<VersionedNodeKey, inference::InferredClosureSignature>,
+        FastHashMap<VersionedNodeKey, FunctionPointerToCallableCoercion>,
+    node_trait_object_coercions: FastHashMap<VersionedNodeKey, TraitObjectCoercion>,
+    node_trait_object_upcasts: FastHashMap<VersionedNodeKey, TraitObjectUpcast>,
+    node_builtin_values: FastHashMap<VersionedNodeKey, BuiltinValue>,
+    node_associated_const_projections: FastHashMap<VersionedNodeKey, AssociatedConstProjection>,
+    node_array_repeat_counts: FastHashMap<VersionedNodeKey, u64>,
+    node_pattern_values: FastHashMap<VersionedNodeKey, i128>,
+    node_resolved_calls: FastHashMap<VersionedNodeKey, ResolvedCall>,
+    node_function_references: FastHashMap<VersionedNodeKey, FunctionReference>,
+    inferred_closures: FastHashMap<VersionedNodeKey, inference::InferredClosureSignature>,
     generic_instantiations: Vec<GenericInstantiation>,
     function_facts: HashMap<GlobalDefId, FunctionSemanticFactsBuilder>,
     function_bodies: HashMap<GlobalDefId, Arc<nia_body_ir::TypedBody>>,
@@ -209,7 +211,7 @@ struct BodyChecker<'a> {
     timing_module_id: ModuleId,
     current_return: InternedTyId,
     current_def_id: Option<GlobalDefId>,
-    closure_ordinals: HashMap<VersionedNodeKey, u32>,
+    closure_ordinals: FastHashMap<VersionedNodeKey, u32>,
     current_param_locals: Vec<LocalId>,
     const_context_depth: usize,
     const_call_locals: Vec<ConstCallFrame>,

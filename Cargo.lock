@@ -264,6 +264,7 @@ dependencies = [
  "nia-defs",
  "nia-diagnostic",
  "nia-function-ir",
+ "nia-hash",
  "nia-ids",
  "nia-item-signatures",
  "nia-item-tree",
@@ -1007,6 +1008,7 @@ name = "nia-sema-ir"
 version = "0.2.0-dev"
 dependencies = [
  "nia-ast",
+ "nia-hash",
  "nia-ids",
  "nia-node-id",
  "nia-source",
