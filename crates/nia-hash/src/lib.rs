@@ -3,7 +3,9 @@
 
 use std::hash::{BuildHasherDefault, Hasher};
 
+const FAST_HASH_SEED: u64 = 0xcbf2_9ce4_8422_2325;
 const FAST_HASH_MULTIPLIER: u64 = 0x517c_c1b7_2722_0a95;
+const FAST_HASH_WIDTH_MULTIPLIER: u64 = 0x9e37_79b1_85eb_ca87;
 
 #[derive(Debug, Clone, Copy)]
 /// Compact non-cryptographic hasher used for internal map/set keys.
@@ -14,16 +16,17 @@ pub struct FastHasher {
 impl Default for FastHasher {
     fn default() -> Self {
         Self {
-            hash: 0xcbf2_9ce4_8422_2325,
+            hash: FAST_HASH_SEED,
         }
     }
 }
 
 impl FastHasher {
     #[inline]
-    fn write_u64_value(&mut self, value: u64) {
-        self.hash ^= value;
-        self.hash = self.hash.rotate_left(5).wrapping_mul(FAST_HASH_MULTIPLIER);
+    fn write_scalar(&mut self, value: u64, width: u64) {
+        self.hash =
+            (self.hash.rotate_left(5) ^ value ^ width.wrapping_mul(FAST_HASH_WIDTH_MULTIPLIER))
+                .wrapping_mul(FAST_HASH_MULTIPLIER);
     }
 }
 
@@ -35,38 +38,44 @@ impl Hasher for FastHasher {
 
     #[inline]
     fn write(&mut self, bytes: &[u8]) {
-        for chunk in bytes.chunks(8) {
-            let mut value = 0u64;
-            for (index, byte) in chunk.iter().enumerate() {
-                value |= u64::from(*byte) << (index * 8);
-            }
-            self.write_u64_value(value);
+        let mut chunks = bytes.chunks_exact(8);
+        for chunk in &mut chunks {
+            self.write_scalar(
+                u64::from_le_bytes(chunk.try_into().expect("exact hash chunk width")),
+                8,
+            );
+        }
+        let remainder = chunks.remainder();
+        if !remainder.is_empty() {
+            let mut tail = [0u8; 8];
+            tail[..remainder.len()].copy_from_slice(remainder);
+            self.write_scalar(u64::from_le_bytes(tail), remainder.len() as u64);
         }
     }
 
     #[inline]
     fn write_u8(&mut self, i: u8) {
-        self.write_u64_value(u64::from(i));
+        self.write_scalar(u64::from(i), 1);
     }
 
     #[inline]
     fn write_u16(&mut self, i: u16) {
-        self.write_u64_value(u64::from(i));
+        self.write_scalar(u64::from(i), 2);
     }
 
     #[inline]
     fn write_u32(&mut self, i: u32) {
-        self.write_u64_value(u64::from(i));
+        self.write_scalar(u64::from(i), 4);
     }
 
     #[inline]
     fn write_u64(&mut self, i: u64) {
-        self.write_u64_value(i);
+        self.write_scalar(i, 8);
     }
 
     #[inline]
     fn write_usize(&mut self, i: usize) {
-        self.write_u64_value(i as u64);
+        self.write_scalar(i as u64, std::mem::size_of::<usize>() as u64);
     }
 }
 
@@ -84,17 +93,35 @@ mod tests {
 
     #[test]
     fn hasher_is_deterministic_for_bytes_and_scalars() {
-        let mut bytes = FastHasher::default();
-        bytes.write(b"nia-hash");
-        let mut scalars = FastHasher::default();
-        scalars.write_u64(u64::from_le_bytes(*b"nia-hash"));
-        assert_eq!(bytes.finish(), scalars.finish());
-
         let mut first = FastHasher::default();
         42u32.hash(&mut first);
         let mut second = FastHasher::default();
         42u32.hash(&mut second);
         assert_eq!(first.finish(), second.finish());
+    }
+
+    #[test]
+    fn byte_length_and_boundaries_contribute_to_the_hash() {
+        fn hash(writes: &[&[u8]]) -> u64 {
+            let mut hasher = FastHasher::default();
+            for bytes in writes {
+                hasher.write(bytes);
+            }
+            hasher.finish()
+        }
+
+        assert_ne!(hash(&[b"a"]), hash(&[b"a\0"]));
+        assert_ne!(hash(&[b"ab"]), hash(&[b"a", b"b"]));
+        assert_ne!(hash(&[b"abcdefgh"]), hash(&[b"abcdefgh\0"]));
+    }
+
+    #[test]
+    fn scalar_width_contributes_to_the_hash() {
+        let mut narrow = FastHasher::default();
+        narrow.write_u32(7);
+        let mut wide = FastHasher::default();
+        wide.write_u64(7);
+        assert_ne!(narrow.finish(), wide.finish());
     }
 
     #[test]
