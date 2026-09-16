@@ -17,6 +17,7 @@ use nia_item_signatures::{
     UnionSignature,
 };
 use nia_local_resolve::LocalKind;
+use nia_node_id::NodeMap;
 use nia_sema::{
     ArrayLiteralLenCheck, NamedField, check_array_literal_len, check_required_field_set,
 };
@@ -1553,9 +1554,10 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn const_semantic_uses(&self) -> SemanticUseTable {
-        let mut builder = SemanticUseTable::builder();
-        for (key, value_use) in &self.semantic_uses.node_value_uses {
-            match value_use {
+        let node_value_uses = self
+            .semantic_uses
+            .node_value_uses
+            .filter_map_values(|value_use| match value_use {
                 SemanticValueUse::Local(local_id)
                     if self
                         .active_const_execution_frames()
@@ -1566,39 +1568,21 @@ impl<'a> BodyChecker<'a> {
                             .get(*local_id)
                             .is_some_and(|local| local.kind == LocalKind::ConstBinding) =>
                 {
-                    builder.insert_node_local_value_use(key.clone(), *local_id);
+                    Some(*value_use)
                 }
-                SemanticValueUse::Global(global_id) => {
-                    builder.insert_node_global_value_use(key.clone(), *global_id);
-                }
-                SemanticValueUse::Local(_) => {}
-            }
+                SemanticValueUse::Global(_) => Some(*value_use),
+                SemanticValueUse::Local(_) => None,
+            });
+        let node_store = self.semantic_uses.node_store();
+        SemanticUseTable {
+            node_value_uses,
+            node_const_generic_uses: self.semantic_uses.node_const_generic_uses.clone(),
+            node_builtin_associated_values: NodeMap::with_store(node_store),
+            node_associated_const_projections: NodeMap::with_store(node_store),
+            node_local_defs: self.semantic_uses.node_local_defs.clone(),
+            node_type_uses: self.semantic_uses.node_type_uses.clone(),
+            node_type_prefixes: self.semantic_uses.node_type_prefixes.clone(),
         }
-        builder.extend_node_local_defs(
-            self.semantic_uses
-                .node_local_defs
-                .iter()
-                .map(|(key, local_id)| (key.clone(), *local_id)),
-        );
-        builder.extend_node_const_generic_uses(
-            self.semantic_uses
-                .node_const_generic_uses
-                .iter()
-                .map(|(key, name)| (key.clone(), *name)),
-        );
-        builder.extend_node_type_uses(
-            self.semantic_uses
-                .node_type_uses
-                .iter()
-                .map(|(key, ty)| (key.clone(), *ty)),
-        );
-        builder.extend_node_type_prefixes(
-            self.semantic_uses
-                .node_type_prefixes
-                .iter()
-                .map(|(key, def_id)| (key.clone(), *def_id)),
-        );
-        builder.finish()
     }
 
     pub(crate) fn eval_array_repeat_count(&mut self, count: &Expr) -> Result<u64, ConstError> {
