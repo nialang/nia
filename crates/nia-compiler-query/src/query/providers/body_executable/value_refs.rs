@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use nia_ast::{BindingItem, FunctionItem};
-use std::collections::VecDeque;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(in crate::query) struct ExecutableValueRefEdges {
@@ -102,62 +101,11 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
             let full_active_item_tree = db.get(FullActiveModuleItemTreeQuery(owner.module_id))?;
             let active_item_tree =
                 executable_value_ref_active_item_tree(item_input, &full_active_item_tree);
-            let defs = module_defs_semantic(db, owner.module_id)?;
-            let query_failure = RefCell::new(None);
-            let program_defs = |module_id| {
-                capture_query_failure(&query_failure, module_defs_semantic(db, module_id))
-            };
-            let graph = QueryModuleGraphLookup::new(db)?;
-            let public_surfaces = QueryPublicSurfaceLookup::new(db);
-            let using_scope = QueryUsingScopeLookup::new(db, owner.module_id);
-            let visible_extensions = || db.get(VisibleExtensionsQuery(owner.module_id));
-            let associated_values =
-                LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
-            let symbols = db.context().symbols();
-            let values = nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
-                &active_item_tree,
-                &defs,
-                nia_value_resolve::ProgramDefsContext {
-                    defs: Some(&program_defs),
-                    graph: Some(&graph),
-                },
-                &public_surfaces,
-                &using_scope,
-                nia_value_resolve::ValueResolveOptions::with_store(
-                    Some(&associated_values),
-                    Some(&symbols),
-                    db.context().node_store(),
-                ),
-            );
-            if let Some(error) = query_failure
-                .into_inner()
-                .or_else(|| graph.take_failure())
-                .or_else(|| public_surfaces.take_failure())
-                .or_else(|| using_scope.take_failure())
-                .or_else(|| associated_values.take_failure())
-            {
-                return Err(error);
-            }
-            let origins = nia_node_id::NodeOriginTable::with_store(db.context().node_store());
-            let locals =
-                nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins_and_symbols(
-                    &active_item_tree,
-                    &full_active_item_tree,
-                    &defs,
-                    &values,
-                    None,
-                    &origins,
-                    &symbols,
-                );
-            let mut index = ExecutableValueRefIndex::default();
-            collect_executable_value_ref_index_for_items(
+            let mut index = executable_value_ref_index_for_active_item_tree(
                 db,
                 owner.module_id,
-                &active_item_tree.items,
-                &defs,
-                &values,
-                &locals,
-                &mut index,
+                &active_item_tree,
+                &full_active_item_tree,
             )?;
             index
                 .functions
@@ -208,6 +156,112 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
     })
 }
 
+fn executable_value_ref_index_for_active_item_tree(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    active_item_tree: &ActiveModuleItemTree,
+    full_active_item_tree: &ActiveModuleItemTree,
+) -> QueryResult<ExecutableValueRefIndex> {
+    let defs = module_defs_semantic(db, module_id)?;
+    let query_failure = RefCell::new(None);
+    let program_defs =
+        |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
+    let graph = QueryModuleGraphLookup::new(db)?;
+    let public_surfaces = QueryPublicSurfaceLookup::new(db);
+    let using_scope = QueryUsingScopeLookup::new(db, module_id);
+    let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
+    let associated_values =
+        LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
+    let symbols = db.context().symbols();
+    let values = nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
+        active_item_tree,
+        &defs,
+        nia_value_resolve::ProgramDefsContext {
+            defs: Some(&program_defs),
+            graph: Some(&graph),
+        },
+        &public_surfaces,
+        &using_scope,
+        nia_value_resolve::ValueResolveOptions::with_store(
+            Some(&associated_values),
+            Some(&symbols),
+            db.context().node_store(),
+        ),
+    );
+    if let Some(error) = query_failure
+        .into_inner()
+        .or_else(|| graph.take_failure())
+        .or_else(|| public_surfaces.take_failure())
+        .or_else(|| using_scope.take_failure())
+        .or_else(|| associated_values.take_failure())
+    {
+        return Err(error);
+    }
+    let origins = nia_node_id::NodeOriginTable::with_store(db.context().node_store());
+    let locals =
+        nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins_and_symbols(
+            active_item_tree,
+            full_active_item_tree,
+            &defs,
+            &values,
+            None,
+            &origins,
+            &symbols,
+        );
+    let mut index = ExecutableValueRefIndex::default();
+    collect_executable_value_ref_index_for_items(
+        db,
+        module_id,
+        &active_item_tree.items,
+        &defs,
+        &values,
+        &locals,
+        &mut index,
+    )?;
+    Ok(index)
+}
+
+fn executable_value_ref_index_for_owners(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    functions: &HashSet<GlobalDefId>,
+    globals: &HashSet<GlobalDefId>,
+) -> QueryResult<ExecutableValueRefIndex> {
+    let full_active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
+    let item_index = db.get(ExecutableValueRefItemIndexQuery(module_id))?;
+    let mut owners = functions
+        .iter()
+        .chain(globals)
+        .filter(|owner| owner.module_id == module_id)
+        .copied()
+        .collect::<Vec<_>>();
+    owners.sort_unstable();
+    owners.dedup();
+    let mut items = Vec::with_capacity(owners.len());
+    for owner in owners {
+        let Some(input) = item_index.get(&owner.def_id) else {
+            continue;
+        };
+        let item = executable_value_ref_active_item_tree(input, &full_active_item_tree)
+            .items
+            .first()
+            .cloned();
+        if let Some(item) = item {
+            items.push(item);
+        }
+    }
+    let active_item_tree = ActiveModuleItemTree::from_shared_parts(
+        Arc::from(items),
+        Arc::clone(&full_active_item_tree.inactive_spans),
+    );
+    executable_value_ref_index_for_active_item_tree(
+        db,
+        module_id,
+        &active_item_tree,
+        &full_active_item_tree,
+    )
+}
+
 pub(super) fn walk_executable_value_ref_closure(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
@@ -218,38 +272,59 @@ pub(super) fn walk_executable_value_ref_closure(
     mut on_global: impl FnMut(GlobalDefId) -> bool,
 ) -> QueryResult<bool> {
     let mut changed = false;
-    let mut pending_functions = functions.iter().copied().collect::<VecDeque<_>>();
-    let mut scanned_functions = HashSet::with_capacity(functions.len());
+    let mut pending_functions = functions.iter().copied().collect::<HashSet<_>>();
+    let mut pending_globals = globals.clone();
 
-    // Globals seed the graph, while only local, not-yet-checked functions are
-    // recursively scanned. Cross-module edges are reported to the caller and
-    // expanded by that module's own reachability pass.
-    for global in globals {
-        let edges = db.get(ExecutableValueRefEdgesQuery(*global))?;
-        changed |= visit_executable_value_ref_edges(
-            module_id,
-            functions,
-            &mut pending_functions,
-            checked_functions,
-            &edges,
-            &mut on_function,
-            &mut on_global,
-        );
-    }
-    while let Some(function) = pending_functions.pop_front() {
-        if !scanned_functions.insert(function) {
-            continue;
+    // Resolve the currently pending owners as one filtered module. New local
+    // functions are fed into the next batch; cross-module edges are reported
+    // immediately and expanded by that module's own reachability pass.
+    while !pending_functions.is_empty() || !pending_globals.is_empty() {
+        let scan_functions = std::mem::take(&mut pending_functions);
+        let scan_globals = std::mem::take(&mut pending_globals);
+        let local_functions = scan_functions
+            .iter()
+            .copied()
+            .filter(|owner| owner.module_id == module_id)
+            .collect::<HashSet<_>>();
+        let local_globals = scan_globals
+            .iter()
+            .copied()
+            .filter(|owner| owner.module_id == module_id)
+            .collect::<HashSet<_>>();
+        let index =
+            executable_value_ref_index_for_owners(db, module_id, &local_functions, &local_globals)?;
+        for global in scan_globals {
+            let edges = if global.module_id == module_id {
+                index.globals.get(&global).cloned().unwrap_or_default()
+            } else {
+                (*db.get(ExecutableValueRefEdgesQuery(global))?).clone()
+            };
+            changed |= visit_executable_value_ref_edges(
+                module_id,
+                functions,
+                &mut pending_functions,
+                checked_functions,
+                &edges,
+                &mut on_function,
+                &mut on_global,
+            );
         }
-        let edges = db.get(ExecutableValueRefEdgesQuery(function))?;
-        changed |= visit_executable_value_ref_edges(
-            module_id,
-            functions,
-            &mut pending_functions,
-            checked_functions,
-            &edges,
-            &mut on_function,
-            &mut on_global,
-        );
+        for function in scan_functions {
+            let edges = if function.module_id == module_id {
+                index.functions.get(&function).cloned().unwrap_or_default()
+            } else {
+                (*db.get(ExecutableValueRefEdgesQuery(function))?).clone()
+            };
+            changed |= visit_executable_value_ref_edges(
+                module_id,
+                functions,
+                &mut pending_functions,
+                checked_functions,
+                &edges,
+                &mut on_function,
+                &mut on_global,
+            );
+        }
     }
     Ok(changed)
 }
@@ -257,7 +332,7 @@ pub(super) fn walk_executable_value_ref_closure(
 fn visit_executable_value_ref_edges(
     module_id: ModuleId,
     functions: &mut HashSet<GlobalDefId>,
-    pending_functions: &mut VecDeque<GlobalDefId>,
+    pending_functions: &mut HashSet<GlobalDefId>,
     checked_functions: Option<&HashSet<GlobalDefId>>,
     edges: &ExecutableValueRefEdges,
     on_function: &mut impl FnMut(GlobalDefId) -> bool,
@@ -270,7 +345,7 @@ fn visit_executable_value_ref_edges(
             && checked_functions.is_none_or(|checked| !checked.contains(global_id))
             && functions.insert(*global_id)
         {
-            pending_functions.push_back(*global_id);
+            pending_functions.insert(*global_id);
             changed = true;
         }
     }
