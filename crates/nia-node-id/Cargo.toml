@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+hashbrown.workspace = true
 nia-hash.workspace = true
 nia-source.workspace = true
 nia-span.workspace = true

@@ -82,6 +82,7 @@ license = "GPL-3.0-or-later"
 [workspace.dependencies]
 jobserver = "0.1.35"
 libc = "0.2.186"
+hashbrown = { version = "0.17.1", default-features = false }
 regex = "1.13.1"
 blake3 = "1.8.7"
 serde = { version = "1.0.229", features = ["derive"] }

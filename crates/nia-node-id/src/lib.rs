@@ -10,13 +10,15 @@
 
 use std::{
     collections::{HashMap, hash_map},
+    hash::BuildHasher,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU32, Ordering},
     },
 };
 
-use nia_hash::FastHashMap;
+use hashbrown::HashTable;
+use nia_hash::{FastBuildHasher, FastHashMap};
 use nia_source::{SourceId, SourceRevision, SourceVersion};
 use nia_span::Span;
 
@@ -224,8 +226,11 @@ struct NodeRevision {
 
 #[derive(Debug, Default)]
 struct NodeRevisionCore {
-    by_locator: FastHashMap<Arc<VersionedNodeKey>, NodeIndex>,
-    locators: FastHashMap<NodeIndex, Arc<VersionedNodeKey>>,
+    // Stores compact indices only; lookup resolves hash collisions against the
+    // canonical locator owned by `locators`.
+    by_locator: HashTable<NodeIndex>,
+    // Owns each locator exactly once while providing reverse index lookup.
+    locators: FastHashMap<NodeIndex, VersionedNodeKey>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -400,7 +405,15 @@ impl NodeRevision {
             "node locator revision must match its owner"
         );
         let mut core = self.core.lock().expect("node revision lock poisoned");
-        if let Some(index) = core.by_locator.get(&locator).copied() {
+        let locator_hash = hash_locator(&locator);
+        let NodeRevisionCore {
+            by_locator,
+            locators,
+        } = &mut *core;
+        if let Some(index) = by_locator
+            .find(locator_hash, |index| locators.get(index) == Some(&locator))
+            .copied()
+        {
             return index;
         }
         let index = NodeIndex(
@@ -410,18 +423,23 @@ impl NodeRevision {
                 })
                 .expect("node identity space exhausted"),
         );
-        let locator = Arc::new(locator);
-        core.locators.insert(index, Arc::clone(&locator));
-        core.by_locator.insert(locator, index);
+        locators.insert(index, locator);
+        by_locator.insert_unique(locator_hash, index, |index| {
+            hash_locator(
+                locators
+                    .get(index)
+                    .expect("locator index inserted before intern table growth"),
+            )
+        });
         index
     }
 
     fn id_for_locator(&self, locator: &VersionedNodeKey) -> Option<NodeIndex> {
-        self.core
-            .lock()
-            .expect("node revision lock poisoned")
-            .by_locator
-            .get(locator)
+        let core = self.core.lock().expect("node revision lock poisoned");
+        core.by_locator
+            .find(hash_locator(locator), |index| {
+                core.locators.get(index) == Some(locator)
+            })
             .copied()
     }
 
@@ -431,7 +449,7 @@ impl NodeRevision {
             .expect("node revision lock poisoned")
             .locators
             .get(&index)
-            .map(|locator| locator.as_ref().clone())
+            .cloned()
     }
 
     fn indices(&self) -> Vec<NodeIndex> {
@@ -451,6 +469,11 @@ impl NodeRevision {
             .locators
             .len()
     }
+}
+
+#[inline]
+fn hash_locator(locator: &VersionedNodeKey) -> u64 {
+    FastBuildHasher::default().hash_one(locator)
 }
 
 impl NodeRevisionSet {
