@@ -323,9 +323,10 @@ impl QuerySession {
         to: QueryNodeId,
         to_frame: QueryFrame,
     ) -> QueryResult<Option<QueryWaitGuard>> {
-        let Some((from, from_frame)) = current_query_entry() else {
+        let Some((from, from_identity)) = current_query_entry() else {
             return Ok(None);
         };
+        let from_frame = from_identity.frame();
         let cycle = query_wait_graph()
             .lock()
             .expect("query wait-for graph lock poisoned")

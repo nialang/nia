@@ -321,6 +321,7 @@ struct QueryDbInner<C> {
 
 struct QuerySlot<V> {
     node_id: QueryNodeId,
+    identity: Arc<QuerySlotIdentity>,
     stats: QuerySlotStats,
     fingerprint_revision: AtomicU64,
     state: Mutex<QueryState<V>>,
@@ -386,7 +387,7 @@ impl<C> Default for QuerySlotTable<C> {
 }
 
 struct QuerySlotRecord<C> {
-    identity: QuerySlotIdentity,
+    identity: Arc<QuerySlotIdentity>,
     slot: Arc<dyn ErasedQuerySlot>,
     ensure: fn(&QueryDb<C>, &dyn ErasedQueryKey) -> QueryResult<()>,
 }
@@ -425,7 +426,7 @@ impl<C> QuerySlotTable<C> {
     fn push(
         &mut self,
         node_id: QueryNodeId,
-        identity: QuerySlotIdentity,
+        identity: Arc<QuerySlotIdentity>,
         slot: Arc<dyn ErasedQuerySlot>,
         ensure: fn(&QueryDb<C>, &dyn ErasedQueryKey) -> QueryResult<()>,
     ) {
@@ -785,11 +786,11 @@ pub struct QueryTraceQuery {
     pub stats: QueryFrameStats,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct QueryStackEntry {
     session_id: QuerySessionId,
     node_id: QueryNodeId,
-    frame: QueryFrame,
+    identity: Arc<QuerySlotIdentity>,
     dependencies: FastHashSet<QueryNodeId>,
     dependency_fingerprints: Option<DependencyFingerprints>,
 }
