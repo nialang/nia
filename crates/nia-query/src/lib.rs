@@ -38,7 +38,9 @@ use std::{
 
 use nia_hash::{FastHashMap, FastHashSet};
 
-const DEFAULT_MAX_QUERY_EXECUTOR_PARALLELISM: usize = 4;
+// Keep enough lanes busy on modern hosts while the shared execution and
+// memory budgets continue to cap aggregate pressure from nested queries.
+const DEFAULT_MAX_QUERY_EXECUTOR_PARALLELISM: usize = 8;
 
 /// Typed memoization database for one compiler context.
 ///
