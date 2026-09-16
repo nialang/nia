@@ -453,9 +453,7 @@ pub(super) fn is_compiled_artifact_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> bool {
-    db.context()
-        .loader_facts()
-        .compiled_package_module_identity(module_id)
+    compiled_package_module_identity(db, module_id)
         .ok()
         .flatten()
         .is_some()

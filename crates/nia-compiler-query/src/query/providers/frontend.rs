@@ -7,11 +7,7 @@ pub(in crate::query) fn provide_artifact_public_surface_facts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<Option<PublicSurfaceModuleFacts>> {
-    let Some(identity) = db
-        .context()
-        .loader_facts()
-        .compiled_package_module_identity(module_id)?
-    else {
+    let Some(identity) = compiled_package_module_identity(db, module_id)? else {
         return Ok(None);
     };
     let index = db.get(CompiledPackageInterfaceIndexQuery)?;
@@ -150,11 +146,7 @@ pub(in crate::query) fn provide_artifact_public_surface(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<Option<ModulePublicSurface>> {
-    let Some(identity) = db
-        .context()
-        .loader_facts()
-        .compiled_package_module_identity(module_id)?
-    else {
+    let Some(identity) = compiled_package_module_identity(db, module_id)? else {
         return Ok(None);
     };
     let index = db.get(CompiledPackageInterfaceIndexQuery)?;
@@ -175,11 +167,7 @@ pub(in crate::query) fn provide_artifact_public_surface(
     let graph = db.get(ModuleGraphQuery)?;
     let resolve_module = |target: &nia_package_metadata::ModuleId| -> Option<ModuleId> {
         graph.modules().find_map(|node| {
-            if let Ok(Some(identity)) = db
-                .context()
-                .loader_facts()
-                .compiled_package_module_identity(node.id)
-            {
+            if let Ok(Some(identity)) = compiled_package_module_identity(db, node.id) {
                 if identity == *target {
                     return Some(node.id);
                 }
@@ -491,11 +479,7 @@ fn canonical_builtin_trait(
     db: &QueryDb<CompilerContext>,
     def_id: GlobalDefId,
 ) -> QueryResult<Option<nia_ids::BuiltinTrait>> {
-    if let Some(identity) = db
-        .context()
-        .loader_facts()
-        .compiled_package_module_identity(def_id.module_id)?
-    {
+    if let Some(identity) = compiled_package_module_identity(db, def_id.module_id)? {
         if identity.package != nia_package_metadata::PackageId::standard_library() {
             return Ok(None);
         }
@@ -563,12 +547,7 @@ fn shared_public_surface_defs_by_module(
         .resolve_stable_module_sequence(&parse_ok_modules)?;
     let mut source_module_ids = Vec::new();
     for module_id in module_ids {
-        if db
-            .context()
-            .loader_facts()
-            .compiled_package_module_identity(module_id)?
-            .is_none()
-        {
+        if compiled_package_module_identity(db, module_id)?.is_none() {
             source_module_ids.push(module_id);
         }
     }
@@ -1005,12 +984,7 @@ pub(super) fn provide_signature_type_lowering(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<SignatureTypeLowering> {
-    if db
-        .context()
-        .loader_facts()
-        .compiled_package_module_identity(module_id)?
-        .is_some()
-    {
+    if compiled_package_module_identity(db, module_id)?.is_some() {
         return Ok(SignatureTypeLowering {
             semantic: Arc::new(empty_artifact_type_lowering()),
             diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
@@ -1163,12 +1137,7 @@ pub(super) fn provide_signature_const_type_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<TypeLowering> {
-    if db
-        .context()
-        .loader_facts()
-        .compiled_package_module_identity(module_id)?
-        .is_some()
-    {
+    if compiled_package_module_identity(db, module_id)?.is_some() {
         return Ok(empty_artifact_type_lowering());
     }
     let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id))?;
@@ -1196,11 +1165,7 @@ pub(super) fn provide_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<ModuleItemSignatures> {
-    if let Some(identity) = db
-        .context()
-        .loader_facts()
-        .compiled_package_module_identity(module_id)?
-    {
+    if let Some(identity) = compiled_package_module_identity(db, module_id)? {
         return provide_artifact_item_signatures(db, &identity);
     }
     let active_item_tree = db.get(DeclarationActiveModuleItemTreeQuery(module_id))?;
@@ -2049,12 +2014,7 @@ pub(super) fn provide_signature_item_signatures(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<SignatureItemSignatures> {
-    if db
-        .context()
-        .loader_facts()
-        .compiled_package_module_identity(module_id)?
-        .is_some()
-    {
+    if compiled_package_module_identity(db, module_id)?.is_some() {
         let signatures = db.get(ItemSignaturesQuery(module_id))?;
         let defs = db.get(FullModuleDefsQuery(module_id))?;
         return Ok(SignatureItemSignatures {
@@ -2374,12 +2334,7 @@ pub(super) fn provide_signature_const_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<ItemSignatures> {
-    if db
-        .context()
-        .loader_facts()
-        .compiled_package_module_identity(module_id)?
-        .is_some()
-    {
+    if compiled_package_module_identity(db, module_id)?.is_some() {
         let signatures = db.get(ItemSignaturesQuery(module_id))?;
         let defs = db.get(FullModuleDefsQuery(module_id))?;
         return Ok(project_const_item_signatures(

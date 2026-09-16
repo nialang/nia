@@ -44,16 +44,12 @@ fn provide_compiled_const_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<ConstModuleLowering> {
-    let identity = db
-        .context()
-        .loader_facts()
-        .compiled_package_module_identity(module_id)?
-        .ok_or_else(|| {
-            db.invalid_input(
-                &ConstModuleQuery(module_id),
-                "compiled const module has no package identity",
-            )
-        })?;
+    let identity = compiled_package_module_identity(db, module_id)?.ok_or_else(|| {
+        db.invalid_input(
+            &ConstModuleQuery(module_id),
+            "compiled const module has no package identity",
+        )
+    })?;
     let templates = db.get(CompiledPackageTemplatesQuery(identity.package.clone()))?;
     let mut module = nia_const_ir::ResolvedConstModule::new();
     for (_, template) in templates.iter() {
@@ -132,16 +128,12 @@ fn provide_compiled_const_enum_values(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<nia_const_check::ConstEnumValues> {
-    let identity = db
-        .context()
-        .loader_facts()
-        .compiled_package_module_identity(module_id)?
-        .ok_or_else(|| {
-            db.invalid_input(
-                &ConstEnumValuesQuery(module_id),
-                "compiled enum module has no package identity",
-            )
-        })?;
+    let identity = compiled_package_module_identity(db, module_id)?.ok_or_else(|| {
+        db.invalid_input(
+            &ConstEnumValuesQuery(module_id),
+            "compiled enum module has no package identity",
+        )
+    })?;
     let package = db.get(CompiledPackageSignaturesQuery(identity.package.clone()))?;
     let graph = db.get(CompiledPackageTypeGraphQuery(identity.package.clone()))?;
     let mut values = HashMap::new();
