@@ -293,11 +293,7 @@ fn function_bodies_from_checked_modules(
                 .flat_map(|module| module.body_ir.function_bodies.keys().copied())
                 .collect::<Vec<_>>();
             def_ids.sort_unstable();
-            let lowered = def_ids
-                .iter()
-                .copied()
-                .map(|def_id| db.get(LoweredFunctionBodyQuery(def_id)))
-                .collect::<QueryResult<Vec<_>>>()?;
+            let lowered = db.get_many(def_ids.iter().copied().map(LoweredFunctionBodyQuery))?;
             Ok(def_ids
                 .into_iter()
                 .zip(lowered)
