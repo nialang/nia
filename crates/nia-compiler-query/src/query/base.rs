@@ -1169,6 +1169,8 @@ impl QueryKey<CompilerContext> for ActiveModuleItemTreeQuery {
 impl QueryKey<CompilerContext> for DeclarationModuleItemTreeQuery {
     type Value = ModuleItemTree;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "declaration_module_item_tree"
     }
@@ -1184,10 +1186,16 @@ impl QueryKey<CompilerContext> for DeclarationModuleItemTreeQuery {
             .as_ref()
             .clone())
     }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 }
 
 impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeQuery {
     type Value = ActiveModuleItemTree;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "declaration_active_module_item_tree"
@@ -1203,6 +1211,10 @@ impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeQuery {
             .get(DeclarationActiveModuleItemTreeInputQuery(self.0))?
             .as_ref()
             .clone())
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
