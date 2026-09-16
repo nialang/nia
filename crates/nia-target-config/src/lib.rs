@@ -222,7 +222,10 @@ impl Pruner<'_> {
         };
         let item_tree = ModuleItemTree::from_module(&module);
         PrunedModule {
-            active_item_tree: ActiveModuleItemTree::new(item_tree.items, inactive_spans),
+            active_item_tree: ActiveModuleItemTree::from_shared_parts(
+                item_tree.items,
+                inactive_spans,
+            ),
         }
     }
 

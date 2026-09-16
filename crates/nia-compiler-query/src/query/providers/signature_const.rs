@@ -410,7 +410,7 @@ fn collect_enum_discriminant_exprs(
     active_item_tree: &ActiveModuleItemTree,
     out: &mut Vec<nia_ast::Expr>,
 ) {
-    for item in &active_item_tree.items {
+    for item in active_item_tree.items.iter() {
         if let nia_item_tree::ItemTreeNodeKind::Enum(item_enum) = &item.kind {
             out.extend(
                 item_enum

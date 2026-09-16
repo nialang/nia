@@ -13,7 +13,7 @@ pub(super) fn const_enum_values_from_check(
 
 pub(super) fn active_item_tree(module: &nia_ast::Module) -> ActiveModuleItemTree {
     let item_tree = ModuleItemTree::from_module(module);
-    ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default())
+    item_tree.all_items_active()
 }
 
 pub(super) fn global_def_id_by_name(defs: &nia_defs::DefCollection, name: &str) -> GlobalDefId {

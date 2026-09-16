@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::Arc;
 
 #[test]
 fn resolves_locals_from_active_item_tree_only() {
@@ -85,7 +86,7 @@ y
     );
 
     let mut filtered = full.clone();
-    for item in &mut filtered.items {
+    for item in Arc::make_mut(&mut filtered.items) {
         if let ItemTreeNodeKind::Function(function) = &mut item.kind
             && function.name == sym("unused")
         {

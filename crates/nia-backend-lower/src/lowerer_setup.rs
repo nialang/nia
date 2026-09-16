@@ -127,7 +127,7 @@ impl<'a> ModuleLowerer<'a> {
             }
         }
 
-        for item in &self.input.active_item_tree.items {
+        for item in self.input.active_item_tree.items.iter() {
             match &item.kind {
                 ItemTreeNodeKind::Struct(item_struct) => {
                     let def_id =

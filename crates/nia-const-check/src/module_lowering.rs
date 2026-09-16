@@ -53,7 +53,7 @@ struct ConstModuleLowerer<'a> {
 
 impl ConstModuleLowerer<'_> {
     fn lower_module(&mut self) {
-        for item in &self.input.active_item_tree.items {
+        for item in self.input.active_item_tree.items.iter() {
             match &item.kind {
                 ItemTreeNodeKind::Enum(item_enum) => self.lower_enum(item, item_enum),
                 ItemTreeNodeKind::Binding(binding) if binding.is_const() => {

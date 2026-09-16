@@ -34,8 +34,7 @@ pub fn check_module_bodies(
     let source_path = SourcePath::new("main.nia");
     let symbols = SymbolTable::new();
     let item_tree = ModuleItemTree::from_module(module);
-    let active_item_tree =
-        ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default());
+    let active_item_tree = item_tree.all_items_active();
     let semantic_uses = semantic_use_table_for_body_input(
         defs.module_id,
         values,

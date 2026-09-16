@@ -179,8 +179,7 @@ pub fn check_module_flow(
     signatures: &ItemSignatures,
 ) -> FlowCheck {
     let item_tree = ModuleItemTree::from_module(module);
-    let active_item_tree =
-        ActiveModuleItemTree::new(item_tree.active_items_without_const(), HashSet::new());
+    let active_item_tree = item_tree.all_items_active();
     check_active_module_flow(&active_item_tree, type_store, signatures)
 }
 
@@ -954,8 +953,7 @@ mod tests {
             .get(&nia_symbol::known::MAIN)
             .expect("test source must define main");
         let item_tree = ModuleItemTree::from_module(&module);
-        let active_item_tree =
-            ActiveModuleItemTree::new(item_tree.active_items_without_const(), HashSet::new());
+        let active_item_tree = item_tree.all_items_active();
         let reachable = HashSet::from([GlobalDefId {
             module_id,
             def_id: main,

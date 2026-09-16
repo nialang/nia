@@ -77,7 +77,7 @@ impl TypeLowering {
             lowering: self,
             uses: Vec::new(),
         };
-        for item in &item_tree.items {
+        for item in item_tree.items.iter() {
             collector.visit_item_tree_node(item);
         }
         collector.uses

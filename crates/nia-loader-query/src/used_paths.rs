@@ -28,7 +28,7 @@ pub(crate) fn collect_used_modules(
     let explicit_imports =
         module_explicit_imports(item_tree, module_map, &local_module_names, &using_aliases);
     let mut used_aliases = Vec::new();
-    for item in &item_tree.items {
+    for item in item_tree.items.iter() {
         let ItemTreeNodeKind::Using(using) = &item.kind else {
             continue;
         };
@@ -189,7 +189,7 @@ pub(crate) fn module_using_aliases(
 ) -> SymbolMap<UsedModulePath> {
     let mut aliases: SymbolMap<UsedModulePath> = SymbolMap::default();
     let mut packages = Vec::new();
-    for item in &item_tree.items {
+    for item in item_tree.items.iter() {
         let ItemTreeNodeKind::Using(using) = &item.kind else {
             continue;
         };
@@ -557,7 +557,7 @@ fn module_explicit_imports(
     aliases: &SymbolMap<UsedModulePath>,
 ) -> Vec<ExplicitUsingImport> {
     let mut imports = Vec::new();
-    for item in &item_tree.items {
+    for item in item_tree.items.iter() {
         let ItemTreeNodeKind::Using(using) = &item.kind else {
             continue;
         };

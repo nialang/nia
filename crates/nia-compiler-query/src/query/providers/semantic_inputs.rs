@@ -414,7 +414,7 @@ fn associated_const_projections_from_active_item_tree(
         type_lowering,
         projections: Vec::new(),
     };
-    for item in &active_item_tree.items {
+    for item in active_item_tree.items.iter() {
         collector.visit_item_tree_node(item);
     }
     collector.projections

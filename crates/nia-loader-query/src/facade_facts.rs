@@ -50,7 +50,7 @@ impl ModuleFacadeFacts {
         let mut public_reexports = Vec::new();
         let mut provider_source_paths = Vec::new();
 
-        for item in &item_tree.items {
+        for item in item_tree.items.iter() {
             if item.visibility == Visibility::Public
                 && let Some(name) = public_type_name(item)
             {

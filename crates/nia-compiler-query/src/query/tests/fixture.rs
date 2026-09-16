@@ -288,7 +288,7 @@ pub(super) fn loaded_module_with_source_version(
         nia_parser::parse_module_syntax_with_origins_and_symbols(&syntax, test_symbols());
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
     let item_tree = ModuleItemTree::from_module(&module);
-    let active_item_tree = ActiveModuleItemTree::new(item_tree.items.clone(), Default::default());
+    let active_item_tree = item_tree.all_items_active();
     let provider_summary =
         nia_provider_summary::ProviderSummary::from_active_item_tree(&active_item_tree);
     LoadedModule {

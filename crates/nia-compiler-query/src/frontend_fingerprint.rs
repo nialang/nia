@@ -634,7 +634,7 @@ pub fn item_signature_fingerprint(
 ) -> ItemSignatureFingerprint {
     let source = syntax.source();
     let mut body_spans = Vec::new();
-    for item in &item_tree.items {
+    for item in item_tree.items.iter() {
         match &item.kind {
             ItemTreeNodeKind::Function(function) => push_body_span(function, &mut body_spans),
             ItemTreeNodeKind::Trait(item_trait) => {
@@ -781,7 +781,9 @@ extend Value {
         assert!(errors.is_empty(), "{errors:?}");
         let syntax = SyntaxTree::parse(source, None);
         let mut item_tree = ModuleItemTree::from_module(&module);
-        if let ItemTreeNodeKind::Function(function) = &mut item_tree.items[0].kind {
+        if let ItemTreeNodeKind::Function(function) =
+            &mut std::sync::Arc::make_mut(&mut item_tree.items)[0].kind
+        {
             let body = function.body.as_mut().expect("expected function body");
             body.span = Span::new(body.span.end, body.span.start);
         } else {
@@ -789,7 +791,9 @@ extend Value {
         }
         let recovered = item_signature_fingerprint(&syntax, &item_tree);
 
-        if let ItemTreeNodeKind::Function(function) = &mut item_tree.items[0].kind {
+        if let ItemTreeNodeKind::Function(function) =
+            &mut std::sync::Arc::make_mut(&mut item_tree.items)[0].kind
+        {
             let body = function.body.as_mut().expect("expected function body");
             body.span = Span::new(0, source.len() + 1);
         } else {

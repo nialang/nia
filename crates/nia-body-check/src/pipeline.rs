@@ -114,7 +114,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(super) fn lower_checked_static_inits(&mut self, active_item_tree: &ActiveModuleItemTree) {
-        for item in &active_item_tree.items {
+        for item in active_item_tree.items.iter() {
             if let ItemTreeNodeKind::Binding(binding) = &item.kind
                 && !binding.is_const()
             {
@@ -312,7 +312,7 @@ impl<'a> BodyChecker<'a> {
     ) {
         if self.body_filter.includes_module_bindings() {
             time_body_stage(timing, "body_check.bindings", module_id, || {
-                for item in &active_item_tree.items {
+                for item in active_item_tree.items.iter() {
                     if let ItemTreeNodeKind::Binding(binding) = &item.kind {
                         if binding.is_const() {
                             self.check_const_binding(item.span, binding);
@@ -334,7 +334,7 @@ impl<'a> BodyChecker<'a> {
         });
         if self.body_filter.includes_module_bindings() {
             time_body_stage(timing, "body_check.extends", module_id, || {
-                for item in &active_item_tree.items {
+                for item in active_item_tree.items.iter() {
                     if let ItemTreeNodeKind::Extend(extend) = &item.kind
                         && extend.generics.is_empty()
                     {
@@ -358,7 +358,7 @@ impl<'a> BodyChecker<'a> {
         active_item_tree: &'ast ActiveModuleItemTree,
     ) -> HashMap<GlobalDefId, FunctionItemRef<'ast>> {
         let mut items = HashMap::new();
-        for item in &active_item_tree.items {
+        for item in active_item_tree.items.iter() {
             self.collect_function_items_by_id(item, &mut items);
         }
         items
