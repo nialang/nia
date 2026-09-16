@@ -84,6 +84,9 @@ pub(super) struct ModuleGraphQuery;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct CompiledPackageInterfaceIndexQuery;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct CompiledPackageModuleIdentityQuery(pub(super) ModuleId);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct CompiledPackageTypeRootsQuery(pub(super) PackageId);
 
@@ -302,6 +305,46 @@ impl QueryKey<CompilerContext> for CompiledPackageInterfaceIndexQuery {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         compiled_interface_index_fingerprint(value)
+    }
+}
+
+impl QueryKey<CompilerContext> for CompiledPackageModuleIdentityQuery {
+    type Value = Option<nia_package_metadata::ModuleId>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+    fn name() -> &'static str {
+        "compiled_package_module_identity"
+    }
+
+    fn description(&self) -> String {
+        format!("compiled_package_module_identity({:?})", self.0)
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        Ok(db
+            .context()
+            .compiled_package_module_identities
+            .read()
+            .expect("compiler module identity input lock poisoned")
+            .get(&self.0)
+            .cloned()
+            .flatten())
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        let mut builder = QueryFingerprintBuilder::new(COMPILED_PACKAGE_MODULE_IDENTITY_DOMAIN);
+        match value {
+            Some(identity) => {
+                builder.write_u8(1);
+                builder.write_str(&identity.package.namespace);
+                builder.write_str(&identity.package.name);
+                builder.write_str(&identity.package.version);
+                builder.write_str(&identity.path);
+            }
+            None => builder.write_u8(0),
+        }
+        Some(builder.finish())
     }
 }
 
@@ -1060,6 +1103,8 @@ pub(super) struct FullActiveModuleItemTreeQuery(pub(super) ModuleId);
 impl QueryKey<CompilerContext> for ModuleItemTreeQuery {
     type Value = ModuleItemTree;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "module_item_tree"
     }
@@ -1070,6 +1115,10 @@ impl QueryKey<CompilerContext> for ModuleItemTreeQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.module_item_tree)(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -1092,6 +1141,8 @@ impl QueryKey<CompilerContext> for FullModuleItemTreeQuery {
 impl QueryKey<CompilerContext> for ActiveModuleItemTreeQuery {
     type Value = ActiveModuleItemTree;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "active_module_item_tree"
     }
@@ -1102,6 +1153,10 @@ impl QueryKey<CompilerContext> for ActiveModuleItemTreeQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.active_module_item_tree)(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -1164,6 +1219,8 @@ impl QueryKey<CompilerContext> for FullActiveModuleItemTreeQuery {
 impl QueryKey<CompilerContext> for ModuleDefsQuery {
     type Value = ModuleDefinitions;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "module_defs"
     }
@@ -1174,6 +1231,10 @@ impl QueryKey<CompilerContext> for ModuleDefsQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.module_defs)(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 

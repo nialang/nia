@@ -19,7 +19,7 @@ fn host_native_target() -> nia_package_metadata::CompilationTarget {
 fn compiler_query_registry_covers_all_declared_query_contracts() {
     let descriptors = compiler_query_registry().descriptors();
 
-    assert_eq!(descriptors.len(), 142);
+    assert_eq!(descriptors.len(), 143);
     assert!(
         !descriptors
             .iter()
@@ -86,6 +86,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "extension_provider_module_eligibility"
             | "extension_provider_summary"
             | "compiled_package_interface_index"
+            | "compiled_package_module_identity"
             | "compiled_package_native_observation"
             | "loaded_modules"
             | "module_graph_child"
@@ -103,7 +104,8 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "public_surface_module"
             | "semantic_module_ids"
             | "using_scope_module" => nia_query::QueryFingerprintPolicy::StableValue,
-            "active_module_item_tree_input"
+            "active_module_item_tree"
+            | "active_module_item_tree_input"
             | "backend_module_function_instance_plan"
             | "backend_module_source_item_plan"
             | "body_activation_worklist"
@@ -116,6 +118,8 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "full_module_item_tree_input"
             | "lowered_function_body"
             | "module_public_surface"
+            | "module_defs"
+            | "module_item_tree"
             | "module_item_tree_input"
             | "module_origins"
             | "module_parse_errors"
@@ -2113,6 +2117,62 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
             .invalidated
             .iter()
             .any(|frame| frame.name == "compiled_package_interface_index")
+    );
+}
+
+#[test]
+fn compiler_update_validates_compiled_module_identity_as_a_stable_input() {
+    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let module_id = fixture.entry_id();
+    let loader = TestLoaderFacts::new(
+        fixture.program(),
+        crate::ProviderFactSnapshot::empty(crate::ProviderFactRevision::default()),
+    );
+    let database = super::super::CompilerDatabase::new(
+        CompileRequest::new(fixture.program()).with_loader_facts(loader.clone()),
+    );
+    assert_eq!(
+        *database
+            .db
+            .get(CompiledPackageModuleIdentityQuery(module_id))
+            .unwrap(),
+        None
+    );
+
+    let identity = nia_package_metadata::ModuleId {
+        package: nia_package_metadata::PackageId {
+            namespace: "example".into(),
+            name: "dependency".into(),
+            version: "1.0.0".into(),
+        },
+        path: "src/lib.nia".into(),
+    };
+    loader.replace_compiled_module_identities(HashMap::from([(module_id, identity.clone())]));
+    let changed = database
+        .update(CompileRequest::new(fixture.program()).with_loader_facts(loader.clone()))
+        .unwrap();
+    assert!(
+        changed
+            .invalidated
+            .iter()
+            .any(|frame| frame.name == "compiled_package_module_identity")
+    );
+    assert_eq!(
+        *database
+            .db
+            .get(CompiledPackageModuleIdentityQuery(module_id))
+            .unwrap(),
+        Some(identity)
+    );
+
+    let unchanged = database
+        .update(CompileRequest::new(fixture.program()).with_loader_facts(loader))
+        .unwrap();
+    assert!(
+        !unchanged
+            .invalidated
+            .iter()
+            .any(|frame| frame.name == "compiled_package_module_identity")
     );
 }
 

@@ -452,11 +452,7 @@ pub(super) fn signature_layouts_for_types(
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
 ) -> QueryResult<nia_layout::Layouts> {
     time_module_provider(db, "signature_layouts", module_id, || {
-        let artifact_backed = db
-            .context()
-            .loader_facts()
-            .compiled_package_module_identity(module_id)?
-            .is_some();
+        let artifact_backed = compiled_package_module_identity(db, module_id)?.is_some();
         let defs = module_defs_semantic(db, module_id)?;
         let type_normalization = db.get(SignatureTypeNormalizationQuery(
             module_id,

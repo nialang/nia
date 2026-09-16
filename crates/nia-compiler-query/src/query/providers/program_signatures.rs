@@ -26,12 +26,7 @@ pub(super) fn provide_program_signature_module_eligibility(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<bool> {
-    if db
-        .context()
-        .loader_facts()
-        .compiled_package_module_identity(module_id)?
-        .is_some()
-    {
+    if compiled_package_module_identity(db, module_id)?.is_some() {
         let signatures = db.get(SignatureItemSignaturesQuery(module_id, set))?;
         return Ok(item_signatures_have_program_facts(
             &signatures.semantic,

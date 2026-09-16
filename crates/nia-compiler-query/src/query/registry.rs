@@ -28,6 +28,7 @@ pub(super) fn compiler_query_registry() -> nia_query::QueryRegistry {
         CodegenPreparationQuery,
         CodegenProgramQuery,
         CompiledPackageInterfaceIndexQuery,
+        CompiledPackageModuleIdentityQuery,
         CompiledPackageTypeRootsQuery,
         CompiledPackageTypeGraphQuery,
         CompiledPackageDeclarationsQuery,

@@ -39,12 +39,7 @@ pub(super) fn provide_extension_provider_summary(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<nia_provider_summary::ProviderSummary> {
-    if db
-        .context()
-        .loader_facts()
-        .compiled_package_module_identity(module_id)?
-        .is_some()
-    {
+    if compiled_package_module_identity(db, module_id)?.is_some() {
         let signatures = db.get(ItemSignaturesQuery(module_id))?;
         let providers = signatures
             .semantic
@@ -865,12 +860,7 @@ fn selected_artifact_trait_witness_modules(
         if node.id == module_id || !node.semantic_selected || !node.process_used_paths {
             continue;
         }
-        if db
-            .context()
-            .loader_facts()
-            .compiled_package_module_identity(node.id)?
-            .is_some()
-        {
+        if compiled_package_module_identity(db, node.id)?.is_some() {
             modules.push(node.id);
         }
     }

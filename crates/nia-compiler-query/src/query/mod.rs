@@ -138,6 +138,8 @@ const PROVIDER_SUMMARY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.compiler.provider-summary");
 const COMPILED_INTERFACE_INDEX_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.compiler.compiled-interface-index");
+const COMPILED_PACKAGE_MODULE_IDENTITY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.compiled-package-module-identity");
 const COMPILED_NATIVE_OBSERVATION_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.compiler.compiled-native-observation");
 mod resolve;
@@ -341,11 +343,7 @@ pub(in crate::query) fn resolve_loaded_definition_in_query(
     let graph = db.get(ModuleGraphQuery)?;
     let mut module_id = None;
     for module in graph.modules() {
-        if let Some(identity) = db
-            .context()
-            .loader_facts()
-            .compiled_package_module_identity(module.id)?
-        {
+        if let Some(identity) = compiled_package_module_identity(db, module.id)? {
             if identity.package == *package && identity.path == definition.module.path {
                 module_id = Some(module.id);
                 break;
@@ -2156,14 +2154,7 @@ impl CompilerDatabase {
     fn resolve_compiled_module_identity(&self, identity: &StableModuleId) -> QueryResult<ModuleId> {
         let graph = self.db.get(ModuleGraphQuery)?;
         for module in graph.modules() {
-            if self
-                .db
-                .context()
-                .loader_facts()
-                .compiled_package_module_identity(module.id)?
-                .as_ref()
-                == Some(identity)
-            {
+            if compiled_package_module_identity(&self.db, module.id)?.as_ref() == Some(identity) {
                 return Ok(module.id);
             }
         }
@@ -2220,11 +2211,8 @@ impl CompilerDatabase {
                 ));
             };
             if graph.current_package_root(def_id.module_id) != Some(entry_root) {
-                if let Some(identity) = self
-                    .db
-                    .context()
-                    .loader_facts()
-                    .compiled_package_module_identity(def_id.module_id)?
+                if let Some(identity) =
+                    compiled_package_module_identity(&self.db, def_id.module_id)?
                 {
                     return Ok(identity.package);
                 }
@@ -2469,10 +2457,7 @@ impl CompilerDatabase {
                     )
                 })?
             } else {
-                self.db
-                    .context()
-                    .loader_facts()
-                    .compiled_package_module_identity(module.id)?
+                compiled_package_module_identity(&self.db, module.id)?
                     .map(|identity| identity.package)
                     .unwrap_or_else(|| package.clone())
             };
@@ -2749,11 +2734,8 @@ impl CompilerDatabase {
                 ));
             };
             if graph.current_package_root(def_id.module_id) != Some(entry_root) {
-                if let Some(identity) = self
-                    .db
-                    .context()
-                    .loader_facts()
-                    .compiled_package_module_identity(def_id.module_id)?
+                if let Some(identity) =
+                    compiled_package_module_identity(&self.db, def_id.module_id)?
                 {
                     return Ok(identity.package);
                 }
@@ -4029,11 +4011,8 @@ impl CompilerDatabase {
                 ));
             };
             if graph.current_package_root(def_id.module_id) != Some(entry_root) {
-                if let Some(identity) = self
-                    .db
-                    .context()
-                    .loader_facts()
-                    .compiled_package_module_identity(def_id.module_id)?
+                if let Some(identity) =
+                    compiled_package_module_identity(&self.db, def_id.module_id)?
                 {
                     return Ok(identity.package);
                 }
@@ -4091,11 +4070,8 @@ impl CompilerDatabase {
                 ));
             };
             if graph.current_package_root(def_id.module_id) != Some(entry_root) {
-                if let Some(identity) = self
-                    .db
-                    .context()
-                    .loader_facts()
-                    .compiled_package_module_identity(def_id.module_id)?
+                if let Some(identity) =
+                    compiled_package_module_identity(&self.db, def_id.module_id)?
                 {
                     return Ok(identity.package);
                 }
@@ -4679,12 +4655,7 @@ impl CompilerDatabase {
         let mut identities = Vec::new();
         for module in graph.modules() {
             if graph.current_package_root(module.id) != package_root
-                || self
-                    .db
-                    .context()
-                    .loader_facts()
-                    .compiled_package_module_identity(module.id)?
-                    .is_some()
+                || compiled_package_module_identity(&self.db, module.id)?.is_some()
             {
                 continue;
             }
@@ -4738,10 +4709,7 @@ impl CompilerDatabase {
         let Some(module_id) = graph.module_id_for_source_identity(identity) else {
             return Ok(None);
         };
-        self.db
-            .context()
-            .loader_facts()
-            .compiled_package_module_identity(module_id)
+        compiled_package_module_identity(&self.db, module_id)
     }
 
     /// Resolves the package owning a source codegen identity without using
@@ -4768,12 +4736,7 @@ impl CompilerDatabase {
         {
             return Ok(Some(runtime.package().clone()));
         }
-        Ok(self
-            .db
-            .context()
-            .loader_facts()
-            .compiled_package_module_identity(module_id)?
-            .map(|module| module.package))
+        Ok(compiled_package_module_identity(&self.db, module_id)?.map(|module| module.package))
     }
 
     /// Resolves a definition to its canonical package while publishing the
@@ -4791,12 +4754,7 @@ impl CompilerDatabase {
         if graph.current_package_root(def_id.module_id) == graph.std_package_root() {
             return Ok(PackageId::standard_library());
         }
-        if let Some(identity) = self
-            .db
-            .context()
-            .loader_facts()
-            .compiled_package_module_identity(def_id.module_id)?
-        {
+        if let Some(identity) = compiled_package_module_identity(&self.db, def_id.module_id)? {
             return Ok(identity.package);
         }
         if graph.current_package_root(def_id.module_id)
@@ -4838,6 +4796,8 @@ impl CompilerDatabase {
             "Nia ICE: compiler frontend cache verification cannot change within a query session"
         );
         let new_graph = request.loader_facts.module_graph()?;
+        let new_compiled_package_module_identities =
+            collect_compiled_package_module_identities(request.loader_facts.as_ref(), &new_graph)?;
         let new_compiled_interface_fingerprint =
             compiled_interface_fingerprint(request.loader_facts.compiled_package_interfaces()?)?;
         let new_compiled_native_fingerprint = compiled_native_observation_fingerprint(
@@ -4901,6 +4861,37 @@ impl CompilerDatabase {
             )
         };
         let mut invalidation = CompilerInvalidation::default();
+        let changed_compiled_module_identities = {
+            let mut observed = self
+                .db
+                .context()
+                .compiled_package_module_identities
+                .write()
+                .expect("compiler module identity input lock poisoned");
+            let changed = observed
+                .keys()
+                .chain(new_compiled_package_module_identities.keys())
+                .copied()
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .filter_map(|module_id| {
+                    let identity = new_compiled_package_module_identities
+                        .get(&module_id)
+                        .cloned()
+                        .flatten();
+                    (observed.get(&module_id).and_then(Option::as_ref) != identity.as_ref())
+                        .then_some((module_id, identity))
+                })
+                .collect::<Vec<_>>();
+            *observed = new_compiled_package_module_identities;
+            changed
+        };
+        for (module_id, identity) in changed_compiled_module_identities {
+            invalidation.extend(
+                self.db
+                    .validate_input(CompiledPackageModuleIdentityQuery(module_id), &identity),
+            );
+        }
         if graph_changed {
             // The executable fact epoch contains session-local module handles;
             // a graph replacement makes that value and every dependent red.
@@ -6758,6 +6749,9 @@ fn compiler_database_with_providers_in_session(
     let observed_graph = loader_facts
         .module_graph()
         .expect("initial compiler module graph");
+    let compiled_package_module_identities =
+        collect_compiled_package_module_identities(loader_facts.as_ref(), &observed_graph)
+            .expect("initial compiled package module identities");
     let observed_compiled_interfaces = compiled_interface_fingerprint(
         loader_facts
             .compiled_package_interfaces()
@@ -6786,6 +6780,7 @@ fn compiler_database_with_providers_in_session(
             observed_graph: std::sync::Mutex::new(observed_graph),
             observed_compiled_interfaces: std::sync::Mutex::new(Some(observed_compiled_interfaces)),
             observed_compiled_native: std::sync::Mutex::new(Some(observed_compiled_native)),
+            compiled_package_module_identities: RwLock::new(compiled_package_module_identities),
             loader_facts,
             providers,
             executable_fact_session,
@@ -6845,6 +6840,31 @@ fn resolve_stable_module_sequence(
 ) -> QueryResult<Vec<ModuleId>> {
     let _graph = db.get(ModuleGraphQuery)?;
     db.context().resolve_stable_module_sequence(sequence)
+}
+
+pub(in crate::query) fn compiled_package_module_identity(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<Option<nia_package_metadata::ModuleId>> {
+    Ok(db
+        .get(CompiledPackageModuleIdentityQuery(module_id))?
+        .as_ref()
+        .clone())
+}
+
+fn collect_compiled_package_module_identities(
+    loader_facts: &dyn crate::LoaderFactProvider,
+    graph: &ModuleGraphSnapshot,
+) -> QueryResult<HashMap<ModuleId, Option<nia_package_metadata::ModuleId>>> {
+    graph
+        .modules()
+        .map(|module| {
+            Ok((
+                module.id,
+                loader_facts.compiled_package_module_identity(module.id)?,
+            ))
+        })
+        .collect()
 }
 
 fn provider_fact_worklist_fingerprint(worklist: &crate::ProviderFactSnapshot) -> QueryFingerprint {

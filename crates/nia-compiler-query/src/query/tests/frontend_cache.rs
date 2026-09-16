@@ -7,12 +7,16 @@ pub(super) fn query_db(loaded: LoadedProgram) -> QueryDb<CompilerContext> {
     let inputs = Arc::new(RwLock::new(CompilerInputs::new(CompileRequest::new(
         loaded,
     ))));
+    let observed_graph = loader_facts.module_graph().unwrap();
+    let compiled_package_module_identities =
+        collect_compiled_package_module_identities(loader_facts.as_ref(), &observed_graph).unwrap();
     QueryDb::new_registered(
         CompilerContext {
             inputs,
-            observed_graph: std::sync::Mutex::new(loader_facts.module_graph().unwrap()),
+            observed_graph: std::sync::Mutex::new(observed_graph),
             observed_compiled_interfaces: std::sync::Mutex::new(None),
             observed_compiled_native: std::sync::Mutex::new(None),
+            compiled_package_module_identities: RwLock::new(compiled_package_module_identities),
             loader_facts,
             providers: CompilerQueryProviders::default(),
             executable_fact_session: Arc::new(std::sync::Mutex::new(
@@ -138,12 +142,16 @@ pub(super) fn query_db_with_frontend_cache(
             .with_frontend_cache_dir(Some(root.clone()))
             .with_frontend_cache_verification(verify),
     )));
+    let observed_graph = loader_facts.module_graph().unwrap();
+    let compiled_package_module_identities =
+        collect_compiled_package_module_identities(loader_facts.as_ref(), &observed_graph).unwrap();
     QueryDb::new_registered(
         CompilerContext {
             inputs,
-            observed_graph: std::sync::Mutex::new(loader_facts.module_graph().unwrap()),
+            observed_graph: std::sync::Mutex::new(observed_graph),
             observed_compiled_interfaces: std::sync::Mutex::new(None),
             observed_compiled_native: std::sync::Mutex::new(None),
+            compiled_package_module_identities: RwLock::new(compiled_package_module_identities),
             loader_facts,
             providers: CompilerQueryProviders::default(),
             executable_fact_session: Arc::new(std::sync::Mutex::new(

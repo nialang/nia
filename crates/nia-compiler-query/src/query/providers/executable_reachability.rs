@@ -1231,11 +1231,7 @@ fn package_root_defs(
     let mut globals = Vec::new();
     for module_id in parse_ok.iter().copied() {
         if graph.current_package_root(module_id) != package_root
-            || db
-                .context()
-                .loader_facts()
-                .compiled_package_module_identity(module_id)?
-                .is_some()
+            || compiled_package_module_identity(db, module_id)?.is_some()
         {
             continue;
         }
@@ -1333,12 +1329,7 @@ fn final_executable_checked_modules(
         .into_iter()
         .map(
             |(module_id, module_items)| -> QueryResult<(ModuleId, CheckedModule)> {
-                if db
-                    .context()
-                    .loader_facts()
-                    .compiled_package_module_identity(module_id)?
-                    .is_some()
-                {
+                if compiled_package_module_identity(db, module_id)?.is_some() {
                     let signatures = program_signatures.ok_or_else(|| {
                         db.invalid_input(
                             &ExecutableCheckedModuleFactsQuery,

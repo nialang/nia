@@ -11,11 +11,7 @@ fn symbol_package_identities(
     let current_package = db.context().current_package();
     let mut identities = HashMap::new();
     for module in graph.modules() {
-        let package = if let Some(compiled) = db
-            .context()
-            .loader_facts()
-            .compiled_package_module_identity(module.id)?
-        {
+        let package = if let Some(compiled) = compiled_package_module_identity(db, module.id)? {
             compiled.package.canonical_text()
         } else if graph.current_package_root(module.id) == graph.std_package_root() {
             nia_package_metadata::PackageId::standard_library().canonical_text()
@@ -606,10 +602,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
         .modules()
         .filter(|node| {
             !executable_module_ids.contains(&node.id)
-                && db
-                    .context()
-                    .loader_facts()
-                    .compiled_package_module_identity(node.id)
+                && compiled_package_module_identity(db, node.id)
                     .ok()
                     .flatten()
                     .is_some()
@@ -860,12 +853,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
     let artifact_module_sequence =
         resolve_stable_module_sequence(db, artifact_module_sequence.as_ref())?;
     for module_id in artifact_module_sequence {
-        if db
-            .context()
-            .loader_facts()
-            .compiled_package_module_identity(module_id)?
-            .is_none()
-        {
+        if compiled_package_module_identity(db, module_id)?.is_none() {
             continue;
         }
         let signatures = db.get(ItemSignaturesQuery(module_id))?;
