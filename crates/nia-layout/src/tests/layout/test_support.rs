@@ -14,8 +14,7 @@ fn compute_test_const(
     let values = resolve_module_values(module, defs);
     let locals = resolve_module_locals(module, defs, &values);
     let item_tree = ModuleItemTree::from_module(module);
-    let active_item_tree =
-        ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default());
+    let active_item_tree = item_tree.all_items_active();
     let semantic_uses =
         semantic_use_table(module_id, &values, &locals, lowered, &active_item_tree);
     let target = nia_target_config::TargetConfig::host();

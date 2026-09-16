@@ -483,7 +483,7 @@ fn pipeline_with_options_and_trait_impls(
 
 pub(super) fn active_item_tree(module: &nia_ast::Module) -> ActiveModuleItemTree {
     let item_tree = ModuleItemTree::from_module(module);
-    ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default())
+    item_tree.all_items_active()
 }
 
 pub(super) fn visible_extension_methods(

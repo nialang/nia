@@ -11,7 +11,7 @@ use nia_ast::{
 };
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// Consumer-specific subset selected from an active item tree.
@@ -32,7 +32,7 @@ pub enum SignatureItemSet {
 /// Module-level items before conditional attributes are evaluated.
 pub struct ModuleItemTree {
     /// Items in source order.
-    pub items: Vec<ItemTreeNode>,
+    pub items: Arc<[ItemTreeNode]>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -79,9 +79,9 @@ pub enum ItemTreeNodeKind {
 /// Conditionally selected item tree plus inactive source ranges.
 pub struct ActiveModuleItemTree {
     /// Active items in source order.
-    pub items: Vec<ItemTreeNode>,
+    pub items: Arc<[ItemTreeNode]>,
     /// Source ranges excluded by conditional attributes.
-    pub inactive_spans: HashSet<Span>,
+    pub inactive_spans: Arc<HashSet<Span>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,13 +115,18 @@ impl ModuleItemTree {
     /// Projects module-level AST items into an item tree.
     pub fn from_module(module: &Module) -> Self {
         Self {
-            items: module.items.iter().map(lower_item).collect(),
+            items: module
+                .items
+                .iter()
+                .map(lower_item)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 
-    /// Clones every item without evaluating conditional attributes.
-    pub fn active_items_without_const(&self) -> Vec<ItemTreeNode> {
-        self.items.clone()
+    /// Treats every item as active without evaluating conditional attributes.
+    pub fn all_items_active(&self) -> ActiveModuleItemTree {
+        ActiveModuleItemTree::from_shared_parts(Arc::clone(&self.items), Arc::new(HashSet::new()))
     }
 
     /// Compares declaration-relevant syntax while ignoring bodies and identities.
@@ -139,18 +144,27 @@ impl ModuleItemTree {
         &self,
         resolver: &mut impl ConditionResolver,
     ) -> Result<ActiveModuleItemTree, ItemTreeError> {
-        let mut active = ActiveModuleItemTree {
-            items: Vec::new(),
-            inactive_spans: HashSet::new(),
-        };
-        collect_active_items(&self.items, resolver, &mut active)?;
-        Ok(active)
+        let mut items = Vec::new();
+        let mut inactive_spans = HashSet::new();
+        collect_active_items(&self.items, resolver, &mut items, &mut inactive_spans)?;
+        Ok(ActiveModuleItemTree::new(items, inactive_spans))
     }
 }
 
 impl ActiveModuleItemTree {
     /// Creates an active tree from selected items and inactive ranges.
     pub fn new(items: Vec<ItemTreeNode>, inactive_spans: HashSet<Span>) -> Self {
+        Self {
+            items: items.into(),
+            inactive_spans: Arc::new(inactive_spans),
+        }
+    }
+
+    /// Creates an active tree from already-shared immutable parts.
+    pub fn from_shared_parts(
+        items: Arc<[ItemTreeNode]>,
+        inactive_spans: Arc<HashSet<Span>>,
+    ) -> Self {
         Self {
             items,
             inactive_spans,
@@ -178,22 +192,26 @@ impl ActiveModuleItemTree {
 
     /// Filters and trims items for one signature consumer.
     pub fn signature_items(&self, set: SignatureItemSet) -> Self {
-        Self {
-            items: self
-                .items
+        Self::from_shared_parts(
+            self.items
                 .iter()
                 .filter_map(|item| signature_item(item, set))
-                .collect(),
-            inactive_spans: self.inactive_spans.clone(),
-        }
+                .collect::<Vec<_>>()
+                .into(),
+            Arc::clone(&self.inactive_spans),
+        )
     }
 
     /// Filters items to declarations relevant to const signature collection.
     pub fn const_signature_items(&self) -> Self {
-        Self {
-            items: self.items.iter().filter_map(const_signature_item).collect(),
-            inactive_spans: self.inactive_spans.clone(),
-        }
+        Self::from_shared_parts(
+            self.items
+                .iter()
+                .filter_map(const_signature_item)
+                .collect::<Vec<_>>()
+                .into(),
+            Arc::clone(&self.inactive_spans),
+        )
     }
 }
 
@@ -880,13 +898,14 @@ fn lower_item(item: &Item) -> ItemTreeNode {
 fn collect_active_items(
     items: &[ItemTreeNode],
     resolver: &mut impl ConditionResolver,
-    active: &mut ActiveModuleItemTree,
+    active_items: &mut Vec<ItemTreeNode>,
+    inactive_spans: &mut HashSet<Span>,
 ) -> Result<(), ItemTreeError> {
     for item in items {
         if item_is_active(item, resolver)? {
-            active.items.push(item.clone());
+            active_items.push(item.clone());
         } else {
-            active.inactive_spans.insert(item.span);
+            inactive_spans.insert(item.span);
         }
     }
     Ok(())
@@ -974,6 +993,39 @@ fn selected() i32 { 1 }
     }
 
     #[test]
+    fn all_items_active_shares_module_item_storage() {
+        let (module, errors) = parse_module("fn main() i32 { 0 }");
+        assert!(errors.is_empty(), "{errors:?}");
+        let tree = lower_module_items(&module);
+
+        let active = tree.all_items_active();
+
+        assert!(Arc::ptr_eq(&tree.items, &active.items));
+        assert!(active.inactive_spans.is_empty());
+    }
+
+    #[test]
+    fn signature_projection_shares_inactive_span_storage() {
+        let (module, errors) = parse_module(
+            r#"
+@[if false]
+fn skipped() i32 { 0 }
+fn selected() i32 { 1 }
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let tree = lower_module_items(&module);
+        let active = tree.active_items(&mut BoolResolver).unwrap();
+
+        let signature = active.signature_items(SignatureItemSet::Functions);
+
+        assert!(Arc::ptr_eq(
+            &active.inactive_spans,
+            &signature.inactive_spans
+        ));
+    }
+
+    #[test]
     fn preserves_item_attributes_in_tree_nodes_and_ast_projection() {
         let (module, errors) = parse_module(
             r#"
@@ -990,7 +1042,7 @@ pub extern fn start(argc: i32) i32;
             AttributeKind::Meta(meta) if meta.path == [sym("linkName")]
         ));
 
-        let projected = ActiveModuleItemTree::new(tree.items.clone(), HashSet::new()).to_module();
+        let projected = tree.all_items_active().to_module();
         assert_eq!(projected.items[0].attributes.len(), 1);
         assert!(matches!(
             &projected.items[0].attributes[0].kind,
@@ -1076,14 +1128,8 @@ fn selected() i32 { 2 }
         assert!(before_errors.is_empty(), "{before_errors:?}");
         assert!(after_errors.is_empty(), "{after_errors:?}");
 
-        let before_active = ActiveModuleItemTree::new(
-            lower_module_items(&before).items,
-            std::collections::HashSet::new(),
-        );
-        let after_active = ActiveModuleItemTree::new(
-            lower_module_items(&after).items,
-            std::collections::HashSet::new(),
-        );
+        let before_active = lower_module_items(&before).all_items_active();
+        let after_active = lower_module_items(&after).all_items_active();
 
         assert!(
             !before_active

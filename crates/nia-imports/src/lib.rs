@@ -1082,7 +1082,7 @@ pub fn resolve_module_declarations_from_active_item_tree_with_symbols(
 ) -> Vec<ResolvedModuleDeclaration> {
     let mut seen = SymbolMap::<Span>::default();
     let mut declarations = Vec::new();
-    for item in &item_tree.items {
+    for item in item_tree.items.iter() {
         let ItemTreeNodeKind::Module(module) = &item.kind else {
             continue;
         };

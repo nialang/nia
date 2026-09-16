@@ -390,7 +390,7 @@ fn local_trait_names(item_tree: &ActiveModuleItemTree) -> SymbolSet {
 
 fn module_using_names(item_tree: &ActiveModuleItemTree) -> SymbolSet {
     let mut names = SymbolSet::default();
-    for item in &item_tree.items {
+    for item in item_tree.items.iter() {
         let ItemTreeNodeKind::Using(using) = &item.kind else {
             continue;
         };
@@ -764,10 +764,7 @@ extend SpawnError : error::IntoError {
         let (module, errors) = parse_module(source);
         assert!(errors.is_empty(), "{errors:?}");
         let item_tree = ModuleItemTree::from_module(&module);
-        let active = nia_item_tree::ActiveModuleItemTree::new(
-            item_tree.active_items_without_const(),
-            Default::default(),
-        );
+        let active = item_tree.all_items_active();
         ProviderSummary::from_active_item_tree(&active)
     }
 }

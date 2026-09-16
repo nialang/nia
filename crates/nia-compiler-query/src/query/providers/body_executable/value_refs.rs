@@ -342,7 +342,10 @@ pub(super) fn executable_value_ref_active_item_tree(
         }
         _ => {}
     }
-    ActiveModuleItemTree::new(vec![item], full_active_item_tree.inactive_spans.clone())
+    ActiveModuleItemTree::from_shared_parts(
+        Arc::from([item]),
+        Arc::clone(&full_active_item_tree.inactive_spans),
+    )
 }
 
 pub(super) fn collect_executable_value_ref_index_for_items(

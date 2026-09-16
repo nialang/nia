@@ -175,7 +175,7 @@ impl StaticChecker<'_> {
     fn check_active_module(&mut self, item_tree: &ActiveModuleItemTree) {
         // Walk active declarations only: inactive/forked module items must not
         // produce diagnostics or static products for the current revision.
-        for item in &item_tree.items {
+        for item in item_tree.items.iter() {
             match &item.kind {
                 ItemTreeNodeKind::Binding(binding) if !binding.is_const() => {
                     self.check_global_binding(item.span, binding);
@@ -854,8 +854,7 @@ mod tests {
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
         let item_tree = ModuleItemTree::from_module(&module);
-        let active_item_tree =
-            ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default());
+        let active_item_tree = item_tree.all_items_active();
         let semantic_uses = semantic_use_table(
             module_id,
             &values,

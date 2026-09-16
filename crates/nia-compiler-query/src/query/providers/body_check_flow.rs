@@ -7,7 +7,7 @@ pub(super) fn active_item_tree_for_body_check_filter(
     active_item_tree: &ActiveModuleItemTree,
     filter: nia_body_check::BodyCheckFilter<'_>,
 ) -> ActiveModuleItemTree {
-    ActiveModuleItemTree::new(
+    ActiveModuleItemTree::from_shared_parts(
         active_item_tree
             .items
             .iter()
@@ -16,8 +16,9 @@ pub(super) fn active_item_tree_for_body_check_filter(
                 filter_item_tree_node_for_body_check(module_id, defs, &mut item, filter);
                 item
             })
-            .collect(),
-        active_item_tree.inactive_spans.clone(),
+            .collect::<Vec<_>>()
+            .into(),
+        Arc::clone(&active_item_tree.inactive_spans),
     )
 }
 
