@@ -1125,6 +1125,8 @@ impl QueryKey<CompilerContext> for ModuleItemTreeQuery {
 impl QueryKey<CompilerContext> for FullModuleItemTreeQuery {
     type Value = ModuleItemTree;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "full_module_item_tree"
     }
@@ -1135,6 +1137,10 @@ impl QueryKey<CompilerContext> for FullModuleItemTreeQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.full_module_item_tree)(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -1203,6 +1209,8 @@ impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeQuery {
 impl QueryKey<CompilerContext> for FullActiveModuleItemTreeQuery {
     type Value = ActiveModuleItemTree;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "full_active_module_item_tree"
     }
@@ -1213,6 +1221,10 @@ impl QueryKey<CompilerContext> for FullActiveModuleItemTreeQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.full_active_module_item_tree)(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -1241,6 +1253,8 @@ impl QueryKey<CompilerContext> for ModuleDefsQuery {
 impl QueryKey<CompilerContext> for FullModuleDefsQuery {
     type Value = FullModuleDefinitions;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "full_module_defs"
     }
@@ -1251,6 +1265,10 @@ impl QueryKey<CompilerContext> for FullModuleDefsQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.full_module_defs)(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
