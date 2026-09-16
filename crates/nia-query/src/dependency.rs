@@ -301,12 +301,12 @@ pub(super) fn current_query_stack() -> Vec<QueryStackEntry> {
     QUERY_STACK.with(|stack| stack.borrow().clone())
 }
 
-pub(super) fn current_query_entry() -> Option<(QueryNodeId, QueryFrame)> {
+pub(super) fn current_query_entry() -> Option<(QueryNodeId, Arc<QuerySlotIdentity>)> {
     QUERY_STACK.with(|stack| {
         stack
             .borrow()
             .last()
-            .map(|entry| (entry.node_id, entry.frame.clone()))
+            .map(|entry| (entry.node_id, Arc::clone(&entry.identity)))
     })
 }
 

@@ -288,7 +288,7 @@ impl<C> QueryDb<C> {
                     let entry = QueryStackEntry {
                         session_id: self.inner.session.inner.id,
                         node_id,
-                        frame: self.frame(node_id),
+                        identity: Arc::clone(&slot.identity),
                         dependencies: FastHashSet::default(),
                         dependency_fingerprints: None,
                     };
@@ -567,7 +567,7 @@ impl<C> QueryDb<C> {
                     let entry = QueryStackEntry {
                         session_id: self.inner.session.inner.id,
                         node_id,
-                        frame: self.frame(node_id),
+                        identity: Arc::clone(&slot.identity),
                         dependencies: FastHashSet::default(),
                         dependency_fingerprints: Some(DependencyFingerprints::default()),
                     };
@@ -649,7 +649,7 @@ impl<C> QueryDb<C> {
                     let entry = QueryStackEntry {
                         session_id: self.inner.session.inner.id,
                         node_id,
-                        frame: self.frame(node_id),
+                        identity: Arc::clone(&slot.identity),
                         dependencies: FastHashSet::default(),
                         dependency_fingerprints: (K::FINGERPRINT != QueryFingerprintPolicy::None)
                             .then(DependencyFingerprints::default),
@@ -1192,7 +1192,7 @@ impl<C> QueryDb<C> {
             return slot.clone();
         }
         let key = Arc::new(key.clone());
-        let identity = query_slot_identity::<C, K>(Arc::clone(&key));
+        let identity = Arc::new(query_slot_identity::<C, K>(Arc::clone(&key)));
         let mut slots = self
             .inner
             .slots
@@ -1201,6 +1201,7 @@ impl<C> QueryDb<C> {
         let node_id = slots.next_id(self.inner.id);
         let slot = Arc::new(QuerySlot {
             node_id,
+            identity: Arc::clone(&identity),
             stats: QuerySlotStats::default(),
             fingerprint_revision: AtomicU64::new(0),
             state: Mutex::new(QueryState::Empty),
@@ -1247,7 +1248,7 @@ impl<C> QueryDb<C> {
             if let Some(position) = stack.iter().position(|entry| entry.node_id == node_id) {
                 let mut cycle = stack[position..]
                     .iter()
-                    .map(|entry| entry.frame.clone())
+                    .map(|entry| entry.identity.frame())
                     .collect::<Vec<_>>();
                 cycle.push(self.frame(node_id));
                 return Err(QueryError::Cycle { cycle });
