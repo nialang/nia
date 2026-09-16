@@ -410,8 +410,8 @@ impl NodeRevision {
             self.version,
             "node locator revision must match its owner"
         );
-        let mut core = self.core.lock().expect("node revision lock poisoned");
         let locator_hash = hash_locator(&locator);
+        let mut core = self.core.lock().expect("node revision lock poisoned");
         let NodeRevisionCore {
             by_locator,
             locators,
@@ -450,9 +450,10 @@ impl NodeRevision {
     }
 
     fn id_for_locator(&self, locator: &VersionedNodeKey) -> Option<NodeIndex> {
+        let locator_hash = hash_locator(locator);
         let core = self.core.lock().expect("node revision lock poisoned");
         core.by_locator
-            .find(hash_locator(locator), |index| {
+            .find(locator_hash, |index| {
                 core.locators
                     .get(index)
                     .is_some_and(|interned| interned.key == *locator)
