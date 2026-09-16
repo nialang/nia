@@ -16,6 +16,7 @@ use std::{
     },
 };
 
+use nia_hash::FastHashMap;
 use nia_source::{SourceId, SourceRevision, SourceVersion};
 use nia_span::Span;
 
@@ -210,7 +211,7 @@ pub struct NodeStore {
 #[derive(Debug, Default)]
 struct NodeStoreCore {
     revisions: HashMap<SourceVersion, Arc<NodeRevision>>,
-    active_indices: HashMap<NodeIndex, SourceVersion>,
+    active_indices: FastHashMap<NodeIndex, SourceVersion>,
 }
 
 #[derive(Debug)]
@@ -221,8 +222,8 @@ struct NodeRevision {
 
 #[derive(Debug, Default)]
 struct NodeRevisionCore {
-    by_locator: HashMap<Arc<VersionedNodeKey>, NodeIndex>,
-    locators: HashMap<NodeIndex, Arc<VersionedNodeKey>>,
+    by_locator: FastHashMap<Arc<VersionedNodeKey>, NodeIndex>,
+    locators: FastHashMap<NodeIndex, Arc<VersionedNodeKey>>,
 }
 
 #[derive(Debug, Clone, Default)]
