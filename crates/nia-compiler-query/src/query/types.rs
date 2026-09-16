@@ -37,6 +37,8 @@ impl QueryKey<CompilerContext> for TypeResolutionQuery {
 impl QueryKey<CompilerContext> for DeclarationTypeResolutionQuery {
     type Value = TypeResolution;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "declaration_type_resolution"
     }
@@ -47,6 +49,10 @@ impl QueryKey<CompilerContext> for DeclarationTypeResolutionQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.declaration_type_resolution)(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -75,6 +81,8 @@ impl QueryKey<CompilerContext> for TypeLoweringQuery {
 impl QueryKey<CompilerContext> for DeclarationTypeLoweringQuery {
     type Value = TypeLowering;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "declaration_type_lowering"
     }
@@ -86,6 +94,10 @@ impl QueryKey<CompilerContext> for DeclarationTypeLoweringQuery {
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.declaration_type_lowering)(db, self.0)
     }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -93,6 +105,8 @@ pub(super) struct ItemSignaturesQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ItemSignaturesQuery {
     type Value = ModuleItemSignatures;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "item_signatures"
@@ -104,6 +118,10 @@ impl QueryKey<CompilerContext> for ItemSignaturesQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.item_signatures)(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
