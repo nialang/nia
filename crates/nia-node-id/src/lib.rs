@@ -502,14 +502,14 @@ impl NodeRevisionSet {
 pub struct NodeMap<V> {
     store: NodeStore,
     revisions: NodeRevisionSet,
-    nodes: HashMap<NodeId, V>,
+    nodes: FastHashMap<NodeId, V>,
 }
 
 #[derive(Debug)]
 /// Mutable builder for a locator-keyed [`NodeMap`].
 pub struct NodeMapBuilder<V> {
     append: NodeStoreAppend,
-    nodes: HashMap<NodeId, V>,
+    nodes: FastHashMap<NodeId, V>,
 }
 
 /// Iterator yielding stable locators and borrowed node-map values.
@@ -553,7 +553,7 @@ impl<V> NodeMap<V> {
         Self {
             store: store.clone(),
             revisions: NodeRevisionSet::default(),
-            nodes: HashMap::new(),
+            nodes: FastHashMap::default(),
         }
     }
 
@@ -561,7 +561,7 @@ impl<V> NodeMap<V> {
     pub fn builder(store: &NodeStore) -> NodeMapBuilder<V> {
         NodeMapBuilder {
             append: store.append(),
-            nodes: HashMap::new(),
+            nodes: FastHashMap::default(),
         }
     }
 
@@ -755,14 +755,14 @@ impl<'a, V> IntoIterator for &'a NodeMap<V> {
 pub struct NodeOriginTable {
     store: NodeStore,
     revisions: NodeRevisionSet,
-    nodes: HashMap<(SyntaxKind, Span), NodeId>,
+    nodes: FastHashMap<(SyntaxKind, Span), NodeId>,
 }
 
 #[derive(Debug)]
 /// Incrementally builds an origin table against a shared node store.
 pub struct NodeOriginTableBuilder {
     append: NodeStoreAppend,
-    nodes: HashMap<(SyntaxKind, Span), NodeId>,
+    nodes: FastHashMap<(SyntaxKind, Span), NodeId>,
     changes: Vec<OriginChange>,
 }
 
@@ -797,7 +797,7 @@ impl NodeOriginTable {
         Self {
             store: store.clone(),
             revisions: NodeRevisionSet::default(),
-            nodes: HashMap::new(),
+            nodes: FastHashMap::default(),
         }
     }
 
@@ -805,7 +805,7 @@ impl NodeOriginTable {
     pub fn builder(store: &NodeStore) -> NodeOriginTableBuilder {
         NodeOriginTableBuilder {
             append: store.append(),
-            nodes: HashMap::new(),
+            nodes: FastHashMap::default(),
             changes: Vec::new(),
         }
     }
