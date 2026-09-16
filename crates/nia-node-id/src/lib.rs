@@ -46,19 +46,21 @@ pub enum SyntaxKind {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Lossless child-index path from a syntax root.
 pub struct NodeChildPath {
-    steps: Vec<u32>,
+    steps: Arc<[u32]>,
 }
 
 impl NodeChildPath {
     /// Creates the empty root path.
     pub fn root() -> Self {
-        Self { steps: Vec::new() }
+        Self {
+            steps: Arc::from([]),
+        }
     }
 
     /// Creates a path from ordered child indices.
     pub fn from_steps(steps: impl Into<Vec<u32>>) -> Self {
         Self {
-            steps: steps.into(),
+            steps: Arc::from(steps.into()),
         }
     }
 
@@ -919,6 +921,15 @@ mod tests {
         let key = VersionedNodeKey::child_path(version, SyntaxKind::Type, path.clone());
 
         assert_eq!(key.position(), &NodePosition::ChildPath(path));
+    }
+
+    #[test]
+    fn child_path_clones_share_immutable_steps() {
+        let path = NodeChildPath::from_steps([0, 2, 1]);
+        let cloned = path.clone();
+
+        assert!(Arc::ptr_eq(&path.steps, &cloned.steps));
+        assert_eq!(cloned.steps(), &[0, 2, 1]);
     }
 
     #[test]
