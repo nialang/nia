@@ -277,10 +277,7 @@ pub(super) fn materialize_checked_modules(
     db: &QueryDb<CompilerContext>,
     module_ids: Vec<ModuleId>,
 ) -> QueryResult<Vec<Arc<CheckedModule>>> {
-    module_ids
-        .into_iter()
-        .map(|module_id| db.get(CheckedModuleQuery(module_id)))
-        .collect()
+    db.get_many(module_ids.into_iter().map(CheckedModuleQuery))
 }
 
 fn function_bodies_from_checked_modules(
