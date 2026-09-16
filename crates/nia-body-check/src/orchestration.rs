@@ -394,7 +394,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
     }
     checker.print_profile();
     time_body_stage(timing, "body_check.finish", module_id, || {
-        let mut facts = SemanticFactsBuilder {
+        let facts = SemanticFactsBuilder {
             global_types: checker
                 .global_types
                 .into_iter()
@@ -431,7 +431,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
             node_resolved_calls: checker.node_resolved_calls,
             node_function_references: checker.node_function_references,
         };
-        facts.retain_module_level_facts();
         let facts = facts.finish(input.semantic_uses.node_store());
         checker
             .diagnostic_owners

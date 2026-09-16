@@ -941,6 +941,26 @@ impl FunctionSemanticFacts {
 }
 
 impl FunctionSemanticFactsBuilder {
+    /// Reports whether this builder carries no function-owned facts.
+    pub fn is_empty(&self) -> bool {
+        self.local_types.is_empty()
+            && self.global_value_uses.is_empty()
+            && self.generic_instantiations.is_empty()
+            && self.node_expr_types.is_empty()
+            && self.node_bracket_suffix_resolutions.is_empty()
+            && self.node_pointer_array_to_slice_coercions.is_empty()
+            && self.node_function_pointer_to_callable_coercions.is_empty()
+            && self.node_trait_object_coercions.is_empty()
+            && self.node_trait_object_upcasts.is_empty()
+            && self.node_builtin_values.is_empty()
+            && self.node_associated_const_projections.is_empty()
+            && self.node_array_repeat_counts.is_empty()
+            && self.node_pattern_values.is_empty()
+            && self.node_resolved_calls.is_empty()
+            && self.node_function_references.is_empty()
+            && self.trait_method_refs.is_empty()
+    }
+
     /// Freezes locator maps into node maps owned by `store`.
     pub fn finish(self, store: &NodeStore) -> FunctionSemanticFacts {
         FunctionSemanticFacts {

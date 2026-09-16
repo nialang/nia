@@ -31,7 +31,6 @@ impl<'a> BodyChecker<'a> {
             Some(SemanticValueUse::Local(_)) | None => None,
         };
         if let Some(facts) = self.current_function_facts() {
-            facts.node_expr_types.insert(expr.node_key.clone(), ty);
             if let Some(def_id) = global_value_use {
                 facts.global_value_uses.insert(def_id);
             }
@@ -45,11 +44,6 @@ impl<'a> BodyChecker<'a> {
     ) {
         self.node_bracket_suffix_resolutions
             .insert(expr.node_key.clone(), resolution);
-        if let Some(facts) = self.current_function_facts() {
-            facts
-                .node_bracket_suffix_resolutions
-                .insert(expr.node_key.clone(), resolution);
-        }
     }
 
     pub(super) fn record_resolved_node_call(
@@ -116,10 +110,7 @@ impl<'a> BodyChecker<'a> {
                 .push(Diagnostic::user_error_at(codes::CONST, span, summary));
         }
         self.enqueue_same_module_resolved_call(&call);
-        self.node_resolved_calls.insert(key.clone(), call.clone());
-        if let Some(facts) = self.current_function_facts() {
-            facts.node_resolved_calls.insert(key.clone(), call);
-        }
+        self.node_resolved_calls.insert(key.clone(), call);
     }
 
     fn resolved_call_is_const_capable(&mut self, call: &ResolvedCall) -> bool {
@@ -271,11 +262,6 @@ impl<'a> BodyChecker<'a> {
     ) {
         self.node_pointer_array_to_slice_coercions
             .insert(expr.node_key.clone(), coercion);
-        if let Some(facts) = self.current_function_facts() {
-            facts
-                .node_pointer_array_to_slice_coercions
-                .insert(expr.node_key.clone(), coercion);
-        }
     }
 
     pub(super) fn record_function_pointer_to_callable_coercion(
@@ -285,11 +271,6 @@ impl<'a> BodyChecker<'a> {
     ) {
         self.node_function_pointer_to_callable_coercions
             .insert(expr.node_key.clone(), coercion);
-        if let Some(facts) = self.current_function_facts() {
-            facts
-                .node_function_pointer_to_callable_coercions
-                .insert(expr.node_key.clone(), coercion);
-        }
     }
 
     pub(super) fn record_trait_object_node_coercion(
@@ -299,11 +280,6 @@ impl<'a> BodyChecker<'a> {
     ) {
         self.node_trait_object_coercions
             .insert(expr.node_key.clone(), coercion);
-        if let Some(facts) = self.current_function_facts() {
-            facts
-                .node_trait_object_coercions
-                .insert(expr.node_key.clone(), coercion);
-        }
     }
 
     pub(super) fn record_trait_object_node_upcast(
@@ -313,21 +289,11 @@ impl<'a> BodyChecker<'a> {
     ) {
         self.node_trait_object_upcasts
             .insert(expr.node_key.clone(), upcast);
-        if let Some(facts) = self.current_function_facts() {
-            facts
-                .node_trait_object_upcasts
-                .insert(expr.node_key.clone(), upcast);
-        }
     }
 
     pub(super) fn record_builtin_node_value(&mut self, expr: &Expr, value: BuiltinValue) {
         self.node_builtin_values
-            .insert(expr.node_key.clone(), value.clone());
-        if let Some(facts) = self.current_function_facts() {
-            facts
-                .node_builtin_values
-                .insert(expr.node_key.clone(), value);
-        }
+            .insert(expr.node_key.clone(), value);
     }
 
     pub(super) fn record_associated_const_projection(
@@ -336,12 +302,7 @@ impl<'a> BodyChecker<'a> {
         projection: AssociatedConstProjection,
     ) {
         self.node_associated_const_projections
-            .insert(expr.node_key.clone(), projection.clone());
-        if let Some(facts) = self.current_function_facts() {
-            facts
-                .node_associated_const_projections
-                .insert(expr.node_key.clone(), projection);
-        }
+            .insert(expr.node_key.clone(), projection);
     }
 
     pub(super) fn record_function_node_reference(
@@ -350,40 +311,86 @@ impl<'a> BodyChecker<'a> {
         key: &VersionedNodeKey,
         reference: FunctionReference,
     ) {
-        self.node_function_references
-            .insert(key.clone(), reference.clone());
-        if let Some(facts) = self.current_function_facts() {
-            facts
-                .node_function_references
-                .insert(key.clone(), reference);
-        }
+        self.node_function_references.insert(key.clone(), reference);
     }
 
     pub(super) fn record_array_repeat_count(&mut self, expr: &Expr, value: u64) {
         self.node_array_repeat_counts
             .insert(expr.node_key.clone(), value);
-        if let Some(facts) = self.current_function_facts() {
-            facts
-                .node_array_repeat_counts
-                .insert(expr.node_key.clone(), value);
-        }
     }
 
     pub(super) fn record_pattern_value(&mut self, expr: &Expr, value: i128) {
         self.node_pattern_values
             .insert(expr.node_key.clone(), value);
-        if let Some(facts) = self.current_function_facts() {
-            facts
-                .node_pattern_values
-                .insert(expr.node_key.clone(), value);
-        }
     }
 
     pub(super) fn record_local_type(&mut self, local_id: LocalId, ty: InternedTyId) {
         let ty = self.normalize_aliases_in_type(ty);
         self.local_types.insert(local_id, ty);
-        if let Some(facts) = self.current_function_facts() {
-            facts.local_types.insert(local_id, ty);
+    }
+
+    pub(super) fn swap_function_facts(&mut self, def_id: GlobalDefId) {
+        let facts = self.function_facts.entry(def_id).or_default();
+        std::mem::swap(&mut self.local_types, &mut facts.local_types);
+        std::mem::swap(
+            &mut self.generic_instantiations,
+            &mut facts.generic_instantiations,
+        );
+        std::mem::swap(&mut self.node_expr_types, &mut facts.node_expr_types);
+        std::mem::swap(
+            &mut self.node_bracket_suffix_resolutions,
+            &mut facts.node_bracket_suffix_resolutions,
+        );
+        std::mem::swap(
+            &mut self.node_pointer_array_to_slice_coercions,
+            &mut facts.node_pointer_array_to_slice_coercions,
+        );
+        std::mem::swap(
+            &mut self.node_function_pointer_to_callable_coercions,
+            &mut facts.node_function_pointer_to_callable_coercions,
+        );
+        std::mem::swap(
+            &mut self.node_trait_object_coercions,
+            &mut facts.node_trait_object_coercions,
+        );
+        std::mem::swap(
+            &mut self.node_trait_object_upcasts,
+            &mut facts.node_trait_object_upcasts,
+        );
+        std::mem::swap(
+            &mut self.node_builtin_values,
+            &mut facts.node_builtin_values,
+        );
+        std::mem::swap(
+            &mut self.node_associated_const_projections,
+            &mut facts.node_associated_const_projections,
+        );
+        std::mem::swap(
+            &mut self.node_array_repeat_counts,
+            &mut facts.node_array_repeat_counts,
+        );
+        std::mem::swap(
+            &mut self.node_pattern_values,
+            &mut facts.node_pattern_values,
+        );
+        std::mem::swap(
+            &mut self.node_resolved_calls,
+            &mut facts.node_resolved_calls,
+        );
+        std::mem::swap(
+            &mut self.node_function_references,
+            &mut facts.node_function_references,
+        );
+    }
+
+    pub(super) fn store_function_facts(&mut self, def_id: GlobalDefId) {
+        self.swap_function_facts(def_id);
+        if self
+            .function_facts
+            .get(&def_id)
+            .is_some_and(FunctionSemanticFactsBuilder::is_empty)
+        {
+            self.function_facts.remove(&def_id);
         }
     }
 
