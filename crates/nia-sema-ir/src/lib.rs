@@ -8,6 +8,7 @@
 use std::collections::{HashMap, HashSet};
 
 use nia_ast::{BinaryOp, UnaryOp};
+use nia_hash::FastHashMap;
 use nia_ids::{
     BuiltinFunction, BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId,
     ModuleId, ReceiverKind,
@@ -436,33 +437,33 @@ pub struct SemanticFactsBuilder {
     /// Function-body facts keyed by function definition.
     pub function_facts: HashMap<GlobalDefId, FunctionSemanticFacts>,
     /// Module-level expression types by stable locator.
-    pub node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
+    pub node_expr_types: FastHashMap<VersionedNodeKey, InternedTyId>,
     /// Module-level bracket suffix classifications.
-    pub node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
+    pub node_bracket_suffix_resolutions: FastHashMap<VersionedNodeKey, BracketSuffixResolution>,
     /// Module-level pointer-to-array coercions.
     pub node_pointer_array_to_slice_coercions:
-        HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+        FastHashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
     /// Module-level function-pointer to callable-view coercions.
     pub node_function_pointer_to_callable_coercions:
-        HashMap<VersionedNodeKey, FunctionPointerToCallableCoercion>,
+        FastHashMap<VersionedNodeKey, FunctionPointerToCallableCoercion>,
     /// Module-level trait-object coercions.
-    pub node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
+    pub node_trait_object_coercions: FastHashMap<VersionedNodeKey, TraitObjectCoercion>,
     /// Module-level trait-object upcasts.
-    pub node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
+    pub node_trait_object_upcasts: FastHashMap<VersionedNodeKey, TraitObjectUpcast>,
     /// Module-level compiler builtin values.
-    pub node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
+    pub node_builtin_values: FastHashMap<VersionedNodeKey, BuiltinValue>,
     /// Module-level compiler builtin associated values.
-    pub node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
+    pub node_builtin_associated_values: FastHashMap<VersionedNodeKey, BuiltinAssociatedValue>,
     /// Module-level associated-const projections.
-    pub node_associated_const_projections: HashMap<VersionedNodeKey, AssociatedConstProjection>,
+    pub node_associated_const_projections: FastHashMap<VersionedNodeKey, AssociatedConstProjection>,
     /// Module-level evaluated array-repeat counts.
-    pub node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
+    pub node_array_repeat_counts: FastHashMap<VersionedNodeKey, u64>,
     /// Module-level evaluated pattern constants.
-    pub node_pattern_values: HashMap<VersionedNodeKey, i128>,
+    pub node_pattern_values: FastHashMap<VersionedNodeKey, i128>,
     /// Module-level resolved call dispatches.
-    pub node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
+    pub node_resolved_calls: FastHashMap<VersionedNodeKey, ResolvedCall>,
     /// Module-level function references.
-    pub node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
+    pub node_function_references: FastHashMap<VersionedNodeKey, FunctionReference>,
 }
 
 impl Default for SemanticFacts {
@@ -856,31 +857,31 @@ pub struct FunctionSemanticFactsBuilder {
     /// Generic instantiations requested by the function.
     pub generic_instantiations: Vec<GenericInstantiation>,
     /// Inferred expression types by stable locator.
-    pub node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
+    pub node_expr_types: FastHashMap<VersionedNodeKey, InternedTyId>,
     /// Bracket suffix classifications.
-    pub node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
+    pub node_bracket_suffix_resolutions: FastHashMap<VersionedNodeKey, BracketSuffixResolution>,
     /// Pointer-to-array coercions.
     pub node_pointer_array_to_slice_coercions:
-        HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+        FastHashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
     /// Function-pointer to callable-view coercions.
     pub node_function_pointer_to_callable_coercions:
-        HashMap<VersionedNodeKey, FunctionPointerToCallableCoercion>,
+        FastHashMap<VersionedNodeKey, FunctionPointerToCallableCoercion>,
     /// Trait-object coercions.
-    pub node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
+    pub node_trait_object_coercions: FastHashMap<VersionedNodeKey, TraitObjectCoercion>,
     /// Trait-object upcasts.
-    pub node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
+    pub node_trait_object_upcasts: FastHashMap<VersionedNodeKey, TraitObjectUpcast>,
     /// Compiler builtin values.
-    pub node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
+    pub node_builtin_values: FastHashMap<VersionedNodeKey, BuiltinValue>,
     /// Associated-const projections.
-    pub node_associated_const_projections: HashMap<VersionedNodeKey, AssociatedConstProjection>,
+    pub node_associated_const_projections: FastHashMap<VersionedNodeKey, AssociatedConstProjection>,
     /// Evaluated array-repeat counts.
-    pub node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
+    pub node_array_repeat_counts: FastHashMap<VersionedNodeKey, u64>,
     /// Evaluated pattern constants.
-    pub node_pattern_values: HashMap<VersionedNodeKey, i128>,
+    pub node_pattern_values: FastHashMap<VersionedNodeKey, i128>,
     /// Resolved call dispatches.
-    pub node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
+    pub node_resolved_calls: FastHashMap<VersionedNodeKey, ResolvedCall>,
     /// Concrete function references.
-    pub node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
+    pub node_function_references: FastHashMap<VersionedNodeKey, FunctionReference>,
     /// Trait methods referenced by the function.
     pub trait_method_refs: Vec<SemanticTraitMethodRef>,
 }
@@ -1001,7 +1002,7 @@ impl FunctionSemanticFactsBuilder {
 
 fn node_map_from_entries<V>(
     store: &NodeStore,
-    entries: HashMap<VersionedNodeKey, V>,
+    entries: FastHashMap<VersionedNodeKey, V>,
 ) -> NodeMap<V> {
     let mut builder = NodeMap::builder(store);
     builder.extend(entries);

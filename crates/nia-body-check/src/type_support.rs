@@ -8,6 +8,7 @@ use crate::{BodyChecker, BodyTypeCx};
 use nia_ast::{Expr, ExprKind, TypeRef, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
+use nia_hash::FastHashMap;
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_sema_ir::{FunctionPointerToCallableCoercion, PointerArrayToSliceCoercion};
 use nia_span::Span;
@@ -1555,18 +1556,18 @@ impl<'a> BodyChecker<'a> {
             callable_extension_methods_by_name: SymbolMap::default(),
             provider_demands: self.provider_demands.clone(),
             provider_demands_by_function: self.provider_demands_by_function.clone(),
-            node_expr_types: HashMap::new(),
-            node_bracket_suffix_resolutions: HashMap::new(),
-            node_pointer_array_to_slice_coercions: HashMap::new(),
-            node_function_pointer_to_callable_coercions: HashMap::new(),
-            node_trait_object_coercions: HashMap::new(),
-            node_trait_object_upcasts: HashMap::new(),
-            node_builtin_values: HashMap::new(),
-            node_associated_const_projections: HashMap::new(),
-            node_array_repeat_counts: HashMap::new(),
-            node_pattern_values: HashMap::new(),
-            node_resolved_calls: HashMap::new(),
-            node_function_references: HashMap::new(),
+            node_expr_types: FastHashMap::default(),
+            node_bracket_suffix_resolutions: FastHashMap::default(),
+            node_pointer_array_to_slice_coercions: FastHashMap::default(),
+            node_function_pointer_to_callable_coercions: FastHashMap::default(),
+            node_trait_object_coercions: FastHashMap::default(),
+            node_trait_object_upcasts: FastHashMap::default(),
+            node_builtin_values: FastHashMap::default(),
+            node_associated_const_projections: FastHashMap::default(),
+            node_array_repeat_counts: FastHashMap::default(),
+            node_pattern_values: FastHashMap::default(),
+            node_resolved_calls: FastHashMap::default(),
+            node_function_references: FastHashMap::default(),
             inferred_closures: self.inferred_closures.clone(),
             generic_instantiations: Vec::new(),
             function_facts: HashMap::new(),
