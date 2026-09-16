@@ -82,6 +82,8 @@ pub(super) struct ExecutableValueRefItemIndexQuery(pub(super) ModuleId);
 impl QueryKey<CompilerContext> for ExecutableValueRefItemIndexQuery {
     type Value = HashMap<nia_ids::DefId, ExecutableValueRefItemInput>;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "executable_value_ref_item_index"
     }
@@ -94,6 +96,10 @@ impl QueryKey<CompilerContext> for ExecutableValueRefItemIndexQuery {
             index_executable_value_ref_item(item, item_index, &defs, &mut index);
         }
         Ok(index)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -153,6 +159,8 @@ pub(super) struct ExecutableValueRefItemQuery(pub(super) GlobalDefId);
 impl QueryKey<CompilerContext> for ExecutableValueRefItemQuery {
     type Value = Option<ExecutableValueRefItemInput>;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "executable_value_ref_item"
     }
@@ -162,6 +170,10 @@ impl QueryKey<CompilerContext> for ExecutableValueRefItemQuery {
             .get(ExecutableValueRefItemIndexQuery(self.0.module_id))?
             .get(&self.0.def_id)
             .cloned())
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
