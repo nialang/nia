@@ -230,7 +230,13 @@ struct NodeRevisionCore {
     // canonical locator owned by `locators`.
     by_locator: HashTable<NodeIndex>,
     // Owns each locator exactly once while providing reverse index lookup.
-    locators: FastHashMap<NodeIndex, VersionedNodeKey>,
+    locators: FastHashMap<NodeIndex, InternedLocator>,
+}
+
+#[derive(Debug)]
+struct InternedLocator {
+    hash: u64,
+    key: VersionedNodeKey,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -411,7 +417,11 @@ impl NodeRevision {
             locators,
         } = &mut *core;
         if let Some(index) = by_locator
-            .find(locator_hash, |index| locators.get(index) == Some(&locator))
+            .find(locator_hash, |index| {
+                locators
+                    .get(index)
+                    .is_some_and(|interned| interned.key == locator)
+            })
             .copied()
         {
             return index;
@@ -423,13 +433,18 @@ impl NodeRevision {
                 })
                 .expect("node identity space exhausted"),
         );
-        locators.insert(index, locator);
+        locators.insert(
+            index,
+            InternedLocator {
+                hash: locator_hash,
+                key: locator,
+            },
+        );
         by_locator.insert_unique(locator_hash, index, |index| {
-            hash_locator(
-                locators
-                    .get(index)
-                    .expect("locator index inserted before intern table growth"),
-            )
+            locators
+                .get(index)
+                .expect("locator index inserted before intern table growth")
+                .hash
         });
         index
     }
@@ -438,7 +453,9 @@ impl NodeRevision {
         let core = self.core.lock().expect("node revision lock poisoned");
         core.by_locator
             .find(hash_locator(locator), |index| {
-                core.locators.get(index) == Some(locator)
+                core.locators
+                    .get(index)
+                    .is_some_and(|interned| interned.key == *locator)
             })
             .copied()
     }
@@ -449,7 +466,7 @@ impl NodeRevision {
             .expect("node revision lock poisoned")
             .locators
             .get(&index)
-            .cloned()
+            .map(|interned| interned.key.clone())
     }
 
     fn indices(&self) -> Vec<NodeIndex> {
@@ -971,6 +988,35 @@ mod tests {
         );
 
         assert_eq!(key.position(), &NodePosition::ChildPathRange { start, end });
+    }
+
+    #[test]
+    fn revision_interner_preserves_lookups_across_table_growth() {
+        let version = SourceVersion {
+            id: SourceId(1),
+            revision: SourceRevision::INITIAL,
+        };
+        let store = NodeStore::new();
+        let mut append = store.append();
+        let locators = (0..256)
+            .map(|step| {
+                VersionedNodeKey::child_path(
+                    version,
+                    SyntaxKind::Expr,
+                    NodeChildPath::from_steps([0, step, step + 1]),
+                )
+            })
+            .collect::<Vec<_>>();
+        let node_ids = locators
+            .iter()
+            .cloned()
+            .map(|locator| append.intern(locator))
+            .collect::<Vec<_>>();
+
+        for (locator, node_id) in locators.iter().zip(node_ids) {
+            assert_eq!(append.id_for_locator(locator), Some(node_id));
+            assert_eq!(store.locator(node_id).as_ref(), Some(locator));
+        }
     }
 
     #[test]
