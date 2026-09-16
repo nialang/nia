@@ -25,6 +25,47 @@ fn main() i32 {
 }
 
 #[test]
+fn function_facts_are_not_duplicated_in_module_staging() {
+    let checked = pipeline(
+        r#"
+fn identity[T](value: T) T {
+    value
+}
+
+fn main() i32 {
+    identity[i32](1)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(checked.facts.generic_instantiations.is_empty());
+    assert!(checked.facts.node_expr_types.is_empty());
+    assert!(checked.facts.node_resolved_calls.is_empty());
+    assert!(
+        checked
+            .facts
+            .function_facts
+            .values()
+            .any(|facts| !facts.generic_instantiations.is_empty())
+    );
+    assert!(
+        checked
+            .facts
+            .function_facts
+            .values()
+            .any(|facts| !facts.node_expr_types.is_empty())
+    );
+    assert!(
+        checked
+            .facts
+            .function_facts
+            .values()
+            .any(|facts| !facts.node_resolved_calls.is_empty())
+    );
+}
+
+#[test]
 fn static_fact_references_retain_generic_function_instances() {
     let checked = pipeline_static_facts(
         r#"

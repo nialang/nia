@@ -403,10 +403,7 @@ impl<'a> BodyChecker<'a> {
             span,
             source_def_id: self.current_def_id,
         };
-        self.generic_instantiations.push(instantiation.clone());
-        if let Some(facts) = self.current_function_facts() {
-            facts.generic_instantiations.push(instantiation);
-        }
+        self.generic_instantiations.push(instantiation);
     }
 
     pub(crate) fn record_generic_instantiation_with_const_args(
@@ -438,10 +435,7 @@ impl<'a> BodyChecker<'a> {
             span,
             source_def_id: self.current_def_id,
         };
-        self.generic_instantiations.push(instantiation.clone());
-        if let Some(facts) = self.current_function_facts() {
-            facts.generic_instantiations.push(instantiation);
-        }
+        self.generic_instantiations.push(instantiation);
     }
 
     pub(crate) fn effective_generics_for_def(&mut self, def_id: GlobalDefId) -> Vec<SymbolId> {
