@@ -54,6 +54,28 @@ fn invalidates_get_many_dependents_without_reordering_results() {
 }
 
 #[test]
+fn invalidation_reports_branching_dependents_in_stable_order() {
+    let db = QueryDb::new(TestContext {
+        executions: AtomicUsize::new(0),
+    });
+
+    assert_eq!(*db.expect_get(DoubleTwice(7)), 28);
+    assert_eq!(*db.expect_get(DoubleMany([7, 5])), 24);
+
+    let invalidated = db
+        .invalidate(Double(7))
+        .invalidated
+        .into_iter()
+        .map(|frame| frame.description)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        invalidated,
+        vec!["double(7)", "double_many([7, 5])", "double_twice(7)"]
+    );
+}
+
+#[test]
 fn dependency_identity_does_not_merge_keys_with_same_debug_label() {
     let db = QueryDb::new(TestContext {
         executions: AtomicUsize::new(0),

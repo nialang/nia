@@ -1149,10 +1149,19 @@ impl<C> QueryDb<C> {
                 cleared.push(*node_id);
             }
         }
-        let frames = invalidated
+        let mut frames = invalidated
             .iter()
             .map(|node_id| self.inner.session.frame(*node_id))
             .collect::<Vec<_>>();
+        // Traversal order has no semantic effect. Keep the changed root first and make the
+        // diagnostic portion deterministic without formatting keys for every dependency edge.
+        frames[1..].sort_by(|left, right| {
+            (left.name, left.key.as_str(), left.description.as_str()).cmp(&(
+                right.name,
+                right.key.as_str(),
+                right.description.as_str(),
+            ))
+        });
 
         let mut dependencies = self
             .inner
@@ -1286,7 +1295,7 @@ impl<C> QueryDb<C> {
             .dependencies
             .lock()
             .expect("query dependency lock poisoned");
-        dependencies.collect_dependents(&self.inner.session, root)
+        dependencies.collect_dependents(root)
     }
 
     fn dependencies_are_green(&self, expected: &DependencyFingerprints) -> bool {
