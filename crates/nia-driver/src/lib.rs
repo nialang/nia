@@ -33,7 +33,7 @@ pub use pipeline::{
     DriverOutput, EmitLlvmRequest, EmitObjectRequest, ExecutableArtifact,
     ExecutableCacheEnvironment, ExecutableCacheReference, ExecutableCacheRestore,
     LinkExecutableRequest, LinkedExecutableWithSourceManifest, LlvmIrArtifact, ObjectArtifact,
-    ObjectOutput, PublishedPackageArtifact, StaticArchiveArtifact, StaticArchiveCacheEnvironment,
+    ObjectOutput, StaticArchiveArtifact, StaticArchiveCacheEnvironment,
     StaticArchiveCacheReference, StaticArchiveCacheRestore, WriteObjectRequest,
     WrittenObjectArtifact,
 };

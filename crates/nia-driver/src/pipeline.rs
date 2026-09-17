@@ -12,8 +12,8 @@ use std::{
 };
 
 use nia_compiler_query::{
-    CodegenScope, CompileRequest, CompilerDatabase, StableDefinitionPackageResolver, TimingMode,
-    has_error_diagnostics, query_error_diagnostic,
+    CodegenScope, CompileRequest, CompilerDatabase, TimingMode, has_error_diagnostics,
+    query_error_diagnostic,
 };
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleMap;
@@ -25,7 +25,7 @@ use nia_linker::{
 };
 use nia_loader_query::{LoadRequest, LoaderDatabase, SourceInputManifest};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
-use nia_package_metadata::{PackageId, PackageManifest};
+use nia_package_metadata::PackageId;
 use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::{BuildProfile, TargetConfig};
 use nia_toolchain::{RuntimeSpec, ToolchainLayout};
@@ -63,15 +63,6 @@ pub struct CheckedProgramWithSourceManifest {
     pub program: CheckedProgram,
     /// Final loader source-input manifest.
     pub source_manifest: SourceInputManifest,
-}
-
-/// Published target-independent package metadata and its installed path.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PublishedPackageArtifact {
-    /// Destination containing the atomically installed package container.
-    pub path: PathBuf,
-    /// Manifest encoded in the published container.
-    pub manifest: PackageManifest,
 }
 
 const EXECUTABLE_CACHE_REFERENCE_LEN: usize = 12 * size_of::<u64>();
@@ -592,76 +583,6 @@ impl Driver {
                 return DriverOutput::from_check_diagnostics(program);
             }
             DriverOutput::success(program)
-        })
-    }
-
-    /// Checks and atomically publishes a target-independent package artifact.
-    ///
-    /// Publication is explicit and does not alter the normal source loader
-    /// path. Existing destination contents remain intact if staging fails.
-    pub fn publish_package_artifact(
-        &self,
-        request: CheckRequest,
-        package: PackageId,
-        output: PathBuf,
-    ) -> DriverOutput<PublishedPackageArtifact> {
-        self.publish_package_artifact_with_resolver(request, package, output, None)
-    }
-
-    /// Checks and atomically publishes a package artifact using an explicit
-    /// resolver for nominal definitions from dependency packages.
-    pub fn publish_package_artifact_with_resolver(
-        &self,
-        request: CheckRequest,
-        package: PackageId,
-        output: PathBuf,
-        resolver: Option<&dyn StableDefinitionPackageResolver>,
-    ) -> DriverOutput<PublishedPackageArtifact> {
-        DriverOutput::catch_ice(|| {
-            let database = match self.compiler_database(&request) {
-                Ok(database) => database,
-                Err(error) => {
-                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
-                        query_error_diagnostic(error),
-                    ));
-                }
-            };
-            let checked = match database.check_program() {
-                Ok(checked) => checked,
-                Err(error) => {
-                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
-                        query_error_diagnostic(error),
-                    ));
-                }
-            };
-            if has_error_diagnostics(&checked.diagnostics) {
-                return DriverOutput::from_error(DriverError::CheckDiagnostics(checked));
-            }
-            let publication_result = match resolver {
-                Some(resolver) => {
-                    database.publish_package_artifact_with_resolver(package, resolver)
-                }
-                None => database.publish_package_artifact(package),
-            };
-            let publication = match publication_result {
-                Ok(publication) => publication,
-                Err(error) => {
-                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
-                        query_error_diagnostic(error),
-                    ));
-                }
-            };
-            if let Err(error) = write_atomic_bytes(&output, &publication.bytes) {
-                return DriverOutput::from_error(DriverError::Io {
-                    path: output,
-                    operation: "publish package artifact",
-                    error,
-                });
-            }
-            DriverOutput::success(PublishedPackageArtifact {
-                path: output,
-                manifest: publication.manifest,
-            })
         })
     }
 
@@ -2309,38 +2230,6 @@ fn write_output_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     fs::write(path, bytes)
 }
 
-fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::other("invalid package artifact path"))?;
-    if !parent.as_os_str().is_empty() {
-        fs::create_dir_all(parent)?;
-    }
-    let staged = path.with_extension(format!(
-        "tmp.{}.{}",
-        std::process::id(),
-        DRIVER_OUTPUT_STAGE_ID.fetch_add(1, Ordering::Relaxed)
-    ));
-    let result = (|| {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&staged)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        drop(file);
-        fs::rename(&staged, path)?;
-        if !parent.as_os_str().is_empty() {
-            fs::File::open(parent)?.sync_all()?;
-        }
-        Ok(())
-    })();
-    if result.is_err() || staged.exists() {
-        let _ = fs::remove_file(&staged);
-    }
-    result
-}
-
 /// Copies one tool-produced file into a sibling staging file before replacing
 /// the destination. The opened source length is enforced across the stream, so
 /// arbitrarily large archives do not require a coordinator-sized allocation
@@ -2456,46 +2345,6 @@ impl Drop for TempDir {
 #[cfg(test)]
 mod streamed_output_tests {
     use super::*;
-    use nia_toolchain::ToolchainLayoutRequest;
-    use std::sync::Arc;
-
-    #[test]
-    fn standard_library_publication_accepts_overloads_and_associated_types() {
-        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .and_then(Path::parent)
-            .unwrap();
-        let layout = Arc::new(
-            ToolchainLayout::resolve(ToolchainLayoutRequest::explicit(
-                std::env::current_exe().unwrap(),
-                workspace.join("lib"),
-            ))
-            .unwrap(),
-        );
-        let request = CheckRequest::from_source_path(SourcePath::with_identity(
-            layout.std_module().to_string_lossy().into_owned(),
-            "toolchain:/std/pkg.nia",
-        ));
-        let driver = Driver::new(Arc::clone(&layout));
-        let database = driver.compiler_database(&request).unwrap();
-        let package = PackageId::standard_library();
-        let publication = database
-            .publish_package_artifact_with_resolver(package.clone(), &|_| Ok(package.clone()))
-            .unwrap();
-        let artifact = nia_package_metadata::PackageArtifact::open(publication.bytes).unwrap();
-        assert_eq!(artifact.manifest().package, package);
-        let signatures = artifact.signatures().unwrap().unwrap();
-        assert!(signatures.traits.iter().any(|trait_record| {
-            trait_record.members.iter().any(|member| {
-                member.name == "formatSpec"
-                    && member.flags & nia_package_metadata::SIGNATURE_FLAG_HAS_BODY != 0
-            })
-        }));
-        assert!(signatures.records.iter().any(|record| {
-            record.definition.name == "formatSpec"
-                && record.flags & nia_package_metadata::SIGNATURE_FLAG_HAS_BODY != 0
-        }));
-    }
 
     #[test]
     fn large_tool_output_is_streamed_and_atomically_installed() {
@@ -2523,17 +2372,5 @@ mod streamed_output_tests {
 
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
         assert_eq!(fs::read(output).expect("read existing output"), b"existing");
-    }
-
-    #[test]
-    fn package_artifact_publication_replaces_destination_atomically() {
-        let root = TempDir::new("nia_driver_package_artifact");
-        fs::create_dir_all(root.path()).expect("create test root");
-        let output = root.path().join("nested/package.niapkg");
-        fs::create_dir_all(output.parent().unwrap()).expect("create artifact parent");
-        fs::write(&output, b"old").expect("write old artifact");
-        write_atomic_bytes(&output, b"new artifact").expect("publish artifact");
-        assert_eq!(fs::read(output).expect("read artifact"), b"new artifact");
-        assert!(!root.path().join("nested/package.tmp").exists());
     }
 }

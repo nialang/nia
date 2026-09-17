@@ -119,352 +119,6 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
 }
 
 #[test]
-fn package_interface_publication_is_canonical_and_stable() {
-    let fixture = LoadedProgramFixture::new(
-        "src/main.nia",
-        "pub fn greet() () {}\nfn private() () {}\npub struct User {}",
-    );
-    let database = fixture.database();
-    let package = nia_package_metadata::PackageId {
-        namespace: "example".into(),
-        name: "demo".into(),
-        version: "1.0.0".into(),
-    };
-    let first = database.package_interface_section(package.clone()).unwrap();
-    let second = database.package_interface_section(package).unwrap();
-    assert_eq!(first, second);
-    assert_eq!(first.records.len(), 2);
-    assert!(
-        first
-            .records
-            .windows(2)
-            .all(|pair| { pair[0].definition < pair[1].definition })
-    );
-    assert!(
-        first.records.iter().all(|record| {
-            record.definition.name == "greet" || record.definition.name == "User"
-        })
-    );
-    assert!(
-        first
-            .records
-            .iter()
-            .all(|record| nia_package_metadata::decode_declaration(&record.declaration).is_ok())
-    );
-}
-
-#[test]
-fn package_interface_publication_includes_public_member_identity() {
-    let fixture = LoadedProgramFixture::new("src/main.nia", "pub enum User { Value }");
-    let database = fixture.database();
-    let package = nia_package_metadata::PackageId {
-        namespace: "example".into(),
-        name: "members".into(),
-        version: "1.0.0".into(),
-    };
-    let interface = database.package_interface_section(package.clone()).unwrap();
-    let member = interface
-        .records
-        .iter()
-        .find(|record| record.definition.name == "Value")
-        .expect("public enum variant must be published");
-    let owner = member.definition.owner.as_deref().expect("field owner");
-    assert_eq!(owner.name, "User");
-    assert_eq!(owner.kind, 13);
-    assert_eq!(member.definition.module.package, package);
-}
-
-#[test]
-fn package_artifact_publication_round_trips_manifest_and_interface() {
-    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
-    let database = fixture.database();
-    let package = nia_package_metadata::PackageId {
-        namespace: "example".into(),
-        name: "demo".into(),
-        version: "1.0.0".into(),
-    };
-    let publication = database.publish_package_artifact(package.clone()).unwrap();
-    assert_eq!(publication.manifest.package, package);
-    let artifact = nia_package_metadata::PackageArtifact::open(publication.bytes).unwrap();
-    assert_eq!(artifact.manifest(), &publication.manifest);
-    assert!(artifact.interface().unwrap().is_some());
-    assert!(artifact.signatures().unwrap().is_some());
-    let surface = artifact
-        .public_surface()
-        .unwrap()
-        .expect("publication must carry complete public surface");
-    assert_eq!(surface.package, package);
-    assert!(
-        surface
-            .modules
-            .iter()
-            .flat_map(|module| module.exports.iter())
-            .any(|export| export.name == "greet")
-    );
-}
-
-#[test]
-fn package_artifact_publication_emits_checked_generic_templates() {
-    let fixture =
-        LoadedProgramFixture::new("src/main.nia", "pub fn identity[T](value: T) T { value }");
-    let database = fixture.database();
-    let package = nia_package_metadata::PackageId {
-        namespace: "example".into(),
-        name: "generic-template".into(),
-        version: "1.0.0".into(),
-    };
-    let publication = database.publish_package_artifact(package.clone()).unwrap();
-    let artifact = nia_package_metadata::PackageArtifact::open(publication.bytes).unwrap();
-    let templates = artifact
-        .templates()
-        .unwrap()
-        .expect("generic publication must carry templates");
-    let identity = templates
-        .records
-        .iter()
-        .find(|record| record.definition.name == "identity")
-        .expect("generic function template");
-    assert_eq!(identity.parameter_count, 1);
-    assert!(!identity.body.is_empty());
-    assert!(!identity.summary.is_empty());
-    assert!(!identity.type_roots.is_empty());
-}
-
-#[test]
-fn package_artifact_publication_emits_const_runtime_templates() {
-    let fixture = LoadedProgramFixture::new(
-        "src/main.nia",
-        "pub const fn double(value: i32) i32 { value * 2 }",
-    );
-    let artifact = nia_package_metadata::PackageArtifact::open(
-        fixture
-            .database()
-            .publish_package_artifact(nia_package_metadata::PackageId {
-                namespace: "example".into(),
-                name: "const-template-demo".into(),
-                version: "1.0.0".into(),
-            })
-            .unwrap()
-            .bytes,
-    )
-    .unwrap();
-    let templates = artifact.templates().unwrap().unwrap();
-    assert_eq!(templates.records.len(), 1);
-    assert!(!templates.records[0].body.is_empty());
-    assert!(!templates.records[0].ctfe_body.is_empty());
-}
-
-#[test]
-fn package_artifact_publication_embeds_validated_signatures() {
-    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
-    let database = fixture.database();
-    let package = nia_package_metadata::PackageId {
-        namespace: "example".into(),
-        name: "signature-demo".into(),
-        version: "1.0.0".into(),
-    };
-    let definition = database
-        .package_interface_section(package.clone())
-        .unwrap()
-        .records
-        .into_iter()
-        .find(|record| record.definition.name == "greet")
-        .unwrap()
-        .definition;
-    let signatures = database
-        .package_signature_section_with_resolver(package.clone(), &|_| Ok(package.clone()))
-        .unwrap();
-    assert!(
-        signatures
-            .records
-            .iter()
-            .any(|record| record.definition == definition)
-    );
-    let publication = database
-        .publish_package_artifact_with_resolver_and_products_and_signatures(
-            package.clone(),
-            &|_| Ok(package.clone()),
-            None,
-            Some(signatures.clone()),
-        )
-        .unwrap();
-    let artifact = nia_package_metadata::PackageArtifact::open(publication.bytes).unwrap();
-    assert_eq!(artifact.signatures().unwrap(), Some(signatures));
-}
-
-#[test]
-fn package_signature_section_derives_function_flags_and_roots() {
-    let fixture = LoadedProgramFixture::new(
-        "src/main.nia",
-        "pub const answer: i32 = 42;\npub fn greet(value: i32) i32 { value }",
-    );
-    let database = fixture.database();
-    let package = nia_package_metadata::PackageId {
-        namespace: "example".into(),
-        name: "signature-derived".into(),
-        version: "1.0.0".into(),
-    };
-    let section = database
-        .package_signature_section_with_resolver(package.clone(), &|_| Ok(package.clone()))
-        .unwrap();
-    let greet = section
-        .records
-        .iter()
-        .find(|record| record.definition.name == "greet")
-        .expect("function signature");
-    assert_ne!(
-        greet.flags & nia_package_metadata::SIGNATURE_FLAG_HAS_BODY,
-        0
-    );
-    assert!(!greet.type_roots.is_empty());
-}
-
-#[test]
-fn package_signature_section_publishes_effective_track_caller_for_impl_methods() {
-    let fixture = LoadedProgramFixture::new(
-        "src/lib.nia",
-        r#"
-pub struct Record { value: i32 }
-pub trait CallerAware {
-@[trackCaller]
-fn call(&self) i32;
-}
-extend Record : CallerAware {
-fn call(&self) i32 { self.value }
-}
-"#,
-    );
-    let database = fixture.database();
-    let package = nia_package_metadata::PackageId {
-        namespace: "example".into(),
-        name: "track-caller-signature".into(),
-        version: "1.0.0".into(),
-    };
-    let section = database
-        .package_signature_section_with_resolver(package.clone(), &|_| Ok(package.clone()))
-        .unwrap();
-    let implementation = section
-        .records
-        .iter()
-        .find(|record| record.definition.name == "call" && record.definition.owner.is_some())
-        .expect("implementation method signature");
-    let nia_package_metadata::SignaturePayload::Function { attributes, .. } =
-        implementation.payload.as_ref().expect("function payload")
-    else {
-        panic!("implementation method payload is not a function");
-    };
-    assert!(
-        attributes.contains(&2),
-        "effective trackCaller attribute missing"
-    );
-}
-
-#[test]
-fn package_signature_section_groups_nested_members_by_owner() {
-    let fixture = LoadedProgramFixture::new("src/main.nia", "pub enum User { Value }");
-    let database = fixture.database();
-    let package = nia_package_metadata::PackageId {
-        namespace: "example".into(),
-        name: "signature-members".into(),
-        version: "1.0.0".into(),
-    };
-    let section = database
-        .package_signature_section_with_resolver(package, &|_| {
-            Ok(nia_package_metadata::PackageId {
-                namespace: "example".into(),
-                name: "signature-members".into(),
-                version: "1.0.0".into(),
-            })
-        })
-        .unwrap();
-    let user = section
-        .records
-        .iter()
-        .find(|record| record.definition.name == "User")
-        .expect("enum signature");
-    assert!(user.members.iter().any(|member| member.name == "Value"));
-}
-
-#[test]
-fn package_artifact_publication_rejects_template_for_unknown_definition() {
-    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
-    let database = fixture.database();
-    let package = nia_package_metadata::PackageId {
-        namespace: "example".into(),
-        name: "template-demo".into(),
-        version: "1.0.0".into(),
-    };
-    let templates = nia_package_metadata::TemplateSection {
-        records: vec![nia_package_metadata::TemplateRecord {
-            definition: nia_package_metadata::DefinitionId {
-                module: nia_package_metadata::ModuleId {
-                    package: package.clone(),
-                    path: "src/main.nia".into(),
-                },
-                name: "missing".into(),
-                kind: 2,
-                disambiguator: 0,
-                owner: None,
-            },
-            parameter_count: 0,
-            referenced_definitions: Vec::new(),
-            referenced_modules: Vec::new(),
-            type_roots: Vec::new(),
-            body: vec![1],
-            closure_entries: Vec::new(),
-            ctfe_body: Vec::new(),
-            summary: nia_package_metadata::encode_template_summary(
-                &nia_package_metadata::TemplateSummary::default(),
-            )
-            .unwrap(),
-        }],
-    };
-    assert!(
-        database
-            .publish_package_artifact_with_resolver_and_products(
-                package.clone(),
-                &|_| Ok(package.clone()),
-                Some(templates),
-            )
-            .is_err()
-    );
-}
-
-#[test]
-fn package_publication_excludes_definitions_owned_by_dependency_packages() {
-    let mut fixture = LoadedProgramFixture::new("src/main.nia", "pub fn root() () {}");
-    let dependency_module = fixture.add_child(
-        fixture.entry_id(),
-        "dependency",
-        "deps/lib.nia",
-        "pub fn foreign() () {}",
-    );
-    let database = fixture.database();
-    let package = nia_package_metadata::PackageId {
-        namespace: "example".into(),
-        name: "root".into(),
-        version: "1.0.0".into(),
-    };
-    let dependency = nia_package_metadata::PackageId {
-        namespace: "example".into(),
-        name: "dependency".into(),
-        version: "1.0.0".into(),
-    };
-    let interface = database
-        .package_interface_section_with_resolver(package.clone(), &|global: GlobalDefId| {
-            Ok(if global.module_id == dependency_module {
-                dependency.clone()
-            } else {
-                package.clone()
-            })
-        })
-        .unwrap();
-    assert_eq!(interface.records.len(), 1);
-    assert_eq!(interface.records[0].definition.name, "root");
-    assert_eq!(interface.records[0].definition.module.package, package);
-}
-
-#[test]
 fn stable_type_graph_publication_remaps_session_handles() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() Unit {}");
     let database = fixture.database();
@@ -822,26 +476,6 @@ fn stable_type_graph_publication_uses_explicit_definition_package_resolver() {
 }
 
 #[test]
-fn package_interface_publication_accepts_external_definition_resolver() {
-    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
-    let database = fixture.database();
-    let package = nia_package_metadata::PackageId {
-        namespace: "example".into(),
-        name: "app".into(),
-        version: "1.0.0".into(),
-    };
-    let interface = database
-        .package_interface_section_with_resolver(package.clone(), &|_| Ok(package.clone()))
-        .unwrap();
-    assert!(
-        interface
-            .records
-            .iter()
-            .any(|record| record.definition.name == "greet")
-    );
-}
-
-#[test]
 fn stable_definition_index_remaps_current_session_identities() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
     let database = fixture.database();
@@ -955,8 +589,13 @@ fn loaded_definition_resolver_validates_stable_identity() {
         name: "demo".into(),
         version: "1.0.0".into(),
     };
-    let interface = database.package_interface_section(package.clone()).unwrap();
-    let definition = &interface.records[0].definition;
+    let index = database
+        .stable_definition_index(&|_| Ok(package.clone()))
+        .unwrap();
+    let definition = index
+        .iter()
+        .find_map(|(identity, _)| (identity.name == "User").then_some(identity))
+        .expect("stable User identity");
     let resolved = database
         .resolve_loaded_definition(definition, &package)
         .unwrap();
@@ -984,14 +623,15 @@ fn loaded_definition_resolver_handles_nested_identity() {
         name: "demo".into(),
         version: "1.0.0".into(),
     };
-    let interface = database.package_interface_section(package.clone()).unwrap();
-    let variant = interface
-        .records
+    let index = database
+        .stable_definition_index(&|_| Ok(package.clone()))
+        .unwrap();
+    let variant = index
         .iter()
-        .find(|record| record.definition.name == "Value")
-        .expect("variant interface record");
+        .find_map(|(identity, _)| (identity.name == "Value").then_some(identity))
+        .expect("stable variant identity");
     let resolved = database
-        .resolve_loaded_definition(&variant.definition, &package)
+        .resolve_loaded_definition(variant, &package)
         .unwrap();
     assert_eq!(resolved.module_id, fixture.entry_id());
 }

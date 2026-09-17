@@ -5,12 +5,10 @@
 //! and backend products inside one [`nia_query::QuerySession`]. Public
 //! fingerprints identify relocatable persisted frontend products; session-local
 //! compiler databases retain query ownership, invalidation, and diagnostics.
-mod ctfe_template_codec;
 mod frontend_fingerprint;
 mod program_diagnostic_bundle;
 mod query;
 mod signature_cache;
-mod template_body_codec;
 
 use std::sync::Arc;
 
@@ -66,15 +64,6 @@ pub use query::{
     CompileRequest, CompilerDatabase, StableDefinitionIndex, StableDefinitionPackageResolver,
     StableDefinitionResolver, StableModuleIdentity, StableModuleIndex, StableModulePackageResolver,
 };
-
-/// Immutable bytes and manifest published for one compiled package snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PackageArtifactPublication {
-    /// Target-independent package manifest.
-    pub manifest: nia_package_metadata::PackageManifest,
-    /// Complete, validated package container ready for atomic publication.
-    pub bytes: Vec<u8>,
-}
 
 /// Converts a query-engine failure into a compiler-owned diagnostic.
 pub fn query_error_diagnostic(error: nia_query::QueryError) -> Diagnostic {
