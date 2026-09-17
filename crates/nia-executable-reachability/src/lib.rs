@@ -21,6 +21,7 @@ pub use nia_executable_facts::{
     ExecutableItemRefs, ReachableModuleInput, filter_semantic_facts_for_reachable_functions,
     filter_semantic_facts_for_reachable_items,
 };
+use nia_hash::{FastHashMap, FastHashSet};
 use nia_ids::{
     BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId, TraitId, TraitImplId,
 };
@@ -540,22 +541,20 @@ fn extend_reachability_from_unscanned_items(
     program_signatures: ExecutableSignatureIndex<'_>,
     pending_modules: &mut VecDeque<ModuleId>,
 ) {
-    let present_functions = state
-        .reachability
+    let present_functions = module
+        .executable_refs
         .functions
-        .iter()
+        .keys()
         .copied()
-        .filter(|def_id| def_id.module_id == module.module_id)
-        .filter(|def_id| module.executable_refs.functions.contains_key(def_id))
+        .filter(|def_id| state.reachability.functions.contains(def_id))
         .filter(|def_id| !state.scanned_functions.contains(def_id))
         .collect::<HashSet<_>>();
-    let present_globals = state
-        .reachability
+    let present_globals = module
+        .executable_refs
         .globals
-        .iter()
+        .keys()
         .copied()
-        .filter(|def_id| def_id.module_id == module.module_id)
-        .filter(|def_id| module.executable_refs.globals.contains_key(def_id))
+        .filter(|def_id| state.reachability.globals.contains(def_id))
         .filter(|def_id| !state.scanned_globals.contains(def_id))
         .collect::<HashSet<_>>();
     if present_functions.is_empty() && present_globals.is_empty() {

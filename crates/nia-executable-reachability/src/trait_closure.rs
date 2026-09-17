@@ -77,7 +77,7 @@ pub(super) fn extend_reachable_traits_from_generic_instances(
         };
         let mut executable_refs = typed_executable_refs_for_function(module, *def_id);
         for instantiation in executable_refs.generic_instantiations.drain(..) {
-            let mut visited = HashSet::default();
+            let mut visited = FastHashSet::default();
             extend_reachable_traits_from_generic_instantiation(
                 module.module_id,
                 module.type_store,
@@ -89,7 +89,7 @@ pub(super) fn extend_reachable_traits_from_generic_instances(
                 traits,
                 &instantiation,
                 &mut visited,
-                &mut HashSet::new(),
+                &mut FastHashSet::default(),
             );
         }
     }
@@ -110,14 +110,16 @@ pub(super) fn extend_reachable_traits_from_generic_instances_incremental(
         .filter(|def_id| module_id_list_contains(current_reachable_modules, def_id.module_id))
         .filter(|def_id| !state.scanned_generic_trait_functions.contains(def_id))
         .collect::<Vec<_>>();
+    let mut visited_by_module =
+        FastHashMap::<ModuleId, FastHashSet<ReachableGenericInstantiationKey>>::default();
     for def_id in pending_functions {
         let Some(module) = modules_by_id.get(&def_id.module_id) else {
             continue;
         };
         state.scanned_generic_trait_functions.insert(def_id);
         let mut executable_refs = typed_executable_refs_for_function(module, def_id);
+        let visited = visited_by_module.entry(module.module_id).or_default();
         for instantiation in executable_refs.generic_instantiations.drain(..) {
-            let mut visited = HashSet::default();
             extend_reachable_traits_from_generic_instantiation(
                 module.module_id,
                 module.type_store,
@@ -128,8 +130,8 @@ pub(super) fn extend_reachable_traits_from_generic_instances_incremental(
                 },
                 &mut state.reachable_traits,
                 &instantiation,
-                &mut visited,
-                &mut HashSet::new(),
+                visited,
+                &mut FastHashSet::default(),
             );
         }
     }
@@ -141,8 +143,8 @@ fn extend_reachable_traits_from_generic_instantiation(
     context: GenericTraitReachabilityContext<'_>,
     traits: &mut ReachableTraitRefs,
     instantiation: &nia_sema_ir::GenericInstantiation,
-    visited: &mut HashSet<ReachableGenericInstantiationKey>,
-    active_defs: &mut HashSet<GlobalDefId>,
+    visited: &mut FastHashSet<ReachableGenericInstantiationKey>,
+    active_defs: &mut FastHashSet<GlobalDefId>,
 ) {
     let GenericTraitReachabilityContext {
         modules_by_id,
@@ -187,7 +189,7 @@ fn extend_reachable_traits_from_generic_instantiation(
             const_generics = extension_generics.to_vec();
         }
     });
-    let const_generic_set = const_generics.iter().copied().collect::<HashSet<_>>();
+    let const_generic_set = const_generics.iter().copied().collect::<FastHashSet<_>>();
     // `GenericInstantiation` stores type and const arguments in separate
     // vectors. Filter the effective declaration-order names by kind before
     // zipping, otherwise an interleaved `N: usize, T` list binds `N` to `T`'s
@@ -437,6 +439,26 @@ impl TraitMethodExpansion<'_, '_> {
         }) {
             return;
         }
+        let expansion_key = ReachableTraitVtableKey {
+            module_id: self.module_id,
+            trait_id,
+            self_ty,
+            trait_args: trait_args.to_vec(),
+            trait_const_args: trait_const_args.to_vec(),
+        };
+        if self.traits.expanded_method_sets.contains(&expansion_key) {
+            return;
+        }
+        let trait_signature = match trait_id {
+            TraitId::Builtin(_) => None,
+            TraitId::Source(trait_def) => {
+                let Some(signature) = (self.program_signatures.trait_)(trait_def) else {
+                    return;
+                };
+                Some(signature)
+            }
+        };
+        self.traits.expanded_method_sets.insert(expansion_key);
         self.active_traits.push(ActiveTraitExpansion {
             store: self.types.store,
             trait_id,
@@ -472,11 +494,9 @@ impl TraitMethodExpansion<'_, '_> {
                     );
                 }
             }
-            TraitId::Source(trait_def) => {
-                let Some(trait_signature) = (self.program_signatures.trait_)(trait_def) else {
-                    self.active_traits.pop();
-                    return;
-                };
+            TraitId::Source(_) => {
+                let trait_signature = trait_signature
+                    .expect("source trait signature was resolved before method-set expansion");
                 self.traits.insert_methods_with_const_args(
                     self.module_id,
                     trait_id,
@@ -598,8 +618,8 @@ fn reachable_generic_instantiation_key(
 /// active, but must remain eligible when reached from a later sibling branch.
 fn should_visit_generic_instantiation(
     instantiation: &nia_sema_ir::GenericInstantiation,
-    visited: &mut HashSet<ReachableGenericInstantiationKey>,
-    active_defs: &HashSet<GlobalDefId>,
+    visited: &mut FastHashSet<ReachableGenericInstantiationKey>,
+    active_defs: &FastHashSet<GlobalDefId>,
 ) -> bool {
     if active_defs.contains(&instantiation.def_id) {
         return false;
@@ -719,6 +739,7 @@ pub(super) struct ReachableTraitRefs {
     method_keys: HashSet<ReachableTraitMethodKey>,
     vtables: Vec<ReachableTraitVtable>,
     vtable_keys: HashSet<ReachableTraitVtableKey>,
+    expanded_method_sets: HashSet<ReachableTraitVtableKey>,
 }
 
 #[derive(Debug, Clone)]
@@ -773,9 +794,11 @@ impl ReachableTraitRefs {
             traits,
             methods,
             vtables,
+            expanded_method_sets,
             ..
         } = refs;
         self.traits.extend(traits);
+        self.expanded_method_sets.extend(expanded_method_sets);
         for method in methods {
             self.insert_method_with_const_args(
                 method.module_id,
@@ -1252,6 +1275,46 @@ mod tests {
     use nia_ty::{ConstGenericArg, ConstGenericValue, PrimitiveTy, TypeStore};
 
     #[test]
+    fn repeated_trait_method_set_expansion_is_memoized() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let store = TypeStore::new();
+        let self_ty = store
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::I32);
+        let no_function = |_| None;
+        let no_struct = |_| None;
+        let no_union = |_| None;
+        let no_enum = |_| None;
+        let no_alias = |_| None;
+        let no_trait = |_| None;
+        let no_default_method = |_| None;
+        let signatures = ExecutableSignatureIndex {
+            function: &no_function,
+            struct_: &no_struct,
+            union: &no_union,
+            enum_: &no_enum,
+            type_alias: &no_alias,
+            trait_: &no_trait,
+            trait_default_method: &no_default_method,
+        };
+        let input = || TraitMethodExpansionInput {
+            module_id,
+            trait_id: TraitId::Builtin(BuiltinTrait::Eq),
+            self_ty,
+            trait_args: &[],
+            trait_const_args: &[],
+        };
+        let mut refs = ReachableTraitRefs::default();
+
+        insert_trait_and_supertrait_methods(signatures, &store, &mut refs, input());
+        let method_count = refs.methods.len();
+        insert_trait_and_supertrait_methods(signatures, &store, &mut refs, input());
+
+        assert_eq!(refs.expanded_method_sets.len(), 1);
+        assert_eq!(refs.methods.len(), method_count);
+    }
+
+    #[test]
     fn trait_const_arguments_are_part_of_reachability_identity() {
         let module_id = ModuleIdAllocator::new().allocate();
         let store = TypeStore::new();
@@ -1340,8 +1403,8 @@ mod tests {
         };
         let first = instantiation(i32_ty);
         let second = instantiation(bool_ty);
-        let mut visited = HashSet::new();
-        let active = HashSet::from([def_id]);
+        let mut visited = FastHashSet::default();
+        let active = [def_id].into_iter().collect::<FastHashSet<_>>();
 
         assert!(!should_visit_generic_instantiation(
             &first,
@@ -1350,7 +1413,7 @@ mod tests {
         ));
         assert!(visited.is_empty());
 
-        let inactive = HashSet::new();
+        let inactive = FastHashSet::default();
         assert!(should_visit_generic_instantiation(
             &second,
             &mut visited,
