@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, RwLock, RwLockReadGuard},
+    sync::{Arc, RwLock},
 };
 
 #[cfg(test)]
@@ -65,10 +65,13 @@ fn owned_layout_position(
 pub(super) struct ProgramIndex {
     modules: Arc<BackendModuleStore>,
     type_store: Arc<TypeStore>,
-    tables: RwLock<ProgramIndexTables>,
+    // Readers keep an immutable published snapshot while the coordinator
+    // prepares the next one. This avoids coupling nested codegen lookups to
+    // publication of later modules.
+    tables: RwLock<Arc<ProgramIndexTables>>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct ProgramIndexTables {
     published_modules: HashSet<ModuleId>,
     structs: HashMap<GlobalDefId, ItemPosition>,
@@ -210,7 +213,7 @@ impl ProgramIndex {
         let index = Arc::new(Self {
             modules,
             type_store,
-            tables: RwLock::new(ProgramIndexTables::default()),
+            tables: RwLock::new(Arc::new(ProgramIndexTables::default())),
         });
         let publisher = ProgramIndexPublisher {
             index: Arc::clone(&index),
@@ -218,8 +221,8 @@ impl ProgramIndex {
         (index, publisher)
     }
 
-    fn tables(&self) -> RwLockReadGuard<'_, ProgramIndexTables> {
-        self.tables.read().expect("program index lock poisoned")
+    fn tables(&self) -> Arc<ProgramIndexTables> {
+        Arc::clone(&self.tables.read().expect("program index lock poisoned"))
     }
 
     fn item_owner(position: ItemPosition) -> ModuleId {
@@ -321,11 +324,12 @@ impl ProgramIndexPublisher {
             .modules
             .get(module_id)
             .expect("program index publisher requires a ready backend module");
-        let mut index = self
+        let mut published = self
             .index
             .tables
             .write()
             .expect("program index lock poisoned");
+        let index = Arc::make_mut(&mut published);
         assert!(
             index.published_modules.insert(module_id),
             "Nia ICE: backend module was published to the program index twice"
@@ -1352,9 +1356,12 @@ mod tests {
                 );
             }
         });
+        let published_before_first = index.tables();
+        assert!(!published_before_first.published_modules.contains(&first));
         publisher.publish(first);
         read.join().expect("concurrent program index reader");
 
+        assert!(!published_before_first.published_modules.contains(&first));
         assert!(index.has_enum(first_def));
         assert_eq!(
             index
