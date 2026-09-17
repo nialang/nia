@@ -1813,14 +1813,17 @@ impl BackendValidator<'_> {
         });
         let definition_module = self.index.module(def_id.module_id)?;
         let symbol = mangle_instance_symbol_canonical_with_context(
-            &definition_module.symbol_package_identity,
-            MangleModuleId::from_normalized_source_path(
-                definition_module.source_identity.normalized_path(),
+            nia_mangle::MangleInstance::new(
+                &definition_module.symbol_package_identity,
+                MangleModuleId::from_normalized_source_path(
+                    definition_module.source_identity.normalized_path(),
+                ),
+                nia_mangle::stable_definition_key(def_id),
+                mangle_symbol_id(name),
+                &mangled_args,
+                const_args,
+                kind,
             ),
-            nia_mangle::stable_definition_key(def_id),
-            &mangle_symbol_id(name),
-            &mangled_args,
-            const_args,
             self.index.type_store(),
             MangleResolvers::new(
                 |module_id| {
@@ -1851,7 +1854,6 @@ impl BackendValidator<'_> {
                 },
             ),
             context,
-            kind,
         );
         (!missing_module.get()).then_some(symbol)
     }

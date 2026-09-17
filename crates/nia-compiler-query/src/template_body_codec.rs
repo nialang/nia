@@ -25,6 +25,14 @@ const MAX_BYTES: usize = nia_package_metadata::MAX_PACKAGE_BYTES;
 const MAX_ITEMS: usize = 1_000_000;
 const MAX_DEPTH: usize = 256;
 
+type DecodedInstanceRef = (
+    GlobalDefId,
+    ModuleId,
+    Option<InternedTyId>,
+    Vec<InternedTyId>,
+    Vec<ConstGenericArg>,
+);
+
 pub(crate) trait TemplateBodyEncodeContext {
     fn type_index(&self, ty: InternedTyId) -> Option<u32>;
     fn definition_index(&self, definition: GlobalDefId) -> Option<u32>;
@@ -51,8 +59,8 @@ pub(crate) struct TemplateBodyRelocations {
 pub(crate) fn collect_checked_function_body_relocations(
     body: &FunctionBody,
 ) -> Result<TemplateBodyRelocations, TemplateBodyCodecError> {
-    let mut context = CollectContext::default();
-    let _ = encode_checked_function_body(body, &mut context)?;
+    let context = CollectContext::default();
+    let _ = encode_checked_function_body(body, &context)?;
     Ok(TemplateBodyRelocations {
         types: context.types.into_inner(),
         definitions: context.definitions.into_inner(),
@@ -63,8 +71,8 @@ pub(crate) fn collect_checked_function_body_relocations(
 pub(crate) fn collect_checked_closure_entry_relocations(
     entries: &[FunctionClosureEntry],
 ) -> Result<TemplateBodyRelocations, TemplateBodyCodecError> {
-    let mut context = CollectContext::default();
-    let _ = encode_checked_closure_entries(entries, &mut context)?;
+    let context = CollectContext::default();
+    let _ = encode_checked_closure_entries(entries, &context)?;
     Ok(TemplateBodyRelocations {
         types: context.types.into_inner(),
         definitions: context.definitions.into_inner(),
@@ -2490,18 +2498,7 @@ impl Decoder<'_> {
         })
     }
 
-    fn instance_ref(
-        &mut self,
-    ) -> Result<
-        (
-            GlobalDefId,
-            ModuleId,
-            Option<InternedTyId>,
-            Vec<InternedTyId>,
-            Vec<ConstGenericArg>,
-        ),
-        TemplateBodyCodecError,
-    > {
+    fn instance_ref(&mut self) -> Result<DecodedInstanceRef, TemplateBodyCodecError> {
         Ok((
             self.definition()?,
             self.module()?,

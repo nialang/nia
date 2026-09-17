@@ -135,10 +135,9 @@ impl ItemSignatures {
             roots.push(signature.target);
         } else if let Some(signature) = self.globals.get(&def_id) {
             roots.extend(signature.explicit_type);
-        } else if let Some(signature) = self.consts.get(&def_id) {
-            roots.extend(signature.explicit_type);
         } else {
-            return None;
+            let signature = self.consts.get(&def_id)?;
+            roots.extend(signature.explicit_type);
         }
         roots.sort_unstable();
         roots.dedup();

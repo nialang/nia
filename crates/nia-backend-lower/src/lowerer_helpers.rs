@@ -3,6 +3,16 @@
 
 use super::*;
 
+struct InstanceSymbolRequest<'a> {
+    def_id: GlobalDefId,
+    name: SymbolId,
+    self_arg: Option<InternedTyId>,
+    args: &'a [InternedTyId],
+    const_args: &'a [nia_ty::ConstGenericArg],
+    context: Option<MangleModuleId>,
+    kind: nia_mangle::MangleSymbolKind,
+}
+
 impl ModuleLowerer<'_> {
     pub(crate) fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
         self.input.semantic_facts.node_expr_type(&expr.node_key)
@@ -80,14 +90,17 @@ impl ModuleLowerer<'_> {
 
     fn mangle_instance_symbol_with_context(
         &mut self,
-        def_id: GlobalDefId,
-        name: SymbolId,
-        self_arg: Option<InternedTyId>,
-        args: &[InternedTyId],
-        const_args: &[nia_ty::ConstGenericArg],
-        context: Option<MangleModuleId>,
-        kind: nia_mangle::MangleSymbolKind,
+        request: InstanceSymbolRequest<'_>,
     ) -> String {
+        let InstanceSymbolRequest {
+            def_id,
+            name,
+            self_arg,
+            args,
+            const_args,
+            context,
+            kind,
+        } = request;
         let defs = &self.input.defs.defs;
         let input = self.input;
         let const_expr_summaries = &self.input.type_lowering.const_expr_summaries;
@@ -109,16 +122,19 @@ impl ModuleLowerer<'_> {
             args.insert(0, self_arg);
         }
         let symbol = nia_mangle::mangle_instance_symbol_canonical_with_context(
-            package,
-            mangle_module_id_or_diagnose(
-                source_identities,
-                def_id.module_id,
-                &mut missing_source_identities,
+            nia_mangle::MangleInstance::new(
+                package,
+                mangle_module_id_or_diagnose(
+                    source_identities,
+                    def_id.module_id,
+                    &mut missing_source_identities,
+                ),
+                nia_mangle::stable_definition_key(def_id),
+                mangle_symbol_id(name),
+                &args,
+                const_args,
+                kind,
             ),
-            nia_mangle::stable_definition_key(def_id),
-            &mangle_symbol_id(name),
-            &args,
-            const_args,
             self.type_store,
             MangleResolvers::new(
                 |module_id| {
@@ -158,7 +174,6 @@ impl ModuleLowerer<'_> {
                 },
             ),
             context,
-            kind,
         );
         for module_id in missing_source_identities {
             record_missing_source_identity(
@@ -178,15 +193,15 @@ impl ModuleLowerer<'_> {
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
     ) -> String {
-        self.mangle_instance_symbol_with_context(
+        self.mangle_instance_symbol_with_context(InstanceSymbolRequest {
             def_id,
             name,
             self_arg,
             args,
             const_args,
-            None,
-            nia_mangle::MangleSymbolKind::Function,
-        )
+            context: None,
+            kind: nia_mangle::MangleSymbolKind::Function,
+        })
     }
 
     pub(crate) fn mangle_type_instance_symbol(
@@ -196,15 +211,15 @@ impl ModuleLowerer<'_> {
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
     ) -> String {
-        self.mangle_instance_symbol_with_context(
+        self.mangle_instance_symbol_with_context(InstanceSymbolRequest {
             def_id,
             name,
-            None,
+            self_arg: None,
             args,
             const_args,
-            None,
-            nia_mangle::MangleSymbolKind::Type,
-        )
+            context: None,
+            kind: nia_mangle::MangleSymbolKind::Type,
+        })
     }
 
     pub(crate) fn mangle_contextual_instance_symbol(
@@ -227,15 +242,15 @@ impl ModuleLowerer<'_> {
         let context = source_identity.map(|identity| {
             MangleModuleId::from_normalized_source_path(identity.normalized_path())
         });
-        self.mangle_instance_symbol_with_context(
+        self.mangle_instance_symbol_with_context(InstanceSymbolRequest {
             def_id,
             name,
             self_arg,
             args,
             const_args,
             context,
-            nia_mangle::MangleSymbolKind::Function,
-        )
+            kind: nia_mangle::MangleSymbolKind::Function,
+        })
     }
 
     pub(crate) fn mangle_contextual_global_instance_symbol(
@@ -257,15 +272,15 @@ impl ModuleLowerer<'_> {
         let context = source_identity.map(|identity| {
             MangleModuleId::from_normalized_source_path(identity.normalized_path())
         });
-        self.mangle_instance_symbol_with_context(
+        self.mangle_instance_symbol_with_context(InstanceSymbolRequest {
             def_id,
             name,
-            None,
+            self_arg: None,
             args,
             const_args,
             context,
-            nia_mangle::MangleSymbolKind::Global,
-        )
+            kind: nia_mangle::MangleSymbolKind::Global,
+        })
     }
 
     pub(crate) fn symbol_name(&self, symbol: SymbolId) -> String {

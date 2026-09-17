@@ -259,7 +259,7 @@ fn package_artifact_publication_emits_checked_generic_templates() {
     assert_eq!(identity.parameter_count, 1);
     assert!(!identity.body.is_empty());
     assert!(!identity.summary.is_empty());
-    assert!(identity.type_roots.len() >= 1);
+    assert!(!identity.type_roots.is_empty());
 }
 
 #[test]
@@ -1679,8 +1679,8 @@ pub fn probe(&self) usize;
         let facts = database
             .db
             .expect_get(ModuleProgramSignatureFactsQuery(module_id, set));
-        assert_eq!(
-            facts.functions.is_empty()
+        assert!(
+            !(facts.functions.is_empty()
                 && facts.globals.is_empty()
                 && facts.consts.is_empty()
                 && facts.structs.is_empty()
@@ -1688,8 +1688,7 @@ pub fn probe(&self) usize;
                 && facts.enums.is_empty()
                 && facts.traits.is_empty()
                 && facts.type_aliases.is_empty()
-                && facts.trait_impls.is_empty(),
-            false,
+                && facts.trait_impls.is_empty()),
             "artifact program facts must be populated for {set:?}"
         );
     }
@@ -2847,7 +2846,7 @@ fn loaded_definition_resolver_validates_stable_identity() {
         .resolve_loaded_definition(definition, &package)
         .unwrap();
     assert_eq!(resolved.module_id, fixture.entry_id());
-    assert_eq!(
+    assert!(
         database
             .resolve_loaded_definition(
                 definition,
@@ -2857,8 +2856,7 @@ fn loaded_definition_resolver_validates_stable_identity() {
                     version: "1.0.0".into(),
                 }
             )
-            .is_err(),
-        true
+            .is_err()
     );
 }
 

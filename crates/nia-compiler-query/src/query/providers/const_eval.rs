@@ -53,10 +53,10 @@ fn provide_compiled_const_module(
     let templates = db.get(CompiledPackageTemplatesQuery(identity.package.clone()))?;
     let mut module = nia_const_ir::ResolvedConstModule::new();
     for (_, template) in templates.iter() {
-        if template.definition.module_id == module_id {
-            if let Some(function) = &template.ctfe_body {
-                module.insert_function(template.definition, function.clone());
-            }
+        if template.definition.module_id == module_id
+            && let Some(function) = &template.ctfe_body
+        {
+            module.insert_function(template.definition, function.clone());
         }
     }
     Ok(ConstModuleLowering {

@@ -343,6 +343,39 @@ pub struct MangleResolvers<F, G, H> {
     array_len: H,
 }
 
+/// Complete source identity and generic arguments for one concrete instance.
+pub struct MangleInstance<'a> {
+    package: SymbolPackageIdentity,
+    module: MangleModuleId,
+    definition: String,
+    name: String,
+    args: &'a [InternedTyId],
+    const_args: &'a [ConstGenericArg],
+    kind: MangleSymbolKind,
+}
+
+impl<'a> MangleInstance<'a> {
+    pub fn new(
+        package: impl Into<SymbolPackageIdentity>,
+        module: MangleModuleId,
+        definition: impl Into<String>,
+        name: impl Into<String>,
+        args: &'a [InternedTyId],
+        const_args: &'a [ConstGenericArg],
+        kind: MangleSymbolKind,
+    ) -> Self {
+        Self {
+            package: package.into(),
+            module,
+            definition: definition.into(),
+            name: name.into(),
+            args,
+            const_args,
+            kind,
+        }
+    }
+}
+
 impl<F, G, H> MangleResolvers<F, G, H> {
     /// Creates a resolver bundle for one mangling operation.
     pub fn new(module_id: F, nominal_name: G, array_len: H) -> Self {
@@ -458,40 +491,26 @@ pub fn mangle_derived_symbol_canonical(
 /// argument representation. The binary key still length-delimits each item,
 /// so nested delimiters and arbitrary source names remain unambiguous.
 pub fn mangle_instance_symbol_canonical<F, G, H>(
-    package: impl Into<SymbolPackageIdentity>,
-    module: MangleModuleId,
-    definition: impl Into<String>,
-    name: &str,
-    args: &[InternedTyId],
-    const_args: &[ConstGenericArg],
+    instance: MangleInstance<'_>,
     type_store: &TypeStore,
     resolvers: MangleResolvers<F, G, H>,
-    kind: MangleSymbolKind,
 ) -> String
 where
     F: FnMut(ModuleId) -> MangleModuleId,
     G: FnMut(GlobalDefId) -> String,
     H: FnMut(GlobalConstExprId) -> Option<u64>,
 {
-    mangle_instance_symbol_canonical_with_context(
-        package, module, definition, name, args, const_args, type_store, resolvers, None, kind,
-    )
+    mangle_instance_symbol_canonical_with_context(instance, type_store, resolvers, None)
 }
 
 /// Encodes a concrete generic instance and, when needed, its instantiation
 /// context. The context is an explicit canonical argument rather than an
 /// opaque textual suffix, so it remains part of the reversible identity.
 pub fn mangle_instance_symbol_canonical_with_context<F, G, H>(
-    package: impl Into<SymbolPackageIdentity>,
-    module: MangleModuleId,
-    definition: impl Into<String>,
-    name: &str,
-    args: &[InternedTyId],
-    const_args: &[ConstGenericArg],
+    instance: MangleInstance<'_>,
     type_store: &TypeStore,
     resolvers: MangleResolvers<F, G, H>,
     context: Option<MangleModuleId>,
-    kind: MangleSymbolKind,
 ) -> String
 where
     F: FnMut(ModuleId) -> MangleModuleId,
@@ -504,7 +523,8 @@ where
         mut array_len,
     } = resolvers;
     let _ = &mut module_id;
-    let encoded_args = args
+    let encoded_args = instance
+        .args
         .iter()
         .map(|arg| {
             mangle_type_with(
@@ -515,7 +535,7 @@ where
         })
         .collect::<Vec<_>>();
     let mut all_args = encoded_args;
-    all_args.extend(const_args.iter().map(|arg| {
+    all_args.extend(instance.const_args.iter().map(|arg| {
         format!(
             "const:{}",
             mangle_const_generic_arg(
@@ -531,7 +551,12 @@ where
         all_args.push(format!("context:{:016x}", context.raw()));
     }
     mangle_stable_symbol(&StableSymbolKey::new(
-        package, module, definition, name, kind, all_args,
+        instance.package,
+        instance.module,
+        instance.definition,
+        instance.name,
+        instance.kind,
+        all_args,
     ))
 }
 
@@ -1250,19 +1275,21 @@ mod tests {
         let first = append.primitive(PrimitiveTy::I32);
         let second = append.primitive(PrimitiveTy::Bool);
         let symbol = mangle_instance_symbol_canonical(
-            TEST_PACKAGE,
-            MangleModuleId::from_normalized_source_path("main.nia"),
-            "def:9",
-            "run",
-            &[first, second],
-            &[],
+            MangleInstance::new(
+                TEST_PACKAGE,
+                MangleModuleId::from_normalized_source_path("main.nia"),
+                "def:9",
+                "run",
+                &[first, second],
+                &[],
+                MangleSymbolKind::Function,
+            ),
             &store,
             MangleResolvers::new(
                 |_| MangleModuleId::from_normalized_source_path("main.nia"),
                 |_| "item".into(),
                 |_| None,
             ),
-            MangleSymbolKind::Function,
         );
         let decoded = demangle_stable_symbol(&symbol).expect("canonical instance must decode");
         assert_eq!(decoded.generic_args.len(), 2);

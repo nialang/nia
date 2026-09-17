@@ -1189,11 +1189,11 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(
-        contains_mangled_name(&ir, '@', "write_all__inst__t_i32"),
+        contains_mangled_name(ir, '@', "write_all__inst__t_i32"),
         "{ir}"
     );
     assert!(
-        contains_mangled_name(&ir, '@', "writeFmtBytes__inst__t_i32"),
+        contains_mangled_name(ir, '@', "writeFmtBytes__inst__t_i32"),
         "{ir}"
     );
     assert!(ir.contains("ret i32"), "{ir}");

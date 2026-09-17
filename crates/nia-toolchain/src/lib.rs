@@ -175,7 +175,7 @@ pub enum RuntimeSpec {
     #[default]
     Bare,
     /// Inject and root a validated private runtime source package.
-    Source(SourceRuntimeSpec),
+    Source(Box<SourceRuntimeSpec>),
 }
 
 impl RuntimeSpec {
@@ -214,7 +214,7 @@ impl RuntimeSpec {
                 });
             }
         };
-        Ok(Self::Source(SourceRuntimeSpec {
+        Ok(Self::Source(Box::new(SourceRuntimeSpec {
             package_root: package_root.into(),
             package_root_identity: RUNTIME_PACKAGE_IDENTITY.to_string(),
             package: nia_package_metadata::PackageId {
@@ -234,7 +234,7 @@ impl RuntimeSpec {
                 RuntimeDependency::EntryPackage,
                 RuntimeDependency::StandardLibrary,
             ],
-        }))
+        })))
     }
 
     /// Validates that this runtime can participate in a request for `target`.

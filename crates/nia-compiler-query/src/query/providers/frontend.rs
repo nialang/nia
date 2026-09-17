@@ -111,13 +111,12 @@ pub(in crate::query) fn provide_artifact_public_surface_facts(
     for fact in &defs {
         if fact.kind == nia_defs::DefKind::EnumVariant
             && fact.visibility == nia_defs::Visibility::Public
+            && let Some(parent) = fact.parent
         {
-            if let Some(parent) = fact.parent {
-                enum_scopes
-                    .entry(parent)
-                    .or_default()
-                    .push((fact.name, fact.id));
-            }
+            enum_scopes
+                .entry(parent)
+                .or_default()
+                .push((fact.name, fact.id));
         }
     }
     let enum_scopes = enum_scopes
@@ -167,10 +166,10 @@ pub(in crate::query) fn provide_artifact_public_surface(
     let graph = db.get(ModuleGraphQuery)?;
     let resolve_module = |target: &nia_package_metadata::ModuleId| -> Option<ModuleId> {
         graph.modules().find_map(|node| {
-            if let Ok(Some(identity)) = compiled_package_module_identity(db, node.id) {
-                if identity == *target {
-                    return Some(node.id);
-                }
+            if let Ok(Some(identity)) = compiled_package_module_identity(db, node.id)
+                && identity == *target
+            {
+                return Some(node.id);
             }
             let key = graph.stable_key(node.id)?;
             (target.package == section.package
@@ -2228,25 +2227,37 @@ pub(in crate::query) fn project_item_signatures(
             })
             .map(|(def_id, signature)| (*def_id, signature.clone()))
             .collect(),
-        structs: retains_types
-            .then(|| source.structs.clone())
-            .unwrap_or_default(),
-        unions: retains_types
-            .then(|| source.unions.clone())
-            .unwrap_or_default(),
-        traits: retains_traits
-            .then(|| source.traits.clone())
-            .unwrap_or_default(),
+        structs: if retains_types {
+            source.structs.clone()
+        } else {
+            HashMap::new()
+        },
+        unions: if retains_types {
+            source.unions.clone()
+        } else {
+            HashMap::new()
+        },
+        traits: if retains_traits {
+            source.traits.clone()
+        } else {
+            HashMap::new()
+        },
         trait_impls,
-        enums: retains_types
-            .then(|| source.enums.clone())
-            .unwrap_or_default(),
-        type_aliases: retains_types
-            .then(|| source.type_aliases.clone())
-            .unwrap_or_default(),
-        globals: (set == SignatureItemSet::Values)
-            .then(|| source.globals.clone())
-            .unwrap_or_default(),
+        enums: if retains_types {
+            source.enums.clone()
+        } else {
+            HashMap::new()
+        },
+        type_aliases: if retains_types {
+            source.type_aliases.clone()
+        } else {
+            HashMap::new()
+        },
+        globals: if set == SignatureItemSet::Values {
+            source.globals.clone()
+        } else {
+            HashMap::new()
+        },
         consts: if set == SignatureItemSet::Values {
             source.consts.clone()
         } else if set == SignatureItemSet::Traits {
