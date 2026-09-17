@@ -52,6 +52,47 @@ fn query_loader_keeps_package_root_separate_from_entry_module() {
 }
 
 #[test]
+fn query_loader_discovers_package_relative_qualified_expression_paths() {
+    let root = temp_dir("query_loader_discovers_package_relative_qualified_expression_paths");
+    let main = root.join("main.nia");
+    let package = root.join("pkg.nia");
+    write(&package, "pub module config;");
+    write(&root.join("config.nia"), "pub const answer: i32 = 42;");
+    write(&main, "fn main() i32 { pkg::config::answer }");
+
+    let program = super::load_program_request(
+        LoadRequest::new(main.to_string_lossy().into_owned())
+            .with_package_root(SourcePath::new(package.to_string_lossy())),
+    )
+    .expect("package-root program load");
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, root.join("config.nia").to_string_lossy().as_ref());
+}
+
+#[test]
+fn query_loader_discovers_package_relative_qualified_type_paths() {
+    let root = temp_dir("query_loader_discovers_package_relative_qualified_type_paths");
+    let main = root.join("main.nia");
+    let package = root.join("pkg.nia");
+    write(&package, "pub module config;");
+    write(&root.join("config.nia"), "pub struct Config {}");
+    write(
+        &main,
+        "fn consume(value: pkg::config::Config) () { _ = value; }",
+    );
+
+    let program = super::load_program_request(
+        LoadRequest::new(main.to_string_lossy().into_owned())
+            .with_package_root(SourcePath::new(package.to_string_lossy())),
+    )
+    .expect("package-root program load");
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, root.join("config.nia").to_string_lossy().as_ref());
+}
+
+#[test]
 fn query_loader_reports_missing_source() {
     let root = temp_dir("query_loader_reports_missing_source");
     write(&root.join("main.nia"), "module missing;");
