@@ -535,13 +535,6 @@ impl<'a> ModuleLowerer<'a> {
         self.backend_function_template_for_program_def_with_body(def_id, true)
     }
 
-    pub(crate) fn backend_function_declaration_for_program_def(
-        &mut self,
-        def_id: GlobalDefId,
-    ) -> Option<BackendFunction> {
-        self.backend_function_template_for_program_def_with_body(def_id, false)
-    }
-
     fn backend_function_template_for_program_def_with_body(
         &mut self,
         def_id: GlobalDefId,

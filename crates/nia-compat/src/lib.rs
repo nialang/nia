@@ -222,10 +222,6 @@ pub mod formats {
     /// Persisted static archive result and component fingerprints.
     pub const ARCHIVE_RESULT: PersistedFormat =
         PersistedFormat::new("archive-result", b"NIAARC\0\0");
-    /// Compiled package metadata container.
-    pub const PACKAGE_METADATA: PersistedFormat =
-        PersistedFormat::new("package-metadata", b"NIAPKG\0\0");
-
     /// Complete payload registry used for uniqueness checks and audits.
     pub const ALL: &[PersistedFormat] = &[
         BUILD_PLAN,
@@ -253,7 +249,6 @@ pub mod formats {
         OBJECT_WORK_PRODUCT,
         LINK_RESULT,
         ARCHIVE_RESULT,
-        PACKAGE_METADATA,
     ];
 
     /// Complete cache namespace registry used for version-path checks and audits.

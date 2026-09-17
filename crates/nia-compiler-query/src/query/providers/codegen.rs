@@ -622,15 +622,12 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                 visible_extensions,
                 extension_methods,
                 function_bodies,
-                artifact_function_bodies: HashMap::new(),
                 static_inits,
                 source_item_plans,
                 function_instance_plans,
                 program_defs,
-                artifact_modules: HashSet::new(),
                 non_function_signatures,
                 functions,
-                artifact_generic_params: HashMap::new(),
             })
         },
     );
@@ -896,14 +893,11 @@ pub(in crate::query) fn closure_safety_check(
                 })
         })
         .collect::<Vec<_>>();
-    Ok(
-        nia_closure_check::check_closure_safety_with_support_and_summaries(
-            &functions,
-            &support_functions,
-            &HashMap::new(),
-            &db.context().type_store,
-        ),
-    )
+    Ok(nia_closure_check::check_closure_safety_with_support(
+        &functions,
+        &support_functions,
+        &db.context().type_store,
+    ))
 }
 
 pub(super) fn monomorphization_diagnostics(

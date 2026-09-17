@@ -308,9 +308,6 @@ impl<'a> ModuleLowerer<'a> {
         &self,
         def_id: GlobalDefId,
     ) -> Option<Vec<(SymbolId, bool)>> {
-        if let Some(params) = self.input.program.generic_params(def_id) {
-            return Some(params);
-        }
         if let Some(method) = self.input.program.extension_methods().method_by_id(def_id) {
             return Some(classify_effective_generic_names(
                 &method.effective_generics,

@@ -731,29 +731,11 @@ runtime exports `_start` and calls the Nia-level root entry contract from toolch
 runtime source. The source is mounted as a private child of the toolchain-owned runtime
 package identity; this logical mount is not a public import or standard-library ownership.
 
-Compiled package manifests identify the exact target, build profile, and normal/test
-compilation mode used for conditional source selection. Loader selection validates this
-semantic context before exposing any declaration or template section; products
-compiled from a different conditional source view are never partially reused.
-The target-independent signature section carries every fact that can affect downstream
-semantics or ABI. In particular, enum variants store their evaluated discriminant bits and
-signedness rather than asking an artifact consumer to infer values from declaration order,
-and implementation methods store effective ABI attributes inherited from their trait.
-Artifact const queries rehydrate those values directly from the validated package product;
-they do not run source const lowering over an empty synthetic module.
-
-Method declarations reconstructed without a body derive their receiver value type from the
-canonical pair of receiver kind and extension target. References to slice, trait-object, and
-callable pointees become the corresponding fat value types before ABI classification. This
-keeps a package definition and every downstream declaration of its symbol on one
-calling convention even though source-local parameter facts are absent.
-Package containers do not carry native objects. Object and executable production always
-flows through source code generation; reusable object and executable products belong to
-private, compiler-version-specific build caches rather than a library interchange format.
-Optional artifact fallback is a whole-package loader decision. Once a semantic artifact is
-selected, compiler query providers use its validated declarations, signatures, templates,
-and const facts without probing dependency source. Required artifact requests report the
-selection failure and never enter source providers.
+Package inputs are compiled from source for the selected target, profile, and normal/test
+mode. Object and executable results may be reused through private,
+compiler-version-specific build caches, but they are not a library interchange format.
+Stable package identities and type encodings exist to support canonical linkage now and a
+future ABI contract.
 
 ## 13. CLI
 

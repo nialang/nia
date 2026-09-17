@@ -413,8 +413,8 @@ impl ToolchainLayout {
 
     /// Returns the validated private source package for freestanding startup.
     ///
-    /// Runtime startup is a toolchain resource, not a module owned by the
-    /// standard-library package artifact.
+    /// Runtime startup is a private toolchain source package, not a module
+    /// owned by the standard library.
     pub fn freestanding_runtime_package(&self) -> &std::path::Path {
         self.runtime.freestanding_package_root()
     }
