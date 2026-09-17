@@ -121,7 +121,7 @@ where T: Sized
 fn danglingSlice[T](len: usize) &mut [T]
 where T: Sized
 {
-    let mut ptr = std::builtin::align[T]() as &mut T;
+    let mut ptr = pkg::builtin::align[T]() as &mut T;
     &mut ptr[0..len]
 }
 

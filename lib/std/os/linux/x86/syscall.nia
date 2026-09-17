@@ -28,7 +28,7 @@ pub const statx: usize = 383;
 
 pub fn syscall0(number: usize) isize {
     let mut ret: isize = 0;
-    std::builtin::asm(.{
+    pkg::builtin::asm(.{
         code: b"int 0x80",
         outputs: .{ eax: ret },
         inputs: .{ eax: number },
@@ -40,7 +40,7 @@ pub fn syscall0(number: usize) isize {
 
 pub fn syscall1(number: usize, arg0: usize) isize {
     let mut ret: isize = 0;
-    std::builtin::asm(.{
+    pkg::builtin::asm(.{
         code:
             b"push ebx\n"
             b"int 0x80\n"
@@ -58,7 +58,7 @@ pub fn syscall1(number: usize, arg0: usize) isize {
 
 pub fn syscall2(number: usize, arg0: usize, arg1: usize) isize {
     let mut ret: isize = 0;
-    std::builtin::asm(.{
+    pkg::builtin::asm(.{
         code:
             b"push ebx\n"
             b"int 0x80\n"
@@ -77,7 +77,7 @@ pub fn syscall2(number: usize, arg0: usize, arg1: usize) isize {
 
 pub fn syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
     let mut ret: isize = 0;
-    std::builtin::asm(.{
+    pkg::builtin::asm(.{
         code:
             b"push ebx\n"
             b"int 0x80\n"
@@ -97,7 +97,7 @@ pub fn syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
 
 pub fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize) isize {
     let mut ret: isize = 0;
-    std::builtin::asm(.{
+    pkg::builtin::asm(.{
         code:
             b"push ebx\n"
             b"push esi\n"
@@ -120,7 +120,7 @@ pub fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usiz
 
 pub fn syscall5(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) isize {
     let mut ret: isize = 0;
-    std::builtin::asm(.{
+    pkg::builtin::asm(.{
         code:
             b"push ebx\n"
             b"push esi\n"
@@ -155,7 +155,7 @@ pub fn syscall6(
 ) isize {
     let args: [usize; 6] = [arg0, arg1, arg2, arg3, arg4, arg5];
     let mut ret: isize = 0;
-    std::builtin::asm(.{
+    pkg::builtin::asm(.{
         code:
             b"push ebx\n"
             b"push esi\n"
