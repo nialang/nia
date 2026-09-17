@@ -2040,7 +2040,7 @@ pub(super) fn executable_value_ref_edges_from_reachable_items(
     module_id: ModuleId,
     module_functions: &HashSet<GlobalDefId>,
     module_globals: &HashSet<GlobalDefId>,
-) -> QueryResult<ExecutableValueRefEdges> {
+) -> QueryResult<(ExecutableValueRefEdges, HashSet<GlobalDefId>)> {
     let mut scan_functions = module_functions.clone();
     let mut all_edges = ExecutableValueRefEdges::default();
     time_module_provider(db, "executable_value_refs.scan_refs", module_id, || {
@@ -2054,7 +2054,7 @@ pub(super) fn executable_value_ref_edges_from_reachable_items(
             |def_id| all_edges.globals.insert(def_id),
         )
     })?;
-    Ok(all_edges)
+    Ok((all_edges, scan_functions))
 }
 
 pub(super) fn provide_checked_module_ids(
@@ -2073,8 +2073,9 @@ pub(super) fn extend_module_functions_from_local_static_globals(
     mut module_functions: HashSet<GlobalDefId>,
     module_globals: &HashSet<GlobalDefId>,
     checked_functions: Option<&HashSet<GlobalDefId>>,
-) -> QueryResult<HashSet<GlobalDefId>> {
+) -> QueryResult<(HashSet<GlobalDefId>, bool)> {
     let defs = full_module_defs_semantic(db, module_id)?;
+    let mut owner_added = false;
     for global in module_globals {
         let Some(def) = defs.defs.get(global.def_id) else {
             continue;
@@ -2092,9 +2093,9 @@ pub(super) fn extend_module_functions_from_local_static_globals(
         if checked_functions.is_some_and(|checked| checked.contains(&owner)) {
             continue;
         }
-        module_functions.insert(owner);
+        owner_added |= module_functions.insert(owner);
     }
-    Ok(module_functions)
+    Ok((module_functions, owner_added))
 }
 
 pub(super) fn filter_checked_module_for_codegen(

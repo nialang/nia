@@ -82,7 +82,7 @@ fn loaded_module_reorder_invalidates_list_without_field_changes() {
 }
 
 #[test]
-fn additive_module_growth_refreshes_query_derived_executable_epoch() {
+fn additive_module_growth_preserves_global_executable_epoch() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
     let entry_id = fixture.entry_id();
     let database = fixture.database();
@@ -96,9 +96,7 @@ fn additive_module_growth_refreshes_query_derived_executable_epoch() {
     database.update(CompileRequest::new(fixture.program()));
     let latest = database.db.expect_get(ExecutableFactEpochQuery);
 
-    assert_ne!(first.as_ref(), latest.as_ref());
-    assert_eq!(first.modules.len() + 1, latest.modules.len());
-    assert_eq!(first.modules[0], latest.modules[0]);
+    assert_eq!(first.as_ref(), latest.as_ref());
 }
 
 #[test]

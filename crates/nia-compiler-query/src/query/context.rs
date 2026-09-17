@@ -138,7 +138,6 @@ impl CompilerInputs {
 pub(super) struct ExecutableFactEpoch {
     pub(super) entry_module: ModuleId,
     pub(super) runtime_root_modules: Vec<ModuleId>,
-    pub(super) modules: Vec<(ModuleId, SourceVersion)>,
     pub(super) target: TargetConfig,
     pub(super) runtime: RuntimeSpec,
     pub(super) codegen_scope: CodegenScope,
