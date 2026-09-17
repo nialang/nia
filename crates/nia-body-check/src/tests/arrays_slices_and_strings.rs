@@ -785,13 +785,13 @@ fn main() i32 {
     let mut text: [char; 3] = "中a\n";
     let mut adjacent_text: [char; 9] = "中" "" "a\n" "" "b" "c" "" "done";
     let mut inferred_text: [char; _] = "hi";
-    let mut multiline: [char; 11] = (
-        \\hello
-        \\world
+    let mut split_text: [char; 11] = (
+        "hello\n"
+        "world"
     );
-    let mut byte_multiline: [u8; 11] = (
-        b\\hello
-        \\world
+    let mut split_bytes: [u8; 11] = (
+        b"hello\n"
+        b"world"
     );
     let mut bytes: [u8; 4] = b"nia\0";
     let mut adjacent_bytes: [u8; 4] = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";

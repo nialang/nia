@@ -54,13 +54,12 @@ fn startupAddress(stack: &usize, offset: usize) ?usize {
 pub extern fn _start() () {
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\mov eax, esp
-            \\and esp, -16
-            \\sub esp, 12
-            \\push eax
-            \\call $0
-            \\ud2
-        ,
+            b"mov eax, esp\n"
+            b"and esp, -16\n"
+            b"sub esp, 12\n"
+            b"push eax\n"
+            b"call $0\n"
+            b"ud2",
         inputs: std::builtin::AsmInputs { reg: &nia_start_stack },
         clobbers: [b"eax", b"ecx", b"edx", b"memory"],
         options: [b"volatile"],

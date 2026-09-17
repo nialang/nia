@@ -329,7 +329,7 @@ by stable names before emitting bounded reports.
 ### `nia-lexer`
 
 Turns source text into tokens with spans. Handles comments, identifiers, numbers,
-strings, multiline strings, character literals, punctuation, and lexer errors. Does
+string and byte-string literals, character literals, punctuation, and lexer errors. Does
 not resolve types, evaluate constants, or classify identifiers beyond keyword
 recognition. Numeric separator placement is lexical grammar: every `_` must sit
 between two digits valid for that literal's radix.

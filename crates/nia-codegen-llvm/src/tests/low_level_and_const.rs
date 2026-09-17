@@ -561,9 +561,8 @@ fn main() i32 {
     let mut value: i64 = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\mov rax, rax
-            \\add rax, 0
-        ,
+            b"mov rax, rax\n"
+            b"add rax, 0",
         outputs: std::builtin::AsmOutputs { rax: value },
         inputs: std::builtin::AsmInputs { rax: 7 },
         clobbers: [b"memory"],

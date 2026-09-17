@@ -285,8 +285,13 @@ Adjacent quoted string literals with the same prefix are concatenated into one
 literal:
 
 ```nia
-"hello, " "world"
-b"ni" b"a\0"
+let greeting =
+    "hello, "
+    "world\n"
+    "next line";
+let bytes =
+    b"ni"
+    b"a\0";
 ```
 
 This is source-level literal concatenation, not runtime string or array
@@ -312,29 +317,8 @@ let stable = b"nia";
 let stable_bytes: &[u8] = &stable;
 ```
 
-Multiline string literals use consecutive lines beginning with `\\`. Byte
-multiline string literals use `b\\` on the first line; continuation lines still
-use `\\`:
-
-```nia
-\\mov rax, 60
-\\syscall
-
-b\\mov rax, 60
- \\syscall
-```
-
-For multiline strings, indentation before the delimiter is ignored, the delimiter
-itself is not part of the string, and the text after the delimiter is copied as
-is. Adjacent lines are joined with `\n`; no extra newline is appended after the
-last line. Escape sequences are not interpreted inside multiline string lines.
-The prefix selects the same type family as the quoted form: `[char; N]` or
-`[u8; N]`.
-
-Multiline string literals do not participate in adjacent literal concatenation.
-Use adjacent quoted literals when a long single-line literal should be split
-across source lines, and use multiline literals when the literal value should
-contain real line breaks.
+Line breaks in a string value are explicit `\n` escapes. The final part does not
+need a trailing `\n`.
 
 The literal:
 
@@ -2552,9 +2536,8 @@ fn syscall1(sys_num: usize, arg1: usize) isize {
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\mov rax, 60
-             \\syscall
-        ,
+            b"mov rax, 60\n"
+            b"syscall",
         outputs: std::builtin::AsmOutputs { rax: ret },
         inputs: std::builtin::AsmInputs {
             rax: sys_num,

@@ -30,8 +30,7 @@ pub fn syscall0(number: usize) isize {
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\int 0x80
-        ,
+            b"int 0x80",
         outputs: std::builtin::AsmOutputs {
             eax: ret,
         },
@@ -48,10 +47,9 @@ pub fn syscall1(number: usize, arg0: usize) isize {
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\push ebx
-            \\int 0x80
-            \\pop ebx
-        ,
+            b"push ebx\n"
+            b"int 0x80\n"
+            b"pop ebx",
         outputs: std::builtin::AsmOutputs {
             eax: ret,
         },
@@ -69,10 +67,9 @@ pub fn syscall2(number: usize, arg0: usize, arg1: usize) isize {
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\push ebx
-            \\int 0x80
-            \\pop ebx
-        ,
+            b"push ebx\n"
+            b"int 0x80\n"
+            b"pop ebx",
         outputs: std::builtin::AsmOutputs {
             eax: ret,
         },
@@ -91,10 +88,9 @@ pub fn syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\push ebx
-            \\int 0x80
-            \\pop ebx
-        ,
+            b"push ebx\n"
+            b"int 0x80\n"
+            b"pop ebx",
         outputs: std::builtin::AsmOutputs {
             eax: ret,
         },
@@ -114,12 +110,11 @@ pub fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usiz
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\push ebx
-            \\push esi
-            \\int 0x80
-            \\pop esi
-            \\pop ebx
-        ,
+            b"push ebx\n"
+            b"push esi\n"
+            b"int 0x80\n"
+            b"pop esi\n"
+            b"pop ebx",
         outputs: std::builtin::AsmOutputs {
             eax: ret,
         },
@@ -140,14 +135,13 @@ pub fn syscall5(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usiz
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\push ebx
-            \\push esi
-            \\push edi
-            \\int 0x80
-            \\pop edi
-            \\pop esi
-            \\pop ebx
-        ,
+            b"push ebx\n"
+            b"push esi\n"
+            b"push edi\n"
+            b"int 0x80\n"
+            b"pop edi\n"
+            b"pop esi\n"
+            b"pop ebx",
         outputs: std::builtin::AsmOutputs {
             eax: ret,
         },
@@ -178,22 +172,21 @@ pub fn syscall6(
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\push ebx
-            \\push esi
-            \\push edi
-            \\push ebp
-            \\mov ebx, [ecx]
-            \\mov edx, [ecx + 8]
-            \\mov esi, [ecx + 12]
-            \\mov edi, [ecx + 16]
-            \\mov ebp, [ecx + 20]
-            \\mov ecx, [ecx + 4]
-            \\int 0x80
-            \\pop ebp
-            \\pop edi
-            \\pop esi
-            \\pop ebx
-        ,
+            b"push ebx\n"
+            b"push esi\n"
+            b"push edi\n"
+            b"push ebp\n"
+            b"mov ebx, [ecx]\n"
+            b"mov edx, [ecx + 8]\n"
+            b"mov esi, [ecx + 12]\n"
+            b"mov edi, [ecx + 16]\n"
+            b"mov ebp, [ecx + 20]\n"
+            b"mov ecx, [ecx + 4]\n"
+            b"int 0x80\n"
+            b"pop ebp\n"
+            b"pop edi\n"
+            b"pop esi\n"
+            b"pop ebx",
         outputs: std::builtin::AsmOutputs {
             eax: ret,
         },
