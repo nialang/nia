@@ -1,68 +1,144 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Content-addressed cache for generated host build runners.
 
-use std::fs;
-use std::io;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use nia_compat::{COMPILER_VERSION, RELEASE_COMPATIBILITY, toolchain::BUILD_PROTOCOL};
+use nia_compat::toolchain::BUILD_PROTOCOL;
 use nia_query::FingerprintDomain;
 
 use crate::{BuildError, BuildInvocation, BuildRunnerSource, OptimizationMode};
 
-const CACHE_SCHEMA: &str = "v4";
+const CACHE_SCHEMA: &str = "v5";
+const CACHE_MAGIC: &[u8; 8] = b"NIARUN\0\0";
+const CACHE_HEADER_BYTES: usize = CACHE_MAGIC.len() + size_of::<u64>() + blake3::OUT_LEN;
+const MAX_RUNNER_BYTES: usize = 256 * 1024 * 1024;
 const RUNNER_CACHE_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.build.runner-cache");
+static NEXT_TEMPORARY_FILE: AtomicU64 = AtomicU64::new(0);
 
-/// Canonical compiled-package product path for a generated build runner.
-pub(super) fn package_path(invocation: &BuildInvocation, key: &str) -> PathBuf {
+/// Canonical private cache record for a generated build runner.
+fn cache_path(invocation: &BuildInvocation, key: &str) -> PathBuf {
     invocation
         .cache_dir
         .join("runner")
         .join(CACHE_SCHEMA)
-        .join(format!("{key}.niapkg"))
+        .join(format!("{key}.cache"))
 }
 
 pub(super) fn package_id(key: &str) -> nia_package_metadata::PackageId {
     nia_package_metadata::PackageId {
         namespace: "nia".to_string(),
         name: "build-runner".to_string(),
-        // Package versions follow the canonical semver contract. Keep the
-        // content-addressed cache key in build metadata so every runner still
-        // has a unique package identity without producing an invalid manifest.
+        // The content key gives generated runner symbols a stable package
+        // identity without coupling that identity to physical cache paths.
         version: format!("0.0.0+{key}"),
     }
 }
 
-/// Validates an ordinary runner package artifact without interpreting its
-/// semantic sections. Invalid products are retired and treated as misses.
-pub(super) fn restore_package(invocation: &BuildInvocation, key: &str) -> io::Result<bool> {
-    let cached = package_path(invocation, key);
+/// Restores a validated runner executable from the private build cache.
+/// Invalid records are retired and treated as misses.
+pub(super) fn restore_executable(invocation: &BuildInvocation, key: &str) -> io::Result<bool> {
+    let cached = cache_path(invocation, key);
+    let length = match cached.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    let maximum = CACHE_HEADER_BYTES.saturating_add(MAX_RUNNER_BYTES) as u64;
+    if length > maximum {
+        retire(&cached);
+        return Ok(false);
+    }
     let bytes = match fs::read(&cached) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error),
     };
-    let validation = nia_package_metadata::PackageArtifact::open(bytes).and_then(|artifact| {
-        artifact.validate_sections()?;
-        let manifest = artifact.manifest();
-        if manifest.compiler_version != COMPILER_VERSION
-            || manifest.release_compatibility != RELEASE_COMPATIBILITY
-            || manifest.package != package_id(key)
-        {
-            return Err(nia_package_metadata::MetadataError::InvalidManifest);
-        }
-        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact)
-            .map_err(|_| nia_package_metadata::MetadataError::InvalidManifest)?;
-        if artifact.native()?.is_none() {
-            return Err(nia_package_metadata::MetadataError::InvalidManifest);
-        }
-        Ok(())
-    });
-    let valid = validation.is_ok();
-    if !valid {
-        let _ = fs::remove_file(&cached);
+    let Some(executable) = decode_record(&bytes) else {
+        retire(&cached);
+        return Ok(false);
+    };
+    install_file(&invocation.runner_executable, executable, true)?;
+    Ok(true)
+}
+
+/// Publishes the linked runner executable as a disposable private cache record.
+pub(super) fn publish_executable(invocation: &BuildInvocation, key: &str) -> io::Result<()> {
+    let executable = fs::read(&invocation.runner_executable)?;
+    if executable.len() > MAX_RUNNER_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "build runner executable exceeds cache size limit",
+        ));
     }
-    Ok(valid)
+    let mut record = Vec::with_capacity(CACHE_HEADER_BYTES + executable.len());
+    record.extend_from_slice(CACHE_MAGIC);
+    record.extend_from_slice(&(executable.len() as u64).to_le_bytes());
+    record.extend_from_slice(blake3::hash(&executable).as_bytes());
+    record.extend_from_slice(&executable);
+    install_file(&cache_path(invocation, key), &record, false)
+}
+
+fn decode_record(bytes: &[u8]) -> Option<&[u8]> {
+    if bytes.get(..CACHE_MAGIC.len())? != CACHE_MAGIC {
+        return None;
+    }
+    let length_offset = CACHE_MAGIC.len();
+    let length = u64::from_le_bytes(
+        bytes
+            .get(length_offset..length_offset + size_of::<u64>())?
+            .try_into()
+            .ok()?,
+    );
+    let length = usize::try_from(length).ok()?;
+    if length > MAX_RUNNER_BYTES {
+        return None;
+    }
+    let checksum_offset = length_offset + size_of::<u64>();
+    let payload_offset = checksum_offset + blake3::OUT_LEN;
+    let payload = bytes.get(payload_offset..)?;
+    if payload.len() != length
+        || bytes.get(checksum_offset..payload_offset)? != blake3::hash(payload).as_bytes()
+    {
+        return None;
+    }
+    Some(payload)
+}
+
+fn install_file(path: &std::path::Path, bytes: &[u8], executable: bool) -> io::Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::other("runner cache path has no parent"))?;
+    fs::create_dir_all(parent)?;
+    let temporary = parent.join(format!(
+        ".runner-cache-{}-{}",
+        std::process::id(),
+        NEXT_TEMPORARY_FILE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        if executable {
+            file.set_permissions(fs::Permissions::from_mode(0o755))?;
+        }
+        drop(file);
+        fs::rename(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn retire(path: &std::path::Path) {
+    let _ = fs::remove_file(path);
 }
 
 pub(super) fn cache_key(
@@ -76,22 +152,12 @@ pub(super) fn cache_key(
     hasher.update(RUNNER_CACHE_DOMAIN.as_str().as_bytes());
     hasher.update(runner.source.as_bytes());
     hash_file(&mut hasher, &invocation.build_script, runner)?;
-    let std_artifact = invocation.toolchain.std_package_artifact(
-        invocation.toolchain.host_target(),
-        invocation.profile,
-        invocation.compilation_mode,
-    );
-    if std_artifact.is_file() {
-        hasher.update(b"std-package-artifact");
-        hash_file(&mut hasher, &std_artifact, runner)?;
-    } else {
-        hasher.update(b"std-source-tree");
-        hash_directory(
-            &mut hasher,
-            invocation.toolchain.resource_root().join("std"),
-            runner,
-        )?;
-    }
+    hasher.update(b"std-source-tree");
+    hash_directory(
+        &mut hasher,
+        invocation.toolchain.resource_root().join("std"),
+        runner,
+    )?;
     for part in invocation.toolchain.identity().fingerprint().parts() {
         hasher.update(&part.to_le_bytes());
     }
@@ -202,7 +268,7 @@ fn collect_files(
                     error,
                 }),
             })?;
-        if file_type.is_dir() {
+        if file_type.is_dir() && entry.file_name() != ".nia-cache" {
             collect_files(&path, files, runner)?;
         } else if file_type.is_file() {
             files.push(path);
@@ -295,77 +361,55 @@ mod tests {
     }
 
     #[test]
-    fn std_artifact_content_is_part_of_runner_cache_identity() {
+    fn std_source_content_is_part_of_runner_cache_identity() {
         let root =
             std::env::temp_dir().join(format!("nia-runner-cache-key-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let invocation = invocation(&root);
-        let artifact = invocation.toolchain.std_package_artifact(
-            invocation.toolchain.host_target(),
-            invocation.profile,
-            invocation.compilation_mode,
-        );
-        fs::create_dir_all(artifact.parent().unwrap()).unwrap();
-        fs::write(&artifact, b"artifact-v1").unwrap();
+        let std_root = invocation.toolchain.resource_root().join("std/pkg.nia");
+        fs::write(&std_root, b"pub fn first() () {}").unwrap();
         let runner = BuildRunnerSource {
             path: "runner.nia".into(),
             source: "using std;".into(),
         };
         let first = cache_key(&invocation, &runner).unwrap();
-        fs::write(&artifact, b"artifact-v2").unwrap();
+        fs::write(&std_root, b"pub fn second() () {}").unwrap();
         let second = cache_key(&invocation, &runner).unwrap();
         assert_ne!(first, second);
     }
 
     #[test]
-    fn runner_package_artifact_publication_is_atomic_and_validated() {
+    fn runner_executable_cache_is_atomic_checked_and_executable() {
         let root = std::env::temp_dir().join(format!(
-            "nia-runner-cache-package-{}-{}",
+            "nia-runner-cache-executable-{}-{}",
             std::process::id(),
             CACHE_SCHEMA
         ));
         let _ = fs::remove_dir_all(&root);
         let invocation = invocation(&root);
         let key = "bundle-test";
-        let manifest = nia_package_metadata::PackageManifest::current(
-            package_id(key),
-            nia_package_metadata::CompilationTarget {
-                arch: "x86_64".into(),
-                vendor: "unknown".into(),
-                os: "linux".into(),
-                env: "gnu".into(),
-                abi: "".into(),
-                endian: "little".into(),
-                pointer_width: 64,
-            },
-            0,
-            0,
+        fs::create_dir_all(invocation.runner_executable.parent().unwrap()).unwrap();
+        fs::write(&invocation.runner_executable, b"runner executable").unwrap();
+        publish_executable(&invocation, key).expect("publish runner executable");
+        fs::remove_file(&invocation.runner_executable).unwrap();
+        assert!(restore_executable(&invocation, key).expect("restore runner executable"));
+        assert_eq!(
+            fs::read(&invocation.runner_executable).unwrap(),
+            b"runner executable"
         );
-        let native = nia_package_metadata::NativeSection {
-            variants: vec![nia_package_metadata::NativeVariant {
-                optimization: 0,
-                objects: vec![nia_package_metadata::NativeObject {
-                    owner: nia_package_metadata::NativeObjectOwner::CompilerBuiltins,
-                    key: "builtins".into(),
-                    fingerprint: [1, 2],
-                    bytes: vec![1],
-                }],
-            }],
-        };
-        let native_bytes = nia_package_metadata::encode_native(&native).unwrap();
-        let bytes = nia_package_metadata::encode_artifact(
-            &manifest,
-            &[(nia_package_metadata::SectionKind::Native, &native_bytes)],
-        )
-        .unwrap();
-        let artifact = package_path(&invocation, key);
-        fs::create_dir_all(artifact.parent().unwrap()).unwrap();
-        fs::write(&artifact, bytes).unwrap();
-        assert!(restore_package(&invocation, key).expect("restore runner package"));
-        let mut corrupt = fs::read(&artifact).unwrap();
+        assert_ne!(
+            fs::metadata(&invocation.runner_executable)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o111,
+            0
+        );
+        let cache = cache_path(&invocation, key);
+        let mut corrupt = fs::read(&cache).unwrap();
         *corrupt.last_mut().unwrap() ^= 0xff;
-        fs::write(&artifact, corrupt).unwrap();
-        assert!(!restore_package(&invocation, key).expect("reject corrupt runner package"));
-        assert!(!artifact.exists());
+        fs::write(&cache, corrupt).unwrap();
+        assert!(!restore_executable(&invocation, key).expect("reject corrupt runner cache"));
+        assert!(!cache.exists());
     }
 }

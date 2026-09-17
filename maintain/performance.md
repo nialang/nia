@@ -125,19 +125,16 @@ workload (roughly a 31% reduction). This is a material improvement to the
 build-script path, but it is not a claim that every cold Nia compilation now
 matches Rust or Zig. The older empty-build clean baseline remains about 34.0
 seconds and needs its own frontend/query investigation. Conversely, an
-unchanged source-free runner rebuild is a warm artifact case: the v6 package
-artifact restores 258 native inputs and relinks in about 0.63 seconds without
-semantic or codegen fallback. That result must not be conflated with cold
-compilation.
+unchanged runner rebuild is a warm cache case and must not be conflated with
+cold compilation.
 
-Generated build runners use content-addressed `.nia-cache/runner/v4/<key>.niapkg`
-package artifacts. The key includes the generated source, build-script bytes,
-selected standard-library artifact, toolchain identity, host target, profile,
-test mode, optimization mode, and build protocol. A hit restores the package
-metadata and native inputs, then links only the transient invocation executable;
-the runner is still started and its plan is still validated/executed. Package
-publication is atomic, and malformed, incompatible, or corrupted artifacts are
-retired as misses.
+Generated build runners use content-addressed `.nia-cache/runner/v5/<key>.cache`
+records. The key includes the generated source, build-script bytes, standard
+library source tree, toolchain identity, host target, profile, test mode,
+optimization mode, and build protocol. A hit verifies and atomically restores
+the private runner executable; the runner is still started and its plan is
+still validated and executed. Malformed or corrupted records are retired as
+misses.
 
 Diagnostics and the JSON record both use stderr, but the JSON record is one
 complete line beginning with `{"release_compatibility":2`; the baseline runner selects
