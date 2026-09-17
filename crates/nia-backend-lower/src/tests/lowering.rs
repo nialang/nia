@@ -321,7 +321,6 @@ fn main() i32 {
         const_enum_values: const_enum_values.values.as_ref(),
         layouts: &layouts,
         roots: BackendFunctionRoots::EntryPoints,
-        artifact_module: false,
         reachable_functions: Some(&reachable_functions),
         reachable_globals: None,
         reachable_structs: Some(&reachable_structs),

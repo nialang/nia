@@ -87,10 +87,7 @@ pub struct MonomorphizeModuleInput<'a> {
     pub symbol_package_identity: String,
     /// Definitions used to recover generic parameter kinds and names.
     pub defs: &'a DefCollection,
-    /// Effective generic parameter names for source and artifact definitions.
-    /// Artifact modules do not have active syntax trees, so this fact is
-    /// supplied by their published signatures instead of reconstructed from
-    /// source definitions.
+    /// Effective generic parameter names recovered from source definitions.
     pub generic_params: &'a HashMap<GlobalDefId, Vec<SymbolId>>,
     /// Type normalization product for this module.
     pub normalization: &'a TypeNormalization,

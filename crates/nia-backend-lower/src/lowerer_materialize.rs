@@ -35,18 +35,6 @@ impl ModuleLowerer<'_> {
                 continue;
             }
             let Some(source) = self.function_sources.get(&def_id).copied() else {
-                // Artifact-backed modules intentionally carry no source item tree.  A reachable
-                // imported function still needs a declaration in its owner module so callers can
-                // reference the package-provided native symbol; its body must remain external.
-                if self.input.artifact_module
-                    && let Some(function) =
-                        self.backend_function_declaration_for_program_def(def_id)
-                    && function.generics.is_empty()
-                {
-                    lowered.insert(def_id);
-                    functions.push(function);
-                    changed = true;
-                }
                 continue;
             };
             let Some(function) = self.lower_function(source.span, source.function) else {
@@ -271,9 +259,7 @@ impl ModuleLowerer<'_> {
             if !known.insert(instance.def_id) {
                 continue;
             }
-            let function = if instance.def_id.module_id == self.input.module_id
-                && !self.input.artifact_module
-            {
+            let function = if instance.def_id.module_id == self.input.module_id {
                 self.function_sources
                     .get(&instance.def_id)
                     .copied()

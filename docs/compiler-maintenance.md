@@ -123,7 +123,7 @@ source of truth is part of the acceptance criteria.
 Performance conclusions use the complete workload path, repeated samples, and
 compatible resource identity. Deterministic query, cache, allocation, and
 codegen counters should be understood before noisy wall-time changes. Hosted
-infrastructure, artifact publication, cache reuse, linking, and cross-run
+infrastructure, output publication, cache reuse, linking, and cross-run
 comparisons require evidence from the actual managed workflow; a local config
 check cannot stand in for that evidence. See
 [`maintain/performance.md`](../maintain/performance.md) for the measurement

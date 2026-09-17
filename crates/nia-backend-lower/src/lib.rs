@@ -463,10 +463,6 @@ pub trait BackendProgramFacts: Sync {
     fn extensions(&self, module_id: ModuleId) -> Option<&VisibleExtensionMethods>;
     /// Returns definitions owned by `module_id`.
     fn defs(&self, module_id: ModuleId) -> Option<&DefCollection>;
-    /// Returns effective generic parameter kinds for source or artifact definitions.
-    fn generic_params(&self, _def_id: GlobalDefId) -> Option<Vec<(SymbolId, bool)>> {
-        None
-    }
     /// Returns the canonical normalized form of a program type when available.
     fn normalized_type(&self, ty: InternedTyId) -> Option<InternedTyId>;
     /// Normalizes a type using aliases and projections visible from `module_id`.
@@ -537,10 +533,6 @@ pub struct BackendLowerModuleInput<'a> {
     pub layouts: &'a Layouts,
     /// Policy for choosing initial function roots.
     pub roots: BackendFunctionRoots,
-    /// Whether this module is backed by a compiled package artifact. Artifact
-    /// modules contribute declarations only; their executable bodies arrive
-    /// from the package's native product.
-    pub artifact_module: bool,
     /// Sorted executable function reachability, when available.
     pub reachable_functions: Option<&'a [GlobalDefId]>,
     /// Sorted executable global reachability, when available.

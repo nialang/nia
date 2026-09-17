@@ -15,7 +15,6 @@ pub(super) struct BackendLoweringInputs {
     visible_extensions: Vec<Arc<VisibleExtensionsValue>>,
     extension_methods: Arc<ExtensionMethodIndexValue>,
     function_bodies: Vec<LoweredFunctionBodyHandle>,
-    artifact_function_bodies: HashMap<GlobalDefId, Arc<nia_function_lower::LoweredFunctionBody>>,
     function_body_ids: Vec<GlobalDefId>,
     function_body_indices: HashMap<GlobalDefId, usize>,
     static_inits: Vec<StaticInitHandle>,
@@ -23,11 +22,9 @@ pub(super) struct BackendLoweringInputs {
     static_init_indices: HashMap<GlobalDefId, usize>,
     source_item_plans: Vec<Arc<BackendModuleSourceItemPlan>>,
     function_instance_plans: Vec<Arc<BackendModuleFunctionInstancePlan>>,
-    artifact_modules: HashSet<ModuleId>,
     program_defs: Vec<Arc<DefCollection>>,
     non_function_signatures: ProgramExecutableNonFunctionSignatures,
     functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
-    artifact_generic_params: HashMap<GlobalDefId, Vec<(nia_symbol::SymbolId, bool)>>,
     runtime: RuntimeSpec,
 }
 
@@ -43,16 +40,12 @@ pub(super) struct BackendLoweringInputsParts {
     pub(super) visible_extensions: Vec<Arc<VisibleExtensionsValue>>,
     pub(super) extension_methods: Arc<ExtensionMethodIndexValue>,
     pub(super) function_bodies: Vec<LoweredFunctionBodyHandle>,
-    pub(super) artifact_function_bodies:
-        HashMap<GlobalDefId, Arc<nia_function_lower::LoweredFunctionBody>>,
     pub(super) static_inits: Vec<StaticInitHandle>,
     pub(super) source_item_plans: Vec<Arc<BackendModuleSourceItemPlan>>,
     pub(super) function_instance_plans: Vec<Arc<BackendModuleFunctionInstancePlan>>,
-    pub(super) artifact_modules: HashSet<ModuleId>,
     pub(super) program_defs: Vec<Arc<DefCollection>>,
     pub(super) non_function_signatures: ProgramExecutableNonFunctionSignatures,
     pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
-    pub(super) artifact_generic_params: HashMap<GlobalDefId, Vec<(nia_symbol::SymbolId, bool)>>,
     pub(super) runtime: RuntimeSpec,
 }
 
@@ -125,7 +118,6 @@ impl BackendLoweringInputs {
             visible_extensions: parts.visible_extensions,
             extension_methods: parts.extension_methods,
             function_bodies: parts.function_bodies,
-            artifact_function_bodies: parts.artifact_function_bodies,
             function_body_ids,
             function_body_indices,
             static_inits: parts.static_inits,
@@ -133,11 +125,9 @@ impl BackendLoweringInputs {
             static_init_indices,
             source_item_plans: parts.source_item_plans,
             function_instance_plans: parts.function_instance_plans,
-            artifact_modules: parts.artifact_modules,
             program_defs: parts.program_defs,
             non_function_signatures: parts.non_function_signatures,
             functions: parts.functions,
-            artifact_generic_params: parts.artifact_generic_params,
             runtime: parts.runtime,
         }
     }
@@ -174,12 +164,7 @@ impl BackendLoweringInputs {
             const_array_lengths: self.const_array_lengths[index].as_ref(),
             const_enum_values: self.const_enum_values[index].as_ref(),
             layouts: &checked_module.layouts,
-            roots: backend_function_roots(
-                &self.runtime,
-                checked_module,
-                self.artifact_modules.contains(&checked_module.id),
-            ),
-            artifact_module: self.artifact_modules.contains(&checked_module.id),
+            roots: backend_function_roots(&self.runtime, checked_module),
             reachable_functions: Some(&source_item_plan.functions),
             reachable_globals: Some(&source_item_plan.globals),
             reachable_structs: Some(&source_item_plan.structs),
@@ -213,22 +198,12 @@ impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
         self.function_body_indices
             .get(&def_id)
             .and_then(|index| self.function_bodies[*index].value.body())
-            .or_else(|| {
-                self.artifact_function_bodies
-                    .get(&def_id)
-                    .map(|body| &body.body)
-            })
     }
 
     fn closure_entries(&self, def_id: GlobalDefId) -> &[nia_function_ir::FunctionClosureEntry] {
         self.function_body_indices
             .get(&def_id)
             .map(|index| self.function_bodies[*index].value.closure_entries())
-            .or_else(|| {
-                self.artifact_function_bodies
-                    .get(&def_id)
-                    .map(|body| body.closure_entries.as_slice())
-            })
             .unwrap_or_default()
     }
 
@@ -256,10 +231,6 @@ impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
         self.module_indices
             .get(&module_id)
             .map(|index| self.program_defs[*index].as_ref())
-    }
-
-    fn generic_params(&self, def_id: GlobalDefId) -> Option<Vec<(nia_symbol::SymbolId, bool)>> {
-        self.artifact_generic_params.get(&def_id).cloned()
     }
 
     fn normalized_type(&self, ty: InternedTyId) -> Option<InternedTyId> {
@@ -379,9 +350,8 @@ impl BackendFinalizationTaskContext {
 fn backend_function_roots(
     runtime: &RuntimeSpec,
     checked_module: &CheckedModule,
-    artifact_module: bool,
 ) -> nia_backend_lower::BackendFunctionRoots {
-    if checked_module.executable_type_only || artifact_module {
+    if checked_module.executable_type_only {
         return nia_backend_lower::BackendFunctionRoots::NoFunctions;
     }
     match runtime {
@@ -453,13 +423,11 @@ mod tests {
             function_body_ids: vec![def_id],
             function_body_indices: HashMap::from([(def_id, 0)]),
             function_bodies: lowered,
-            artifact_function_bodies: HashMap::new(),
             static_init_ids: vec![def_id],
             static_init_indices: HashMap::from([(def_id, 0)]),
             static_inits,
             source_item_plans: Vec::new(),
             function_instance_plans: Vec::new(),
-            artifact_modules: HashSet::new(),
             program_defs: Vec::new(),
             non_function_signatures: ProgramExecutableNonFunctionSignatures {
                 globals: HashMap::new(),
@@ -474,7 +442,6 @@ mod tests {
                 trait_method_index: nia_program_signatures::ProgramTraitMethodIndex::default(),
             },
             functions: HashMap::new(),
-            artifact_generic_params: HashMap::new(),
             runtime: RuntimeSpec::Bare,
         };
         let indexed = inputs.function_body(def_id).expect("indexed function body");
