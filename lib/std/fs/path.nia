@@ -197,7 +197,7 @@ fn textSliceOffset(out: &string::String, text: &[char]) mem::Error!?usize {
     if text.len() == 0 or out.len() == 0 {
         return !null;
     }
-    let itemSize = std::builtin::size[char]();
+    let itemSize = pkg::builtin::size[char]();
     let base = out.text().ptr() as usize;
     let source = text.ptr() as usize;
     if source < base {

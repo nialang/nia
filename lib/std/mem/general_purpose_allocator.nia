@@ -472,7 +472,7 @@ extend GeneralPurposeAllocator {
     }
 
     fn allocLarge(&mut self, layout: Layout) Error!Block {
-        let headerSize = std::builtin::size[LargeHeader]();
+        let headerSize = pkg::builtin::size[LargeHeader]();
         let withHeader = match headerSize.checkedAdd(layout.align()) {
             ?value => {
                 value
@@ -489,7 +489,7 @@ extend GeneralPurposeAllocator {
                 return .OutOfMemory!;
             },
         };
-        let blockAlign = cmp::max(std::builtin::align[LargeHeader](), layout.align());
+        let blockAlign = cmp::max(pkg::builtin::align[LargeHeader](), layout.align());
         let backingLayout = Layout::init(totalSize, blockAlign).?;
         let backing = self.child.alloc(backingLayout).?;
         let base = backing.ptr() as usize;
@@ -696,7 +696,7 @@ fn smallSlotSize(layout: Layout) ?usize {
         return null;
     }
     let mut slotSize = minSlotSize;
-    let withHeader = match std::builtin::size[SmallSlot]().checkedAdd(layout.align()) {
+    let withHeader = match pkg::builtin::size[SmallSlot]().checkedAdd(layout.align()) {
         ?value => {
             value
         },
@@ -732,7 +732,7 @@ fn smallSlotSize(layout: Layout) ?usize {
 
 fn smallPagePayloadBase(page: &mut SmallPage) ?usize {
     let base = page.block.ptr() as usize;
-    let afterHeader = match base.checkedAdd(std::builtin::size[SmallPage]()) {
+    let afterHeader = match base.checkedAdd(pkg::builtin::size[SmallPage]()) {
         ?value => {
             value
         },
@@ -802,7 +802,7 @@ fn smallPageSlotForPtr(page: &mut SmallPage, ptr: &mut u8) ?&mut SmallSlot {
 }
 
 fn smallSlotUserPtr(slot: &mut SmallSlot, align: usize) ?&mut u8 {
-    let addr = match (slot as usize).checkedAdd(std::builtin::size[SmallSlot]()) {
+    let addr = match (slot as usize).checkedAdd(pkg::builtin::size[SmallSlot]()) {
         ?value => {
             value
         },
@@ -834,7 +834,7 @@ fn smallSlotMatches(slot: &mut SmallSlot, block: Block) bool {
 fn largeHeaderUserPtr(header: &mut LargeHeader) ?&mut u8 {
     let headerAddr = header as usize;
     headerAddr
-        .checkedAdd(std::builtin::size[LargeHeader]())
+        .checkedAdd(pkg::builtin::size[LargeHeader]())
         .map(&\value -> value as &mut u8)
 }
 

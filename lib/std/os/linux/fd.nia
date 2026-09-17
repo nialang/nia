@@ -233,7 +233,7 @@ pub fn openAtBeneath(
         dir.raw() as usize,
         path as usize,
         &how as usize,
-        std::builtin::size[OpenHow](),
+        pkg::builtin::size[OpenHow](),
     );
     if ret < 0 {
         ret.syscallError()!

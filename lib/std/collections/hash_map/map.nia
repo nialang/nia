@@ -47,15 +47,15 @@ fn storagePlan[K, V](capacity: usize) mem::Error!StoragePlan
 where K: Sized, V: Sized
 {
     let ctrlLen = raw::ctrlAllocationLen(capacity).?;
-    let keyBytes = match std::builtin::size[K]().checkedMul(capacity) {
+    let keyBytes = match pkg::builtin::size[K]().checkedMul(capacity) {
         ?value => value,
         null => return .OutOfMemory!,
     };
-    let valueBytes = match std::builtin::size[V]().checkedMul(capacity) {
+    let valueBytes = match pkg::builtin::size[V]().checkedMul(capacity) {
         ?value => value,
         null => return .OutOfMemory!,
     };
-    let keysOffset = match ctrlLen.alignForward(std::builtin::align[K]()) {
+    let keysOffset = match ctrlLen.alignForward(pkg::builtin::align[K]()) {
         ?value => value,
         null => return .OutOfMemory!,
     };
@@ -63,7 +63,7 @@ where K: Sized, V: Sized
         ?value => value,
         null => return .OutOfMemory!,
     };
-    let valuesOffset = match afterKeys.alignForward(std::builtin::align[V]()) {
+    let valuesOffset = match afterKeys.alignForward(pkg::builtin::align[V]()) {
         ?value => value,
         null => return .OutOfMemory!,
     };
@@ -72,8 +72,8 @@ where K: Sized, V: Sized
         null => return .OutOfMemory!,
     };
     let blockAlign = cmp::max(
-        std::builtin::align[u8](),
-        cmp::max(std::builtin::align[K](), std::builtin::align[V]()),
+        pkg::builtin::align[u8](),
+        cmp::max(pkg::builtin::align[K](), pkg::builtin::align[V]()),
     );
     !.{
         layout: mem::Layout::init(totalSize, blockAlign).?,
@@ -99,7 +99,7 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
         if HashMapWithContext[K, V, DefaultHashMapContext]::tryInit() is !map {
             return map;
         }
-        std::builtin::trap()
+        pkg::builtin::trap()
     }
 
     pub fn tryInit() HashMapInitError!HashMapWithContext[K, V, DefaultHashMapContext] {
@@ -132,7 +132,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if HashMapWithContext[K, V, C]::tryInitContext(context) is !map {
             return map;
         }
-        std::builtin::trap()
+        pkg::builtin::trap()
     }
 
     pub fn tryInitContext(context: C) HashMapInitError!HashMapWithContext[K, V, C] {
@@ -500,7 +500,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     fn insertNewUninitializedIndexAssumeCapacity(&mut self, key: K) usize {
         if self.len >= self.capacity() {
-            std::builtin::trap()
+            pkg::builtin::trap()
         }
         let valueHash = self.hashKey(&key);
         let slot = self.findInsertIndex(valueHash);
@@ -637,7 +637,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             cursor.advanceGroup();
         }
 
-        std::builtin::trap()
+        pkg::builtin::trap()
     }
 
     fn growForCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
@@ -695,12 +695,12 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         let plan = storagePlan[K, V](capacity).?;
         let storage = allocator.alloc(plan.layout).?;
         self.ctrl = storageItems[u8](storage, 0, plan.ctrlLen);
-        if std::builtin::size[K]() == 0 {
+        if pkg::builtin::size[K]() == 0 {
             self.keys = raw::danglingLenSlice[K](capacity);
         } else {
             self.keys = storageItems[K](storage, plan.keysOffset, capacity);
         }
-        if std::builtin::size[V]() == 0 {
+        if pkg::builtin::size[V]() == 0 {
             self.values = raw::danglingLenSlice[V](capacity);
         } else {
             self.values = storageItems[V](storage, plan.valuesOffset, capacity);

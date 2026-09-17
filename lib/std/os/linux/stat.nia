@@ -89,7 +89,7 @@ pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) E
         dir.raw() as usize,
         path as usize,
         &how as usize,
-        std::builtin::size[OpenHow](),
+        pkg::builtin::size[OpenHow](),
     );
     if ret < 0 {
         ret.syscallError()!
@@ -102,8 +102,8 @@ pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) E
 
 fn statxAt(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Errno!FileMetadata {
     let mut stx: Statx;
-    let mut bytes = &mut ((&mut stx as &mut u8)[0..std::builtin::size[Statx]()]);
-    std::builtin::memset(bytes, 0);
+    let mut bytes = &mut ((&mut stx as &mut u8)[0..pkg::builtin::size[Statx]()]);
+    pkg::builtin::memset(bytes, 0);
     let ret = syscall::syscall5(
         syscall::statx,
         dir.raw() as usize,

@@ -196,7 +196,7 @@ extend char {
 }
 
 pub const fn fromScalarValue(value: u32) ?char {
-    std::builtin::charFromU32(value)
+    pkg::builtin::charFromU32(value)
 }
 
 pub const fn isValidScalarValue(value: u32) bool {

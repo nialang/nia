@@ -124,7 +124,7 @@ fn reportSpawnError(pipe: &SpawnPipe, stage: SpawnStage, errno: Errno) () {
 
 fn writeSpawnError(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) () {
     let mut record: SpawnErrorRecord = .init(stage, errno);
-    let mut bytes = &mut ((&mut record as &mut u8)[0..std::builtin::size[SpawnErrorRecord]()]);
+    let mut bytes = &mut ((&mut record as &mut u8)[0..pkg::builtin::size[SpawnErrorRecord]()]);
     let mut written: usize = 0;
     // The parent treats EOF before a record as successful close-on-exec.
     while written < bytes.len() {
@@ -145,7 +145,7 @@ fn writeSpawnError(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) (
 
 fn readSpawnError(fd: types::FileDescriptor) SpawnError! ?SpawnError {
     let mut record: SpawnErrorRecord = .init(.Setup, .Io);
-    let mut bytes = &mut ((&mut record as &mut u8)[0..std::builtin::size[SpawnErrorRecord]()]);
+    let mut bytes = &mut ((&mut record as &mut u8)[0..pkg::builtin::size[SpawnErrorRecord]()]);
     let mut readLen: usize = 0;
     while readLen < bytes.len() {
         let amount = match fd.readSome(&mut bytes[readLen..]) {
