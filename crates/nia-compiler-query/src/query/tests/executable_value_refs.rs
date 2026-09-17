@@ -155,3 +155,50 @@ fn main() i32 {
         edges.globals
     );
 }
+
+#[test]
+fn executable_value_ref_batch_keeps_multiple_owners_from_one_extension() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+static mut firstValue: i32 = 1;
+static mut secondValue: i32 = 2;
+
+struct Value {}
+
+extend Value {
+    fn first(&self) i32 { firstValue }
+    fn second(&self) i32 { secondValue }
+}
+
+fn main() i32 {
+    let value = Value {};
+    value.first() + value.second()
+}
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let db = query_db(fixture.program());
+    let defs = db.expect_get(ModuleDefsQuery(module_id));
+    let def_id = |name, kind| {
+        defs.semantic
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.name == sym(name) && def.kind == kind)
+                    .then_some(GlobalDefId { module_id, def_id })
+            })
+            .unwrap_or_else(|| panic!("missing {kind:?} definition `{name}`"))
+    };
+    let first = def_id("first", nia_defs::DefKind::Method);
+    let second = def_id("second", nia_defs::DefKind::Method);
+    let first_value = def_id("firstValue", nia_defs::DefKind::Global);
+    let second_value = def_id("secondValue", nia_defs::DefKind::Global);
+
+    let facts = db.expect_get(ExecutableCheckedModuleFactsQuery);
+
+    assert!(facts.runtime_functions.contains(&first));
+    assert!(facts.runtime_functions.contains(&second));
+    assert!(facts.runtime_globals.contains(&first_value));
+    assert!(facts.runtime_globals.contains(&second_value));
+}

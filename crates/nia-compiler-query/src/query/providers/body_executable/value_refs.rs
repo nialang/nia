@@ -14,6 +14,69 @@ pub(super) struct ExecutableValueRefIndex {
     pub(super) globals: HashMap<GlobalDefId, ExecutableValueRefEdges>,
 }
 
+struct ExecutableValueRefLookups<'a> {
+    db: &'a QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    defs: Arc<DefCollection>,
+    graph: QueryModuleGraphLookup<'a>,
+    public_surfaces: QueryPublicSurfaceLookup<'a>,
+    using_scope: QueryUsingScopeLookup<'a>,
+    program_defs: RefCell<HashMap<ModuleId, Arc<DefCollection>>>,
+    program_defs_failure: RefCell<Option<QueryError>>,
+    visible_extensions: RefCell<Option<Arc<VisibleExtensionsValue>>>,
+}
+
+impl<'a> ExecutableValueRefLookups<'a> {
+    fn new(db: &'a QueryDb<CompilerContext>, module_id: ModuleId) -> QueryResult<Self> {
+        Ok(Self {
+            db,
+            module_id,
+            defs: module_defs_semantic(db, module_id)?,
+            graph: QueryModuleGraphLookup::new(db)?,
+            public_surfaces: QueryPublicSurfaceLookup::new(db),
+            using_scope: QueryUsingScopeLookup::new(db, module_id),
+            program_defs: RefCell::new(HashMap::new()),
+            program_defs_failure: RefCell::new(None),
+            visible_extensions: RefCell::new(None),
+        })
+    }
+
+    fn program_defs(&self, module_id: ModuleId) -> Option<Arc<DefCollection>> {
+        if module_id == self.module_id {
+            return Some(Arc::clone(&self.defs));
+        }
+        if let Some(defs) = self.program_defs.borrow().get(&module_id) {
+            return Some(Arc::clone(defs));
+        }
+        let defs = capture_query_failure(
+            &self.program_defs_failure,
+            module_defs_semantic(self.db, module_id),
+        )?;
+        self.program_defs
+            .borrow_mut()
+            .insert(module_id, Arc::clone(&defs));
+        Some(defs)
+    }
+
+    fn visible_extensions(&self) -> QueryResult<Arc<VisibleExtensionsValue>> {
+        if let Some(extensions) = self.visible_extensions.borrow().as_ref() {
+            return Ok(Arc::clone(extensions));
+        }
+        let extensions = self.db.get(VisibleExtensionsQuery(self.module_id))?;
+        *self.visible_extensions.borrow_mut() = Some(Arc::clone(&extensions));
+        Ok(extensions)
+    }
+
+    fn take_failure(&self) -> Option<QueryError> {
+        self.program_defs_failure
+            .borrow_mut()
+            .take()
+            .or_else(|| self.graph.take_failure())
+            .or_else(|| self.public_surfaces.take_failure())
+            .or_else(|| self.using_scope.take_failure())
+    }
+}
+
 pub(in crate::query) fn provide_executable_value_ref_edges(
     db: &QueryDb<CompilerContext>,
     owner: GlobalDefId,
@@ -162,62 +225,85 @@ fn executable_value_ref_index_for_active_item_tree(
     active_item_tree: &ActiveModuleItemTree,
     full_active_item_tree: &ActiveModuleItemTree,
 ) -> QueryResult<ExecutableValueRefIndex> {
-    let defs = module_defs_semantic(db, module_id)?;
-    let query_failure = RefCell::new(None);
-    let program_defs =
-        |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
-    let graph = QueryModuleGraphLookup::new(db)?;
-    let public_surfaces = QueryPublicSurfaceLookup::new(db);
-    let using_scope = QueryUsingScopeLookup::new(db, module_id);
-    let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
+    let lookups = ExecutableValueRefLookups::new(db, module_id)?;
+    executable_value_ref_index_for_active_item_tree_with_lookups(
+        db,
+        module_id,
+        active_item_tree,
+        full_active_item_tree,
+        &lookups,
+    )
+}
+
+fn executable_value_ref_index_for_active_item_tree_with_lookups(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    active_item_tree: &ActiveModuleItemTree,
+    full_active_item_tree: &ActiveModuleItemTree,
+    lookups: &ExecutableValueRefLookups<'_>,
+) -> QueryResult<ExecutableValueRefIndex> {
+    let program_defs = |module_id| lookups.program_defs(module_id);
+    let visible_extensions = || lookups.visible_extensions();
     let associated_values =
         LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
     let symbols = db.context().symbols();
-    let values = nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
-        active_item_tree,
-        &defs,
-        nia_value_resolve::ProgramDefsContext {
-            defs: Some(&program_defs),
-            graph: Some(&graph),
+    let values = time_module_provider(
+        db,
+        "executable_value_refs.resolve_values",
+        module_id,
+        || {
+            nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
+                active_item_tree,
+                &lookups.defs,
+                nia_value_resolve::ProgramDefsContext {
+                    defs: Some(&program_defs),
+                    graph: Some(&lookups.graph),
+                },
+                &lookups.public_surfaces,
+                &lookups.using_scope,
+                nia_value_resolve::ValueResolveOptions::with_store(
+                    Some(&associated_values),
+                    Some(&symbols),
+                    db.context().node_store(),
+                ),
+            )
         },
-        &public_surfaces,
-        &using_scope,
-        nia_value_resolve::ValueResolveOptions::with_store(
-            Some(&associated_values),
-            Some(&symbols),
-            db.context().node_store(),
-        ),
     );
-    if let Some(error) = query_failure
-        .into_inner()
-        .or_else(|| graph.take_failure())
-        .or_else(|| public_surfaces.take_failure())
-        .or_else(|| using_scope.take_failure())
+    if let Some(error) = lookups
+        .take_failure()
         .or_else(|| associated_values.take_failure())
     {
         return Err(error);
     }
     let origins = nia_node_id::NodeOriginTable::with_store(db.context().node_store());
-    let locals =
-        nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins_and_symbols(
-            active_item_tree,
-            full_active_item_tree,
-            &defs,
-            &values,
-            None,
-            &origins,
-            &symbols,
-        );
-    let mut index = ExecutableValueRefIndex::default();
-    collect_executable_value_ref_index_for_items(
+    let locals = time_module_provider(
         db,
+        "executable_value_refs.resolve_locals",
         module_id,
-        &active_item_tree.items,
-        &defs,
-        &values,
-        &locals,
-        &mut index,
-    )?;
+        || {
+            nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins_and_symbols(
+                active_item_tree,
+                full_active_item_tree,
+                &lookups.defs,
+                &values,
+                None,
+                &origins,
+                &symbols,
+            )
+        },
+    );
+    let mut index = ExecutableValueRefIndex::default();
+    time_module_provider(db, "executable_value_refs.collect_edges", module_id, || {
+        collect_executable_value_ref_index_for_items(
+            db,
+            module_id,
+            &active_item_tree.items,
+            &lookups.defs,
+            &values,
+            &locals,
+            &mut index,
+        )
+    })?;
     Ok(index)
 }
 
@@ -226,9 +312,10 @@ fn executable_value_ref_index_for_owners(
     module_id: ModuleId,
     functions: &HashSet<GlobalDefId>,
     globals: &HashSet<GlobalDefId>,
+    full_active_item_tree: &ActiveModuleItemTree,
+    item_index: &HashMap<nia_ids::DefId, ExecutableValueRefItemInput>,
+    lookups: &ExecutableValueRefLookups<'_>,
 ) -> QueryResult<ExecutableValueRefIndex> {
-    let full_active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
-    let item_index = db.get(ExecutableValueRefItemIndexQuery(module_id))?;
     let mut owners = functions
         .iter()
         .chain(globals)
@@ -237,28 +324,18 @@ fn executable_value_ref_index_for_owners(
         .collect::<Vec<_>>();
     owners.sort_unstable();
     owners.dedup();
-    let mut items = Vec::with_capacity(owners.len());
-    for owner in owners {
-        let Some(input) = item_index.get(&owner.def_id) else {
-            continue;
-        };
-        let item = executable_value_ref_active_item_tree(input, &full_active_item_tree)
-            .items
-            .first()
-            .cloned();
-        if let Some(item) = item {
-            items.push(item);
-        }
-    }
-    let active_item_tree = ActiveModuleItemTree::from_shared_parts(
-        Arc::from(items),
-        Arc::clone(&full_active_item_tree.inactive_spans),
-    );
-    executable_value_ref_index_for_active_item_tree(
+    let inputs = owners
+        .iter()
+        .filter_map(|owner| item_index.get(&owner.def_id))
+        .collect::<Vec<_>>();
+    let active_item_tree =
+        executable_value_ref_active_item_tree_for_inputs(inputs, full_active_item_tree);
+    executable_value_ref_index_for_active_item_tree_with_lookups(
         db,
         module_id,
         &active_item_tree,
-        &full_active_item_tree,
+        full_active_item_tree,
+        lookups,
     )
 }
 
@@ -271,6 +348,9 @@ pub(super) fn walk_executable_value_ref_closure(
     mut on_function: impl FnMut(GlobalDefId) -> bool,
     mut on_global: impl FnMut(GlobalDefId) -> bool,
 ) -> QueryResult<bool> {
+    let lookups = ExecutableValueRefLookups::new(db, module_id)?;
+    let full_active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
+    let item_index = db.get(ExecutableValueRefItemIndexQuery(module_id))?;
     let mut changed = false;
     let mut pending_functions = functions.iter().copied().collect::<HashSet<_>>();
     let mut pending_globals = globals.clone();
@@ -291,8 +371,15 @@ pub(super) fn walk_executable_value_ref_closure(
             .copied()
             .filter(|owner| owner.module_id == module_id)
             .collect::<HashSet<_>>();
-        let index =
-            executable_value_ref_index_for_owners(db, module_id, &local_functions, &local_globals)?;
+        let index = executable_value_ref_index_for_owners(
+            db,
+            module_id,
+            &local_functions,
+            &local_globals,
+            &full_active_item_tree,
+            &item_index,
+            &lookups,
+        )?;
         for global in scan_globals {
             let edges = if global.module_id == module_id {
                 index.globals.get(&global).cloned().unwrap_or_default()
@@ -400,25 +487,52 @@ pub(super) fn executable_value_ref_active_item_tree(
     input: &ExecutableValueRefItemInput,
     full_active_item_tree: &ActiveModuleItemTree,
 ) -> ActiveModuleItemTree {
-    let mut item = full_active_item_tree.items[input.item_index].clone();
-    match &mut item.kind {
-        nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
-            item_trait
-                .methods
-                .retain(|method| method.function.node_key == input.owner_node_key);
+    executable_value_ref_active_item_tree_for_inputs([input], full_active_item_tree)
+}
+
+fn executable_value_ref_active_item_tree_for_inputs<'a>(
+    inputs: impl IntoIterator<Item = &'a ExecutableValueRefItemInput>,
+    full_active_item_tree: &ActiveModuleItemTree,
+) -> ActiveModuleItemTree {
+    let mut inputs = inputs.into_iter().collect::<Vec<_>>();
+    inputs.sort_unstable_by_key(|input| input.item_index);
+    let mut items = Vec::with_capacity(inputs.len());
+    let mut start = 0;
+    while start < inputs.len() {
+        let item_index = inputs[start].item_index;
+        let mut end = start + 1;
+        while end < inputs.len() && inputs[end].item_index == item_index {
+            end += 1;
         }
-        nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
-            extend
-                .methods
-                .retain(|method| method.function.node_key == input.owner_node_key);
-            extend
-                .associated_values
-                .retain(|value| value.binding.node_key == input.owner_node_key);
+        let owners = &inputs[start..end];
+        let mut item = full_active_item_tree.items[item_index].clone();
+        match &mut item.kind {
+            nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
+                item_trait.methods.retain(|method| {
+                    owners
+                        .iter()
+                        .any(|input| method.function.node_key == input.owner_node_key)
+                });
+            }
+            nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
+                extend.methods.retain(|method| {
+                    owners
+                        .iter()
+                        .any(|input| method.function.node_key == input.owner_node_key)
+                });
+                extend.associated_values.retain(|value| {
+                    owners
+                        .iter()
+                        .any(|input| value.binding.node_key == input.owner_node_key)
+                });
+            }
+            _ => {}
         }
-        _ => {}
+        items.push(item);
+        start = end;
     }
     ActiveModuleItemTree::from_shared_parts(
-        Arc::from([item]),
+        Arc::from(items),
         Arc::clone(&full_active_item_tree.inactive_spans),
     )
 }
