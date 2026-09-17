@@ -85,6 +85,77 @@ fn additive_provider_graph_growth_reuses_existing_executable_facts() {
 }
 
 #[test]
+fn additive_module_growth_discards_diagnostic_executable_facts() {
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { missing() }");
+    let entry_id = fixture.entry_id();
+    let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
+
+    let _ = database.executable_provider_demands();
+    let mut session = database
+        .db
+        .context()
+        .executable_fact_session
+        .lock()
+        .expect("executable fact session lock poisoned");
+    assert!(
+        !session
+            .modules
+            .get(&entry_id)
+            .expect("entry executable facts")
+            .diagnostics
+            .is_empty()
+    );
+    let mut grown_versions = session.module_versions.clone();
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    grown_versions.insert(
+        module_ids.allocate(),
+        SourceVersion {
+            id: SourceId(u32::MAX),
+            revision: SourceRevision::INITIAL,
+        },
+    );
+
+    session.synchronize_module_versions(&grown_versions);
+
+    assert!(!session.modules.contains_key(&entry_id));
+}
+
+#[test]
+fn semantic_provider_growth_preserves_reachability_state() {
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+    let database = fixture.database();
+    let revision = crate::ProviderFactRevision::new_store();
+    let retained_function = nia_ids::GlobalDefId {
+        module_id: fixture.entry_id(),
+        def_id: nia_ids::DefId(0),
+    };
+    let mut session = ExecutableFactSession::default();
+    session
+        .reachability
+        .reachability_mut()
+        .insert_function(retained_function);
+
+    let semantic_demand = crate::ProviderDemand {
+        source_path: SourcePath::new("main.nia"),
+        request: crate::ProviderRequest::ModuleSemantic {
+            module_path: SourcePath::new("main/provider.nia"),
+        },
+    };
+    session.apply_provider_fact_worklist(
+        &crate::ProviderFactSnapshot::new(revision.next(), revision, [semantic_demand]),
+        &database.db.context().type_store,
+    );
+
+    assert!(
+        session
+            .reachability
+            .reachability()
+            .functions()
+            .contains(&retained_function)
+    );
+}
+
+#[test]
 fn provider_changes_discard_affected_executable_fact_caches() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let entry_id = fixture.entry_id();

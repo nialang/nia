@@ -73,6 +73,7 @@ pub(super) struct ExecutableFactModuleState {
 #[derive(Default)]
 pub(super) struct ExecutableFactSession {
     pub(super) epoch: Option<ExecutableFactEpoch>,
+    pub(super) module_versions: HashMap<ModuleId, nia_source::SourceVersion>,
     pub(super) modules: HashMap<ModuleId, ExecutableFactModuleState>,
     pub(super) reachability: nia_executable_reachability::IncrementalExecutableReachability,
     pub(super) caches: ExecutableCheckCaches,
@@ -92,6 +93,41 @@ impl ExecutableFactSession {
         };
     }
 
+    pub(super) fn synchronize_module_versions(
+        &mut self,
+        module_versions: &HashMap<ModuleId, nia_source::SourceVersion>,
+    ) {
+        if self.module_versions == *module_versions {
+            return;
+        }
+        let additive_growth = self
+            .module_versions
+            .iter()
+            .all(|(module_id, version)| module_versions.get(module_id) == Some(version));
+        if !additive_growth {
+            self.reachability = Default::default();
+        }
+        let mut retained_modules = self
+            .module_versions
+            .iter()
+            .filter_map(|(module_id, version)| {
+                (module_versions.get(module_id) == Some(version)).then_some(*module_id)
+            })
+            .collect::<HashSet<_>>();
+        let module_count = self.modules.len();
+        // A newly loaded provider can turn an earlier lookup diagnostic into a
+        // valid resolution even when the diagnostic owner's source is unchanged.
+        self.modules.retain(|module_id, state| {
+            retained_modules.contains(module_id) && state.diagnostics.is_empty()
+        });
+        if self.modules.len() != module_count {
+            self.reachability = Default::default();
+        }
+        retained_modules.retain(|module_id| self.modules.contains_key(module_id));
+        self.caches.retain_modules(&retained_modules);
+        self.module_versions = module_versions.clone();
+    }
+
     pub(super) fn apply_body_activation_worklist(&mut self, worklist: &BodyActivationWorklist) {
         let pending_activations = worklist
             .modules
@@ -106,7 +142,12 @@ impl ExecutableFactSession {
             .iter()
             .map(|(_, module_id)| *module_id)
             .collect::<HashSet<_>>();
-        self.reachability = Default::default();
+        if pending_module_ids
+            .iter()
+            .any(|module_id| self.modules.contains_key(module_id))
+        {
+            self.reachability = Default::default();
+        }
         let mut retained_modules = HashSet::new();
         self.modules.retain(|module_id, _| {
             let retained = !pending_module_ids.contains(module_id);
@@ -147,15 +188,21 @@ impl ExecutableFactSession {
             .cloned()
             .collect::<HashSet<_>>();
         if !pending_changes.is_empty() {
-            self.reachability = Default::default();
+            let mut invalidates_reachability = false;
             let mut retained_modules = HashSet::new();
             self.modules.retain(|module_id, state| {
+                let checked_functions = state.checked_functions.len();
                 let retained = state.invalidate_provider_changes(&pending_changes, type_store);
                 if retained {
                     retained_modules.insert(*module_id);
                 }
+                invalidates_reachability |=
+                    !retained || checked_functions != state.checked_functions.len();
                 retained
             });
+            if invalidates_reachability {
+                self.reachability = Default::default();
+            }
             self.caches.retain_modules(&retained_modules);
             self.applied_provider_changes.extend(pending_changes);
         }

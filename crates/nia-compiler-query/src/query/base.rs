@@ -703,10 +703,6 @@ impl QueryKey<CompilerContext> for ExecutableFactEpochQuery {
         let graph = db.get(ModuleGraphQuery)?;
         let loaded = db.get(LoadedModulesQuery)?;
         let loaded_ids = resolve_stable_module_sequence(db, &loaded)?;
-        let mut modules = Vec::new();
-        for module_id in loaded_ids.iter().copied() {
-            modules.push((module_id, *db.get(ModuleSourceVersionQuery(module_id))?));
-        }
         let runtime_root_modules = graph
             .modules()
             .filter(|module| {
@@ -717,7 +713,6 @@ impl QueryKey<CompilerContext> for ExecutableFactEpochQuery {
         Ok(ExecutableFactEpoch {
             entry_module: graph.entry(),
             runtime_root_modules,
-            modules,
             target: db.get(CompilerTargetQuery)?.as_ref().clone(),
             runtime: db.get(CompilerRuntimeQuery)?.as_ref().clone(),
             codegen_scope: *db.get(CompilerCodegenScopeQuery)?,

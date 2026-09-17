@@ -7345,11 +7345,10 @@ impl CompilerContext {
             graph
                 .get(module_id)
                 .unwrap_or_else(|| panic!("Nia ICE: module {module_id:?} is not loaded"));
-            let path = self
-                .loader_facts
-                .module_path(module_id)?
-                .unwrap_or_else(|| panic!("Nia ICE: module {module_id:?} has no source path"));
-            identities.push(path.identity());
+            let key = graph
+                .stable_key(module_id)
+                .unwrap_or_else(|| panic!("Nia ICE: module {module_id:?} has no stable key"));
+            identities.push(key.source_identity().clone());
         }
         Ok(StableModuleSequence::from_source_identities(identities))
     }
@@ -7361,6 +7360,14 @@ impl CompilerContext {
         let graph = self.loader_facts.module_graph()?;
         let mut module_ids = Vec::with_capacity(sequence.keys.len());
         for key in &sequence.keys {
+            if let Some(module_id) = graph.module_id_for_stable_key(key) {
+                module_ids.push(module_id);
+                continue;
+            }
+            // A graph update can preserve the source identity while allocating a
+            // fresh stable-key package/relationship. Keep the compatibility path
+            // for that transition; the common unchanged-graph case uses the
+            // indexed lookup above and avoids repeated loader path clones.
             let mut current = None;
             for module in graph.modules() {
                 if self

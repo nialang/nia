@@ -297,6 +297,14 @@ fn executable_check_in_session(
         let executable_fact_epoch = db.get(ExecutableFactEpochQuery)?;
         let parse_ok_module_ids = db.get(ParseOkModuleIdsQuery)?;
         let parse_ok = resolve_stable_module_sequence(db, &parse_ok_module_ids)?;
+        let module_versions = parse_ok
+            .iter()
+            .copied()
+            .map(|module_id| {
+                db.get(ModuleSourceVersionQuery(module_id))
+                    .map(|version| (module_id, *version))
+            })
+            .collect::<QueryResult<HashMap<_, _>>>()?;
         let (entry_module, runtime_root_modules) =
             db.get(ExecutableRootModulesQuery)?.as_ref().clone();
         let (root_functions, root_globals) =
@@ -306,6 +314,7 @@ fn executable_check_in_session(
             body_activation_worklist,
             executable_fact_epoch,
             parse_ok,
+            module_versions,
             entry_module,
             root_functions,
             root_globals,
@@ -316,6 +325,7 @@ fn executable_check_in_session(
         body_activation_worklist,
         executable_fact_epoch,
         parse_ok,
+        module_versions,
         entry_module,
         root_functions,
         root_globals,
@@ -324,10 +334,12 @@ fn executable_check_in_session(
         Err(error) => return (Err(error), session),
     };
     session.enter_epoch(&executable_fact_epoch);
+    session.synchronize_module_versions(&module_versions);
     session.apply_body_activation_worklist(&body_activation_worklist);
     session.apply_provider_fact_worklist(&provider_fact_worklist, &db.context().type_store);
     let ExecutableFactSession {
         epoch,
+        module_versions,
         mut modules,
         reachability,
         caches,
@@ -336,6 +348,8 @@ fn executable_check_in_session(
         applied_body_activations,
     } = session;
     let query_failure = RefCell::new(None);
+    let mut value_ref_scanned_functions = HashSet::new();
+    let mut value_ref_scanned_globals = HashSet::new();
     let function_signature = |def_id: GlobalDefId| {
         if let Some(signature) = caches
             .reachability_function_signatures
@@ -480,6 +494,7 @@ fn executable_check_in_session(
                 Err($error),
                 ExecutableFactSession {
                     epoch,
+                    module_versions: module_versions.clone(),
                     modules: fact_by_id,
                     reachability: reachability_state,
                     caches,
@@ -529,7 +544,6 @@ fn executable_check_in_session(
         if let Some(error) = query_failure.borrow_mut().take() {
             return_session_error!(error);
         }
-        let reachability_by_module = reachability_state.reachability().by_module();
         let value_edges_changed = match time_provider(
             db.context().timings(),
             "executable_checked_modules.value_ref_edges",
@@ -539,9 +553,10 @@ fn executable_check_in_session(
                     db,
                     &parse_ok,
                     reachability,
-                    &reachability_by_module,
                     &function_signature,
                     &fact_by_id,
+                    &mut value_ref_scanned_functions,
+                    &mut value_ref_scanned_globals,
                 )
             },
         ) {
@@ -554,6 +569,7 @@ fn executable_check_in_session(
         if value_edges_changed {
             continue;
         }
+        let reachability_by_module = reachability_state.reachability().by_module();
         let stale = match time_provider(
             db.context().timings(),
             "executable_checked_modules.stale_select",
@@ -588,7 +604,7 @@ fn executable_check_in_session(
                 .map(|state| &state.checked_globals);
             let (module_functions, module_globals) =
                 unchecked_executable_items(&reachability_by_module, module_id, &fact_by_id);
-            let module_functions = match time_module_provider(
+            let (module_functions, static_owner_added) = match time_module_provider(
                 db,
                 "executable_checked_modules.extend_local_static_owners",
                 module_id,
@@ -605,22 +621,26 @@ fn executable_check_in_session(
                 Ok(functions) => functions,
                 Err(error) => return_session_error!(error),
             };
-            let module_functions = match time_module_provider(
-                db,
-                "executable_checked_modules.extend_value_refs",
-                module_id,
-                || {
-                    extend_module_functions_from_filtered_value_refs(
-                        db,
-                        module_id,
-                        module_functions,
-                        &module_globals,
-                        already_checked_functions,
-                    )
-                },
-            ) {
-                Ok(functions) => functions,
-                Err(error) => return_session_error!(error),
+            let module_functions = if static_owner_added {
+                match time_module_provider(
+                    db,
+                    "executable_checked_modules.extend_value_refs",
+                    module_id,
+                    || {
+                        extend_module_functions_from_filtered_value_refs(
+                            db,
+                            module_id,
+                            module_functions,
+                            &module_globals,
+                            already_checked_functions,
+                        )
+                    },
+                ) {
+                    Ok(functions) => functions,
+                    Err(error) => return_session_error!(error),
+                }
+            } else {
+                module_functions
             };
             reachability_state
                 .reachability_mut()
@@ -851,6 +871,7 @@ fn executable_check_in_session(
             output,
             ExecutableFactSession {
                 epoch,
+                module_versions: module_versions.clone(),
                 modules: fact_by_id,
                 reachability: reachability_state,
                 caches,
@@ -1110,6 +1131,7 @@ fn executable_check_in_session(
         output,
         ExecutableFactSession {
             epoch,
+            module_versions,
             modules: fact_by_id,
             reachability: reachability_state,
             caches,
@@ -1451,22 +1473,50 @@ fn extend_reachability_from_value_ref_edges(
     db: &QueryDb<CompilerContext>,
     parse_ok: &[ModuleId],
     reachability: &mut nia_executable_reachability::ExecutableReachability,
-    reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
     function_signature: &dyn Fn(GlobalDefId) -> Option<Arc<ProgramFunctionSignature>>,
     fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
+    scanned_functions: &mut HashSet<GlobalDefId>,
+    scanned_globals: &mut HashSet<GlobalDefId>,
 ) -> QueryResult<bool> {
-    let mut work = Vec::new();
-    for module_id in parse_ok.iter().copied() {
-        if !reachability.modules().contains(&module_id) {
+    let mut work_by_module =
+        HashMap::<ModuleId, (HashSet<GlobalDefId>, HashSet<GlobalDefId>)>::new();
+    for def_id in reachability.functions().iter().copied() {
+        if scanned_functions.contains(&def_id) || !parse_ok.contains(&def_id.module_id) {
             continue;
         }
-        let (module_functions, module_globals) =
-            unchecked_executable_items(reachability_by_module, module_id, fact_by_id);
-        if module_functions.is_empty() && module_globals.is_empty() {
+        if fact_by_id
+            .get(&def_id.module_id)
+            .is_some_and(|state| state.checked_functions.contains(&def_id))
+        {
             continue;
         }
-        work.push((module_id, module_functions, module_globals));
+        work_by_module
+            .entry(def_id.module_id)
+            .or_default()
+            .0
+            .insert(def_id);
     }
+    for def_id in reachability.globals().iter().copied() {
+        if scanned_globals.contains(&def_id) || !parse_ok.contains(&def_id.module_id) {
+            continue;
+        }
+        if fact_by_id
+            .get(&def_id.module_id)
+            .is_some_and(|state| state.checked_globals.contains(&def_id))
+        {
+            continue;
+        }
+        work_by_module
+            .entry(def_id.module_id)
+            .or_default()
+            .1
+            .insert(def_id);
+    }
+    let mut work = work_by_module
+        .into_iter()
+        .map(|(module_id, (functions, globals))| (module_id, functions, globals))
+        .collect::<Vec<_>>();
+    work.sort_unstable_by_key(|(module_id, _, _)| *module_id);
     let tasks = work
         .into_iter()
         .map(|(module_id, module_functions, module_globals)| {
@@ -1478,13 +1528,17 @@ fn extend_reachability_from_value_ref_edges(
                     &module_functions,
                     &module_globals,
                 )
-                .map(|edges| (module_id, edges))
+                .map(|(edges, closure_functions)| {
+                    (module_id, module_globals, closure_functions, edges)
+                })
             }
         });
     let results = db.session().run_tasks_bounded(tasks, 4);
     let mut changed = false;
     for result in results {
-        let (_, edges) = result?;
+        let (_, module_globals, closure_functions, edges) = result?;
+        scanned_functions.extend(closure_functions);
+        scanned_globals.extend(module_globals);
         for def_id in edges.functions {
             if (function_signature)(def_id).is_none() {
                 continue;
