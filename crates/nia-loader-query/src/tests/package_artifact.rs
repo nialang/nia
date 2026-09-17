@@ -38,17 +38,6 @@ fn manifest() -> PackageManifest {
     })
 }
 
-fn artifact_with_native_variant(optimization: u8) -> Vec<u8> {
-    let native = nia_package_metadata::NativeSection {
-        variants: vec![nia_package_metadata::NativeVariant {
-            optimization,
-            objects: Vec::new(),
-        }],
-    };
-    let native = nia_package_metadata::encode_native(&native).unwrap();
-    encode_artifact(&manifest(), &[(SectionKind::Native, &native)]).unwrap()
-}
-
 #[test]
 fn optional_artifact_loads_and_preserves_relocation_independent_identity() {
     let path = temp_artifact("valid");
@@ -73,42 +62,6 @@ fn optional_artifact_loads_and_preserves_relocation_independent_identity() {
     assert!(matches!(
         loader.package_artifact().unwrap(),
         Some(PackageArtifactLoad::Loaded { .. })
-    ));
-}
-
-#[test]
-fn native_codegen_falls_back_from_artifact_without_exact_variant() {
-    let path = temp_artifact("missing-native-variant");
-    fs::write(&path, artifact_with_native_variant(0)).unwrap();
-    let loader = LoaderDatabase::new(
-        LoadRequest::new("main.nia")
-            .with_package_artifact(&path)
-            .with_required_native_optimization(2),
-    );
-    assert!(matches!(
-        loader.package_artifact().unwrap(),
-        Some(PackageArtifactLoad::SourceFallback {
-            reason: PackageArtifactFallback::MissingNativeVariant { optimization: 2 },
-            ..
-        })
-    ));
-}
-
-#[test]
-fn required_artifact_reports_missing_native_variant() {
-    let path = temp_artifact("required-missing-native-variant");
-    fs::write(&path, artifact_with_native_variant(0)).unwrap();
-    let loader = LoaderDatabase::new(
-        LoadRequest::new("main.nia")
-            .require_package_artifact(&path)
-            .with_required_native_optimization(3),
-    );
-    assert!(matches!(
-        loader.package_artifact(),
-        Err(PackageArtifactError::MissingNativeVariant {
-            optimization: 3,
-            ..
-        })
     ));
 }
 
@@ -332,41 +285,6 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
         }],
     };
     let interface_bytes = encode_interface(&interface).unwrap();
-    let native = nia_package_metadata::NativeSection {
-        variants: vec![
-            nia_package_metadata::NativeVariant {
-                optimization: 0,
-                objects: vec![nia_package_metadata::NativeObject {
-                    owner: nia_package_metadata::NativeObjectOwner::PackageModule {
-                        module: nia_package_metadata::ModuleId {
-                            package: package.clone(),
-                            path: "src/lib.nia".into(),
-                        },
-                        ordinal: 0,
-                    },
-                    key: "unit-0".into(),
-                    fingerprint: [0, 0],
-                    bytes: vec![1, 2, 3],
-                }],
-            },
-            nia_package_metadata::NativeVariant {
-                optimization: 2,
-                objects: vec![nia_package_metadata::NativeObject {
-                    owner: nia_package_metadata::NativeObjectOwner::PackageModule {
-                        module: nia_package_metadata::ModuleId {
-                            package: package.clone(),
-                            path: "src/lib.nia".into(),
-                        },
-                        ordinal: 0,
-                    },
-                    key: "unit-0".into(),
-                    fingerprint: [2, 2],
-                    bytes: vec![4, 5, 6],
-                }],
-            },
-        ],
-    };
-    let native_bytes = nia_package_metadata::encode_native(&native).unwrap();
     let mut metadata = manifest_for(package.clone());
     metadata
         .modules
@@ -376,14 +294,7 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
         });
     fs::write(
         &path,
-        encode_artifact(
-            &metadata,
-            &[
-                (SectionKind::Interface, &interface_bytes),
-                (SectionKind::Native, &native_bytes),
-            ],
-        )
-        .unwrap(),
+        encode_artifact(&metadata, &[(SectionKind::Interface, &interface_bytes)]).unwrap(),
     )
     .unwrap();
     let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_package_artifact(&path));
@@ -423,13 +334,6 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
         .unwrap();
     assert_eq!(fact.identity(), &modules[0]);
     assert_eq!(fact.records().len(), 1);
-    let native_packages = compiler.install_compiled_package_native().unwrap();
-    assert_eq!(native_packages, vec![package.clone()]);
-    let products = compiler.compiled_package_native_products().unwrap();
-    assert_eq!(products.len(), 1);
-    assert_eq!(products[0].package(), &package);
-    assert_eq!(products[0].variant().optimization, 2);
-    assert_eq!(products[0].variant().objects[0].fingerprint, [2, 2]);
 }
 
 #[test]

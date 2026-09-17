@@ -1975,7 +1975,7 @@ fn run_emit_package(path: &str, source: &str, args: Vec<String>, context: EmitCo
         .with_timings(context.timings)
         .with_runtime(RuntimeSpec::Bare);
     let output = time_summary_stage(context.timings, "publish_package", || {
-        driver.publish_package_artifact_with_native(request, options.package, options.output)
+        driver.publish_package_artifact(request, options.package, options.output)
     });
     match output.result {
         Ok(_) => ExitCode::SUCCESS,

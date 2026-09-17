@@ -19,7 +19,6 @@ pub(super) struct CompilerContext {
     pub(super) inputs: Arc<RwLock<CompilerInputs>>,
     pub(super) observed_graph: std::sync::Mutex<ModuleGraphSnapshot>,
     pub(super) observed_compiled_interfaces: std::sync::Mutex<Option<QueryFingerprint>>,
-    pub(super) observed_compiled_native: std::sync::Mutex<Option<QueryFingerprint>>,
     // Compiler queries consume this update-boundary snapshot instead of
     // inheriting the loader's whole evolving module graph as a dependency.
     pub(super) compiled_package_module_identities:

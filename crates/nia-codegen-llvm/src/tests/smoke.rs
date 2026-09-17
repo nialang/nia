@@ -112,7 +112,6 @@ fn main() i64 {{
                     Some((*ordinal, module.fingerprint))
                 }
                 CodegenUnitKey::CompilerBuiltins => None,
-                CodegenUnitKey::CompiledPackage { .. } => None,
             })
             .collect()
     }

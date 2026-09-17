@@ -48,8 +48,6 @@ pub enum PackageArtifactFallback {
     InvalidMetadata(MetadataError),
     /// The artifact is valid but belongs to another compiler/package identity.
     Incompatible(Box<PackageArtifactMismatch>),
-    /// Native code generation requires a variant absent from this artifact.
-    MissingNativeVariant { optimization: u8 },
     /// Reading the artifact failed for a reason other than it being absent.
     Io(String),
 }
@@ -113,10 +111,6 @@ pub enum PackageArtifactError {
         path: PathBuf,
         mismatch: Box<PackageArtifactMismatch>,
     },
-    MissingNativeVariant {
-        path: PathBuf,
-        optimization: u8,
-    },
     Io {
         path: PathBuf,
         message: String,
@@ -139,11 +133,6 @@ impl std::fmt::Display for PackageArtifactError {
             Self::Incompatible { path, mismatch } => write!(
                 f,
                 "incompatible compiled package artifact {}: {mismatch:?}",
-                path.display()
-            ),
-            Self::MissingNativeVariant { path, optimization } => write!(
-                f,
-                "compiled package artifact {} has no native optimization variant {optimization}",
                 path.display()
             ),
             Self::Io { path, message } => write!(
@@ -210,7 +199,6 @@ pub(crate) fn load(
     request: &PackageArtifactRequest,
     expected_package: Option<&PackageId>,
     compatibility: &ArtifactCompatibility,
-    required_native_optimization: Option<u8>,
 ) -> Result<PackageArtifactLoad, PackageArtifactError> {
     let path = request.path().to_path_buf();
     let bytes = match fs::read(&path) {
@@ -291,26 +279,6 @@ pub(crate) fn load(
             PackageArtifactFallback::Incompatible(Box::new(mismatch)),
         );
     }
-    if let Some(optimization) = required_native_optimization {
-        let native = match artifact.native() {
-            Ok(Some(native)) => native,
-            Ok(None) => {
-                return fallback_or_error(
-                    request,
-                    PackageArtifactFallback::MissingNativeVariant { optimization },
-                );
-            }
-            Err(error) => {
-                return fallback_or_error(request, PackageArtifactFallback::InvalidMetadata(error));
-            }
-        };
-        if native.variant(optimization).is_none() {
-            return fallback_or_error(
-                request,
-                PackageArtifactFallback::MissingNativeVariant { optimization },
-            );
-        }
-    }
     Ok(PackageArtifactLoad::Loaded {
         path,
         artifact: Box::new(artifact),
@@ -345,7 +313,6 @@ pub fn select_package_artifact(
         request,
         expected_package,
         &ArtifactCompatibility::current(toolchain, target, profile, compilation_mode),
-        None,
     )
 }
 
@@ -362,9 +329,6 @@ fn fallback_or_error(
             }
             PackageArtifactFallback::Incompatible(mismatch) => {
                 PackageArtifactError::Incompatible { path, mismatch }
-            }
-            PackageArtifactFallback::MissingNativeVariant { optimization } => {
-                PackageArtifactError::MissingNativeVariant { path, optimization }
             }
             PackageArtifactFallback::Io(message) => PackageArtifactError::Io { path, message },
         });

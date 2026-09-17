@@ -290,9 +290,6 @@ impl ProgramIndex {
             CodegenUnitId::CompilerBuiltins => {
                 panic!("Nia ICE: compiler builtins partition has no backend module")
             }
-            CodegenUnitId::CompiledPackage { .. } => {
-                panic!("Nia ICE: compiled package unit has no backend module")
-            }
         };
         assert!(
             self.is_published(module_id),

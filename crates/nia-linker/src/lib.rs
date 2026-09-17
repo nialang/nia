@@ -1181,18 +1181,6 @@ fn write_codegen_unit_key(builder: &mut QueryFingerprintBuilder, key: &CodegenUn
             builder.write_u64(u64::from(*ordinal));
         }
         CodegenUnitKey::CompilerBuiltins => builder.write_u8(1),
-        CodegenUnitKey::CompiledPackage {
-            namespace,
-            package,
-            version,
-            object,
-        } => {
-            builder.write_u8(2);
-            builder.write_str(namespace);
-            builder.write_str(package);
-            builder.write_str(version);
-            builder.write_str(object);
-        }
     }
 }
 

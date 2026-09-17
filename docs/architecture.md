@@ -733,7 +733,7 @@ package identity; this logical mount is not a public import or standard-library 
 
 Compiled package manifests identify the exact target, build profile, and normal/test
 compilation mode used for conditional source selection. Loader selection validates this
-semantic context before exposing any declaration, template, or native section; products
+semantic context before exposing any declaration or template section; products
 compiled from a different conditional source view are never partially reused.
 The target-independent signature section carries every fact that can affect downstream
 semantics or ABI. In particular, enum variants store their evaluated discriminant bits and
@@ -745,21 +745,15 @@ they do not run source const lowering over an empty synthetic module.
 Method declarations reconstructed without a body derive their receiver value type from the
 canonical pair of receiver kind and extension target. References to slice, trait-object, and
 callable pointees become the corresponding fat value types before ABI classification. This
-keeps a package-native definition and every downstream declaration of its symbol on one
+keeps a package definition and every downstream declaration of its symbol on one
 calling convention even though source-local parameter facts are absent.
-Toolchain package paths are derived from the same target/profile/mode identity, so
-installed variants cannot overwrite one another and relocation does not change their
-relative resource path.
-Semantic-only requests may select a context-compatible package without native code.
-Object and executable requests additionally require an exact optimization variant;
-an optional package that lacks it falls back as a whole to source, while a required
-package reports a typed selection error. Interface metadata and source definitions are
-never mixed after native selection fails.
-Optional artifact fallback is a whole-package loader decision and is allowed only for a
-missing, corrupt, incompatible, or unavailable required-native variant. Once an artifact is
-selected, compiler query providers must use its validated declarations, signatures,
-templates, const facts, and native ownership without probing dependency source. Required
-artifact requests report the selection failure and never enter source providers.
+Package containers do not carry native objects. Object and executable production always
+flows through source code generation; reusable object and executable products belong to
+private, compiler-version-specific build caches rather than a library interchange format.
+Optional artifact fallback is a whole-package loader decision. Once a semantic artifact is
+selected, compiler query providers use its validated declarations, signatures, templates,
+and const facts without probing dependency source. Required artifact requests report the
+selection failure and never enter source providers.
 
 ## 13. CLI
 
@@ -771,11 +765,10 @@ dispatch, and ICE boundaries. Core pipeline commands:
 - `nia build [step] [--root dir]` - discovers and runs package build.nia
 - `nia check <file.nia>` - validates without codegen
 - `nia emit --tokens|--ast|--checked|--backend|--llvm|--obj|--exe <file.nia>` - emits intermediate or final products
-- `nia emit --package <pkg.nia> --package-id <namespace/name@version>` - atomically publishes semantic metadata and the selected native optimization variant
+- `nia emit --package <pkg.nia> --package-id <namespace/name@version>` - atomically publishes semantic metadata
 
 `nia emit --package ... --std` binds publication to the selected toolchain's
-canonical std source and package identity. Publication disables installed std artifact
-discovery so an existing snapshot can never become the input to its own replacement.
+canonical std source and package identity.
 
 Accepts global options: `-O0` through `-Oz` for optimization, `-M name=path` for module
 aliases, `--timings` for performance analysis, `--opt-report` for optimization report.

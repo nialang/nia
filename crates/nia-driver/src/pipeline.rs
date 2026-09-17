@@ -25,9 +25,7 @@ use nia_linker::{
 };
 use nia_loader_query::{LoadRequest, LoaderDatabase, PackageArtifactRequest, SourceInputManifest};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
-use nia_package_metadata::{
-    NativeObject, NativeObjectOwner, NativeSection, NativeVariant, PackageId, PackageManifest,
-};
+use nia_package_metadata::{PackageId, PackageManifest};
 use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::{BuildProfile, TargetConfig};
 use nia_toolchain::{RuntimeSpec, ToolchainLayout};
@@ -78,41 +76,12 @@ pub struct PublishedPackageArtifact {
     pub manifest: PackageManifest,
 }
 
-/// One package-native product selected for source-free linking.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PackageNativeInput {
-    /// Canonical package artifact path.
-    pub path: PathBuf,
-    /// Required package identity, preventing cache-key/path confusion.
-    pub package: PackageId,
-}
-
-impl PackageNativeInput {
-    pub fn new(path: impl Into<PathBuf>, package: PackageId) -> Self {
-        Self {
-            path: path.into(),
-            package,
-        }
-    }
-}
-
 const EXECUTABLE_CACHE_REFERENCE_LEN: usize = 12 * size_of::<u64>();
 const EXECUTABLE_CACHE_ENVIRONMENT_LEN: usize = 6 * size_of::<u64>();
 const STATIC_ARCHIVE_CACHE_REFERENCE_LEN: usize = 12 * size_of::<u64>();
 const STATIC_ARCHIVE_CACHE_ENVIRONMENT_LEN: usize = size_of::<[u64; 8]>();
 const DRIVER_FILE_STREAM_BYTES: usize = 64 * 1024;
 static DRIVER_OUTPUT_STAGE_ID: AtomicU64 = AtomicU64::new(0);
-
-fn optimization_wire_tag(level: NiaOptimizationLevel) -> u8 {
-    match level {
-        NiaOptimizationLevel::O0 => 0,
-        NiaOptimizationLevel::O1 => 1,
-        NiaOptimizationLevel::O2 => 2,
-        NiaOptimizationLevel::O3 => 3,
-        NiaOptimizationLevel::Os => 4,
-        NiaOptimizationLevel::Oz => 5,
-    }
-}
 
 /// Environment fingerprint encoded alongside executable cache references.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -698,271 +667,6 @@ impl Driver {
         })
     }
 
-    /// Checks, compiles, and atomically publishes one package with its native
-    /// definitions and the explicitly selected runtime resources.
-    ///
-    /// Semantic metadata and native objects are produced from the same
-    /// compiler database snapshot. Only source units owned by the current
-    /// package enter the native section; compiler builtins, dependency package
-    /// objects, and imported specializations remain separate link inputs.
-    pub fn publish_package_artifact_with_native(
-        &self,
-        mut request: CheckRequest,
-        package: PackageId,
-        output: PathBuf,
-    ) -> DriverOutput<PublishedPackageArtifact> {
-        request = request.with_current_package(package.clone());
-        DriverOutput::catch_ice(|| {
-            let (database, _) = match self
-                .compilation_databases_with_codegen_scope(&request, CodegenScope::Package)
-            {
-                Ok(databases) => databases,
-                Err(error) => {
-                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
-                        query_error_diagnostic(error),
-                    ));
-                }
-            };
-            let package_for_resolver = package.clone();
-            let resolver =
-                |def_id| database.package_for_definition_in_package(def_id, &package_for_resolver);
-            // Materialize the complete package interface before package-scoped
-            // native demand can leave the loader graph at a partial frontier.
-            // The query result is cached in this database and reused by the
-            // final native publication below.
-            if let Err(error) =
-                database.publish_package_artifact_with_resolver(package.clone(), &resolver)
-            {
-                return DriverOutput::from_error(DriverError::InternalDiagnostic(
-                    query_error_diagnostic(error),
-                ));
-            }
-            let emission = match self.emit_native_objects_for_database(&database, request.timings) {
-                Ok(emission) => emission,
-                Err(error) => return DriverOutput::from_error(error),
-            };
-            emit_compilation_counters(
-                request.timings,
-                &database,
-                &self.loader_query_trace(),
-                &LiveCodegenCounters {
-                    checked_body_count: emission.checked_body_count,
-                    reachable_body_count: emission.reachable_body_count,
-                },
-                database.provider_demand_rounds(),
-            );
-            let native = match self.native_section_from_objects(
-                &database,
-                &request,
-                package.clone(),
-                emission.artifact,
-            ) {
-                Ok(native) => native,
-                Err(error) => return DriverOutput::from_error(error),
-            };
-            let publication = database
-                .publish_package_artifact_with_resolver_and_native(package, &resolver, Some(native))
-                .map_err(query_error_diagnostic);
-            let publication = match publication {
-                Ok(publication) => publication,
-                Err(error) => {
-                    return DriverOutput::from_error(DriverError::InternalDiagnostic(error));
-                }
-            };
-            if let Err(error) = write_atomic_bytes(&output, &publication.bytes) {
-                return DriverOutput::from_error(DriverError::Io {
-                    path: output,
-                    operation: "publish package artifact",
-                    error,
-                });
-            }
-            DriverOutput::success(PublishedPackageArtifact {
-                path: output,
-                manifest: publication.manifest,
-            })
-        })
-    }
-
-    /// Publishes package metadata using already-emitted native objects. This
-    /// keeps runner compilation single-pass: callers can emit once, link the
-    /// executable, and persist the exact same objects without re-running
-    /// backend codegen.
-    pub fn publish_package_artifact_from_native_objects(
-        &self,
-        request: CheckRequest,
-        package: PackageId,
-        output: PathBuf,
-        objects: ObjectArtifact,
-    ) -> DriverOutput<PublishedPackageArtifact> {
-        if request.current_package.as_ref() != Some(&package) {
-            return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
-                "native objects must be emitted with the package identity they are published under"
-                    .to_string(),
-            ));
-        }
-        DriverOutput::catch_ice(|| {
-            let (database, _) = match self
-                .compilation_databases_with_codegen_scope(&request, CodegenScope::Package)
-            {
-                Ok(databases) => databases,
-                Err(error) => {
-                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
-                        query_error_diagnostic(error),
-                    ));
-                }
-            };
-            let package_for_resolver = package.clone();
-            let resolver =
-                |def_id| database.package_for_definition_in_package(def_id, &package_for_resolver);
-            let native = match self.native_section_from_objects(
-                &database,
-                &request,
-                package.clone(),
-                objects,
-            ) {
-                Ok(native) => native,
-                Err(error) => return DriverOutput::from_error(error),
-            };
-            let publication = database
-                .publish_package_artifact_with_resolver_and_native(package, &resolver, Some(native))
-                .map_err(query_error_diagnostic);
-            let publication = match publication {
-                Ok(publication) => publication,
-                Err(error) => {
-                    return DriverOutput::from_error(DriverError::InternalDiagnostic(error));
-                }
-            };
-            if let Err(error) = write_atomic_bytes(&output, &publication.bytes) {
-                return DriverOutput::from_error(DriverError::Io {
-                    path: output,
-                    operation: "publish package artifact",
-                    error,
-                });
-            }
-            DriverOutput::success(PublishedPackageArtifact {
-                path: output,
-                manifest: publication.manifest,
-            })
-        })
-    }
-
-    fn native_section_from_objects(
-        &self,
-        database: &CompilerDatabase,
-        request: &CheckRequest,
-        package: PackageId,
-        artifact: ObjectArtifact,
-    ) -> Result<NativeSection, DriverError> {
-        let owned_sources = database
-            .current_package_source_identities()
-            .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?
-            .into_iter()
-            .collect::<std::collections::BTreeSet<_>>();
-        let runtime_sources = database
-            .runtime_source_identities()
-            .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?
-            .into_iter()
-            .collect::<std::collections::BTreeSet<_>>();
-        let runtime_package = request
-            .runtime
-            .source()
-            .map(|runtime| runtime.package().clone());
-        let objects = artifact
-            .link_inputs
-            .into_vec()
-            .into_iter()
-            .map(|input| -> Result<Option<NativeObject>, DriverError> {
-                let owner = match &input.key {
-                    nia_codegen_llvm::CodegenUnitKey::SourceModule {
-                        source_identity,
-                        ordinal,
-                    } if owned_sources.contains(source_identity) => {
-                        NativeObjectOwner::PackageModule {
-                            module: nia_package_metadata::ModuleId {
-                                package: package.clone(),
-                                path: source_identity.normalized_path().to_owned(),
-                            },
-                            ordinal: *ordinal,
-                        }
-                    }
-                    nia_codegen_llvm::CodegenUnitKey::SourceModule {
-                        source_identity,
-                        ordinal,
-                    } if runtime_sources.contains(source_identity) => {
-                        let Some(runtime_package) = runtime_package.clone() else {
-                            return Ok(None);
-                        };
-                        NativeObjectOwner::RuntimeStartup {
-                            module: nia_package_metadata::ModuleId {
-                                package: runtime_package,
-                                path: source_identity.normalized_path().to_owned(),
-                            },
-                            ordinal: *ordinal,
-                        }
-                    }
-                    nia_codegen_llvm::CodegenUnitKey::SourceModule {
-                        source_identity,
-                        ordinal,
-                    } => {
-                        match database
-                            .package_for_source_identity(source_identity)
-                            .map_err(|error| {
-                                DriverError::InternalDiagnostic(query_error_diagnostic(error))
-                            })? {
-                            Some(dependency_package) => NativeObjectOwner::PackageSpecialization {
-                                package: package.clone(),
-                                module: nia_package_metadata::ModuleId {
-                                    package: dependency_package,
-                                    path: source_identity.normalized_path().to_owned(),
-                                },
-                                ordinal: *ordinal,
-                            },
-                            None => NativeObjectOwner::PackageModule {
-                                module: nia_package_metadata::ModuleId {
-                                    package: package.clone(),
-                                    path: source_identity.normalized_path().to_owned(),
-                                },
-                                ordinal: *ordinal,
-                            },
-                        }
-                    }
-                    nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins => {
-                        NativeObjectOwner::CompilerBuiltins
-                    }
-                    nia_codegen_llvm::CodegenUnitKey::CompiledPackage { .. } => return Ok(None),
-                };
-                Ok(Some(NativeObject {
-                    owner,
-                    key: native_object_key(&input.key),
-                    fingerprint: input.fingerprint.parts(),
-                    bytes: input.object.bytes,
-                }))
-            })
-            .collect::<Result<Vec<_>, DriverError>>()?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-        let mut native = NativeVariant {
-            optimization: optimization_wire_tag(artifact.optimization.level),
-            objects,
-        };
-        native.objects.sort_by(|left, right| {
-            (left.owner.clone(), &left.key).cmp(&(right.owner.clone(), &right.key))
-        });
-        if native
-            .objects
-            .windows(2)
-            .any(|pair| pair[0].owner == pair[1].owner)
-        {
-            return Err(DriverError::InvalidArtifactRequest(
-                "package-native objects contain duplicate stable unit keys".to_string(),
-            ));
-        }
-        Ok(NativeSection {
-            variants: vec![native],
-        })
-    }
-
     /// Checks an entry and returns its exact source manifest alongside it.
     pub fn check_entry_with_source_manifest(
         &self,
@@ -1096,28 +800,7 @@ impl Driver {
         request: &CheckRequest,
         codegen_scope: CodegenScope,
     ) -> nia_query::QueryResult<(CompilerDatabase, LoaderDatabase)> {
-        self.compilation_databases_with_requirements(request, codegen_scope, None)
-    }
-
-    fn compilation_databases_requiring_native(
-        &self,
-        request: &CheckRequest,
-        codegen_scope: CodegenScope,
-    ) -> nia_query::QueryResult<(CompilerDatabase, LoaderDatabase)> {
-        self.compilation_databases_with_requirements(
-            request,
-            codegen_scope,
-            Some(optimization_wire_tag(request.optimization)),
-        )
-    }
-
-    fn compilation_databases_with_requirements(
-        &self,
-        request: &CheckRequest,
-        codegen_scope: CodegenScope,
-        required_native_optimization: Option<u8>,
-    ) -> nia_query::QueryResult<(CompilerDatabase, LoaderDatabase)> {
-        let loader = self.loader_database_with_requirements(request, required_native_optimization);
+        let loader = self.loader_database(request);
         loader.load_program()?;
         let query_session = loader.query_session();
         let mut compiler_guard = self.compiler.lock().expect("driver compiler lock poisoned");
@@ -1162,7 +845,6 @@ impl Driver {
         database.install_compiled_package_declarations()?;
         database.install_compiled_package_templates()?;
         database.install_compiled_package_signatures()?;
-        database.install_compiled_package_native()?;
         Ok((database, loader))
     }
 
@@ -1326,7 +1008,7 @@ impl Driver {
         DriverOutput::catch_ice(|| {
             let timings = request.check.timings;
             let (database, loader) = match self
-                .compilation_databases_requiring_native(&request.check, CodegenScope::Entry)
+                .compilation_databases_with_codegen_scope(&request.check, CodegenScope::Entry)
             {
                 Ok(databases) => databases,
                 Err(error) => {
@@ -1358,34 +1040,8 @@ impl Driver {
                     ));
                 }
             };
-            let ObjectArtifact {
-                link_inputs,
-                optimization,
-                optimization_report,
-                diagnostics,
-            } = emission.artifact;
-            let mut link_inputs = link_inputs.into_vec();
-            match append_compiled_package_native_inputs(&database, &mut link_inputs) {
-                Ok(()) => {}
-                Err(error) => return DriverOutput::from_error(error),
-            }
-            link_inputs.sort_by(|left, right| left.key.cmp(&right.key));
-            if link_inputs
-                .windows(2)
-                .any(|pair| pair[0].key == pair[1].key)
-            {
-                return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
-                    "compiled package native objects contain duplicate stable unit keys"
-                        .to_string(),
-                ));
-            }
             DriverOutput::success(ObjectArtifactWithSourceManifest {
-                artifact: ObjectArtifact {
-                    link_inputs: nia_codegen_llvm::IncrementalLinkInputs::new(link_inputs),
-                    optimization,
-                    optimization_report,
-                    diagnostics,
-                },
+                artifact: emission.artifact,
                 source_manifest,
             })
         })
@@ -1800,89 +1456,6 @@ impl Driver {
         })
     }
 
-    /// Restores validated native products from ordinary package artifacts.
-    /// This path performs no source loading or semantic reconstruction.
-    pub fn load_package_native_objects(
-        &self,
-        packages: &[PackageNativeInput],
-        profile: BuildProfile,
-        compilation_mode: nia_target_config::CompilationMode,
-        optimization: NiaOptimizationLevel,
-    ) -> DriverOutput<ObjectArtifact> {
-        DriverOutput::catch_ice(|| {
-            let optimization_tag = optimization_wire_tag(optimization);
-            let mut inputs = Vec::new();
-            let mut owners = std::collections::BTreeSet::new();
-            let mut compiler_builtins_present = false;
-            for package in packages {
-                let request = PackageArtifactRequest::Required(package.path.clone());
-                let loaded = match nia_loader_query::select_package_artifact(
-                    &request,
-                    Some(&package.package),
-                    Some(&self.config.toolchain),
-                    &self.config.artifact_target,
-                    profile,
-                    compilation_mode,
-                ) {
-                    Ok(nia_loader_query::PackageArtifactLoad::Loaded { artifact, .. }) => artifact,
-                    Ok(nia_loader_query::PackageArtifactLoad::SourceFallback { .. }) => {
-                        unreachable!("required package artifacts cannot fall back to source")
-                    }
-                    Err(error) => {
-                        return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
-                            error.to_string(),
-                        ));
-                    }
-                };
-                let native = match loaded.native() {
-                    Ok(Some(native)) => native,
-                    Ok(None) => {
-                        return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
-                            format!(
-                                "compiled package artifact {} has no native section",
-                                package.path.display()
-                            ),
-                        ));
-                    }
-                    Err(error) => {
-                        return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
-                            format!("invalid native package product: {error}"),
-                        ));
-                    }
-                };
-                let Some(variant) = native.variant(optimization_tag) else {
-                    return DriverOutput::from_error(DriverError::InvalidArtifactRequest(format!(
-                        "compiled package artifact {} has no native optimization variant {optimization_tag}",
-                        package.path.display()
-                    )));
-                };
-                if let Err(error) = append_native_variant_inputs(
-                    &package.package,
-                    variant,
-                    &std::collections::BTreeMap::new(),
-                    &mut owners,
-                    &mut compiler_builtins_present,
-                    &mut inputs,
-                ) {
-                    return DriverOutput::from_error(error);
-                }
-            }
-            inputs.sort_by(|left, right| left.key.cmp(&right.key));
-            if inputs.windows(2).any(|pair| pair[0].key == pair[1].key) {
-                return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
-                    "compiled package native objects contain duplicate stable unit keys"
-                        .to_string(),
-                ));
-            }
-            DriverOutput::success(ObjectArtifact {
-                link_inputs: nia_codegen_llvm::IncrementalLinkInputs::new(inputs),
-                optimization: optimization.policy(),
-                optimization_report: crate::BackendOptimizationReport::default(),
-                diagnostics: Vec::new(),
-            })
-        })
-    }
-
     /// Archives already emitted objects into a static library.
     pub fn archive_static_library_from_objects(
         &self,
@@ -2091,14 +1664,6 @@ impl Driver {
     }
 
     fn loader_database(&self, request: &CheckRequest) -> LoaderDatabase {
-        self.loader_database_with_requirements(request, None)
-    }
-
-    fn loader_database_with_requirements(
-        &self,
-        request: &CheckRequest,
-        required_native_optimization: Option<u8>,
-    ) -> LoaderDatabase {
         let key = LoaderKey {
             entry_path: request.entry_path.clone(),
             package_root: request.package_root.clone(),
@@ -2108,7 +1673,6 @@ impl Driver {
             compilation_mode: request.compilation_mode,
             runtime: request.runtime.clone(),
             package_artifact: request.package_artifact.clone(),
-            required_native_optimization,
         };
         let mut loader_guard = self.loader.lock().expect("driver loader lock poisoned");
         let database = match &*loader_guard {
@@ -2126,9 +1690,6 @@ impl Driver {
                     .with_frontend_cache_verification(self.config.verify_frontend_cache);
                 if let Some(package_artifact) = &key.package_artifact {
                     load_request.package_artifact = Some(package_artifact.clone());
-                }
-                if let Some(optimization) = key.required_native_optimization {
-                    load_request = load_request.with_required_native_optimization(optimization);
                 }
                 if let Some(package_root) = &key.package_root {
                     load_request = load_request.with_package_root(package_root.clone());
@@ -2394,7 +1955,6 @@ struct LoaderKey {
     compilation_mode: nia_target_config::CompilationMode,
     runtime: RuntimeSpec,
     package_artifact: Option<PackageArtifactRequest>,
-    required_native_optimization: Option<u8>,
 }
 
 #[derive(Clone)]
@@ -2772,195 +2332,6 @@ fn codegen_options(
     }
 }
 
-fn native_object_key(key: &nia_codegen_llvm::CodegenUnitKey) -> String {
-    match key {
-        nia_codegen_llvm::CodegenUnitKey::SourceModule {
-            source_identity,
-            ordinal,
-        } => {
-            let path = source_identity.normalized_path();
-            format!("source:{}:{path}:{ordinal}", path.len())
-        }
-        nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins => "compiler-builtins".to_string(),
-        nia_codegen_llvm::CodegenUnitKey::CompiledPackage {
-            namespace,
-            package,
-            version,
-            object,
-        } => {
-            let mut key = String::from("package:");
-            for field in [namespace, package, version, object] {
-                use std::fmt::Write as _;
-                write!(&mut key, "{}:{field}", field.len())
-                    .expect("writing a native object key to String cannot fail");
-            }
-            key
-        }
-    }
-}
-
-fn specialization_native_object_key(
-    module: &nia_package_metadata::ModuleId,
-    ordinal: u32,
-) -> String {
-    let mut key = String::from("specialization:");
-    for field in [
-        &module.package.namespace,
-        &module.package.name,
-        &module.package.version,
-        &module.path,
-    ] {
-        use std::fmt::Write as _;
-        write!(&mut key, "{}:{field}", field.len())
-            .expect("writing a specialization object key cannot fail");
-    }
-    use std::fmt::Write as _;
-    write!(&mut key, ":{ordinal}").expect("writing a specialization ordinal cannot fail");
-    key
-}
-
-/// Appends native objects supplied by selected compiled package artifacts to
-/// the source codegen inputs. Artifact objects retain their canonical package
-/// identity and metadata fingerprint; the numeric unit id is deliberately
-/// transient and derived from the stable key for this invocation.
-fn append_compiled_package_native_inputs(
-    database: &CompilerDatabase,
-    inputs: &mut Vec<nia_codegen_llvm::IncrementalLinkInput<nia_codegen_llvm::NativeObject>>,
-) -> Result<(), DriverError> {
-    let mut source_owners = std::collections::BTreeMap::new();
-    for input in inputs.iter() {
-        let nia_codegen_llvm::CodegenUnitKey::SourceModule { .. } = &input.key else {
-            continue;
-        };
-        source_owners.insert(native_object_key(&input.key), input.fingerprint.parts());
-    }
-    let mut compiler_builtins_present = inputs.iter().any(|input| {
-        matches!(
-            &input.key,
-            nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins
-        )
-    });
-    let mut owners = inputs
-        .iter()
-        .filter_map(|input| match &input.key {
-            nia_codegen_llvm::CodegenUnitKey::CompiledPackage {
-                namespace,
-                package,
-                version,
-                object,
-            } => Some((
-                namespace.clone(),
-                package.clone(),
-                version.clone(),
-                object.clone(),
-            )),
-            _ => None,
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    for product in database
-        .compiled_package_native_products()
-        .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?
-    {
-        let package = product.package();
-        append_native_variant_inputs(
-            package,
-            product.variant(),
-            &source_owners,
-            &mut owners,
-            &mut compiler_builtins_present,
-            inputs,
-        )?;
-    }
-    Ok(())
-}
-
-fn append_native_variant_inputs(
-    enclosing_package: &PackageId,
-    variant: &NativeVariant,
-    source_owners: &std::collections::BTreeMap<String, [u64; 2]>,
-    owners: &mut std::collections::BTreeSet<(String, String, String, String)>,
-    compiler_builtins_present: &mut bool,
-    inputs: &mut Vec<nia_codegen_llvm::IncrementalLinkInput<nia_codegen_llvm::NativeObject>>,
-) -> Result<(), DriverError> {
-    for object in &variant.objects {
-        if matches!(&object.owner, NativeObjectOwner::CompilerBuiltins) {
-            if *compiler_builtins_present {
-                continue;
-            }
-            *compiler_builtins_present = true;
-        }
-        if matches!(
-            &object.owner,
-            NativeObjectOwner::PackageModule { module, .. }
-                if module.package != *enclosing_package
-        ) {
-            return Err(DriverError::InvalidArtifactRequest(
-                "package-native object owner does not match its enclosing package".to_string(),
-            ));
-        }
-        if matches!(
-            &object.owner,
-            NativeObjectOwner::PackageSpecialization { package, .. }
-                if package != enclosing_package
-        ) {
-            return Err(DriverError::InvalidArtifactRequest(
-                "package-specialization owner does not match its enclosing package".to_string(),
-            ));
-        }
-        if matches!(object.owner, NativeObjectOwner::PackageModule { .. })
-            && source_owners
-                .get(&object.key)
-                .is_some_and(|fingerprint| *fingerprint == object.fingerprint)
-        {
-            continue;
-        }
-        let owner_package = object.owner.package().unwrap_or(enclosing_package);
-        let object_key = match &object.owner {
-            NativeObjectOwner::PackageSpecialization {
-                module, ordinal, ..
-            } => specialization_native_object_key(module, *ordinal),
-            _ => object.key.clone(),
-        };
-        let stable_key = (
-            owner_package.namespace.clone(),
-            owner_package.name.clone(),
-            owner_package.version.clone(),
-            object_key,
-        );
-        if !owners.insert(stable_key.clone()) {
-            return Err(DriverError::InvalidArtifactRequest(
-                "package-native products contain duplicate stable object identities".to_string(),
-            ));
-        }
-        let key = nia_codegen_llvm::CodegenUnitKey::compiled_package(
-            stable_key.0.clone(),
-            stable_key.1.clone(),
-            stable_key.2.clone(),
-            stable_key.3.clone(),
-        );
-        let mut hasher = blake3::Hasher::new();
-        for field in [&stable_key.0, &stable_key.1, &stable_key.2, &stable_key.3] {
-            hasher.update(field.as_bytes());
-            hasher.update(&[0]);
-        }
-        let digest = hasher.finalize();
-        let bytes = digest.as_bytes();
-        inputs.push(nia_codegen_llvm::IncrementalLinkInput {
-            key,
-            fingerprint: nia_codegen_llvm::CodegenUnitFingerprint::from_parts(object.fingerprint),
-            object: nia_codegen_llvm::NativeObject {
-                unit: nia_codegen_llvm::CodegenUnitId::CompiledPackage {
-                    package: u64::from_le_bytes(bytes[0..8].try_into().expect("digest width")),
-                    object: u64::from_le_bytes(bytes[8..16].try_into().expect("digest width")),
-                },
-                name: object.key.clone(),
-                bytes: object.bytes.clone(),
-            },
-        });
-    }
-    Ok(())
-}
-
 fn write_output_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -3081,7 +2452,6 @@ fn archive_member_file_name(index: usize, key: &nia_codegen_llvm::CodegenUnitKey
             source_identity, ..
         } => source_identity.normalized_path(),
         nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins => "nia_compiler_builtins",
-        nia_codegen_llvm::CodegenUnitKey::CompiledPackage { object, .. } => object,
     };
     object_file_name(index, stable_name)
 }
@@ -3157,14 +2527,6 @@ mod streamed_output_tests {
             record.definition.name == "formatSpec"
                 && record.flags & nia_package_metadata::SIGNATURE_FLAG_HAS_BODY != 0
         }));
-    }
-
-    #[test]
-    fn native_object_keys_are_unambiguous_across_package_fields() {
-        let first = nia_codegen_llvm::CodegenUnitKey::compiled_package("a:b", "c", "1", "unit");
-        let second = nia_codegen_llvm::CodegenUnitKey::compiled_package("a", "b:c", "1", "unit");
-        assert_ne!(native_object_key(&first), native_object_key(&second));
-        assert_eq!(native_object_key(&first), "package:3:a:b1:c1:14:unit");
     }
 
     #[test]

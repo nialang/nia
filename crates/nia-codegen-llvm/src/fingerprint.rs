@@ -213,18 +213,6 @@ impl<'a> Encoder<'a> {
                 self.u32(*ordinal);
             }
             CodegenUnitKey::CompilerBuiltins => self.tag(1),
-            CodegenUnitKey::CompiledPackage {
-                namespace,
-                package,
-                version,
-                object,
-            } => {
-                self.tag(2);
-                self.builder.write_str(namespace);
-                self.builder.write_str(package);
-                self.builder.write_str(version);
-                self.builder.write_str(object);
-            }
         }
     }
 
