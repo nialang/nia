@@ -20,10 +20,10 @@ fn checks_inline_asm_configuration() {
         r#"
 fn main() () {
     let mut ret: i64 = 0;
-    std::builtin::asm(AsmConfig {
+    std::builtin::asm(.{
         code: b"syscall",
-        outputs: AsmOutputs { rax: ret },
-        inputs: AsmInputs { rax: 39 },
+        outputs: .{ rax: ret },
+        inputs: .{ rax: 39 },
         clobbers: [b"rcx", b"r11", b"memory"],
         options: [b"volatile"],
     });
