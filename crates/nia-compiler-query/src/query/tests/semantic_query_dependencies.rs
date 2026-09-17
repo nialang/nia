@@ -29,14 +29,6 @@ fn module_defs_query_uses_active_item_tree_query() {
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "module_defs" && dependency.to.name == "active_module_item_tree"
     }));
-    assert!(trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "module_defs"
-            && dependency.to.name == "compiled_package_module_identity"
-    }));
-    assert!(!trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "compiled_package_module_identity"
-            && dependency.to.name == "module_graph"
-    }));
     assert!(!trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "module_defs" && dependency.to.name == "module_origins"
     }));

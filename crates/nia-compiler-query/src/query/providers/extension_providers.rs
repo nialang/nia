@@ -39,71 +39,7 @@ pub(super) fn provide_extension_provider_summary(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<nia_provider_summary::ProviderSummary> {
-    if compiled_package_module_identity(db, module_id)?.is_some() {
-        let signatures = db.get(ItemSignaturesQuery(module_id))?;
-        let providers = signatures
-            .semantic
-            .trait_impls
-            .iter()
-            .filter(|implementation| {
-                implementation.trait_ty.is_some()
-                    || !implementation.methods.is_empty()
-                    || !implementation.associated_values.is_empty()
-            })
-            .map(|implementation| {
-                Ok(nia_provider_summary::Provider {
-                    target: nia_provider_summary::ProviderTarget {
-                        ty: semantic_provider_type_ref(db, implementation.target_ty)?,
-                    },
-                    trait_ref: implementation
-                        .trait_ty
-                        .map(|ty| semantic_provider_type_ref(db, ty))
-                        .transpose()?,
-                    associated_methods: implementation
-                        .methods
-                        .iter()
-                        .map(|method| method.name)
-                        .collect(),
-                    associated_values: implementation
-                        .associated_values
-                        .iter()
-                        .map(|value| value.name)
-                        .collect(),
-                })
-            })
-            .collect::<QueryResult<Vec<_>>>()?;
-        return Ok(nia_provider_summary::ProviderSummary::from_providers(
-            providers,
-        ));
-    }
     db.context().module_provider_summary(db, module_id)
-}
-
-fn semantic_provider_type_ref(
-    db: &QueryDb<CompilerContext>,
-    ty: InternedTyId,
-) -> QueryResult<nia_provider_summary::ProviderTypeRef> {
-    let kind = db.context().type_store().get(ty).cloned();
-    let (last_name, is_generic_or_structural_target) = match kind {
-        Some(TyKind::Nominal { def_id, .. }) => {
-            let defs = module_defs_semantic(db, def_id.module_id)?;
-            let name = defs
-                .defs
-                .get(def_id.def_id)
-                .map(|definition| definition.name);
-            (name, false)
-        }
-        Some(TyKind::Primitive(primitive)) => (Some(primitive.symbol_id()), false),
-        Some(TyKind::BuiltinType(builtin)) => (Some(builtin.symbol_id()), false),
-        Some(TyKind::BuiltinTrait { trait_id, .. }) => (Some(trait_id.symbol_id()), false),
-        Some(TyKind::GenericParam(name)) => (Some(name), true),
-        _ => (None, true),
-    };
-    Ok(nia_provider_summary::ProviderTypeRef {
-        last_name,
-        is_generic_or_structural_target,
-        semantic_is_conservative: false,
-    })
 }
 
 pub(super) fn provide_extension_provider_discovery_index(
@@ -847,28 +783,6 @@ fn visible_trait_impl_modules_for_module(
     )
 }
 
-/// Returns artifact modules whose providers were selected by the loader's
-/// demand fixed point. Artifact modules have no source `using` scopes, so the
-/// ordinary visibility closure cannot rediscover this witness edge.
-fn selected_artifact_trait_witness_modules(
-    db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-) -> QueryResult<Vec<ModuleId>> {
-    let graph = db.get(ModuleGraphQuery)?;
-    let mut modules = Vec::new();
-    for node in graph.modules() {
-        if node.id == module_id || !node.semantic_selected || !node.process_used_paths {
-            continue;
-        }
-        if compiled_package_module_identity(db, node.id)?.is_some() {
-            modules.push(node.id);
-        }
-    }
-    modules.sort();
-    modules.dedup();
-    Ok(modules)
-}
-
 fn visible_modules_for_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
@@ -979,11 +893,9 @@ pub(super) fn provide_visible_extensions(
         .unwrap_or_default()
     };
     let mut visible_modules = visible_provider_modules_for_module(db, module_id)?;
-    visible_modules.extend(selected_artifact_trait_witness_modules(db, module_id)?);
     visible_modules.sort();
     visible_modules.dedup();
     let mut trait_witness_modules = visible_trait_impl_modules_for_module(db, module_id)?;
-    trait_witness_modules.extend(selected_artifact_trait_witness_modules(db, module_id)?);
     trait_witness_modules.sort();
     trait_witness_modules.dedup();
     let mut fact_modules = visible_modules.clone();
@@ -1081,7 +993,6 @@ pub(super) fn provide_visible_trait_impls(
         .unwrap_or_default()
     };
     let mut visible_modules = visible_trait_impl_modules_for_module(db, module_id)?;
-    visible_modules.extend(selected_artifact_trait_witness_modules(db, module_id)?);
     visible_modules.sort();
     visible_modules.dedup();
     let mut trait_impls = Vec::new();

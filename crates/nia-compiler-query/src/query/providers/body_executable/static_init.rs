@@ -11,12 +11,6 @@ pub(in crate::query) fn provide_executable_static_init(
     if facts.runtime_globals.binary_search(&def_id).is_err() {
         return Ok(None);
     }
-    // Artifact-owned globals are already represented by the selected native
-    // package product. They have no source const-lowering state in this
-    // session and must not enter the source static-initializer provider.
-    if is_compiled_artifact_module(db, def_id.module_id) {
-        return Ok(None);
-    }
     let Some(module) = facts
         .modules
         .iter()

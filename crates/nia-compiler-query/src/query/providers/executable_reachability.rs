@@ -1251,9 +1251,7 @@ fn package_root_defs(
     let mut functions = Vec::new();
     let mut globals = Vec::new();
     for module_id in parse_ok.iter().copied() {
-        if graph.current_package_root(module_id) != package_root
-            || compiled_package_module_identity(db, module_id)?.is_some()
-        {
+        if graph.current_package_root(module_id) != package_root {
             continue;
         }
         let defs = full_module_defs_semantic(db, module_id)?;
@@ -1307,7 +1305,7 @@ fn final_executable_checked_modules(
     reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
     fact_by_id: &mut HashMap<ModuleId, ExecutableFactModuleState>,
     caches: &ExecutableCheckCaches,
-    program_signatures: Option<&ProgramExecutableNonFunctionSignatures>,
+    _program_signatures: Option<&ProgramExecutableNonFunctionSignatures>,
 ) -> QueryResult<HashMap<ModuleId, CheckedModule>> {
     let reachable_body_modules = executable_reachable_body_modules(db, reachability_by_module)?;
     let modules_with_executable_items = parse_ok
@@ -1349,21 +1347,6 @@ fn final_executable_checked_modules(
         .into_iter()
         .map(
             |(module_id, module_items)| -> QueryResult<(ModuleId, CheckedModule)> {
-                if compiled_package_module_identity(db, module_id)?.is_some() {
-                    let signatures = program_signatures.ok_or_else(|| {
-                        db.invalid_input(
-                            &ExecutableCheckedModuleFactsQuery,
-                            "artifact executable module requires program signature facts",
-                        )
-                    })?;
-                    let layouts = store_module_layouts(
-                        db.context(),
-                        signature_layouts_for_types(db, module_id, Some(signatures))?,
-                    );
-                    let module =
-                        executable_signature_checked_module(db, module_id, layouts, signatures)?;
-                    return Ok((module_id, module));
-                }
                 let module_functions = &module_items.functions;
                 let module_globals = &module_items.globals;
                 let layouts =
