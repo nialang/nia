@@ -822,7 +822,6 @@ dependencies = [
  "nia-item-tree",
  "nia-node-id",
  "nia-opt",
- "nia-package-metadata",
  "nia-parser",
  "nia-provider-summary",
  "nia-query",
