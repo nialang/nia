@@ -95,10 +95,6 @@ impl<'a> Tokenizer<'a> {
                 self.bump();
                 self.string(start, TokenKind::ByteString)
             }
-            b'b' if self.peek() == Some(b'\\') && self.peek_next() == Some(b'\\') => {
-                self.bump();
-                self.multiline_string(start, TokenKind::ByteString)
-            }
             b'b' if self.peek() == Some(b'\'') => {
                 self.bump();
                 self.char_lit(start, true)
@@ -113,7 +109,6 @@ impl<'a> Tokenizer<'a> {
             }
             b'0'..=b'9' => self.number(start),
             b'"' => self.string(start, TokenKind::String),
-            b'\\' if self.peek() == Some(b'\\') => self.multiline_string(start, TokenKind::String),
             b'\\' => self.token(TokenKind::Backslash, start, self.pos),
             b'\'' => self.char_lit(start, false),
             b'(' => self.token(TokenKind::LParen, start, self.pos),
@@ -423,37 +418,6 @@ impl<'a> Tokenizer<'a> {
         )
     }
 
-    fn multiline_string(&mut self, start: usize, success_kind: TokenKind) -> Token {
-        self.bump();
-        loop {
-            while self
-                .peek()
-                .is_some_and(|byte| byte != b'\n' && byte != b'\r')
-            {
-                self.bump();
-            }
-
-            let line_end = self.pos;
-            let Some(newline_end) = self.consume_newline() else {
-                return self.token(success_kind, start, line_end);
-            };
-
-            let mut next_line = newline_end;
-            while matches!(self.source.get(next_line), Some(b' ' | b'\t')) {
-                next_line += 1;
-            }
-
-            if self.source.get(next_line) == Some(&b'\\')
-                && self.source.get(next_line + 1) == Some(&b'\\')
-            {
-                self.pos = next_line + 2;
-            } else {
-                self.pos = line_end;
-                return self.token(success_kind, start, line_end);
-            }
-        }
-    }
-
     fn char_lit(&mut self, start: usize, is_byte: bool) -> Token {
         let value = match self.scan_char_value() {
             CharScan::Value(value) => value,
@@ -665,23 +629,6 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn consume_newline(&mut self) -> Option<usize> {
-        match self.peek()? {
-            b'\n' => {
-                self.bump();
-                Some(self.pos)
-            }
-            b'\r' => {
-                self.bump();
-                if self.peek() == Some(b'\n') {
-                    self.bump();
-                }
-                Some(self.pos)
-            }
-            _ => None,
-        }
-    }
-
     fn bump(&mut self) -> Option<u8> {
         let byte = self.source.get(self.pos).copied()?;
         self.pos += 1;
@@ -819,7 +766,7 @@ mod tests {
     }
 
     #[test]
-    fn tokenizes_lambda_delimiters_without_changing_multiline_strings() {
+    fn tokenizes_lambda_delimiters() {
         assert_eq!(
             kinds(r"\[value] item -> item"),
             vec![
@@ -833,7 +780,15 @@ mod tests {
                 TokenKind::Eof,
             ]
         );
-        assert_eq!(kinds("\\\\line\n"), vec![TokenKind::String, TokenKind::Eof]);
+        assert_eq!(
+            kinds(r"\\line"),
+            vec![
+                TokenKind::Backslash,
+                TokenKind::Backslash,
+                TokenKind::Ident,
+                TokenKind::Eof,
+            ]
+        );
     }
 
     #[test]
@@ -855,24 +810,6 @@ mod tests {
                 TokenKind::RBracket,
                 TokenKind::LParen,
                 TokenKind::RParen,
-                TokenKind::Eof,
-            ]
-        );
-    }
-
-    #[test]
-    fn tokenizes_multiline_string_literals() {
-        assert_eq!(
-            kinds("\\\\text\nb\\\\bytes\nlet mut x = 1;"),
-            vec![
-                TokenKind::String,
-                TokenKind::ByteString,
-                TokenKind::Let,
-                TokenKind::Mut,
-                TokenKind::Ident,
-                TokenKind::Eq,
-                TokenKind::Integer,
-                TokenKind::Semicolon,
                 TokenKind::Eof,
             ]
         );
@@ -1031,27 +968,5 @@ mod tests {
             "// comment\r"
         );
         assert_eq!(&source[tokens[3].span.start..tokens[3].span.end], "\n");
-    }
-
-    #[test]
-    fn multiline_strings_accept_crlf_indented_continuations_and_stop_at_plain_lines() {
-        let source = "\\\\first\r\n  \\\\second\r\nnext";
-        let tokens = tokenize_lossless(source);
-
-        assert!(matches!(
-            tokens[0].kind,
-            LosslessTokenKind::Token(TokenKind::String)
-        ));
-        assert_eq!(
-            &source[tokens[0].span.start..tokens[0].span.end],
-            "\\\\first\r\n  \\\\second"
-        );
-        assert!(matches!(tokens[1].kind, LosslessTokenKind::Whitespace));
-        assert_eq!(&source[tokens[1].span.start..tokens[1].span.end], "\r\n");
-        assert!(matches!(
-            tokens[2].kind,
-            LosslessTokenKind::Token(TokenKind::Ident)
-        ));
-        assert_eq!(&source[tokens[2].span.start..tokens[2].span.end], "next");
     }
 }

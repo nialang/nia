@@ -1274,38 +1274,19 @@ impl Parser {
         kind: TokenKind,
         make: impl FnOnce(StringLiteral) -> ExprKind,
     ) -> Option<Expr> {
-        let first = self.peek().clone();
-        let start = first.span.start;
+        let start = self.peek().span.start;
         let mut parts = Vec::new();
-        let quoted_run = self.token_is_quoted_string_literal(&first);
-        let end = if quoted_run {
-            let mut end = start;
-            while self.at(kind.clone()) && self.token_is_quoted_string_literal(self.peek()) {
-                let token = self.bump();
-                end = token.span.end;
-                parts.push(self.token_text(&token).to_string());
-            }
-            end
-        } else {
+        let mut end = start;
+        while self.at(kind.clone()) {
             let token = self.bump();
+            end = token.span.end;
             parts.push(self.token_text(&token).to_string());
-            token.span.end
-        };
-        if quoted_run && self.peek_is_quoted_string_literal() {
+        }
+        if matches!(self.peek().kind, TokenKind::String | TokenKind::ByteString) {
             self.error_here("adjacent string literals must use the same literal prefix");
         }
         (!parts.is_empty())
             .then(|| self.make_expr(Span::new(start, end), make(StringLiteral { parts })))
-    }
-
-    fn peek_is_quoted_string_literal(&self) -> bool {
-        matches!(self.peek().kind, TokenKind::String | TokenKind::ByteString)
-            && self.token_is_quoted_string_literal(self.peek())
-    }
-
-    fn token_is_quoted_string_literal(&self, token: &SyntaxToken) -> bool {
-        let text = self.token_text(token);
-        !text.strip_prefix('b').unwrap_or(text).starts_with("\\\\")
     }
 
     fn has_line_break_between(&self, start: usize, end: usize) -> bool {

@@ -57,10 +57,9 @@ fn startupAddress(stack: &usize, offset: usize) ?usize {
 pub extern fn _start() () {
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\mov rdi, rsp
-            \\call $0
-            \\ud2
-        ,
+            b"mov rdi, rsp\n"
+            b"call $0\n"
+            b"ud2",
         inputs: std::builtin::AsmInputs { reg: &nia_start_stack },
         clobbers: [b"rdi", b"rax", b"rcx", b"r11", b"memory"],
         options: [b"volatile"],

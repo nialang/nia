@@ -192,18 +192,18 @@ mod tests {
     }
 
     #[test]
-    fn counts_multiline_string_literal_scalars() {
+    fn counts_split_string_literal_scalars() {
         assert_eq!(
             string_literal_char_len(&StringLiteral {
-                parts: vec!["\\\\hello\n    \\\\world".to_string()],
+                parts: vec!["\"hello\\n\"".to_string(), "\"world\"".to_string()],
             }),
             Some("hello\nworld".chars().count())
         );
         assert_eq!(
-            string_literal_char_len(&StringLiteral {
-                parts: vec!["\\\\hello\\n".to_string()],
+            byte_string_literal_len(&StringLiteral {
+                parts: vec!["b\"hello\\n\"".to_string(), "b\"world\"".to_string()],
             }),
-            Some("hello\\n".chars().count())
+            Some(b"hello\nworld".len())
         );
     }
 }

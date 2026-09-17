@@ -395,8 +395,8 @@ fn main() i32 {
 }
 
 #[test]
-fn const_string_literals_support_source_concatenation_and_multiline() {
-    let root = temp_dir("const_string_literals_support_source_concatenation_and_multiline");
+fn const_string_literals_support_source_concatenation_and_newlines() {
+    let root = temp_dir("const_string_literals_support_source_concatenation_and_newlines");
     write(
         &root.join("main.nia"),
         r#"
@@ -416,7 +416,7 @@ const fn byte_score(value: [u8; 3]) usize {
     }
 }
 
-const fn multiline_score(value: [char; 11]) usize {
+const fn newline_score(value: [char; 11]) usize {
     if value[5] == '\n' {
         7usize
     } else {
@@ -426,19 +426,19 @@ const fn multiline_score(value: [char; 11]) usize {
 
 const text: [char; 3] = "n" "ia";
 const bytes: [u8; 3] = b"n" b"ia";
-const multiline: [char; 11] = (
-    \\hello
-    \\world
+const split_text: [char; 11] = (
+    "hello\n"
+    "world"
 );
-const byte_multiline: [u8; 11] = (
-    b\\hello
-    \\world
+const split_bytes: [u8; 11] = (
+    b"hello\n"
+    b"world"
 );
 const n: usize =
     char_score(text)
     + byte_score(bytes)
-    + multiline_score(multiline)
-    + byte_score(byte_multiline[8..]);
+    + newline_score(split_text)
+    + byte_score(split_bytes[8..]);
 
 fn main() i32 {
     let mut values: [i32; n] = [0; n];

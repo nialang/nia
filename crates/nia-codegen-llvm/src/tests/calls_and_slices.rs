@@ -697,14 +697,14 @@ fn main() i32 {
     let mut mutable: [u8; 8] = b"mutable\0";
     let hello = b"hello\0";
     let world = b"world\0";
-    let multiline = (
-        b\\multi
-        \\line
+    let split_bytes = (
+        b"multi\n"
+        b"line"
     );
     let mut direct: & u8 = &hello[0];
     let mut writable: &mut u8 = &mut mutable[0];
     _ = puts(&world[0]);
-    _ = puts(&multiline[0]);
+    _ = puts(&split_bytes[0]);
     first(writable) + direct.* as i32
 }
 "#,

@@ -124,8 +124,7 @@ using entry;
 fn syscall_exit(code: i32) () {
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\syscall
-        ,
+            b"syscall",
         inputs: std::builtin::AsmInputs {
             rax: 60,
             rdi: code,
@@ -139,9 +138,8 @@ fn syscall_exit(code: i32) () {
 pub extern fn _start() () {
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\call $0
-            \\ud2
-        ,
+            b"call $0\n"
+            b"ud2",
         inputs: std::builtin::AsmInputs { reg: &custom_start },
         clobbers: [b"rax", b"rcx", b"r11", b"memory"],
         options: [b"volatile"],
@@ -164,8 +162,7 @@ using entry;
 fn syscall_exit(code: i32) () {
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\int 0x80
-        ,
+            b"int 0x80",
         inputs: std::builtin::AsmInputs {
             eax: 1,
             ebx: code,
@@ -179,9 +176,8 @@ fn syscall_exit(code: i32) () {
 pub extern fn _start() () {
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\call $0
-            \\ud2
-        ,
+            b"call $0\n"
+            b"ud2",
         inputs: std::builtin::AsmInputs { reg: &custom_start },
         clobbers: [b"eax", b"ecx", b"edx", b"memory"],
         options: [b"volatile"],

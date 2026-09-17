@@ -30,8 +30,7 @@ pub fn syscall0(number: usize) isize {
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\syscall
-        ,
+            b"syscall",
         outputs: std::builtin::AsmOutputs {
             rax: ret,
         },
@@ -48,8 +47,7 @@ pub fn syscall1(number: usize, arg0: usize) isize {
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\syscall
-        ,
+            b"syscall",
         outputs: std::builtin::AsmOutputs {
             rax: ret,
         },
@@ -67,8 +65,7 @@ pub fn syscall2(number: usize, arg0: usize, arg1: usize) isize {
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\syscall
-        ,
+            b"syscall",
         outputs: std::builtin::AsmOutputs {
             rax: ret,
         },
@@ -87,8 +84,7 @@ pub fn syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\syscall
-        ,
+            b"syscall",
         outputs: std::builtin::AsmOutputs {
             rax: ret,
         },
@@ -108,8 +104,7 @@ pub fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usiz
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\syscall
-        ,
+            b"syscall",
         outputs: std::builtin::AsmOutputs {
             rax: ret,
         },
@@ -130,8 +125,7 @@ pub fn syscall5(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usiz
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\syscall
-        ,
+            b"syscall",
         outputs: std::builtin::AsmOutputs {
             rax: ret,
         },
@@ -161,8 +155,7 @@ pub fn syscall6(
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\syscall
-        ,
+            b"syscall",
         outputs: std::builtin::AsmOutputs {
             rax: ret,
         },

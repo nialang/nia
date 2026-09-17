@@ -2,12 +2,12 @@
 use super::common::*;
 
 #[test]
-fn parses_multiline_string_literal() {
+fn parses_split_string_literal() {
     let (module, errors) = parse_module(
         r#"
 static script =
-    \\mov rax, 60
-    \\syscall
+    "mov rax, 60\n"
+    "syscall"
 ;
 "#,
     );
@@ -16,7 +16,7 @@ static script =
         panic!("expected binding");
     };
     assert!(
-        matches!(binding.value.as_ref().map(|value| &value.kind), Some(ExprKind::String(literal)) if literal.parts[0].contains("syscall"))
+        matches!(binding.value.as_ref().map(|value| &value.kind), Some(ExprKind::String(literal)) if literal.parts == ["\"mov rax, 60\\n\"", "\"syscall\""])
     );
 }
 
@@ -60,23 +60,6 @@ static a = "hello" b"world";
                 .contains("adjacent string literals must use the same literal prefix"))
             .count(),
         1,
-        "{errors:?}"
-    );
-}
-
-#[test]
-fn does_not_concatenate_multiline_string_literals() {
-    let (_module, errors) = parse_module(
-        r#"
-static text =
-    \\hello
-    "world";
-"#,
-    );
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("expected `;` after binding")),
         "{errors:?}"
     );
 }

@@ -171,10 +171,6 @@ pub fn decode_byte_char_literal(text: &str) -> Option<u8> {
 
 /// Decodes and concatenates ordinary string literal parts.
 pub fn eval_string_literal_parts<'a>(parts: impl IntoIterator<Item = &'a str>) -> Option<String> {
-    let parts = collect_literal_parts(parts);
-    if parts.len() > 1 && parts.iter().any(|part| is_multiline_literal(part)) {
-        return None;
-    }
     let mut out = String::new();
     for part in parts {
         out.push_str(&decode_string_literal_part(part)?);
@@ -186,10 +182,6 @@ pub fn eval_string_literal_parts<'a>(parts: impl IntoIterator<Item = &'a str>) -
 pub fn eval_byte_string_literal_parts<'a>(
     parts: impl IntoIterator<Item = &'a str>,
 ) -> Option<Vec<u8>> {
-    let parts = collect_literal_parts(parts);
-    if parts.len() > 1 && parts.iter().any(|part| is_multiline_literal(part)) {
-        return None;
-    }
     let mut bytes = Vec::new();
     for part in parts {
         bytes.extend(decode_byte_string_literal_part(part)?);
@@ -206,46 +198,25 @@ pub fn decode_string_literal_scalars<'a>(
 
 /// Counts Unicode scalar values represented by string literal parts.
 pub fn string_literal_char_len<'a>(parts: impl IntoIterator<Item = &'a str>) -> Option<usize> {
-    let parts = collect_literal_parts(parts);
-    if parts.len() > 1 && parts.iter().any(|part| is_multiline_literal(part)) {
-        return None;
-    }
-    parts.iter().try_fold(0usize, |len, text| {
+    parts.into_iter().try_fold(0usize, |len, text| {
         len.checked_add(string_literal_part_char_len(text)?)
     })
 }
 
 /// Counts bytes represented by byte-string literal parts.
 pub fn byte_string_literal_len<'a>(parts: impl IntoIterator<Item = &'a str>) -> Option<usize> {
-    let parts = collect_literal_parts(parts);
-    if parts.len() > 1 && parts.iter().any(|part| is_multiline_literal(part)) {
-        return None;
-    }
-    parts.iter().try_fold(0usize, |len, text| {
+    parts.into_iter().try_fold(0usize, |len, text| {
         len.checked_add(byte_string_literal_part_len(text)?)
     })
 }
 
-fn collect_literal_parts<'a>(parts: impl IntoIterator<Item = &'a str>) -> Vec<&'a str> {
-    parts.into_iter().collect()
-}
-
 fn decode_string_literal_part(text: &str) -> Option<String> {
-    if is_multiline_literal(text) {
-        return decode_multiline_string_literal(text)?
-            .into_iter()
-            .map(|byte| char::from_u32(u32::from(byte)))
-            .collect();
-    }
     let inner = text.strip_prefix('"')?.strip_suffix('"')?;
     decode_scalar_literal_inner(inner)
         .and_then(|scalars| scalars.into_iter().map(char::from_u32).collect())
 }
 
 fn decode_byte_string_literal_part(text: &str) -> Option<Vec<u8>> {
-    if is_multiline_literal(text) {
-        return decode_multiline_string_literal(text);
-    }
     let inner = text
         .strip_prefix("b\"")
         .or_else(|| text.strip_prefix('"'))?
@@ -254,29 +225,16 @@ fn decode_byte_string_literal_part(text: &str) -> Option<Vec<u8>> {
 }
 
 fn string_literal_part_char_len(text: &str) -> Option<usize> {
-    if is_multiline_literal(text) {
-        return multiline_string_literal_char_len(text);
-    }
     let inner = text.strip_prefix('"')?.strip_suffix('"')?;
     decoded_scalar_len(inner)
 }
 
 fn byte_string_literal_part_len(text: &str) -> Option<usize> {
-    if is_multiline_literal(text) {
-        return multiline_string_literal_byte_len(text);
-    }
     let inner = text
         .strip_prefix("b\"")
         .or_else(|| text.strip_prefix('"'))?
         .strip_suffix('"')?;
     decoded_byte_len(inner)
-}
-
-fn is_multiline_literal(text: &str) -> bool {
-    text.strip_prefix('b')
-        .or_else(|| text.strip_prefix('c'))
-        .unwrap_or(text)
-        .starts_with("\\\\")
 }
 
 fn decode_byte_literal_inner(text: &str) -> Option<Vec<u8>> {
@@ -390,102 +348,6 @@ fn decoded_scalar_len(inner: &str) -> Option<usize> {
     Some(scalars)
 }
 
-fn multiline_string_literal_char_len(text: &str) -> Option<usize> {
-    let mut scalars = 0usize;
-    let source = strip_multiline_prefix(text)?;
-    let mut pos = 0usize;
-    loop {
-        if !source[pos..].starts_with("\\\\") {
-            return None;
-        }
-        pos += 2;
-
-        let content_start = pos;
-        while pos < source.len() && !matches!(source.as_bytes()[pos], b'\n' | b'\r') {
-            pos += 1;
-        }
-        scalars = scalars.checked_add(source[content_start..pos].chars().count())?;
-
-        if pos == source.len() {
-            break;
-        }
-        scalars = scalars.checked_add(1)?;
-        pos = consume_newline(source, pos)?;
-        while matches!(source.as_bytes().get(pos), Some(b' ' | b'\t')) {
-            pos += 1;
-        }
-    }
-    Some(scalars)
-}
-
-fn multiline_string_literal_byte_len(text: &str) -> Option<usize> {
-    let source = strip_multiline_prefix(text)?;
-    let mut bytes = 0usize;
-    let mut pos = 0usize;
-    loop {
-        if !source[pos..].starts_with("\\\\") {
-            return None;
-        }
-        pos += 2;
-
-        let content_start = pos;
-        while pos < source.len() && !matches!(source.as_bytes()[pos], b'\n' | b'\r') {
-            pos += 1;
-        }
-        bytes = bytes.checked_add(source[content_start..pos].len())?;
-
-        if pos == source.len() {
-            break;
-        }
-        bytes = bytes.checked_add(1)?;
-        pos = consume_newline(source, pos)?;
-        while matches!(source.as_bytes().get(pos), Some(b' ' | b'\t')) {
-            pos += 1;
-        }
-    }
-    Some(bytes)
-}
-
-fn decode_multiline_string_literal(text: &str) -> Option<Vec<u8>> {
-    let source = strip_multiline_prefix(text)?;
-    let mut bytes = Vec::new();
-    let mut pos = 0usize;
-    loop {
-        if !source[pos..].starts_with("\\\\") {
-            return None;
-        }
-        pos += 2;
-
-        let content_start = pos;
-        while pos < source.len() && !matches!(source.as_bytes()[pos], b'\n' | b'\r') {
-            pos += 1;
-        }
-        bytes.extend_from_slice(&source.as_bytes()[content_start..pos]);
-
-        if pos == source.len() {
-            break;
-        }
-        bytes.push(b'\n');
-        pos = consume_newline(source, pos)?;
-        while matches!(source.as_bytes().get(pos), Some(b' ' | b'\t')) {
-            pos += 1;
-        }
-    }
-    Some(bytes)
-}
-
-fn strip_multiline_prefix(text: &str) -> Option<&str> {
-    if text.starts_with("\\\\") {
-        Some(text)
-    } else if let Some(rest) = text.strip_prefix('b') {
-        rest.starts_with("\\\\").then_some(rest)
-    } else if let Some(rest) = text.strip_prefix('c') {
-        rest.starts_with("\\\\").then_some(rest)
-    } else {
-        None
-    }
-}
-
 fn unicode_escape_byte_len(chars: &mut std::str::Chars<'_>) -> Option<usize> {
     if chars.next()? != '{' {
         return None;
@@ -515,15 +377,6 @@ fn decode_unicode_escape_scalar(chars: &mut std::str::Chars<'_>) -> Option<u32> 
         value.push(ch);
     }
     None
-}
-
-fn consume_newline(text: &str, pos: usize) -> Option<usize> {
-    match text.as_bytes().get(pos)? {
-        b'\n' => Some(pos + 1),
-        b'\r' if text.as_bytes().get(pos + 1) == Some(&b'\n') => Some(pos + 2),
-        b'\r' => Some(pos + 1),
-        _ => None,
-    }
 }
 
 #[cfg(test)]
@@ -596,17 +449,5 @@ mod tests {
             Some(vec![b'a', 0])
         );
         assert_eq!(byte_string_literal_len([r#"b"a\u{20ac}""#]), Some(4));
-    }
-
-    #[test]
-    fn counts_multiline_string_literal_scalars() {
-        assert_eq!(
-            string_literal_char_len(["\\\\hello\n    \\\\world"]),
-            Some("hello\nworld".chars().count())
-        );
-        assert_eq!(
-            string_literal_char_len(["\\\\hello\\n"]),
-            Some("hello\\n".chars().count())
-        );
     }
 }
