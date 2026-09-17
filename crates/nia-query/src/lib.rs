@@ -30,7 +30,7 @@ use std::{
     hash::Hash,
     panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     sync::{
-        Arc, Condvar, Mutex, OnceLock, Weak,
+        Arc, Condvar, Mutex, OnceLock, RwLock, Weak,
         atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
     thread::JoinHandle,
@@ -315,7 +315,7 @@ struct QueryDbInner<C> {
     context: C,
     timings: nia_timing::TimingMode,
     registry: Option<QueryRegistry>,
-    caches: Mutex<FastHashMap<TypeId, Box<dyn ErasedQueryCache>>>,
+    caches: RwLock<FastHashMap<TypeId, Box<dyn ErasedQueryCache>>>,
     slots: Mutex<QuerySlotTable<C>>,
 }
 
