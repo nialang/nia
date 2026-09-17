@@ -1031,3 +1031,36 @@ pub fn retain(callback: &Fn(i32) i32) () {
         checked.diagnostics
     );
 }
+
+#[test]
+fn closure_safety_loads_safe_callees_from_support_modules() {
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+using helper;
+
+pub fn main(base: i32) () {
+    let callback = \[base] value: i32 -> { base + value };
+    helper::invoke(&callback);
+}
+"#,
+    );
+    let entry = fixture.entry_id();
+    fixture.add_child(
+        entry,
+        "helper",
+        "helper.nia",
+        r#"
+pub fn invoke(callback: &Fn(i32) i32) () {
+    _ = callback(1);
+}
+"#,
+    );
+
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+    assert!(
+        closure_diagnostics(&checked).is_empty(),
+        "safe support function was treated as an unknown call: {:?}",
+        checked.diagnostics
+    );
+}

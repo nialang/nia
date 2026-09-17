@@ -969,6 +969,7 @@ fn collect_typed_callee_refs(
         TypedCallee::TraitMethod {
             trait_id,
             method_id,
+            implementation_method,
             method_name,
             self_ty,
             trait_args,
@@ -979,6 +980,7 @@ fn collect_typed_callee_refs(
             ..
         } => {
             refs.functions.insert(*method_id);
+            refs.functions.extend(implementation_method.iter().copied());
             refs.trait_refs.insert_method_with_const_args(
                 module.module_id,
                 TraitId::Source(*trait_id),
@@ -1540,10 +1542,14 @@ mod tests {
             module_id,
             def_id: DefId(12),
         };
+        let implementation_method = GlobalDefId {
+            module_id,
+            def_id: DefId(13),
+        };
         let trait_callee = TypedCallee::TraitMethod {
             trait_id,
             method_id: method,
-            implementation_method: None,
+            implementation_method: Some(implementation_method),
             method_name: nia_symbol::known::ADD,
             self_ty: ty,
             trait_args: vec![ty],
@@ -1558,6 +1564,7 @@ mod tests {
             }),
         };
         collect_typed_callee_refs(&module, &trait_callee, &[], &mut refs);
+        assert!(refs.functions.contains(&implementation_method));
 
         let trait_instance = refs
             .generic_instantiations
