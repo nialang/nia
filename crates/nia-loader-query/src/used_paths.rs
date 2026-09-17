@@ -134,6 +134,62 @@ impl QualifiedPathModuleCollector<'_> {
         }
     }
 
+    fn collect_rooted_path_segments(
+        &mut self,
+        root: PathSegmentKind,
+        segments: Vec<SymbolId>,
+        processing: UsedModulePathProcessing,
+    ) {
+        let path = match root {
+            PathSegmentKind::Package => UsedModulePath::PackageRelative {
+                segments,
+                include_declared_children: false,
+                processing,
+            },
+            PathSegmentKind::Super => UsedModulePath::ParentRelative {
+                segments,
+                include_declared_children: false,
+                processing,
+            },
+            PathSegmentKind::SelfValue => UsedModulePath::Local {
+                segments,
+                include_declared_children: false,
+                processing,
+            },
+            PathSegmentKind::Name(name) => {
+                let mut named_segments = Vec::with_capacity(segments.len() + 1);
+                named_segments.push(name);
+                named_segments.extend(segments);
+                self.collect_path_segments_with_processing(named_segments, processing);
+                return;
+            }
+        };
+        self.paths.push(path);
+    }
+
+    fn collect_expr_path(&mut self, expr: &Expr) -> bool {
+        let Some((root, segments)) = expr_qualified_segments(expr) else {
+            return false;
+        };
+        self.collect_qualified_path(root, segments);
+        true
+    }
+
+    fn collect_type_path(&mut self, segments: &[nia_ast::TypePathSegment]) {
+        let Some((root, segments)) = type_qualified_segments(segments) else {
+            return;
+        };
+        self.collect_qualified_path(root, segments);
+    }
+
+    fn collect_qualified_path(&mut self, root: Option<PathSegmentKind>, segments: Vec<SymbolId>) {
+        if let Some(root) = root {
+            self.collect_rooted_path_segments(root, segments, UsedModulePathProcessing::Always);
+        } else {
+            self.collect_path_segments(segments);
+        }
+    }
+
     fn collect_trait_provider_for_type(&mut self, ty: &TypeRef) {
         let TypeKind::Path { segments } = &ty.kind else {
             return;
@@ -265,16 +321,14 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
             self.collect_len_prelude();
         }
         if let ExprKind::Call { callee, args } = &expr.kind
-            && let Some(segments) = expr_qualified_segments(callee)
+            && self.collect_expr_path(callee)
         {
-            self.collect_path_segments(segments);
             for arg in args {
                 self.visit_expr(arg);
             }
             return;
         }
-        if let Some(segments) = expr_qualified_segments(expr) {
-            self.collect_path_segments(segments);
+        if self.collect_expr_path(expr) {
             return;
         }
         walk_expr(self, expr);
@@ -290,12 +344,7 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
             {
                 self.collect_len_prelude();
             }
-            self.collect_path_segments(
-                segments
-                    .iter()
-                    .filter_map(type_path_segment_name)
-                    .collect::<Vec<_>>(),
-            );
+            self.collect_type_path(segments);
             for segment in segments {
                 for arg in &segment.args {
                     match arg {
@@ -350,25 +399,46 @@ impl QualifiedPathModuleCollector<'_> {
     }
 }
 
-fn expr_qualified_segments(expr: &Expr) -> Option<Vec<SymbolId>> {
-    fn collect(expr: &Expr, segments: &mut Vec<SymbolId>) -> Option<()> {
+fn expr_qualified_segments(expr: &Expr) -> Option<(Option<PathSegmentKind>, Vec<SymbolId>)> {
+    fn collect(expr: &Expr, segments: &mut Vec<SymbolId>) -> Option<Option<PathSegmentKind>> {
         match &expr.kind {
             ExprKind::Ident(name) => {
                 segments.push(*name);
-                Some(())
+                Some(None)
+            }
+            ExprKind::PathRoot(PathSegmentKind::Name(name)) => {
+                segments.push(*name);
+                Some(None)
             }
             ExprKind::Qualified { lhs, name } => {
-                collect(lhs, segments)?;
+                let root = collect(lhs, segments)?;
                 segments.push(*name);
-                Some(())
+                Some(root)
             }
+            ExprKind::PathRoot(root) => Some(Some(*root)),
             _ => None,
         }
     }
 
     let mut segments = Vec::new();
-    collect(expr, &mut segments)?;
-    Some(segments)
+    let root = collect(expr, &mut segments)?;
+    Some((root, segments))
+}
+
+fn type_qualified_segments(
+    path: &[nia_ast::TypePathSegment],
+) -> Option<(Option<PathSegmentKind>, Vec<SymbolId>)> {
+    let (first, rest) = path.split_first()?;
+    let mut segments = Vec::with_capacity(path.len());
+    let root = match first.kind {
+        PathSegmentKind::Name(name) => {
+            segments.push(name);
+            None
+        }
+        root => Some(root),
+    };
+    segments.extend(rest.iter().filter_map(type_path_segment_name));
+    Some((root, segments))
 }
 
 fn collect_using_modules(
