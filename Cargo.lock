@@ -915,7 +915,6 @@ version = "0.2.0-dev"
 name = "nia-package-metadata"
 version = "0.2.0-dev"
 dependencies = [
- "blake3",
  "nia-compat",
  "nia-ids",
 ]
