@@ -1282,59 +1282,9 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
     })?;
     let runner = build_runner_source(invocation)?;
     let cache_key = runner_cache::cache_key(invocation, &runner)?;
-    let runner_package = runner_cache::package_path(invocation, &cache_key);
-    let runner_package_id = runner_cache::package_id(&cache_key);
-    let std_artifact = invocation.toolchain.std_package_artifact(
-        invocation.toolchain.host_target(),
-        invocation.profile,
-        invocation.compilation_mode,
-    );
-    if runner_package.is_file()
-        && std_artifact.is_file()
-        && runner_cache::restore_package(invocation, &cache_key).unwrap_or(false)
-    {
-        let mut packages = vec![nia_driver::PackageNativeInput::new(
-            runner_package,
-            runner_package_id,
-        )];
-        if std_artifact.is_file() {
-            packages.push(nia_driver::PackageNativeInput::new(
-                std_artifact,
-                invocation.toolchain.std_package_id(),
-            ));
-        }
-        let driver = Driver::with_config(build_runner_driver_config(invocation));
-        let objects = driver
-            .load_package_native_objects(
-                &packages,
-                invocation.profile,
-                invocation.compilation_mode,
-                match invocation.optimization {
-                    OptimizationMode::O0 => nia_driver::NiaOptimizationLevel::O0,
-                    OptimizationMode::O1 => nia_driver::NiaOptimizationLevel::O1,
-                    OptimizationMode::O2 => nia_driver::NiaOptimizationLevel::O2,
-                    OptimizationMode::O3 => nia_driver::NiaOptimizationLevel::O3,
-                    OptimizationMode::Os => nia_driver::NiaOptimizationLevel::Os,
-                    OptimizationMode::Oz => nia_driver::NiaOptimizationLevel::Oz,
-                },
-            )
-            .result;
-        if let Ok(objects) = objects {
-            let linked = driver.link_executable_from_objects(
-                &objects,
-                invocation.runner_executable.clone(),
-                nia_linker::LinkOptions {
-                    entry: Some("_start".to_string()),
-                    ..nia_linker::LinkOptions::default()
-                },
-                invocation.timings,
-            );
-            if linked.result.is_ok() {
-                nia_timing::emit_counter("build.runner_cache_hits", 1);
-                return Ok(invocation.runner_executable.clone());
-            }
-            nia_timing::emit_counter("build.runner_cache_relink_fallbacks", 1);
-        }
+    if runner_cache::restore_executable(invocation, &cache_key).unwrap_or(false) {
+        nia_timing::emit_counter("build.runner_cache_hits", 1);
+        return Ok(invocation.runner_executable.clone());
     }
     nia_timing::emit_counter("build.runner_cache_misses", 1);
     if let Some(parent) = invocation.runner_executable.parent() {
@@ -1345,7 +1295,7 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
     }
     let driver = Driver::with_config(build_runner_driver_config(invocation));
     driver.set_source(runner.path.clone(), runner.source.clone());
-    let mut check = CheckRequest::new(runner.path.clone())
+    let check = CheckRequest::new(runner.path.clone())
         .with_module_map(build_runner_module_map(invocation))
         .with_profile(invocation.profile)
         .with_compilation_mode(invocation.compilation_mode)
@@ -1358,14 +1308,6 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
             OptimizationMode::Oz => nia_driver::NiaOptimizationLevel::Oz,
         })
         .with_timings(invocation.timings);
-    let std_artifact = invocation.toolchain.std_package_artifact(
-        invocation.toolchain.host_target(),
-        invocation.profile,
-        invocation.compilation_mode,
-    );
-    if std_artifact.is_file() {
-        check = check.with_package_artifact(std_artifact);
-    }
     let runtime = nia_toolchain::RuntimeSpec::freestanding(
         &invocation.toolchain,
         &invocation.toolchain.host_target().clone(),
@@ -1375,11 +1317,10 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
         source: runner.source.clone(),
         error: Box::new(crate::DriverError::Runtime(error)),
     })?;
-    let package = runner_cache::package_id(&cache_key);
     let check = check
         .with_runtime(runtime)
-        .with_current_package(package.clone());
-    let objects = driver.emit_native_objects(EmitObjectRequest::new(check.clone()));
+        .with_current_package(runner_cache::package_id(&cache_key));
+    let objects = driver.emit_native_objects(EmitObjectRequest::new(check));
     let objects = objects.result.map_err(|error| BuildError::CompileRunner {
         path: runner.path.clone(),
         source: runner.source.clone(),
@@ -1399,20 +1340,8 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
         source: runner.source.clone(),
         error: Box::new(error),
     })?;
-    // Keep the ordinary package artifact as the canonical runner product.
-    let package_artifact = runner_cache::package_path(invocation, &cache_key);
-    let publication = driver.publish_package_artifact_from_native_objects(
-        check,
-        package,
-        package_artifact,
-        objects,
-    );
-    if let Err(error) = publication.result {
-        return Err(BuildError::CompileRunner {
-            path: runner.path,
-            source: runner.source,
-            error: Box::new(error),
-        });
+    if runner_cache::publish_executable(invocation, &cache_key).is_err() {
+        nia_timing::emit_counter("build.runner_cache_publish_failures", 1);
     }
     Ok(invocation.runner_executable.clone())
 }
