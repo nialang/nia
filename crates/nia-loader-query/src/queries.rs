@@ -933,6 +933,9 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
             return Ok(summary);
         }
         let cache_input = frontend_cache_input(db, self.0)?;
+        if cache_input.is_none() && db.get(SourceTextQuery(self.0.id))?.file.is_none() {
+            return Ok(ProviderSummary::default());
+        }
         let cached_item_signature = cached_item_signature(db, cache_input.as_ref());
         let cached =
             cache_input
@@ -1044,6 +1047,9 @@ impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         let cache_input = frontend_cache_input(db, self.0)?;
+        if cache_input.is_none() && db.get(SourceTextQuery(self.0.id))?.file.is_none() {
+            return Ok(ModuleFacadeFacts::default());
+        }
         let cached_item_signature = cached_item_signature(db, cache_input.as_ref());
         let module_map = frontend_module_map_fingerprint_with_package_root(
             &db.context().module_map,

@@ -5,7 +5,7 @@ use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_symbol::SymbolId;
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct ModuleFacadeFacts {
     public_type_names: HashSet<SymbolId>,
     public_reexports: Vec<PublicReexportSource>,
