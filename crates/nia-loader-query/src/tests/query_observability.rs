@@ -60,3 +60,76 @@ extend Widget {
     assert_eq!(query.stats.executions, 1, "{query:?}");
     assert_eq!(query.stats.cache_hits, 1, "{query:?}");
 }
+
+#[test]
+fn missing_provider_products_skip_syntax_and_parse_queries() {
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let missing_provider = SourcePath::new("missing_provider.nia");
+    let db = registered_query_db(test_loader_context(main, ModuleMap::default(), sources));
+
+    let summary = db.expect_get(provider_summary_query(&db, &missing_provider));
+    let facade = db.expect_get(module_facade_facts_query(&db, &missing_provider));
+
+    assert_eq!(
+        summary.as_ref(),
+        &nia_provider_summary::ProviderSummary::default()
+    );
+    assert!(facade.provider_source_paths().is_empty());
+    let trace = db.query_trace();
+    assert!(
+        trace
+            .queries
+            .iter()
+            .any(|query| { query.frame.name == "provider_summary" && query.stats.executions == 1 })
+    );
+    assert!(
+        trace
+            .queries
+            .iter()
+            .all(|query| query.frame.name != "syntax_module")
+    );
+    assert!(
+        trace
+            .queries
+            .iter()
+            .all(|query| query.frame.name != "parsed_module")
+    );
+}
+
+#[test]
+fn missing_provider_products_refresh_when_source_appears() {
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let provider = SourcePath::new("provider.nia");
+    let db = registered_query_db(test_loader_context(
+        main,
+        ModuleMap::default(),
+        sources.clone(),
+    ));
+
+    let missing_summary = db.expect_get(provider_summary_query(&db, &provider));
+    let missing_facade = db.expect_get(module_facade_facts_query(&db, &provider));
+    assert!(!missing_summary.has_providers());
+    assert!(missing_facade.provider_source_paths().is_empty());
+
+    let source_id = sources.id_for_path(&provider);
+    sources.set_source(
+        provider.clone(),
+        r#"
+pub struct Widget {}
+
+extend Widget {
+    pub fn score(&self) i32 { 1 }
+}
+
+pub using dep::Other;
+"#,
+    );
+    db.invalidate(SourceTextQuery(source_id));
+
+    let present_summary = db.expect_get(provider_summary_query(&db, &provider));
+    let present_facade = db.expect_get(module_facade_facts_query(&db, &provider));
+    assert!(present_summary.has_providers());
+    assert!(!present_facade.provider_source_paths().is_empty());
+}
