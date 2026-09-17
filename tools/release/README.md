@@ -3,9 +3,8 @@
 `build.sh` is the release compiler build entry point. It requires the pinned
 LLVM 22.1.0 static prefix produced by [`../llvm/build-static.sh`](../llvm/README.md),
 builds `nia-cli` with the `llvm-static` feature, and rejects a binary with a
-shared LLVM or LLD dependency. The built compiler then publishes source-derived
-debug/O0 and release/O2 standard-library package artifacts into the
-context-qualified toolchain resource paths under `lib/std/.nia-cache/packages`.
+shared LLVM or LLD dependency. Standard-library sources remain part of the
+toolchain resources and are compiled through the normal source pipeline.
 
 Run it from any directory:
 
@@ -37,7 +36,6 @@ nia-<version>-linux-x86_64/
 ├── bin/nia
 ├── lib/toolchain.meta
 ├── lib/std/
-│   └── .nia-cache/packages/.../{debug,release}/normal/package.niapkg
 ├── lib/runtime/
 └── libexec/ld.lld
 ```

@@ -1,44 +1,9 @@
 use super::*;
 use nia_package_metadata::{
-    DefinitionId, InterfaceRecord, InterfaceSection, ModuleInterface, PackageId, PackageManifest,
-    SectionKind, encode, encode_artifact, encode_interface, interface_module_hash,
+    DefinitionId, InterfaceRecord, InterfaceSection, PackageId, PackageManifest, SectionKind,
+    encode, encode_artifact, encode_interface, interface_module_hash,
 };
-use std::{
-    fs,
-    sync::Arc,
-    sync::atomic::{AtomicUsize, Ordering},
-};
-
-fn temporary_toolchain(name: &str) -> Arc<nia_toolchain::ToolchainLayout> {
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let id = NEXT.fetch_add(1, Ordering::Relaxed);
-    let root = std::env::temp_dir().join(format!(
-        "nia-loader-std-artifact-{name}-{}-{id}",
-        std::process::id()
-    ));
-    let _ = fs::remove_dir_all(&root);
-    let executable = root.join("bin/nia");
-    let resources = root.join("lib");
-    fs::create_dir_all(resources.join("std")).unwrap();
-    fs::create_dir_all(resources.join("runtime")).unwrap();
-    fs::create_dir_all(executable.parent().unwrap()).unwrap();
-    fs::write(&executable, b"compiler").unwrap();
-    fs::write(
-        resources.join(nia_toolchain::RESOURCE_MANIFEST_NAME),
-        nia_compat::toolchain_manifest(),
-    )
-    .unwrap();
-    fs::write(resources.join("std/pkg.nia"), "pub module start;").unwrap();
-    fs::write(resources.join("runtime/pkg.nia"), "pub(pkg) module start;").unwrap();
-    fs::write(resources.join("runtime/start.nia"), "").unwrap();
-    Arc::new(
-        nia_toolchain::ToolchainLayout::resolve(nia_toolchain::ToolchainLayoutRequest::explicit(
-            &executable,
-            resources,
-        ))
-        .unwrap(),
-    )
-}
+use std::fs;
 
 fn temp_artifact(name: &str) -> std::path::PathBuf {
     let root =
@@ -73,10 +38,6 @@ fn manifest() -> PackageManifest {
     })
 }
 
-fn standard_library_manifest() -> PackageManifest {
-    manifest_for(PackageId::standard_library())
-}
-
 fn artifact_with_native_variant(optimization: u8) -> Vec<u8> {
     let native = nia_package_metadata::NativeSection {
         variants: vec![nia_package_metadata::NativeVariant {
@@ -86,14 +47,6 @@ fn artifact_with_native_variant(optimization: u8) -> Vec<u8> {
     };
     let native = nia_package_metadata::encode_native(&native).unwrap();
     encode_artifact(&manifest(), &[(SectionKind::Native, &native)]).unwrap()
-}
-
-fn std_artifact_path(toolchain: &nia_toolchain::ToolchainLayout) -> std::path::PathBuf {
-    toolchain.std_package_artifact(
-        &nia_target_config::TargetConfig::host(),
-        nia_target_config::BuildProfile::Debug,
-        nia_target_config::CompilationMode::Normal,
-    )
 }
 
 #[test]
@@ -157,129 +110,6 @@ fn required_artifact_reports_missing_native_variant() {
             ..
         })
     ));
-}
-
-#[test]
-fn toolchain_standard_library_artifact_is_discovered_automatically() {
-    let toolchain = temporary_toolchain("valid");
-    let artifact_path = std_artifact_path(&toolchain);
-    fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
-    fs::write(
-        &artifact_path,
-        encode(&standard_library_manifest()).unwrap(),
-    )
-    .unwrap();
-    let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_toolchain_layout(toolchain));
-    assert!(matches!(
-        loader.package_artifact().unwrap(),
-        Some(PackageArtifactLoad::Loaded { .. })
-    ));
-}
-
-#[test]
-fn toolchain_standard_library_artifact_discovery_can_be_disabled_for_publication() {
-    let toolchain = temporary_toolchain("publication-source-authority");
-    let artifact_path = std_artifact_path(&toolchain);
-    fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
-    fs::write(
-        &artifact_path,
-        encode(&standard_library_manifest()).unwrap(),
-    )
-    .unwrap();
-    let loader = LoaderDatabase::new(
-        LoadRequest::new("main.nia")
-            .with_toolchain_layout(toolchain)
-            .with_toolchain_std_artifact_discovery(false),
-    );
-    assert!(loader.package_artifact().unwrap().is_none());
-}
-
-#[test]
-fn automatic_standard_library_artifact_rejects_nonstandard_package_identity() {
-    let toolchain = temporary_toolchain("reject");
-    let artifact_path = std_artifact_path(&toolchain);
-    fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
-    fs::write(&artifact_path, encode(&manifest()).unwrap()).unwrap();
-    let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_toolchain_layout(toolchain));
-    let selection = loader.package_artifact().unwrap();
-    assert!(matches!(
-        selection,
-        Some(PackageArtifactLoad::SourceFallback {
-            reason: PackageArtifactFallback::Incompatible(mismatch),
-            ..
-        }) if matches!(*mismatch, PackageArtifactMismatch::Package { .. })
-    ));
-}
-
-#[test]
-fn selected_standard_library_artifact_supplies_source_free_module_topology() {
-    let toolchain = temporary_toolchain("topology");
-    let artifact_path = std_artifact_path(&toolchain);
-    fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
-    let mut metadata = standard_library_manifest();
-    metadata.modules = vec![
-        ModuleInterface {
-            path: "lib/std/io.nia".into(),
-            interface_hash: [2; 32],
-        },
-        ModuleInterface {
-            path: "lib/std/pkg.nia".into(),
-            interface_hash: [1; 32],
-        },
-    ];
-    fs::write(&artifact_path, encode(&metadata).unwrap()).unwrap();
-    let entry = std::env::temp_dir().join(format!(
-        "nia-loader-std-artifact-entry-{}-{}.nia",
-        std::process::id(),
-        1
-    ));
-    let sources = nia_source::SourceDatabase::new();
-    sources.set_source(
-        nia_source::SourcePath::new(entry.to_string_lossy()),
-        "using std::io;",
-    );
-    let loader = LoaderDatabase::new(
-        LoadRequest::new(entry.to_string_lossy())
-            .with_sources(sources)
-            .with_toolchain_layout(toolchain),
-    );
-    let program = loader
-        .load_program()
-        .expect("artifact-backed std must load");
-    assert!(
-        !format!("{:?}", program.diagnostics).contains("failed to read"),
-        "artifact modules must not fall back to source reads: {:?}",
-        program.diagnostics
-    );
-    let std_root = program.graph.package_root(&nia_symbol::known::STD).unwrap();
-    let io = program
-        .graph
-        .get(std_root)
-        .and_then(|node| {
-            node.children
-                .get(&nia_symbol::SymbolId::from_stable_hash(
-                    nia_symbol::stable_hash("io"),
-                ))
-                .copied()
-        })
-        .expect("artifact manifest must install std::io");
-    assert!(
-        program
-            .graph
-            .get(io)
-            .unwrap()
-            .path
-            .as_str()
-            .starts_with("/__nia_artifact__/")
-    );
-    assert_eq!(
-        loader
-            .compiled_package_module_identity(io)
-            .unwrap()
-            .unwrap()
-            .path,
-        "lib/std/io.nia"
-    );
 }
 
 #[test]

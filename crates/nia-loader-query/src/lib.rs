@@ -257,81 +257,13 @@ impl LoaderDatabase {
 
     /// Creates a loader sharing dependency and execution state with `session`.
     pub fn new_in_session(request: LoadRequest, session: QuerySession) -> Self {
-        let toolchain_std_artifact = request
-            .discover_toolchain_std_artifact
-            .then_some(request.toolchain.as_ref())
-            .flatten()
-            .map(|toolchain| {
-                toolchain.std_package_artifact(
-                    &request.target,
-                    request.profile,
-                    request.compilation_mode,
-                )
-            })
-            .filter(|path| path.is_file());
-        let auto_std_artifact =
-            request.package_artifact.is_none() && toolchain_std_artifact.is_some();
-        let explicit_std_artifact = request
-            .package_artifact
-            .as_ref()
-            .zip(toolchain_std_artifact.as_ref())
-            .is_some_and(|(request, path)| request.path() == path);
-        let std_artifact_requested = auto_std_artifact || explicit_std_artifact;
-        let expected_package = request.expected_package.clone().or_else(|| {
-            std_artifact_requested.then(|| {
-                request
-                    .toolchain
-                    .as_ref()
-                    .expect("std artifact has toolchain")
-                    .std_package_id()
-            })
-        });
+        let expected_package = request.expected_package.clone();
         let artifact_compatibility = package_artifact::ArtifactCompatibility::current(
             request.toolchain.as_deref(),
             &request.target,
             request.profile,
             request.compilation_mode,
         );
-        let selected_std_interfaces = if std_artifact_requested {
-            request.toolchain.as_ref().and_then(|toolchain| {
-                let artifact_request = request.package_artifact.clone().unwrap_or_else(|| {
-                    PackageArtifactRequest::Optional(toolchain.std_package_artifact(
-                        &request.target,
-                        request.profile,
-                        request.compilation_mode,
-                    ))
-                });
-                match package_artifact::load(
-                    &artifact_request,
-                    expected_package.as_ref(),
-                    &artifact_compatibility,
-                    request.required_native_optimization,
-                ) {
-                    Ok(PackageArtifactLoad::Loaded { interface, .. }) => Some(interface),
-                    _ => None,
-                }
-            })
-        } else {
-            None
-        };
-        let selected_std_modules = selected_std_interfaces
-            .as_ref()
-            .map(|interface| {
-                interface
-                    .module_identities()
-                    .filter(|identity| {
-                        expected_package
-                            .as_ref()
-                            .is_some_and(|package| &identity.package == package)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let std_artifact_root = selected_std_modules
-            .iter()
-            .map(|module| module.path.as_str())
-            .find(|path| path.rsplit('/').next() == Some("pkg.nia"))
-            .map(str::to_owned);
         let entry_path = request.entry_path;
         let package_roots_with_used_paths = if request.package_root_used_paths {
             request.module_map.entries().map(|(name, _)| name).collect()
@@ -342,18 +274,8 @@ impl LoaderDatabase {
             &entry_path,
             request.module_map,
             request.toolchain.as_deref(),
-            std_artifact_root.as_deref(),
         );
         let sources = request.sources;
-        for module in &selected_std_modules {
-            sources.set_source(
-                SourcePath::with_identity(
-                    format!("/__nia_artifact__/std/{}", module.path),
-                    &module.path,
-                ),
-                "",
-            );
-        }
         let symbols = SymbolTable::new();
         let frontend_cache = request
             .frontend_cache_dir
@@ -427,10 +349,8 @@ impl LoaderDatabase {
                 package_root: request.package_root,
                 module_map,
                 sources: sources.clone(),
-                compiled_package_modules: Arc::new(selected_std_modules.clone()),
-                compiled_package_interfaces: selected_std_interfaces
-                    .map(|interface| Arc::new(vec![interface]))
-                    .unwrap_or_default(),
+                compiled_package_modules: Arc::new(Vec::new()),
+                compiled_package_interfaces: Arc::new(Vec::new()),
                 node_store: nia_node_id::NodeStore::new(),
                 diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
                 symbols,
@@ -453,9 +373,7 @@ impl LoaderDatabase {
         Self {
             db,
             sources,
-            package_artifact: request
-                .package_artifact
-                .or_else(|| toolchain_std_artifact.map(PackageArtifactRequest::Optional)),
+            package_artifact: request.package_artifact,
             expected_package,
             artifact_compatibility,
             required_native_optimization: request.required_native_optimization,
@@ -1090,8 +1008,6 @@ pub struct LoadRequest {
     /// Native optimization variant required before selecting an artifact.
     /// Semantic-only requests leave this unset.
     pub required_native_optimization: Option<u8>,
-    /// Whether the resolved toolchain's standard-library artifact is probed.
-    pub discover_toolchain_std_artifact: bool,
 }
 
 impl LoadRequest {
@@ -1118,7 +1034,6 @@ impl LoadRequest {
             package_artifact: None,
             expected_package: None,
             required_native_optimization: None,
-            discover_toolchain_std_artifact: true,
         }
     }
 
@@ -1161,12 +1076,6 @@ impl LoadRequest {
     /// Requires an exact native optimization variant from a selected artifact.
     pub fn with_required_native_optimization(mut self, optimization: u8) -> Self {
         self.required_native_optimization = Some(optimization);
-        self
-    }
-
-    /// Enables or disables automatic toolchain standard-library artifacts.
-    pub fn with_toolchain_std_artifact_discovery(mut self, enabled: bool) -> Self {
-        self.discover_toolchain_std_artifact = enabled;
         self
     }
 
@@ -1244,7 +1153,6 @@ fn load_program_trace(
         &entry_path,
         module_map,
         Some(tests::test_toolchain_layout().as_ref()),
-        None,
     );
     let db = QueryDb::new_registered(
         LoaderContext {
@@ -1282,20 +1190,14 @@ fn effective_module_map(
     entry_path: &SourcePath,
     module_map: ModuleMap,
     toolchain: Option<&ToolchainLayout>,
-    std_artifact_root: Option<&str>,
 ) -> ModuleMap {
     let module_map = module_map.with_entry(entry_path.clone());
     let Some(toolchain) = toolchain else {
         return module_map;
     };
-    let std_path = std_artifact_root.map_or_else(
-        || {
-            SourcePath::with_identity(
-                toolchain.std_module().to_string_lossy().into_owned(),
-                "toolchain:/std/pkg.nia",
-            )
-        },
-        |identity| SourcePath::with_identity(format!("/__nia_artifact__/std/{identity}"), identity),
+    let std_path = SourcePath::with_identity(
+        toolchain.std_module().to_string_lossy().into_owned(),
+        "toolchain:/std/pkg.nia",
     );
     module_map.with_default_std(std_path)
 }

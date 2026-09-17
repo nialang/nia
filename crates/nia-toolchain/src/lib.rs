@@ -10,13 +10,11 @@
 
 use nia_compat::{COMPILER_VERSION, RELEASE_COMPATIBILITY};
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
-use nia_target_config::{BuildProfile, CompilationMode, TargetConfig};
+use nia_target_config::TargetConfig;
 use std::{fmt, fs, io, io::Read, path::PathBuf};
 
 const COMPATIBILITY_IDENTITY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.toolchain.compatibility-identity");
-const PACKAGE_TARGET_PATH_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.toolchain.package-target-path");
 const MAX_RESOURCE_MANIFEST_BYTES: usize = 64 * 1024;
 /// Stable package identity owned by the compiler-provided startup runtime.
 pub const RUNTIME_PACKAGE_IDENTITY: &str = "toolchain:/runtime/pkg.nia";
@@ -419,47 +417,6 @@ impl ToolchainLayout {
     /// standard-library package artifact.
     pub fn freestanding_runtime_package(&self) -> &std::path::Path {
         self.runtime.freestanding_package_root()
-    }
-
-    /// Compiled-package snapshot for one standard-library semantic context.
-    ///
-    /// The artifact is optional during development and diagnostics; callers
-    /// must still validate its manifest before selecting it.
-    pub fn std_package_artifact(
-        &self,
-        target: &TargetConfig,
-        profile: BuildProfile,
-        compilation_mode: CompilationMode,
-    ) -> std::path::PathBuf {
-        let mut fingerprint = QueryFingerprintBuilder::new(PACKAGE_TARGET_PATH_DOMAIN);
-        fingerprint.write_str(&target.arch);
-        fingerprint.write_str(&target.vendor);
-        fingerprint.write_str(&target.os);
-        fingerprint.write_str(&target.env);
-        fingerprint.write_str(&target.abi);
-        fingerprint.write_str(&target.endian);
-        fingerprint.write_u64(u64::from(target.pointer_width));
-        let [first, second] = fingerprint.finish().parts();
-        let profile = match profile {
-            BuildProfile::Debug => "debug",
-            BuildProfile::Release => "release",
-        };
-        let compilation_mode = match compilation_mode {
-            CompilationMode::Normal => "normal",
-            CompilationMode::Test => "test",
-        };
-        self.resource_root
-            .join("std/.nia-cache/packages")
-            .join(format!("{first:016x}{second:016x}"))
-            .join(profile)
-            .join(compilation_mode)
-            .join("package.niapkg")
-    }
-
-    /// Returns the canonical package identity expected from the standard
-    /// library artifact shipped with this toolchain.
-    pub fn std_package_id(&self) -> nia_package_metadata::PackageId {
-        nia_package_metadata::PackageId::standard_library()
     }
 
     /// Returns the manifest compatibility identity.
@@ -954,40 +911,6 @@ mod tests {
         let installed = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
             .expect("installed layout");
         assert_eq!(explicit, installed);
-        let artifact = explicit.std_package_artifact(
-            &TargetConfig::host(),
-            BuildProfile::Debug,
-            CompilationMode::Normal,
-        );
-        assert!(artifact.starts_with(explicit.resource_root().join("std/.nia-cache/packages")));
-        assert!(artifact.ends_with("debug/normal/package.niapkg"));
-        assert_ne!(
-            artifact,
-            explicit.std_package_artifact(
-                &TargetConfig::host(),
-                BuildProfile::Release,
-                CompilationMode::Normal,
-            )
-        );
-        assert_ne!(
-            artifact,
-            explicit.std_package_artifact(
-                &TargetConfig::host(),
-                BuildProfile::Debug,
-                CompilationMode::Test,
-            )
-        );
-        let mut other_target = TargetConfig::host();
-        other_target.arch = "other-arch".into();
-        assert_ne!(
-            artifact,
-            explicit.std_package_artifact(
-                &other_target,
-                BuildProfile::Debug,
-                CompilationMode::Normal,
-            )
-        );
-
         let relocated_root = temp_dir("relocated_layout");
         fs::rename(&first, relocated_root.join("toolchain")).expect("relocate toolchain");
         let relocated = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(
@@ -997,15 +920,8 @@ mod tests {
         assert_eq!(relocated.identity(), installed.identity());
         assert_ne!(relocated.resource_root(), installed.resource_root());
         assert_eq!(
-            artifact.strip_prefix(explicit.resource_root()).unwrap(),
-            relocated
-                .std_package_artifact(
-                    &TargetConfig::host(),
-                    BuildProfile::Debug,
-                    CompilationMode::Normal,
-                )
-                .strip_prefix(relocated.resource_root())
-                .unwrap()
+            relocated.std_module(),
+            relocated.resource_root().join("std/pkg.nia")
         );
     }
 

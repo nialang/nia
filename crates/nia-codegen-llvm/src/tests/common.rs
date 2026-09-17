@@ -115,13 +115,7 @@ pub(super) fn codegen_program_request(
     optimization: NiaOptimizationLevel,
 ) -> nia_compiler_query::CodegenProgram {
     let loader = nia_loader_query::LoaderDatabase::new(
-        request
-            .with_toolchain_layout(test_toolchain_layout())
-            // These tests construct a complete synthetic source graph. A
-            // developer's installed std artifact must not silently replace
-            // modules in that graph and make the result depend on local cache
-            // state.
-            .with_toolchain_std_artifact_discovery(false),
+        request.with_toolchain_layout(test_toolchain_layout()),
     );
     let compiler = nia_compiler_query::CompilerDatabase::new(
         nia_compiler_query::CompileRequest::new(loader.clone()).with_optimization(optimization),

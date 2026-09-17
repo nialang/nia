@@ -58,8 +58,6 @@ pub struct CheckRequest {
     pub compilation_mode: nia_target_config::CompilationMode,
     /// Optional compiled package artifact to consume before source fallback.
     pub package_artifact: Option<PackageArtifactRequest>,
-    /// Whether the installed toolchain standard-library artifact may be selected.
-    pub discover_toolchain_std_artifact: bool,
 }
 
 /// Checked program paired with the exact source closure used to produce it.
@@ -647,14 +645,11 @@ impl Driver {
     /// resolver for nominal definitions from dependency packages.
     pub fn publish_package_artifact_with_resolver(
         &self,
-        mut request: CheckRequest,
+        request: CheckRequest,
         package: PackageId,
         output: PathBuf,
         resolver: Option<&dyn StableDefinitionPackageResolver>,
     ) -> DriverOutput<PublishedPackageArtifact> {
-        if package == PackageId::standard_library() {
-            request.discover_toolchain_std_artifact = false;
-        }
         DriverOutput::catch_ice(|| {
             let database = match self.compiler_database(&request) {
                 Ok(database) => database,
@@ -717,9 +712,6 @@ impl Driver {
         output: PathBuf,
     ) -> DriverOutput<PublishedPackageArtifact> {
         request = request.with_current_package(package.clone());
-        if package == PackageId::standard_library() {
-            request.discover_toolchain_std_artifact = false;
-        }
         DriverOutput::catch_ice(|| {
             let (database, _) = match self
                 .compilation_databases_with_codegen_scope(&request, CodegenScope::Package)
@@ -797,7 +789,7 @@ impl Driver {
     /// backend codegen.
     pub fn publish_package_artifact_from_native_objects(
         &self,
-        mut request: CheckRequest,
+        request: CheckRequest,
         package: PackageId,
         output: PathBuf,
         objects: ObjectArtifact,
@@ -807,9 +799,6 @@ impl Driver {
                 "native objects must be emitted with the package identity they are published under"
                     .to_string(),
             ));
-        }
-        if package == PackageId::standard_library() {
-            request.discover_toolchain_std_artifact = false;
         }
         DriverOutput::catch_ice(|| {
             let (database, _) = match self
@@ -2119,7 +2108,6 @@ impl Driver {
             compilation_mode: request.compilation_mode,
             runtime: request.runtime.clone(),
             package_artifact: request.package_artifact.clone(),
-            discover_toolchain_std_artifact: request.discover_toolchain_std_artifact,
             required_native_optimization,
         };
         let mut loader_guard = self.loader.lock().expect("driver loader lock poisoned");
@@ -2133,7 +2121,6 @@ impl Driver {
                     .with_profile(key.profile)
                     .with_compilation_mode(key.compilation_mode)
                     .with_runtime(key.runtime.clone())
-                    .with_toolchain_std_artifact_discovery(key.discover_toolchain_std_artifact)
                     .with_toolchain_layout(std::sync::Arc::clone(&self.config.toolchain))
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
                     .with_frontend_cache_verification(self.config.verify_frontend_cache);
@@ -2407,7 +2394,6 @@ struct LoaderKey {
     compilation_mode: nia_target_config::CompilationMode,
     runtime: RuntimeSpec,
     package_artifact: Option<PackageArtifactRequest>,
-    discover_toolchain_std_artifact: bool,
     required_native_optimization: Option<u8>,
 }
 
@@ -2455,7 +2441,6 @@ impl CheckRequest {
             profile: BuildProfile::default(),
             compilation_mode: nia_target_config::CompilationMode::default(),
             package_artifact: None,
-            discover_toolchain_std_artifact: true,
         }
     }
 
@@ -2505,13 +2490,6 @@ impl CheckRequest {
     /// Requires a compiled package artifact and rejects source fallback.
     pub fn require_package_artifact(mut self, path: impl Into<PathBuf>) -> Self {
         self.package_artifact = Some(PackageArtifactRequest::Required(path.into()));
-        self
-    }
-
-    /// Enables or disables automatic toolchain standard-library artifacts.
-    /// Package publishers disable discovery to keep source authoritative.
-    pub fn with_toolchain_std_artifact_discovery(mut self, enabled: bool) -> Self {
-        self.discover_toolchain_std_artifact = enabled;
         self
     }
 
@@ -3140,7 +3118,6 @@ impl Drop for TempDir {
 #[cfg(test)]
 mod streamed_output_tests {
     use super::*;
-    use nia_test_support::copy_case_tree;
     use nia_toolchain::ToolchainLayoutRequest;
     use std::sync::Arc;
 
@@ -3160,11 +3137,10 @@ mod streamed_output_tests {
         let request = CheckRequest::from_source_path(SourcePath::with_identity(
             layout.std_module().to_string_lossy().into_owned(),
             "toolchain:/std/pkg.nia",
-        ))
-        .with_toolchain_std_artifact_discovery(false);
+        ));
         let driver = Driver::new(Arc::clone(&layout));
         let database = driver.compiler_database(&request).unwrap();
-        let package = layout.std_package_id();
+        let package = PackageId::standard_library();
         let publication = database
             .publish_package_artifact_with_resolver(package.clone(), &|_| Ok(package.clone()))
             .unwrap();
@@ -3181,186 +3157,6 @@ mod streamed_output_tests {
             record.definition.name == "formatSpec"
                 && record.flags & nia_package_metadata::SIGNATURE_FLAG_HAS_BODY != 0
         }));
-    }
-
-    #[test]
-    fn standard_library_artifact_is_selected_without_dependency_sources() {
-        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .and_then(Path::parent)
-            .unwrap();
-        let root = TempDir::new("nia_driver_source_free_std");
-        let lib = root.path().join("lib");
-        copy_case_tree(&workspace.join("lib"), &lib);
-        let layout = Arc::new(
-            ToolchainLayout::resolve(ToolchainLayoutRequest::explicit(
-                std::env::current_exe().unwrap(),
-                &lib,
-            ))
-            .unwrap(),
-        );
-        let package = layout.std_package_id();
-        let staged_artifact = root.path().join("std.niapkg");
-        let publisher = Driver::new(Arc::clone(&layout));
-        let request = CheckRequest::from_source_path(SourcePath::with_identity(
-            layout.std_module().to_string_lossy().into_owned(),
-            "toolchain:/std/pkg.nia",
-        ));
-        let database = publisher.compiler_database(&request).unwrap();
-        let publication = database
-            .publish_package_artifact_with_resolver(package.clone(), &|_| Ok(package.clone()))
-            .unwrap();
-        fs::write(&staged_artifact, publication.bytes).unwrap();
-
-        fs::remove_dir_all(layout.resource_root().join("std")).unwrap();
-        let installed_artifact = layout.std_package_artifact(
-            layout.artifact_target(),
-            BuildProfile::Debug,
-            nia_target_config::CompilationMode::Normal,
-        );
-        fs::create_dir_all(installed_artifact.parent().unwrap()).unwrap();
-        fs::rename(&staged_artifact, &installed_artifact).unwrap();
-        assert!(!layout.std_module().exists());
-        let hello = root.path().join("hello.nia");
-        fs::write(
-            &hello,
-            r#"using std::io;
-using std::process;
-using process::{Init, ExitCode};
-
-pub fn main(init: Init) ExitCode!() {
-    _ = init;
-    io::debugPrint(&"hello from nia\n", &[]).?;
-    !()
-}
-"#,
-        )
-        .unwrap();
-        let probe_loader = Driver::new(Arc::clone(&layout))
-            .loader_database(&CheckRequest::new(hello.to_string_lossy()));
-        let selection = probe_loader.package_artifact().unwrap();
-        assert!(
-            matches!(
-                selection,
-                Some(nia_loader_query::PackageArtifactLoad::Loaded { .. })
-            ),
-            "std artifact selection: {selection:?}"
-        );
-        let artifact =
-            nia_package_metadata::PackageArtifact::open(fs::read(&installed_artifact).unwrap())
-                .unwrap();
-        let signatures = artifact.signatures().unwrap().unwrap();
-        assert!(
-            signatures.extensions.iter().any(|extension| {
-                extension.module.path.ends_with("/std/process/exit.nia")
-                    && extension.trait_root.is_some()
-            }),
-            "published process exit trait implementations: {:?}",
-            signatures
-                .extensions
-                .iter()
-                .filter(|extension| extension.module.path.contains("process"))
-                .collect::<Vec<_>>()
-        );
-        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact)
-            .expect("published standard library artifact must validate without sources");
-        let consumer = Driver::new(Arc::clone(&layout));
-        let checked = consumer
-            .check_entry(CheckRequest::new(hello.to_string_lossy()))
-            .result
-            .expect("source-free standard library artifact must check hello");
-        assert!(checked.diagnostics.is_empty(), "{:#?}", checked.diagnostics);
-    }
-
-    #[test]
-    fn source_free_standard_library_native_objects_are_reused_for_linking() {
-        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .and_then(Path::parent)
-            .unwrap();
-        let root = TempDir::new("nia_driver_source_free_std_native");
-        let lib = root.path().join("lib");
-        copy_case_tree(&workspace.join("lib"), &lib);
-        let layout = Arc::new(
-            ToolchainLayout::resolve(ToolchainLayoutRequest::explicit(
-                std::env::current_exe().unwrap(),
-                &lib,
-            ))
-            .unwrap(),
-        );
-        let package = layout.std_package_id();
-        let publication_request = CheckRequest::from_source_path(SourcePath::with_identity(
-            layout.std_module().to_string_lossy().into_owned(),
-            "toolchain:/std/pkg.nia",
-        ));
-        let publisher = Driver::new(Arc::clone(&layout));
-        let staged_artifact = root.path().join("std.niapkg");
-        publisher
-            .publish_package_artifact_with_native(
-                publication_request.with_runtime(RuntimeSpec::Bare),
-                package,
-                staged_artifact.clone(),
-            )
-            .result
-            .expect("publish standard library native artifact");
-
-        fs::remove_dir_all(layout.resource_root().join("std")).unwrap();
-        let installed_artifact = layout.std_package_artifact(
-            layout.artifact_target(),
-            BuildProfile::Debug,
-            nia_target_config::CompilationMode::Normal,
-        );
-        fs::create_dir_all(installed_artifact.parent().unwrap()).unwrap();
-        fs::rename(staged_artifact, &installed_artifact).unwrap();
-
-        let hello = root.path().join("hello.nia");
-        fs::write(
-            &hello,
-            r#"using std::io;
-using std::process;
-using process::{Init, ExitCode};
-
-pub fn main(init: Init) ExitCode!() {
-    _ = init;
-    io::debugPrint(&"hello from nia\n", &[]).?;
-    !()
-}
-"#,
-        )
-        .unwrap();
-        let consumer = Driver::new(Arc::clone(&layout));
-        let runtime = RuntimeSpec::freestanding(&layout, layout.artifact_target())
-            .expect("host freestanding runtime");
-        let objects = consumer
-            .emit_native_objects(EmitObjectRequest::new(
-                CheckRequest::new(hello.to_string_lossy()).with_runtime(runtime),
-            ))
-            .result
-            .expect("source-free standard library native consumption");
-        assert!(
-            objects.link_inputs.as_slice().iter().any(|input| matches!(
-                input.key,
-                nia_codegen_llvm::CodegenUnitKey::CompiledPackage { .. }
-            )),
-            "source-free native output must include compiled standard library objects: {:?}",
-            objects.link_inputs
-        );
-
-        let executable = root.path().join("hello");
-        let linked = consumer
-            .link_executable_from_objects(
-                &objects,
-                executable.clone(),
-                LinkOptions::default(),
-                TimingMode::Off,
-            )
-            .result
-            .expect("link source-free standard library executable");
-        assert_eq!(linked.path, executable);
-        let status = Command::new(&linked.path)
-            .status()
-            .expect("run source-free standard library executable");
-        assert_eq!(status.code(), Some(0));
     }
 
     #[test]

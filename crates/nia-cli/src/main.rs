@@ -1847,8 +1847,6 @@ struct EmitPackageOptions {
 fn parse_emit_package_options(
     source: &str,
     args: Vec<String>,
-    toolchain: &nia_toolchain::ToolchainLayout,
-    profile: BuildProfile,
 ) -> Result<EmitPackageOptions, String> {
     let mut output = None;
     let mut package_id = None;
@@ -1888,7 +1886,7 @@ fn parse_emit_package_options(
         }
     }
     let package = match (standard_library, package_id) {
-        (true, None) => toolchain.std_package_id(),
+        (true, None) => nia_driver::PackageId::standard_library(),
         (false, Some(package)) => package,
         (true, Some(_)) => {
             return Err("use either `--std` or `--package-id`, not both".to_string());
@@ -1898,17 +1896,7 @@ fn parse_emit_package_options(
         }
     };
     Ok(EmitPackageOptions {
-        output: output.unwrap_or_else(|| {
-            if standard_library {
-                toolchain.std_package_artifact(
-                    toolchain.artifact_target(),
-                    profile,
-                    nia_target_config::CompilationMode::Normal,
-                )
-            } else {
-                default_output_path(source, "niapkg")
-            }
-        }),
+        output: output.unwrap_or_else(|| default_output_path(source, "niapkg")),
         package,
         standard_library,
         cache_dir,
@@ -1944,8 +1932,7 @@ fn parse_package_id(value: &str) -> Result<nia_driver::PackageId, String> {
 }
 
 fn run_emit_package(path: &str, source: &str, args: Vec<String>, context: EmitContext) -> ExitCode {
-    let options = match parse_emit_package_options(path, args, &context.toolchain, context.profile)
-    {
+    let options = match parse_emit_package_options(path, args) {
         Ok(options) => options,
         Err(message) => {
             report_cli_error(&message, HelpTopic::EmitPackage);
