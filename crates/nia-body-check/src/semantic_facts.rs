@@ -30,10 +30,10 @@ impl<'a> BodyChecker<'a> {
             Some(SemanticValueUse::Global(def_id)) => Some(def_id),
             Some(SemanticValueUse::Local(_)) | None => None,
         };
-        if let Some(facts) = self.current_function_facts() {
-            if let Some(def_id) = global_value_use {
-                facts.global_value_uses.insert(def_id);
-            }
+        if let Some(facts) = self.current_function_facts()
+            && let Some(def_id) = global_value_use
+        {
+            facts.global_value_uses.insert(def_id);
         }
     }
 

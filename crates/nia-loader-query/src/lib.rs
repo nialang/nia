@@ -516,16 +516,15 @@ impl LoaderDatabase {
             return Ok(None);
         };
         let stamp = artifact_file_stamp(request.path()).ok();
-        if let Some(stamp) = stamp {
-            if let Some(cached) = self
+        if let Some(stamp) = stamp
+            && let Some(cached) = self
                 .artifact_selection_cache
                 .lock()
                 .expect("loader artifact selection cache lock poisoned")
                 .as_ref()
                 .filter(|cached| cached.stamp == stamp)
-            {
-                return cached.selection.clone();
-            }
+        {
+            return cached.selection.clone();
         }
         let selection = package_artifact::load(
             request,
@@ -867,20 +866,18 @@ impl LoaderFactProvider for LoaderDatabase {
             .compiled_package_modules
             .iter()
             .find(|identity| identity.path == module.path.identity().normalized_path())
-        {
-            if let Some(interface) = self
+            && let Some(interface) = self
                 .db
                 .context()
                 .compiled_package_interfaces
                 .iter()
                 .find(|interface| interface.manifest().package == identity.package)
-            {
-                return Ok(Some(compiled_provider_summary(
-                    interface,
-                    identity,
-                    &self.db.context().symbols,
-                )?));
-            }
+        {
+            return Ok(Some(compiled_provider_summary(
+                interface,
+                identity,
+                &self.db.context().symbols,
+            )?));
         }
         let key = queries::provider_summary_query(&self.db, &module.path)?;
         Ok(Some(self.db.get(key)?.as_ref().clone()))

@@ -517,14 +517,11 @@ fn main(ptr: &u8, triple: [i32; 3]) i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(
-        contains_mangled_name(&ir, '@', "is_null__inst__t_u8"),
+        contains_mangled_name(ir, '@', "is_null__inst__t_u8"),
         "{ir}"
     );
-    assert!(contains_mangled_name(&ir, '@', "zero__inst__t_u8"), "{ir}");
-    assert!(
-        contains_mangled_name(&ir, '@', "first__inst__t_i32"),
-        "{ir}"
-    );
+    assert!(contains_mangled_name(ir, '@', "zero__inst__t_u8"), "{ir}");
+    assert!(contains_mangled_name(ir, '@', "first__inst__t_i32"), "{ir}");
     assert!(ir.contains("call i1 %"), "{ir}");
     assert!(ir.contains("call i1 @"), "{ir}");
     assert!(

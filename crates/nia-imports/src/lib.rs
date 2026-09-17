@@ -340,6 +340,17 @@ impl PartialEq for ModuleGraph {
 /// Cheaply clonable, pointer-comparable snapshot of a module graph.
 pub struct ModuleGraphSnapshot(Arc<ModuleGraph>);
 
+struct DeclaredChildSpec {
+    parent_id: ModuleId,
+    name: SymbolId,
+    visibility: Visibility,
+    span: Span,
+    child_path: SourcePath,
+    process_used_paths: bool,
+    process_declared_children: bool,
+    module_path: ModulePath,
+}
+
 impl ModuleGraphSnapshot {
     /// Wraps a graph in shared snapshot storage.
     pub fn new(graph: ModuleGraph) -> Self {
@@ -685,16 +696,16 @@ impl ModuleGraph {
         };
         let child_module_path = parent.module_path.child(*name);
         let child_path = self.declared_child_source_path(&parent, *name);
-        self.intern_declared_child_with_source_path_and_processing(
+        self.intern_declared_child_with_source_path_and_processing(DeclaredChildSpec {
             parent_id,
-            name,
+            name: *name,
             visibility,
             span,
             child_path,
             process_used_paths,
             process_declared_children,
-            child_module_path,
-        )
+            module_path: child_module_path,
+        })
     }
 
     /// Interns a declared child using an explicit source path.
@@ -720,32 +731,35 @@ impl ModuleGraph {
             .finish());
         };
         let child_module_path = parent.module_path.child(*name);
-        self.intern_declared_child_with_source_path_and_processing(
+        self.intern_declared_child_with_source_path_and_processing(DeclaredChildSpec {
+            parent_id,
+            name: *name,
+            visibility,
+            span,
+            child_path,
+            process_used_paths: true,
+            process_declared_children: true,
+            module_path: child_module_path,
+        })
+    }
+
+    fn intern_declared_child_with_source_path_and_processing(
+        &mut self,
+        child: DeclaredChildSpec,
+    ) -> Result<ModuleId, Diagnostic> {
+        let DeclaredChildSpec {
             parent_id,
             name,
             visibility,
             span,
             child_path,
-            true,
-            true,
-            child_module_path,
-        )
-    }
-
-    fn intern_declared_child_with_source_path_and_processing(
-        &mut self,
-        parent_id: ModuleId,
-        name: &SymbolId,
-        visibility: Visibility,
-        span: Span,
-        child_path: SourcePath,
-        process_used_paths: bool,
-        process_declared_children: bool,
-        child_module_path: ModulePath,
-    ) -> Result<ModuleId, Diagnostic> {
+            process_used_paths,
+            process_declared_children,
+            module_path,
+        } = child;
         let child_id = self.intern_module(
             child_path.clone(),
-            child_module_path,
+            module_path,
             Some(parent_id),
             process_used_paths,
             process_declared_children,
@@ -758,14 +772,14 @@ impl ModuleGraph {
             .debug("module_id", parent_id)
             .finish()
         })?;
-        if let Some(existing) = parent.children.get(name).copied() {
+        if let Some(existing) = parent.children.get(&name).copied() {
             if existing != child_id {
                 return Err(Diagnostic::internal_error(
                     codes::MODULE_GRAPH_CHILD,
                     "module child name points at a different module id",
                 )
                 .debug("module_id", parent_id)
-                .debug("child", self.module_symbol_text(*name))
+                .debug("child", self.module_symbol_text(name))
                 .finish());
             }
             return Err(Diagnostic::user_error_at(
@@ -773,13 +787,13 @@ impl ModuleGraph {
                 span,
                 format!(
                     "duplicate module declaration `{}`",
-                    self.module_symbol_text(*name)
+                    self.module_symbol_text(name)
                 ),
             ));
         }
-        parent.children.insert(*name, child_id);
+        parent.children.insert(name, child_id);
         parent.declarations.push(ModuleDeclaration {
-            name: *name,
+            name,
             visibility,
             target: child_id,
             span,

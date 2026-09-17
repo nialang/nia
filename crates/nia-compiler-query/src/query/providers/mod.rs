@@ -270,6 +270,8 @@ impl UsingScopeLookup for QueryUsingScopeLookup<'_> {
     }
 }
 
+type ChildModuleLookup = HashMap<(ModuleId, SymbolId), Option<(ModuleId, nia_ids::Visibility)>>;
+
 pub(super) struct QueryModuleGraphLookup<'a> {
     db: &'a QueryDb<CompilerContext>,
     entry_module: ModuleId,
@@ -277,7 +279,7 @@ pub(super) struct QueryModuleGraphLookup<'a> {
     package_roots: RefCell<HashMap<SymbolId, Option<ModuleId>>>,
     paths: RefCell<HashMap<ModuleId, Option<nia_imports::ModulePath>>>,
     parents: RefCell<HashMap<ModuleId, Option<ModuleId>>>,
-    children: RefCell<HashMap<(ModuleId, SymbolId), Option<(ModuleId, nia_ids::Visibility)>>>,
+    children: RefCell<ChildModuleLookup>,
 }
 
 impl<'a> QueryModuleGraphLookup<'a> {

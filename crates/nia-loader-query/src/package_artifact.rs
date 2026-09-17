@@ -47,7 +47,7 @@ pub enum PackageArtifactFallback {
     /// The artifact could not be decoded or its section integrity failed.
     InvalidMetadata(MetadataError),
     /// The artifact is valid but belongs to another compiler/package identity.
-    Incompatible(PackageArtifactMismatch),
+    Incompatible(Box<PackageArtifactMismatch>),
     /// Native code generation requires a variant absent from this artifact.
     MissingNativeVariant { optimization: u8 },
     /// Reading the artifact failed for a reason other than it being absent.
@@ -89,7 +89,7 @@ pub enum PackageArtifactLoad {
     /// The artifact was decoded and passed compatibility checks.
     Loaded {
         path: PathBuf,
-        artifact: PackageArtifact,
+        artifact: Box<PackageArtifact>,
         interface: CompiledPackageInterface,
     },
     /// Source loading should continue, with a diagnostic-quality reason.
@@ -111,7 +111,7 @@ pub enum PackageArtifactError {
     },
     Incompatible {
         path: PathBuf,
-        mismatch: PackageArtifactMismatch,
+        mismatch: Box<PackageArtifactMismatch>,
     },
     MissingNativeVariant {
         path: PathBuf,
@@ -249,7 +249,7 @@ pub(crate) fn load(
             found: manifest.compiler_version.clone(),
         })
         .or_else(|| {
-            (manifest.release_compatibility != compatibility.release_compatibility).then(|| {
+            (manifest.release_compatibility != compatibility.release_compatibility).then_some({
                 PackageArtifactMismatch::ReleaseCompatibility {
                     expected: compatibility.release_compatibility,
                     found: manifest.release_compatibility,
@@ -271,7 +271,7 @@ pub(crate) fn load(
             })
         })
         .or_else(|| {
-            (manifest.profile != profile_tag(compatibility.profile)).then(|| {
+            (manifest.profile != profile_tag(compatibility.profile)).then_some({
                 PackageArtifactMismatch::BuildProfile {
                     expected: compatibility.profile,
                     found: manifest.profile,
@@ -280,13 +280,16 @@ pub(crate) fn load(
         })
         .or_else(|| {
             (manifest.compilation_mode != compilation_mode_tag(compatibility.compilation_mode))
-                .then(|| PackageArtifactMismatch::CompilationMode {
+                .then_some(PackageArtifactMismatch::CompilationMode {
                     expected: compatibility.compilation_mode,
                     found: manifest.compilation_mode,
                 })
         });
     if let Some(mismatch) = mismatch {
-        return fallback_or_error(request, PackageArtifactFallback::Incompatible(mismatch));
+        return fallback_or_error(
+            request,
+            PackageArtifactFallback::Incompatible(Box::new(mismatch)),
+        );
     }
     if let Some(optimization) = required_native_optimization {
         let native = match artifact.native() {
@@ -310,7 +313,7 @@ pub(crate) fn load(
     }
     Ok(PackageArtifactLoad::Loaded {
         path,
-        artifact,
+        artifact: Box::new(artifact),
         interface,
     })
 }

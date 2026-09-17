@@ -895,7 +895,6 @@ fn executable_check_in_session(
                 &reachability_by_module,
                 &mut fact_by_id,
                 &caches,
-                &caches.const_modules,
                 non_function_signatures.as_ref(),
             )
         },
@@ -1308,7 +1307,6 @@ fn final_executable_checked_modules(
     reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
     fact_by_id: &mut HashMap<ModuleId, ExecutableFactModuleState>,
     caches: &ExecutableCheckCaches,
-    const_module_cache: &RefCell<HashMap<ModuleId, ConstModuleLowering>>,
     program_signatures: Option<&ProgramExecutableNonFunctionSignatures>,
 ) -> QueryResult<HashMap<ModuleId, CheckedModule>> {
     let reachable_body_modules = executable_reachable_body_modules(db, reachability_by_module)?;
@@ -1442,7 +1440,7 @@ fn final_executable_checked_modules(
                                 resolution_inputs: Some(resolution_inputs),
                                 seed: None,
                                 global_initializer_cache: Some(&caches.global_initializers),
-                                const_module_cache: Some(const_module_cache),
+                                const_module_cache: Some(&caches.const_modules),
                                 const_inputs: None,
                                 program_function_signature_cache: Some(
                                     &caches.body_function_signatures,

@@ -478,8 +478,7 @@ pub fn check_closure_safety_with_support_and_summaries(
                     })
                 });
                 handles
-                    .map(|handle| handle.join().expect("closure summary worker panicked"))
-                    .flatten()
+                    .flat_map(|handle| handle.join().expect("closure summary worker panicked"))
                     .collect()
             })
         };

@@ -50,14 +50,10 @@ impl Hasher for FastHasher {
     #[inline]
     fn write(&mut self, bytes: &[u8]) {
         self.mix(bytes.len() as u64, FAST_HASH_BYTES_DOMAIN);
-        let mut chunks = bytes.chunks_exact(8);
-        for chunk in &mut chunks {
-            self.mix(
-                u64::from_le_bytes(chunk.try_into().expect("exact hash chunk width")),
-                FAST_HASH_BYTE_CHUNK_DOMAIN,
-            );
+        let (chunks, remainder) = bytes.as_chunks::<8>();
+        for chunk in chunks {
+            self.mix(u64::from_le_bytes(*chunk), FAST_HASH_BYTE_CHUNK_DOMAIN);
         }
-        let remainder = chunks.remainder();
         if !remainder.is_empty() {
             let mut tail = [0u8; 8];
             tail[..remainder.len()].copy_from_slice(remainder);

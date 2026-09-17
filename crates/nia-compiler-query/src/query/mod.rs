@@ -343,11 +343,12 @@ pub(in crate::query) fn resolve_loaded_definition_in_query(
     let graph = db.get(ModuleGraphQuery)?;
     let mut module_id = None;
     for module in graph.modules() {
-        if let Some(identity) = compiled_package_module_identity(db, module.id)? {
-            if identity.package == *package && identity.path == definition.module.path {
-                module_id = Some(module.id);
-                break;
-            }
+        if let Some(identity) = compiled_package_module_identity(db, module.id)?
+            && identity.package == *package
+            && identity.path == definition.module.path
+        {
+            module_id = Some(module.id);
+            break;
         }
     }
     let module_id = module_id.or_else(|| graph.module_id_for_path(&definition.module.path));
@@ -897,34 +898,29 @@ impl CompilerDatabase {
         arguments
             .iter()
             .map(|argument| {
-                Ok(match argument {
-                    StableConstArg { ty, value } => nia_ty::ConstGenericArg {
-                        ty: types.get(*ty as usize).copied().ok_or_else(|| {
-                            self.db.invalid_input(
-                                &ModuleGraphQuery,
-                                "stable const argument type is outside graph".to_string(),
-                            )
-                        })?,
-                        value: match value {
-                            StableConstValue::GenericParam(hash) => {
-                                nia_ty::ConstGenericValue::GenericParam(SymbolId::from_stable_hash(
-                                    *hash,
-                                ))
-                            }
-                            StableConstValue::Integer { bits, signed } => {
-                                nia_ty::ConstGenericValue::Int(if *signed {
-                                    nia_ty::IntConst::signed_bits(*bits)
-                                } else {
-                                    nia_ty::IntConst::unsigned(*bits)
-                                })
-                            }
-                            StableConstValue::Bool(value) => {
-                                nia_ty::ConstGenericValue::Bool(*value)
-                            }
-                            StableConstValue::Char(value) => {
-                                nia_ty::ConstGenericValue::Char(*value)
-                            }
-                        },
+                let StableConstArg { ty, value } = argument;
+                Ok(nia_ty::ConstGenericArg {
+                    ty: types.get(*ty as usize).copied().ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "stable const argument type is outside graph".to_string(),
+                        )
+                    })?,
+                    value: match value {
+                        StableConstValue::GenericParam(hash) => {
+                            nia_ty::ConstGenericValue::GenericParam(SymbolId::from_stable_hash(
+                                *hash,
+                            ))
+                        }
+                        StableConstValue::Integer { bits, signed } => {
+                            nia_ty::ConstGenericValue::Int(if *signed {
+                                nia_ty::IntConst::signed_bits(*bits)
+                            } else {
+                                nia_ty::IntConst::unsigned(*bits)
+                            })
+                        }
+                        StableConstValue::Bool(value) => nia_ty::ConstGenericValue::Bool(*value),
+                        StableConstValue::Char(value) => nia_ty::ConstGenericValue::Char(*value),
                     },
                 })
             })
@@ -1346,13 +1342,13 @@ impl CompilerDatabase {
                     })
                     .collect::<QueryResult<Vec<_>>>()?;
                 for param in &record.generic_params {
-                    if let Some(root) = param.type_root {
-                        if types.get(root as usize).is_none() {
-                            return Err(self.db.invalid_input(
-                                &CompiledPackageInterfaceIndexQuery,
-                                "compiled generic parameter root is outside its graph",
-                            ));
-                        }
+                    if let Some(root) = param.type_root
+                        && types.get(root as usize).is_none()
+                    {
+                        return Err(self.db.invalid_input(
+                            &CompiledPackageInterfaceIndexQuery,
+                            "compiled generic parameter root is outside its graph",
+                        ));
                     }
                 }
                 for predicate in &record.where_predicates {
@@ -1571,27 +1567,26 @@ impl CompilerDatabase {
                 let module_identity = identity.module.clone();
                 if let Some(previous_package) =
                     module_owners.insert(module.id, identity.module.package.clone())
+                    && previous_package != identity.module.package
                 {
-                    if previous_package != identity.module.package {
-                        return Err(self.db.invalid_input(
-                            &ModuleGraphQuery,
-                            format!(
-                                "stable module identity resolves to multiple packages: module {:?}, packages {:?} and {:?}",
-                                module.id, previous_package, identity.module.package
-                            ),
-                        ));
-                    }
+                    return Err(self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        format!(
+                            "stable module identity resolves to multiple packages: module {:?}, packages {:?} and {:?}",
+                            module.id, previous_package, identity.module.package
+                        ),
+                    ));
                 }
-                if let Some(previous) = modules.insert(module_identity.clone(), module.id) {
-                    if previous != module.id {
-                        return Err(self.db.invalid_input(
-                            &ModuleGraphQuery,
-                            format!(
-                                "stable module identity resolves to multiple session modules: {:?}",
-                                module_identity
-                            ),
-                        ));
-                    }
+                if let Some(previous) = modules.insert(module_identity.clone(), module.id)
+                    && previous != module.id
+                {
+                    return Err(self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        format!(
+                            "stable module identity resolves to multiple session modules: {:?}",
+                            module_identity
+                        ),
+                    ));
                 }
                 if definitions.insert(identity, global).is_some() {
                     return Err(self.db.invalid_input(
@@ -2929,8 +2924,7 @@ impl CompilerDatabase {
                 type_indexes,
             )?;
             let payload = signature_payload_for_definition(
-                global.def_id,
-                global.module_id,
+                global,
                 kind,
                 &facts.semantic,
                 &stable_by_global,
@@ -3037,8 +3031,7 @@ impl CompilerDatabase {
                 };
                 let trait_root = implementation
                     .trait_ty
-                    .map(|ty| type_indexes.get(&ty).copied())
-                    .flatten();
+                    .and_then(|ty| type_indexes.get(&ty).copied());
                 let generic_params = signature_generic_params_to_wire(
                     DefId(implementation.impl_id.0),
                     &implementation.generic_params,
@@ -3056,42 +3049,38 @@ impl CompilerDatabase {
                     if let Some(definition) = stable_by_global.get(&GlobalDefId {
                         module_id: module.id,
                         def_id: method.def_id,
+                    }) && let Some(item) = interface.records.iter().find(|item| {
+                        &item.definition == definition
+                            && signature_definitions.contains(&item.definition)
                     }) {
-                        if let Some(item) = interface.records.iter().find(|item| {
-                            &item.definition == definition
-                                && signature_definitions.contains(&item.definition)
-                        }) {
-                            extension_members.push(nia_package_metadata::SignatureMember {
-                                definition: definition.clone(),
-                                name: definition.name.clone(),
-                                kind: definition.kind,
-                                flags: signature_flags_for_definition(
-                                    method.def_id,
-                                    definition.kind,
-                                    &facts.semantic,
-                                ),
-                                type_roots: item.type_roots.clone(),
-                            });
-                        }
+                        extension_members.push(nia_package_metadata::SignatureMember {
+                            definition: definition.clone(),
+                            name: definition.name.clone(),
+                            kind: definition.kind,
+                            flags: signature_flags_for_definition(
+                                method.def_id,
+                                definition.kind,
+                                &facts.semantic,
+                            ),
+                            type_roots: item.type_roots.clone(),
+                        });
                     }
                 }
                 for value in &implementation.associated_values {
                     if let Some(definition) = stable_by_global.get(&GlobalDefId {
                         module_id: module.id,
                         def_id: value.def_id,
+                    }) && let Some(item) = interface.records.iter().find(|item| {
+                        &item.definition == definition
+                            && signature_definitions.contains(&item.definition)
                     }) {
-                        if let Some(item) = interface.records.iter().find(|item| {
-                            &item.definition == definition
-                                && signature_definitions.contains(&item.definition)
-                        }) {
-                            extension_members.push(nia_package_metadata::SignatureMember {
-                                definition: definition.clone(),
-                                name: definition.name.clone(),
-                                kind: definition.kind,
-                                flags: 0,
-                                type_roots: item.type_roots.clone(),
-                            });
-                        }
+                        extension_members.push(nia_package_metadata::SignatureMember {
+                            definition: definition.clone(),
+                            name: definition.name.clone(),
+                            kind: definition.kind,
+                            flags: 0,
+                            type_roots: item.type_roots.clone(),
+                        });
                     }
                 }
                 let associated_types = implementation
@@ -4766,7 +4755,7 @@ impl CompilerDatabase {
         // Any remaining source root in a package-publication graph is owned by
         // the package being published. External package roots are represented
         // by validated compiled-module identities and were handled above.
-        return Ok(current_package.clone());
+        Ok(current_package.clone())
     }
 
     /// Replaces session-compatible inputs and returns the resulting invalidation set.
@@ -6115,8 +6104,7 @@ fn function_signature_flags(signature: &nia_item_signatures::FunctionSignature) 
 }
 
 fn signature_payload_for_definition(
-    def_id: DefId,
-    module_id: ModuleId,
+    global: GlobalDefId,
     kind: u8,
     signatures: &nia_item_signatures::ItemSignatures,
     stable_by_global: &HashMap<GlobalDefId, DefinitionId>,
@@ -6124,6 +6112,7 @@ fn signature_payload_for_definition(
     symbols: &dyn nia_symbol::SymbolText,
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<Option<nia_package_metadata::SignaturePayload>> {
+    let GlobalDefId { module_id, def_id } = global;
     let root = |ty: InternedTyId| {
         indexes.get(&ty).copied().ok_or_else(|| {
             db.invalid_input(

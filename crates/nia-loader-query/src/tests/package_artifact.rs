@@ -205,9 +205,9 @@ fn automatic_standard_library_artifact_rejects_nonstandard_package_identity() {
     assert!(matches!(
         selection,
         Some(PackageArtifactLoad::SourceFallback {
-            reason: PackageArtifactFallback::Incompatible(PackageArtifactMismatch::Package { .. }),
+            reason: PackageArtifactFallback::Incompatible(mismatch),
             ..
-        })
+        }) if matches!(*mismatch, PackageArtifactMismatch::Package { .. })
     ));
 }
 
@@ -332,11 +332,9 @@ fn optional_artifact_falls_back_for_missing_corrupt_and_incompatible_inputs() {
     assert!(matches!(
         loader.package_artifact().unwrap(),
         Some(PackageArtifactLoad::SourceFallback {
-            reason: PackageArtifactFallback::Incompatible(
-                PackageArtifactMismatch::CompilerVersion { .. }
-            ),
+            reason: PackageArtifactFallback::Incompatible(mismatch),
             ..
-        })
+        }) if matches!(*mismatch, PackageArtifactMismatch::CompilerVersion { .. })
     ));
 }
 
@@ -406,9 +404,9 @@ fn explicit_package_identity_mismatch_is_reported() {
             nia_target_config::CompilationMode::Normal,
         ),
         Err(PackageArtifactError::Incompatible {
-            mismatch: PackageArtifactMismatch::Package { .. },
+            mismatch,
             ..
-        })
+        }) if matches!(*mismatch, PackageArtifactMismatch::Package { .. })
     ));
 }
 
@@ -431,9 +429,9 @@ fn artifact_selection_rejects_target_context_mismatch() {
             nia_target_config::CompilationMode::Normal,
         ),
         Err(PackageArtifactError::Incompatible {
-            mismatch: PackageArtifactMismatch::Target { .. },
+            mismatch,
             ..
-        })
+        }) if matches!(*mismatch, PackageArtifactMismatch::Target { .. })
     ));
 }
 
@@ -454,9 +452,9 @@ fn artifact_selection_rejects_profile_context_mismatch() {
             nia_target_config::CompilationMode::Normal,
         ),
         Err(PackageArtifactError::Incompatible {
-            mismatch: PackageArtifactMismatch::BuildProfile { .. },
+            mismatch,
             ..
-        })
+        }) if matches!(*mismatch, PackageArtifactMismatch::BuildProfile { .. })
     ));
 }
 
@@ -477,9 +475,9 @@ fn artifact_selection_rejects_compilation_mode_mismatch() {
             nia_target_config::CompilationMode::Normal,
         ),
         Err(PackageArtifactError::Incompatible {
-            mismatch: PackageArtifactMismatch::CompilationMode { .. },
+            mismatch,
             ..
-        })
+        }) if matches!(*mismatch, PackageArtifactMismatch::CompilationMode { .. })
     ));
 }
 

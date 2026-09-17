@@ -159,12 +159,15 @@ fn scopes_template_local_promotions_to_function_instances() {
     };
     let instance_symbol = |arg: &ConstGenericArg| {
         nia_mangle::mangle_instance_symbol_canonical_with_context(
-            "test/package@0",
-            module_mangle,
-            nia_mangle::stable_definition_key(def_id),
-            &nia_mangle::mangle_symbol_id(name),
-            &[],
-            std::slice::from_ref(arg),
+            nia_mangle::MangleInstance::new(
+                "test/package@0",
+                module_mangle,
+                nia_mangle::stable_definition_key(def_id),
+                nia_mangle::mangle_symbol_id(name),
+                &[],
+                std::slice::from_ref(arg),
+                MangleSymbolKind::Function,
+            ),
             &type_store,
             nia_mangle::MangleResolvers::new(
                 |_| module_mangle,
@@ -172,7 +175,6 @@ fn scopes_template_local_promotions_to_function_instances() {
                 |_| None,
             ),
             Some(module_mangle),
-            MangleSymbolKind::Function,
         )
     };
     let body = |value: u128| FunctionBody {

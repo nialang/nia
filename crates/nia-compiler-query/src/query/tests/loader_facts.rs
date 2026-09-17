@@ -89,7 +89,7 @@ enum TestLoaderFactValue {
     ActiveModuleItemTree(Option<ActiveModuleItemTree>),
     LoadDiagnostics(Vec<ProgramDiagnostic>),
     Target(TargetConfig),
-    Runtime(RuntimeSpec),
+    Runtime(Box<RuntimeSpec>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -154,7 +154,7 @@ impl QueryKey<TestLoaderContext> for TestLoaderFactQuery {
                 Self::Value::LoadDiagnostics(program.diagnostics.clone())
             }
             TestLoaderFactKey::Target => Self::Value::Target(program.target.clone()),
-            TestLoaderFactKey::Runtime => Self::Value::Runtime(program.runtime.clone()),
+            TestLoaderFactKey::Runtime => Self::Value::Runtime(Box::new(program.runtime.clone())),
         })
     }
 
@@ -390,7 +390,7 @@ impl crate::LoaderFactProvider for TestLoaderFacts {
         let TestLoaderFactValue::Runtime(runtime) = fact.as_ref() else {
             unreachable!()
         };
-        runtime.clone()
+        runtime.as_ref().clone()
     }
 
     fn compiled_package_interfaces(
