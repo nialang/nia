@@ -9,7 +9,6 @@
 mod facade_facts;
 mod frontend_cache;
 mod graph;
-mod package_artifact;
 mod provider_facts;
 mod provider_loading;
 mod queries;
@@ -20,15 +19,13 @@ mod tests;
 
 use nia_compiler_query::{
     FrontendCacheNamespace, FrontendProgramSourceFingerprint, FrontendProviderDemandPlanCacheKey,
-    LoadedProgram, LoaderFactProvider, ProviderDemand, ProviderRequest, SourceContentFingerprint,
+    LoadedProgram, LoaderFactProvider, ProviderDemand, SourceContentFingerprint,
     frontend_module_map_fingerprint_with_package_root, frontend_program_source_fingerprint,
     source_content_fingerprint,
 };
 use nia_imports::{ModuleMap, StableModuleKey};
-use nia_package_metadata::PackageId;
 use nia_query::{QueryDb, QueryResult, QueryRetirement, QuerySession};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceRevision, SourceVersion};
-use nia_symbol::ToSymbolId;
 use nia_symbol_table::SymbolTable;
 use nia_target_config::{BuildProfile, CompilationMode, TargetConfig};
 use nia_toolchain::ToolchainLayout;
@@ -37,7 +34,6 @@ use provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use queries::{LoadedProgramQuery, SourceTextQuery};
 use std::{
     collections::HashSet,
-    io,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -50,12 +46,6 @@ pub(crate) fn runtime_package_root_path(runtime: &SourceRuntimeSpec) -> SourcePa
         runtime.package_root_identity(),
     )
 }
-
-pub use nia_package_metadata::CompiledPackageInterface;
-pub use package_artifact::{
-    PackageArtifactError, PackageArtifactFallback, PackageArtifactLoad, PackageArtifactMismatch,
-    PackageArtifactRequest, package_artifact_path, select_package_artifact,
-};
 
 fn loader_query_registry() -> nia_query::QueryRegistry {
     let mut registry = nia_query::QueryRegistry::new();
@@ -129,40 +119,6 @@ pub fn load_program_request(request: LoadRequest) -> QueryResult<LoadedProgram> 
 pub struct LoaderDatabase {
     db: QueryDb<LoaderContext>,
     sources: SourceDatabase,
-    package_artifact: Option<PackageArtifactRequest>,
-    expected_package: Option<PackageId>,
-    artifact_compatibility: package_artifact::ArtifactCompatibility,
-    artifact_selection_cache: Arc<Mutex<Option<CachedPackageArtifact>>>,
-}
-
-#[derive(Clone)]
-struct CachedPackageArtifact {
-    stamp: Option<ArtifactFileStamp>,
-    selection: Result<Option<PackageArtifactLoad>, PackageArtifactError>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ArtifactFileStamp {
-    length: u64,
-    modified_nanos: u128,
-}
-
-fn artifact_file_stamp(path: &std::path::Path) -> io::Result<Option<ArtifactFileStamp>> {
-    match std::fs::metadata(path) {
-        Ok(metadata) => {
-            let modified_nanos = metadata
-                .modified()?
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(io::Error::other)?
-                .as_nanos();
-            Ok(Some(ArtifactFileStamp {
-                length: metadata.len(),
-                modified_nanos,
-            }))
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error),
-    }
 }
 
 /// Presence and stable content identity of one loaded source input.
@@ -256,13 +212,6 @@ impl LoaderDatabase {
 
     /// Creates a loader sharing dependency and execution state with `session`.
     pub fn new_in_session(request: LoadRequest, session: QuerySession) -> Self {
-        let expected_package = request.expected_package.clone();
-        let artifact_compatibility = package_artifact::ArtifactCompatibility::current(
-            request.toolchain.as_deref(),
-            &request.target,
-            request.profile,
-            request.compilation_mode,
-        );
         let entry_path = request.entry_path;
         let package_roots_with_used_paths = if request.package_root_used_paths {
             request.module_map.entries().map(|(name, _)| name).collect()
@@ -348,8 +297,6 @@ impl LoaderDatabase {
                 package_root: request.package_root,
                 module_map,
                 sources: sources.clone(),
-                compiled_package_modules: Arc::new(Vec::new()),
-                compiled_package_interfaces: Arc::new(Vec::new()),
                 node_store: nia_node_id::NodeStore::new(),
                 diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
                 symbols,
@@ -369,14 +316,7 @@ impl LoaderDatabase {
             loader_query_registry(),
             session,
         );
-        Self {
-            db,
-            sources,
-            package_artifact: request.package_artifact,
-            expected_package,
-            artifact_compatibility,
-            artifact_selection_cache: Arc::new(Mutex::new(None)),
-        }
+        Self { db, sources }
     }
 
     /// Returns the query session governing this loader.
@@ -420,45 +360,6 @@ impl LoaderDatabase {
     /// Returns the mutable-source database owned by this loader.
     pub fn sources(&self) -> &SourceDatabase {
         &self.sources
-    }
-
-    /// Selects the explicitly requested compiled package, if any.
-    ///
-    /// Source loading remains the default. An optional artifact returns
-    /// [`PackageArtifactLoad::SourceFallback`] when absent, corrupt, or
-    /// incompatible; a required artifact returns a typed error instead.
-    pub fn package_artifact(&self) -> Result<Option<PackageArtifactLoad>, PackageArtifactError> {
-        let Some(request) = self.package_artifact.as_ref() else {
-            return Ok(None);
-        };
-        let stamp = artifact_file_stamp(request.path()).ok();
-        if let Some(stamp) = stamp
-            && let Some(cached) = self
-                .artifact_selection_cache
-                .lock()
-                .expect("loader artifact selection cache lock poisoned")
-                .as_ref()
-                .filter(|cached| cached.stamp == stamp)
-        {
-            return cached.selection.clone();
-        }
-        let selection = package_artifact::load(
-            request,
-            self.expected_package.as_ref(),
-            &self.artifact_compatibility,
-        )
-        .map(Some)?;
-        if let Ok(stamp) = artifact_file_stamp(request.path()) {
-            *self
-                .artifact_selection_cache
-                .lock()
-                .expect("loader artifact selection cache lock poisoned") =
-                Some(CachedPackageArtifact {
-                    stamp,
-                    selection: Ok(selection.clone()),
-                });
-        }
-        Ok(selection)
     }
 
     /// Replaces source text, retires the previous revision, and invalidates dependents atomically.
@@ -719,15 +620,6 @@ impl LoaderFactProvider for LoaderDatabase {
         let Some(module) = graph.semantic.get(module_id) else {
             return Ok(None);
         };
-        if self
-            .db
-            .context()
-            .compiled_package_modules
-            .iter()
-            .any(|identity| identity.path == module.path.identity().normalized_path())
-        {
-            return Ok(Some(self.sources.empty_source(&module.path).version()));
-        }
         let source_id = self.sources.id_for_path(&module.path);
         Ok(match *self.db.get(queries::SourceStatusQuery(source_id))? {
             queries::SourceStatus::Present(version) => Some(version),
@@ -775,25 +667,6 @@ impl LoaderFactProvider for LoaderDatabase {
         let Some(module) = graph.semantic.get(module_id) else {
             return Ok(None);
         };
-        if let Some(identity) = self
-            .db
-            .context()
-            .compiled_package_modules
-            .iter()
-            .find(|identity| identity.path == module.path.identity().normalized_path())
-            && let Some(interface) = self
-                .db
-                .context()
-                .compiled_package_interfaces
-                .iter()
-                .find(|interface| interface.manifest().package == identity.package)
-        {
-            return Ok(Some(compiled_provider_summary(
-                interface,
-                identity,
-                &self.db.context().symbols,
-            )?));
-        }
         let key = queries::provider_summary_query(&self.db, &module.path)?;
         Ok(Some(self.db.get(key)?.as_ref().clone()))
     }
@@ -900,75 +773,6 @@ impl LoaderFactProvider for LoaderDatabase {
     fn toolchain_identity(&self) -> nia_toolchain::ToolchainIdentityFingerprint {
         self.db.context().toolchain_identity
     }
-
-    fn compiled_package_interfaces(
-        &self,
-    ) -> QueryResult<Vec<nia_package_metadata::CompiledPackageInterface>> {
-        let selection = self.package_artifact().map_err(|error| {
-            self.db
-                .invalid_input(&queries::LoadedProgramQuery, error.to_string())
-        })?;
-        Ok(selection
-            .and_then(|selection| match selection {
-                PackageArtifactLoad::Loaded { interface, .. } => Some(interface),
-                PackageArtifactLoad::SourceFallback { .. } => None,
-            })
-            .into_iter()
-            .collect())
-    }
-
-    fn compiled_package_module_identity(
-        &self,
-        module_id: nia_imports::ModuleId,
-    ) -> QueryResult<Option<nia_package_metadata::ModuleId>> {
-        let graph = self.db.get(graph::ModuleGraphQuery)?;
-        let Some(module) = graph.semantic.get(module_id) else {
-            return Ok(None);
-        };
-        let path = module.path.identity().normalized_path().to_owned();
-        if let Some(identity) = self
-            .db
-            .context()
-            .compiled_package_modules
-            .iter()
-            .find(|identity| identity.path == path)
-        {
-            return Ok(Some(identity.clone()));
-        }
-        // Source-backed package modules remain authoritative until the
-        // artifact publishes the complete public-surface projection (including
-        // re-export directives). Artifact facts are therefore used only for
-        // source-free modules.
-        let source_id = self.sources.id_for_path(&module.path);
-        if self
-            .db
-            .get(queries::SourceTextQuery(source_id))?
-            .file
-            .is_some()
-        {
-            return Ok(None);
-        }
-        let entry_root = graph.semantic.current_package_root(graph.semantic.entry());
-        if entry_root != graph.semantic.current_package_root(module_id) {
-            return Ok(None);
-        }
-        let mut matches = self
-            .compiled_package_interfaces()?
-            .into_iter()
-            .flat_map(|interface| interface.module_identities().collect::<Vec<_>>())
-            .filter(|identity| identity.path == path)
-            .collect::<Vec<_>>();
-        matches.sort();
-        matches.dedup();
-        match matches.as_slice() {
-            [] => Ok(None),
-            [identity] => Ok(Some(identity.clone())),
-            _ => Err(self.db.invalid_input(
-                &queries::LoadedProgramQuery,
-                format!("compiled artifacts claim multiple owners for module `{path}`"),
-            )),
-        }
-    }
 }
 
 /// Complete loader configuration, including source, target, runtime, and cache policy.
@@ -998,10 +802,6 @@ pub struct LoadRequest {
     pub verify_frontend_cache: bool,
     /// Optional resolved toolchain supplying std modules and identity.
     pub toolchain: Option<Arc<ToolchainLayout>>,
-    /// Optional compiled package artifact selection request.
-    pub package_artifact: Option<PackageArtifactRequest>,
-    /// Optional stable package identity expected from the selected artifact.
-    pub expected_package: Option<PackageId>,
 }
 
 impl LoadRequest {
@@ -1025,8 +825,6 @@ impl LoadRequest {
             frontend_cache_dir: None,
             verify_frontend_cache: false,
             toolchain: None,
-            package_artifact: None,
-            expected_package: None,
         }
     }
 
@@ -1095,24 +893,6 @@ impl LoadRequest {
         self.toolchain = Some(toolchain);
         self
     }
-
-    /// Tries a compiled package artifact and falls back to source on rejection.
-    pub fn with_package_artifact(mut self, path: impl Into<PathBuf>) -> Self {
-        self.package_artifact = Some(PackageArtifactRequest::Optional(path.into()));
-        self
-    }
-
-    /// Requires a compiled package artifact and surfaces rejection as an error.
-    pub fn require_package_artifact(mut self, path: impl Into<PathBuf>) -> Self {
-        self.package_artifact = Some(PackageArtifactRequest::Required(path.into()));
-        self
-    }
-
-    /// Checks the selected artifact against a stable package identity.
-    pub fn with_expected_package(mut self, package: PackageId) -> Self {
-        self.expected_package = Some(package);
-        self
-    }
 }
 
 #[cfg(test)]
@@ -1147,8 +927,6 @@ fn load_program_trace(
             package_root: None,
             module_map,
             sources: SourceDatabase::new(),
-            compiled_package_modules: Arc::new(Vec::new()),
-            compiled_package_interfaces: Arc::new(Vec::new()),
             node_store: nia_node_id::NodeStore::new(),
             diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
             symbols: SymbolTable::new(),
@@ -1194,9 +972,6 @@ pub(crate) struct LoaderContext {
     pub(crate) package_root: Option<SourcePath>,
     pub(crate) module_map: ModuleMap,
     pub(crate) sources: SourceDatabase,
-    pub(crate) compiled_package_modules: Arc<Vec<nia_package_metadata::ModuleId>>,
-    pub(crate) compiled_package_interfaces:
-        Arc<Vec<nia_package_metadata::CompiledPackageInterface>>,
     pub(crate) node_store: nia_node_id::NodeStore,
     pub(crate) diagnostic_store: Arc<nia_diagnostic::DiagnosticStore>,
     pub(crate) symbols: SymbolTable,
@@ -1215,66 +990,6 @@ pub(crate) struct LoaderContext {
 }
 
 impl LoaderContext {
-    pub(crate) fn compiled_provider_modules_for_demand(
-        &self,
-        request: &ProviderRequest,
-    ) -> Vec<nia_package_metadata::ModuleId> {
-        self.compiled_package_modules
-            .iter()
-            .filter(|module| {
-                let Some(interface) = self
-                    .compiled_package_interfaces
-                    .iter()
-                    .find(|interface| interface.manifest().package == module.package)
-                else {
-                    return false;
-                };
-                let Some(summary) =
-                    compiled_provider_summary(interface, module, &self.symbols).ok()
-                else {
-                    return false;
-                };
-                match request {
-                    ProviderRequest::TraitImpl {
-                        target_type_name,
-                        trait_name,
-                    } => summary.defines_trait_impl(target_type_name.as_ref(), trait_name, None),
-                    ProviderRequest::Method {
-                        target_type_name,
-                        method_name,
-                    } => target_type_name.as_ref().is_some_and(|target| {
-                        summary.defines_public_extension_method_for_facade(
-                            |_| true,
-                            Some(target),
-                            method_name,
-                        )
-                    }),
-                    ProviderRequest::ModuleSemantic { .. } | ProviderRequest::ModuleBody { .. } => {
-                        false
-                    }
-                }
-            })
-            .cloned()
-            .collect()
-    }
-
-    fn compiled_provider_summary_for_path(
-        &self,
-        path: &SourcePath,
-    ) -> Option<nia_provider_summary::ProviderSummary> {
-        let path_identity = path.identity();
-        let identity = path_identity.normalized_path();
-        let module = self
-            .compiled_package_modules
-            .iter()
-            .find(|module| identity == module.path)?;
-        let interface = self
-            .compiled_package_interfaces
-            .iter()
-            .find(|interface| interface.manifest().package == module.package)?;
-        compiled_provider_summary(interface, module, &self.symbols).ok()
-    }
-
     pub(crate) fn frontend_cache_namespace(&self) -> FrontendCacheNamespace {
         FrontendCacheNamespace::for_toolchain_with_profile_and_mode(
             &self.target,
@@ -1284,100 +999,4 @@ impl LoaderContext {
             self.toolchain_identity,
         )
     }
-}
-
-fn compiled_provider_summary(
-    interface: &nia_package_metadata::CompiledPackageInterface,
-    module: &nia_package_metadata::ModuleId,
-    symbols: &SymbolTable,
-) -> QueryResult<nia_provider_summary::ProviderSummary> {
-    let Some(signatures) = interface.signatures() else {
-        return Ok(nia_provider_summary::ProviderSummary::default());
-    };
-    let Some(graph) = interface.type_graph() else {
-        return Ok(nia_provider_summary::ProviderSummary::default());
-    };
-    let type_ref = |root: u32| -> nia_provider_summary::ProviderTypeRef {
-        match graph.nodes.get(root as usize) {
-            Some(nia_package_metadata::StableTypeNode::Named(definition))
-            | Some(nia_package_metadata::StableTypeNode::NamedApplied { definition, .. }) => {
-                let name = symbols.intern(&definition.name).ok();
-                nia_provider_summary::ProviderTypeRef {
-                    last_name: name,
-                    is_generic_or_structural_target: false,
-                    semantic_is_conservative: false,
-                }
-            }
-            Some(nia_package_metadata::StableTypeNode::BuiltinTrait { trait_id, .. }) => {
-                let name = nia_ids::BuiltinTrait::from_stable_tag(*trait_id as u32)
-                    .map(|builtin| builtin.symbol_id());
-                nia_provider_summary::ProviderTypeRef {
-                    last_name: name,
-                    is_generic_or_structural_target: false,
-                    semantic_is_conservative: false,
-                }
-            }
-            _ => nia_provider_summary::ProviderTypeRef {
-                last_name: None,
-                is_generic_or_structural_target: true,
-                semantic_is_conservative: true,
-            },
-        }
-    };
-    let mut providers = Vec::new();
-    for extension in signatures
-        .extensions
-        .iter()
-        .filter(|extension| extension.module == *module)
-    {
-        let mut associated_methods = extension
-            .members
-            .iter()
-            .filter(|member| member.kind == 11 || member.kind == 12)
-            .filter_map(|member| symbols.intern(&member.name).ok())
-            .collect::<std::collections::BTreeSet<_>>();
-        if let Some(trait_definition) =
-            extension
-                .trait_root
-                .and_then(|root| match graph.nodes.get(root as usize) {
-                    Some(nia_package_metadata::StableTypeNode::Named(definition))
-                    | Some(nia_package_metadata::StableTypeNode::NamedApplied {
-                        definition, ..
-                    }) => Some(definition),
-                    _ => None,
-                })
-            && let Some(trait_record) = signatures
-                .traits
-                .iter()
-                .find(|record| &record.definition == trait_definition)
-        {
-            associated_methods.extend(
-                trait_record
-                    .members
-                    .iter()
-                    .filter(|member| {
-                        member.kind == 11
-                            && member.flags & nia_package_metadata::SIGNATURE_FLAG_HAS_BODY != 0
-                    })
-                    .filter_map(|member| symbols.intern(&member.name).ok()),
-            );
-        }
-        let associated_values = extension
-            .members
-            .iter()
-            .filter(|member| member.kind == 4)
-            .filter_map(|member| symbols.intern(&member.name).ok())
-            .collect();
-        providers.push(nia_provider_summary::Provider {
-            target: nia_provider_summary::ProviderTarget {
-                ty: type_ref(extension.target_root),
-            },
-            trait_ref: extension.trait_root.map(type_ref),
-            associated_methods: associated_methods.into_iter().collect(),
-            associated_values,
-        });
-    }
-    Ok(nia_provider_summary::ProviderSummary::from_providers(
-        providers,
-    ))
 }

@@ -286,14 +286,6 @@ fn compiler_requests_preserve_physical_paths_and_stable_build_identities() {
         generated.identity().normalized_path(),
         "build-output:root:/generated/root.nia"
     );
-    assert_eq!(
-        request
-            .package_artifact
-            .as_ref()
-            .expect("build checks select the package artifact")
-            .path(),
-        invocation.package_root.join(".nia-cache/package.niapkg")
-    );
 }
 
 #[test]

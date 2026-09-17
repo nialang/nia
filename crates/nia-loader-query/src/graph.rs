@@ -15,12 +15,11 @@ use crate::{LoaderContext, RuntimeSpec, runtime_package_root_path};
 use nia_compiler_query::{ProgramDiagnostic, ProgramDiagnosticBundles};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
-    ModuleGraph, ModuleGraphSnapshot, ModuleNode, ResolvedModuleDeclaration, Visibility,
+    ModuleGraph, ModuleGraphSnapshot, ModuleNode, ResolvedModuleDeclaration,
     module_declaration_visibility_allows,
 };
 use nia_query::{QueryDb, QueryError, QueryKey, QueryResult};
 use nia_source::SourcePath;
-use nia_span::Span;
 use nia_symbol::SymbolId;
 
 #[derive(Debug)]
@@ -107,29 +106,6 @@ fn build_module_graph(
             let mut graph = (*value.semantic).clone();
             let existing_modules = graph.modules().count();
             for demand in new_provider_demands {
-                for module in db
-                    .context()
-                    .compiled_provider_modules_for_demand(&demand.request)
-                {
-                    let module_id = graph
-                        .modules()
-                        .find(|node| {
-                            graph.stable_key(node.id).is_some_and(|key| {
-                                key.source_identity().normalized_path() == module.path
-                            })
-                        })
-                        .map(|node| node.id);
-                    if let Some(module_id) = module_id {
-                        mark_process_used_paths_and_process(db, &mut graph, module_id).map_err(
-                            |error| {
-                                db.invalid_input(
-                                    &ModuleGraphQuery,
-                                    format!("artifact provider traversal failed: {error:?}"),
-                                )
-                            },
-                        )?;
-                    }
-                }
                 match &demand.request {
                     nia_compiler_query::ProviderRequest::ModuleSemantic { module_path } => {
                         record_traversal_diagnostic(
@@ -207,7 +183,6 @@ fn build_module_graph(
                 graph.intern_package_root(package, path.clone());
             }
         }
-        inject_compiled_package_modules(db, &mut graph)?;
         if should_eager_add_declarations(db.context(), &node) {
             record_traversal_diagnostic(
                 add_declared_module_children(db, &mut graph, node.id),
@@ -245,61 +220,6 @@ fn build_module_graph(
         semantic: ModuleGraphSnapshot::new(graph),
         diagnostics: prior_diagnostics.append(&diagnostics),
     })
-}
-
-/// Installs the topology declared by a selected package artifact before any
-/// source-backed declaration query can be needed. Nodes remain unselected until
-/// an import/provider demand reaches them, preserving the normal lazy graph.
-fn inject_compiled_package_modules(
-    db: &QueryDb<LoaderContext>,
-    graph: &mut ModuleGraph,
-) -> QueryResult<()> {
-    let Some(root) = graph.std_package_root() else {
-        return Ok(());
-    };
-    let Some(root_path) = graph.stable_key(root).map(|key| key.source_identity()) else {
-        return Ok(());
-    };
-    let root_path = root_path.normalized_path().to_owned();
-    let Some(root_dir) = root_path.rsplit_once('/').map(|(dir, _)| dir.to_owned()) else {
-        return Ok(());
-    };
-    let modules = db.context().compiled_package_modules.clone();
-    for module in modules.iter() {
-        let Some(relative) = module.path.strip_prefix(&format!("{root_dir}/")) else {
-            continue;
-        };
-        let relative = relative.strip_suffix(".nia").unwrap_or(relative);
-        let segments = relative.split('/').filter(|segment| !segment.is_empty());
-        let mut current = root;
-        for segment in segments {
-            let symbol = db
-                .context()
-                .symbols
-                .intern(segment)
-                .map_err(|error| db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
-            if let Some(existing) = graph
-                .get(current)
-                .and_then(|node| node.children.get(&symbol).copied())
-            {
-                current = existing;
-                continue;
-            }
-            current = graph
-                .intern_declared_child_with_processing(
-                    current,
-                    &symbol,
-                    Visibility::Public,
-                    Span::default(),
-                    false,
-                    false,
-                )
-                .map_err(|diagnostic| {
-                    db.invalid_input(&ModuleGraphQuery, format!("{diagnostic:?}"))
-                })?;
-        }
-    }
-    Ok(())
 }
 
 fn record_traversal_diagnostic(
