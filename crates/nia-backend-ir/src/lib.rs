@@ -76,9 +76,6 @@ impl BackendProgram {
             CodegenUnitId::CompilerBuiltins => {
                 panic!("Nia ICE: compiler builtins partition has no backend module")
             }
-            CodegenUnitId::CompiledPackage { .. } => {
-                panic!("Nia ICE: compiled package unit has no backend module")
-            }
         };
         let module = self.modules.store.get(module_id).unwrap_or_else(|| {
             panic!(
@@ -595,8 +592,6 @@ pub enum CodegenUnitId {
     },
     /// Runtime/compiler support unit outside source modules.
     CompilerBuiltins,
-    /// Unit imported from a compiled package artifact.
-    CompiledPackage { package: u64, object: u64 },
 }
 
 impl CodegenUnitId {
@@ -621,17 +616,6 @@ pub enum CodegenUnitKey {
     },
     /// Stable identity for compiler-provided support code.
     CompilerBuiltins,
-    /// Stable object imported from a compiled package artifact.
-    CompiledPackage {
-        /// Package namespace.
-        namespace: String,
-        /// Package name.
-        package: String,
-        /// Package version.
-        version: String,
-        /// Artifact-local object key.
-        object: String,
-    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -655,21 +639,6 @@ impl CodegenUnitKey {
         Self::SourceModule {
             source_identity,
             ordinal,
-        }
-    }
-
-    /// Creates a stable key for an object imported from a package artifact.
-    pub fn compiled_package(
-        namespace: impl Into<String>,
-        package: impl Into<String>,
-        version: impl Into<String>,
-        object: impl Into<String>,
-    ) -> Self {
-        Self::CompiledPackage {
-            namespace: namespace.into(),
-            package: package.into(),
-            version: version.into(),
-            object: object.into(),
         }
     }
 }

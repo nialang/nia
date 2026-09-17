@@ -140,8 +140,6 @@ const COMPILED_INTERFACE_INDEX_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.compiler.compiled-interface-index");
 const COMPILED_PACKAGE_MODULE_IDENTITY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.compiler.compiled-package-module-identity");
-const COMPILED_NATIVE_OBSERVATION_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.compiled-native-observation");
 mod resolve;
 mod static_init_queries;
 mod types;
@@ -591,23 +589,6 @@ impl CompiledPackageSignatures {
         self.extensions
             .iter()
             .filter(move |record| record.trait_root == Some(trait_root))
-    }
-}
-
-/// Target-specific native products selected from one compiled package.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompiledPackageNative {
-    package: PackageId,
-    variant: nia_package_metadata::NativeVariant,
-}
-
-impl CompiledPackageNative {
-    pub fn package(&self) -> &PackageId {
-        &self.package
-    }
-
-    pub fn variant(&self) -> &nia_package_metadata::NativeVariant {
-        &self.variant
     }
 }
 
@@ -1428,56 +1409,6 @@ impl CompilerDatabase {
                     .map(|definition| (definition, summary))
             })
             .collect()
-    }
-
-    /// Publishes the target-specific native section for one selected package.
-    pub fn install_compiled_package_native(&self) -> QueryResult<Vec<PackageId>> {
-        let index = self.compiled_package_interface_index()?;
-        let _observation = self.db.get(CompiledPackageNativeObservationQuery)?;
-        let mut installed = Vec::new();
-        for (package, interface) in index.packages() {
-            let Some(section) = interface.native() else {
-                continue;
-            };
-            let Some(variant) = section.variant(native_optimization_tag(self)) else {
-                continue;
-            };
-            let key = CompiledPackageNativeQuery(package.clone());
-            if self.db.can_publish_owned(key.clone()) {
-                self.db.publish_owned(
-                    key,
-                    CompiledPackageNative {
-                        package: package.clone(),
-                        variant: variant.clone(),
-                    },
-                    &CompiledPackageNativeObservationQuery,
-                );
-            }
-            installed.push(package.clone());
-        }
-        Ok(installed)
-    }
-
-    /// Consumes one target-specific native package product.
-    pub fn compiled_package_native(
-        &self,
-        package: PackageId,
-    ) -> QueryResult<CompiledPackageNative> {
-        self.db.get_owned(CompiledPackageNativeQuery(package))
-    }
-
-    /// Returns all target-compatible native products selected from compiled
-    /// package artifacts. Products are query-owned and therefore participate
-    /// in normal invalidation when an artifact is replaced.
-    pub fn compiled_package_native_products(&self) -> QueryResult<Vec<CompiledPackageNative>> {
-        let index = self.compiled_package_interface_index()?;
-        let mut products = Vec::new();
-        for (package, _) in index.packages() {
-            if let Ok(product) = self.compiled_package_native(package.clone()) {
-                products.push(product);
-            }
-        }
-        Ok(products)
     }
 
     /// Returns the query-tracked index of selected compiled interfaces.
@@ -4023,81 +3954,32 @@ impl CompilerDatabase {
         resolver: &dyn StableDefinitionPackageResolver,
     ) -> QueryResult<crate::PackageArtifactPublication> {
         self.publish_package_artifact_with_resolver_and_products_and_signatures(
-            package, resolver, None, None, None,
+            package, resolver, None, None,
         )
     }
 
-    /// Publishes a package artifact and optionally embeds a validated
-    /// target/profile-specific native product. Native bytes are supplied by
-    /// the driver after code generation; interface publication remains
-    /// target-independent and keeps its own invalidation boundary.
-    pub fn publish_package_artifact_with_resolver_and_native(
-        &self,
-        package: PackageId,
-        resolver: &dyn StableDefinitionPackageResolver,
-        native: Option<nia_package_metadata::NativeSection>,
-    ) -> QueryResult<crate::PackageArtifactPublication> {
-        self.publish_package_artifact_with_resolver_and_products_and_signatures(
-            package, resolver, None, native, None,
-        )
-    }
-
-    /// Convenience native publication for a package with no external nominal
-    /// definition references.
-    pub fn publish_package_artifact_with_native(
-        &self,
-        package: PackageId,
-        native: nia_package_metadata::NativeSection,
-    ) -> QueryResult<crate::PackageArtifactPublication> {
-        let package_for_resolver = package.clone();
-        let resolver = |def_id: GlobalDefId| {
-            let graph = self.db.get(ModuleGraphQuery)?;
-            let Some(entry_root) = graph.current_package_root(graph.entry()) else {
-                return Err(self.db.invalid_input(
-                    &ModuleGraphQuery,
-                    "entry module has no package root".to_string(),
-                ));
-            };
-            if graph.current_package_root(def_id.module_id) != Some(entry_root) {
-                if let Some(identity) =
-                    compiled_package_module_identity(&self.db, def_id.module_id)?
-                {
-                    return Ok(identity.package);
-                }
-                return Err(self.db.invalid_input(
-                    &ModuleGraphQuery,
-                    "nominal type belongs to an external package".to_string(),
-                ));
-            }
-            Ok(package_for_resolver.clone())
-        };
-        self.publish_package_artifact_with_resolver_and_native(package, &resolver, Some(native))
-    }
-
-    /// Publishes a package artifact with explicitly supplied checked templates
-    /// and target-native objects. Products are validated by their canonical
-    /// metadata codecs before the container is emitted.
+    /// Publishes a package artifact with explicitly supplied checked templates.
+    /// Products are validated by their canonical metadata codecs before the
+    /// container is emitted.
     pub fn publish_package_artifact_with_resolver_and_products(
         &self,
         package: PackageId,
         resolver: &dyn StableDefinitionPackageResolver,
         templates: Option<nia_package_metadata::TemplateSection>,
-        native: Option<nia_package_metadata::NativeSection>,
     ) -> QueryResult<crate::PackageArtifactPublication> {
         self.publish_package_artifact_with_resolver_and_products_and_signatures(
-            package, resolver, templates, native, None,
+            package, resolver, templates, None,
         )
     }
 
-    /// Publishes a package artifact with explicit signature, template, and
-    /// native products. Signature records are validated against the package's
+    /// Publishes a package artifact with explicit signature and template
+    /// products. Signature records are validated against the package's
     /// public interface before encoding.
     pub fn publish_package_artifact_with_resolver_and_products_and_signatures(
         &self,
         package: PackageId,
         resolver: &dyn StableDefinitionPackageResolver,
         templates: Option<nia_package_metadata::TemplateSection>,
-        native: Option<nia_package_metadata::NativeSection>,
         signatures: Option<nia_package_metadata::SignatureSection>,
     ) -> QueryResult<crate::PackageArtifactPublication> {
         let (interface, type_graph, indexes) = self
@@ -4308,11 +4190,6 @@ impl CompilerDatabase {
                 self.db
                     .invalid_input(&ModuleGraphQuery, format!("surface bytes: {error}"))
             })?;
-        let native_bytes = native
-            .as_ref()
-            .map(nia_package_metadata::encode_native)
-            .transpose()
-            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
         let templates = match templates {
             Some(templates) => Some(templates),
             None => Some(
@@ -4367,9 +4244,6 @@ impl CompilerDatabase {
             (SectionKind::TypeGraph, type_graph_bytes.as_slice()),
             (SectionKind::PublicSurface, public_surface_bytes.as_slice()),
         ];
-        if let Some(bytes) = native_bytes.as_ref() {
-            sections.push((SectionKind::Native, bytes.as_slice()));
-        }
         if let Some(bytes) = template_bytes.as_ref() {
             sections.push((SectionKind::Templates, bytes.as_slice()));
         }
@@ -4630,104 +4504,6 @@ impl CompilerDatabase {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// Returns the canonical source identities owned by the entry package.
-    ///
-    /// Artifact-backed dependency modules are excluded even when their
-    /// physical paths overlap a local source tree. Drivers use this inventory
-    /// to bind package-native objects to the same module ownership snapshot as
-    /// semantic publication.
-    pub fn current_package_source_identities(
-        &self,
-    ) -> QueryResult<Vec<nia_source::SourceIdentity>> {
-        let graph = self.db.get(ModuleGraphQuery)?;
-        let package_root = graph.current_package_root(graph.entry());
-        let mut identities = Vec::new();
-        for module in graph.modules() {
-            if graph.current_package_root(module.id) != package_root
-                || compiled_package_module_identity(&self.db, module.id)?.is_some()
-            {
-                continue;
-            }
-            if let Some(key) = graph.stable_key(module.id) {
-                identities.push(key.source_identity().clone());
-            }
-        }
-        identities.sort();
-        identities.dedup();
-        Ok(identities)
-    }
-
-    /// Returns the canonical source identities owned by the selected runtime
-    /// package. Runtime source remains part of the ordinary module graph; this
-    /// inventory only gives artifact publication a stable ownership boundary.
-    pub fn runtime_source_identities(&self) -> QueryResult<Vec<nia_source::SourceIdentity>> {
-        let runtime = self.db.get(CompilerRuntimeQuery)?;
-        let Some(runtime) = runtime.source() else {
-            return Ok(Vec::new());
-        };
-        let graph = self.db.get(ModuleGraphQuery)?;
-        let root_path = nia_source::SourcePath::with_identity(
-            runtime.package_root().to_string_lossy().into_owned(),
-            runtime.package_root_identity(),
-        );
-        let root_identity = nia_source::SourceIdentity::from_path(&root_path);
-        let Some(runtime_root) = graph.module_id_for_source_identity(&root_identity) else {
-            return Err(self.db.invalid_input(
-                &ModuleGraphQuery,
-                "selected runtime package root is absent from the module graph".to_string(),
-            ));
-        };
-        let mut identities = graph
-            .modules()
-            .filter(|module| graph.current_package_root(module.id) == Some(runtime_root))
-            .filter_map(|module| graph.stable_key(module.id))
-            .map(|key| key.source_identity().clone())
-            .collect::<Vec<_>>();
-        identities.sort();
-        identities.dedup();
-        Ok(identities)
-    }
-
-    /// Resolves a source codegen identity to the canonical compiled-package
-    /// module that supplied it. Local and runtime source modules return none.
-    pub fn compiled_package_module_for_source_identity(
-        &self,
-        identity: &nia_source::SourceIdentity,
-    ) -> QueryResult<Option<nia_package_metadata::ModuleId>> {
-        let graph = self.db.get(ModuleGraphQuery)?;
-        let Some(module_id) = graph.module_id_for_source_identity(identity) else {
-            return Ok(None);
-        };
-        compiled_package_module_identity(&self.db, module_id)
-    }
-
-    /// Resolves the package owning a source codegen identity without using
-    /// its physical path as a package heuristic. Current-package modules are
-    /// returned as `None`; dependency and toolchain roots return their
-    /// canonical package identity.
-    pub fn package_for_source_identity(
-        &self,
-        identity: &nia_source::SourceIdentity,
-    ) -> QueryResult<Option<PackageId>> {
-        let graph = self.db.get(ModuleGraphQuery)?;
-        let Some(module_id) = graph.module_id_for_source_identity(identity) else {
-            return Ok(None);
-        };
-        let root = graph.current_package_root(module_id);
-        if root == graph.current_package_root(graph.entry()) {
-            return Ok(None);
-        }
-        if root == graph.std_package_root() {
-            return Ok(Some(PackageId::standard_library()));
-        }
-        if root == graph.package_root(&nia_symbol::known::RUNTIME)
-            && let RuntimeSpec::Source(runtime) = self.db.get(CompilerRuntimeQuery)?.as_ref()
-        {
-            return Ok(Some(runtime.package().clone()));
-        }
-        Ok(compiled_package_module_identity(&self.db, module_id)?.map(|module| module.package))
-    }
-
     /// Resolves a definition to its canonical package while publishing the
     /// supplied package as the owner of the current source root.
     pub fn package_for_definition_in_package(
@@ -4789,9 +4565,6 @@ impl CompilerDatabase {
             collect_compiled_package_module_identities(request.loader_facts.as_ref(), &new_graph)?;
         let new_compiled_interface_fingerprint =
             compiled_interface_fingerprint(request.loader_facts.compiled_package_interfaces()?)?;
-        let new_compiled_native_fingerprint = compiled_native_observation_fingerprint(
-            request.loader_facts.compiled_package_interfaces()?,
-        )?;
         let compiled_interfaces_changed = {
             let observed = self
                 .db
@@ -4800,15 +4573,6 @@ impl CompilerDatabase {
                 .lock()
                 .expect("compiler compiled-interface observation lock poisoned");
             *observed != Some(new_compiled_interface_fingerprint)
-        };
-        let compiled_native_changed = {
-            let observed = self
-                .db
-                .context()
-                .observed_compiled_native
-                .lock()
-                .expect("compiler native observation lock poisoned");
-            *observed != Some(new_compiled_native_fingerprint)
         };
         let graph_changed = {
             let observed = self
@@ -4917,16 +4681,6 @@ impl CompilerDatabase {
                 .expect("compiler compiled-interface observation lock poisoned") =
                 Some(new_compiled_interface_fingerprint);
         }
-        if compiled_native_changed {
-            invalidation.extend(self.db.invalidate(CompiledPackageNativeObservationQuery));
-            *self
-                .db
-                .context()
-                .observed_compiled_native
-                .lock()
-                .expect("compiler native observation lock poisoned") =
-                Some(new_compiled_native_fingerprint);
-        }
         let inputs_invalidation = self.invalidate_inputs(
             optimization_changed,
             codegen_scope_changed,
@@ -4992,17 +4746,6 @@ impl CompilerDatabase {
             invalidation.extend(self.db.invalidate(BackendLoweringInputsQuery));
         }
         Ok(invalidation)
-    }
-}
-
-fn native_optimization_tag(database: &CompilerDatabase) -> u8 {
-    match database.current_optimization().level {
-        NiaOptimizationLevel::O0 => 0,
-        NiaOptimizationLevel::O1 => 1,
-        NiaOptimizationLevel::O2 => 2,
-        NiaOptimizationLevel::O3 => 3,
-        NiaOptimizationLevel::Os => 4,
-        NiaOptimizationLevel::Oz => 5,
     }
 }
 
@@ -6747,12 +6490,6 @@ fn compiler_database_with_providers_in_session(
             .expect("initial compiled package interfaces"),
     )
     .expect("initial compiled package interface fingerprint");
-    let observed_compiled_native = compiled_native_observation_fingerprint(
-        loader_facts
-            .compiled_package_interfaces()
-            .expect("initial compiled package interfaces"),
-    )
-    .expect("initial compiled native observation fingerprint");
     if let Some(loader_session) = loader_facts.query_session() {
         assert!(
             session.ptr_eq(&loader_session),
@@ -6768,7 +6505,6 @@ fn compiler_database_with_providers_in_session(
             inputs: inputs.clone(),
             observed_graph: std::sync::Mutex::new(observed_graph),
             observed_compiled_interfaces: std::sync::Mutex::new(Some(observed_compiled_interfaces)),
-            observed_compiled_native: std::sync::Mutex::new(Some(observed_compiled_native)),
             compiled_package_module_identities: RwLock::new(compiled_package_module_identities),
             loader_facts,
             providers,
@@ -7234,32 +6970,6 @@ fn compiled_interface_fingerprint(
         },
         message: "failed to encode compiled interface fingerprint".to_string(),
     })
-}
-
-fn compiled_native_observation_fingerprint(
-    interfaces: Vec<nia_package_metadata::CompiledPackageInterface>,
-) -> QueryResult<QueryFingerprint> {
-    let mut builder = QueryFingerprintBuilder::new(COMPILED_NATIVE_OBSERVATION_DOMAIN);
-    for interface in interfaces {
-        let package = &interface.manifest().package;
-        builder.write_str(&package.namespace);
-        builder.write_str(&package.name);
-        builder.write_str(&package.version);
-        if let Some(native) = interface.native() {
-            let bytes = nia_package_metadata::encode_native(native).map_err(|error| {
-                QueryError::InvalidInput {
-                    query: QueryFrame {
-                        name: "compiled_package_native_observation",
-                        key: "compiled_package_native_observation".into(),
-                        description: "compiled_package_native_observation".into(),
-                    },
-                    message: error.to_string(),
-                }
-            })?;
-            builder.write_bytes(&bytes);
-        }
-    }
-    Ok(builder.finish())
 }
 
 impl CompilerContext {
