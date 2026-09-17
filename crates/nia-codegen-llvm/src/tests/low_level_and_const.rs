@@ -559,12 +559,12 @@ fn emits_inline_asm_inputs_outputs_and_clobbers() {
         r#"
 fn main() i32 {
     let mut value: i64 = 0;
-    std::builtin::asm(std::builtin::AsmConfig {
+    std::builtin::asm(.{
         code:
             b"mov rax, rax\n"
             b"add rax, 0",
-        outputs: std::builtin::AsmOutputs { rax: value },
-        inputs: std::builtin::AsmInputs { rax: 7 },
+        outputs: .{ rax: value },
+        inputs: .{ rax: 7 },
         clobbers: [b"memory"],
         options: [b"volatile"],
     });

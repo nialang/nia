@@ -112,6 +112,9 @@ impl<'a> BodyChecker<'a> {
         expr: &'expr Expr,
         expected: BuiltinType,
     ) -> Option<&'expr [FieldInit]> {
+        if let ExprKind::OmittedAggregateLiteral { fields } = &expr.kind {
+            return Some(fields);
+        }
         let actual = match &expr.kind {
             ExprKind::TypedStructLiteral { ty, .. } => {
                 let ty = self.normalization.normalize(self.ty_for_type(ty));

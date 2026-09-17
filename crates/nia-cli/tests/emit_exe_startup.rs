@@ -121,11 +121,10 @@ pub(pkg) module x86;
         r#"
 using entry;
 
-fn syscall_exit(code: i32) () {
-    std::builtin::asm(std::builtin::AsmConfig {
-        code:
-            b"syscall",
-        inputs: std::builtin::AsmInputs {
+fn syscallExit(code: i32) () {
+    std::builtin::asm(.{
+        code: b"syscall",
+        inputs: .{
             rax: 60,
             rdi: code,
         },
@@ -136,19 +135,19 @@ fn syscall_exit(code: i32) () {
 
 @[naked]
 pub extern fn _start() () {
-    std::builtin::asm(std::builtin::AsmConfig {
+    std::builtin::asm(.{
         code:
             b"call $0\n"
             b"ud2",
-        inputs: std::builtin::AsmInputs { reg: &custom_start },
+        inputs: .{ reg: &customStart },
         clobbers: [b"rax", b"rcx", b"r11", b"memory"],
         options: [b"volatile"],
     });
     loop {}
 }
 
-extern fn custom_start() () {
-    syscall_exit(entry::mymain());
+extern fn customStart() () {
+    syscallExit(entry::mymain());
     loop {}
 }
 "#,
@@ -159,11 +158,10 @@ extern fn custom_start() () {
         r#"
 using entry;
 
-fn syscall_exit(code: i32) () {
-    std::builtin::asm(std::builtin::AsmConfig {
-        code:
-            b"int 0x80",
-        inputs: std::builtin::AsmInputs {
+fn syscallExit(code: i32) () {
+    std::builtin::asm(.{
+        code: b"int 0x80",
+        inputs: .{
             eax: 1,
             ebx: code,
         },
@@ -174,19 +172,19 @@ fn syscall_exit(code: i32) () {
 
 @[naked]
 pub extern fn _start() () {
-    std::builtin::asm(std::builtin::AsmConfig {
+    std::builtin::asm(.{
         code:
             b"call $0\n"
             b"ud2",
-        inputs: std::builtin::AsmInputs { reg: &custom_start },
+        inputs: .{ reg: &customStart },
         clobbers: [b"eax", b"ecx", b"edx", b"memory"],
         options: [b"volatile"],
     });
     loop {}
 }
 
-extern fn custom_start() () {
-    syscall_exit(entry::mymain());
+extern fn customStart() () {
+    syscallExit(entry::mymain());
     loop {}
 }
 "#,

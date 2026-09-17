@@ -2369,7 +2369,7 @@ std::builtin::atomic_rmw[T](ptr, op, value, order)
 std::builtin::cmpxchg_strong[T](ptr, expected, desired, success, failure)
 std::builtin::cmpxchg_weak[T](ptr, expected, desired, success, failure)
 std::builtin::fence(order)
-std::builtin::asm(std::builtin::AsmConfig {...})
+std::builtin::asm(.{...})
 ```
 
 These declarations use ordinary Nia call syntax. Their signatures and any
@@ -2526,21 +2526,24 @@ cmpxchg failure orderings allow Monotonic, Acquire, and SeqCst and must not be
 stronger than the success ordering; fences allow Acquire, Release, AcqRel, and
 SeqCst.
 
-`std::builtin::asm(std::builtin::AsmConfig {...})` is the inline assembly escape hatch for syscalls,
+`std::builtin::asm(.{...})` is the inline assembly escape hatch for syscalls,
 special registers, port I/O, CPU instructions, and freestanding runtime glue.
-Its argument must be an `AsmConfig` literal. It returns `()`. The config,
-input, and output types follow the target's assembly and ABI contract:
+Its argument is contextually an `AsmConfig` literal, and the `inputs` and
+`outputs` fields are contextually `AsmInputs` and `AsmOutputs` literals. Their
+type names may be written explicitly, but the omitted form is canonical when
+the context already determines them. The call returns `()`. The operand types
+follow the target's assembly and ABI contract:
 
 ```nia
-fn syscall1(sys_num: usize, arg1: usize) isize {
+fn syscall1(sysNum: usize, arg1: usize) isize {
     let mut ret: isize = 0;
-    std::builtin::asm(std::builtin::AsmConfig {
+    std::builtin::asm(.{
         code:
             b"mov rax, 60\n"
             b"syscall",
-        outputs: std::builtin::AsmOutputs { rax: ret },
-        inputs: std::builtin::AsmInputs {
-            rax: sys_num,
+        outputs: .{ rax: ret },
+        inputs: .{
+            rax: sysNum,
             rdi: arg1,
         },
         clobbers: [b"rcx", b"r11", b"memory"],

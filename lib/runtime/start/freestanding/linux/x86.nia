@@ -10,7 +10,7 @@ fn callUserMain(init: process::Init) process::ExitCode {
     .Success
 }
 
-extern fn nia_start_stack(stack: &usize) () {
+extern fn niaStartStack(stack: &usize) () {
     let argc = stack.*;
     let wordSize = std::builtin::size[usize]();
     let argvAddress = match startupAddress(stack, wordSize) {
@@ -52,7 +52,7 @@ fn startupAddress(stack: &usize, offset: usize) ?usize {
 
 @[naked]
 pub extern fn _start() () {
-    std::builtin::asm(std::builtin::AsmConfig {
+    std::builtin::asm(.{
         code:
             b"mov eax, esp\n"
             b"and esp, -16\n"
@@ -60,7 +60,7 @@ pub extern fn _start() () {
             b"push eax\n"
             b"call $0\n"
             b"ud2",
-        inputs: std::builtin::AsmInputs { reg: &nia_start_stack },
+        inputs: .{ reg: &niaStartStack },
         clobbers: [b"eax", b"ecx", b"edx", b"memory"],
         options: [b"volatile"],
     });

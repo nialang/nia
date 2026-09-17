@@ -127,7 +127,8 @@ impl<'a> BodyChecker<'a> {
 fn asm_literal_fields(expr: &Expr) -> Option<&[nia_ast::FieldInit]> {
     match &expr.kind {
         ExprKind::TypedStructLiteral { fields, .. }
-        | ExprKind::QualifiedStructLiteral { fields, .. } => Some(fields),
+        | ExprKind::QualifiedStructLiteral { fields, .. }
+        | ExprKind::OmittedAggregateLiteral { fields } => Some(fields),
         _ => None,
     }
 }
