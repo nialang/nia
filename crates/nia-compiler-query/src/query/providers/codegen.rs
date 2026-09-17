@@ -11,9 +11,7 @@ fn symbol_package_identities(
     let current_package = db.context().current_package();
     let mut identities = HashMap::new();
     for module in graph.modules() {
-        let package = if let Some(compiled) = compiled_package_module_identity(db, module.id)? {
-            compiled.package.canonical_text()
-        } else if graph.current_package_root(module.id) == graph.std_package_root() {
+        let package = if graph.current_package_root(module.id) == graph.std_package_root() {
             nia_package_metadata::PackageId::standard_library().canonical_text()
         } else if graph.current_package_root(module.id) == runtime_root
             && let nia_toolchain::RuntimeSpec::Source(runtime) = &runtime
@@ -90,9 +88,8 @@ pub(in crate::query) fn provide_backend_module_function_instance_plan(
 ) -> QueryResult<BackendModuleFunctionInstancePlan> {
     let facts = db.get(ExecutableCheckedModuleFactsQuery)?;
     assert!(
-        facts.modules.iter().any(|module| module.id == module_id)
-            || is_compiled_artifact_module(db, module_id),
-        "Nia ICE: missing executable or artifact facts for module {module_id:?}"
+        facts.modules.iter().any(|module| module.id == module_id),
+        "Nia ICE: missing executable facts for module {module_id:?}"
     );
     let monomorphization = db.get(MonomorphizationQuery)?;
     let mut instances = monomorphization
@@ -166,29 +163,9 @@ pub(super) fn monomorphization_for_checked_modules(
         .iter()
         .map(|module| Ok((module.id, item_signatures_semantic(db, module.id)?)))
         .collect::<QueryResult<HashMap<_, _>>>()?;
-    let mut generic_params = HashMap::new();
-    for module in checked_modules {
-        if !is_compiled_artifact_module(db, module.id) {
-            continue;
-        }
-        let signatures = local_signatures
-            .get(&module.id)
-            .expect("monomorphization signatures must exist for checked module");
-        for def_id in signatures.functions.keys() {
-            generic_params.insert(
-                GlobalDefId {
-                    module_id: module.id,
-                    def_id: *def_id,
-                },
-                effective_function_generic_params(signatures, &module.defs, *def_id)
-                    .into_iter()
-                    .map(|param| param.name)
-                    .collect(),
-            );
-        }
-    }
+    let generic_params = HashMap::new();
     let _function_bodies = function_bodies_from_checked_modules(db, checked_modules)?;
-    let mut semantic_instantiations = checked_modules
+    let semantic_instantiations = checked_modules
         .iter()
         .map(|module| {
             module
@@ -198,31 +175,6 @@ pub(super) fn monomorphization_for_checked_modules(
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
-    let module_indices = checked_modules
-        .iter()
-        .enumerate()
-        .map(|(index, module)| (module.id, index))
-        .collect::<HashMap<_, _>>();
-    for (owner, body) in artifact_function_bodies(db)? {
-        let Some(index) = module_indices.get(&owner.module_id).copied() else {
-            continue;
-        };
-        semantic_instantiations[index].extend(
-            body.body
-                .value_refs(&db.context().type_store)
-                .function_instances
-                .into_iter()
-                .map(|instance| nia_sema_ir::GenericInstantiation {
-                    def_id: instance.def_id,
-                    self_arg: instance.self_arg,
-                    args: instance.args,
-                    const_args: instance.const_args,
-                    generics: Vec::new(),
-                    span: instance.span,
-                    source_def_id: Some(owner),
-                }),
-        );
-    }
     Ok(nia_monomorphize::collect_monomorphizations(
         &checked_modules
             .iter()
@@ -299,28 +251,6 @@ fn function_bodies_from_checked_modules(
     )
 }
 
-pub(super) fn artifact_function_bodies(
-    db: &QueryDb<CompilerContext>,
-) -> QueryResult<HashMap<GlobalDefId, Arc<nia_function_lower::LoweredFunctionBody>>> {
-    let index = db.get(CompiledPackageInterfaceIndexQuery)?;
-    let mut bodies = HashMap::new();
-    for (package, _) in index.packages() {
-        let templates = db.get(CompiledPackageTemplatesQuery(package.clone()))?;
-        for (_, template) in templates.iter() {
-            if let Some(body) = &template.body {
-                bodies.insert(
-                    template.definition,
-                    Arc::new(nia_function_lower::LoweredFunctionBody {
-                        body: body.clone(),
-                        closure_entries: template.closure_entries.clone(),
-                    }),
-                );
-            }
-        }
-    }
-    Ok(bodies)
-}
-
 fn static_inits_from_checked_modules(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
@@ -352,13 +282,6 @@ pub(in crate::query) fn provide_lowered_function_body(
     db: &QueryDb<CompilerContext>,
     def_id: GlobalDefId,
 ) -> QueryResult<LoweredFunctionBodyValue> {
-    // Compiled dependencies carry their checked template body as an artifact
-    // fact.  Consume it directly so lowering never asks the executable-body
-    // provider to reconstruct a source body for an artifact-owned definition.
-    let imported = imported_template_body(db, def_id)?;
-    if let Some(imported) = imported {
-        return Ok(LoweredFunctionBodyValue::Body(imported));
-    }
     let checked_body = db.get(ExecutableFunctionBodyQuery(def_id))?;
     let body = match checked_body.as_ref() {
         Some(body) => body,
@@ -382,38 +305,6 @@ pub(in crate::query) fn provide_lowered_function_body(
         Ok(lowered) => Ok(LoweredFunctionBodyValue::Body(lowered)),
         Err(diagnostic) => Ok(LoweredFunctionBodyValue::Diagnostic(diagnostic)),
     }
-}
-
-fn imported_template_body(
-    db: &QueryDb<CompilerContext>,
-    def_id: GlobalDefId,
-) -> QueryResult<Option<nia_function_lower::LoweredFunctionBody>> {
-    let index = db.get(CompiledPackageInterfaceIndexQuery)?;
-    for (package, interface) in index.packages() {
-        let Some(templates) = interface.templates() else {
-            continue;
-        };
-        for record in &templates.records {
-            let resolved =
-                crate::query::resolve_loaded_definition_in_query(db, &record.definition, package)?;
-            if resolved == def_id {
-                let compiled = db.get(CompiledPackageTemplatesQuery(package.clone()))?;
-                return Ok(compiled
-                    .iter()
-                    .find(|(_, template)| template.definition == def_id)
-                    .and_then(|(_, template)| {
-                        template
-                            .body
-                            .clone()
-                            .map(|body| nia_function_lower::LoweredFunctionBody {
-                                body,
-                                closure_entries: template.closure_entries.clone(),
-                            })
-                    }));
-            }
-        }
-    }
-    Ok(None)
 }
 
 pub(super) fn provide_backend_lowering(
@@ -592,48 +483,7 @@ fn emit_backend_module_finalization_allocation(
 pub(in crate::query) fn provide_backend_lowering_inputs(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<ProgramBackendLoweringInputs> {
-    let mut checked_modules = checked_modules_for_codegen(db)?;
-    let executable_module_ids = checked_modules
-        .iter()
-        .map(|module| module.id)
-        .collect::<HashSet<_>>();
-    let graph = db.get(ModuleGraphQuery)?;
-    let mut support_ids = graph
-        .modules()
-        .filter(|node| {
-            !executable_module_ids.contains(&node.id)
-                && compiled_package_module_identity(db, node.id)
-                    .ok()
-                    .flatten()
-                    .is_some()
-        })
-        .map(|node| node.id)
-        .collect::<Vec<_>>();
-    support_ids.sort_unstable();
-    let mut all_ids = checked_modules
-        .iter()
-        .map(|module| module.id)
-        .collect::<Vec<_>>();
-    all_ids.extend(support_ids.iter().copied());
-    let support_signatures =
-        executable_program_non_function_signatures_for_modules(db, all_ids.iter().copied())?;
-    for module_id in &support_ids {
-        let layouts = store_module_layouts(
-            db.context(),
-            signature_layouts_for_types(db, *module_id, Some(&support_signatures))?,
-        );
-        checked_modules.push(Arc::new(executable_signature_checked_module(
-            db,
-            *module_id,
-            layouts,
-            &support_signatures,
-        )?));
-    }
-    let artifact_modules = checked_modules
-        .iter()
-        .filter(|module| is_compiled_artifact_module(db, module.id))
-        .map(|module| module.id)
-        .collect::<HashSet<_>>();
+    let checked_modules = checked_modules_for_codegen(db)?;
     let (
         active_item_trees,
         item_signatures,
@@ -658,14 +508,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                     checked_modules
                         .iter()
                         .map(|checked_module| {
-                            if is_compiled_artifact_module(db, checked_module.id) {
-                                Ok(Arc::new(ActiveModuleItemTree::new(
-                                    Vec::new(),
-                                    HashSet::new(),
-                                )))
-                            } else {
-                                db.get(FullActiveModuleItemTreeQuery(checked_module.id))
-                            }
+                            db.get(FullActiveModuleItemTreeQuery(checked_module.id))
                         })
                         .collect::<QueryResult<Vec<_>>>()
                 },
@@ -677,19 +520,11 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                     checked_modules
                         .iter()
                         .map(|checked_module| {
-                            if is_compiled_artifact_module(db, checked_module.id) {
-                                Ok(db
-                                    .get(ItemSignaturesQuery(checked_module.id))?
-                                    .semantic
-                                    .as_ref()
-                                    .clone())
-                            } else {
-                                body_local_item_signatures(
-                                    db,
-                                    checked_module.id,
-                                    &checked_module.type_lowering,
-                                )
-                            }
+                            body_local_item_signatures(
+                                db,
+                                checked_module.id,
+                                &checked_module.type_lowering,
+                            )
                         })
                         .collect::<QueryResult<Vec<_>>>()
                 },
@@ -720,18 +555,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
             let static_inits = static_inits_from_checked_modules(db, &checked_modules)?;
             let source_item_plans = checked_modules
                 .iter()
-                .map(|module| {
-                    if executable_module_ids.contains(&module.id) {
-                        db.get(BackendModuleSourceItemPlanQuery(module.id))
-                    } else {
-                        Ok(Arc::new(BackendModuleSourceItemPlan {
-                            functions: Vec::new(),
-                            globals: Vec::new(),
-                            structs: Vec::new(),
-                            unions: Vec::new(),
-                        }))
-                    }
-                })
+                .map(|module| db.get(BackendModuleSourceItemPlanQuery(module.id)))
                 .collect::<QueryResult<Vec<_>>>()?;
             let function_instance_plans = checked_modules
                 .iter()
@@ -756,79 +580,6 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
             ))
         },
     )?;
-    let artifact_function_bodies = artifact_function_bodies(db)?;
-    let mut artifact_generic_params = HashMap::new();
-    for ((module, signatures), defs) in checked_modules
-        .iter()
-        .zip(&item_signatures)
-        .zip(&program_defs)
-    {
-        if !is_compiled_artifact_module(db, module.id) {
-            continue;
-        }
-        for def_id in signatures.functions.keys() {
-            artifact_generic_params.insert(
-                GlobalDefId {
-                    module_id: module.id,
-                    def_id: *def_id,
-                },
-                effective_function_generic_params(signatures, defs, *def_id)
-                    .into_iter()
-                    .map(|param| {
-                        (
-                            param.name,
-                            matches!(
-                                param.kind,
-                                nia_item_signatures::GenericParamSignatureKind::Const { .. }
-                            ),
-                        )
-                    })
-                    .collect(),
-            );
-        }
-        for (def_id, signature) in &signatures.structs {
-            artifact_generic_params.insert(
-                GlobalDefId {
-                    module_id: module.id,
-                    def_id: *def_id,
-                },
-                signature
-                    .generic_params
-                    .iter()
-                    .map(|param| {
-                        (
-                            param.name,
-                            matches!(
-                                param.kind,
-                                nia_item_signatures::GenericParamSignatureKind::Const { .. }
-                            ),
-                        )
-                    })
-                    .collect(),
-            );
-        }
-        for (def_id, signature) in &signatures.unions {
-            artifact_generic_params.insert(
-                GlobalDefId {
-                    module_id: module.id,
-                    def_id: *def_id,
-                },
-                signature
-                    .generic_params
-                    .iter()
-                    .map(|param| {
-                        (
-                            param.name,
-                            matches!(
-                                param.kind,
-                                nia_item_signatures::GenericParamSignatureKind::Const { .. }
-                            ),
-                        )
-                    })
-                    .collect(),
-            );
-        }
-    }
     let function_lowering_diagnostics = function_lowering_diagnostics(&function_bodies);
     if !function_lowering_diagnostics.is_empty() {
         return Ok(ProgramBackendLoweringInputs {
@@ -843,33 +594,10 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
         db,
         checked_modules.iter().map(|module| module.id),
     )?;
-    let mut functions = executable_program_functions_for_modules(
+    let functions = executable_program_functions_for_modules(
         db,
         checked_modules.iter().map(|module| module.id),
     )?;
-    let artifact_module_sequence = db.get(ProgramSignatureModuleIdsQuery(
-        nia_item_tree::SignatureItemSet::Functions,
-    ))?;
-    let artifact_module_sequence =
-        resolve_stable_module_sequence(db, artifact_module_sequence.as_ref())?;
-    for module_id in artifact_module_sequence {
-        if compiled_package_module_identity(db, module_id)?.is_none() {
-            continue;
-        }
-        let signatures = db.get(ItemSignaturesQuery(module_id))?;
-        for (def_id, signature) in signatures.semantic.functions.iter() {
-            functions.insert(
-                GlobalDefId {
-                    module_id,
-                    def_id: *def_id,
-                },
-                ProgramFunctionSignature {
-                    name: signature.name,
-                    signature: signature.clone(),
-                },
-            );
-        }
-    }
     let runtime = db.get(CompilerRuntimeQuery)?.as_ref().clone();
     let graph = db.context().loader_facts.module_graph()?;
     let source_identities = graph
@@ -894,15 +622,15 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                 visible_extensions,
                 extension_methods,
                 function_bodies,
-                artifact_function_bodies,
+                artifact_function_bodies: HashMap::new(),
                 static_inits,
                 source_item_plans,
                 function_instance_plans,
                 program_defs,
-                artifact_modules,
+                artifact_modules: HashSet::new(),
                 non_function_signatures,
                 functions,
-                artifact_generic_params,
+                artifact_generic_params: HashMap::new(),
             })
         },
     );
@@ -1092,9 +820,6 @@ fn closure_support_modules(
             continue;
         }
         if let std::collections::hash_map::Entry::Vacant(entry) = modules.entry(def_id.module_id) {
-            if is_compiled_artifact_module(db, def_id.module_id) {
-                continue;
-            }
             entry.insert(db.get(CheckedModuleQuery(def_id.module_id))?);
         }
         let module = modules
@@ -1171,54 +896,14 @@ pub(in crate::query) fn closure_safety_check(
                 })
         })
         .collect::<Vec<_>>();
-    let imported_summaries = imported_closure_summaries(db)?;
     Ok(
         nia_closure_check::check_closure_safety_with_support_and_summaries(
             &functions,
             &support_functions,
-            &imported_summaries,
+            &HashMap::new(),
             &db.context().type_store,
         ),
     )
-}
-
-/// Rehydrates closure summaries from selected package templates into the
-/// current query session. Template bodies are intentionally not loaded here:
-/// the summary is the complete cross-package contract needed by the escape
-/// analysis, and the stable definition remap is shared with every other
-/// artifact-backed consumer.
-fn imported_closure_summaries(
-    db: &QueryDb<CompilerContext>,
-) -> QueryResult<HashMap<GlobalDefId, nia_closure_check::ImportedClosureEscapeSummary>> {
-    let index = db.get(CompiledPackageInterfaceIndexQuery)?;
-    let mut summaries = HashMap::new();
-    for (package, _) in index.packages() {
-        let templates = db.get(CompiledPackageTemplatesQuery(package.clone()))?;
-        for (definition, _) in templates.iter() {
-            let summary = templates.summary(definition)?.ok_or_else(|| {
-                db.invalid_input(
-                    &CompiledPackageInterfaceIndexQuery,
-                    "installed template is missing its semantic summary",
-                )
-            })?;
-            let imported = nia_closure_check::ImportedClosureEscapeSummary::from_parameter_sets(
-                summary.returned_parameters,
-                summary.escaping_parameters,
-                summary.returned_captured_address_parameters,
-                summary.escaping_captured_address_parameters,
-            )
-            .map_err(|message| db.invalid_input(&CompiledPackageInterfaceIndexQuery, message))?;
-            let resolved =
-                crate::query::resolve_loaded_definition_in_query(db, definition, package)?;
-            if summaries.insert(resolved, imported).is_some() {
-                return Err(db.invalid_input(
-                    &CompiledPackageInterfaceIndexQuery,
-                    "duplicate imported closure summary identity",
-                ));
-            }
-        }
-    }
-    Ok(summaries)
 }
 
 pub(super) fn monomorphization_diagnostics(

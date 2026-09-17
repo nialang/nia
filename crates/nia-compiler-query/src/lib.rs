@@ -63,9 +63,7 @@ pub use frontend_fingerprint::{
 pub use nia_backend_lower::{BackendOptimizationChange, BackendOptimizationReport};
 pub use nia_timing::TimingMode;
 pub use query::{
-    CompileRequest, CompiledPackageDeclarations, CompiledPackageInterfaceIndex,
-    CompiledPackageModuleInterface, CompiledPackageSignatures, CompiledPackageTemplates,
-    CompiledTemplate, CompilerDatabase, StableDefinitionIndex, StableDefinitionPackageResolver,
+    CompileRequest, CompilerDatabase, StableDefinitionIndex, StableDefinitionPackageResolver,
     StableDefinitionResolver, StableModuleIdentity, StableModuleIndex, StableModulePackageResolver,
 };
 
@@ -345,40 +343,6 @@ pub trait LoaderFactProvider: Send + Sync {
     /// Returns the toolchain identity used for cache compatibility.
     fn toolchain_identity(&self) -> nia_toolchain::ToolchainIdentityFingerprint {
         nia_toolchain::ToolchainIdentityFingerprint::current()
-    }
-    /// Returns validated external package interfaces selected by the loader.
-    ///
-    /// These records intentionally retain stable package identities. They are
-    /// not session-local module facts and therefore cannot bypass the compiler
-    /// remapping/provider boundary.
-    fn compiled_package_interfaces(
-        &self,
-    ) -> nia_query::QueryResult<Vec<nia_package_metadata::CompiledPackageInterface>> {
-        Ok(Vec::new())
-    }
-    /// Returns canonical module identities declared by selected artifacts.
-    ///
-    /// These identities are metadata facts only; they are not session-local
-    /// [`ModuleId`] handles and must be remapped before entering semantic
-    /// queries.
-    fn compiled_package_module_identities(
-        &self,
-    ) -> nia_query::QueryResult<Vec<nia_package_metadata::ModuleId>> {
-        Ok(self
-            .compiled_package_interfaces()?
-            .into_iter()
-            .flat_map(|interface| interface.module_identities().collect::<Vec<_>>())
-            .collect())
-    }
-    /// Resolves a loaded session module to the selected artifact identity that
-    /// owns its public interface, when one is available.  The loader owns
-    /// this mapping because it is the authority for source/package roots and
-    /// selected artifact manifests.
-    fn compiled_package_module_identity(
-        &self,
-        _module_id: ModuleId,
-    ) -> nia_query::QueryResult<Option<nia_package_metadata::ModuleId>> {
-        Ok(None)
     }
 }
 

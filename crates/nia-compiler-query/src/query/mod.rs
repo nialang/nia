@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::ctfe_template_codec::{
-    collect_resolved_const_function_relocations, decode_resolved_const_function,
-    encode_resolved_const_function,
+    collect_resolved_const_function_relocations, encode_resolved_const_function,
 };
 use crate::template_body_codec::{
-    TemplateBodyDecodeContext, TemplateBodyEncodeContext,
-    collect_checked_closure_entry_relocations, collect_checked_function_body_relocations,
-    decode_checked_closure_entries, decode_checked_function_body, encode_checked_closure_entries,
+    TemplateBodyEncodeContext, collect_checked_closure_entry_relocations,
+    collect_checked_function_body_relocations, encode_checked_closure_entries,
     encode_checked_function_body,
 };
 use crate::{
@@ -41,7 +39,7 @@ use nia_package_metadata::{
     DefinitionId, InterfaceRecord, InterfaceSection, ModuleId as StableModuleId, ModuleInterface,
     PackageId, PackageManifest, PublicSurfaceExport, PublicSurfaceModule, PublicSurfaceSection,
     SectionKind, StableArrayLength, StableAssociatedTypeBinding, StableConstArg, StableConstValue,
-    StableDeclaration, StableTraitId, StableTypeGraph, StableTypeNode,
+    StableTraitId, StableTypeGraph, StableTypeNode,
 };
 use nia_parser::ParseError;
 use nia_program_signatures::{
@@ -136,10 +134,6 @@ const EXTENSION_PROVIDER_MODULE_ELIGIBILITY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.compiler.extension-provider-module-eligibility");
 const PROVIDER_SUMMARY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.compiler.provider-summary");
-const COMPILED_INTERFACE_INDEX_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.compiled-interface-index");
-const COMPILED_PACKAGE_MODULE_IDENTITY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.compiler.compiled-package-module-identity");
 mod resolve;
 mod static_init_queries;
 mod types;
@@ -322,11 +316,11 @@ where
     }
 }
 
-/// Resolves one loaded artifact/source definition through the query graph.
+/// Resolves one loaded source definition through the query graph.
 ///
 /// This is the query-side counterpart of [`CompilerDatabase::resolve_loaded_definition`].
 /// Keeping the remap algorithm here lets provider queries consume stable
-/// artifact identities without manufacturing a second, name-only lookup path.
+/// stable identities without manufacturing a second, name-only lookup path.
 pub(in crate::query) fn resolve_loaded_definition_in_query(
     db: &QueryDb<CompilerContext>,
     definition: &DefinitionId,
@@ -339,17 +333,7 @@ pub(in crate::query) fn resolve_loaded_definition_in_query(
         ));
     }
     let graph = db.get(ModuleGraphQuery)?;
-    let mut module_id = None;
-    for module in graph.modules() {
-        if let Some(identity) = compiled_package_module_identity(db, module.id)?
-            && identity.package == *package
-            && identity.path == definition.module.path
-        {
-            module_id = Some(module.id);
-            break;
-        }
-    }
-    let module_id = module_id.or_else(|| graph.module_id_for_path(&definition.module.path));
+    let module_id = graph.module_id_for_path(&definition.module.path);
     let Some(module_id) = module_id else {
         return Err(db.invalid_input(
             &ModuleGraphQuery,
@@ -413,78 +397,6 @@ pub(in crate::query) fn resolve_loaded_definition_in_query(
     Ok(*resolved)
 }
 
-/// Compiler-owned index of validated compiled package interfaces.
-///
-/// The index deliberately retains stable metadata identities. It does not
-/// manufacture session-local module or definition handles; provider
-/// installation must perform that remapping explicitly at a later boundary.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompiledPackageInterfaceIndex {
-    packages: BTreeMap<PackageId, nia_package_metadata::CompiledPackageInterface>,
-    definitions: BTreeMap<DefinitionId, (PackageId, usize)>,
-}
-
-/// Decoded declaration facts for one selected compiled package.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompiledPackageDeclarations {
-    package: PackageId,
-    declarations: BTreeMap<DefinitionId, StableDeclaration>,
-}
-
-/// Rehydrated package type graph retaining the canonical wire-node indexes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompiledPackageTypeGraph {
-    package: PackageId,
-    types: Vec<InternedTyId>,
-}
-
-impl CompiledPackageTypeGraph {
-    pub fn package(&self) -> &PackageId {
-        &self.package
-    }
-
-    pub fn get(&self, index: u32) -> Option<InternedTyId> {
-        self.types.get(index as usize).copied()
-    }
-
-    pub fn len(&self) -> usize {
-        self.types.len()
-    }
-}
-
-/// Validated public interface records belonging to one canonical package
-/// module. This is the first artifact-backed module fact consumed by the
-/// compiler query graph; it deliberately carries no source or session ids.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompiledPackageModuleInterface {
-    identity: StableModuleId,
-    interface_hash: [u8; 32],
-    records: Vec<InterfaceRecord>,
-}
-
-/// Checked downstream templates selected from one compiled package.
-#[derive(Debug, Clone, PartialEq)]
-pub struct CompiledPackageTemplates {
-    package: PackageId,
-    records: BTreeMap<DefinitionId, CompiledTemplate>,
-}
-
-/// One validated, session-remapped checked template body.
-#[derive(Debug, Clone, PartialEq)]
-pub struct CompiledTemplate {
-    pub definition: GlobalDefId,
-    pub body: Option<nia_function_ir::FunctionBody>,
-    pub closure_entries: Vec<nia_function_ir::FunctionClosureEntry>,
-    pub ctfe_body: Option<nia_const_ir::ResolvedConstFunction>,
-    pub summary: nia_package_metadata::TemplateSummary,
-}
-
-struct TemplateDecodeContext {
-    types: Vec<InternedTyId>,
-    definitions: Vec<GlobalDefId>,
-    modules: Vec<ModuleId>,
-}
-
 struct TemplateEncodeContext {
     types: HashMap<InternedTyId, u32>,
     definitions: HashMap<GlobalDefId, u32>,
@@ -511,242 +423,6 @@ impl TemplateBodyEncodeContext for TemplateEncodeContext {
 
     fn module_index(&self, module: ModuleId) -> Option<u32> {
         self.modules.get(&module).copied()
-    }
-}
-
-impl TemplateBodyDecodeContext for TemplateDecodeContext {
-    fn type_at(&self, index: u32) -> Option<InternedTyId> {
-        self.types.get(index as usize).copied()
-    }
-
-    fn definition_at(&self, index: u32) -> Option<GlobalDefId> {
-        self.definitions.get(index as usize).copied()
-    }
-
-    fn module_at(&self, index: u32) -> Option<ModuleId> {
-        self.modules.get(index as usize).copied()
-    }
-}
-
-/// Target-independent signature facts selected from one compiled package.
-/// Records retain canonical identities and stable type-graph roots; consumers
-/// must remap those roots before constructing session-local handles.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompiledPackageSignatures {
-    package: PackageId,
-    records: BTreeMap<DefinitionId, nia_package_metadata::SignatureRecord>,
-    traits: BTreeMap<DefinitionId, nia_package_metadata::SignatureTraitRecord>,
-    extensions: Vec<nia_package_metadata::SignatureExtensionRecord>,
-}
-
-impl CompiledPackageSignatures {
-    pub fn package(&self) -> &PackageId {
-        &self.package
-    }
-
-    pub fn get(&self, definition: &DefinitionId) -> Option<&nia_package_metadata::SignatureRecord> {
-        self.records.get(definition)
-    }
-
-    /// Returns the complete typed declaration payload when the published
-    /// package carries one. Consumers must remap its stable roots before
-    /// constructing session-local signatures.
-    pub fn payload(
-        &self,
-        definition: &DefinitionId,
-    ) -> Option<&nia_package_metadata::SignaturePayload> {
-        self.records.get(definition)?.payload.as_ref()
-    }
-
-    pub fn iter(
-        &self,
-    ) -> impl Iterator<Item = (&DefinitionId, &nia_package_metadata::SignatureRecord)> {
-        self.records.iter()
-    }
-
-    pub fn trait_record(
-        &self,
-        definition: &DefinitionId,
-    ) -> Option<&nia_package_metadata::SignatureTraitRecord> {
-        self.traits.get(definition)
-    }
-
-    pub fn traits(
-        &self,
-    ) -> impl Iterator<Item = (&DefinitionId, &nia_package_metadata::SignatureTraitRecord)> {
-        self.traits.iter()
-    }
-
-    pub fn extensions(&self) -> &[nia_package_metadata::SignatureExtensionRecord] {
-        &self.extensions
-    }
-
-    /// Returns extension records implementing a given stable trait root.
-    pub fn extensions_for_trait_root(
-        &self,
-        trait_root: u32,
-    ) -> impl Iterator<Item = &nia_package_metadata::SignatureExtensionRecord> {
-        self.extensions
-            .iter()
-            .filter(move |record| record.trait_root == Some(trait_root))
-    }
-}
-
-impl CompiledPackageTemplates {
-    pub fn package(&self) -> &PackageId {
-        &self.package
-    }
-
-    pub fn get(&self, definition: &DefinitionId) -> Option<&CompiledTemplate> {
-        self.records.get(definition)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&DefinitionId, &CompiledTemplate)> {
-        self.records.iter()
-    }
-
-    /// Decodes the canonical semantic summary for one published template.
-    /// Summary decoding is kept at the compiler boundary so downstream
-    /// analyses never reinterpret opaque artifact bytes.
-    pub fn summary(
-        &self,
-        definition: &DefinitionId,
-    ) -> QueryResult<Option<nia_package_metadata::TemplateSummary>> {
-        let Some(record) = self.records.get(definition) else {
-            return Ok(None);
-        };
-        Ok(Some(record.summary.clone()))
-    }
-}
-
-impl CompiledPackageModuleInterface {
-    pub fn identity(&self) -> &StableModuleId {
-        &self.identity
-    }
-
-    pub fn interface_hash(&self) -> [u8; 32] {
-        self.interface_hash
-    }
-
-    pub fn records(&self) -> &[InterfaceRecord] {
-        &self.records
-    }
-}
-
-impl CompiledPackageDeclarations {
-    pub fn package(&self) -> &PackageId {
-        &self.package
-    }
-
-    pub fn declaration(&self, definition: &DefinitionId) -> Option<&StableDeclaration> {
-        self.declarations.get(definition)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&DefinitionId, &StableDeclaration)> {
-        self.declarations.iter()
-    }
-}
-
-impl CompiledPackageInterfaceIndex {
-    pub fn from_interfaces(
-        interfaces: Vec<nia_package_metadata::CompiledPackageInterface>,
-    ) -> Result<Self, String> {
-        let mut packages = BTreeMap::new();
-        let mut definitions = BTreeMap::new();
-        for interface in interfaces {
-            let package = interface.manifest().package.clone();
-            if packages.insert(package.clone(), interface).is_some() {
-                return Err("duplicate compiled interface for one package".to_string());
-            }
-        }
-        for (package, interface) in &packages {
-            for (index, record) in interface.records().iter().enumerate() {
-                if definitions
-                    .insert(record.definition.clone(), (package.clone(), index))
-                    .is_some()
-                {
-                    return Err("duplicate compiled definition identity".to_string());
-                }
-            }
-        }
-        Ok(Self {
-            packages,
-            definitions,
-        })
-    }
-
-    /// Returns all selected package interfaces in stable package order.
-    pub fn packages(
-        &self,
-    ) -> impl Iterator<Item = (&PackageId, &nia_package_metadata::CompiledPackageInterface)> {
-        self.packages.iter()
-    }
-
-    /// Looks up one package interface by stable package identity.
-    pub fn package(
-        &self,
-        package: &PackageId,
-    ) -> Option<&nia_package_metadata::CompiledPackageInterface> {
-        self.packages.get(package)
-    }
-
-    /// Looks up one package's artifact-backed signature section.
-    pub fn signatures(
-        &self,
-        package: &PackageId,
-    ) -> Option<&nia_package_metadata::SignatureSection> {
-        self.packages.get(package)?.signatures()
-    }
-
-    /// Looks up a canonical trait declaration from a selected package.
-    pub fn trait_signature(
-        &self,
-        definition: &DefinitionId,
-    ) -> Option<&nia_package_metadata::SignatureTraitRecord> {
-        let package = &definition.module.package;
-        self.packages
-            .get(package)?
-            .signatures()?
-            .traits
-            .iter()
-            .find(|record| record.definition == *definition)
-    }
-
-    /// Returns extension records published by a selected package.
-    pub fn extension_signatures(
-        &self,
-        package: &PackageId,
-    ) -> Option<&[nia_package_metadata::SignatureExtensionRecord]> {
-        self.packages
-            .get(package)?
-            .signatures()
-            .map(|section| section.extensions.as_slice())
-    }
-
-    /// Resolves one stable definition without loading dependency source.
-    pub fn definition(
-        &self,
-        definition: &DefinitionId,
-    ) -> Option<&nia_package_metadata::InterfaceRecord> {
-        let (package, index) = self.definitions.get(definition)?;
-        self.packages.get(package)?.records().get(*index)
-    }
-
-    /// Returns one package's declarations for a stable module path.
-    pub fn module_records(
-        &self,
-        package: &PackageId,
-        module: &str,
-    ) -> Option<Vec<&nia_package_metadata::InterfaceRecord>> {
-        Some(self.packages.get(package)?.module_records(module).collect())
-    }
-
-    /// Looks up one package-qualified module manifest record.
-    pub fn module(
-        &self,
-        identity: &nia_package_metadata::ModuleId,
-    ) -> Option<&nia_package_metadata::ModuleInterface> {
-        self.packages.get(&identity.package)?.module(identity)
     }
 }
 
@@ -945,477 +621,6 @@ impl CompilerDatabase {
     /// Returns the shared session that owns this database and its loader facts.
     pub fn query_session(&self) -> nia_query::QuerySession {
         self.db.session()
-    }
-
-    /// Returns the loader-selected package interfaces without materializing
-    /// dependency source text or creating session-local handles.
-    pub fn compiled_package_interfaces(
-        &self,
-    ) -> QueryResult<Vec<nia_package_metadata::CompiledPackageInterface>> {
-        self.db
-            .context()
-            .loader_facts()
-            .compiled_package_interfaces()
-    }
-
-    /// Returns selected artifact module identities without source loading.
-    pub fn compiled_package_module_identities(
-        &self,
-    ) -> QueryResult<Vec<nia_package_metadata::ModuleId>> {
-        self.db
-            .context()
-            .loader_facts()
-            .compiled_package_module_identities()
-    }
-
-    /// Publishes one source-free module interface fact for every selected
-    /// compiled package module. Publication is tied to the validated package
-    /// interface index, so replacing or retiring an artifact invalidates all
-    /// module facts atomically.
-    pub fn install_compiled_package_module_interfaces(
-        &self,
-    ) -> QueryResult<Vec<nia_package_metadata::ModuleId>> {
-        let index = self.compiled_package_interface_index()?;
-        let mut identities = Vec::new();
-        for (package, interface) in index.packages() {
-            for identity in interface.module_identities() {
-                let module = interface.module(&identity).ok_or_else(|| {
-                    self.db.invalid_input(
-                        &CompiledPackageInterfaceIndexQuery,
-                        format!(
-                            "compiled module identity is absent from package manifest: {identity:?}"
-                        ),
-                    )
-                })?;
-                let records = interface
-                    .module_records(&identity.path)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                let expected_hash = nia_package_metadata::interface_module_hash(
-                    &InterfaceSection {
-                        records: records.clone(),
-                    },
-                    &identity.path,
-                )
-                .map_err(|error| {
-                    self.db
-                        .invalid_input(&CompiledPackageInterfaceIndexQuery, error.to_string())
-                })?;
-                if expected_hash != module.interface_hash || identity.package != *package {
-                    return Err(self.db.invalid_input(
-                        &CompiledPackageInterfaceIndexQuery,
-                        format!("compiled module interface hash or package identity mismatch: {identity:?}"),
-                    ));
-                }
-                if !self
-                    .db
-                    .can_publish_owned(CompiledPackageModuleInterfaceQuery(identity.clone()))
-                {
-                    identities.push(identity);
-                    continue;
-                }
-                self.db.publish_owned(
-                    CompiledPackageModuleInterfaceQuery(identity.clone()),
-                    CompiledPackageModuleInterface {
-                        identity: identity.clone(),
-                        interface_hash: module.interface_hash,
-                        records,
-                    },
-                    &CompiledPackageInterfaceIndexQuery,
-                );
-                identities.push(identity);
-            }
-        }
-        Ok(identities)
-    }
-
-    /// Consumes one source-free compiled module interface fact.
-    pub fn compiled_package_module_interface(
-        &self,
-        identity: nia_package_metadata::ModuleId,
-    ) -> QueryResult<CompiledPackageModuleInterface> {
-        self.db
-            .get_owned(CompiledPackageModuleInterfaceQuery(identity))
-    }
-
-    /// Publishes validated generic/const templates for selected packages.
-    pub fn install_compiled_package_templates(&self) -> QueryResult<Vec<PackageId>> {
-        let index = self.compiled_package_interface_index()?;
-        let mut installed = Vec::new();
-        let mut prepared = Vec::new();
-        for (package, interface) in index.packages() {
-            let mut records = BTreeMap::new();
-            if let Some(templates) = interface.templates() {
-                for record in &templates.records {
-                    if record.definition.module.package != *package
-                        || !interface
-                            .records()
-                            .iter()
-                            .any(|item| item.definition == record.definition)
-                    {
-                        return Err(self.db.invalid_input(
-                            &CompiledPackageInterfaceIndexQuery,
-                            format!(
-                                "compiled template identity is inconsistent: {:?}",
-                                record.definition
-                            ),
-                        ));
-                    }
-                    let type_graph = self.compiled_package_type_graph(package).map_err(|_| {
-                        self.db.invalid_input(
-                            &CompiledPackageInterfaceIndexQuery,
-                            "compiled template requires a rehydrated package type graph",
-                        )
-                    })?;
-                    let mut context = TemplateDecodeContext {
-                        types: Vec::with_capacity(record.type_roots.len()),
-                        definitions: Vec::with_capacity(record.referenced_definitions.len()),
-                        modules: Vec::with_capacity(record.referenced_modules.len()),
-                    };
-                    for root in &record.type_roots {
-                        context.types.push(type_graph.get(*root).ok_or_else(|| {
-                            self.db.invalid_input(
-                                &CompiledPackageInterfaceIndexQuery,
-                                "compiled template type root is outside its graph",
-                            )
-                        })?);
-                    }
-                    for definition in &record.referenced_definitions {
-                        context.definitions.push(
-                            self.resolve_template_definition(definition, package, interface)?,
-                        );
-                    }
-                    for module in &record.referenced_modules {
-                        context
-                            .modules
-                            .push(self.resolve_compiled_module_identity(module)?);
-                    }
-                    let owner =
-                        self.resolve_template_definition(&record.definition, package, interface)?;
-                    let body = (!record.body.is_empty())
-                        .then(|| decode_checked_function_body(&record.body, &context))
-                        .transpose()
-                        .map_err(|error| {
-                            self.db.invalid_input(
-                                &CompiledPackageInterfaceIndexQuery,
-                                format!("invalid checked template body: {error}"),
-                            )
-                        })?;
-                    let closure_entries = (!record.closure_entries.is_empty())
-                        .then(|| decode_checked_closure_entries(&record.closure_entries, &context))
-                        .transpose()
-                        .map_err(|error| {
-                            self.db.invalid_input(
-                                &CompiledPackageInterfaceIndexQuery,
-                                format!("invalid checked closure entries: {error}"),
-                            )
-                        })?
-                        .unwrap_or_default();
-                    let ctfe_body = (!record.ctfe_body.is_empty())
-                        .then(|| decode_resolved_const_function(&record.ctfe_body, &context))
-                        .transpose()
-                        .map_err(|error| {
-                            self.db.invalid_input(
-                                &CompiledPackageInterfaceIndexQuery,
-                                format!("invalid CTFE template body: {error}"),
-                            )
-                        })?;
-                    let is_const = interface.signatures().is_some_and(|signatures| {
-                        signatures.records.iter().any(|signature| {
-                            signature.definition == record.definition
-                                && signature.flags & nia_package_metadata::SIGNATURE_FLAG_CONST != 0
-                        })
-                    });
-                    if is_const && ctfe_body.is_none() {
-                        return Err(self.db.invalid_input(
-                            &CompiledPackageInterfaceIndexQuery,
-                            format!(
-                                "compiled const template has no CTFE body: {:?}",
-                                record.definition
-                            ),
-                        ));
-                    }
-                    let summary = nia_package_metadata::decode_template_summary(&record.summary)
-                        .map_err(|error| {
-                            self.db.invalid_input(
-                                &CompiledPackageInterfaceIndexQuery,
-                                format!("invalid checked template summary: {error}"),
-                            )
-                        })?;
-                    if records
-                        .insert(
-                            record.definition.clone(),
-                            CompiledTemplate {
-                                definition: owner,
-                                body,
-                                closure_entries,
-                                ctfe_body,
-                                summary,
-                            },
-                        )
-                        .is_some()
-                    {
-                        return Err(self.db.invalid_input(
-                            &CompiledPackageInterfaceIndexQuery,
-                            "duplicate compiled template identity",
-                        ));
-                    }
-                }
-            }
-            prepared.push((package.clone(), records));
-        }
-        for (package, records) in prepared {
-            if self
-                .db
-                .can_publish_shared(CompiledPackageTemplatesQuery(package.clone()))
-            {
-                self.db.publish_shared(
-                    CompiledPackageTemplatesQuery(package.clone()),
-                    CompiledPackageTemplates {
-                        package: package.clone(),
-                        records,
-                    },
-                    &CompiledPackageInterfaceIndexQuery,
-                );
-            }
-            installed.push(package.clone());
-        }
-        Ok(installed)
-    }
-
-    /// Consumes the checked template inventory for one package.
-    pub fn compiled_package_templates(
-        &self,
-        package: PackageId,
-    ) -> QueryResult<CompiledPackageTemplates> {
-        Ok(self
-            .db
-            .get(CompiledPackageTemplatesQuery(package))?
-            .as_ref()
-            .clone())
-    }
-
-    /// Publishes validated target-independent signatures for selected packages.
-    /// The product is predecessor-bound to the compiled interface index and is
-    /// intentionally separate from source-backed `ItemSignaturesQuery`.
-    pub fn install_compiled_package_signatures(&self) -> QueryResult<Vec<PackageId>> {
-        let index = self.compiled_package_interface_index()?;
-        let mut installed = Vec::new();
-        for (package, interface) in index.packages() {
-            let mut records = BTreeMap::new();
-            let mut traits = BTreeMap::new();
-            let mut extensions = Vec::new();
-            if let Some(signatures) = interface.signatures() {
-                for record in &signatures.records {
-                    if record.definition.module.package != *package
-                        || !interface
-                            .records()
-                            .iter()
-                            .any(|item| item.definition == record.definition)
-                        || records
-                            .insert(record.definition.clone(), record.clone())
-                            .is_some()
-                    {
-                        return Err(self.db.invalid_input(
-                            &CompiledPackageInterfaceIndexQuery,
-                            format!(
-                                "compiled signature identity is inconsistent: {:?}",
-                                record.definition
-                            ),
-                        ));
-                    }
-                }
-                for record in &signatures.traits {
-                    if record.definition.module.package != *package
-                        || !interface
-                            .records()
-                            .iter()
-                            .any(|item| item.definition == record.definition)
-                        || traits
-                            .insert(record.definition.clone(), record.clone())
-                            .is_some()
-                    {
-                        return Err(self.db.invalid_input(
-                            &CompiledPackageInterfaceIndexQuery,
-                            "compiled trait signature identity is inconsistent",
-                        ));
-                    }
-                }
-                for extension in &signatures.extensions {
-                    if extension.members.iter().any(|member| {
-                        member.definition.module.package != *package
-                            || !interface
-                                .records()
-                                .iter()
-                                .any(|item| item.definition == member.definition)
-                    }) || extension.module.package != *package
-                        || extensions.iter().any(
-                            |existing: &nia_package_metadata::SignatureExtensionRecord| {
-                                existing.module == extension.module
-                                    && existing.impl_id == extension.impl_id
-                            },
-                        )
-                    {
-                        return Err(self.db.invalid_input(
-                            &CompiledPackageInterfaceIndexQuery,
-                            "compiled extension signature identity is inconsistent",
-                        ));
-                    }
-                    extensions.push(extension.clone());
-                }
-            }
-            let key = CompiledPackageSignaturesQuery(package.clone());
-            if self.db.can_publish_shared(key.clone()) {
-                self.db.publish_shared(
-                    key,
-                    CompiledPackageSignatures {
-                        package: package.clone(),
-                        records,
-                        traits,
-                        extensions,
-                    },
-                    &CompiledPackageInterfaceIndexQuery,
-                );
-            }
-            installed.push(package.clone());
-        }
-        Ok(installed)
-    }
-
-    /// Consumes one package's artifact-backed signature facts.
-    pub fn compiled_package_signatures(
-        &self,
-        package: PackageId,
-    ) -> QueryResult<CompiledPackageSignatures> {
-        self.db
-            .get(CompiledPackageSignaturesQuery(package))
-            .map(|signatures| signatures.as_ref().clone())
-    }
-
-    /// Rehydrates artifact signature roots into the current type store. This
-    /// is the semantic bridge used by downstream providers; it validates that
-    /// every generic/where/trait/extension root points into the selected
-    /// package graph before exposing session-local type handles.
-    pub fn rehydrate_compiled_signature_roots(
-        &self,
-        resolver: &dyn StableDefinitionResolver,
-    ) -> QueryResult<BTreeMap<DefinitionId, Vec<InternedTyId>>> {
-        let index = self.compiled_package_interface_index()?;
-        let mut result = BTreeMap::new();
-        for (package, interface) in index.packages() {
-            let types = interface
-                .type_graph()
-                .map(|graph| self.rehydrate_stable_type_graph(graph, resolver))
-                .transpose()?
-                .unwrap_or_default();
-            let signatures = self.compiled_package_signatures(package.clone())?;
-            for (definition, record) in signatures.iter() {
-                let roots = record
-                    .type_roots
-                    .iter()
-                    .map(|root| {
-                        types.get(*root as usize).copied().ok_or_else(|| {
-                            self.db.invalid_input(
-                                &CompiledPackageInterfaceIndexQuery,
-                                "compiled signature root is outside its graph",
-                            )
-                        })
-                    })
-                    .collect::<QueryResult<Vec<_>>>()?;
-                for param in &record.generic_params {
-                    if let Some(root) = param.type_root
-                        && types.get(root as usize).is_none()
-                    {
-                        return Err(self.db.invalid_input(
-                            &CompiledPackageInterfaceIndexQuery,
-                            "compiled generic parameter root is outside its graph",
-                        ));
-                    }
-                }
-                for predicate in &record.where_predicates {
-                    for root in std::iter::once(predicate.type_root).chain(
-                        predicate.bounds.iter().flat_map(|bound| {
-                            std::iter::once(bound.trait_root).chain(
-                                bound
-                                    .associated_type_bindings
-                                    .iter()
-                                    .map(|binding| binding.type_root),
-                            )
-                        }),
-                    ) {
-                        if types.get(root as usize).is_none() {
-                            return Err(self.db.invalid_input(
-                                &CompiledPackageInterfaceIndexQuery,
-                                "compiled where predicate root is outside its graph",
-                            ));
-                        }
-                    }
-                }
-                if result.insert(definition.clone(), roots).is_some() {
-                    return Err(self.db.invalid_input(
-                        &CompiledPackageInterfaceIndexQuery,
-                        "duplicate compiled signature during root rehydration",
-                    ));
-                }
-            }
-        }
-        Ok(result)
-    }
-
-    /// Returns decoded closure summaries for every installed template. Stable
-    /// definition identities remain intact until an explicit remap step.
-    pub fn compiled_template_summaries(
-        &self,
-    ) -> QueryResult<BTreeMap<DefinitionId, nia_closure_check::ImportedClosureEscapeSummary>> {
-        let mut summaries = BTreeMap::new();
-        let index = self.compiled_package_interface_index()?;
-        for (package, _) in index.packages() {
-            let templates = self.compiled_package_templates(package.clone())?;
-            for (definition, _) in templates.iter() {
-                let summary = templates.summary(definition)?.ok_or_else(|| {
-                    self.db.invalid_input(
-                        &CompiledPackageInterfaceIndexQuery,
-                        "installed template is missing its semantic summary".to_string(),
-                    )
-                })?;
-                let imported =
-                    nia_closure_check::ImportedClosureEscapeSummary::from_parameter_sets(
-                        summary.returned_parameters,
-                        summary.escaping_parameters,
-                        summary.returned_captured_address_parameters,
-                        summary.escaping_captured_address_parameters,
-                    )
-                    .map_err(|message| {
-                        self.db
-                            .invalid_input(&CompiledPackageInterfaceIndexQuery, message)
-                    })?;
-                summaries.insert(definition.clone(), imported);
-            }
-        }
-        Ok(summaries)
-    }
-
-    /// Remaps all installed template summaries into current-session function
-    /// identities for interprocedural analyses such as closure escape checking.
-    pub fn compiled_template_summaries_for_session(
-        &self,
-        resolver: &dyn StableDefinitionResolver,
-    ) -> QueryResult<HashMap<GlobalDefId, nia_closure_check::ImportedClosureEscapeSummary>> {
-        self.compiled_template_summaries()?
-            .into_iter()
-            .map(|(identity, summary)| {
-                resolver
-                    .definition_for_identity(&identity)
-                    .map(|definition| (definition, summary))
-            })
-            .collect()
-    }
-
-    /// Returns the query-tracked index of selected compiled interfaces.
-    pub fn compiled_package_interface_index(&self) -> QueryResult<CompiledPackageInterfaceIndex> {
-        self.db
-            .get(CompiledPackageInterfaceIndexQuery)
-            .map(Arc::unwrap_or_clone)
     }
 
     /// Builds the session remap table for all loaded definitions. Package
@@ -1847,222 +1052,6 @@ impl CompilerDatabase {
         Ok(types)
     }
 
-    /// Rehydrates every selected compiled interface into the current type
-    /// store and returns per-definition signature roots. This is the common
-    /// semantic input boundary for artifact-backed providers.
-    pub fn rehydrate_compiled_interface_type_roots(
-        &self,
-        resolver: &dyn StableDefinitionResolver,
-    ) -> QueryResult<BTreeMap<DefinitionId, Vec<InternedTyId>>> {
-        let index = self.compiled_package_interface_index()?;
-        let mut result = BTreeMap::new();
-        for (package, interface) in index.packages() {
-            let types = interface
-                .type_graph()
-                .map(|graph| self.rehydrate_stable_type_graph_nodes(graph, resolver))
-                .transpose()?
-                .unwrap_or_default();
-            self.publish_compiled_package_type_graph(package.clone(), types.clone())?;
-            for record in interface.records() {
-                let roots = record
-                    .type_roots
-                    .iter()
-                    .map(|root| {
-                        types.get(*root as usize).copied().ok_or_else(|| {
-                            self.db.invalid_input(
-                                &CompiledPackageInterfaceIndexQuery,
-                                "compiled interface type root is outside its graph".to_string(),
-                            )
-                        })
-                    })
-                    .collect::<QueryResult<Vec<_>>>()?;
-                if result.insert(record.definition.clone(), roots).is_some() {
-                    return Err(self.db.invalid_input(
-                        &CompiledPackageInterfaceIndexQuery,
-                        "duplicate compiled definition during type-root rehydration".to_string(),
-                    ));
-                }
-            }
-        }
-        Ok(result)
-    }
-
-    /// Publishes rehydrated compiled-package roots into the typed query graph.
-    /// The interface index is recorded as the predecessor, so invalidating or
-    /// replacing loader-selected artifacts retires the owned payload.
-    pub fn publish_compiled_package_type_roots(
-        &self,
-        package: PackageId,
-        roots: BTreeMap<DefinitionId, Vec<InternedTyId>>,
-    ) -> QueryResult<()> {
-        let index = self.compiled_package_interface_index()?;
-        if index.package(&package).is_none() {
-            return Err(self.db.invalid_input(
-                &CompiledPackageInterfaceIndexQuery,
-                format!(
-                    "cannot publish compiled type roots for an unselected package: {package:?}"
-                ),
-            ));
-        }
-        if roots
-            .keys()
-            .any(|definition| definition.module.package != package)
-        {
-            return Err(self.db.invalid_input(
-                &CompiledPackageInterfaceIndexQuery,
-                "compiled type-root payload contains a definition from another package".to_string(),
-            ));
-        }
-        let key = CompiledPackageTypeRootsQuery(package);
-        if self.db.can_publish_owned(key.clone()) {
-            self.db
-                .publish_owned(key, roots, &CompiledPackageInterfaceIndexQuery);
-        }
-        Ok(())
-    }
-
-    pub fn publish_compiled_package_type_graph(
-        &self,
-        package: PackageId,
-        types: Vec<InternedTyId>,
-    ) -> QueryResult<()> {
-        let index = self.compiled_package_interface_index()?;
-        if index.package(&package).is_none() {
-            return Err(self.db.invalid_input(
-                &CompiledPackageInterfaceIndexQuery,
-                format!(
-                    "cannot publish compiled type graph for an unselected package: {package:?}"
-                ),
-            ));
-        }
-        let key = CompiledPackageTypeGraphQuery(package.clone());
-        if self.db.can_publish_shared(key.clone()) {
-            self.db.publish_shared(
-                key,
-                CompiledPackageTypeGraph { package, types },
-                &CompiledPackageInterfaceIndexQuery,
-            );
-        }
-        Ok(())
-    }
-
-    pub fn compiled_package_type_graph(
-        &self,
-        package: &PackageId,
-    ) -> QueryResult<CompiledPackageTypeGraph> {
-        self.db
-            .get(CompiledPackageTypeGraphQuery(package.clone()))
-            .map(|graph| graph.as_ref().clone())
-    }
-
-    /// Publishes the validated declaration inventory for one selected package
-    /// into the typed query graph.
-    pub fn publish_compiled_package_declarations(&self, package: PackageId) -> QueryResult<()> {
-        let index = self.compiled_package_interface_index()?;
-        let Some(interface) = index.package(&package) else {
-            return Err(self.db.invalid_input(
-                &CompiledPackageInterfaceIndexQuery,
-                format!(
-                    "cannot publish compiled declarations for an unselected package: {package:?}"
-                ),
-            ));
-        };
-        let mut declarations = BTreeMap::new();
-        for record in interface.records() {
-            let declaration = nia_package_metadata::decode_declaration(&record.declaration)
-                .map_err(|error| {
-                    self.db
-                        .invalid_input(&CompiledPackageInterfaceIndexQuery, error.to_string())
-                })?;
-            if declaration.kind != record.definition.kind {
-                return Err(self.db.invalid_input(
-                    &CompiledPackageInterfaceIndexQuery,
-                    "compiled declaration identity is inconsistent".to_string(),
-                ));
-            }
-            declarations.insert(record.definition.clone(), declaration);
-        }
-        let key = CompiledPackageDeclarationsQuery(package.clone());
-        if self.db.can_publish_owned(key.clone()) {
-            self.db.publish_owned(
-                key,
-                CompiledPackageDeclarations {
-                    package,
-                    declarations,
-                },
-                &CompiledPackageInterfaceIndexQuery,
-            );
-        }
-        Ok(())
-    }
-
-    /// Consumes the declaration inventory published for one package.
-    pub fn compiled_package_declarations(
-        &self,
-        package: &PackageId,
-    ) -> QueryResult<CompiledPackageDeclarations> {
-        self.db
-            .get_owned(CompiledPackageDeclarationsQuery(package.clone()))
-    }
-
-    /// Installs decoded declaration inventories for every selected package.
-    /// The interface index remains the sole predecessor, so replacement or
-    /// retirement of an artifact invalidates all published declaration facts.
-    pub fn install_compiled_package_declarations(&self) -> QueryResult<Vec<PackageId>> {
-        let index = self.compiled_package_interface_index()?;
-        let mut installed = Vec::new();
-        for (package, _) in index.packages() {
-            self.publish_compiled_package_declarations(package.clone())?;
-            installed.push(package.clone());
-        }
-        Ok(installed)
-    }
-
-    /// Installs all loader-selected compiled interface roots into their
-    /// package query slots. Definitions are grouped by the stable package
-    /// identity carried by the artifact; no package is inferred from the
-    /// current source graph.
-    pub fn install_compiled_interface_type_roots(
-        &self,
-        resolver: &dyn StableDefinitionResolver,
-    ) -> QueryResult<Vec<PackageId>> {
-        let roots = self.rehydrate_compiled_interface_type_roots(resolver)?;
-        let mut grouped: BTreeMap<PackageId, BTreeMap<DefinitionId, Vec<InternedTyId>>> =
-            BTreeMap::new();
-        let selected = self.compiled_package_interface_index()?;
-        for (package, _) in selected.packages() {
-            grouped.entry(package.clone()).or_default();
-        }
-        for (definition, type_roots) in roots {
-            grouped
-                .entry(definition.module.package.clone())
-                .or_default()
-                .insert(definition, type_roots);
-        }
-        let mut packages = grouped.keys().cloned().collect::<Vec<_>>();
-        for (package, roots) in grouped {
-            self.publish_compiled_package_type_roots(package, roots)?;
-        }
-        let index = self.compiled_package_interface_index()?;
-        for (package, _) in index.packages() {
-            if !packages.contains(package) {
-                packages.push(package.clone());
-            }
-            self.publish_compiled_package_declarations(package.clone())?;
-        }
-        packages.sort();
-        Ok(packages)
-    }
-
-    /// Consumes one artifact-backed package root product from the query graph.
-    pub fn compiled_package_type_roots(
-        &self,
-        package: &PackageId,
-    ) -> QueryResult<BTreeMap<DefinitionId, Vec<InternedTyId>>> {
-        self.db
-            .get_owned(CompiledPackageTypeRootsQuery(package.clone()))
-    }
-
     /// Resolves a stable definition identity against the currently loaded
     /// source graph, validating module, name, and declaration kind together.
     ///
@@ -2075,46 +1064,6 @@ impl CompilerDatabase {
         package: &PackageId,
     ) -> QueryResult<GlobalDefId> {
         resolve_loaded_definition_in_query(&self.db, definition, package)
-    }
-
-    fn resolve_compiled_module_identity(&self, identity: &StableModuleId) -> QueryResult<ModuleId> {
-        let graph = self.db.get(ModuleGraphQuery)?;
-        for module in graph.modules() {
-            if compiled_package_module_identity(&self.db, module.id)?.as_ref() == Some(identity) {
-                return Ok(module.id);
-            }
-        }
-        Err(self.db.invalid_input(
-            &CompiledPackageInterfaceIndexQuery,
-            format!("compiled template module is not loaded: {identity:?}"),
-        ))
-    }
-
-    fn resolve_template_definition(
-        &self,
-        identity: &DefinitionId,
-        package: &PackageId,
-        interface: &nia_package_metadata::CompiledPackageInterface,
-    ) -> QueryResult<GlobalDefId> {
-        if &identity.module.package != package {
-            return Err(self.db.invalid_input(
-                &CompiledPackageInterfaceIndexQuery,
-                "compiled template relocation belongs to a different package",
-            ));
-        }
-        if let Ok(module_id) = self.resolve_compiled_module_identity(&identity.module) {
-            if interface.definition(identity).is_none() {
-                return Err(self.db.invalid_input(
-                    &CompiledPackageInterfaceIndexQuery,
-                    format!("compiled template definition is absent from interface: {identity:?}"),
-                ));
-            }
-            return Ok(GlobalDefId {
-                module_id,
-                def_id: DefId(identity.disambiguator),
-            });
-        }
-        self.resolve_loaded_definition(identity, package)
     }
 
     /// Converts session-owned type roots into a package-stable type graph.
@@ -2137,11 +1086,6 @@ impl CompilerDatabase {
                 ));
             };
             if graph.current_package_root(def_id.module_id) != Some(entry_root) {
-                if let Some(identity) =
-                    compiled_package_module_identity(&self.db, def_id.module_id)?
-                {
-                    return Ok(identity.package);
-                }
                 return Err(self.db.invalid_input(
                     &ModuleGraphQuery,
                     format!("nominal type belongs to an external package; provide an external definition resolver: {def_id:?}"),
@@ -2383,9 +1327,13 @@ impl CompilerDatabase {
                     )
                 })?
             } else {
-                compiled_package_module_identity(&self.db, module.id)?
-                    .map(|identity| identity.package)
-                    .unwrap_or_else(|| package.clone())
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    format!(
+                        "template references an external source module without an explicit package resolver: {:?}",
+                        module.id
+                    ),
+                ));
             };
             module_identities.insert(
                 module.id,
@@ -2660,11 +1608,6 @@ impl CompilerDatabase {
                 ));
             };
             if graph.current_package_root(def_id.module_id) != Some(entry_root) {
-                if let Some(identity) =
-                    compiled_package_module_identity(&self.db, def_id.module_id)?
-                {
-                    return Ok(identity.package);
-                }
                 return Err(self.db.invalid_input(
                     &ModuleGraphQuery,
                     "nominal type belongs to an external package; provide an external definition resolver"
@@ -3931,11 +2874,6 @@ impl CompilerDatabase {
                 ));
             };
             if graph.current_package_root(def_id.module_id) != Some(entry_root) {
-                if let Some(identity) =
-                    compiled_package_module_identity(&self.db, def_id.module_id)?
-                {
-                    return Ok(identity.package);
-                }
                 return Err(self.db.invalid_input(
                     &ModuleGraphQuery,
                     format!("nominal type belongs to an external package; provide an external definition resolver: {def_id:?}"),
@@ -4052,36 +2990,9 @@ impl CompilerDatabase {
                 })
             })
             .collect::<QueryResult<Vec<_>>>()?;
-        let mut dependencies = self
-            .db
-            .context()
-            .loader_facts()
-            .compiled_package_interfaces()?
-            .into_iter()
-            .filter(|interface| interface.manifest().package != package)
-            .map(|interface| {
-                let bytes = nia_package_metadata::encode_interface(&InterfaceSection {
-                    records: interface.records().to_vec(),
-                })
-                .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
-                Ok(nia_package_metadata::PackageDependency {
-                    package: interface.manifest().package.clone(),
-                    fingerprint:
-                        nia_package_metadata::PackageDependencyFingerprint::ArtifactInterface(
-                            nia_package_metadata::section_hash(&bytes),
-                        ),
-                })
-            })
-            .collect::<QueryResult<Vec<_>>>()?;
-        // Source-backed dependencies (not yet published as selected
-        // compiled interfaces) still need to be represented in the manifest.
-        // Public-surface re-exports are the canonical graph evidence for such
-        // packages; omitting them makes an otherwise valid artifact fail
-        // source-free manifest validation.
-        // Public re-exports identify package dependencies. A dependency hash
-        // is only meaningful when it comes from that package's canonical
-        // interface artifact; never encode an all-zero sentinel that would
-        // make an unverified source dependency look like a valid product.
+        let mut dependencies = Vec::new();
+        // Public re-exports identify source package dependencies. Their
+        // canonical public surface provides the dependency fingerprint.
         let mut surface_dependencies = std::collections::BTreeSet::<PackageId>::new();
         for module in &public_surface.modules {
             for export in &module.exports {
@@ -4097,54 +3008,37 @@ impl CompilerDatabase {
             }
         }
         for dep in surface_dependencies {
-            let fingerprint = if let Some(interface) = self
-                .db
-                .context()
-                .loader_facts()
-                .compiled_package_interfaces()?
-                .into_iter()
-                .find(|interface| interface.manifest().package == dep)
-            {
-                let bytes = nia_package_metadata::encode_interface(&InterfaceSection {
-                    records: interface.records().to_vec(),
-                })
-                .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
-                nia_package_metadata::PackageDependencyFingerprint::ArtifactInterface(
-                    nia_package_metadata::section_hash(&bytes),
-                )
-            } else {
-                let modules = public_surface
-                    .modules
-                    .iter()
-                    .filter_map(|module| {
-                        let exports = module
-                            .exports
-                            .iter()
-                            .filter(|export| {
-                                export.target.module.package == dep
-                                    || export
-                                        .parent_enum
-                                        .as_ref()
-                                        .is_some_and(|parent| parent.module.package == dep)
-                            })
-                            .cloned()
-                            .collect::<Vec<_>>();
-                        (!exports.is_empty()).then(|| PublicSurfaceModule {
-                            path: module.path.clone(),
-                            modules: Vec::new(),
-                            exports,
+            let modules = public_surface
+                .modules
+                .iter()
+                .filter_map(|module| {
+                    let exports = module
+                        .exports
+                        .iter()
+                        .filter(|export| {
+                            export.target.module.package == dep
+                                || export
+                                    .parent_enum
+                                    .as_ref()
+                                    .is_some_and(|parent| parent.module.package == dep)
                         })
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    (!exports.is_empty()).then(|| PublicSurfaceModule {
+                        path: module.path.clone(),
+                        modules: Vec::new(),
+                        exports,
                     })
-                    .collect();
-                let bytes = nia_package_metadata::encode_public_surface(&PublicSurfaceSection {
-                    package: dep.clone(),
-                    modules,
                 })
-                .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
-                nia_package_metadata::PackageDependencyFingerprint::SourceSurface(
-                    nia_package_metadata::section_hash(&bytes),
-                )
-            };
+                .collect();
+            let bytes = nia_package_metadata::encode_public_surface(&PublicSurfaceSection {
+                package: dep.clone(),
+                modules,
+            })
+            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+            let fingerprint = nia_package_metadata::PackageDependencyFingerprint::SourceSurface(
+                nia_package_metadata::section_hash(&bytes),
+            );
             dependencies.push(nia_package_metadata::PackageDependency {
                 package: dep,
                 fingerprint,
@@ -4519,9 +3413,6 @@ impl CompilerDatabase {
         if graph.current_package_root(def_id.module_id) == graph.std_package_root() {
             return Ok(PackageId::standard_library());
         }
-        if let Some(identity) = compiled_package_module_identity(&self.db, def_id.module_id)? {
-            return Ok(identity.package);
-        }
         if graph.current_package_root(def_id.module_id)
             == graph.package_root(&nia_symbol::known::RUNTIME)
             && let RuntimeSpec::Source(runtime) = self.db.get(CompilerRuntimeQuery)?.as_ref()
@@ -4529,8 +3420,7 @@ impl CompilerDatabase {
             return Ok(runtime.package().clone());
         }
         // Any remaining source root in a package-publication graph is owned by
-        // the package being published. External package roots are represented
-        // by validated compiled-module identities and were handled above.
+        // the package being published.
         Ok(current_package.clone())
     }
 
@@ -4561,19 +3451,6 @@ impl CompilerDatabase {
             "Nia ICE: compiler frontend cache verification cannot change within a query session"
         );
         let new_graph = request.loader_facts.module_graph()?;
-        let new_compiled_package_module_identities =
-            collect_compiled_package_module_identities(request.loader_facts.as_ref(), &new_graph)?;
-        let new_compiled_interface_fingerprint =
-            compiled_interface_fingerprint(request.loader_facts.compiled_package_interfaces()?)?;
-        let compiled_interfaces_changed = {
-            let observed = self
-                .db
-                .context()
-                .observed_compiled_interfaces
-                .lock()
-                .expect("compiler compiled-interface observation lock poisoned");
-            *observed != Some(new_compiled_interface_fingerprint)
-        };
         let graph_changed = {
             let observed = self
                 .db
@@ -4614,37 +3491,6 @@ impl CompilerDatabase {
             )
         };
         let mut invalidation = CompilerInvalidation::default();
-        let changed_compiled_module_identities = {
-            let mut observed = self
-                .db
-                .context()
-                .compiled_package_module_identities
-                .write()
-                .expect("compiler module identity input lock poisoned");
-            let changed = observed
-                .keys()
-                .chain(new_compiled_package_module_identities.keys())
-                .copied()
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .filter_map(|module_id| {
-                    let identity = new_compiled_package_module_identities
-                        .get(&module_id)
-                        .cloned()
-                        .flatten();
-                    (observed.get(&module_id).and_then(Option::as_ref) != identity.as_ref())
-                        .then_some((module_id, identity))
-                })
-                .collect::<Vec<_>>();
-            *observed = new_compiled_package_module_identities;
-            changed
-        };
-        for (module_id, identity) in changed_compiled_module_identities {
-            invalidation.extend(
-                self.db
-                    .validate_input(CompiledPackageModuleIdentityQuery(module_id), &identity),
-            );
-        }
         if graph_changed {
             // The executable fact epoch contains session-local module handles;
             // a graph replacement makes that value and every dependent red.
@@ -4671,16 +3517,6 @@ impl CompilerDatabase {
                     ExecutableFactSession::default();
             }
         }
-        if compiled_interfaces_changed {
-            invalidation.extend(self.db.invalidate(CompiledPackageInterfaceIndexQuery));
-            *self
-                .db
-                .context()
-                .observed_compiled_interfaces
-                .lock()
-                .expect("compiler compiled-interface observation lock poisoned") =
-                Some(new_compiled_interface_fingerprint);
-        }
         let inputs_invalidation = self.invalidate_inputs(
             optimization_changed,
             codegen_scope_changed,
@@ -4696,13 +3532,6 @@ impl CompilerDatabase {
                 .observed_graph
                 .lock()
                 .expect("compiler graph observation lock poisoned") = new_graph;
-        }
-        // The compiled-interface index is an input-derived semantic query.
-        // Retire it only when the loaded module graph changes; option-only or
-        // content-identical updates must preserve the query graph and reuse
-        // the existing index.
-        if graph_changed && !compiled_interfaces_changed {
-            invalidation.extend(self.db.invalidate(CompiledPackageInterfaceIndexQuery));
         }
         Ok(invalidation)
     }
@@ -6481,15 +5310,6 @@ fn compiler_database_with_providers_in_session(
     let observed_graph = loader_facts
         .module_graph()
         .expect("initial compiler module graph");
-    let compiled_package_module_identities =
-        collect_compiled_package_module_identities(loader_facts.as_ref(), &observed_graph)
-            .expect("initial compiled package module identities");
-    let observed_compiled_interfaces = compiled_interface_fingerprint(
-        loader_facts
-            .compiled_package_interfaces()
-            .expect("initial compiled package interfaces"),
-    )
-    .expect("initial compiled package interface fingerprint");
     if let Some(loader_session) = loader_facts.query_session() {
         assert!(
             session.ptr_eq(&loader_session),
@@ -6504,8 +5324,6 @@ fn compiler_database_with_providers_in_session(
         CompilerContext {
             inputs: inputs.clone(),
             observed_graph: std::sync::Mutex::new(observed_graph),
-            observed_compiled_interfaces: std::sync::Mutex::new(Some(observed_compiled_interfaces)),
-            compiled_package_module_identities: RwLock::new(compiled_package_module_identities),
             loader_facts,
             providers,
             executable_fact_session,
@@ -6565,31 +5383,6 @@ fn resolve_stable_module_sequence(
 ) -> QueryResult<Vec<ModuleId>> {
     let _graph = db.get(ModuleGraphQuery)?;
     db.context().resolve_stable_module_sequence(sequence)
-}
-
-pub(in crate::query) fn compiled_package_module_identity(
-    db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-) -> QueryResult<Option<nia_package_metadata::ModuleId>> {
-    Ok(db
-        .get(CompiledPackageModuleIdentityQuery(module_id))?
-        .as_ref()
-        .clone())
-}
-
-fn collect_compiled_package_module_identities(
-    loader_facts: &dyn crate::LoaderFactProvider,
-    graph: &ModuleGraphSnapshot,
-) -> QueryResult<HashMap<ModuleId, Option<nia_package_metadata::ModuleId>>> {
-    graph
-        .modules()
-        .map(|module| {
-            Ok((
-                module.id,
-                loader_facts.compiled_package_module_identity(module.id)?,
-            ))
-        })
-        .collect()
 }
 
 fn provider_fact_worklist_fingerprint(worklist: &crate::ProviderFactSnapshot) -> QueryFingerprint {
@@ -6874,102 +5667,6 @@ fn bool_query_fingerprint(domain: FingerprintDomain, value: bool) -> QueryFinger
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_u8(u8::from(value));
     builder.finish()
-}
-
-fn compiled_interface_index_fingerprint(
-    index: &CompiledPackageInterfaceIndex,
-) -> Option<QueryFingerprint> {
-    let mut builder = QueryFingerprintBuilder::new(COMPILED_INTERFACE_INDEX_DOMAIN);
-    builder.write_u64(index.packages.len() as u64);
-    for (package, interface) in &index.packages {
-        builder.write_str(&package.namespace);
-        builder.write_str(&package.name);
-        builder.write_str(&package.version);
-        builder.write_u64(interface.manifest().dependencies.len() as u64);
-        for dependency in &interface.manifest().dependencies {
-            builder.write_str(&dependency.package.namespace);
-            builder.write_str(&dependency.package.name);
-            builder.write_str(&dependency.package.version);
-            match dependency.fingerprint {
-                nia_package_metadata::PackageDependencyFingerprint::ArtifactInterface(hash) => {
-                    builder.write_u8(0);
-                    builder.write_bytes(&hash);
-                }
-                nia_package_metadata::PackageDependencyFingerprint::SourceSurface(hash) => {
-                    builder.write_u8(1);
-                    builder.write_bytes(&hash);
-                }
-            }
-        }
-        builder.write_u64(interface.manifest().modules.len() as u64);
-        for module in &interface.manifest().modules {
-            builder.write_str(&module.path);
-            builder.write_bytes(&module.interface_hash);
-        }
-        builder.write_u64(interface.records().len() as u64);
-        for record in interface.records() {
-            builder.write_str(&record.definition.module.path);
-            builder.write_str(&record.definition.name);
-            builder.write_u8(record.definition.kind);
-            builder.write_bytes(&record.declaration);
-            builder.write_u64(record.type_roots.len() as u64);
-            for root in &record.type_roots {
-                builder.write_u64(u64::from(*root));
-            }
-        }
-        if let Some(graph) = interface.type_graph() {
-            builder.write_u8(1);
-            let graph_bytes = nia_package_metadata::encode_type_graph(graph).ok()?;
-            builder.write_bytes(&graph_bytes);
-        } else {
-            builder.write_u8(0);
-        }
-        if let Some(templates) = interface.templates() {
-            builder.write_u8(1);
-            let bytes = nia_package_metadata::encode_templates(templates).ok()?;
-            builder.write_bytes(&bytes);
-        } else {
-            builder.write_u8(0);
-        }
-        if let Some(surface) = interface.public_surface() {
-            builder.write_u8(1);
-            let bytes = nia_package_metadata::encode_public_surface(surface).ok()?;
-            builder.write_bytes(&bytes);
-        } else {
-            builder.write_u8(0);
-        }
-        if let Some(signatures) = interface.signatures() {
-            builder.write_u8(1);
-            let bytes = nia_package_metadata::encode_signatures(signatures).ok()?;
-            builder.write_bytes(&bytes);
-        } else {
-            builder.write_u8(0);
-        }
-    }
-    Some(builder.finish())
-}
-
-fn compiled_interface_fingerprint(
-    interfaces: Vec<nia_package_metadata::CompiledPackageInterface>,
-) -> QueryResult<QueryFingerprint> {
-    let index = CompiledPackageInterfaceIndex::from_interfaces(interfaces).map_err(|error| {
-        QueryError::InvalidInput {
-            query: QueryFrame {
-                name: "compiled_package_interface_index",
-                key: "compiled_package_interface_index".to_string(),
-                description: "compiled_package_interface_index".to_string(),
-            },
-            message: error,
-        }
-    })?;
-    compiled_interface_index_fingerprint(&index).ok_or_else(|| QueryError::InvalidInput {
-        query: QueryFrame {
-            name: "compiled_package_interface_index",
-            key: "compiled_package_interface_index".to_string(),
-            description: "compiled_package_interface_index".to_string(),
-        },
-        message: "failed to encode compiled interface fingerprint".to_string(),
-    })
 }
 
 impl CompilerContext {

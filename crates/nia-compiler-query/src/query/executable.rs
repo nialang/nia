@@ -489,21 +489,8 @@ pub(super) fn executable_reachable_body_modules(
         });
     match query_failure.into_inner() {
         Some(error) => Err(error),
-        None => Ok(modules
-            .into_iter()
-            .filter(|module_id| !is_compiled_artifact_module(db, *module_id))
-            .collect()),
+        None => Ok(modules),
     }
-}
-
-pub(super) fn is_compiled_artifact_module(
-    db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-) -> bool {
-    compiled_package_module_identity(db, module_id)
-        .ok()
-        .flatten()
-        .is_some()
 }
 
 pub(super) fn is_runtime_global_def(
@@ -603,7 +590,6 @@ pub(super) fn stale_executable_fact_modules(
         .iter()
         .copied()
         .filter(|module_id| reachability.modules().contains(module_id))
-        .filter(|module_id| !is_compiled_artifact_module(db, *module_id))
     {
         if executable_reachability_has_pending_body_items(db, reachability_by_module, module_id)?
             && executable_fact_module_is_stale(module_id, reachability_by_module, fact_by_id)

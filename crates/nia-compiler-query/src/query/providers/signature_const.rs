@@ -452,7 +452,6 @@ pub(super) fn signature_layouts_for_types(
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
 ) -> QueryResult<nia_layout::Layouts> {
     time_module_provider(db, "signature_layouts", module_id, || {
-        let artifact_backed = compiled_package_module_identity(db, module_id)?.is_some();
         let defs = module_defs_semantic(db, module_id)?;
         let type_normalization = db.get(SignatureTypeNormalizationQuery(
             module_id,
@@ -532,21 +531,16 @@ pub(super) fn signature_layouts_for_types(
                     .map(|signature| ProgramTypeAliasSignature { signature })
             })
         };
-        let array_lengths = if artifact_backed {
-            None
-        } else {
-            Some(with_type_signature_const_input(
-                db,
-                module_id,
-                non_function_signatures_override,
-                |input, module| {
-                    let mut array_lengths =
-                        nia_const_check::compute_module_const_array_lengths(input);
-                    array_lengths.diagnostics.extend(module.diagnostics.clone());
-                    array_lengths
-                },
-            )?)
-        };
+        let array_lengths = Some(with_type_signature_const_input(
+            db,
+            module_id,
+            non_function_signatures_override,
+            |input, module| {
+                let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input);
+                array_lengths.diagnostics.extend(module.diagnostics.clone());
+                array_lengths
+            },
+        )?);
         let local_array_lengths = |id| {
             array_lengths
                 .as_ref()
@@ -570,24 +564,20 @@ pub(super) fn signature_layouts_for_types(
             .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
         let symbols = db.context().symbols();
-        let type_uses = if artifact_backed {
-            Vec::new()
-        } else {
-            let active_item_tree = db.get(SignatureItemTreeQuery(
-                module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            ))?;
-            let type_lowering = db.get(SignatureTypeLoweringQuery(
-                module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            ))?;
-            type_lowering
-                .semantic
-                .versioned_type_uses_from_active_item_tree(&active_item_tree)
-                .into_iter()
-                .map(|(_, ty)| ty)
-                .collect()
-        };
+        let active_item_tree = db.get(SignatureItemTreeQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Types,
+        ))?;
+        let type_lowering = db.get(SignatureTypeLoweringQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Types,
+        ))?;
+        let type_uses: Vec<_> = type_lowering
+            .semantic
+            .versioned_type_uses_from_active_item_tree(&active_item_tree)
+            .into_iter()
+            .map(|(_, ty)| ty)
+            .collect();
         let roots = time_module_provider(db, "signature_layouts.roots", module_id, || {
             signature_layout_roots(
                 &db.context().type_store,

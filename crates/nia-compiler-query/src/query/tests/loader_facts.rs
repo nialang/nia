@@ -4,8 +4,6 @@ use super::*;
 struct TestLoaderContext {
     program: RwLock<LoadedProgram>,
     provider_facts: RwLock<crate::ProviderFactSnapshot>,
-    compiled_interfaces: RwLock<Vec<nia_package_metadata::CompiledPackageInterface>>,
-    compiled_module_identities: RwLock<HashMap<ModuleId, nia_package_metadata::ModuleId>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -179,8 +177,6 @@ impl TestLoaderFacts {
                 TestLoaderContext {
                     program: RwLock::new(program),
                     provider_facts: RwLock::new(provider_facts),
-                    compiled_interfaces: RwLock::new(Vec::new()),
-                    compiled_module_identities: RwLock::new(HashMap::new()),
                 },
                 registry,
             ),
@@ -226,30 +222,6 @@ impl TestLoaderFacts {
         *current = provider_facts;
         drop(current);
         self.db.invalidate(TestProviderFactsQuery)
-    }
-
-    pub(super) fn replace_compiled_interfaces(
-        &self,
-        interfaces: Vec<nia_package_metadata::CompiledPackageInterface>,
-    ) {
-        *self
-            .db
-            .context()
-            .compiled_interfaces
-            .write()
-            .expect("test compiled interfaces lock poisoned") = interfaces;
-    }
-
-    pub(super) fn replace_compiled_module_identities(
-        &self,
-        identities: HashMap<ModuleId, nia_package_metadata::ModuleId>,
-    ) {
-        *self
-            .db
-            .context()
-            .compiled_module_identities
-            .write()
-            .expect("test compiled module identities lock poisoned") = identities;
     }
 }
 
@@ -391,31 +363,5 @@ impl crate::LoaderFactProvider for TestLoaderFacts {
             unreachable!()
         };
         runtime.as_ref().clone()
-    }
-
-    fn compiled_package_interfaces(
-        &self,
-    ) -> QueryResult<Vec<nia_package_metadata::CompiledPackageInterface>> {
-        Ok(self
-            .db
-            .context()
-            .compiled_interfaces
-            .read()
-            .expect("test compiled interfaces lock poisoned")
-            .clone())
-    }
-
-    fn compiled_package_module_identity(
-        &self,
-        module_id: ModuleId,
-    ) -> QueryResult<Option<nia_package_metadata::ModuleId>> {
-        Ok(self
-            .db
-            .context()
-            .compiled_module_identities
-            .read()
-            .expect("test compiled module identities lock poisoned")
-            .get(&module_id)
-            .cloned())
     }
 }
