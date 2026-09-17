@@ -689,31 +689,6 @@ pub(super) fn body_check_const_declarations(
     .body_check)
 }
 
-pub(in crate::query) fn body_check_const_templates(
-    db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-) -> QueryResult<nia_body_check::BodyCheck> {
-    Ok(body_check_with_filter_and_layouts_with_inputs(
-        db,
-        ExecutableBodyCheckInput {
-            module_id,
-            filter: nia_body_check::BodyCheckFilter::ConstDeclarations,
-            layouts: None,
-            program_layouts_override: None,
-            fact_mode: ExecutableFactMode::full(),
-            resolution_inputs: None,
-            seed: None,
-            global_initializer_cache: None,
-            const_module_cache: None,
-            const_inputs: None,
-            program_function_signature_cache: None,
-            product: nia_body_check::BodyCheckProduct::BodyOnly,
-            prechecked: None,
-        },
-    )?
-    .body_check)
-}
-
 fn module_has_const_declarations(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
