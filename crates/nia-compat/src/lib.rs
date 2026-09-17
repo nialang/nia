@@ -278,12 +278,16 @@ pub fn toolchain_manifest() -> String {
 mod tests {
     use std::{collections::BTreeSet, fs, path::PathBuf};
 
-    use super::{RELEASE_COMPATIBILITY, formats, toolchain_manifest};
+    use super::{COMPILER_VERSION, RELEASE_COMPATIBILITY, formats, toolchain_manifest};
 
     #[test]
     fn release_compatibility_follows_public_release_line() {
         assert_eq!(super::release_compatibility("0.1.0"), 1);
-        assert_eq!(super::release_compatibility("0.2.0-dev"), 2);
+        assert_eq!(super::release_compatibility("0.7.0-dev"), 7);
+        assert_eq!(
+            super::release_compatibility(COMPILER_VERSION),
+            RELEASE_COMPATIBILITY
+        );
         assert_eq!(super::release_compatibility("1.0.0"), 1000);
         assert_eq!(super::release_compatibility("2.3.7"), 2003);
     }
