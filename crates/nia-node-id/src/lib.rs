@@ -387,12 +387,15 @@ impl NodeStore {
 impl NodeStoreAppend {
     fn intern(&mut self, locator: VersionedNodeKey) -> NodeId {
         let version = locator.source_version();
-        let revision = self.revisions.revision(version).unwrap_or_else(|| {
+        if self.revisions.revision(version).is_none() {
             let revision = self.store.acquire_revision(version);
-            self.revisions.insert(Arc::clone(&revision));
-            revision
-        });
-        self.store.intern(&revision, locator)
+            self.revisions.insert(revision);
+        }
+        let revision = self
+            .revisions
+            .revision(version)
+            .expect("node revision was acquired before interning");
+        self.store.intern(revision, locator)
     }
 
     fn id_for_locator(&self, locator: &VersionedNodeKey) -> Option<NodeId> {
@@ -495,11 +498,10 @@ fn hash_locator(locator: &VersionedNodeKey) -> u64 {
 }
 
 impl NodeRevisionSet {
-    fn revision(&self, version: SourceVersion) -> Option<Arc<NodeRevision>> {
+    fn revision(&self, version: SourceVersion) -> Option<&Arc<NodeRevision>> {
         self.revisions
             .iter()
             .find(|revision| revision.version == version)
-            .cloned()
     }
 
     fn insert(&mut self, revision: Arc<NodeRevision>) {
