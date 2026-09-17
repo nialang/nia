@@ -91,6 +91,7 @@ impl CodegenReadinessCoordinator {
             self.pending.is_empty(),
             "Nia ICE: codegen readiness finished with unresolved partitions"
         );
+        self.publisher.freeze();
         self.index
     }
 

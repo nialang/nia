@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, RwLock},
+    sync::{Arc, OnceLock, RwLock},
 };
 
 #[cfg(test)]
@@ -69,6 +69,9 @@ pub(super) struct ProgramIndex {
     // prepares the next one. This avoids coupling nested codegen lookups to
     // publication of later modules.
     tables: RwLock<Arc<ProgramIndexTables>>,
+    // Once every module is published, codegen no longer needs to synchronize
+    // with the readiness coordinator.
+    frozen_tables: OnceLock<Arc<ProgramIndexTables>>,
 }
 
 #[derive(Clone, Default)]
@@ -214,6 +217,7 @@ impl ProgramIndex {
             modules,
             type_store,
             tables: RwLock::new(Arc::new(ProgramIndexTables::default())),
+            frozen_tables: OnceLock::new(),
         });
         let publisher = ProgramIndexPublisher {
             index: Arc::clone(&index),
@@ -222,6 +226,9 @@ impl ProgramIndex {
     }
 
     fn tables(&self) -> Arc<ProgramIndexTables> {
+        if let Some(tables) = self.frozen_tables.get() {
+            return Arc::clone(tables);
+        }
         Arc::clone(&self.tables.read().expect("program index lock poisoned"))
     }
 
@@ -319,6 +326,10 @@ impl ProgramIndex {
 
 impl ProgramIndexPublisher {
     pub(super) fn publish(&mut self, module_id: ModuleId) {
+        assert!(
+            self.index.frozen_tables.get().is_none(),
+            "Nia ICE: backend module was published after program index finalization"
+        );
         let module = self
             .index
             .modules
@@ -556,6 +567,14 @@ impl ProgramIndexPublisher {
                     .push(position);
             }
         }
+    }
+
+    pub(super) fn freeze(self) {
+        let tables = self.index.tables();
+        assert!(
+            self.index.frozen_tables.set(tables).is_ok(),
+            "Nia ICE: program index was finalized twice"
+        );
     }
 }
 
@@ -1360,8 +1379,10 @@ mod tests {
         assert!(!published_before_first.published_modules.contains(&first));
         publisher.publish(first);
         read.join().expect("concurrent program index reader");
+        publisher.freeze();
 
         assert!(!published_before_first.published_modules.contains(&first));
+        assert!(index.frozen_tables.get().is_some());
         assert!(index.has_enum(first_def));
         assert_eq!(
             index
