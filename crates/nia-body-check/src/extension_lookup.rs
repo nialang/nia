@@ -39,11 +39,15 @@ impl Clone for BodyVisibleExtensionSource<'_> {
 }
 
 impl<'a> BodyVisibleExtensionSource<'a> {
-    fn with_methods<T>(&self, f: impl FnOnce(&VisibleExtensionMethods) -> T) -> T {
+    pub(super) fn methods(&self) -> &VisibleExtensionMethods {
         match self {
-            Self::Eager(methods) => f(methods),
-            Self::Lazy { load, loaded } => f(loaded.get_or_init(load).as_ref()),
+            Self::Eager(methods) => methods,
+            Self::Lazy { load, loaded } => loaded.get_or_init(load).as_ref(),
         }
+    }
+
+    fn with_methods<T>(&self, f: impl FnOnce(&VisibleExtensionMethods) -> T) -> T {
+        f(self.methods())
     }
 }
 
@@ -53,12 +57,6 @@ impl<'a> BodyChecker<'a> {
         f: impl FnOnce(&VisibleExtensionMethods) -> T,
     ) -> T {
         self.extensions.with_methods(f)
-    }
-
-    pub(super) fn visible_extension_trait_witness_impls(
-        &mut self,
-    ) -> HashSet<(ModuleId, nia_ids::TraitImplId)> {
-        self.with_visible_extensions(|extensions| extensions.trait_witness_impls().collect())
     }
 
     pub(super) fn extension_method_lookup(

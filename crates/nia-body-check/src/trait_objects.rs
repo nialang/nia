@@ -503,7 +503,7 @@ impl<'a> BodyChecker<'a> {
         let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
         let program_signature_scope = self.program_signature_scope;
         let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
-        let visible_trait_witness_impls = self.visible_extension_trait_witness_impls();
+        let extensions = self.extensions.methods();
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.normalization,
@@ -516,7 +516,7 @@ impl<'a> BodyChecker<'a> {
             const_expr_value: Some(&const_expr_value),
             impl_is_visible: Some(&|module_id, impl_id| {
                 module_id == self.defs.module_id
-                    || visible_trait_witness_impls.contains(&(module_id, impl_id))
+                    || extensions.has_trait_witness_impl(module_id, impl_id)
             }),
         };
         let proven = {

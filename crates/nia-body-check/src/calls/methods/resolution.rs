@@ -1074,16 +1074,12 @@ impl<'a> BodyChecker<'a> {
                         .then_some(self.global_def_id(*def_id))
                 }),
         );
-        let visible_impls = self.with_visible_extensions(|extensions| {
-            extensions
-                .trait_witness_impls()
-                .collect::<std::collections::HashSet<_>>()
-        });
+        let extensions = self.extensions.methods();
         let visible_impl_trait_ids = self
             .program_trait_impls
             .iter()
             .filter(|implementation| {
-                visible_impls.contains(&(implementation.module_id, implementation.impl_id))
+                extensions.has_trait_witness_impl(implementation.module_id, implementation.impl_id)
             })
             .filter_map(|implementation| match implementation.trait_id {
                 TraitId::Source(trait_id) => Some(trait_id),
