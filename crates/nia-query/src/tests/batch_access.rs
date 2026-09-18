@@ -66,7 +66,8 @@ fn typed_owned_completion_stream_moves_values_in_completion_order() {
         },
         nia_timing::TimingMode::Off,
         session,
-    );
+    )
+    .expect("create query database");
 
     let completed = db
         .with_many_owned_completion(
@@ -152,7 +153,8 @@ fn get_many_owned_uses_the_session_executor_budget() {
         },
         nia_timing::TimingMode::Off,
         session.clone(),
-    );
+    )
+    .expect("create query database");
 
     let values = db
         .get_many_owned([

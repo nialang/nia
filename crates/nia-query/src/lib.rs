@@ -51,7 +51,7 @@ pub struct QueryDb<C> {
     inner: Arc<QueryDbInner<C>>,
 }
 
-/// Quiescent capability exposed during a cache-retirement transaction.
+/// Quiescent capability exposed while cache retirement holds session admission.
 ///
 /// While this value exists, the session admits no new outer query activity, so
 /// invalidation and slot removal can update typed caches and dependency identity
@@ -354,12 +354,12 @@ impl<V> QuerySlot<V> {
 struct QueryDbId(u32);
 
 impl QueryDbId {
-    fn fresh() -> Self {
+    fn fresh() -> nia_ice::IceResult<Self> {
         static NEXT_QUERY_DB_ID: AtomicU32 = AtomicU32::new(1);
         let id = NEXT_QUERY_DB_ID
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
-            .expect("query database identity space exhausted");
-        Self(id)
+            .map_err(|_| nia_ice::Ice::new("query database identity space exhausted"))?;
+        Ok(Self(id))
     }
 }
 
@@ -367,12 +367,12 @@ impl QueryDbId {
 struct QuerySessionId(u32);
 
 impl QuerySessionId {
-    fn fresh() -> Self {
+    fn fresh() -> nia_ice::IceResult<Self> {
         static NEXT_QUERY_SESSION_ID: AtomicU32 = AtomicU32::new(1);
         let id = NEXT_QUERY_SESSION_ID
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
-            .expect("query session identity space exhausted");
-        Self(id)
+            .map_err(|_| nia_ice::Ice::new("query session identity space exhausted"))?;
+        Ok(Self(id))
     }
 }
 
@@ -396,10 +396,12 @@ impl<C> Default for QuerySlotTable<C> {
     }
 }
 
+type QueryEnsure<C> = dyn Fn(&QueryDb<C>) -> QueryResult<()> + Send + Sync;
+
 struct QuerySlotRecord<C> {
     identity: Arc<QuerySlotIdentity>,
     slot: Arc<dyn ErasedQuerySlot>,
-    ensure: fn(&QueryDb<C>, &dyn ErasedQueryKey) -> QueryResult<()>,
+    ensure: Arc<QueryEnsure<C>>,
 }
 
 trait ErasedQueryCache: Any + Send + Sync {
@@ -422,13 +424,13 @@ where
 }
 
 impl<C> QuerySlotTable<C> {
-    fn next_id(&mut self, db_id: QueryDbId) -> QueryNodeId {
+    fn next_id(&mut self, db_id: QueryDbId) -> nia_ice::IceResult<QueryNodeId> {
         let index = self.next_index;
         self.next_index = self
             .next_index
             .checked_add(1)
-            .expect("query node identity space exhausted");
-        QueryNodeId { db_id, index }
+            .ok_or_else(|| nia_ice::Ice::new("query node identity space exhausted"))?;
+        Ok(QueryNodeId { db_id, index })
     }
 
     fn push(
@@ -436,9 +438,12 @@ impl<C> QuerySlotTable<C> {
         node_id: QueryNodeId,
         identity: Arc<QuerySlotIdentity>,
         slot: Arc<dyn ErasedQuerySlot>,
-        ensure: fn(&QueryDb<C>, &dyn ErasedQueryKey) -> QueryResult<()>,
-    ) {
-        let previous = self.entries.insert(
+        ensure: Arc<QueryEnsure<C>>,
+    ) -> nia_ice::IceResult<()> {
+        if self.entries.contains_key(&node_id.index) {
+            return Err(nia_ice::Ice::new("query node identity was reused"));
+        }
+        self.entries.insert(
             node_id.index,
             QuerySlotRecord {
                 identity,
@@ -446,7 +451,7 @@ impl<C> QuerySlotTable<C> {
                 ensure,
             },
         );
-        assert!(previous.is_none(), "query node identity was reused");
+        Ok(())
     }
 
     fn get(&self, db_id: QueryDbId, node_id: QueryNodeId) -> Option<&QuerySlotRecord<C>> {
@@ -678,26 +683,12 @@ pub struct QueryInvalidation {
 }
 
 struct QuerySlotIdentity {
-    key: Arc<dyn ErasedQueryKey>,
-    make_frame: fn(&dyn ErasedQueryKey) -> QueryFrame,
+    frame: QueryFrame,
 }
 
 impl QuerySlotIdentity {
     fn frame(&self) -> QueryFrame {
-        (self.make_frame)(self.key.as_ref())
-    }
-}
-
-trait ErasedQueryKey: Send + Sync {
-    fn as_any(&self) -> &dyn Any;
-}
-
-impl<K> ErasedQueryKey for K
-where
-    K: Clone + Eq + Hash + Send + Sync + 'static,
-{
-    fn as_any(&self) -> &dyn Any {
-        self
+        self.frame.clone()
     }
 }
 

@@ -2667,7 +2667,7 @@ fn compiler_database_with_providers_in_session(
         timings,
         compiler_query_registry()?,
         session,
-    );
+    )?;
     Ok(CompilerDatabase { db, inputs })
 }
 

@@ -11,12 +11,14 @@ fn nested_batches_across_sessions_reuse_the_current_process_permit() {
         },
         nia_timing::TimingMode::Off,
         input_session,
-    );
+    )
+    .expect("create input database");
     let parent_db = QueryDb::new_with_timings_in_session(
         CrossSessionBatchContext { input_db },
         nia_timing::TimingMode::Off,
         parent_session,
-    );
+    )
+    .expect("create parent database");
     let (sender, receiver) = std::sync::mpsc::channel();
 
     std::thread::spawn(move || {
@@ -44,7 +46,8 @@ fn nested_get_many_completes_with_full_session_budget() {
         },
         nia_timing::TimingMode::Off,
         session,
-    );
+    )
+    .expect("create query database");
     let (sender, receiver) = std::sync::mpsc::channel();
 
     std::thread::spawn(move || {
@@ -73,7 +76,8 @@ fn batch_waiter_does_not_run_tasks_that_depend_on_its_paused_query() {
         },
         nia_timing::TimingMode::Off,
         session,
-    );
+    )
+    .expect("create query database");
     let (first_sender, first_receiver) = std::sync::mpsc::channel();
     let (second_sender, second_receiver) = std::sync::mpsc::channel();
     let second_db = db.clone();
@@ -124,7 +128,8 @@ fn get_many_panic_becomes_internal_error_and_taints_session() {
         },
         nia_timing::TimingMode::Off,
         session,
-    );
+    )
+    .expect("create query database");
 
     let failure = db
         .get_many([PanicsOnce, PanicsOnce])

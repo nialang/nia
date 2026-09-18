@@ -48,7 +48,7 @@ impl QuerySession {
     ) -> nia_ice::IceResult<Self> {
         let parallelism = NonZeroUsize::new(parallelism)
             .ok_or_else(|| nia_ice::Ice::new("query executor parallelism must be non-zero"))?;
-        let id = QuerySessionId::fresh();
+        let id = QuerySessionId::fresh()?;
         Ok(Self {
             inner: Arc::new(QuerySessionInner {
                 id,
@@ -290,19 +290,19 @@ impl QuerySession {
         }
     }
 
-    pub(super) fn register<C>(&self, db: &QueryDb<C>)
+    pub(super) fn register<C>(&self, db: &QueryDb<C>) -> nia_ice::IceResult<()>
     where
         C: Send + Sync + 'static,
     {
         let registration: Arc<dyn ErasedQueryDatabase> = Arc::new(QueryDbRegistration {
             inner: Arc::downgrade(&db.inner),
         });
-        let previous = self
-            .inner
-            .databases
-            .lock()
-            .insert(db.inner.id, registration);
-        assert!(previous.is_none(), "query database registered twice");
+        let mut databases = self.inner.databases.lock();
+        if databases.contains_key(&db.inner.id) {
+            return Err(nia_ice::Ice::new("query database registered twice"));
+        }
+        databases.insert(db.inner.id, registration);
+        Ok(())
     }
 
     pub(super) fn database(&self, db_id: QueryDbId) -> Arc<dyn ErasedQueryDatabase> {

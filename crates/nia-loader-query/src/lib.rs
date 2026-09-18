@@ -321,7 +321,7 @@ impl LoaderDatabase {
             },
             loader_query_registry()?,
             session,
-        );
+        )?;
         Ok(Self { db, sources })
     }
 

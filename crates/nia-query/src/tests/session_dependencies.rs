@@ -10,7 +10,8 @@ fn shared_session_records_and_invalidates_cross_database_dependencies() {
         },
         nia_timing::TimingMode::Off,
         session.clone(),
-    );
+    )
+    .expect("create input database");
     let executions = Arc::new(AtomicUsize::new(0));
     let parent_db = QueryDb::new_with_timings_in_session(
         SessionParentContext {
@@ -19,7 +20,8 @@ fn shared_session_records_and_invalidates_cross_database_dependencies() {
         },
         nia_timing::TimingMode::Off,
         session,
-    );
+    )
+    .expect("create parent database");
 
     assert!(parent_db.session().ptr_eq(&input_db.session()));
     assert_eq!(*parent_db.expect_get(SessionParent), 6);

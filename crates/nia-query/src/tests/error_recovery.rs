@@ -139,7 +139,8 @@ fn distinct_workers_detect_cross_stack_query_cycles() {
         },
         nia_timing::TimingMode::Off,
         session,
-    );
+    )
+    .expect("create query database");
     let cycle_nodes = [
         db.slot_for(&ParallelCycle::Left)
             .expect("create left slot")
@@ -180,7 +181,8 @@ fn distinct_sessions_detect_cross_stack_query_cycles() {
         },
         nia_timing::TimingMode::Off,
         QuerySession::with_parallelism(1),
-    );
+    )
+    .expect("create left query database");
     let right_db = QueryDb::new_with_timings_in_session(
         CrossSessionCycleContext {
             other: Arc::clone(&left_link),
@@ -189,7 +191,8 @@ fn distinct_sessions_detect_cross_stack_query_cycles() {
         },
         nia_timing::TimingMode::Off,
         QuerySession::with_parallelism(1),
-    );
+    )
+    .expect("create right query database");
     let cycle_nodes = [
         left_db
             .slot_for(&CrossSessionCycle::Left)

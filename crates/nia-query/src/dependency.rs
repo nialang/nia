@@ -150,42 +150,13 @@ fn retired_query_frame(node_id: QueryNodeId) -> QueryFrame {
     }
 }
 
-pub(super) fn query_slot_identity<C, K>(key: Arc<K>) -> QuerySlotIdentity
+pub(super) fn query_slot_identity<C, K>(key: &K) -> QuerySlotIdentity
 where
     K: QueryKey<C>,
 {
     QuerySlotIdentity {
-        key,
-        make_frame: query_frame_from_erased::<C, K>,
+        frame: query_frame::<C, K>(key),
     }
-}
-
-pub(super) fn ensure_query_from_erased<C, K>(
-    db: &QueryDb<C>,
-    key: &dyn ErasedQueryKey,
-) -> QueryResult<()>
-where
-    K: QueryKey<C>,
-{
-    let key = key
-        .as_any()
-        .downcast_ref::<K>()
-        .expect("query ensure identity key type mismatch");
-    match K::STORAGE {
-        QueryStoragePolicy::CacheOwnedArc => db.get(key.clone()).map(drop),
-        QueryStoragePolicy::SingleConsumerOwned => db.get_owned(key.clone()).map(drop),
-    }
-}
-
-fn query_frame_from_erased<C, K>(key: &dyn ErasedQueryKey) -> QueryFrame
-where
-    K: QueryKey<C>,
-{
-    let key = key
-        .as_any()
-        .downcast_ref::<K>()
-        .expect("query frame identity key type mismatch");
-    query_frame::<C, K>(key)
 }
 
 impl<C> ErasedQueryDatabase for QueryDbRegistration<C>
@@ -211,11 +182,12 @@ where
     }
 
     fn ensure(&self, node_id: QueryNodeId) -> QueryResult<()> {
-        let inner = self
-            .inner
-            .upgrade()
-            .expect("query dependency database was dropped");
-        let (key, ensure) = {
+        let Some(inner) = self.inner.upgrade() else {
+            return Err(QueryError::internal(
+                "query dependency database was dropped",
+            ));
+        };
+        let ensure = {
             let slots = inner.slots.lock();
             let Some(record) = slots.get(inner.id, node_id) else {
                 return Err(QueryError::InvalidInput {
@@ -223,9 +195,9 @@ where
                     message: "query dependency was retired".into(),
                 });
             };
-            (Arc::clone(&record.identity.key), record.ensure)
+            Arc::clone(&record.ensure)
         };
-        ensure(&QueryDb { inner }, key.as_ref())
+        ensure(&QueryDb { inner })
     }
 
     fn invalidate_scope(&self, retain: &dyn Fn(&QueryFrame) -> bool) {

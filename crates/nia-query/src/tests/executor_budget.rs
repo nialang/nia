@@ -11,7 +11,8 @@ fn session_executor_caps_concurrent_batch_tasks() {
         },
         nia_timing::TimingMode::Off,
         session.clone(),
-    );
+    )
+    .expect("create query database");
 
     let values = db
         .get_many([
@@ -45,7 +46,8 @@ fn shared_execution_budget_caps_tasks_across_sessions() {
         },
         nia_timing::TimingMode::Off,
         first_session,
-    );
+    )
+    .expect("create first query database");
     let second_db = QueryDb::new_with_timings_in_session(
         ExecutorProbeContext {
             active: AtomicUsize::new(0),
@@ -54,7 +56,8 @@ fn shared_execution_budget_caps_tasks_across_sessions() {
         },
         nia_timing::TimingMode::Off,
         second_session,
-    );
+    )
+    .expect("create second query database");
     let (sender, receiver) = std::sync::mpsc::channel();
     let second_sender = sender.clone();
     std::thread::spawn(move || {
