@@ -1231,6 +1231,7 @@ dependencies = [
 name = "nia-type-normalize"
 version = "0.2.0-dev"
 dependencies = [
+ "nia-ast",
  "nia-defs",
  "nia-diagnostic",
  "nia-ice",
