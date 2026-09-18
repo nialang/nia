@@ -329,7 +329,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let symbol = self.promoted_allocation_symbol(
             allocation,
             instance_scope.as_ref().map(|(_, symbol)| symbol.as_str()),
-        );
+        )?;
         let layout = self.layout_of(pointee_ty);
         let existing = self.promoted_allocations.borrow().get(&key).copied();
         if let Some((existing_ty, _)) = existing
@@ -474,17 +474,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         allocation: PromotedAllocationId,
         instance_symbol: Option<&str>,
-    ) -> String {
+    ) -> Result<String, Diagnostic> {
         let module = self.mangle_module_id(allocation.module_id());
         let span = allocation.span();
-        mangle_derived_symbol_canonical(
-            self.symbol_package_identity(allocation.module_id()),
+        Ok(mangle_derived_symbol_canonical(
+            self.symbol_package_identity(allocation.module_id(), span)?,
             module,
             format!("promoted:{}:{}", span.start, span.end),
             "promoted_allocation",
             MangleSymbolKind::Global,
             instance_symbol.into_iter().map(ToOwned::to_owned),
-        )
+        ))
     }
 
     pub(super) fn emit_object(&mut self, target: &TargetMachine) -> Result<Vec<u8>, Diagnostic> {
@@ -847,14 +847,19 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         mangle_symbol_id(name)
     }
 
-    fn symbol_name(&self, def_id: GlobalDefId, name: SymbolId, kind: MangleSymbolKind) -> String {
-        mangle_definition_symbol_canonical(
-            self.symbol_package_identity(def_id.module_id),
+    fn symbol_name(
+        &self,
+        def_id: GlobalDefId,
+        name: SymbolId,
+        kind: MangleSymbolKind,
+    ) -> Result<String, Diagnostic> {
+        Ok(mangle_definition_symbol_canonical(
+            self.symbol_package_identity(def_id.module_id, Span::default())?,
             def_id,
             self.mangle_module_id(def_id.module_id),
             mangle_symbol_id(name),
             kind,
-        )
+        ))
     }
 
     fn mangle_module_id(&self, module_id: ModuleId) -> MangleModuleId {
@@ -865,29 +870,35 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         mangle_module_id_path(module_id, path)
     }
 
-    fn symbol_package_identity(&self, module_id: ModuleId) -> &str {
-        &self
-            .program
+    fn symbol_package_identity(&self, module_id: ModuleId, span: Span) -> Result<&str, Diagnostic> {
+        self.program
             .module(module_id)
-            .expect("Nia ICE: codegen module is missing package symbol identity")
-            .symbol_package_identity
+            .map(|module| module.symbol_package_identity.as_str())
+            .ok_or_else(|| self.error(span, "codegen module is missing package symbol identity"))
     }
 
-    fn struct_symbol_name(&self, def_id: GlobalDefId, name: SymbolId) -> String {
+    fn struct_symbol_name(
+        &self,
+        def_id: GlobalDefId,
+        name: SymbolId,
+    ) -> Result<String, Diagnostic> {
         self.symbol_name(def_id, name, MangleSymbolKind::Type)
     }
 
-    fn function_symbol_name(&self, function: &BackendFunction) -> String {
+    fn function_symbol_name(&self, function: &BackendFunction) -> Result<String, Diagnostic> {
         if let Some(symbol) = function.linkage.external_symbol() {
-            symbol.to_string()
+            Ok(symbol.to_string())
         } else {
             self.symbol_name(function.def_id, function.name, MangleSymbolKind::Function)
         }
     }
 
-    fn global_symbol_name(&self, global: &nia_backend_ir::BackendGlobal) -> String {
+    fn global_symbol_name(
+        &self,
+        global: &nia_backend_ir::BackendGlobal,
+    ) -> Result<String, Diagnostic> {
         if let Some(symbol) = global.linkage.external_symbol() {
-            symbol.to_string()
+            Ok(symbol.to_string())
         } else {
             self.symbol_name(global.def_id, global.name, MangleSymbolKind::Global)
         }
