@@ -50,7 +50,7 @@ pub(super) struct BackendLoweringInputsParts {
 }
 
 impl BackendLoweringInputs {
-    pub(super) fn new(parts: BackendLoweringInputsParts) -> Self {
+    pub(super) fn new(parts: BackendLoweringInputsParts) -> QueryResult<Self> {
         let module_count = parts.checked_modules.len();
         for (name, actual) in [
             ("active item trees", parts.active_item_trees.len()),
@@ -65,10 +65,11 @@ impl BackendLoweringInputs {
             ),
             ("program definitions", parts.program_defs.len()),
         ] {
-            assert_eq!(
-                actual, module_count,
-                "Nia ICE: backend {name} must match checked module count"
-            );
+            if actual != module_count {
+                return Err(QueryError::internal(format!(
+                    "backend {name} count {actual} does not match checked module count {module_count}"
+                )));
+            }
         }
         let module_indices = parts
             .checked_modules
@@ -76,11 +77,11 @@ impl BackendLoweringInputs {
             .enumerate()
             .map(|(index, module)| (module.id, index))
             .collect::<HashMap<_, _>>();
-        assert_eq!(
-            module_indices.len(),
-            module_count,
-            "Nia ICE: backend inputs must have unique module owners"
-        );
+        if module_indices.len() != module_count {
+            return Err(QueryError::internal(
+                "backend lowering inputs contain duplicate module owners",
+            ));
+        }
         let function_body_ids = parts
             .function_bodies
             .iter()
@@ -105,7 +106,7 @@ impl BackendLoweringInputs {
             .enumerate()
             .map(|(index, init)| (init.def_id, index))
             .collect();
-        Self {
+        Ok(Self {
             symbols: parts.symbols,
             source_identities: parts.source_identities,
             symbol_package_identities: parts.symbol_package_identities,
@@ -129,40 +130,80 @@ impl BackendLoweringInputs {
             non_function_signatures: parts.non_function_signatures,
             functions: parts.functions,
             runtime: parts.runtime,
-        }
+        })
     }
 
-    pub(super) fn module_inputs(&self) -> Vec<BackendLowerModuleInput<'_>> {
+    pub(super) fn module_inputs(&self) -> QueryResult<Vec<BackendLowerModuleInput<'_>>> {
         (0..self.checked_modules.len())
             .map(|index| self.module_input(index))
             .collect()
     }
 
-    pub(super) fn module_input(&self, index: usize) -> BackendLowerModuleInput<'_> {
-        let checked_module = &self.checked_modules[index];
-        let source_item_plan = &self.source_item_plans[index];
-        let function_instance_plan = &self.function_instance_plans[index];
-        BackendLowerModuleInput {
+    pub(super) fn module_input(&self, index: usize) -> QueryResult<BackendLowerModuleInput<'_>> {
+        let Some(checked_module) = self.checked_modules.get(index) else {
+            return Err(QueryError::internal(format!(
+                "backend module input position {index} is out of bounds"
+            )));
+        };
+        let Some(source_item_plan) = self.source_item_plans.get(index) else {
+            return Err(QueryError::internal(format!(
+                "backend source item plan position {index} is missing"
+            )));
+        };
+        let Some(function_instance_plan) = self.function_instance_plans.get(index) else {
+            return Err(QueryError::internal(format!(
+                "backend function instance plan position {index} is missing"
+            )));
+        };
+        let Some(active_item_tree) = self.active_item_trees.get(index) else {
+            return Err(QueryError::internal(format!(
+                "backend active item tree position {index} is missing"
+            )));
+        };
+        let Some(signatures) = self.item_signatures.get(index) else {
+            return Err(QueryError::internal(format!(
+                "backend item signatures position {index} is missing"
+            )));
+        };
+        let Some(const_array_lengths) = self.const_array_lengths.get(index) else {
+            return Err(QueryError::internal(format!(
+                "backend const array lengths position {index} is missing"
+            )));
+        };
+        let Some(const_enum_values) = self.const_enum_values.get(index) else {
+            return Err(QueryError::internal(format!(
+                "backend const enum values position {index} is missing"
+            )));
+        };
+        let Some(visible_extensions) = self.visible_extensions.get(index) else {
+            return Err(QueryError::internal(format!(
+                "backend visible extensions position {index} is missing"
+            )));
+        };
+        let Some(symbol_package_identity) = self.symbol_package_identities.get(&checked_module.id)
+        else {
+            return Err(QueryError::internal(format!(
+                "backend module {:?} is missing package symbol identity",
+                checked_module.id
+            )));
+        };
+        Ok(BackendLowerModuleInput {
             module_id: checked_module.id,
             source_identity: checked_module.path.identity(),
-            symbol_package_identity: self
-                .symbol_package_identities
-                .get(&checked_module.id)
-                .cloned()
-                .expect("Nia ICE: backend module is missing package symbol identity"),
+            symbol_package_identity: symbol_package_identity.clone(),
             module_name: checked_module.path.as_str().to_string(),
             symbols: &self.symbols,
-            active_item_tree: self.active_item_trees[index].as_ref(),
+            active_item_tree: active_item_tree.as_ref(),
             defs: &checked_module.defs,
-            extensions: &self.visible_extensions[index].methods,
+            extensions: &visible_extensions.methods,
             values: &checked_module.value_resolution,
             locals: &checked_module.local_resolution,
             type_lowering: &checked_module.type_lowering,
-            signatures: &self.item_signatures[index],
+            signatures,
             type_normalization: &checked_module.type_normalization,
             semantic_facts: &checked_module.semantic_facts,
-            const_array_lengths: self.const_array_lengths[index].as_ref(),
-            const_enum_values: self.const_enum_values[index].as_ref(),
+            const_array_lengths: const_array_lengths.as_ref(),
+            const_enum_values: const_enum_values.as_ref(),
             layouts: &checked_module.layouts,
             roots: backend_function_roots(&self.runtime, checked_module),
             reachable_functions: Some(&source_item_plan.functions),
@@ -171,7 +212,7 @@ impl BackendLoweringInputs {
             reachable_unions: Some(&source_item_plan.unions),
             function_instance_plan: &function_instance_plan.instances,
             program: self,
-        }
+        })
     }
 }
 
@@ -298,7 +339,7 @@ impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
 }
 
 pub(super) struct BackendFinalizationTaskContext {
-    inputs: Arc<ProgramBackendLoweringInputs>,
+    inputs: Arc<BackendLoweringInputs>,
     finalization: nia_backend_lower::BackendProgramFinalizationContext,
 }
 
@@ -308,22 +349,23 @@ impl BackendFinalizationTaskContext {
         type_store: Arc<nia_ty::TypeStore>,
         optimization: nia_opt::OptimizationPolicy,
         timings: nia_timing::TimingMode,
-    ) -> Self {
-        let module_inputs = inputs
-            .semantic
-            .as_ref()
-            .expect("Nia ICE: backend finalization context requires valid lowering inputs")
-            .module_inputs();
+    ) -> QueryResult<Self> {
+        let Some(inputs) = inputs.semantic.as_ref().map(Arc::clone) else {
+            return Err(QueryError::internal(
+                "backend finalization context requires valid lowering inputs",
+            ));
+        };
+        let module_inputs = inputs.module_inputs()?;
         let finalization = nia_backend_lower::BackendProgramFinalizationContext::new(
             &module_inputs,
             type_store,
             optimization,
             timings,
         );
-        Self {
+        Ok(Self {
             inputs,
             finalization,
-        }
+        })
     }
 
     pub(super) fn finalize_module(
@@ -331,19 +373,17 @@ impl BackendFinalizationTaskContext {
         position: usize,
         module_id: ModuleId,
         module_plan: nia_backend_lower::BackendModuleItemPlan,
-    ) -> nia_backend_lower::BackendModuleFinalization {
-        let inputs = self
-            .inputs
-            .semantic
-            .as_ref()
-            .expect("Nia ICE: backend finalization task requires valid lowering inputs");
-        let input = inputs.module_input(position);
-        assert_eq!(
-            input.module_id, module_id,
-            "Nia ICE: backend finalization task position must match module owner"
-        );
-        self.finalization
-            .finalize_module(position, &input, module_plan)
+    ) -> QueryResult<nia_backend_lower::BackendModuleFinalization> {
+        let input = self.inputs.module_input(position)?;
+        if input.module_id != module_id {
+            return Err(QueryError::internal(format!(
+                "backend finalization task position {position} belongs to {:?}, not {module_id:?}",
+                input.module_id
+            )));
+        }
+        Ok(self
+            .finalization
+            .finalize_module(position, &input, module_plan)?)
     }
 }
 

@@ -287,7 +287,8 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         function_instance_plan: &function_instance_plan,
         program: &program,
     };
-    let lowering = lower_backend_program(&[input], &type_store, optimization);
+    let lowering = lower_backend_program(&[input], &type_store, optimization)
+        .expect("lower backend test program");
     TestBackendLowering {
         lowering,
         module_id,

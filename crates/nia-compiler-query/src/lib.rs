@@ -80,7 +80,7 @@ pub struct BackendFinalizationSchedule<'borrow, 'stream, 'executor> {
         'executor,
         nia_query::QueryResult<nia_backend_lower::BackendModuleFinalization>,
     >,
-    collector: Option<nia_backend_lower::BackendModuleFinalizationCollector>,
+    collector: nia_backend_lower::BackendModuleFinalizationCollector,
     readiness: nia_backend_ir::BackendModuleReadiness,
 }
 
@@ -96,25 +96,19 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
         let readiness = collector.take_readiness();
         Self {
             completions,
-            collector: Some(collector),
+            collector,
             readiness,
         }
     }
 
     /// Returns the shared store receiving finalized modules.
     pub fn module_store(&self) -> std::sync::Arc<nia_backend_ir::BackendModuleStore> {
-        self.collector
-            .as_ref()
-            .expect("backend finalization collector")
-            .module_store()
+        self.collector.module_store()
     }
 
     /// Returns the module-to-owner directory used during publication.
     pub fn owner_directory(&self) -> std::sync::Arc<nia_backend_ir::BackendModuleOwnerDirectory> {
-        self.collector
-            .as_ref()
-            .expect("backend finalization collector")
-            .owner_directory()
+        self.collector.owner_directory()
     }
 
     /// Waits for and publishes the next completed backend module.
@@ -125,30 +119,25 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
             return Ok(None);
         };
         let finalization = finalization?;
-        self.collector
-            .as_mut()
-            .expect("backend finalization collector")
-            .push(position, finalization);
-        let ready = self
-            .readiness
-            .wait_next()
-            .expect("backend finalization publication must produce readiness");
-        assert_eq!(
-            ready.position(),
-            position,
-            "Nia ICE: backend readiness must match query completion position"
-        );
+        self.collector.push(position, finalization)?;
+        let Some(ready) = self.readiness.wait_next() else {
+            return Err(nia_query::QueryError::internal(
+                "backend finalization publication did not produce readiness",
+            ));
+        };
+        if ready.position() != position {
+            return Err(nia_query::QueryError::internal(format!(
+                "backend readiness position {} does not match query completion position {position}",
+                ready.position()
+            )));
+        }
         Ok(Some(ready))
     }
 
     /// Drains remaining completions and returns the complete lowering product.
     pub fn finish(mut self) -> nia_query::QueryResult<BackendLowering> {
         while self.wait_next()?.is_some() {}
-        Ok(self
-            .collector
-            .take()
-            .expect("backend finalization collector")
-            .finish())
+        Ok(self.collector.finish()?)
     }
 }
 

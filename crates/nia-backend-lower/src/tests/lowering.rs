@@ -341,7 +341,8 @@ fn main() i32 {
     let planned_globals = plan.modules()[0].module().globals.as_ptr();
     let (finalization, module_plans) = plan.into_module_plans();
     let lowering =
-        finalize_backend_module_item_plans(&inputs, &type_store, finalization, module_plans);
+        finalize_backend_module_item_plans(&inputs, &type_store, finalization, module_plans)
+            .expect("finalize backend module item plans");
     assert!(
         lowering.diagnostics.is_empty(),
         "{:?}",

@@ -337,7 +337,7 @@ pub(in crate::query) fn provide_backend_item_plan(
         let optimization = *db.get(CompilerOptimizationQuery)?;
         match inputs.semantic.as_ref() {
             Some(inputs) => {
-                let module_inputs = inputs.module_inputs();
+                let module_inputs = inputs.module_inputs()?;
                 Ok(nia_backend_lower::plan_backend_program_with_timings(
                     &module_inputs,
                     &db.context().type_store,
@@ -356,12 +356,12 @@ pub(in crate::query) fn provide_backend_item_plan(
 pub(in crate::query) fn provide_backend_finalization_task_context(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<BackendFinalizationTaskContext> {
-    Ok(BackendFinalizationTaskContext::new(
+    BackendFinalizationTaskContext::new(
         db.get(BackendLoweringInputsQuery)?,
         Arc::clone(&db.context().type_store),
         *db.get(CompilerOptimizationQuery)?,
         db.context().timings(),
-    ))
+    )
 }
 
 pub(in crate::query) fn provide_backend_module_finalization(
@@ -370,7 +370,7 @@ pub(in crate::query) fn provide_backend_module_finalization(
 ) -> QueryResult<nia_backend_lower::BackendModuleFinalization> {
     let context = db.get(BackendFinalizationTaskContextQuery)?;
     let module_plan = db.get_owned(BackendModuleItemPlanQuery(key.module_id))?;
-    Ok(context.finalize_module(key.position, key.module_id, module_plan))
+    context.finalize_module(key.position, key.module_id, module_plan)
 }
 
 fn provide_backend_lowering_inner(
@@ -426,7 +426,7 @@ pub(in crate::query) fn with_backend_finalization_schedule<R>(
             finalization,
             module_plans,
             db.context().timings(),
-        );
+        )?;
         return Ok(consume(Err(lowering)));
     }
     let result = db.with_many_owned_completion(
@@ -639,9 +639,9 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                 functions,
             })
         },
-    );
+    )?;
     Ok(ProgramBackendLoweringInputs {
-        semantic: Some(inputs),
+        semantic: Some(Arc::new(inputs)),
         diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
     })
 }

@@ -13,6 +13,24 @@ fn module_finalization_task_contract_is_send_and_sync() {
 }
 
 #[test]
+fn collector_reports_missing_module_completion() {
+    let module_id = ModuleIdAllocator::new().allocate();
+    let finalization = BackendItemPlanFinalization {
+        optimization: OptimizationPolicy::default(),
+        optimization_report: BackendOptimizationReport::default(),
+        diagnostics: Vec::new(),
+        owner_directory: Arc::new(nia_backend_ir::BackendModuleOwnerDirectory::default()),
+    };
+    let collector = BackendModuleFinalizationCollector::new(finalization, &[module_id]);
+
+    let error = collector
+        .finish()
+        .expect_err("missing module completion must fail finalization");
+
+    assert!(error.message.contains("report 0 was not collected"));
+}
+
+#[test]
 fn module_finalizations_merge_in_program_order() {
     fn empty_module(id: ModuleId, name: &str) -> BackendModule {
         BackendModule {
@@ -96,7 +114,9 @@ fn module_finalizations_merge_in_program_order() {
     let mut readiness = collector.take_readiness();
     for module_finalization in completed_in_reverse_order {
         let position = module_finalization.position;
-        collector.push(position, module_finalization);
+        collector
+            .push(position, module_finalization)
+            .expect("publish completed backend module");
     }
     let second_ready = readiness.wait_next().expect("second completion");
     assert_eq!(second_ready.position(), 1);
@@ -114,7 +134,7 @@ fn module_finalizations_merge_in_program_order() {
     );
     let first_ptr = module_store.get(first).expect("published first module")
         as *const nia_backend_ir::BackendModule;
-    let lowering = collector.finish();
+    let lowering = collector.finish().expect("finish backend lowering");
 
     assert_eq!(
         &lowering.program.modules[0] as *const nia_backend_ir::BackendModule,

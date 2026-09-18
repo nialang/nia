@@ -238,6 +238,7 @@ dependencies = [
  "nia-function-ir",
  "nia-function-lower",
  "nia-function-opt",
+ "nia-ice",
  "nia-ids",
  "nia-item-signatures",
  "nia-item-tree",
