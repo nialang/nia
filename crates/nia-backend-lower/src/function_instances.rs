@@ -144,14 +144,16 @@ impl<'a> ModuleLowerer<'a> {
             let Some(name) = self.def_symbol_name(instance.def_id) else {
                 continue;
             };
-            let symbol = self.mangle_contextual_instance_symbol(
+            let Some(symbol) = self.mangle_contextual_instance_symbol(
                 instance.def_id,
                 name,
                 instance.arg_module_id,
                 self_arg,
                 &args,
                 &const_args,
-            );
+            ) else {
+                continue;
+            };
             let Some(instance_index) = self.lower_planned_function_instance(
                 &mut functions_by_def,
                 &mut seen,
@@ -620,7 +622,7 @@ impl<'a> ModuleLowerer<'a> {
                     let signature_ty =
                         self.instantiate_ty_with_id(signature_ty, identity_substitution_id);
                     let param_local = param_locals.get(index).copied();
-                    let local_ty = if param.receiver.is_some() {
+                    let local_ty = if let Some(receiver) = param.receiver {
                         param_local
                             .map(|(_, ty)| self.normalized_type_from_module(def_id.module_id, ty))
                             .or_else(|| {
@@ -633,10 +635,7 @@ impl<'a> ModuleLowerer<'a> {
                                             source.module_id,
                                             source.target_ty,
                                         );
-                                        self.receiver_local_ty_for_target(
-                                            param.receiver.expect("receiver checked above"),
-                                            target_ty,
-                                        )
+                                        self.receiver_local_ty_for_target(receiver, target_ty)
                                     })
                             })
                             .unwrap_or(signature_ty)

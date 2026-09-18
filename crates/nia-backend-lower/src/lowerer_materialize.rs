@@ -397,7 +397,7 @@ impl ModuleLowerer<'_> {
                 arg_module_id,
                 &args,
                 &const_args,
-            ),
+            )?,
             ty,
             is_let: !signature.is_mutable,
             init,

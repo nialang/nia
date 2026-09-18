@@ -330,9 +330,7 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Atomic(atomic) => {
                 self.collect_trait_object_vtables_from_atomic(atomic, out, seen);
             }
-            FunctionExprKind::Error => {
-                crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
-            }
+            FunctionExprKind::Error => {}
             FunctionExprKind::EnumVariant { fields, .. } => {
                 for field in fields {
                     self.collect_trait_object_vtables_from_expr(field, out, seen);
@@ -439,9 +437,7 @@ impl<'a> ModuleLowerer<'a> {
             nia_function_ir::FunctionPlaceBase::Local(_)
             | nia_function_ir::FunctionPlaceBase::Global(_)
             | nia_function_ir::FunctionPlaceBase::GlobalInstance { .. } => {}
-            nia_function_ir::FunctionPlaceBase::Error => {
-                crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
-            }
+            nia_function_ir::FunctionPlaceBase::Error => {}
         }
         for elem in &place.elems {
             if let nia_function_ir::FunctionPlaceElem::Index(expr) = elem {
@@ -525,13 +521,8 @@ impl<'a> ModuleLowerer<'a> {
         {
             return;
         }
+        expanded.push(visit_key.clone());
         visiting.push(visit_key);
-        expanded.push(
-            visiting
-                .last()
-                .expect("just pushed vtable instance")
-                .clone(),
-        );
         let nia_ids::TraitId::Source(source_trait_id) = trait_instance.trait_id else {
             visiting.pop();
             return;

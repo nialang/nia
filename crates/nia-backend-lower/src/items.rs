@@ -588,10 +588,7 @@ fn simplify_static_init(init: StaticInit) -> (StaticInit, bool) {
                 let Some(count) = u64::try_from(elems.len()).ok() else {
                     return (StaticInit::Array(elems), changed);
                 };
-                let first = elems
-                    .into_iter()
-                    .next()
-                    .expect("uniform static initializer array must be non-empty");
+                let first = first.clone();
                 (
                     StaticInit::Repeat {
                         value: Box::new(first),

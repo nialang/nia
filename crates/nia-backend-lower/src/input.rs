@@ -80,10 +80,6 @@ fn validate_closure_entries(
     }
 }
 
-pub(crate) fn unreachable_invalid_function_ir(node: &'static str) -> ! {
-    panic!("Nia ICE: invalid function IR reached backend lowering pass: {node}");
-}
-
 fn validate_function_bodies<'a>(
     bodies: impl IntoIterator<Item = (GlobalDefId, &'a nia_function_ir::FunctionBody)>,
     validated: &mut HashSet<GlobalDefId>,

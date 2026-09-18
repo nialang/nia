@@ -91,7 +91,7 @@ impl ModuleLowerer<'_> {
     fn mangle_instance_symbol_with_context(
         &mut self,
         request: InstanceSymbolRequest<'_>,
-    ) -> String {
+    ) -> Option<String> {
         let InstanceSymbolRequest {
             def_id,
             name,
@@ -106,12 +106,27 @@ impl ModuleLowerer<'_> {
         let const_expr_summaries = &self.input.type_lowering.const_expr_summaries;
         let const_array_lengths = self.input.const_array_lengths;
         let source_identities = &self.shared.source_identities;
-        let package = self
+        let Some(package) = self
             .shared
             .symbol_package_identities
             .get(&def_id.module_id)
             .cloned()
-            .expect("Nia ICE: backend definition is missing package symbol identity");
+        else {
+            if self
+                .missing_package_identity_diagnostics
+                .insert(def_id.module_id)
+            {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    nia_span::Span::default(),
+                    format!(
+                        "missing package identity for mangled module {:?}",
+                        def_id.module_id
+                    ),
+                ));
+            }
+            return None;
+        };
         let self_arg = self_arg.map(|ty| self.normalize_instance_arg_type(ty));
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
         let mut missing_source_identities = HashSet::new();
@@ -182,7 +197,7 @@ impl ModuleLowerer<'_> {
                 &mut self.missing_source_identity_diagnostics,
             );
         }
-        symbol
+        Some(symbol)
     }
 
     pub(crate) fn mangle_function_instance_symbol(
@@ -192,7 +207,7 @@ impl ModuleLowerer<'_> {
         self_arg: Option<InternedTyId>,
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
-    ) -> String {
+    ) -> Option<String> {
         self.mangle_instance_symbol_with_context(InstanceSymbolRequest {
             def_id,
             name,
@@ -210,7 +225,7 @@ impl ModuleLowerer<'_> {
         name: SymbolId,
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
-    ) -> String {
+    ) -> Option<String> {
         self.mangle_instance_symbol_with_context(InstanceSymbolRequest {
             def_id,
             name,
@@ -230,7 +245,7 @@ impl ModuleLowerer<'_> {
         self_arg: Option<InternedTyId>,
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
-    ) -> String {
+    ) -> Option<String> {
         let source_identity = self.shared.source_identities.get(&arg_module_id);
         if source_identity.is_none() {
             record_missing_source_identity(
@@ -260,7 +275,7 @@ impl ModuleLowerer<'_> {
         arg_module_id: ModuleId,
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
-    ) -> String {
+    ) -> Option<String> {
         let source_identity = self.shared.source_identities.get(&arg_module_id);
         if source_identity.is_none() {
             record_missing_source_identity(

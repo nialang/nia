@@ -49,6 +49,7 @@ impl<'a> ModuleLowerer<'a> {
             optimization_report: BackendOptimizationReport::default(),
             missing_array_len_diagnostics: HashSet::new(),
             missing_source_identity_diagnostics: HashSet::new(),
+            missing_package_identity_diagnostics: HashSet::new(),
             missing_type_diagnostics: HashSet::new(),
             extension_generics_by_method,
             extension_method_sources_by_def,
@@ -283,13 +284,15 @@ impl<'a> ModuleLowerer<'a> {
             if !function.generics.is_empty() || function.function_body.is_none() {
                 continue;
             }
-            let owner_symbol = self.mangle_function_instance_symbol(
+            let Some(owner_symbol) = self.mangle_function_instance_symbol(
                 function.def_id,
                 function.name,
                 None,
                 &[],
                 &[],
-            );
+            ) else {
+                continue;
+            };
             for entry in self.input.program.closure_entries(function.def_id) {
                 if let Some(lowered_entry) = self.materialize_closure_entry(
                     entry,
