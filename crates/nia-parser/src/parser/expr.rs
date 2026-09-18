@@ -693,7 +693,10 @@ impl Parser {
 
     fn parse_primary_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
         if let Some(expr) = self.parse_omitted_constructor() {
-            if matches!(expr.kind, ExprKind::OmittedMember { .. }) && self.at(TokenKind::LBrace) {
+            if matches!(expr.kind, ExprKind::OmittedMember { .. })
+                && self.at(TokenKind::LBrace)
+                && !stops.contains(&TokenKind::LBrace)
+            {
                 self.expect(
                     TokenKind::LBrace,
                     "expected `{` before omitted named payload",

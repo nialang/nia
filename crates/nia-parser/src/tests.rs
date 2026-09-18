@@ -8,6 +8,8 @@ mod associated_syntax;
 mod control_flow;
 #[path = "tests/diagnostics.rs"]
 mod diagnostics;
+#[path = "tests/enum_conditions.rs"]
+mod enum_conditions;
 #[path = "tests/expressions_and_types.rs"]
 mod expressions_and_types;
 #[path = "tests/items_and_imports.rs"]

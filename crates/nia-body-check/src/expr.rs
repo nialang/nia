@@ -1641,6 +1641,32 @@ impl<'a> BodyChecker<'a> {
             return self.error();
         };
         let output_is_boolean = builtin_trait_output_is_boolean(trait_id);
+
+        // An omitted enum member has no standalone type. In a comparison the
+        // other operand supplies that type, so check it first when the member
+        // appears on the left-hand side. This keeps `.Variant == value`
+        // symmetric with `value == .Variant` without guessing when both sides
+        // are omitted.
+        if matches!(op, BinaryOp::Eq | BinaryOp::Ne)
+            && matches!(lhs.kind, ExprKind::OmittedMember { .. })
+            && !matches!(rhs.kind, ExprKind::OmittedMember { .. })
+        {
+            let rhs_actual = self.check_expr(rhs);
+            let rhs_ty = self.expr_ty(rhs).unwrap_or(rhs_actual);
+            let lhs_actual = self.check_expr_with_expected(lhs, Some(rhs_ty));
+            self.expect_expr_type(lhs, rhs_ty, lhs_actual, "binary operator");
+            return self.finish_builtin_operator_expr(BuiltinOperatorFinish {
+                span,
+                trait_id,
+                op: BuiltinOperatorOp::Binary(op),
+                lhs,
+                lhs_actual,
+                rhs,
+                rhs_actual,
+                expected,
+            });
+        }
+
         let mut prechecked_rhs = None;
         if self.is_untyped_numeric_literal_expr(lhs) && !self.is_numeric_literal_expr(rhs) {
             let rhs_actual = self.check_expr(rhs);
@@ -1675,7 +1701,10 @@ impl<'a> BodyChecker<'a> {
             self.expect_expr_type(lhs, expected, lhs_actual, "binary operator");
         }
         let lhs_ty = self.expr_ty(lhs).unwrap_or(lhs_actual);
-        let rhs_expected = if self.is_numeric_literal_expr(rhs) {
+        let rhs_expected = if self.is_numeric_literal_expr(rhs)
+            || (matches!(op, BinaryOp::Eq | BinaryOp::Ne)
+                && matches!(rhs.kind, ExprKind::OmittedMember { .. }))
+        {
             Some(lhs_ty)
         } else {
             None
