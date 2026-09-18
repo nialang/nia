@@ -109,8 +109,8 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
         options: LlvmCodegenOptions,
         cache: Option<Arc<dyn ObjectWorkProductCache>>,
         session: &'session QuerySession,
-    ) -> Self {
-        Self {
+    ) -> nia_ice::IceResult<Self> {
+        Ok(Self {
             coordinator: CodegenReadinessCoordinator::new(modules, type_store, owners),
             options,
             cache,
@@ -119,8 +119,8 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
             internal_diagnostics: Vec::new(),
             reuse_counts: ObjectReuseCounts::default(),
             partition_count: 0,
-            tasks: session.task_pool(nia_query::llvm_memory_task_capacity()),
-        }
+            tasks: session.task_pool(nia_query::llvm_memory_task_capacity())?,
+        })
     }
 
     /// Publishes one finalized module and schedules every newly ready partition.
@@ -253,16 +253,16 @@ impl<'session> LlvmIrReadinessEmitter<'session> {
         owners: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
         options: LlvmCodegenOptions,
         session: &'session QuerySession,
-    ) -> Self {
-        Self {
+    ) -> nia_ice::IceResult<Self> {
+        Ok(Self {
             coordinator: CodegenReadinessCoordinator::new(modules, type_store, owners),
             options,
             outputs: Vec::new(),
             partition_diagnostics: Vec::new(),
             internal_diagnostics: Vec::new(),
             partition_count: 0,
-            tasks: session.task_pool(nia_query::llvm_memory_task_capacity()),
-        }
+            tasks: session.task_pool(nia_query::llvm_memory_task_capacity())?,
+        })
     }
 
     /// Publishes one finalized module and schedules every newly ready partition.
