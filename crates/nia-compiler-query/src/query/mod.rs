@@ -1476,7 +1476,10 @@ impl CompilerDatabase {
                     .loader_facts()
                     .loaded_module_source_identities()?,
             );
-            invalidation.extend(self.db.validate_input(LoadedModulesQuery, &loaded_modules));
+            invalidation.extend(
+                self.db
+                    .validate_input(LoadedModulesQuery, &loaded_modules)?,
+            );
             if handle_generation_changed {
                 *self
                     .db
@@ -1532,7 +1535,7 @@ impl CompilerDatabase {
         let provider_worklist = self.db.context().provider_fact_worklist()?;
         invalidation.extend(
             self.db
-                .validate_input(ProviderFactWorklistQuery, &provider_worklist),
+                .validate_input(ProviderFactWorklistQuery, &provider_worklist)?,
         );
         if optimization_changed {
             invalidation.extend(self.db.invalidate(CompilerOptimizationQuery));
