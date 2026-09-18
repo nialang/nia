@@ -1064,7 +1064,7 @@ mod tests {
         let program = BackendProgram::new(modules);
         let partition = caller_partition(&program, caller);
         let (index, mut publisher) = ProgramIndex::new(program.module_store(), Arc::new(types));
-        publisher.publish(caller);
+        publisher.publish(caller).expect("publish module");
 
         let pending = match CodegenDeclarationMembership::build(&partition, &index, &owners) {
             CodegenDeclarationMembershipBuild::Pending(pending) => pending,
@@ -1080,7 +1080,7 @@ mod tests {
         assert!(!pending.modules().contains(&semantic_owner));
         assert!(!pending.modules().contains(&unrelated));
 
-        publisher.publish(actual_owner);
+        publisher.publish(actual_owner).expect("publish module");
         let ready = match CodegenDeclarationMembership::build(&partition, &index, &owners) {
             CodegenDeclarationMembershipBuild::Ready(ready) => ready,
             CodegenDeclarationMembershipBuild::Pending(pending) => {
@@ -1160,7 +1160,7 @@ mod tests {
             ordinal: 0,
         };
         let (index, mut publisher) = ProgramIndex::new(program.module_store(), Arc::new(types));
-        publisher.publish(caller);
+        publisher.publish(caller).expect("publish module");
 
         let result = {
             let mut builder = MembershipBuilder::new(&index, &owners);
@@ -1205,7 +1205,7 @@ mod tests {
         let owners = BackendModuleOwnerDirectory::from_modules([&module]);
         let program = BackendProgram::new(vec![module]);
         let (index, mut publisher) = ProgramIndex::new(program.module_store(), Arc::new(types));
-        publisher.publish(module_id);
+        publisher.publish(module_id).expect("publish module");
         let result = {
             let mut builder = MembershipBuilder::new(&index, &owners);
             builder.add_type(nominal);
@@ -1267,8 +1267,8 @@ mod tests {
         let program = BackendProgram::new(modules);
         let partition = caller_partition(&program, caller);
         let (index, mut publisher) = ProgramIndex::new(program.module_store(), Arc::new(types));
-        publisher.publish(caller);
-        publisher.publish(instance_owner);
+        publisher.publish(caller).expect("publish module");
+        publisher.publish(instance_owner).expect("publish module");
 
         let pending = match CodegenDeclarationMembership::build(&partition, &index, &owners) {
             CodegenDeclarationMembershipBuild::Pending(pending) => pending,
@@ -1321,7 +1321,7 @@ mod tests {
         let program = BackendProgram::new(vec![module]);
         let store = program.module_store();
         let (index, mut publisher) = ProgramIndex::new(store, Arc::new(types));
-        publisher.publish(module_id);
+        publisher.publish(module_id).expect("publish module");
 
         assert_ne!(
             stable_type_key(&index, left),
@@ -1403,7 +1403,7 @@ mod tests {
         let program = BackendProgram::new(modules);
         let partition = caller_partition(&program, vtable_owner);
         let (index, mut publisher) = ProgramIndex::new(program.module_store(), Arc::new(types));
-        publisher.publish(caller);
+        publisher.publish(caller).expect("publish module");
 
         let build = |index: &ProgramIndex| {
             let mut builder = MembershipBuilder::new(index, &owners);
@@ -1429,7 +1429,7 @@ mod tests {
         };
         assert_eq!(pending.modules(), &[vtable_owner]);
 
-        publisher.publish(vtable_owner);
+        publisher.publish(vtable_owner).expect("publish module");
         let pending = match build(&index) {
             CodegenDeclarationMembershipBuild::Pending(pending) => pending,
             CodegenDeclarationMembershipBuild::Ready(_) => {
@@ -1441,7 +1441,7 @@ mod tests {
         };
         assert_eq!(pending.modules(), &[function_owner]);
 
-        publisher.publish(function_owner);
+        publisher.publish(function_owner).expect("publish module");
         let ready = match build(&index) {
             CodegenDeclarationMembershipBuild::Ready(ready) => ready,
             CodegenDeclarationMembershipBuild::Pending(pending) => {
@@ -1477,8 +1477,8 @@ mod tests {
         ]);
         let partition = caller_partition(&program, caller);
         let (index, mut publisher) = ProgramIndex::new(program.module_store(), Arc::new(types));
-        publisher.publish(caller);
-        publisher.publish(actual_owner);
+        publisher.publish(caller).expect("publish module");
+        publisher.publish(actual_owner).expect("publish module");
 
         let result = CodegenDeclarationMembership::build(&partition, &index, &owners);
         let CodegenDeclarationMembershipBuild::Invalid { diagnostics } = result else {
@@ -1496,7 +1496,7 @@ mod tests {
         let program = BackendProgram::new(vec![module]);
         let (index, mut publisher) =
             ProgramIndex::new(program.module_store(), Arc::new(TypeStore::new()));
-        publisher.publish(module_id);
+        publisher.publish(module_id).expect("publish module");
         let mut builder = MembershipBuilder::new(&index, &owners);
         let refs = FunctionBodyRefs {
             invalid_ir: true,
@@ -1524,7 +1524,7 @@ mod tests {
         let program = BackendProgram::new(vec![module]);
         let (index, mut publisher) =
             ProgramIndex::new(program.module_store(), Arc::new(TypeStore::new()));
-        publisher.publish(module_id);
+        publisher.publish(module_id).expect("publish module");
         let mut builder = MembershipBuilder::new(&index, &owners);
         builder.function_instances.insert(FunctionInstanceKey {
             def_id: GlobalDefId {

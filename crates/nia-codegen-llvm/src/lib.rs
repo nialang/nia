@@ -128,8 +128,8 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
     /// Readiness tokens are single-use ownership events from the associated
     /// module store. Publishing the same module twice is an internal contract
     /// violation.
-    pub fn publish(&mut self, ready: nia_backend_ir::BackendModuleReady) {
-        for preparation in self.coordinator.publish(ready.module_id()) {
+    pub fn publish(&mut self, ready: nia_backend_ir::BackendModuleReady) -> nia_ice::IceResult<()> {
+        for preparation in self.coordinator.publish(ready.module_id())? {
             self.partition_count += 1;
             match preparation {
                 CodegenPartitionPreparation::Ready(prepared) => {
@@ -137,7 +137,7 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
                     let index = Arc::clone(&self.coordinator.index);
                     let options = self.options;
                     let cache = self.cache.clone();
-                    if let Err(ice) = self.tasks.submit(move || {
+                    self.tasks.submit(move || {
                         let outcome = emit_native_object_partition(
                             prepared,
                             index,
@@ -145,10 +145,7 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
                             cache.as_deref(),
                         );
                         (key, outcome)
-                    }) {
-                        self.internal_diagnostics
-                            .push(nia_diagnostic::Diagnostic::from(ice));
-                    }
+                    })?;
                 }
                 CodegenPartitionPreparation::Invalid {
                     partition,
@@ -158,6 +155,7 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
                     .push((partition.key, diagnostics)),
             }
         }
+        Ok(())
     }
 
     /// Waits for scheduled work and returns deterministically ordered objects.
@@ -165,8 +163,8 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
     /// This must be called only after every module readiness token has been
     /// published. Invalid units are omitted from `link_inputs` and represented
     /// in the returned diagnostics.
-    pub fn finish(mut self) -> LlvmObjectOutput {
-        let index = self.coordinator.finish();
+    pub fn finish(mut self) -> nia_ice::IceResult<LlvmObjectOutput> {
+        let index = self.coordinator.finish()?;
         let builtin_symbols = compiler_builtins::required_symbols(&index);
         let program_diagnostics = validate_native_backend_program(&index, builtin_symbols);
         let worker_lanes = self.partition_count.min(self.tasks.capacity());
@@ -235,10 +233,10 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
             nia_timing::emit_counter("llvm.ready_task_submissions", self.partition_count as u64);
             self.reuse_counts.emit();
         }
-        LlvmObjectOutput {
+        Ok(LlvmObjectOutput {
             link_inputs: IncrementalLinkInputs::new(self.outputs),
             diagnostics,
-        }
+        })
     }
 }
 
@@ -270,21 +268,18 @@ impl<'session> LlvmIrReadinessEmitter<'session> {
     /// Readiness tokens are single-use ownership events from the associated
     /// module store. Publishing the same module twice is an internal contract
     /// violation.
-    pub fn publish(&mut self, ready: nia_backend_ir::BackendModuleReady) {
-        for preparation in self.coordinator.publish(ready.module_id()) {
+    pub fn publish(&mut self, ready: nia_backend_ir::BackendModuleReady) -> nia_ice::IceResult<()> {
+        for preparation in self.coordinator.publish(ready.module_id())? {
             self.partition_count += 1;
             match preparation {
                 CodegenPartitionPreparation::Ready(prepared) => {
                     let key = prepared.partition.key.clone();
                     let index = Arc::clone(&self.coordinator.index);
                     let options = self.options;
-                    if let Err(ice) = self.tasks.submit(move || {
+                    self.tasks.submit(move || {
                         let outcome = emit_llvm_ir_partition(prepared, index, options);
                         (key, outcome)
-                    }) {
-                        self.internal_diagnostics
-                            .push(nia_diagnostic::Diagnostic::from(ice));
-                    }
+                    })?;
                 }
                 CodegenPartitionPreparation::Invalid {
                     partition,
@@ -294,6 +289,7 @@ impl<'session> LlvmIrReadinessEmitter<'session> {
                     .push((partition.key, diagnostics)),
             }
         }
+        Ok(())
     }
 
     /// Waits for scheduled work and returns deterministically ordered IR units.
@@ -301,8 +297,8 @@ impl<'session> LlvmIrReadinessEmitter<'session> {
     /// This must be called only after every module readiness token has been
     /// published. Invalid units are omitted from `modules` and represented in
     /// the returned diagnostics.
-    pub fn finish(mut self) -> LlvmCodegenOutput {
-        let index = self.coordinator.finish();
+    pub fn finish(mut self) -> nia_ice::IceResult<LlvmCodegenOutput> {
+        let index = self.coordinator.finish()?;
         let program_diagnostics = validate_backend_program(&index);
         let worker_lanes = self.partition_count.min(self.tasks.capacity());
         let task_outcomes = match self.tasks.finish() {
@@ -350,10 +346,10 @@ impl<'session> LlvmIrReadinessEmitter<'session> {
             );
             nia_timing::emit_counter("llvm.ready_task_submissions", self.partition_count as u64);
         }
-        LlvmCodegenOutput {
+        Ok(LlvmCodegenOutput {
             modules: self.outputs,
             diagnostics,
-        }
+        })
     }
 }
 
@@ -395,9 +391,18 @@ fn emit_llvm_ir_with_options_inner(
         .validate_program(&lowering.program);
     let module_store = lowering.program.module_store();
     let owners = Arc::clone(&lowering.owner_directory);
-    let (index, preparations) = time_codegen_stage(timings, "llvm_codegen.program_index", || {
-        prepare_complete_codegen(module_store, type_store, owners)
-    });
+    let (index, preparations) =
+        match time_codegen_stage(timings, "llvm_codegen.program_index", || {
+            prepare_complete_codegen(module_store, type_store, owners)
+        }) {
+            Ok(value) => value,
+            Err(ice) => {
+                return LlvmCodegenOutput {
+                    modules: Vec::new(),
+                    diagnostics: vec![nia_diagnostic::Diagnostic::from(ice)],
+                };
+            }
+        };
     let program_diagnostics = validate_backend_program(&index);
     if !program_diagnostics.is_empty() {
         return LlvmCodegenOutput {
@@ -498,9 +503,18 @@ fn emit_native_objects_inner(
         .validate_program(&lowering.program);
     let module_store = lowering.program.module_store();
     let owners = Arc::clone(&lowering.owner_directory);
-    let (index, preparations) = time_codegen_stage(timings, "llvm_codegen.program_index", || {
-        prepare_complete_codegen(module_store, type_store, owners)
-    });
+    let (index, preparations) =
+        match time_codegen_stage(timings, "llvm_codegen.program_index", || {
+            prepare_complete_codegen(module_store, type_store, owners)
+        }) {
+            Ok(value) => value,
+            Err(ice) => {
+                return LlvmObjectOutput {
+                    link_inputs: IncrementalLinkInputs::new(Vec::new()),
+                    diagnostics: vec![nia_diagnostic::Diagnostic::from(ice)],
+                };
+            }
+        };
     let builtin_symbols = compiler_builtins::required_symbols(&index);
     let program_diagnostics = validate_native_backend_program(&index, builtin_symbols);
     if !program_diagnostics.is_empty() {
@@ -601,15 +615,15 @@ fn prepare_complete_codegen(
     modules: Arc<nia_backend_ir::BackendModuleStore>,
     type_store: Arc<TypeStore>,
     owners: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
-) -> (Arc<ProgramIndex>, Vec<CodegenPartitionPreparation>) {
+) -> nia_ice::IceResult<(Arc<ProgramIndex>, Vec<CodegenPartitionPreparation>)> {
     let module_ids = modules.module_ids().to_vec();
     let mut coordinator = CodegenReadinessCoordinator::new(modules, type_store, owners);
     let mut preparations = Vec::new();
     for module_id in module_ids {
-        preparations.extend(coordinator.publish(module_id));
+        preparations.extend(coordinator.publish(module_id)?);
     }
     preparations.sort_unstable_by(|left, right| left.key().cmp(right.key()));
-    (coordinator.finish(), preparations)
+    Ok((coordinator.finish()?, preparations))
 }
 
 fn validate_declaration_module(

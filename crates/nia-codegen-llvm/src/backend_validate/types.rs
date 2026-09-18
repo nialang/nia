@@ -958,8 +958,8 @@ mod tests {
         store.publish(left);
         store.publish(right);
         let (index, mut publisher) = ProgramIndex::new(store, Arc::new(type_store));
-        publisher.publish(left_module);
-        publisher.publish(right_module);
+        publisher.publish(left_module).expect("publish module");
+        publisher.publish(right_module).expect("publish module");
         let validator = BackendValidator::new(&index, TargetDataLayout::LP64);
         let left_arg = nia_ty::ConstGenericArg {
             ty: left_ty,

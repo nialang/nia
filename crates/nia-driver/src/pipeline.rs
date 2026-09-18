@@ -825,7 +825,9 @@ impl Driver {
                     while let Some(ready) = schedule.wait_next().map_err(|error| {
                         DriverError::InternalDiagnostic(query_error_diagnostic(error))
                     })? {
-                        emitter.publish(ready);
+                        emitter.publish(ready).map_err(|error| {
+                            DriverError::InternalDiagnostic(Diagnostic::from(error))
+                        })?;
                     }
                     let lowering = schedule.finish().map_err(|error| {
                         DriverError::InternalDiagnostic(query_error_diagnostic(error))
@@ -840,7 +842,9 @@ impl Driver {
                         .map(|module| module.functions.len() + module.function_instances.len())
                         .sum();
                     Ok((
-                        emitter.finish(),
+                        emitter.finish().map_err(|error| {
+                            DriverError::InternalDiagnostic(Diagnostic::from(error))
+                        })?,
                         reachable_body_count,
                         lowering.optimization_report,
                     ))
@@ -1040,7 +1044,9 @@ impl Driver {
                     while let Some(ready) = schedule.wait_next().map_err(|error| {
                         DriverError::InternalDiagnostic(query_error_diagnostic(error))
                     })? {
-                        emitter.publish(ready);
+                        emitter.publish(ready).map_err(|error| {
+                            DriverError::InternalDiagnostic(Diagnostic::from(error))
+                        })?;
                     }
                     let lowering = schedule.finish().map_err(|error| {
                         DriverError::InternalDiagnostic(query_error_diagnostic(error))
@@ -1055,7 +1061,9 @@ impl Driver {
                         .map(|module| module.functions.len() + module.function_instances.len())
                         .sum();
                     Ok((
-                        emitter.finish(),
+                        emitter.finish().map_err(|error| {
+                            DriverError::InternalDiagnostic(Diagnostic::from(error))
+                        })?,
                         reachable_body_count,
                         lowering.optimization_report,
                     ))

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, OnceLock, RwLock},
+    sync::{Arc, OnceLock},
 };
 
 #[cfg(test)]
@@ -16,6 +16,7 @@ use nia_layout::{StructLayout, TypeLayout};
 use nia_ty::{
     ArrayLenTy, ConstGenericArg, ConstGenericValue, TraitId, TyKind, TypeEquivalence, TypeStore,
 };
+use parking_lot::RwLock;
 
 type InstanceArgs = (Vec<InternedTyId>, Vec<ConstGenericArg>);
 type AggregateInstanceIndex = HashMap<GlobalDefId, HashMap<InstanceArgs, ItemPosition>>;
@@ -229,7 +230,7 @@ impl ProgramIndex {
         if let Some(tables) = self.frozen_tables.get() {
             return Arc::clone(tables);
         }
-        Arc::clone(&self.tables.read().expect("program index lock poisoned"))
+        Arc::clone(&self.tables.read())
     }
 
     fn item_owner(position: ItemPosition) -> ModuleId {
@@ -301,18 +302,14 @@ impl ProgramIndex {
                 panic!("Nia ICE: compiler builtins partition has no backend module")
             }
         };
-        assert!(
-            self.is_published(module_id),
-            "Nia ICE: codegen partition references an unindexed backend module"
-        );
+        assert!(self.is_published(module_id));
         let module = self.module_at(module_id);
         assert_eq!(
             partition.key,
             CodegenUnitKey::SourceModule {
                 source_identity: module.source_identity.clone(),
                 ordinal,
-            },
-            "Nia ICE: codegen partition stable key does not match its backend module"
+            }
         );
         module
     }
@@ -320,31 +317,27 @@ impl ProgramIndex {
     fn module_at(&self, module_id: ModuleId) -> &nia_backend_ir::BackendModule {
         self.modules
             .get(module_id)
-            .expect("program index position references published module")
+            .expect("program index position references a missing published module")
     }
 }
 
 impl ProgramIndexPublisher {
-    pub(super) fn publish(&mut self, module_id: ModuleId) {
-        assert!(
-            self.index.frozen_tables.get().is_none(),
-            "Nia ICE: backend module was published after program index finalization"
-        );
-        let module = self
-            .index
-            .modules
-            .get(module_id)
-            .expect("program index publisher requires a ready backend module");
-        let mut published = self
-            .index
-            .tables
-            .write()
-            .expect("program index lock poisoned");
+    pub(super) fn publish(&mut self, module_id: ModuleId) -> nia_ice::IceResult<()> {
+        if self.index.frozen_tables.get().is_some() {
+            return Err(nia_ice::Ice::new(
+                "backend module was published after program index finalization",
+            ));
+        }
+        let module = self.index.modules.get(module_id).ok_or_else(|| {
+            nia_ice::Ice::new("program index publisher requires a ready backend module")
+        })?;
+        let mut published = self.index.tables.write();
         let index = Arc::make_mut(&mut published);
-        assert!(
-            index.published_modules.insert(module_id),
-            "Nia ICE: backend module was published to the program index twice"
-        );
+        if !index.published_modules.insert(module_id) {
+            return Err(nia_ice::Ice::new(
+                "backend module was published to the program index twice",
+            ));
+        }
         for (layout_index, (ty, _)) in module.layouts.types.iter().enumerate() {
             index.type_layouts.insert(
                 *ty,
@@ -567,14 +560,15 @@ impl ProgramIndexPublisher {
                     .push(position);
             }
         }
+        Ok(())
     }
 
-    pub(super) fn freeze(self) {
+    pub(super) fn freeze(self) -> nia_ice::IceResult<()> {
         let tables = self.index.tables();
-        assert!(
-            self.index.frozen_tables.set(tables).is_ok(),
-            "Nia ICE: program index was finalized twice"
-        );
+        self.index
+            .frozen_tables
+            .set(tables)
+            .map_err(|_| nia_ice::Ice::new("program index was finalized twice"))
     }
 }
 
@@ -1356,7 +1350,7 @@ mod tests {
         let (index, mut publisher) =
             ProgramIndex::new(program.module_store(), Arc::new(type_store));
 
-        publisher.publish(second);
+        publisher.publish(second).expect("publish module");
         assert!(!index.has_enum(first_def));
         assert!(index.module(first).is_none());
         assert!(index.has_enum(second_def));
@@ -1377,9 +1371,9 @@ mod tests {
         });
         let published_before_first = index.tables();
         assert!(!published_before_first.published_modules.contains(&first));
-        publisher.publish(first);
+        publisher.publish(first).expect("publish module");
         read.join().expect("concurrent program index reader");
-        publisher.freeze();
+        publisher.freeze().expect("freeze program index");
 
         assert!(!published_before_first.published_modules.contains(&first));
         assert!(index.frozen_tables.get().is_some());
@@ -1468,7 +1462,7 @@ mod tests {
         assert!(index.written_module(foreign).is_none());
         assert!(index.module(foreign).is_none());
 
-        publisher.publish(written);
+        publisher.publish(written).expect("publish module");
         assert!(index.module(written).is_some());
     }
 
@@ -1638,7 +1632,7 @@ mod tests {
         let (index, mut publisher) =
             ProgramIndex::new(program.module_store(), Arc::new(type_store));
         assert!(!index.is_published(module_id));
-        publisher.publish(module_id);
+        publisher.publish(module_id).expect("publish module");
         assert!(index.is_published(module_id));
 
         assert_eq!(
@@ -1861,7 +1855,7 @@ mod tests {
         let program = BackendProgram::new(vec![module]);
         let (index, mut publisher) =
             ProgramIndex::new(program.module_store(), Arc::new(type_store));
-        publisher.publish(owner_module);
+        publisher.publish(owner_module).expect("publish module");
 
         let item = index
             .global_instance(

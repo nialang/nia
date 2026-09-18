@@ -2489,7 +2489,7 @@ mod owner_tests {
             let store = Arc::new(BackendModuleStore::new([module_id]));
             store.publish(module);
             let (index, mut publisher) = ProgramIndex::new(store, Arc::new(type_store));
-            publisher.publish(module_id);
+            publisher.publish(module_id).expect("publish module");
             validate_native_backend_program(&index, CompilerBuiltinSymbols::default())
         }
 
@@ -2566,7 +2566,7 @@ mod owner_tests {
         let store = Arc::new(BackendModuleStore::new([module_id]));
         store.publish(module);
         let (index, mut publisher) = ProgramIndex::new(store, Arc::new(TypeStore::new()));
-        publisher.publish(module_id);
+        publisher.publish(module_id).expect("publish module");
         let unit = CodegenUnitId::SourceModule {
             module_id,
             ordinal: 0,
@@ -2658,7 +2658,7 @@ mod owner_tests {
         let store = Arc::new(BackendModuleStore::new([module_id]));
         store.publish(module);
         let (index, mut publisher) = ProgramIndex::new(store, Arc::new(type_store));
-        publisher.publish(module_id);
+        publisher.publish(module_id).expect("publish module");
 
         let left_symbol = expected_trait_object_vtable_symbol(
             &index,
