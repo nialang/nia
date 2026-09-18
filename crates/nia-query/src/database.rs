@@ -83,11 +83,7 @@ impl<C> QueryDb<C> {
     where
         C: Send + Sync + 'static,
     {
-        Ok(Self::new_with_timings_in_session(
-            context,
-            timings,
-            QuerySession::new()?,
-        ))
+        Self::new_with_timings_in_session(context, timings, QuerySession::new()?)
     }
 
     /// Creates an unregistered database attached to an explicitly shared session.
@@ -95,7 +91,7 @@ impl<C> QueryDb<C> {
         context: C,
         timings: nia_timing::TimingMode,
         session: QuerySession,
-    ) -> Self
+    ) -> nia_ice::IceResult<Self>
     where
         C: Send + Sync + 'static,
     {
@@ -124,7 +120,7 @@ impl<C> QueryDb<C> {
         context: C,
         registry: QueryRegistry,
         session: QuerySession,
-    ) -> Self
+    ) -> nia_ice::IceResult<Self>
     where
         C: Send + Sync + 'static,
     {
@@ -145,12 +141,12 @@ impl<C> QueryDb<C> {
     where
         C: Send + Sync + 'static,
     {
-        Ok(Self::new_registered_with_timings_in_session(
+        Self::new_registered_with_timings_in_session(
             context,
             timings,
             registry,
             QuerySession::new()?,
-        ))
+        )
     }
 
     /// Creates a registered database with explicit timing and session configuration.
@@ -159,7 +155,7 @@ impl<C> QueryDb<C> {
         timings: nia_timing::TimingMode,
         registry: QueryRegistry,
         session: QuerySession,
-    ) -> Self
+    ) -> nia_ice::IceResult<Self>
     where
         C: Send + Sync + 'static,
     {
@@ -171,13 +167,13 @@ impl<C> QueryDb<C> {
         timings: nia_timing::TimingMode,
         registry: Option<QueryRegistry>,
         session: QuerySession,
-    ) -> Self
+    ) -> nia_ice::IceResult<Self>
     where
         C: Send + Sync + 'static,
     {
         let db = Self {
             inner: Arc::new(QueryDbInner {
-                id: QueryDbId::fresh(),
+                id: QueryDbId::fresh()?,
                 session: session.clone(),
                 context,
                 timings,
@@ -186,8 +182,8 @@ impl<C> QueryDb<C> {
                 slots: Mutex::new(QuerySlotTable::default()),
             }),
         };
-        session.register(&db);
-        db
+        session.register(&db)?;
+        Ok(db)
     }
 
     /// Returns the immutable compiler context owned by this database.
@@ -1294,9 +1290,16 @@ impl<C> QueryDb<C> {
             return Ok(slot.clone());
         }
         let key = Arc::new(key.clone());
-        let identity = Arc::new(query_slot_identity::<C, K>(Arc::clone(&key)));
+        let identity = Arc::new(query_slot_identity::<C, K>(key.as_ref()));
+        let ensure_key = Arc::clone(&key);
+        let ensure: Arc<QueryEnsure<C>> = Arc::new(move |db| match K::STORAGE {
+            QueryStoragePolicy::CacheOwnedArc => db.get((*ensure_key).clone()).map(drop),
+            QueryStoragePolicy::SingleConsumerOwned => {
+                db.get_owned((*ensure_key).clone()).map(drop)
+            }
+        });
         let mut slots = self.inner.slots.lock();
-        let node_id = slots.next_id(self.inner.id);
+        let node_id = slots.next_id(self.inner.id)?;
         let slot = Arc::new(QuerySlot {
             node_id,
             identity: Arc::clone(&identity),
@@ -1305,13 +1308,19 @@ impl<C> QueryDb<C> {
             state: Mutex::new(QueryState::Empty),
             ready: Condvar::new(),
         });
-        cache.insert(key, slot.clone());
         slots.push(
             node_id,
             identity,
             slot.clone() as Arc<dyn ErasedQuerySlot>,
-            ensure_query_from_erased::<C, K>,
-        );
+            ensure,
+        )?;
+        if cache.insert(Arc::clone(&key), slot.clone()).is_some() {
+            slots.remove(self.inner.id, node_id);
+            return Err(Self::internal_query_error(
+                key.as_ref(),
+                "query cache key was inserted concurrently",
+            ));
+        }
         Ok(slot)
     }
 
