@@ -19,7 +19,7 @@ fn body_check_resolves_program_signatures_through_precise_signature_queries() {
 
     let checked = db.expect_get(BodyCheckQuery(entry_id));
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace_has_dependency(
         &trace,
@@ -89,7 +89,7 @@ fn used(self) i32 {
 
     let checked = db.expect_get(BodyCheckQuery(entry_id));
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace_has_dependency(
         &trace,
@@ -209,7 +209,7 @@ fn program_signature_module_ids_use_set_specific_module_facts() {
         &[module4, module5]
     );
 
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "program_signature_module_ids"
             && dependency.to.name == "program_signature_module_eligibility"
@@ -267,7 +267,7 @@ fn extension_provider_module_ids_use_parse_ok_provider_summaries() {
             .as_slice(),
         &[module5]
     );
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     assert!(trace_has_dependency(
         &trace,
         "extension_provider_module_ids",
@@ -295,7 +295,7 @@ fn program_type_alias_signature_uses_precise_module_facts() {
         module_id,
         def_id: alias_id,
     }));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace_has_dependency(
         &trace,
@@ -317,7 +317,7 @@ fn layout_uses_full_type_module_signatures_and_array_lengths_without_body_produc
     let db = query_db(fixture.program());
 
     let layouts = db.expect_get(LayoutsQuery(module_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(
         layouts.semantic.diagnostics.is_empty(),
@@ -396,7 +396,7 @@ fn layout_uses_signature_layouts_for_cross_module_types() {
     let db = query_db(fixture.program());
 
     let layouts = db.expect_get(LayoutsQuery(entry_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     let entry_description = format!("{entry_id:?}");
     let module1_description = format!("{module1:?}");
 
@@ -463,7 +463,7 @@ fn abi_check_uses_abi_signature_index_not_body_signatures() {
     let db = query_db(fixture.program());
 
     let _ = db.expect_get(AbiCheckQuery(module_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "abi_check" && dependency.to.name == "program_abi_signatures"

@@ -152,7 +152,7 @@ pub struct Used {}
     let checked = db.expect_get(CodegenProgramQuery);
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     assert!(
         !trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"

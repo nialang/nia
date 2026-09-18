@@ -74,7 +74,7 @@ fn body_edit_keeps_unrelated_lowered_function_product_green() {
     );
     let second_helper = database.db.expect_get(LoweredFunctionBodyQuery(helper));
     let second_main = database.db.expect_get(LoweredFunctionBodyQuery(main));
-    let trace = database.query_trace();
+    let trace = database.query_trace().expect("query trace");
 
     assert!(!Arc::ptr_eq(&first_helper, &second_helper));
     assert!(Arc::ptr_eq(&first_main, &second_main));
@@ -183,7 +183,7 @@ first[0] + second[0]
         .as_ref()
         .as_ref()
         .expect("updated second static initializer product");
-    let trace = database.query_trace();
+    let trace = database.query_trace().expect("query trace");
 
     assert!(!Arc::ptr_eq(&first_item, &second_first));
     assert_eq!(first_second.as_ref(), second_second.as_ref());

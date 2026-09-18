@@ -7,7 +7,7 @@ fn records_query_dependencies() {
     });
 
     assert_eq!(*db.expect_get(DoubleTwice(7)), 28);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     assert_eq!(trace.dependencies.len(), 1);
     assert_eq!(trace.dependencies[0].from.name, "double_twice");
     assert_eq!(trace.dependencies[0].to.description, "double(7)");
@@ -21,7 +21,7 @@ fn records_query_execution_and_cache_hit_stats() {
 
     assert_eq!(*db.expect_get(Double(21)), 42);
     assert_eq!(*db.expect_get(Double(21)), 42);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     let stats = trace
         .queries
         .iter()
@@ -41,7 +41,7 @@ fn records_get_many_dependencies_from_parent_query() {
     });
 
     assert_eq!(*db.expect_get(DoubleMany([2, 5])), 14);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "double_many" && dependency.to.description == "double(2)"
@@ -58,7 +58,7 @@ fn records_single_item_get_many_dependencies_from_parent_query() {
     });
 
     assert_eq!(*db.expect_get(SingleDoubleMany(2)), 4);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "single_double_many" && dependency.to.description == "double(2)"

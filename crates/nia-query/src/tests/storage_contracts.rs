@@ -76,10 +76,16 @@ fn single_consumer_query_moves_non_clone_value_and_tracks_parent_dependency() {
     assert_eq!(*db.expect_get(OwnedValueParent(21)), 42);
     assert_eq!(*db.expect_get(OwnedValueParent(21)), 42);
     assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
-    assert!(db.query_trace().dependencies.iter().any(|dependency| {
-        dependency.from.name == "owned_value_parent"
-            && dependency.to.name == "owned_non_clone_value"
-    }));
+    assert!(
+        db.query_trace()
+            .expect("query trace")
+            .dependencies
+            .iter()
+            .any(|dependency| {
+                dependency.from.name == "owned_value_parent"
+                    && dependency.to.name == "owned_non_clone_value"
+            })
+    );
 
     let invalidation = db
         .invalidate(OwnedNonCloneValueQuery(21))
@@ -129,10 +135,16 @@ fn externally_published_owned_query_moves_once_and_tracks_its_predecessor() {
     drop(value);
     assert_eq!(drops.load(Ordering::SeqCst), 1);
     assert!(db.get_owned(PublishedOwnedValueQuery(3)).is_err());
-    assert!(db.query_trace().dependencies.iter().any(|dependency| {
-        dependency.from.name == "published_owned_value"
-            && dependency.to.name == "owned_non_clone_value"
-    }));
+    assert!(
+        db.query_trace()
+            .expect("query trace")
+            .dependencies
+            .iter()
+            .any(|dependency| {
+                dependency.from.name == "published_owned_value"
+                    && dependency.to.name == "owned_non_clone_value"
+            })
+    );
 
     let invalidation = db.invalidate(predecessor).expect("invalidate producer");
     assert!(

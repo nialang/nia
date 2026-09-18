@@ -30,12 +30,13 @@ fn provider_demand_update_keeps_unmatched_and_known_demands_graph_stable() {
     assert!(
         database
             .query_trace()
+            .expect("query trace")
             .queries
             .iter()
             .all(|query| query.frame.name != "loaded_program"),
         "a stable graph should not rebuild the aggregate loaded program"
     );
-    let trace = database.query_trace();
+    let trace = database.query_trace().expect("query trace");
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "module_graph" && dependency.to.name == "provider_demands"
     }));

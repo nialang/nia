@@ -51,7 +51,7 @@ fn direct_invalidation_preserves_stable_dependents_for_validation() {
     assert!(Arc::ptr_eq(&first, &latest));
     assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
     assert_eq!(db.context().parent_executions.load(Ordering::SeqCst), 1);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     let parent = trace
         .queries
         .iter()
@@ -75,7 +75,7 @@ fn derived_red_green_validation_reexecutes_dependents_when_output_changes() {
     assert_eq!(*db.expect_get(StableParityParent), 10);
     assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
     assert_eq!(db.context().parent_executions.load(Ordering::SeqCst), 2);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     let parent = trace
         .queries
         .iter()

@@ -469,6 +469,7 @@ impl Driver {
                 compiler
                     .database
                     .query_trace()
+                    .expect("test compiler query trace")
                     .queries
                     .iter()
                     .filter(|query| query.frame.name == name)
@@ -681,14 +682,14 @@ impl Driver {
         let timings = request.timings;
         let database = self.compiler_database(&request)?;
         let output = compile(&database)?;
-        let loader_trace = self.loader_query_trace();
+        let loader_trace = self.loader_query_trace()?;
         emit_compilation_counters(
             timings,
             &database,
             &loader_trace,
             &output,
             database.provider_demand_rounds(),
-        );
+        )?;
         Ok(output)
     }
 
@@ -704,14 +705,14 @@ impl Driver {
         let (database, loader) = self.compilation_databases(&request)?;
         let output = compile(&database)?;
         let source_manifest = loader.source_input_manifest()?;
-        let loader_trace = self.loader_query_trace();
+        let loader_trace = self.loader_query_trace()?;
         emit_compilation_counters(
             timings,
             &database,
             &loader_trace,
             &output,
             database.provider_demand_rounds(),
-        );
+        )?;
         Ok((output, source_manifest))
     }
 
@@ -853,8 +854,15 @@ impl Driver {
                     ));
                 }
             };
-            let loader_trace = self.loader_query_trace();
-            emit_compilation_counters(
+            let loader_trace = match self.loader_query_trace() {
+                Ok(trace) => trace,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
+            if let Err(error) = emit_compilation_counters(
                 timings,
                 &database,
                 &loader_trace,
@@ -863,7 +871,11 @@ impl Driver {
                     reachable_body_count,
                 },
                 database.provider_demand_rounds(),
-            );
+            ) {
+                return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                    query_error_diagnostic(error),
+                ));
+            }
             if !output.diagnostics.is_empty() {
                 return DriverOutput::from_error(DriverError::CodegenDiagnostics(
                     output.diagnostics,
@@ -944,8 +956,15 @@ impl Driver {
                 Ok(emission) => emission,
                 Err(error) => return DriverOutput::from_error(error),
             };
-            let loader_trace = self.loader_query_trace();
-            emit_compilation_counters(
+            let loader_trace = match self.loader_query_trace() {
+                Ok(trace) => trace,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
+            if let Err(error) = emit_compilation_counters(
                 timings,
                 &database,
                 &loader_trace,
@@ -954,7 +973,11 @@ impl Driver {
                     reachable_body_count: emission.reachable_body_count,
                 },
                 database.provider_demand_rounds(),
-            );
+            ) {
+                return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                    query_error_diagnostic(error),
+                ));
+            }
             let source_manifest = match loader.source_input_manifest() {
                 Ok(manifest) => manifest,
                 Err(error) => {
@@ -1625,13 +1648,13 @@ impl Driver {
         Ok(database)
     }
 
-    fn loader_query_trace(&self) -> nia_query::QueryTrace {
+    fn loader_query_trace(&self) -> nia_query::QueryResult<nia_query::QueryTrace> {
         self.loader
             .lock()
             .expect("driver loader lock poisoned")
             .as_ref()
             .map(|loader| loader.database.query_trace())
-            .unwrap_or_default()
+            .unwrap_or_else(|| Ok(nia_query::QueryTrace::default()))
     }
 }
 
@@ -1703,11 +1726,11 @@ fn emit_compilation_counters(
     loader_trace: &nia_query::QueryTrace,
     output: &impl ProviderDemandOutput,
     provider_demand_rounds: u64,
-) {
+) -> nia_query::QueryResult<()> {
     if !timings.enabled() {
-        return;
+        return Ok(());
     }
-    let compiler_trace = database.query_trace();
+    let compiler_trace = database.query_trace()?;
     let traces = [loader_trace, &compiler_trace];
     nia_timing::emit_counter(
         "query.executions",
@@ -1862,6 +1885,7 @@ fn emit_compilation_counters(
         "compiler.reachable_bodies",
         output.reachable_body_count() as u64,
     );
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

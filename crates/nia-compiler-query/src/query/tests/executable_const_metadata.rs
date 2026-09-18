@@ -63,7 +63,7 @@ values[0]
         "array length and repeat-count calls must not enter raw runtime value-ref edges: {:?}",
         value_ref_edges.functions
     );
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(
         module.body_diagnostics.is_empty(),

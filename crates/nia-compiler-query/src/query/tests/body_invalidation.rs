@@ -188,11 +188,11 @@ fn body_local_type_update_reuses_program_body_signature_indexes() {
         SourceRevision(1),
     );
     database.update(CompileRequest::new(fixture.program()));
-    let before_second_check = database.query_trace();
+    let before_second_check = database.query_trace().expect("query trace");
 
     let second = database.check_program();
     assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-    let after_second_check = database.query_trace();
+    let after_second_check = database.query_trace().expect("query trace");
 
     assert_query_executions_unchanged(
         &before_second_check,
@@ -232,7 +232,7 @@ fn tuple_element_order_and_type_updates_invalidate_signature_lowering() {
 
     let first = database.check_program();
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    let after_first = database.query_trace();
+    let after_first = database.query_trace().expect("query trace");
 
     fixture.update_module_source(
         module_id,
@@ -246,7 +246,7 @@ fn tuple_element_order_and_type_updates_invalidate_signature_lowering() {
         "{:?}",
         reordered.diagnostics
     );
-    let after_reorder = database.query_trace();
+    let after_reorder = database.query_trace().expect("query trace");
     assert!(
         query_executions(&after_first, "signature_type_lowering")
             < query_executions(&after_reorder, "signature_type_lowering")
@@ -260,7 +260,7 @@ fn tuple_element_order_and_type_updates_invalidate_signature_lowering() {
     database.update(CompileRequest::new(fixture.program()));
     let changed = database.check_program();
     assert!(changed.diagnostics.is_empty(), "{:?}", changed.diagnostics);
-    let after_type_change = database.query_trace();
+    let after_type_change = database.query_trace().expect("query trace");
     assert!(
         query_executions(&after_reorder, "signature_type_lowering")
             < query_executions(&after_type_change, "signature_type_lowering")
@@ -284,11 +284,11 @@ fn function_body_type_update_refreshes_signature_program_type_context() {
         SourceRevision(1),
     );
     database.update(CompileRequest::new(fixture.program()));
-    let before_second_check = database.query_trace();
+    let before_second_check = database.query_trace().expect("query trace");
 
     let second = database.check_program();
     assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-    let after_second_check = database.query_trace();
+    let after_second_check = database.query_trace().expect("query trace");
 
     assert!(
         query_executions(&before_second_check, "signature_type_normalization")

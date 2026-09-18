@@ -17,7 +17,10 @@ fn body_only_edits_reuse_item_signature_provider_summary() {
 
     let first = provider_summary_database(&main, &sources, cache.clone(), false);
     let first_summary = first.expect_get(provider_summary_query(&first, &provider));
-    assert_eq!(query_executions(&first.query_trace(), "parsed_module"), 1);
+    assert_eq!(
+        query_executions(&first.query_trace().expect("query trace"), "parsed_module"),
+        1
+    );
     let first_identity = provider_cache_identity(&first_file);
 
     let edited_file = sources.set_source(
@@ -35,7 +38,10 @@ fn body_only_edits_reuse_item_signature_provider_summary() {
     let edited = provider_summary_database(&main, &sources, cache.clone(), false);
     let edited_summary = edited.expect_get(provider_summary_query(&edited, &provider));
     assert_eq!(first_summary, edited_summary);
-    assert_eq!(query_executions(&edited.query_trace(), "parsed_module"), 1);
+    assert_eq!(
+        query_executions(&edited.query_trace().expect("query trace"), "parsed_module"),
+        1
+    );
     assert!(matches!(
         cache
             .load_dependency_manifest(
@@ -52,7 +58,10 @@ fn body_only_edits_reuse_item_signature_provider_summary() {
     let reused = provider_summary_database(&main, &sources, cache, false);
     let reused_summary = reused.expect_get(provider_summary_query(&reused, &provider));
     assert_eq!(edited_summary, reused_summary);
-    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&reused.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 }
 
 #[test]
@@ -89,7 +98,10 @@ fn signature_edits_publish_distinct_provider_summaries() {
     let edited_summary = edited.expect_get(provider_summary_query(&edited, &provider));
     assert!(!edited_summary.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
     assert!(edited_summary.defines_inherent_associated_item(&sym("Widget"), &sym("rank")));
-    assert_eq!(query_executions(&edited.query_trace(), "parsed_module"), 1);
+    assert_eq!(
+        query_executions(&edited.query_trace().expect("query trace"), "parsed_module"),
+        1
+    );
     assert!(
         cache
             .provider_summary_path(first_identity.provider_key)
@@ -104,7 +116,10 @@ fn signature_edits_publish_distinct_provider_summaries() {
     let reused = provider_summary_database(&main, &sources, cache, false);
     let reused_summary = reused.expect_get(provider_summary_query(&reused, &provider));
     assert_eq!(edited_summary, reused_summary);
-    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&reused.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 }
 
 #[test]
@@ -152,7 +167,10 @@ fn provider_summary_verification_repairs_wrong_dependency_manifest() {
     let verified = verifying.expect_get(provider_summary_query(&verifying, &provider));
     assert!(verified.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
     assert_eq!(
-        query_executions(&verifying.query_trace(), "parsed_module"),
+        query_executions(
+            &verifying.query_trace().expect("query trace"),
+            "parsed_module"
+        ),
         1
     );
     assert!(matches!(
@@ -171,5 +189,8 @@ fn provider_summary_verification_repairs_wrong_dependency_manifest() {
     let reused = provider_summary_database(&main, &sources, cache, false);
     let reused_summary = reused.expect_get(provider_summary_query(&reused, &provider));
     assert_eq!(verified, reused_summary);
-    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&reused.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 }

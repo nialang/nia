@@ -12,7 +12,7 @@ fn extension_provider_module_facts_refresh_across_source_revisions() {
     let database = fixture.database();
 
     let _ = database.db.expect_get(ExtensionMethodIndexQuery);
-    let before_update = database.query_trace();
+    let before_update = database.query_trace().expect("query trace");
     assert!(
         query_executions(&before_update, "extension_provider_module_facts") > 0,
         "{before_update:?}"
@@ -24,10 +24,10 @@ fn extension_provider_module_facts_refresh_across_source_revisions() {
         SourceRevision(1),
     );
     database.update(CompileRequest::new(fixture.program()));
-    let before_second_query = database.query_trace();
+    let before_second_query = database.query_trace().expect("query trace");
 
     let _ = database.db.expect_get(ExtensionMethodIndexQuery);
-    let after_second_query = database.query_trace();
+    let after_second_query = database.query_trace().expect("query trace");
 
     assert_query_executions_unchanged(
         &before_second_query,
@@ -68,7 +68,7 @@ fn provider_summary_changes_validate_stable_module_eligibility() {
     assert!(!Arc::ptr_eq(&first, &second));
     let latest_modules = database.db.expect_get(ExtensionProviderModuleIdsQuery);
     assert!(Arc::ptr_eq(&first_modules, &latest_modules));
-    let trace = database.query_trace();
+    let trace = database.query_trace().expect("query trace");
     let eligibility = trace
         .queries
         .iter()

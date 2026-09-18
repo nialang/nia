@@ -23,13 +23,19 @@ fn persistent_module_dependencies_hit_skips_parse_and_tracks_exact_source_spans(
         first_dependencies.semantic.declarations[0].name,
         sym("child")
     );
-    assert_eq!(query_executions(&first.query_trace(), "parsed_module"), 1);
+    assert_eq!(
+        query_executions(&first.query_trace().expect("query trace"), "parsed_module"),
+        1
+    );
     let first_span = first_dependencies.semantic.declarations[0].span;
 
     let second = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
     let second_dependencies = second.expect_get(module_declarations_query(&second, &main));
     assert_eq!(first_dependencies, second_dependencies);
-    assert_eq!(query_executions(&second.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&second.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 
     let path = cache.module_dependencies_path(first_identity.key);
     fs::write(&path, b"corrupt module dependency summary")
@@ -39,7 +45,10 @@ fn persistent_module_dependencies_hit_skips_parse_and_tracks_exact_source_spans(
     let repaired_dependencies = repaired.expect_get(module_declarations_query(&repaired, &main));
     assert_eq!(first_dependencies, repaired_dependencies);
     assert_eq!(
-        query_executions(&repaired.query_trace(), "parsed_module"),
+        query_executions(
+            &repaired.query_trace().expect("query trace"),
+            "parsed_module"
+        ),
         1
     );
 
@@ -59,12 +68,18 @@ fn persistent_module_dependencies_hit_skips_parse_and_tracks_exact_source_spans(
         first_span,
         edited_dependencies.semantic.declarations[0].span
     );
-    assert_eq!(query_executions(&edited.query_trace(), "parsed_module"), 1);
+    assert_eq!(
+        query_executions(&edited.query_trace().expect("query trace"), "parsed_module"),
+        1
+    );
 
     let reused = frontend_cache_database(&main, &sources, module_map, cache, false);
     let reused_dependencies = reused.expect_get(module_declarations_query(&reused, &main));
     assert_eq!(edited_dependencies, reused_dependencies);
-    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&reused.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 }
 
 #[test]
@@ -94,9 +109,15 @@ fn persistent_module_dependencies_skip_all_graph_discovery_parses_across_session
         .collect::<Vec<_>>();
 
     assert_eq!(first_paths.len(), 3);
-    assert_eq!(query_executions(&first.query_trace(), "parsed_module"), 3);
     assert_eq!(
-        query_executions(&first.query_trace(), "module_declarations"),
+        query_executions(&first.query_trace().expect("query trace"), "parsed_module"),
+        3
+    );
+    assert_eq!(
+        query_executions(
+            &first.query_trace().expect("query trace"),
+            "module_declarations"
+        ),
         3
     );
     drop(first_graph);
@@ -117,9 +138,15 @@ fn persistent_module_dependencies_skip_all_graph_discovery_parses_across_session
         .collect::<Vec<_>>();
 
     assert_eq!(second_paths, first_paths);
-    assert_eq!(query_executions(&second.query_trace(), "parsed_module"), 0);
     assert_eq!(
-        query_executions(&second.query_trace(), "module_declarations"),
+        query_executions(&second.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
+    assert_eq!(
+        query_executions(
+            &second.query_trace().expect("query trace"),
+            "module_declarations"
+        ),
         3
     );
 }

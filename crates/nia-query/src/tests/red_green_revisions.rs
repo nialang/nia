@@ -37,6 +37,7 @@ fn stable_get_many_records_dependency_fingerprints_for_green_validation() {
     assert_eq!(db.context().parent_executions.load(Ordering::SeqCst), 1);
     assert_eq!(
         db.query_trace()
+            .expect("query trace")
             .dependencies
             .iter()
             .filter(|edge| edge.from.name == "stable_modulo_batch_parent"
@@ -81,7 +82,7 @@ fn invalidation_during_validation_cannot_restore_stale_green_value() {
     assert!(!Arc::ptr_eq(&first, &latest));
     assert_eq!(db.context().input_executions.load(Ordering::SeqCst), 3);
     assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     let derived = trace
         .queries
         .iter()

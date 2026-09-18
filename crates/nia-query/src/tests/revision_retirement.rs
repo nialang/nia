@@ -28,10 +28,10 @@ fn retiring_query_key_removes_its_slot_and_edges_without_reusing_node_id() {
         .expect("inspect cached slot")
         .expect("cached child slot")
         .node_id;
-    assert_eq!(db.query_trace().dependencies.len(), 1);
+    assert_eq!(db.query_trace().expect("query trace").dependencies.len(), 1);
 
     assert!(db.retire(&Double(7)).expect("retire query"));
-    let retired_trace = db.query_trace();
+    let retired_trace = db.query_trace().expect("query trace");
     assert_eq!(retired_trace.queries.len(), 1);
     assert!(retired_trace.dependencies.is_empty());
     assert_eq!(*old_parent, 28);
@@ -39,6 +39,7 @@ fn retiring_query_key_removes_its_slot_and_edges_without_reusing_node_id() {
         db.inner
             .session
             .database(db.inner.id)
+            .expect("lookup query database")
             .slot(old_node)
             .is_none()
     );
@@ -52,7 +53,7 @@ fn retiring_query_key_removes_its_slot_and_edges_without_reusing_node_id() {
     assert_eq!(*latest_parent, 28);
     assert_ne!(old_node, latest_node);
     assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
-    assert_eq!(db.query_trace().dependencies.len(), 1);
+    assert_eq!(db.query_trace().expect("query trace").dependencies.len(), 1);
 }
 
 #[test]
@@ -68,15 +69,17 @@ fn scope_retirement_removes_typed_cache_entries_and_dependency_edges() {
         .node_id;
 
     db.session()
-        .invalidate_scope(|frame| frame.name == "double_twice");
+        .invalidate_scope(|frame| frame.name == "double_twice")
+        .expect("invalidate query scope");
 
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     assert_eq!(trace.queries.len(), 1);
     assert!(trace.dependencies.is_empty());
     assert!(
         db.inner
             .session
             .database(db.inner.id)
+            .expect("lookup query database")
             .slot(old_node)
             .is_none()
     );
@@ -104,13 +107,13 @@ fn sealing_owned_query_value_retires_its_only_predecessor_without_invalidation()
         .expect("cached predecessor slot")
         .node_id;
     assert_eq!(&*current, &[0, 1]);
-    assert_eq!(db.query_trace().dependencies.len(), 1);
+    assert_eq!(db.query_trace().expect("query trace").dependencies.len(), 1);
 
     assert!(
         db.seal_and_retire_predecessor(&OwnedRevision(1), &OwnedRevision(0))
             .expect("seal predecessor")
     );
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     assert_eq!(trace.queries.len(), 1);
     assert!(trace.dependencies.is_empty());
     assert!(Arc::ptr_eq(&current, &db.expect_get(OwnedRevision(1))));
@@ -119,6 +122,7 @@ fn sealing_owned_query_value_retires_its_only_predecessor_without_invalidation()
         db.inner
             .session
             .database(db.inner.id)
+            .expect("lookup query database")
             .slot(predecessor_node)
             .is_none()
     );
@@ -147,7 +151,7 @@ fn rejected_predecessor_retirement_preserves_both_slots_and_edges() {
             .expect("inspect current slot")
             .is_some()
     );
-    assert_eq!(db.query_trace().dependencies.len(), 2);
+    assert_eq!(db.query_trace().expect("query trace").dependencies.len(), 2);
 }
 
 #[test]
@@ -192,7 +196,7 @@ fn retirement_barrier_invalidates_and_retires_heterogeneous_keys() {
         Ok(())
     })
     .expect("run retirement transaction");
-    assert!(db.query_trace().queries.is_empty());
+    assert!(db.query_trace().expect("query trace").queries.is_empty());
     assert_eq!(*double, 6);
     assert_eq!(&*owned, &[0]);
     assert_eq!(external_retirements.load(Ordering::SeqCst), 1);
@@ -252,7 +256,7 @@ fn retirement_waits_for_active_query_before_releasing_cached_slot() {
     let (trace_sender, trace_receiver) = std::sync::mpsc::channel();
     let trace = std::thread::spawn(move || {
         trace_sender
-            .send(trace_db.query_trace())
+            .send(trace_db.query_trace().expect("query trace"))
             .expect("send query trace");
     });
     assert_eq!(
@@ -276,5 +280,5 @@ fn retirement_waits_for_active_query_before_releasing_cached_slot() {
     );
     trace.join().expect("query trace worker panicked");
     assert_eq!(*old_value, 2);
-    assert!(db.query_trace().queries.is_empty());
+    assert!(db.query_trace().expect("query trace").queries.is_empty());
 }

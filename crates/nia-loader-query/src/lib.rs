@@ -423,7 +423,7 @@ impl LoaderDatabase {
     }
 
     /// Returns loader query dependencies and per-slot statistics.
-    pub fn query_trace(&self) -> nia_query::QueryTrace {
+    pub fn query_trace(&self) -> QueryResult<nia_query::QueryTrace> {
         self.db.query_trace()
     }
 
@@ -971,7 +971,7 @@ fn load_program_trace(
     let _program = db
         .get(LoadedProgramQuery)
         .expect("test program load must succeed");
-    db.query_trace()
+    db.query_trace().expect("query trace")
 }
 
 fn effective_module_map(

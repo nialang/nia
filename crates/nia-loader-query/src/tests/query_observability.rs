@@ -51,7 +51,7 @@ extend Widget {
     assert!(first.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
     assert_eq!(first, second);
 
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     let query = trace
         .queries
         .iter()
@@ -76,7 +76,7 @@ fn missing_provider_products_skip_syntax_and_parse_queries() {
         &nia_provider_summary::ProviderSummary::default()
     );
     assert!(facade.provider_source_paths().is_empty());
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     assert!(
         trace
             .queries

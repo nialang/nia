@@ -23,7 +23,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
     .expect("create compiler database");
     let first = first_compiler.analyze_program().expect("cold analysis");
     assert!(!has_error_diagnostics(&first.diagnostics));
-    let first_trace = first_compiler.query_trace();
+    let first_trace = first_compiler.query_trace().expect("query trace");
     assert!(first_trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "signature_type_resolution" && dependency.to.name == "module_defs"
     }));
@@ -54,7 +54,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
     let second = second_compiler.analyze_program().expect("warm analysis");
     assert!(!has_error_diagnostics(&second.diagnostics));
     assert_eq!(second.diagnostics, first.diagnostics);
-    let second_trace = second_compiler.query_trace();
+    let second_trace = second_compiler.query_trace().expect("query trace");
     assert_eq!(
         query_executions(&second_trace, "signature_type_resolution"),
         0
@@ -104,6 +104,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
     assert!(
         verified_compiler
             .query_trace()
+            .expect("query trace")
             .dependencies
             .iter()
             .any(|dependency| {
@@ -114,6 +115,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
     assert!(
         verified_compiler
             .query_trace()
+            .expect("query trace")
             .dependencies
             .iter()
             .any(|dependency| {
@@ -124,6 +126,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
     assert!(
         verified_compiler
             .query_trace()
+            .expect("query trace")
             .dependencies
             .iter()
             .any(|dependency| {
@@ -134,6 +137,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
     assert!(
         verified_compiler
             .query_trace()
+            .expect("query trace")
             .dependencies
             .iter()
             .any(|dependency| {
@@ -168,7 +172,7 @@ fn main() i32 { Box[i32] { value: 1 }.get() }
         .expect("create compiler database");
         let checked = compiler.analyze_program().expect("cached analysis");
         assert!(!has_error_diagnostics(&checked.diagnostics));
-        compiler.query_trace()
+        compiler.query_trace().expect("query trace")
     };
 
     let cold = compile(false);

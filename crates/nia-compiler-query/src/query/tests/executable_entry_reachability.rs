@@ -15,7 +15,7 @@ fn executable_checked_program_uses_query_backed_extension_method_lookup() {
     let db = query_db(loaded);
 
     let checked = db.expect_get(CodegenProgramQuery);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(trace.dependencies.iter().any(|dependency| {
@@ -141,7 +141,7 @@ fn bare_entry_checked_program_uses_rooted_diagnostics_without_freestanding_start
     let db = query_db(fixture.program());
 
     let checked = db.expect_get(EntryCheckedProgramQuery);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
@@ -215,7 +215,7 @@ fn freestanding_entry_checked_program_uses_executable_reachability() {
     let db = query_db(loaded);
 
     let checked = db.expect_get(EntryCheckedProgramQuery);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic

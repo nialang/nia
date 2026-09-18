@@ -27,7 +27,7 @@ fn codegen_preparation_does_not_cross_backend_aggregate_barrier() {
     let preparation = database.codegen_preparation();
 
     assert!(preparation.diagnostics.is_empty());
-    let trace = database.query_trace();
+    let trace = database.query_trace().expect("query trace");
     assert_eq!(query_executions(&trace, "codegen_preparation"), 1);
     assert_eq!(query_executions(&trace, "backend_lowering"), 0);
     assert_eq!(query_executions(&trace, "backend_module_finalization"), 0);
@@ -83,7 +83,7 @@ fn scoped_backend_schedule_exposes_each_module_before_aggregate_finish() {
             .iter()
             .any(|module| module.id == helper)
     );
-    let trace = database.query_trace();
+    let trace = database.query_trace().expect("query trace");
     assert_eq!(query_executions(&trace, "backend_lowering"), 0);
     assert_eq!(query_executions(&trace, "backend_module_finalization"), 2);
 }

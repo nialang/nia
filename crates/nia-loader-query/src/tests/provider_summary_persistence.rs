@@ -20,19 +20,28 @@ fn persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption() {
     let first = provider_summary_database(&main, &sources, cache.clone(), false);
     let first_summary = first.expect_get(provider_summary_query(&first, &provider));
     assert!(first_summary.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
-    assert_eq!(query_executions(&first.query_trace(), "parsed_module"), 1);
+    assert_eq!(
+        query_executions(&first.query_trace().expect("query trace"), "parsed_module"),
+        1
+    );
 
     let second = provider_summary_database(&main, &sources, cache.clone(), false);
     let second_summary = second.expect_get(provider_summary_query(&second, &provider));
     assert_eq!(first_summary, second_summary);
-    assert_eq!(query_executions(&second.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&second.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 
     let path = cache.provider_summary_path(identity.provider_key);
     fs::write(&path, b"corrupt frontend cache entry").expect("corrupt provider summary cache");
     let third = provider_summary_database(&main, &sources, cache.clone(), false);
     let third_summary = third.expect_get(provider_summary_query(&third, &provider));
     assert_eq!(first_summary, third_summary);
-    assert_eq!(query_executions(&third.query_trace(), "parsed_module"), 1);
+    assert_eq!(
+        query_executions(&third.query_trace().expect("query trace"), "parsed_module"),
+        1
+    );
     assert!(matches!(
         {
             let loaded_symbols = SymbolTable::new();
@@ -54,7 +63,10 @@ fn persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption() {
     let fourth = provider_summary_database(&main, &sources, cache.clone(), false);
     let fourth_summary = fourth.expect_get(provider_summary_query(&fourth, &provider));
     assert_eq!(first_summary, fourth_summary);
-    assert_eq!(query_executions(&fourth.query_trace(), "parsed_module"), 1);
+    assert_eq!(
+        query_executions(&fourth.query_trace().expect("query trace"), "parsed_module"),
+        1
+    );
     assert!(matches!(
         cache
             .load_dependency_manifest(
@@ -71,7 +83,10 @@ fn persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption() {
     let fifth = provider_summary_database(&main, &sources, cache, false);
     let fifth_summary = fifth.expect_get(provider_summary_query(&fifth, &provider));
     assert_eq!(first_summary, fifth_summary);
-    assert_eq!(query_executions(&fifth.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&fifth.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 }
 
 #[test]
@@ -113,12 +128,18 @@ fn provider_summary_verification_replaces_semantically_wrong_valid_entry() {
     let verified = verifying.expect_get(provider_summary_query(&verifying, &provider));
     assert!(verified.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
     assert_eq!(
-        query_executions(&verifying.query_trace(), "parsed_module"),
+        query_executions(
+            &verifying.query_trace().expect("query trace"),
+            "parsed_module"
+        ),
         1
     );
 
     let reused = provider_summary_database(&main, &sources, cache, false);
     let reused_summary = reused.expect_get(provider_summary_query(&reused, &provider));
     assert_eq!(verified, reused_summary);
-    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&reused.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 }

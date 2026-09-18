@@ -94,7 +94,12 @@ fn failed_parent_query_drops_speculative_dependencies() {
             panic!("expected invalid input error")
         }
     }
-    assert!(db.query_trace().dependencies.is_empty());
+    assert!(
+        db.query_trace()
+            .expect("query trace")
+            .dependencies
+            .is_empty()
+    );
 
     let invalidation = db.invalidate(Double(3)).expect("invalidate query");
     assert_eq!(

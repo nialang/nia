@@ -69,7 +69,7 @@ fn body_only_source_change_refreshes_revision_bearing_field_dependents() {
 
     assert!(!Arc::ptr_eq(&first_declaration, &latest_declaration));
     assert!(!Arc::ptr_eq(&first_signature, &latest_signature));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     let declaration_fact = trace
         .queries
         .iter()

@@ -8,7 +8,10 @@
 use super::*;
 
 impl<C> QueryDb<C> {
-    pub(super) fn retire_scope_during_retirement(&self, retain: &dyn Fn(&QueryFrame) -> bool) {
+    pub(super) fn retire_scope_during_retirement(
+        &self,
+        retain: &dyn Fn(&QueryFrame) -> bool,
+    ) -> QueryResult<()> {
         let ids = {
             let slots = self.inner.slots.lock();
             slots
@@ -36,10 +39,10 @@ impl<C> QueryDb<C> {
                 .collect::<Vec<_>>()
         };
         for id in &retained {
-            self.inner.session.slot(*id).stabilize();
+            self.inner.session.slot(*id)?.stabilize();
         }
         for id in &ids {
-            self.inner.session.slot(*id).invalidate();
+            self.inner.session.slot(*id)?.invalidate();
         }
         let node_set = FastHashSet::from_iter(ids.iter().copied());
         self.inner
@@ -60,6 +63,7 @@ impl<C> QueryDb<C> {
         for id in retained {
             dependencies.remove_dependencies_from(id);
         }
+        Ok(())
     }
 
     /// Creates an unregistered database with an isolated default session.
@@ -606,7 +610,30 @@ impl<C> QueryDb<C> {
                         }
                     };
                     slot.stats.record_validation();
-                    let is_green = self.dependencies_are_green(&dependency_fingerprints);
+                    let is_green = match self.dependencies_are_green(&dependency_fingerprints) {
+                        Ok(is_green) => is_green,
+                        Err(error) => {
+                            guard.discard();
+                            let mut state = slot.state.lock();
+                            let was_invalidated = matches!(
+                                &*state,
+                                QueryState::Validating { invalidated: true }
+                                    | QueryState::Computing { invalidated: true }
+                            );
+                            if was_invalidated {
+                                *state = QueryState::Empty;
+                                self.clear_dependencies_from(node_id);
+                            } else {
+                                *state = QueryState::PotentiallyOutdated {
+                                    value,
+                                    fingerprint,
+                                    dependency_fingerprints,
+                                };
+                            }
+                            slot.ready.notify_all();
+                            return Err(error.with_query_context(query_frame::<C, K>(&key)));
+                        }
+                    };
                     guard.discard();
 
                     let mut state = slot.state.lock();
@@ -932,22 +959,22 @@ impl<C> QueryDb<C> {
     }
 
     /// Returns persistent dependency edges and slot statistics for this database.
-    pub fn query_trace(&self) -> QueryTrace {
+    pub fn query_trace(&self) -> QueryResult<QueryTrace> {
         let _activity = self.inner.session.enter_activity();
         let queries = {
             let slots = self.inner.slots.lock();
-            Self::query_stats(self.inner.id, &slots)
+            Self::query_stats(&slots)
         };
-        QueryTrace {
+        Ok(QueryTrace {
             dependencies: self
                 .inner
                 .session
                 .inner
                 .dependencies
                 .lock()
-                .dependencies(self.inner.id, &self.inner.session),
+                .dependencies(self.inner.id, &self.inner.session)?,
             queries,
-        }
+        })
     }
 
     /// Invalidates `key` and every known dependent while retaining slot identity.
@@ -968,7 +995,7 @@ impl<C> QueryDb<C> {
                 invalidated: vec![query_frame::<C, K>(&key)],
             });
         };
-        Ok(self.invalidate_cached_root(root))
+        self.invalidate_cached_root(root)
     }
 
     /// Validates a stable input fingerprint and invalidates it only when changed.
@@ -1035,7 +1062,7 @@ impl<C> QueryDb<C> {
         if is_green {
             Ok(QueryInvalidation::default())
         } else {
-            Ok(self.invalidate_cached_root(slot.node_id))
+            self.invalidate_cached_root(slot.node_id)
         }
     }
 
@@ -1094,7 +1121,7 @@ impl<C> QueryDb<C> {
             }
         }
 
-        self.invalidate_cached_root(node_id);
+        self.invalidate_cached_root(node_id)?;
         if cache.remove_entry(key).is_none() {
             return Err(Self::internal_query_error(
                 key,
@@ -1219,11 +1246,11 @@ impl<C> QueryDb<C> {
         Ok(true)
     }
 
-    fn invalidate_cached_root(&self, root: QueryNodeId) -> QueryInvalidation {
+    fn invalidate_cached_root(&self, root: QueryNodeId) -> QueryResult<QueryInvalidation> {
         let invalidated = self.collect_invalidated_nodes(root);
         let mut cleared = Vec::new();
         for (index, node_id) in invalidated.iter().enumerate() {
-            let slot = self.inner.session.slot(*node_id);
+            let slot = self.inner.session.slot(*node_id)?;
             // The changed root is definitely red and must be cleared. Dependents retain their
             // previous value and fingerprints as validation evidence; they are recomputed only
             // when an ensured dependency proves that evidence stale.
@@ -1240,7 +1267,7 @@ impl<C> QueryDb<C> {
         let mut frames = invalidated
             .iter()
             .map(|node_id| self.inner.session.frame(*node_id))
-            .collect::<Vec<_>>();
+            .collect::<QueryResult<Vec<_>>>()?;
         // Traversal order has no semantic effect. Keep the changed root first and make the
         // diagnostic portion deterministic without formatting keys for every dependency edge.
         frames[1..].sort_by(|left, right| {
@@ -1255,9 +1282,9 @@ impl<C> QueryDb<C> {
         for node_id in cleared {
             dependencies.remove_dependencies_from(node_id);
         }
-        QueryInvalidation {
+        Ok(QueryInvalidation {
             invalidated: frames,
-        }
+        })
     }
 
     pub(super) fn slot_for<K>(&self, key: &K) -> QueryResult<Arc<QuerySlot<K::Value>>>
@@ -1355,25 +1382,19 @@ impl<C> QueryDb<C> {
                     .iter()
                     .map(|entry| entry.identity.frame())
                     .collect::<Vec<_>>();
-                cycle.push(self.frame(node_id));
+                cycle.push(self.frame(node_id)?);
                 return Err(QueryError::Cycle { cycle });
             }
             Ok(())
         })
     }
 
-    fn query_stats(db_id: QueryDbId, slots: &QuerySlotTable<C>) -> Vec<QueryTraceQuery> {
+    fn query_stats(slots: &QuerySlotTable<C>) -> Vec<QueryTraceQuery> {
         let mut queries = slots
             .entries
-            .iter()
-            .map(|(index, record)| QueryTraceQuery {
-                frame: slots.frame(
-                    db_id,
-                    QueryNodeId {
-                        db_id,
-                        index: *index,
-                    },
-                ),
+            .values()
+            .map(|record| QueryTraceQuery {
+                frame: record.identity.frame(),
                 stats: record.slot.stats(),
             })
             .collect::<Vec<_>>();
@@ -1388,31 +1409,30 @@ impl<C> QueryDb<C> {
         dependencies.collect_dependents(root)
     }
 
-    fn dependencies_are_green(&self, expected: &DependencyFingerprints) -> bool {
+    fn dependencies_are_green(&self, expected: &DependencyFingerprints) -> QueryResult<bool> {
         let mut dependencies = expected.iter().collect::<Vec<_>>();
         dependencies.sort_unstable_by_key(|(node_id, _)| (node_id.db_id.0, node_id.index));
         for (node_id, expected_fingerprint) in dependencies {
             let Some(expected_fingerprint) = expected_fingerprint else {
-                return false;
+                return Ok(false);
             };
             // Ensuring first recursively validates the dependency. Its stored fingerprint is only
             // meaningful after that state transition, so comparing the pre-ensure value would let
             // an outdated dependency incorrectly keep this query green.
-            if self.ensure_node(*node_id).is_err()
-                || self.node_fingerprint(*node_id) != Some(*expected_fingerprint)
-            {
-                return false;
+            self.ensure_node(*node_id)?;
+            if self.node_fingerprint(*node_id)? != Some(*expected_fingerprint) {
+                return Ok(false);
             }
         }
-        true
+        Ok(true)
     }
 
     fn ensure_node(&self, node_id: QueryNodeId) -> QueryResult<()> {
         self.inner.session.ensure(node_id)
     }
 
-    fn node_fingerprint(&self, node_id: QueryNodeId) -> Option<QueryFingerprint> {
-        self.inner.session.slot(node_id).fingerprint()
+    fn node_fingerprint(&self, node_id: QueryNodeId) -> QueryResult<Option<QueryFingerprint>> {
+        Ok(self.inner.session.slot(node_id)?.fingerprint())
     }
 
     fn clear_dependencies_from(&self, from: QueryNodeId) {
@@ -1433,7 +1453,7 @@ impl<C> QueryDb<C> {
             .replace_dependencies_from(from, targets);
     }
 
-    fn frame(&self, node_id: QueryNodeId) -> QueryFrame {
+    fn frame(&self, node_id: QueryNodeId) -> QueryResult<QueryFrame> {
         self.inner.session.frame(node_id)
     }
 }

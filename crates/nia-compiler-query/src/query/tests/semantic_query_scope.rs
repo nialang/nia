@@ -10,7 +10,7 @@ fn const_uses_precise_program_context_queries() {
     let db = query_db(fixture.program());
 
     let _ = db.expect_get(ConstQuery(module_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "const" && dependency.to.name == "const_module"
@@ -57,7 +57,7 @@ fn monomorphization_avoids_removed_program_trait_signature_product() {
     let db = query_db(fixture.program());
 
     let _ = db.expect_get(MonomorphizationQuery);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(!trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "monomorphization"
@@ -73,7 +73,7 @@ fn executable_reachability_uses_lazy_signature_resolvers() {
     let db = query_db(loaded);
 
     let _ = db.expect_get(ExecutableCheckedModulesQuery);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(!trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "executable_checked_module_facts"
@@ -108,7 +108,7 @@ fn body_check_without_method_lookup_does_not_build_global_extension_method_index
     let db = query_db(fixture.program());
 
     let checked = db.expect_get(BodyCheckQuery(module_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(
@@ -138,7 +138,7 @@ fn body_check_method_lookup_uses_named_extension_method_query() {
     let db = query_db(fixture.program());
 
     let checked = db.expect_get(BodyCheckQuery(module_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(trace.dependencies.iter().any(|dependency| {
@@ -159,7 +159,7 @@ fn const_module_uses_full_active_item_tree_query() {
     let db = query_db(fixture.program());
 
     let _ = db.expect_get(ConstModuleQuery(module_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "const_module"
@@ -175,7 +175,7 @@ fn semantic_use_table_query_combines_value_local_and_type_resolution() {
     let db = query_db(fixture.program());
 
     let table = db.expect_get(SemanticUseTableQuery(module_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "semantic_use_table" && dependency.to.name == "value_resolution"

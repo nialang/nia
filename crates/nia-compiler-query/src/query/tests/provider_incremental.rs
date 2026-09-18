@@ -23,13 +23,13 @@ fn provider_graph_growth_recomputes_query_derived_executable_roots() {
     let mut graph = (*grown.graph).clone();
     assert!(graph.mark_semantic_selected(provider_id));
     grown.graph = graph.into();
-    let before_update = database.query_trace();
+    let before_update = database.query_trace().expect("query trace");
     database.update(CompileRequest::new(grown));
     assert_eq!(
         database.db.expect_get(ExecutableRootModulesQuery).as_ref(),
         &(entry_id, Vec::new())
     );
-    let after_update = database.query_trace();
+    let after_update = database.query_trace().expect("query trace");
     assert_query_executions_unchanged(&before_update, &after_update, "type_resolution");
     assert!(
         query_executions(&before_update, "executable_root_modules")
@@ -348,7 +348,7 @@ fn executable_products_depend_on_incremental_worklists() {
         Some(revision)
     );
 
-    let dependencies = &database.query_trace().dependencies;
+    let dependencies = &database.query_trace().expect("query trace").dependencies;
     for product in [
         "executable_provider_demands",
         "executable_checked_module_facts",
@@ -552,6 +552,7 @@ fn provider_revision_update_invalidates_executable_products() {
     );
     let revision_query = database
         .query_trace()
+        .expect("query trace")
         .queries
         .into_iter()
         .find(|query| query.frame.name == "provider_fact_revision")
@@ -743,7 +744,7 @@ fn content_identical_input_replacement_keeps_executable_facts_green() {
     let database = CompilerDatabase::new(CompileRequest::new(program));
     let first_set = database.db.expect_get(ExecutableCheckedModulesQuery);
     let _ = database.executable_provider_demands();
-    let before_update = database.query_trace();
+    let before_update = database.query_trace().expect("query trace");
 
     let invalidation = database
         .update(CompileRequest::new(fixture.program()).with_timings(crate::TimingMode::Summary));
@@ -757,7 +758,7 @@ fn content_identical_input_replacement_keeps_executable_facts_green() {
     let _ = database.executable_provider_demands();
     assert!(Arc::ptr_eq(&first_set, &second_set));
     assert!(!second_set.is_empty());
-    let after_reuse = database.query_trace();
+    let after_reuse = database.query_trace().expect("query trace");
     for name in [
         "body_activation_worklist",
         "executable_checked_modules",

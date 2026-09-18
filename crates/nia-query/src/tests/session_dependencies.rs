@@ -41,6 +41,7 @@ fn shared_session_records_and_invalidates_cross_database_dependencies() {
     assert!(
         parent_db
             .query_trace()
+            .expect("query trace")
             .dependencies
             .iter()
             .any(|dependency| {
