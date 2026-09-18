@@ -110,6 +110,7 @@
     "std/process/args.nia",
     "std/process/child.nia",
     "std/process/command.nia",
+    "std/process/convert.nia",
     "std/process/env.nia",
     "std/process/exit_code.nia",
     "std/process/init.nia",

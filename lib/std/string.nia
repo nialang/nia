@@ -60,8 +60,7 @@ extend String {
     }
 
     pub fn fromUtf8(allocator: &mut mem::Allocator, bytes: &[u8]) TextError!String {
-        let view = unicode::Utf8View::fromBytes(bytes)
-            .mapError(&TextError::InvalidUtf8).?;
+        let view = unicode::Utf8View::fromBytes(bytes).?;
         !(String::fromUtf8View(allocator, view).?)
     }
 
@@ -74,8 +73,7 @@ extend String {
     }
 
     pub fn appendUtf8(&mut self, allocator: &mut mem::Allocator, bytes: &[u8]) TextError!() {
-        let view = unicode::Utf8View::fromBytes(bytes)
-            .mapError(&TextError::InvalidUtf8).?;
+        let view = unicode::Utf8View::fromBytes(bytes).?;
         !(self.appendUtf8View(allocator, view).?)
     }
 
@@ -98,9 +96,7 @@ extend String {
         template: &[char],
         args: &[&fmt::Format],
     ) TextFormatError!() {
-        if self.releaseFormatBytes(allocator) is error! {
-            return .Allocation(error)!;
-        }
+        self.releaseFormatBytes(allocator).?;
         let oldLen = self.len();
         let mut committed = false;
         defer if not committed {
@@ -317,7 +313,7 @@ extend TextFormatWriter {
             if primary is ?cause {
                 return cause!;
             }
-            return .Allocation(error)!;
+            return error.intoError()!;
         }
         if primary is ?cause {
             return cause!;
@@ -358,6 +354,18 @@ extend TextFormatWriter : io::Writer {
 extend mem::Error : builtin::IntoError[TextError] {
     const fn intoError(self) TextError {
         TextError::Allocation(self)
+    }
+}
+
+extend unicode::Utf8DecodeError : builtin::IntoError[TextError] {
+    const fn intoError(self) TextError {
+        TextError::InvalidUtf8(self)
+    }
+}
+
+extend mem::Error : builtin::IntoError[TextFormatError] {
+    const fn intoError(self) TextFormatError {
+        TextFormatError::Allocation(self)
     }
 }
 

@@ -264,7 +264,7 @@ extend Pipe {
 }
 
 extend ProcessId {
-    pub fn init(pid: i32) ProcessId {
+    pub const fn init(pid: i32) ProcessId {
         .{ pid }
     }
 
@@ -275,7 +275,7 @@ extend ProcessId {
         !.init(ret as i32)
     }
 
-    pub fn raw(&self) i32 {
+    pub const fn raw(&self) i32 {
         self.pid
     }
 }

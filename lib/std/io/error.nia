@@ -65,29 +65,6 @@ extend os::Error : builtin::IntoError[SystemError] {
 
 extend os::Error : builtin::IntoError[Error] {
     const fn intoError(self) Error {
-        match self {
-            .PermissionDenied => .System(SystemError::PermissionDenied),
-            .NotFound => .System(SystemError::NotFound),
-            .Interrupted => .System(SystemError::Interrupted),
-            .Io => .System(SystemError::Io),
-            .BadFd => .System(SystemError::BadFd),
-            .Again => .System(SystemError::Again),
-            .OutOfMemory => .System(SystemError::OutOfMemory),
-            .Access => .System(SystemError::Access),
-            .Fault => .System(SystemError::Fault),
-            .Busy => .System(SystemError::Busy),
-            .AlreadyExists => .System(SystemError::AlreadyExists),
-            .CrossDevice => .System(SystemError::CrossDevice),
-            .NotDir => .System(SystemError::NotDir),
-            .IsDir => .System(SystemError::IsDir),
-            .Invalid => .System(SystemError::Invalid),
-            .NoSpace => .System(SystemError::NoSpace),
-            .ReadOnly => .System(SystemError::ReadOnly),
-            .BrokenPipe => .System(SystemError::BrokenPipe),
-            .OutOfRange => .System(SystemError::OutOfRange),
-            .TooLong => .System(SystemError::TooLong),
-            .NotEmpty => .System(SystemError::NotEmpty),
-            _ => .System(SystemError::System),
-        }
+        Error::System(self.intoError())
     }
 }

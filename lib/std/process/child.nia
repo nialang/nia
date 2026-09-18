@@ -1,13 +1,10 @@
 using pkg::io;
 using pkg::error;
 using pkg::os;
+using pkg::process::convert;
 using pkg::process::types;
 
-using types::{Child, ChildState, ChildStateKind, ChildStderr, ChildStdin, ChildStdout, Error, ExitedChild, ProcessId, RunningChild, Signal, StdStream, SystemError, Term};
-
-pub(pkg) fn processIdFromOs(pid: os::ProcessId) ProcessId {
-    .fromRaw(pid.raw())
-}
+using types::{Child, ChildState, ChildStateKind, ChildStderr, ChildStdin, ChildStdout, Error, ExitedChild, ProcessId, RunningChild, Signal, StdStream, Term};
 
 extend Child {
     pub(pkg) fn init(pid: os::ProcessId) Child {
@@ -195,16 +192,6 @@ extend ExitedChild {
     }
 }
 
-extend ProcessId {
-    fn fromRaw(raw: i32) ProcessId {
-        .{ raw }
-    }
-
-    pub fn raw(&self) i32 {
-        self.raw
-    }
-}
-
 extend[T] io::Error!T {
     fn withCloseContext(self, stream: StdStream) Error!T {
         self.mapError(&\[stream] cause: io::Error -> .Close { stream, cause })
@@ -213,18 +200,18 @@ extend[T] io::Error!T {
 
 extend[T] os::Error!T {
     fn withWaitContext(self) Error!T {
-        self.mapError(&\cause: os::Error -> .Wait(SystemError::fromOs(cause)))
+        self.mapError(&\cause: os::Error -> .Wait(cause.intoError()))
     }
 }
 
 extend[T] os::Error!T {
     fn withTryWaitContext(self) Error!T {
-        self.mapError(&\cause: os::Error -> .TryWait(SystemError::fromOs(cause)))
+        self.mapError(&\cause: os::Error -> .TryWait(cause.intoError()))
     }
 }
 
 extend[T] os::Error!T {
     fn withKillContext(self) Error!T {
-        self.mapError(&\cause: os::Error -> .Kill(SystemError::fromOs(cause)))
+        self.mapError(&\cause: os::Error -> .Kill(cause.intoError()))
     }
 }
