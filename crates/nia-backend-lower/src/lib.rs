@@ -185,11 +185,13 @@ where
         position: usize,
         input: &BackendLowerModuleInput<'_>,
         module_plan: BackendModuleItemPlan,
-    ) -> BackendModuleFinalization {
-        assert_eq!(
-            input.module_id, module_plan.module.id,
-            "Nia ICE: backend module plan owner must match finalization input"
-        );
+    ) -> nia_ice::IceResult<BackendModuleFinalization> {
+        if input.module_id != module_plan.module.id {
+            return Err(nia_ice::Ice::new(format!(
+                "backend module plan owner {:?} does not match finalization input {:?}",
+                module_plan.module.id, input.module_id
+            )));
+        }
         let mut lowerer = ModuleLowerer::new(
             input,
             &self.type_store,
@@ -199,12 +201,12 @@ where
         );
         let mut module = module_plan.module;
         lowerer.finish_module(&mut module);
-        BackendModuleFinalization {
+        Ok(BackendModuleFinalization {
             position,
             module,
             optimization_report: lowerer.optimization_report,
             diagnostics: lowerer.diagnostics,
-        }
+        })
     }
 }
 
@@ -249,18 +251,28 @@ impl BackendModuleFinalizationCollector {
     ///
     /// Each position must be pushed exactly once and must match both the task's
     /// recorded position and the module owner in `module_order`.
-    pub fn push(&mut self, position: usize, module_finalization: BackendModuleFinalization) {
-        assert_eq!(
-            module_finalization.position, position,
-            "Nia ICE: backend module finalization completion position must match its task"
-        );
-        let expected_module = self.module_order.get(position).unwrap_or_else(|| {
-            panic!("Nia ICE: backend module finalization position is out of bounds")
-        });
-        assert_eq!(
-            module_finalization.module.id, *expected_module,
-            "Nia ICE: backend module finalization owner must match module order"
-        );
+    pub fn push(
+        &mut self,
+        position: usize,
+        module_finalization: BackendModuleFinalization,
+    ) -> nia_ice::IceResult<()> {
+        if module_finalization.position != position {
+            return Err(nia_ice::Ice::new(format!(
+                "backend module finalization position {} does not match completed task position {position}",
+                module_finalization.position
+            )));
+        }
+        let Some(expected_module) = self.module_order.get(position) else {
+            return Err(nia_ice::Ice::new(format!(
+                "backend module finalization position {position} is out of bounds"
+            )));
+        };
+        if module_finalization.module.id != *expected_module {
+            return Err(nia_ice::Ice::new(format!(
+                "backend module finalization owner {:?} does not match expected owner {expected_module:?}",
+                module_finalization.module.id
+            )));
+        }
         // Publication can arrive in completion order, while reports and diagnostics remain keyed
         // by source-module position so parallel finalization cannot perturb observable ordering.
         self.finalization
@@ -269,6 +281,7 @@ impl BackendModuleFinalizationCollector {
         self.modules.publish(module_finalization.module);
         self.optimization_reports[position] = Some(module_finalization.optimization_report);
         self.diagnostics[position] = Some(module_finalization.diagnostics);
+        Ok(())
     }
 
     /// Joins all module results into one complete backend lowering.
@@ -276,7 +289,7 @@ impl BackendModuleFinalizationCollector {
     /// Every source position must have been pushed. Reports and diagnostics are
     /// joined in source order even when publication happened in completion
     /// order.
-    pub fn finish(self) -> BackendLowering {
+    pub fn finish(self) -> nia_ice::IceResult<BackendLowering> {
         let BackendItemPlanFinalization {
             optimization,
             mut optimization_report,
@@ -289,14 +302,16 @@ impl BackendModuleFinalizationCollector {
             .zip(self.diagnostics)
             .enumerate()
         {
-            let report = report.unwrap_or_else(|| {
-                panic!("Nia ICE: backend module finalization report {position} was not collected")
-            });
-            let module_diagnostics = module_diagnostics.unwrap_or_else(|| {
-                panic!(
-                    "Nia ICE: backend module finalization diagnostics {position} were not collected"
-                )
-            });
+            let Some(report) = report else {
+                return Err(nia_ice::Ice::new(format!(
+                    "backend module finalization report {position} was not collected"
+                )));
+            };
+            let Some(module_diagnostics) = module_diagnostics else {
+                return Err(nia_ice::Ice::new(format!(
+                    "backend module finalization diagnostics {position} were not collected"
+                )));
+            };
             optimization_report
                 .changed_passes
                 .extend(report.changed_passes);
@@ -304,14 +319,14 @@ impl BackendModuleFinalizationCollector {
         }
         let program = BackendProgram::from_module_store(self.modules);
         let codegen_partitions = program.codegen_partition_plan();
-        BackendLowering {
+        Ok(BackendLowering {
             program,
             owner_directory,
             codegen_partitions,
             optimization,
             optimization_report,
             diagnostics,
-        }
+        })
     }
 }
 
@@ -575,7 +590,7 @@ pub fn lower_backend_program(
     modules: &[BackendLowerModuleInput<'_>],
     type_store: &nia_ty::TypeStore,
     optimization: OptimizationPolicy,
-) -> BackendLowering {
+) -> nia_ice::IceResult<BackendLowering> {
     lower_backend_program_with_timings(
         modules,
         type_store,
@@ -593,7 +608,7 @@ pub fn lower_backend_program_with_timings(
     type_store: &nia_ty::TypeStore,
     optimization: OptimizationPolicy,
     timings: nia_timing::TimingMode,
-) -> BackendLowering {
+) -> nia_ice::IceResult<BackendLowering> {
     let plan = plan_backend_program_with_timings(modules, type_store, optimization, timings);
     let (finalization, module_plans) = plan.into_module_plans();
     finalize_backend_module_item_plans_with_timings(
@@ -1246,7 +1261,7 @@ pub fn finalize_backend_module_item_plans(
     type_store: &nia_ty::TypeStore,
     finalization: BackendItemPlanFinalization,
     module_plans: Vec<BackendModuleItemPlan>,
-) -> BackendLowering {
+) -> nia_ice::IceResult<BackendLowering> {
     finalize_backend_module_item_plans_with_timings(
         modules,
         type_store,
@@ -1267,7 +1282,7 @@ pub fn finalize_backend_module_item_plans_with_timings(
     finalization: BackendItemPlanFinalization,
     module_plans: Vec<BackendModuleItemPlan>,
     timings: nia_timing::TimingMode,
-) -> BackendLowering {
+) -> nia_ice::IceResult<BackendLowering> {
     let optimization = finalization.optimization;
     if !finalization.diagnostics.is_empty() {
         let program = BackendProgram::new(
@@ -1277,25 +1292,29 @@ pub fn finalize_backend_module_item_plans_with_timings(
                 .collect(),
         );
         let codegen_partitions = program.codegen_partition_plan();
-        return BackendLowering {
+        return Ok(BackendLowering {
             program,
             owner_directory: finalization.owner_directory,
             codegen_partitions,
             optimization,
             optimization_report: finalization.optimization_report,
             diagnostics: finalization.diagnostics,
-        };
+        });
     }
-    assert_eq!(
-        modules.len(),
-        module_plans.len(),
-        "Nia ICE: backend item plan must match finalization inputs"
-    );
+    if modules.len() != module_plans.len() {
+        return Err(nia_ice::Ice::new(format!(
+            "backend item plan has {} modules but finalization has {} inputs",
+            module_plans.len(),
+            modules.len()
+        )));
+    }
     for (input, module_plan) in modules.iter().zip(&module_plans) {
-        assert_eq!(
-            input.module_id, module_plan.module.id,
-            "Nia ICE: backend item plan owner order must match finalization inputs"
-        );
+        if input.module_id != module_plan.module.id {
+            return Err(nia_ice::Ice::new(format!(
+                "backend item plan owner {:?} does not match finalization input {:?}",
+                module_plan.module.id, input.module_id
+            )));
+        }
     }
 
     let finalization_context =
@@ -1309,8 +1328,9 @@ pub fn finalize_backend_module_item_plans_with_timings(
                 .map(|(position, (input, module_plan))| {
                     finalization_context.finalize_module(position, input, module_plan)
                 })
-                .collect::<Vec<_>>()
+                .collect::<nia_ice::IceResult<Vec<_>>>()
         });
+    let module_finalizations = module_finalizations?;
     let module_order = modules
         .iter()
         .map(|input| input.module_id)
@@ -1318,7 +1338,7 @@ pub fn finalize_backend_module_item_plans_with_timings(
     let mut collector = BackendModuleFinalizationCollector::new(finalization, &module_order);
     for module_finalization in module_finalizations {
         let position = module_finalization.position;
-        collector.push(position, module_finalization);
+        collector.push(position, module_finalization)?;
     }
     collector.finish()
 }

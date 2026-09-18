@@ -14,7 +14,7 @@ pub(super) struct ProgramBackendLowering {
 }
 
 pub(super) struct ProgramBackendLoweringInputs {
-    pub(super) semantic: Option<BackendLoweringInputs>,
+    pub(super) semantic: Option<Arc<BackendLoweringInputs>>,
     pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
 }
 
