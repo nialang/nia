@@ -296,11 +296,11 @@ impl<C> QueryDb<C> {
                     nia_timing::time_detail(detail_timing, "query.record_execution", || {
                         slot.stats.record_execution()
                     });
-                    let value = match catch_unwind(AssertUnwindSafe(|| {
+                    let value = match self.inner.session.inner.capture_unexpected_panic(|| {
                         nia_timing::time_detail(detail_timing, "query.provider", || {
                             key.execute_result(self)
                         })
-                    })) {
+                    }) {
                         Ok(Ok(value)) => value,
                         Ok(Err(error)) => {
                             let mut state = slot.state.lock().expect("query cache lock poisoned");
@@ -308,16 +308,17 @@ impl<C> QueryDb<C> {
                             guard.discard();
                             self.clear_dependencies_from(node_id);
                             slot.ready.notify_all();
-                            return Err(error);
+                            return Err(error.with_query_context(query_frame::<C, K>(&key)));
                         }
-                        Err(payload) => {
+                        Err(ice) => {
                             let mut state = slot.state.lock().expect("query cache lock poisoned");
                             *state = QueryState::Empty;
                             guard.discard();
                             self.clear_dependencies_from(node_id);
                             slot.ready.notify_all();
                             drop(state);
-                            resume_unwind(payload)
+                            return Err(QueryError::Internal(ice)
+                                .with_query_context(query_frame::<C, K>(&key)));
                         }
                     };
 
@@ -658,11 +659,11 @@ impl<C> QueryDb<C> {
                     nia_timing::time_detail(detail_timing, "query.record_execution", || {
                         slot.stats.record_execution()
                     });
-                    let value = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let value = match self.inner.session.inner.capture_unexpected_panic(|| {
                         nia_timing::time_detail(detail_timing, "query.provider", || {
                             key.execute_result(self)
                         })
-                    })) {
+                    }) {
                         Ok(Ok(value)) => value,
                         Ok(Err(error)) => {
                             let mut state = slot.state.lock().expect("query cache lock poisoned");
@@ -670,9 +671,9 @@ impl<C> QueryDb<C> {
                             guard.discard();
                             self.clear_dependencies_from(node_id);
                             slot.ready.notify_all();
-                            return Err(error);
+                            return Err(error.with_query_context(query_frame::<C, K>(&key)));
                         }
-                        Err(payload) => {
+                        Err(ice) => {
                             let mut state = slot.state.lock().expect("query cache lock poisoned");
                             *state = QueryState::Empty;
                             // Dependencies recorded during a failed execution are speculative:
@@ -682,7 +683,8 @@ impl<C> QueryDb<C> {
                             self.clear_dependencies_from(node_id);
                             slot.ready.notify_all();
                             drop(state);
-                            std::panic::resume_unwind(payload)
+                            return Err(QueryError::Internal(ice)
+                                .with_query_context(query_frame::<C, K>(&key)));
                         }
                     };
 
@@ -755,7 +757,7 @@ impl<C> QueryDb<C> {
         C: Send + Sync + 'static,
         K: QueryKey<C>,
     {
-        self.get_many_with(keys, Self::get::<K>)
+        self.get_many_with(keys, Self::get::<K>)?
             .into_iter()
             .collect()
     }
@@ -766,7 +768,7 @@ impl<C> QueryDb<C> {
         C: Send + Sync + 'static,
         K: QueryKey<C>,
     {
-        self.get_many_with(keys, Self::get_owned::<K>)
+        self.get_many_with(keys, Self::get_owned::<K>)?
             .into_iter()
             .collect()
     }
@@ -779,7 +781,7 @@ impl<C> QueryDb<C> {
         &self,
         keys: impl IntoIterator<Item = K>,
         consume: impl FnOnce(&mut QueryCompletionStream<'_, '_, QueryResult<K::Value>>) -> R,
-    ) -> R
+    ) -> QueryResult<R>
     where
         C: Send + Sync + 'static,
         K: QueryKey<C>,
@@ -792,7 +794,7 @@ impl<C> QueryDb<C> {
         keys: impl IntoIterator<Item = K>,
         get: fn(&Self, K) -> O,
         consume: impl FnOnce(&mut QueryCompletionStream<'_, '_, O>) -> R,
-    ) -> R
+    ) -> QueryResult<R>
     where
         C: Send + Sync + 'static,
         K: QueryKey<C>,
@@ -812,41 +814,42 @@ impl<C> QueryDb<C> {
                 (value, take_current_stack_dependencies())
             }
         });
-        let (result, dependencies) =
-            self.inner
-                .session
-                .with_task_completion_stream_inner(tasks, |tasks| {
-                    let mut stream = QueryCompletionStream {
-                        tasks,
-                        dependencies: RecordedDependencies {
-                            nodes: FastHashSet::default(),
-                            fingerprints: records_fingerprints
-                                .then(DependencyFingerprints::default),
-                        },
-                    };
-                    let result = catch_unwind(AssertUnwindSafe(|| consume(&mut stream)));
-                    let drain =
-                        catch_unwind(AssertUnwindSafe(|| while stream.wait_next().is_some() {}));
-                    let dependencies = stream.dependencies;
-                    match result {
-                        Ok(value) => {
-                            if let Err(payload) = drain {
-                                resume_unwind(payload);
-                            }
-                            (value, dependencies)
-                        }
-                        Err(payload) => resume_unwind(payload),
-                    }
-                });
+        let (result, dependencies) = self
+            .inner
+            .session
+            .with_task_completion_stream_inner(tasks, |tasks| {
+                let mut stream = QueryCompletionStream {
+                    tasks,
+                    dependencies: RecordedDependencies {
+                        nodes: FastHashSet::default(),
+                        fingerprints: records_fingerprints.then(DependencyFingerprints::default),
+                    },
+                };
+                let result = self
+                    .inner
+                    .session
+                    .inner
+                    .capture_unexpected_panic(|| consume(&mut stream));
+                let drain = (|| -> nia_ice::IceResult<()> {
+                    while stream.wait_next()?.is_some() {}
+                    Ok(())
+                })();
+                let dependencies = stream.dependencies;
+                match (result, drain) {
+                    (Ok(value), Ok(())) => Ok((value, dependencies)),
+                    (Err(ice), _) | (Ok(_), Err(ice)) => Err(ice),
+                }
+            })
+            .map_err(QueryError::from)?;
         merge_dependencies_into_current_stack(dependencies);
-        result
+        Ok(result)
     }
 
     pub(super) fn get_many_with<K, O>(
         &self,
         keys: impl IntoIterator<Item = K>,
         get: fn(&Self, K) -> O,
-    ) -> Vec<O>
+    ) -> QueryResult<Vec<O>>
     where
         C: Send + Sync + 'static,
         K: QueryKey<C>,
@@ -869,7 +872,11 @@ impl<C> QueryDb<C> {
                 }
             })
             .collect();
-        let outcomes: Vec<(O, RecordedDependencies)> = self.inner.session.run_tasks_inner(tasks);
+        let outcomes: Vec<(O, RecordedDependencies)> = self
+            .inner
+            .session
+            .run_tasks_inner(tasks)
+            .map_err(QueryError::from)?;
         let mut values = Vec::with_capacity(outcomes.len());
         let mut dependencies = RecordedDependencies {
             nodes: FastHashSet::default(),
@@ -886,7 +893,7 @@ impl<C> QueryDb<C> {
             }
         }
         merge_dependencies_into_current_stack(dependencies);
-        values
+        Ok(values)
     }
 
     /// Returns persistent dependency edges and slot statistics for this database.

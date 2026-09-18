@@ -42,7 +42,7 @@ fn execute_action_batch(
     invocation: &BuildInvocation,
     actions: &[&PlanAction],
     cancel_after_failure: bool,
-) -> Vec<ActionOutcome> {
+) -> Result<Vec<ActionOutcome>, CoordinatorError> {
     // Positions follow canonical wave order. Recording the earliest failed
     // position makes cancellation deterministic even when later workers
     // observe their failures first.
@@ -64,12 +64,13 @@ fn execute_action_batch(
         })
         .collect::<Vec<_>>();
     run_action_tasks(session, invocation.max_parallel_actions, tasks)
+        .map_err(CoordinatorError::Internal)
 }
 
 pub(super) fn execute_test_closure(
     plan: &BuildPlan,
     filter: Option<&str>,
-    mut execute_batch: impl FnMut(&[&PlanAction]) -> Vec<ActionOutcome>,
+    mut execute_batch: impl FnMut(&[&PlanAction]) -> Result<Vec<ActionOutcome>, CoordinatorError>,
 ) -> Result<ExecutionReport, CoordinatorError> {
     let roots = plan
         .steps()
@@ -92,7 +93,7 @@ pub(super) fn run_action_tasks<T, O>(
     session: &QuerySession,
     max_parallel_actions: Option<std::num::NonZeroUsize>,
     tasks: impl IntoIterator<Item = (ActionResourceClass, T)>,
-) -> Vec<O>
+) -> nia_ice::IceResult<Vec<O>>
 where
     T: FnOnce() -> O + Send + 'static,
     O: Send + 'static,
@@ -179,7 +180,7 @@ fn execute_scheduled_action(
 
 pub(super) fn execute_selected_closure(
     plan: &BuildPlan,
-    mut execute_batch: impl FnMut(&[&PlanAction]) -> Vec<ActionOutcome>,
+    mut execute_batch: impl FnMut(&[&PlanAction]) -> Result<Vec<ActionOutcome>, CoordinatorError>,
 ) -> Result<ExecutionReport, CoordinatorError> {
     let Some(selected) = plan.selected_step().or_else(|| plan.default_step()) else {
         return Ok(ExecutionReport {
@@ -195,7 +196,7 @@ pub(super) fn execute_selected_closure(
 fn execute_roots_closure(
     plan: &BuildPlan,
     roots: Vec<&StepKey>,
-    execute_batch: &mut impl FnMut(&[&PlanAction]) -> Vec<ActionOutcome>,
+    execute_batch: &mut impl FnMut(&[&PlanAction]) -> Result<Vec<ActionOutcome>, CoordinatorError>,
 ) -> Result<ExecutionReport, CoordinatorError> {
     if roots.is_empty() {
         return Ok(ExecutionReport {
@@ -278,7 +279,7 @@ fn execute_roots_closure(
                 wave_actions.push(action);
             }
         }
-        let outcomes = execute_batch(&wave_actions);
+        let outcomes = execute_batch(&wave_actions)?;
         if outcomes.len() != wave_actions.len() {
             return Err(inconsistent(
                 "coordinator action batch",

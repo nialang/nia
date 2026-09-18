@@ -202,6 +202,8 @@ pub enum ExternalCommandFailure {
 /// Typed failure while validating, scheduling, executing, or publishing a plan.
 #[derive(Debug)]
 pub enum CoordinatorError {
+    /// An internal compiler failure escaped a parallel build action.
+    Internal(nia_ice::Ice),
     /// An action was cancelled after another action failed.
     Cancelled {
         /// Cancelled action.
@@ -325,6 +327,7 @@ pub enum CoordinatorError {
 impl fmt::Display for CoordinatorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Internal(ice) => fmt::Display::fmt(ice, f),
             Self::Cancelled { action } => write!(
                 f,
                 "build action `{}` in package `{}` was cancelled after another action failed",

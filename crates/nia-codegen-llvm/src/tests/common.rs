@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-pub(super) use crate::{
-    LlvmCodegenOptions, LlvmCodegenOutput, LlvmObjectOutput, catch_llvm_codegen_ice,
-};
+pub(super) use crate::{LlvmCodegenOptions, LlvmCodegenOutput, LlvmObjectOutput};
 pub(super) use nia_backend_ir::{
     BackendConstFacts, BackendEnum, BackendEnumVariant, BackendField, BackendFunction,
     BackendFunctionInstance, BackendGlobal, BackendLayouts, BackendLinkage, BackendModule,

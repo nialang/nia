@@ -1078,7 +1078,7 @@ fn main() i32 {
 
 #[test]
 fn driver_output_converts_internal_panics_to_diagnostics() {
-    let output = DriverOutput::catch_ice(|| -> DriverOutput<()> {
+    let output = DriverOutput::catch_unexpected_panic(|| -> DriverOutput<()> {
         panic!("Nia ICE: forced driver failure");
     });
 

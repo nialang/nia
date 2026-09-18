@@ -1,4 +1,5 @@
 use super::*;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[test]
 fn externally_published_shared_values_support_repeated_reads() {

@@ -1514,7 +1514,7 @@ fn extend_reachability_from_value_ref_edges(
                 })
             }
         });
-    let results = db.session().run_tasks_bounded(tasks, 4);
+    let results = db.session().run_tasks_bounded(tasks, 4)?;
     let mut changed = false;
     for result in results {
         let (_, module_globals, closure_functions, edges) = result?;

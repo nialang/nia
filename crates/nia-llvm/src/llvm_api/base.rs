@@ -73,7 +73,7 @@ impl LlvmError {
             .primary_fallback(nia_span::Span::default(), "while calling LLVM")
             .debug("llvm_message", message)
             .finish(),
-            Self::Ice(ice) => ice.diagnostic(),
+            Self::Ice(ice) => nia_diagnostic::Diagnostic::from(ice),
         }
     }
 }

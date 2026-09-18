@@ -68,18 +68,20 @@ fn typed_owned_completion_stream_moves_values_in_completion_order() {
         session,
     );
 
-    let completed = db.with_many_owned_completion(
-        [CompletionOrderProbe(1), CompletionOrderProbe(0)],
-        |stream| {
-            let mut completed = Vec::new();
-            while let Some((position, value)) = stream.wait_next() {
-                let value = value.expect("completion query should succeed");
-                completed.push((position, value));
-                db.context().phase.store(value + 1, Ordering::SeqCst);
-            }
-            completed
-        },
-    );
+    let completed = db
+        .with_many_owned_completion(
+            [CompletionOrderProbe(1), CompletionOrderProbe(0)],
+            |stream| {
+                let mut completed = Vec::new();
+                while let Some((position, value)) = stream.wait_next().expect("completion stream") {
+                    let value = value.expect("completion query should succeed");
+                    completed.push((position, value));
+                    db.context().phase.store(value + 1, Ordering::SeqCst);
+                }
+                completed
+            },
+        )
+        .expect("completion batch");
 
     assert_eq!(completed, vec![(1, 0), (0, 1)]);
 }
@@ -90,19 +92,21 @@ fn typed_owned_completion_stream_reports_query_failures() {
         executions: AtomicUsize::new(0),
     });
 
-    let mut completed = db.with_many_owned_completion(
-        [
-            FallibleOwnedCompletionProbe(0),
-            FallibleOwnedCompletionProbe(1),
-        ],
-        |stream| {
-            let mut completed = Vec::new();
-            while let Some((position, value)) = stream.wait_next() {
-                completed.push((position, value));
-            }
-            completed
-        },
-    );
+    let mut completed = db
+        .with_many_owned_completion(
+            [
+                FallibleOwnedCompletionProbe(0),
+                FallibleOwnedCompletionProbe(1),
+            ],
+            |stream| {
+                let mut completed = Vec::new();
+                while let Some((position, value)) = stream.wait_next().expect("completion stream") {
+                    completed.push((position, value));
+                }
+                completed
+            },
+        )
+        .expect("completion batch");
     completed.sort_by_key(|(position, _)| *position);
 
     assert_eq!(completed[0], (0, Ok(0)));

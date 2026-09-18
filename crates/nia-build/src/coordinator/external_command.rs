@@ -683,6 +683,7 @@ pub(super) fn display_external_command_error(
 
 pub(super) fn is_cancellation_error(error: &CoordinatorError) -> bool {
     match error {
+        CoordinatorError::Internal(_) => false,
         CoordinatorError::Cancelled { .. } => true,
         CoordinatorError::ExternalCommand(details) => {
             matches!(details.failure, ExternalCommandFailure::Cancelled { .. })

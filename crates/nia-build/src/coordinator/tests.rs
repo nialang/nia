@@ -312,10 +312,10 @@ fn selected_closure_is_iterative_deterministic_and_excludes_unselected_steps() {
                 .map(|item| item.key.name().to_string())
                 .collect::<Vec<_>>(),
         );
-        items
+        Ok(items
             .iter()
             .map(|_| ActionOutcome::Succeeded(None))
-            .collect()
+            .collect())
     })
     .unwrap();
 
@@ -340,7 +340,7 @@ fn test_closure_aggregates_failures_in_stable_suite_order() {
     let mut observed = Vec::new();
     let error = execute_test_closure(&plan, None, |items| {
         observed.extend(items.iter().map(|item| item.key.name().to_string()));
-        items
+        Ok(items
             .iter()
             .map(|item| {
                 if item.kind.is_test() {
@@ -352,7 +352,7 @@ fn test_closure_aggregates_failures_in_stable_suite_order() {
                     ActionOutcome::Succeeded(None)
                 }
             })
-            .collect()
+            .collect())
     })
     .unwrap_err();
 
@@ -371,10 +371,10 @@ fn test_closure_filter_selects_suite_and_shared_dependencies() {
     let mut observed = Vec::new();
     execute_test_closure(&plan, Some("alpha"), |items| {
         observed.extend(items.iter().map(|item| item.key.name().to_string()));
-        items
+        Ok(items
             .iter()
             .map(|_| ActionOutcome::Succeeded(None))
-            .collect()
+            .collect())
     })
     .unwrap();
 
@@ -396,10 +396,10 @@ fn shared_action_executes_once_across_multiple_steps() {
 
     let report = execute_selected_closure(&plan, |items| {
         observed.extend(items.iter().map(|item| item.key.name().to_string()));
-        items
+        Ok(items
             .iter()
             .map(|_| ActionOutcome::Succeeded(None))
-            .collect()
+            .collect())
     })
     .unwrap();
 
@@ -420,10 +420,10 @@ fn action_failure_stops_dependents_and_retains_action_context() {
     );
 
     let error = execute_selected_closure(&plan, |items| {
-        items
+        Ok(items
             .iter()
             .map(|item| ActionOutcome::Failed(unsupported(item, "test-failure")))
-            .collect()
+            .collect())
     })
     .unwrap_err();
 
@@ -475,17 +475,17 @@ fn concurrent_completion_order_does_not_change_visible_order() {
         "final",
     );
     let sequential = execute_selected_closure(&plan, |items| {
-        items
+        Ok(items
             .iter()
             .map(|_| ActionOutcome::Succeeded(None))
-            .collect()
+            .collect())
     })
     .unwrap();
     let completion_order = Arc::new(Mutex::new(Vec::new()));
 
     let concurrent = execute_selected_closure(&plan, |items| {
         let barrier = Arc::new(Barrier::new(items.len()));
-        std::thread::scope(|scope| {
+        Ok(std::thread::scope(|scope| {
             items
                 .iter()
                 .enumerate()
@@ -508,7 +508,7 @@ fn concurrent_completion_order_does_not_change_visible_order() {
                 .into_iter()
                 .map(|handle| handle.join().expect("synthetic action worker"))
                 .collect()
-        })
+        }))
     })
     .unwrap();
 
@@ -558,7 +558,7 @@ fn single_worker_action_limit_serializes_ready_tasks() {
         tasks,
     );
 
-    assert_eq!(values, (0..64).collect::<Vec<_>>());
+    assert_eq!(values.expect("action tasks"), (0..64).collect::<Vec<_>>());
     assert_eq!(active.load(Ordering::SeqCst), 0);
     assert_eq!(peak.load(Ordering::SeqCst), 1);
 }
@@ -628,10 +628,10 @@ fn bounded_wide_graph_stress_preserves_deterministic_report() {
     })
     .unwrap();
     let expected = execute_selected_closure(&plan, |items| {
-        items
+        Ok(items
             .iter()
             .map(|_| ActionOutcome::Succeeded(None))
-            .collect()
+            .collect())
     })
     .unwrap();
 
@@ -658,7 +658,7 @@ fn bounded_wide_graph_stress_preserves_deterministic_report() {
                     )
                 })
                 .collect::<Vec<_>>();
-            run_action_tasks(&session, limit, tasks)
+            run_action_tasks(&session, limit, tasks).map_err(CoordinatorError::Internal)
         })
         .unwrap();
 
@@ -690,7 +690,7 @@ fn failure_waits_for_active_wave_and_never_dispatches_dependents() {
                 .collect::<Vec<_>>(),
         );
         let barrier = Arc::new(Barrier::new(items.len()));
-        std::thread::scope(|scope| {
+        Ok(std::thread::scope(|scope| {
             items
                 .iter()
                 .map(|item| {
@@ -711,7 +711,7 @@ fn failure_waits_for_active_wave_and_never_dispatches_dependents() {
                 .into_iter()
                 .map(|handle| handle.join().expect("synthetic action worker"))
                 .collect()
-        })
+        }))
     })
     .unwrap_err();
 

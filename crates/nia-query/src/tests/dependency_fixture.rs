@@ -75,7 +75,7 @@ impl QueryKey<TestContext> for ParallelRecursive {
 
     fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
         Ok(db
-            .get_many_with([ParallelRecursiveChild], QueryDb::get)
+            .get_many_with([ParallelRecursiveChild], QueryDb::get)?
             .into_iter()
             .collect::<QueryResult<Vec<_>>>()?
             .into_iter()
