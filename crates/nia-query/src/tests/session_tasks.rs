@@ -119,6 +119,21 @@ fn session_construction_rejects_zero_parallelism() {
 }
 
 #[test]
+fn bounded_task_apis_reject_zero_without_panicking() {
+    let session = QuerySession::with_parallelism(2);
+    let error = session
+        .run_tasks_bounded([|| 1], 0)
+        .expect_err("zero bounded parallelism must be rejected");
+    assert!(error.message.contains("must be non-zero"));
+
+    let error = match session.task_pool::<usize>(0) {
+        Ok(_) => panic!("zero task-pool capacity must be rejected"),
+        Err(error) => error,
+    };
+    assert!(error.message.contains("must be non-zero"));
+}
+
+#[test]
 fn batch_rejects_duplicate_completion_after_streaming_consumption() {
     let batch = QueryBatch::new(1);
     batch.complete(0, Ok(7)).expect("complete batch item");

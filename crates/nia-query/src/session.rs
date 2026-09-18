@@ -92,10 +92,11 @@ impl QuerySession {
         T: FnOnce() -> O + Send + 'static,
         O: Send + 'static,
     {
-        assert!(
-            max_parallelism > 0,
-            "bounded task parallelism must be non-zero"
-        );
+        if max_parallelism == 0 {
+            return Err(nia_ice::Ice::new(
+                "bounded task parallelism must be non-zero",
+            ));
+        }
         let tasks = tasks.into_iter().collect::<Vec<_>>();
         let lane_count = tasks
             .len()
@@ -127,15 +128,17 @@ impl QuerySession {
     }
 
     /// Creates a backpressured pool whose `finish` result is submission ordered.
-    pub fn task_pool<O>(&self, max_parallelism: usize) -> QueryTaskPool<'_, O>
+    pub fn task_pool<O>(&self, max_parallelism: usize) -> nia_ice::IceResult<QueryTaskPool<'_, O>>
     where
         O: Send + 'static,
     {
-        assert!(
-            max_parallelism > 0,
-            "bounded task parallelism must be non-zero"
-        );
-        QueryTaskPool {
+        if max_parallelism == 0 {
+            return Err(nia_ice::Ice::new(
+                "bounded task parallelism must be non-zero",
+            ));
+        }
+        self.inner.ensure_healthy()?;
+        Ok(QueryTaskPool {
             session: self,
             _activity: self.enter_activity(),
             capacity: max_parallelism.min(self.executor_parallelism()),
@@ -143,7 +146,7 @@ impl QuerySession {
             pending: VecDeque::new(),
             completed: Vec::new(),
             failure: None,
-        }
+        })
     }
 
     pub(super) fn run_tasks_inner<T, O>(

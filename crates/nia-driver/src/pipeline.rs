@@ -820,7 +820,8 @@ impl Driver {
                         schedule.owner_directory(),
                         options,
                         &session,
-                    );
+                    )
+                    .map_err(|error| DriverError::InternalDiagnostic(Diagnostic::from(error)))?;
                     while let Some(ready) = schedule.wait_next().map_err(|error| {
                         DriverError::InternalDiagnostic(query_error_diagnostic(error))
                     })? {
@@ -1034,7 +1035,8 @@ impl Driver {
                         options,
                         cache,
                         &session,
-                    );
+                    )
+                    .map_err(|error| DriverError::InternalDiagnostic(Diagnostic::from(error)))?;
                     while let Some(ready) = schedule.wait_next().map_err(|error| {
                         DriverError::InternalDiagnostic(query_error_diagnostic(error))
                     })? {

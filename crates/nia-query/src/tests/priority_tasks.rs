@@ -6,7 +6,7 @@ fn bounded_priority_task_pool_preserves_submission_order_and_lanes() {
     let active = Arc::new(AtomicUsize::new(0));
     let peak_active = Arc::new(AtomicUsize::new(0));
     let barrier = Arc::new(Barrier::new(2));
-    let mut pool = session.task_pool(2);
+    let mut pool = session.task_pool(2).expect("create task pool");
 
     for value in 0..4 {
         let active = Arc::clone(&active);
@@ -78,7 +78,7 @@ fn priority_task_pool_runs_before_queued_batch_work() {
     started_receiver.recv().expect("wait for blocker start");
 
     let priority_order = Arc::clone(&order);
-    let mut pool = session.task_pool(1);
+    let mut pool = session.task_pool(1).expect("create task pool");
     pool.submit(move || {
         priority_order.lock().push("priority");
     })
@@ -100,7 +100,7 @@ fn priority_task_pool_runs_before_queued_batch_work() {
 fn priority_task_pool_drains_after_task_panic() {
     let session = QuerySession::with_parallelism(2);
     let completed = Arc::new(AtomicUsize::new(0));
-    let mut pool = session.task_pool(2);
+    let mut pool = session.task_pool(2).expect("create task pool");
     pool.submit(|| -> usize { panic!("priority task failure") })
         .expect("submit panicking task");
     let task_completed = Arc::clone(&completed);
