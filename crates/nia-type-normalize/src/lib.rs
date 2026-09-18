@@ -800,7 +800,7 @@ mod tests {
     use nia_parser::parse_module;
     use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyKind, TypeStore};
     use nia_type_lower::{
-        ProgramDefsContext, TypeLowering, TypeLoweringContext, lower_module_types_with_context,
+        ProgramDefsContext, TypeLowering, TypeLoweringContext,
     };
     use nia_type_resolve::resolve_module_types;
 
@@ -817,6 +817,7 @@ mod tests {
             input_ids: &input_ids,
             signatures,
         })
+        .expect("normalize test types")
     }
 
     fn lowered_types<'a>(
@@ -842,6 +843,17 @@ mod tests {
             type_store,
             symbols: None,
         })
+        .expect("collect test signatures")
+    }
+
+    fn lower_module_types_with_context(
+        module_id: ModuleId,
+        module: &nia_ast::Module,
+        resolved: &nia_type_resolve::TypeResolution,
+        context: TypeLoweringContext<'_>,
+    ) -> TypeLowering {
+        nia_type_lower::lower_module_types_with_context(module_id, module, resolved, context)
+            .expect("lower test types")
     }
 
     #[test]
@@ -1279,15 +1291,21 @@ fn take(xs: [u8; 2 + 3]) () {}
         let module_id = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
-        let elem = append.intern(TyKind::Primitive(PrimitiveTy::U8));
-        let pointer = append.intern(TyKind::Pointer {
+        let elem = append
+            .intern(TyKind::Primitive(PrimitiveTy::U8))
+            .expect("intern element type");
+        let pointer = append
+            .intern(TyKind::Pointer {
             is_readonly: true,
             elem,
-        });
-        let slice = append.intern(TyKind::Slice {
+        })
+            .expect("intern pointer type");
+        let slice = append
+            .intern(TyKind::Slice {
             is_readonly: true,
             elem,
-        });
+        })
+            .expect("intern slice type");
 
         let signatures = ItemSignatures {
             functions: HashMap::new(),
@@ -1306,7 +1324,8 @@ fn take(xs: [u8; 2 + 3]) () {}
             type_store: &type_store,
             input_ids: &[pointer],
             signatures: &signatures,
-        });
+        })
+        .expect("normalize explicit test types");
 
         assert!(normalization.normalized.contains_key(&pointer));
         assert!(!normalization.normalized.contains_key(&slice));
