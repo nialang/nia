@@ -30,7 +30,7 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
         id: SourceId(4),
         revision: SourceRevision(7),
     };
-    let old_store = TypeStore::new();
+    let old_store = TypeStore::new().expect("create type store");
     let append = old_store.append_for_module(old_module);
     let old_symbols = SymbolTable::new();
     let length = old_symbols.intern("Length").expect("intern length");
@@ -206,7 +206,7 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
         id: SourceId(90),
         revision: SourceRevision(2),
     };
-    let new_store = TypeStore::new();
+    let new_store = TypeStore::new().expect("create type store");
     let new_symbols = SymbolTable::new();
     let modules = HashMap::from([
         ("src/main.nia".to_string(), new_module),
@@ -285,7 +285,7 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
 fn type_lowering_rejects_const_expression_handles() {
     let ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = ids.allocate().expect("allocate module ID");
-    let store = TypeStore::new();
+    let store = TypeStore::new().expect("create type store");
     let append = store.append_for_module(module_id);
     let primitive = append.intern(TyKind::Primitive(PrimitiveTy::Usize));
     let array = append.intern(TyKind::Array {

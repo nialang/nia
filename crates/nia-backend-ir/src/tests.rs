@@ -123,7 +123,7 @@ fn backend_layout_conversion_uses_the_layout_product_owner() {
 fn partitioning_defers_dangling_closure_instance_owners_to_validation() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(module_id)
         .primitive(PrimitiveTy::I32);
@@ -185,7 +185,7 @@ fn owner_directory_records_actual_instance_publication_module() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let semantic_owner = module_ids.allocate().expect("allocate module ID");
     let publication_owner = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(semantic_owner)
         .primitive(PrimitiveTy::I32);
@@ -228,7 +228,7 @@ fn codegen_partitions_are_definition_filtered_and_stable_key_ordered() {
     let first_id = module_ids.allocate().expect("allocate module ID");
     let declaration_id = module_ids.allocate().expect("allocate module ID");
     let second_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let first_ty = type_store
         .append_for_module(first_id)
         .primitive(PrimitiveTy::I32);
@@ -303,7 +303,7 @@ fn codegen_partitions_are_definition_filtered_and_stable_key_ordered() {
 fn codegen_partition_membership_canonicalizes_instance_order() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(module_id)
         .primitive(PrimitiveTy::I32);
@@ -347,7 +347,7 @@ fn codegen_partition_order_does_not_depend_on_module_id_allocation() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let z_id = module_ids.allocate().expect("allocate module ID");
     let a_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let z_ty = type_store
         .append_for_module(z_id)
         .primitive(PrimitiveTy::I32);
@@ -370,7 +370,7 @@ fn codegen_partition_order_does_not_depend_on_module_id_allocation() {
 fn large_source_modules_use_stable_bounded_definition_buckets() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(module_id)
         .primitive(PrimitiveTy::I32);
@@ -417,7 +417,7 @@ fn codegen_partition_plan_rejects_duplicate_stable_source_keys() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let first_id = module_ids.allocate().expect("allocate module ID");
     let second_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let first_ty = type_store
         .append_for_module(first_id)
         .primitive(PrimitiveTy::I32);
@@ -439,7 +439,7 @@ fn codegen_partition_plan_rejects_duplicate_vtable_definitions() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let first_id = module_ids.allocate().expect("allocate module ID");
     let second_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(first_id)
         .primitive(PrimitiveTy::I32);
@@ -472,7 +472,7 @@ fn codegen_partition_plan_rejects_duplicate_vtable_definitions() {
 fn codegen_partition_plan_rejects_definition_membership_mutation() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(module_id)
         .primitive(PrimitiveTy::I32);
@@ -524,7 +524,7 @@ fn backend_module_store_publishes_concurrently_without_moving_payloads() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let first_id = module_ids.allocate().expect("allocate module ID");
     let second_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let first_ty = type_store
         .append_for_module(first_id)
         .primitive(PrimitiveTy::I32);
@@ -580,7 +580,7 @@ fn backend_module_store_rejects_duplicate_registered_owners() {
 fn backend_module_store_rejects_duplicate_publication() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(module_id)
         .primitive(PrimitiveTy::I32);
@@ -600,7 +600,7 @@ fn backend_module_store_rejects_unregistered_owner() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let registered = module_ids.allocate().expect("allocate module ID");
     let unregistered = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(unregistered)
         .primitive(PrimitiveTy::I32);
@@ -619,7 +619,7 @@ fn backend_module_readiness_delivers_publish_order_and_terminal_state() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let first_id = module_ids.allocate().expect("allocate module ID");
     let second_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let first_ty = type_store
         .append_for_module(first_id)
         .primitive(PrimitiveTy::I32);

@@ -2648,7 +2648,7 @@ fn compiler_database_with_providers_in_session(
     let node_store = loader_facts.node_store();
     let inputs = Arc::new(RwLock::new(CompilerInputs::new(request)));
     let executable_fact_session = Arc::new(std::sync::Mutex::new(ExecutableFactSession::default()));
-    let type_store = Arc::new(nia_ty::TypeStore::new());
+    let type_store = Arc::new(nia_ty::TypeStore::new()?);
     let db = QueryDb::new_registered_with_timings_in_session(
         CompilerContext {
             inputs: inputs.clone(),

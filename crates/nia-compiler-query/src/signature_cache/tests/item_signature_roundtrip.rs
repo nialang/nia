@@ -26,7 +26,7 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
     let old_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let old_module = old_ids.allocate().expect("allocate module ID");
     let old_dependency = old_ids.allocate().expect("allocate module ID");
-    let old_store = TypeStore::new();
+    let old_store = TypeStore::new().expect("create type store");
     let append = old_store.append_for_module(old_module);
     let old_symbols = SymbolTable::new();
     let symbol = |text| old_symbols.intern(text).expect("intern fixture symbol");
@@ -270,7 +270,7 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
     let new_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let new_dependency = new_ids.allocate().expect("allocate module ID");
     let new_module = new_ids.allocate().expect("allocate module ID");
-    let new_store = TypeStore::new();
+    let new_store = TypeStore::new().expect("create type store");
     let new_symbols = SymbolTable::new();
     let modules = HashMap::from([
         ("src/main.nia".to_string(), new_module),
@@ -357,7 +357,7 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
 #[test]
 fn item_signature_decoder_rejects_duplicate_field_names() {
     let symbols = SymbolTable::new();
-    let store = TypeStore::new();
+    let store = TypeStore::new().expect("create type store");
     let module = ModuleIdAllocator::new()
         .expect("create module ID allocator")
         .allocate()

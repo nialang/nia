@@ -29,7 +29,7 @@ fn selected(value: i32) () {}
         "{:?}",
         resolved.diagnostics
     );
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let lowered = lower_module_types_from_active_item_tree_with_context(
         module_id,
         &active,
@@ -75,7 +75,7 @@ pair.left
         "{:?}",
         resolved.diagnostics
     );
-    let store = nia_ty::TypeStore::new();
+    let store = nia_ty::TypeStore::new().expect("create type store");
     let declarations = lower_module_declaration_types_from_active_item_tree_with_context(
         module_id,
         &active,
@@ -119,7 +119,7 @@ struct Buffer[N: usize] {
         &nia_defs::PublicSurfaces::default(),
         &nia_defs::ModuleUsingScope::default(),
     );
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let lowered = lower_module_types_from_active_item_tree_with_context(
         module_id,
         &active,

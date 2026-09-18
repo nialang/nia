@@ -1269,7 +1269,7 @@ mod tests {
 
     #[test]
     fn canonical_instance_api_preserves_argument_order() {
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let module_id = ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()
@@ -1376,7 +1376,7 @@ mod tests {
 
     #[test]
     fn nominal_mangling_is_stable_across_module_allocator_universes() {
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let first_module = module_ids.allocate().expect("allocate module ID");
         let _unrelated_module = module_ids.allocate().expect("allocate module ID");
@@ -1425,7 +1425,7 @@ mod tests {
 
     #[test]
     fn nominal_mangling_distinguishes_source_identities() {
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
         let ty = type_store
@@ -1523,7 +1523,7 @@ mod tests {
 
     #[test]
     fn mangles_real_error_type_for_diagnostic_recovery() {
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let error = type_store
             .append_for_module(module_ids.allocate().expect("allocate module ID"))
@@ -1545,7 +1545,7 @@ mod tests {
 
     #[test]
     fn tuple_mangling_preserves_unit_arity_and_element_order() {
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
         let append = type_store.append_for_module(module_id);
@@ -1578,7 +1578,7 @@ mod tests {
 
     #[test]
     fn generic_mangling_records_argument_counts_not_encoded_text_lengths() {
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let module_id = ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()
@@ -1615,7 +1615,7 @@ mod tests {
 
     #[test]
     fn function_and_callable_mangling_preserve_arity_mutability_and_signature_order() {
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let module_id = ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()
@@ -1679,7 +1679,7 @@ mod tests {
 
     #[test]
     fn missing_type_id_uses_a_stable_recovery_symbol() {
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let missing = InternedTyId::new(type_store.id(), TypeStoreIndex::from_store_index(999));
 
         let first = mangle_type_with(

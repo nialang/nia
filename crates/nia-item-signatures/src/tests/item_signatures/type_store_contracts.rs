@@ -8,14 +8,14 @@ fn rejects_lowered_types_from_another_type_store() {
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module);
     let resolved = resolve_module_types(&module, &defs);
-    let lowering_store = TypeStore::new();
+    let lowering_store = TypeStore::new().expect("create type store");
     let lowering = lower_module_types_with_context(
         module_id,
         &module,
         &resolved,
         TypeLoweringContext::empty(&lowering_store),
     );
-    let signature_store = TypeStore::new();
+    let signature_store = TypeStore::new().expect("create type store");
     let signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
         defs: &defs,

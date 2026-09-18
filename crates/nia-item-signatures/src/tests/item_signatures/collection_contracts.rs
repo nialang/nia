@@ -198,7 +198,7 @@ a + b
         "{:?}",
         resolved.diagnostics
     );
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let lowered = lower_module_types_with_context(
         module_id,
         &module,
@@ -278,7 +278,7 @@ extend[T] Box[T] {
         "{:?}",
         resolved.diagnostics
     );
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let lowered = lower_module_types_with_context(
         module_id,
         &module,
@@ -355,7 +355,7 @@ fn selected() i32 { 1 }
         "{:?}",
         resolved.diagnostics
     );
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let lowered = lower_module_types_with_context(
         module_id,
         &active_module,

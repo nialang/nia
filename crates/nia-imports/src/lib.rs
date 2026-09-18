@@ -1372,17 +1372,19 @@ mod tests {
         assert_eq!(graph.module_id_for_path("src/main.nia"), Some(entry));
         let entry_key = graph.stable_key(entry).expect("entry stable key");
         assert_eq!(graph.module_id_for_stable_key(entry_key), Some(entry));
-        let package = graph.intern_package_root(
-            &module_root_symbol_from_text("pkg"),
-            SourcePath::new("pkg/./root.nia"),
-        )
-        .expect("intern package root");
-        assert_eq!(
-            graph.intern_package_root(
-                &module_root_symbol_from_text("pkg_alias"),
-                SourcePath::new("pkg/root.nia")
+        let package = graph
+            .intern_package_root(
+                &module_root_symbol_from_text("pkg"),
+                SourcePath::new("pkg/./root.nia"),
             )
-            .expect("intern package alias"),
+            .expect("intern package root");
+        assert_eq!(
+            graph
+                .intern_package_root(
+                    &module_root_symbol_from_text("pkg_alias"),
+                    SourcePath::new("pkg/root.nia")
+                )
+                .expect("intern package alias"),
             package
         );
         assert_eq!(graph.module_id_for_path("pkg/root.nia"), Some(package));

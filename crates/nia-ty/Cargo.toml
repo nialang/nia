@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 nia-hash.workspace = true
 nia-ids.workspace = true
+nia-ice.workspace = true
 nia-span.workspace = true
 nia-symbol.workspace = true
 

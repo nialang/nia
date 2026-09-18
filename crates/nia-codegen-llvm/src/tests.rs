@@ -27,7 +27,7 @@ fn missing_declaration_module_is_reported_as_backend_diagnostic() {
     );
     let (index, _publisher) = crate::program_index::ProgramIndex::new(
         modules,
-        std::sync::Arc::new(nia_ty::TypeStore::new()),
+        std::sync::Arc::new(nia_ty::TypeStore::new().expect("create type store")),
     );
 
     let diagnostics = super::validate_declaration_module(missing, &index)

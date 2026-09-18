@@ -306,7 +306,7 @@ fn statement_if_pattern_binding_stores_tagged_union_payload() {
 fn statement_match_pattern_binding_stores_tagged_union_payload() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
     let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
@@ -412,7 +412,7 @@ fn statement_match_pattern_binding_stores_tagged_union_payload() {
 fn statement_if_error_union_pattern_binding_uses_payload_type() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
     let unit_ty = append.intern(TyKind::Tuple(Vec::new()));

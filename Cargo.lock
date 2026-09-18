@@ -1183,6 +1183,7 @@ name = "nia-ty"
 version = "0.2.0-dev"
 dependencies = [
  "nia-hash",
+ "nia-ice",
  "nia-ids",
  "nia-span",
  "nia-symbol",

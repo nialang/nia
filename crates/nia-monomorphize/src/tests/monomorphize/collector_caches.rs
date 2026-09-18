@@ -60,7 +60,7 @@ fn empty_collector() -> (ModuleId, MonoCollector<'static>) {
     static FIXTURE: std::sync::LazyLock<(TypeStore, ModuleId)> = std::sync::LazyLock::new(|| {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         (
-            TypeStore::new(),
+            TypeStore::new().expect("create type store"),
             module_ids.allocate().expect("allocate module ID"),
         )
     });

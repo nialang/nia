@@ -1552,7 +1552,7 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let usize_ty = types
             .append_for_module(module_id)
             .primitive(PrimitiveTy::Usize);

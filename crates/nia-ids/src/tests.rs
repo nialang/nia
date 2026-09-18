@@ -48,8 +48,8 @@ fn independent_module_allocators_do_not_alias_handles() {
 
 #[test]
 fn interned_type_handles_are_qualified_by_store_and_index() {
-    let first_store = TypeStoreId::fresh();
-    let second_store = TypeStoreId::fresh();
+    let first_store = TypeStoreId::fresh().expect("allocate type store ID");
+    let second_store = TypeStoreId::fresh().expect("allocate type store ID");
     let index = TypeStoreIndex::from_store_index(7);
     let same = InternedTyId::new(first_store, index);
 

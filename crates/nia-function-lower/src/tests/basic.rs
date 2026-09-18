@@ -162,7 +162,7 @@ fn lowers_closure_state_and_direct_call_to_generated_entry() {
     let span = Span::default();
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
     let closure_id = ClosureId {
@@ -491,7 +491,7 @@ fn lowers_try_expression_to_try_terminator_and_success_local() {
     let span = Span::default();
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
     let optional_i32 = append.intern(TyKind::Optional { elem: i32_ty });

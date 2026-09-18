@@ -843,7 +843,7 @@ mod tests {
             module_id,
             const_expr_id: ConstExprId(7),
         };
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
         let usize_ty = append.primitive(PrimitiveTy::Usize);
         let const_arg = ConstGenericArg {

@@ -2149,7 +2149,7 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let ty = store
             .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);
@@ -2182,7 +2182,7 @@ mod tests {
     fn encoder_recovers_missing_module_and_type_handles() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let missing_module = module_ids.allocate().expect("allocate module ID");
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let missing_type = InternedTyId::new(store.id(), TypeStoreIndex::from_store_index(77));
         let modules = Arc::new(
             nia_backend_ir::BackendModuleStore::new([]).expect("create backend module store"),
@@ -2205,7 +2205,7 @@ mod tests {
     fn fingerprint_rejects_stale_declaration_membership() {
         let modules = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = modules.allocate().expect("allocate module ID");
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let ty = store
             .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);
@@ -2282,7 +2282,7 @@ mod tests {
         main_id: ModuleId,
         origin_id: ModuleId,
     ) -> (Fixture, InternedTyId) {
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let ty = store
             .append_for_module(main_id)
             .primitive(PrimitiveTy::Usize);
@@ -2363,7 +2363,7 @@ mod tests {
         let main_id = ids.allocate().expect("allocate module ID");
         let foreign_id = ids.allocate().expect("allocate module ID");
         let unrelated_id = ids.allocate().expect("allocate module ID");
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let ty = store.append_for_module(main_id).primitive(PrimitiveTy::I32);
         let foreign_def = GlobalDefId {
             module_id: foreign_id,
@@ -2406,7 +2406,7 @@ mod tests {
         let ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let main_id = ids.allocate().expect("allocate module ID");
         let unrelated_id = ids.allocate().expect("allocate module ID");
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let ty = store.append_for_module(main_id).primitive(PrimitiveTy::I32);
         let fixture = fixture(
             BackendProgram {
@@ -2431,7 +2431,7 @@ mod tests {
     fn source_unit_fingerprint_ignores_session_local_handle_allocation() {
         let first_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let first_id = first_ids.allocate().expect("allocate module ID");
-        let first_store = TypeStore::new();
+        let first_store = TypeStore::new().expect("create type store");
         let first_ty = first_store
             .append_for_module(first_id)
             .primitive(PrimitiveTy::I32);
@@ -2448,7 +2448,7 @@ mod tests {
         let second_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let _unrelated = second_ids.allocate().expect("allocate module ID");
         let second_id = second_ids.allocate().expect("allocate module ID");
-        let second_store = TypeStore::new();
+        let second_store = TypeStore::new().expect("create type store");
         let _unrelated_ty = second_store
             .append_for_module(second_id)
             .primitive(PrimitiveTy::U8);
@@ -2476,7 +2476,7 @@ mod tests {
         let ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let main_id = ids.allocate().expect("allocate module ID");
         let helper_id = ids.allocate().expect("allocate module ID");
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let ty = store.append_for_module(main_id).primitive(PrimitiveTy::I32);
         let main = module_with_global(main_id, "main.nia", ty, 1);
         let helper = module_with_global(helper_id, "helper.nia", ty, 2);
@@ -2493,7 +2493,7 @@ mod tests {
         let ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let main_id = ids.allocate().expect("allocate module ID");
         let helper_id = ids.allocate().expect("allocate module ID");
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let ty = store.append_for_module(main_id).primitive(PrimitiveTy::I32);
         let second = fixture(
             BackendProgram {
@@ -2518,7 +2518,7 @@ mod tests {
     fn source_unit_fingerprint_tracks_definition_and_ignores_span() {
         let ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = ids.allocate().expect("allocate module ID");
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let ty = store
             .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);
@@ -2534,7 +2534,7 @@ mod tests {
 
         let ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = ids.allocate().expect("allocate module ID");
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let ty = store
             .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);
@@ -2552,7 +2552,7 @@ mod tests {
 
         let ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = ids.allocate().expect("allocate module ID");
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let ty = store
             .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);
@@ -2592,7 +2592,7 @@ mod tests {
                 .expect("create module ID allocator")
                 .allocate()
                 .expect("allocate module ID");
-            let store = TypeStore::new();
+            let store = TypeStore::new().expect("create type store");
             let append = store.append_for_module(module_id);
             let i32_ty = append.primitive(PrimitiveTy::I32);
             let state_ty = append.intern(TyKind::ClosureState {
@@ -2722,7 +2722,7 @@ mod tests {
             let ids = ModuleIdAllocator::new().expect("create module ID allocator");
             let main_id = ids.allocate().expect("allocate module ID");
             let foreign_id = ids.allocate().expect("allocate module ID");
-            let store = TypeStore::new();
+            let store = TypeStore::new().expect("create type store");
             let append = store.append_for_module(main_id);
             let i32_ty = append.primitive(PrimitiveTy::I32);
             let i64_ty = append.primitive(PrimitiveTy::I64);
@@ -2801,7 +2801,7 @@ mod tests {
             let ids = ModuleIdAllocator::new().expect("create module ID allocator");
             let main_id = ids.allocate().expect("allocate module ID");
             let foreign_id = ids.allocate().expect("allocate module ID");
-            let store = TypeStore::new();
+            let store = TypeStore::new().expect("create type store");
             let append = store.append_for_module(main_id);
             let i32_ty = append.primitive(PrimitiveTy::I32);
             let i64_ty = append.primitive(PrimitiveTy::I64);
@@ -2864,7 +2864,7 @@ mod tests {
             let ids = ModuleIdAllocator::new().expect("create module ID allocator");
             let main_id = ids.allocate().expect("allocate module ID");
             let foreign_id = ids.allocate().expect("allocate module ID");
-            let store = TypeStore::new();
+            let store = TypeStore::new().expect("create type store");
             let append = store.append_for_module(main_id);
             let i32_ty = append.primitive(PrimitiveTy::I32);
             let i64_ty = append.primitive(PrimitiveTy::I64);
@@ -2921,7 +2921,7 @@ mod tests {
     fn native_object_fingerprint_tracks_exact_target_identity() {
         let ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = ids.allocate().expect("allocate module ID");
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let ty = store
             .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);

@@ -87,7 +87,7 @@ fn type_equivalence_resolves_nominal_const_expression_summaries() {
     let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
     let left_module = module_ids.allocate().expect("allocate module ID");
     let right_module = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);
     let left_usize = left.intern(TyKind::Primitive(PrimitiveTy::Usize));
@@ -176,7 +176,7 @@ fn trait_goal_guard_resolves_const_expression_summaries() {
     let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
     let left_module = module_ids.allocate().expect("allocate module ID");
     let right_module = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);
     let left_usize = left.primitive(PrimitiveTy::Usize);
@@ -290,7 +290,7 @@ fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave()
         .insert(sym("Other"), using_type_entry(other));
     let using_scopes = |_module_id| None::<Arc<ModuleUsingScope>>;
     let type_alias = |_def_id| None::<ProgramTypeAliasSignature>;
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let empty_normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
@@ -345,7 +345,7 @@ fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave()
 fn const_generic_supertrait_instances_require_exact_impl_arguments() {
     let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let usize_ty = append.intern(TyKind::Primitive(PrimitiveTy::Usize));
     let target_ty = append.intern(TyKind::Primitive(PrimitiveTy::U8));
@@ -433,7 +433,7 @@ fn projection_context_matching_uses_semantic_arguments() {
     let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
     let left_module = module_ids.allocate().expect("allocate module ID");
     let right_module = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);
     let left_u32 = left.intern(TyKind::Primitive(PrimitiveTy::U32));
@@ -463,7 +463,7 @@ fn substitutes_generic_type_inside_array_layout_builtin() {
     let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
     let defs = defs_from_source(module_id, "struct Dummy {}");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let generic = sym("T");
     let generic_ty = append.intern(TyKind::GenericParam(generic));
@@ -531,7 +531,7 @@ fn trait_goal_assumption_identity_is_semantic_and_includes_self_type() {
     let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
     let left_module = module_ids.allocate().expect("allocate module ID");
     let right_module = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);
     let usize_left = left.intern(TyKind::Primitive(PrimitiveTy::Usize));

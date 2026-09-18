@@ -102,6 +102,7 @@ const result: usize = {
             .allocate()
             .expect("allocate module ID");
         let ty = TypeStore::new()
+            .expect("create type store")
             .append_for_module(module_id)
             .primitive(PrimitiveTy::Usize);
         let projection = AssociatedConstProjection {

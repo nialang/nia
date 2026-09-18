@@ -389,7 +389,7 @@ mod tests {
             module_id: defining_module,
             def_id: nia_defs::DefId(1),
         };
-        let type_store = nia_ty::TypeStore::new();
+        let type_store = nia_ty::TypeStore::new().expect("create type store");
         let defining_types = type_store.append_for_module(defining_module);
         let consuming_types = type_store.append_for_module(consuming_module);
         let type_name = SymbolId::from_stable_hash(nia_symbol::stable_hash("T"));
@@ -461,7 +461,7 @@ mod tests {
     fn trait_object_const_argument_types_are_layout_roots() {
         let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let type_store = nia_ty::TypeStore::new();
+        let type_store = nia_ty::TypeStore::new().expect("create type store");
         let types = type_store.append_for_module(module_id);
         let nominal_id = GlobalDefId {
             module_id,

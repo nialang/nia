@@ -50,7 +50,7 @@ use lowering_wrappers::*;
 fn vtable_owner_payloads_match_semantic_integer_consts() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(module_id)
         .primitive(nia_ty::PrimitiveTy::I32);
@@ -107,7 +107,7 @@ fn vtable_owner_payloads_match_semantic_integer_consts() {
 fn vtable_owner_payloads_match_structural_array_layout_operands() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let u8_ty = append.primitive(nia_ty::PrimitiveTy::U8);
     let i32_ty = append.primitive(nia_ty::PrimitiveTy::I32);
@@ -185,7 +185,7 @@ fn vtable_owner_matches_evaluated_const_expression_array_lengths() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let left_module = module_ids.allocate().expect("allocate module ID");
     let right_module = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let left_append = type_store.append_for_module(left_module);
     let right_append = type_store.append_for_module(right_module);
     let left_u8 = left_append.primitive(nia_ty::PrimitiveTy::U8);
@@ -274,7 +274,7 @@ fn vtable_owner_deduplicates_semantically_equal_rebuilt_keys() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let left_module = module_ids.allocate().expect("allocate module ID");
     let right_module = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let left_append = type_store.append_for_module(left_module);
     let right_append = type_store.append_for_module(right_module);
     let left_i32 = left_append.primitive(nia_ty::PrimitiveTy::I32);
@@ -371,7 +371,7 @@ fn aggregate_owner_deduplicates_semantically_equal_instance_keys() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let left_module = module_ids.allocate().expect("allocate module ID");
     let right_module = module_ids.allocate().expect("allocate module ID");
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let left_append = type_store.append_for_module(left_module);
     let right_append = type_store.append_for_module(right_module);
     let left_i32 = left_append.primitive(nia_ty::PrimitiveTy::I32);

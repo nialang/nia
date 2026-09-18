@@ -825,7 +825,7 @@ fn id(x: Byte) u8 { x }
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
             module_id,
             &module,
@@ -866,7 +866,7 @@ fn id(p: RawPtr[u8]) &u8 { p }
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
             module_id,
             &module,
@@ -912,7 +912,7 @@ fn id(cb: Callback) Callback { cb }
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
             module_id,
             &module,
@@ -961,7 +961,7 @@ fn id(value: Mixed[u8, 4, u16]) Mixed[u8, 4, u16] { value }
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let program_defs =
             |requested| (requested == module_id).then(|| std::sync::Arc::new(defs.clone()));
         let lowered = lower_module_types_with_context(
@@ -1021,7 +1021,7 @@ fn id(value: Nested[u16]) (u16, ((), u16)) { value }
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
             module_id,
             &module,
@@ -1080,7 +1080,7 @@ fn id(x: [u8; std::builtin::size[Byte]()]) [u8; std::builtin::size[u8]()] { x }
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
             module_id,
             &module,
@@ -1136,7 +1136,7 @@ fn id(x: SizedBytes[u16]) [u8; std::builtin::size[u16]()] { x }
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
             module_id,
             &module,
@@ -1184,7 +1184,7 @@ type B = A;
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
             module_id,
             &module,
@@ -1218,7 +1218,7 @@ fn take(xs: [u8; 2 + 3]) () {}
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
             module_id,
             &module,
@@ -1245,7 +1245,7 @@ fn take(xs: [u8; 2 + 3]) () {}
     fn normalizes_only_the_explicit_input_set() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
         let elem = append.intern(TyKind::Primitive(PrimitiveTy::U8));
         let pointer = append.intern(TyKind::Pointer {

@@ -159,24 +159,18 @@ impl TypeStoreAppend {
     }
 }
 
-impl Default for TypeStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl TypeStore {
     /// Creates an empty type store with a fresh session identity.
-    pub fn new() -> Self {
-        let id = TypeStoreId::fresh();
-        Self {
+    pub fn new() -> nia_ice::IceResult<Self> {
+        let id = TypeStoreId::fresh()?;
+        Ok(Self {
             id,
             core: Arc::new(TypeStoreCore {
                 id,
                 slots: Mutex::new(TypeStoreSlots::default()),
                 kinds: TypeKindArena::default(),
             }),
-        }
+        })
     }
 
     /// Returns this store's session identity.
@@ -1361,7 +1355,7 @@ mod tests {
 
     #[test]
     fn interns_identical_types_once() {
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let module_id = nia_ids::ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()
@@ -1376,8 +1370,8 @@ mod tests {
 
     #[test]
     fn structural_equivalence_covers_non_leaf_runtime_types_across_stores() {
-        let left = TypeStore::new();
-        let right = TypeStore::new();
+        let left = TypeStore::new().expect("create type store");
+        let right = TypeStore::new().expect("create type store");
         let module_id = nia_ids::ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()
@@ -1431,8 +1425,8 @@ mod tests {
 
     #[test]
     fn default_equivalence_matches_integer_const_bits_across_stores() {
-        let left = TypeStore::new();
-        let right = TypeStore::new();
+        let left = TypeStore::new().expect("create type store");
+        let right = TypeStore::new().expect("create type store");
         let module_id = nia_ids::ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()
@@ -1471,8 +1465,8 @@ mod tests {
 
     #[test]
     fn associated_binding_equivalence_matches_values_with_duplicate_keys() {
-        let left = TypeStore::new();
-        let right = TypeStore::new();
+        let left = TypeStore::new().expect("create type store");
+        let right = TypeStore::new().expect("create type store");
         let module_id = nia_ids::ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()
@@ -1527,7 +1521,7 @@ mod tests {
 
     #[test]
     fn tuple_identity_preserves_arity_and_element_order() {
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let module_id = nia_ids::ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()
@@ -1548,7 +1542,7 @@ mod tests {
 
     #[test]
     fn primitive_ids_resolve_to_canonical_kinds() {
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let module_id = nia_ids::ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()
@@ -1563,8 +1557,8 @@ mod tests {
 
     #[test]
     fn type_store_identity_rejects_foreign_session_handles() {
-        let first = TypeStore::new();
-        let second = TypeStore::new();
+        let first = TypeStore::new().expect("create type store");
+        let second = TypeStore::new().expect("create type store");
         let module_id = nia_ids::ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()
@@ -1592,7 +1586,7 @@ mod tests {
 
     #[test]
     fn module_append_capabilities_share_canonical_ids() {
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let first = store.append_for_module(module_ids.allocate().expect("allocate module ID"));
         let second = store.append_for_module(module_ids.allocate().expect("allocate module ID"));
@@ -1613,7 +1607,7 @@ mod tests {
 
     #[test]
     fn pointers_to_callable_pointees_canonicalize_to_callable_views() {
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let module_id = nia_ids::ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()
@@ -1641,7 +1635,7 @@ mod tests {
 
     #[test]
     fn array_length_substitution_rejects_negative_signed_values() {
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let module_id = nia_ids::ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()
@@ -1677,8 +1671,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "outside its session type store")]
     fn interning_rejects_foreign_session_type_dependencies() {
-        let local = TypeStore::new();
-        let foreign = TypeStore::new();
+        let local = TypeStore::new().expect("create type store");
+        let foreign = TypeStore::new().expect("create type store");
         let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let foreign_ty = foreign
             .append_for_module(module_ids.allocate().expect("allocate module ID"))
@@ -1694,7 +1688,7 @@ mod tests {
 
     #[test]
     fn interning_accepts_same_session_dependencies_from_another_module() {
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let foreign_module_id = module_ids.allocate().expect("allocate module ID");
         let local_module_id = module_ids.allocate().expect("allocate module ID");

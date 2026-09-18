@@ -759,7 +759,7 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
         let arg_module_id = module_ids.allocate().expect("allocate module ID");
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
             .primitive(PrimitiveTy::Usize);
@@ -992,7 +992,7 @@ mod tests {
     fn trait_callees_retain_method_const_argument_types() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
         let receiver_ty = append.primitive(PrimitiveTy::U8);
         let method_const_ty = append.primitive(PrimitiveTy::Usize);
@@ -1074,7 +1074,7 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
         let elem_ty = append.primitive(PrimitiveTy::U8);
         let usize_ty = append.primitive(PrimitiveTy::Usize);
@@ -1135,7 +1135,7 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
         let def_id = global(module_id, 1);
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
             .primitive(PrimitiveTy::Usize);
@@ -1157,7 +1157,7 @@ mod tests {
     fn union_storage_relocation_pointee_participates_in_reachability() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
             .primitive(PrimitiveTy::Usize);
@@ -1211,7 +1211,7 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
             .primitive(PrimitiveTy::Usize);

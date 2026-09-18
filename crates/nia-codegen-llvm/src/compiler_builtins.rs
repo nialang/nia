@@ -1463,7 +1463,10 @@ mod tests {
         let module_id = module_ids.allocate().expect("allocate module ID");
         let store =
             Arc::new(BackendModuleStore::new([module_id]).expect("create backend module store"));
-        let (index, _publisher) = ProgramIndex::new(store, Arc::new(TypeStore::new()));
+        let (index, _publisher) = ProgramIndex::new(
+            store,
+            Arc::new(TypeStore::new().expect("create type store")),
+        );
 
         assert_eq!(required_symbols(&index), CompilerBuiltinSymbols::default());
     }

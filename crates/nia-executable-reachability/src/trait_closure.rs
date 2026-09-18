@@ -1280,7 +1280,7 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let self_ty = store
             .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);
@@ -1323,7 +1323,7 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let bool_ty = store
             .append_for_module(module_id)
             .primitive(PrimitiveTy::Bool);
@@ -1364,7 +1364,7 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
         let receiver_a = append.primitive(PrimitiveTy::U8);
         let receiver_b = append.primitive(PrimitiveTy::U16);
@@ -1396,7 +1396,7 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
         let i32_ty = append.primitive(PrimitiveTy::I32);
         let bool_ty = append.primitive(PrimitiveTy::Bool);
@@ -1440,8 +1440,8 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let left_store = TypeStore::new();
-        let right_store = TypeStore::new();
+        let left_store = TypeStore::new().expect("create type store");
+        let right_store = TypeStore::new().expect("create type store");
         let left_append = left_store.append_for_module(module_id);
         let right_append = right_store.append_for_module(module_id);
         let left_i32 = left_append.primitive(PrimitiveTy::I32);

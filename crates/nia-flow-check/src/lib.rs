@@ -909,7 +909,7 @@ mod tests {
         let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
             module_id,
             &module,
@@ -933,7 +933,7 @@ mod tests {
         let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
             module_id,
             &module,

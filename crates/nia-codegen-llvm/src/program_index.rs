@@ -1356,7 +1356,7 @@ mod tests {
         let second = module_ids.allocate().expect("allocate module ID");
         let first_def = global(first, 1);
         let second_def = global(second, 1);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(first);
         let first_ty = interner.primitive(PrimitiveTy::I32);
         let second_ty = interner.primitive(PrimitiveTy::U32);
@@ -1419,7 +1419,7 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let first = module_ids.allocate().expect("allocate module ID");
         let second = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(first);
         let first_ty = interner.primitive(PrimitiveTy::I32);
         let second_ty = interner.primitive(PrimitiveTy::U32);
@@ -1456,7 +1456,7 @@ mod tests {
         let written = module_ids.allocate().expect("allocate module ID");
         let unwritten = module_ids.allocate().expect("allocate module ID");
         let foreign = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(written);
         let ty = interner.primitive(PrimitiveTy::I32);
         drop(interner);
@@ -1497,7 +1497,7 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let first = module_ids.allocate().expect("allocate module ID");
         let second = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(first);
         let first_ty = interner.primitive(PrimitiveTy::I32);
         drop(interner);
@@ -1522,7 +1522,7 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let semantic_module_id = module_ids.allocate().expect("allocate module ID");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(module_id);
         let i32_ty = interner.primitive(PrimitiveTy::I32);
         let rebuilt_interner = type_store.append_for_module(semantic_module_id);
@@ -1768,7 +1768,7 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let owner_module = module_ids.allocate().expect("allocate module ID");
         let argument_module = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let owner_append = type_store.append_for_module(owner_module);
         let argument_append = type_store.append_for_module(argument_module);
         let owner_i32 = owner_append.primitive(PrimitiveTy::I32);
@@ -1996,7 +1996,7 @@ mod tests {
     fn resolves_types_without_a_program_module_view() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let ty = {
             let interner = type_store.append_for_module(module_id);
             let elem = interner.primitive(PrimitiveTy::U32);
@@ -2022,7 +2022,7 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let left_module = module_ids.allocate().expect("allocate module ID");
         let right_module = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let left_expr = nia_ids::GlobalConstExprId {
             module_id: left_module,
             const_expr_id: nia_ids::ConstExprId(1),

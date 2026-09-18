@@ -1545,7 +1545,7 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let type_store = nia_ty::TypeStore::new();
+        let type_store = nia_ty::TypeStore::new().expect("create type store");
         let ty = type_store
             .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);
@@ -1591,7 +1591,7 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let type_store = nia_ty::TypeStore::new();
+        let type_store = nia_ty::TypeStore::new().expect("create type store");
         let ty = type_store
             .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);
@@ -1660,7 +1660,7 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let type_store = nia_ty::TypeStore::new();
+        let type_store = nia_ty::TypeStore::new().expect("create type store");
         let ty = type_store
             .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);

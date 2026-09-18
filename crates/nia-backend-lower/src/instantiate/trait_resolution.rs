@@ -879,7 +879,7 @@ mod tests {
     fn trait_owner_arguments_preserve_interleaved_generic_kinds() {
         let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let type_store = nia_ty::TypeStore::new();
+        let type_store = nia_ty::TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
         let usize_ty = append.intern(TyKind::Primitive(PrimitiveTy::Usize));
         let first_type = nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash("T"));

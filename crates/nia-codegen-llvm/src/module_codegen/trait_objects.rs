@@ -203,7 +203,7 @@ mod tests {
     #[test]
     fn const_argument_matching_ignores_integer_signedness() {
         let ty = InternedTyId::new(
-            nia_ids::TypeStoreId::fresh(),
+            nia_ids::TypeStoreId::fresh().expect("allocate type store ID"),
             nia_ids::TypeStoreIndex::from_store_index(0),
         );
         let signed = ConstGenericArg {

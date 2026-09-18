@@ -2408,8 +2408,8 @@ mod tests {
 
     #[test]
     fn missing_or_foreign_type_handles_use_error_sentinel() {
-        let local_store = TypeStore::new();
-        let foreign_store = TypeStore::new();
+        let local_store = TypeStore::new().expect("create type store");
+        let foreign_store = TypeStore::new().expect("create type store");
         let module_id = ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()

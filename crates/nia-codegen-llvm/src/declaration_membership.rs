@@ -1066,7 +1066,7 @@ mod tests {
         let semantic_owner = module_ids.allocate().expect("allocate module ID");
         let actual_owner = module_ids.allocate().expect("allocate module ID");
         let unrelated = module_ids.allocate().expect("allocate module ID");
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let ty = types.append_for_module(caller).primitive(PrimitiveTy::I32);
         let semantic_def = GlobalDefId {
             module_id: semantic_owner,
@@ -1115,7 +1115,7 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let caller = module_ids.allocate().expect("allocate module ID");
         let const_owner = module_ids.allocate().expect("allocate module ID");
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(caller);
         let i32_ty = append.primitive(PrimitiveTy::I32);
         let nominal_def = GlobalDefId {
@@ -1203,7 +1203,7 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let definition = GlobalDefId {
             module_id,
             def_id: DefId(9),
@@ -1248,7 +1248,7 @@ mod tests {
         let caller = module_ids.allocate().expect("allocate module ID");
         let instance_owner = module_ids.allocate().expect("allocate module ID");
         let const_owner = module_ids.allocate().expect("allocate module ID");
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let ty = types.append_for_module(caller).primitive(PrimitiveTy::I32);
         let semantic_def = GlobalDefId {
             module_id: caller,
@@ -1306,7 +1306,7 @@ mod tests {
     fn stable_type_key_preserves_evaluated_array_lengths() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
         let i32_ty = append.primitive(PrimitiveTy::I32);
         let left = append.intern(TyKind::Array {
@@ -1354,8 +1354,10 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let missing_module = module_ids.allocate().expect("allocate module ID");
         let program = BackendProgram::new(Vec::new()).expect("build backend program");
-        let (index, _publisher) =
-            ProgramIndex::new(program.module_store(), Arc::new(TypeStore::new()));
+        let (index, _publisher) = ProgramIndex::new(
+            program.module_store(),
+            Arc::new(TypeStore::new().expect("create type store")),
+        );
         let key = stable_def_key(
             &index,
             GlobalDefId {
@@ -1379,7 +1381,7 @@ mod tests {
         let caller = module_ids.allocate().expect("allocate module ID");
         let vtable_owner = module_ids.allocate().expect("allocate module ID");
         let function_owner = module_ids.allocate().expect("allocate module ID");
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(caller);
         let ty = append.primitive(PrimitiveTy::I32);
         let upcast_object_ty = append.primitive(PrimitiveTy::Bool);
@@ -1482,7 +1484,7 @@ mod tests {
         let caller = module_ids.allocate().expect("allocate module ID");
         let semantic_owner = module_ids.allocate().expect("allocate module ID");
         let actual_owner = module_ids.allocate().expect("allocate module ID");
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let ty = types.append_for_module(caller).primitive(PrimitiveTy::I32);
         let semantic_def = GlobalDefId {
             module_id: semantic_owner,
@@ -1518,8 +1520,10 @@ mod tests {
         let module = empty_module(module_id, "main.nia");
         let owners = BackendModuleOwnerDirectory::from_modules([&module]);
         let program = BackendProgram::new(vec![module]).expect("build backend program");
-        let (index, mut publisher) =
-            ProgramIndex::new(program.module_store(), Arc::new(TypeStore::new()));
+        let (index, mut publisher) = ProgramIndex::new(
+            program.module_store(),
+            Arc::new(TypeStore::new().expect("create type store")),
+        );
         publisher.publish(module_id).expect("publish module");
         let mut builder = MembershipBuilder::new(&index, &owners);
         let refs = FunctionBodyRefs {
@@ -1549,8 +1553,10 @@ mod tests {
         let module = empty_module(module_id, "main.nia");
         let owners = BackendModuleOwnerDirectory::from_modules([&module]);
         let program = BackendProgram::new(vec![module]).expect("build backend program");
-        let (index, mut publisher) =
-            ProgramIndex::new(program.module_store(), Arc::new(TypeStore::new()));
+        let (index, mut publisher) = ProgramIndex::new(
+            program.module_store(),
+            Arc::new(TypeStore::new().expect("create type store")),
+        );
         publisher.publish(module_id).expect("publish module");
         let mut builder = MembershipBuilder::new(&index, &owners);
         builder.function_instances.insert(FunctionInstanceKey {

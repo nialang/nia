@@ -18,7 +18,7 @@ pub(super) fn query_db(loaded: LoadedProgram) -> QueryDb<CompilerContext> {
                 ExecutableFactSession::default(),
             )),
             executable_fact_scheduler: std::sync::Mutex::new(()),
-            type_store: Arc::new(nia_ty::TypeStore::new()),
+            type_store: Arc::new(nia_ty::TypeStore::new().expect("create type store")),
             diagnostic_store: nia_diagnostic::DiagnosticStore::new()
                 .expect("create diagnostic store"),
             node_store,
@@ -150,7 +150,7 @@ pub(super) fn query_db_with_frontend_cache(
                 ExecutableFactSession::default(),
             )),
             executable_fact_scheduler: std::sync::Mutex::new(()),
-            type_store: Arc::new(nia_ty::TypeStore::new()),
+            type_store: Arc::new(nia_ty::TypeStore::new().expect("create type store")),
             diagnostic_store: nia_diagnostic::DiagnosticStore::new()
                 .expect("create diagnostic store"),
             node_store,

@@ -57,7 +57,7 @@ fn normalization_for() -> TypeNormalization {
 fn test_fixture() -> TestFixture {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let types = TestTypes {
         append: type_store.append_for_module(module_id),
     };

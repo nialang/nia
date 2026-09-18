@@ -239,7 +239,7 @@ fn lowering_for_in_appends_synthesized_optional_item_type() {
     let span = Span::default();
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let item_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
     let bool_ty = append.intern(TyKind::Primitive(PrimitiveTy::Bool));

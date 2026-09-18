@@ -28,7 +28,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module);
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let program_defs =
         |candidate| (candidate == module_id).then(|| std::sync::Arc::new(defs.clone()));
     let type_lowering = lower_module_types_with_context(

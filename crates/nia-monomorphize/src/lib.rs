@@ -1882,7 +1882,7 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let left_module = module_ids.allocate().expect("allocate module ID");
         let right_module = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let left = type_store.append_for_module(left_module);
         let right = type_store.append_for_module(right_module);
         let left_ty = left.primitive(PrimitiveTy::U32);
@@ -1923,7 +1923,7 @@ mod tests {
     fn projection_guard_matches_structural_array_layout_operands() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
         let u8_ty = append.primitive(PrimitiveTy::U8);
         let i32_ty = append.primitive(PrimitiveTy::I32);
@@ -1978,7 +1978,7 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let left_module = module_ids.allocate().expect("allocate module ID");
         let right_module = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let left = type_store.append_for_module(left_module);
         let right = type_store.append_for_module(right_module);
         let left_u8 = left.primitive(PrimitiveTy::U8);

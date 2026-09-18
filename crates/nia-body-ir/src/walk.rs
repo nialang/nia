@@ -330,7 +330,7 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let types = TypeStore::new();
+            let types = TypeStore::new().expect("create type store");
             let module_id = ModuleIdAllocator::new()
                 .expect("create module ID allocator")
                 .allocate()
