@@ -51,6 +51,7 @@ impl QueryExecutionBudget {
                 pending_requests: 0,
                 active: 0,
                 deliveries: VecDeque::new(),
+                failure: None,
             }),
             ready: Condvar::new(),
             peak_active: AtomicUsize::new(0),
@@ -61,16 +62,24 @@ impl QueryExecutionBudget {
                 let delivery = delivery.map_err(|error| error.to_string());
                 let mut state = callback_shared.state.lock();
                 let Some(pending_requests) = state.pending_requests.checked_sub(1) else {
-                    state.deliveries.push_back(Err(
-                        "query execution budget received an unrequested token".to_string(),
+                    state.failure = Some(nia_ice::Ice::new(
+                        "query execution budget received an unrequested token",
                     ));
                     drop(state);
                     callback_shared.ready.notify_all();
                     return;
                 };
                 state.pending_requests = pending_requests;
-                if state.waiting > 0 {
-                    state.deliveries.push_back(delivery);
+                match delivery {
+                    Ok(token) if state.waiting > 0 => {
+                        state.deliveries.push_back(Ok(token));
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        state.failure = Some(nia_ice::Ice::new(format!(
+                            "failed to acquire query jobserver token: {error}"
+                        )));
+                    }
                 }
                 drop(state);
                 callback_shared.ready.notify_all();
@@ -88,6 +97,10 @@ impl QueryExecutionBudget {
         let mut state = self.shared.state.lock();
         state.waiting += 1;
         loop {
+            if let Some(ice) = state.failure.clone() {
+                state.waiting = state.waiting.saturating_sub(1);
+                return Err(ice);
+            }
             // A jobserver contributes one implicit slot plus its explicit tokens. Deliveries are
             // assigned before the implicit slot so an already-issued request cannot be stranded
             // while later waiters repeatedly take the process-local slot.
@@ -154,7 +167,15 @@ impl QueryExecutionBudgetShared {
 impl Drop for QueryExecutionPermit {
     fn drop(&mut self) {
         let mut state = self.shared.state.lock();
-        state.active = state.active.saturating_sub(1);
+        let Some(active) = state.active.checked_sub(1) else {
+            state.failure = Some(nia_ice::Ice::new(
+                "query execution budget permit count underflow",
+            ));
+            drop(state);
+            self.shared.ready.notify_all();
+            return;
+        };
+        state.active = active;
         if self.implicit {
             state.implicit_available = true;
         }

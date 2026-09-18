@@ -250,6 +250,7 @@ struct QueryExecutionBudgetState {
     pending_requests: usize,
     active: usize,
     deliveries: VecDeque<Result<jobserver::Acquired, String>>,
+    failure: Option<nia_ice::Ice>,
 }
 
 struct QueryExecutionPermit {
