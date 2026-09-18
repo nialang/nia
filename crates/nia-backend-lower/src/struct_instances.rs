@@ -56,17 +56,20 @@ impl<'a> ModuleLowerer<'a> {
                 );
             let substitution_id =
                 self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
+            let Some(symbol) = self.mangle_type_instance_symbol(
+                self.global_def_id(def_id),
+                item.name,
+                &key.args,
+                &key.const_args,
+            ) else {
+                continue;
+            };
             instances.push(BackendStructInstance {
                 def_id: global_def_id,
                 name: item.name,
                 args: key.args.clone(),
                 const_args: key.const_args.clone(),
-                symbol: self.mangle_type_instance_symbol(
-                    self.global_def_id(def_id),
-                    item.name,
-                    &key.args,
-                    &key.const_args,
-                ),
+                symbol,
                 fields: signature
                     .fields
                     .iter()
@@ -120,17 +123,20 @@ impl<'a> ModuleLowerer<'a> {
                 );
             let substitution_id =
                 self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
+            let Some(symbol) = self.mangle_type_instance_symbol(
+                self.global_def_id(def_id),
+                item.name,
+                &key.args,
+                &key.const_args,
+            ) else {
+                continue;
+            };
             instances.push(BackendUnionInstance {
                 def_id: global_def_id,
                 name: item.name,
                 args: key.args.clone(),
                 const_args: key.const_args.clone(),
-                symbol: self.mangle_type_instance_symbol(
-                    self.global_def_id(def_id),
-                    item.name,
-                    &key.args,
-                    &key.const_args,
-                ),
+                symbol,
                 fields: signature
                     .fields
                     .iter()
@@ -512,9 +518,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instance_ty(*arg, seen, out);
                 }
             }
-            FunctionExprKind::Error => {
-                crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
-            }
+            FunctionExprKind::Error => {}
             FunctionExprKind::EnumVariant { fields, .. } => {
                 for field in fields {
                     self.collect_struct_instances_expr(field, seen, out);
@@ -690,16 +694,12 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instance_ty(*arg, seen, out);
                 }
             }
-            FunctionPlaceBase::Error => {
-                crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
-            }
+            FunctionPlaceBase::Error => {}
         }
         for elem in &place.elems {
             match elem {
                 FunctionPlaceElem::Field(_) | FunctionPlaceElem::TupleField(_) => {}
-                FunctionPlaceElem::Error => {
-                    crate::input::unreachable_invalid_function_ir("FunctionPlaceElem::Error")
-                }
+                FunctionPlaceElem::Error => {}
                 FunctionPlaceElem::Index(expr) => {
                     self.collect_struct_instances_expr(expr, seen, out);
                 }
@@ -873,7 +873,7 @@ impl<'a> ModuleLowerer<'a> {
             name: def.name,
             args: args.clone(),
             const_args: const_args.clone(),
-            symbol: self.mangle_type_instance_symbol(def_id, def.name, &args, &const_args),
+            symbol: self.mangle_type_instance_symbol(def_id, def.name, &args, &const_args)?,
             fields: signature
                 .fields
                 .iter()
@@ -936,7 +936,7 @@ impl<'a> ModuleLowerer<'a> {
             name: symbol_name,
             args: args.clone(),
             const_args: const_args.clone(),
-            symbol: self.mangle_type_instance_symbol(def_id, symbol_name, &args, &const_args),
+            symbol: self.mangle_type_instance_symbol(def_id, symbol_name, &args, &const_args)?,
             fields: signature
                 .fields
                 .iter()
@@ -1217,9 +1217,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instance_ty(*arg, seen, out);
                 }
             }
-            FunctionExprKind::Error => {
-                crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
-            }
+            FunctionExprKind::Error => {}
             FunctionExprKind::EnumVariant { fields, .. } => {
                 for field in fields {
                     self.collect_union_instances_expr(field, seen, out);
@@ -1395,16 +1393,12 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instance_ty(*arg, seen, out);
                 }
             }
-            FunctionPlaceBase::Error => {
-                crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
-            }
+            FunctionPlaceBase::Error => {}
         }
         for elem in &place.elems {
             match elem {
                 FunctionPlaceElem::Field(_) | FunctionPlaceElem::TupleField(_) => {}
-                FunctionPlaceElem::Error => {
-                    crate::input::unreachable_invalid_function_ir("FunctionPlaceElem::Error")
-                }
+                FunctionPlaceElem::Error => {}
                 FunctionPlaceElem::Index(expr) => {
                     self.collect_union_instances_expr(expr, seen, out);
                 }
@@ -1578,7 +1572,7 @@ impl<'a> ModuleLowerer<'a> {
             name: def.name,
             args: args.clone(),
             const_args: const_args.clone(),
-            symbol: self.mangle_type_instance_symbol(def_id, def.name, &args, &const_args),
+            symbol: self.mangle_type_instance_symbol(def_id, def.name, &args, &const_args)?,
             fields: signature
                 .fields
                 .iter()
@@ -1641,7 +1635,7 @@ impl<'a> ModuleLowerer<'a> {
             name: symbol_name,
             args: args.clone(),
             const_args: const_args.clone(),
-            symbol: self.mangle_type_instance_symbol(def_id, symbol_name, &args, &const_args),
+            symbol: self.mangle_type_instance_symbol(def_id, symbol_name, &args, &const_args)?,
             fields: signature
                 .fields
                 .iter()

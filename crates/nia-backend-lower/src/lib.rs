@@ -1390,6 +1390,7 @@ pub(crate) struct ModuleLowerer<'a> {
     optimization_report: BackendOptimizationReport,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
     missing_source_identity_diagnostics: HashSet<ModuleId>,
+    missing_package_identity_diagnostics: HashSet<ModuleId>,
     missing_type_diagnostics: HashSet<InternedTyId>,
     extension_generics_by_method: HashMap<GlobalDefId, Vec<SymbolId>>,
     extension_method_sources_by_def: HashMap<GlobalDefId, ExtensionMethodSource>,

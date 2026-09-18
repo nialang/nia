@@ -531,11 +531,15 @@ impl<'a> ModuleLowerer<'a> {
                 let ty = self.ty_kind(arg.ty).cloned();
                 match ty {
                     Some(TyKind::Primitive(PrimitiveTy::Usize)) => {
-                        let value = u64::try_from(value.bits()).unwrap_or_else(|_| {
-                            crate::input::unreachable_invalid_function_ir(
-                                "usize const generic value exceeds u64",
-                            )
-                        });
+                        let Ok(value) = u64::try_from(value.bits()) else {
+                            self.diagnostics
+                                .push(nia_diagnostic::Diagnostic::internal_error_at(
+                                    nia_diagnostic::codes::INVALID_FUNCTION_IR,
+                                    nia_span::Span::default(),
+                                    "usize const generic value exceeds backend representation",
+                                ));
+                            return FunctionExprKind::Error;
+                        };
                         FunctionExprKind::BuiltinValue(
                             nia_function_ir::FunctionBuiltinValue::Usize(value),
                         )

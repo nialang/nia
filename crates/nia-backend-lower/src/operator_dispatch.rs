@@ -222,9 +222,7 @@ impl<'a> ModuleLowerer<'a> {
             span: expr.span,
             ty: expr.ty,
             kind: match expr.kind {
-                FunctionExprKind::Error => {
-                    crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
-                }
+                FunctionExprKind::Error => FunctionExprKind::Error,
                 FunctionExprKind::Trap => FunctionExprKind::Trap,
                 FunctionExprKind::Integer(text) => FunctionExprKind::Integer(text),
                 FunctionExprKind::Float(text) => FunctionExprKind::Float(text),
@@ -937,9 +935,7 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionPlaceBase::Deref(expr) => FunctionPlaceBase::Deref(Box::new(
                     self.resolve_builtin_operator_calls_in_expr(*expr),
                 )),
-                FunctionPlaceBase::Error => {
-                    crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
-                }
+                FunctionPlaceBase::Error => FunctionPlaceBase::Error,
             },
             elems: place
                 .elems
@@ -950,9 +946,7 @@ impl<'a> ModuleLowerer<'a> {
                     FunctionPlaceElem::Index(expr) => FunctionPlaceElem::Index(Box::new(
                         self.resolve_builtin_operator_calls_in_expr(*expr),
                     )),
-                    FunctionPlaceElem::Error => {
-                        crate::input::unreachable_invalid_function_ir("FunctionPlaceElem::Error")
-                    }
+                    FunctionPlaceElem::Error => FunctionPlaceElem::Error,
                 })
                 .collect(),
         }

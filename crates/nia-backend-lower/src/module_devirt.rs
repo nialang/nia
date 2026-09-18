@@ -259,9 +259,7 @@ impl<'a> ModuleLowerer<'a> {
                     changed |= self.devirtualize_direct_trait_calls_in_expr(end);
                 }
             }
-            FunctionExprKind::Error => {
-                crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
-            }
+            FunctionExprKind::Error => {}
             FunctionExprKind::EnumVariant { fields, .. } => {
                 for field in fields {
                     changed |= self.devirtualize_direct_trait_calls_in_expr(field);
@@ -359,9 +357,7 @@ impl<'a> ModuleLowerer<'a> {
             FunctionPlaceBase::Local(_)
             | FunctionPlaceBase::Global(_)
             | FunctionPlaceBase::GlobalInstance { .. } => {}
-            FunctionPlaceBase::Error => {
-                crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
-            }
+            FunctionPlaceBase::Error => {}
         }
         for elem in &mut place.elems {
             if let FunctionPlaceElem::Index(expr) = elem {
