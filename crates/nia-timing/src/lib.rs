@@ -9,14 +9,15 @@ use std::{
     cell::{Cell, RefCell},
     cmp::Reverse,
     collections::HashMap,
-    fmt::Write as _,
     sync::{
-        Arc, Condvar, Mutex, OnceLock,
+        Arc, OnceLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::ThreadId,
     time::{Duration, Instant},
 };
+
+use parking_lot::{Condvar, Mutex};
 
 const TIMING_REPORT_ENTRY_LIMIT: usize = 64;
 const THREAD_TIMING_BAG_FLUSH_LIMIT: usize = 2048;
@@ -137,9 +138,7 @@ impl AllocationLiveWindow {
         {
             return None;
         }
-        let _lock = LIVE_WINDOW_LOCK
-            .lock()
-            .expect("allocation live window lock poisoned");
+        let _lock = LIVE_WINDOW_LOCK.lock();
         if LIVE_WINDOW_ACTIVE.load(Ordering::Acquire) {
             return None;
         }
@@ -159,9 +158,7 @@ impl AllocationLiveWindow {
     }
 
     fn stop(&self) -> AllocationLiveWindowMeasurement {
-        let _lock = LIVE_WINDOW_LOCK
-            .lock()
-            .expect("allocation live window lock poisoned");
+        let _lock = LIVE_WINDOW_LOCK.lock();
         LIVE_WINDOW_ACTIVE.store(false, Ordering::Release);
         let end_live_bytes = LIVE_BYTES.load(Ordering::Relaxed);
         AllocationLiveWindowMeasurement {
@@ -582,10 +579,9 @@ pub fn emit_query_note(name: impl Into<String>, detail: impl Into<String>) {
 
 /// Emits a named integer counter.
 pub fn emit_counter(name: impl Into<String>, value: u64) {
-    let event = TimingEvent {
-        kind: TimingEventKind::Counter,
+    let event = TimingEvent::Counter {
         name: name.into(),
-        data: TimingEventData::Counter(value),
+        value,
     };
     match record_timing_event(event) {
         TimingRecord::Recorded | TimingRecord::Discarded => {}
@@ -671,7 +667,7 @@ pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T 
     let session = {
         let current_thread = std::thread::current().id();
         let (state, finished) = timing_collector_state();
-        let mut state = state.lock().expect("timing collector state poisoned");
+        let mut state = state.lock();
         let nested_on_owner = state
             .active
             .as_ref()
@@ -681,15 +677,13 @@ pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T 
             return f();
         }
         while state.active.is_some() {
-            state = finished
-                .wait(state)
-                .expect("timing collector state poisoned");
+            finished.wait(&mut state);
         }
-        let session = Arc::new(TimingSession::new(
-            options.mode,
-            options.trace,
-            options.format,
-        ));
+        let Some(session) = TimingSession::new(options.mode, options.trace, options.format) else {
+            drop(state);
+            return f();
+        };
+        let session = Arc::new(session);
         session.start_allocation_tracking(options.mode.detail());
         state.active = Some(ActiveTimingCollector {
             owner: current_thread,
@@ -709,7 +703,7 @@ pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T 
             flush_local_timing_bag_for_session(self.session.id);
 
             let (state, finished) = timing_collector_state();
-            let mut state = state.lock().expect("timing collector state poisoned");
+            let mut state = state.lock();
             let Some(current) = state.active.as_ref() else {
                 return;
             };
@@ -724,12 +718,7 @@ pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T 
                 return;
             }
 
-            let (mut report, trace_events) = self
-                .session
-                .collector
-                .lock()
-                .expect("timing collector poisoned")
-                .drain();
+            let (mut report, trace_events) = self.session.collector.lock().drain();
             if let Some(allocation) = allocation {
                 report.add_allocation_counters(allocation);
             }
@@ -751,24 +740,27 @@ pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T 
 }
 
 #[derive(Debug, Clone)]
-struct TimingEvent {
-    kind: TimingEventKind,
-    name: String,
-    data: TimingEventData,
-}
-
-#[derive(Debug, Clone)]
-enum TimingEventData {
-    Measurement(TimingMeasurement),
-    Note(String),
-    Counter(u64),
+enum TimingEvent {
+    Measurement {
+        kind: TimingEventKind,
+        name: String,
+        measurement: TimingMeasurement,
+    },
+    Note {
+        kind: TimingEventKind,
+        name: String,
+        detail: String,
+    },
+    Counter {
+        name: String,
+        value: u64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum TimingEventKind {
     Stage,
     Query,
-    Counter,
 }
 
 #[derive(Debug, Default)]
@@ -803,9 +795,9 @@ struct TimingSession {
 }
 
 impl TimingSession {
-    fn new(mode: TimingMode, trace: TimingTrace, format: TimingFormat) -> Self {
-        Self {
-            id: next_timing_session_id(),
+    fn new(mode: TimingMode, trace: TimingTrace, format: TimingFormat) -> Option<Self> {
+        Some(Self {
+            id: next_timing_session_id()?,
             mode,
             trace,
             format,
@@ -814,7 +806,7 @@ impl TimingSession {
             allocation_tracking: AtomicBool::new(false),
             active: AtomicBool::new(true),
             collector: Mutex::new(TimingCollector::new(trace)),
-        }
+        })
     }
 
     fn is_active(&self) -> bool {
@@ -847,35 +839,31 @@ impl TimingSession {
     }
 
     fn merge(&self, collector: TimingCollector) {
-        self.collector
-            .lock()
-            .expect("timing collector poisoned")
-            .merge(collector);
+        self.collector.lock().merge(collector);
     }
 }
 
-fn next_timing_session_id() -> u64 {
+fn next_timing_session_id() -> Option<u64> {
     static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
-    let id = NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed);
-    assert_ne!(id, u64::MAX, "timing session id overflowed");
-    id
+    NEXT_SESSION_ID
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+        .ok()
 }
 
 fn active_timing_session() -> Option<Arc<TimingSession>> {
     timing_collector_state()
         .0
         .lock()
-        .expect("timing collector state poisoned")
         .active
         .as_ref()
         .map(|active| Arc::clone(&active.session))
 }
 
 fn emit(kind: TimingEventKind, name: String, measurement: TimingMeasurement) {
-    let event = TimingEvent {
+    let event = TimingEvent::Measurement {
         kind,
         name,
-        data: TimingEventData::Measurement(measurement),
+        measurement,
     };
     match record_timing_event(event) {
         TimingRecord::Recorded | TimingRecord::Discarded => {}
@@ -884,11 +872,7 @@ fn emit(kind: TimingEventKind, name: String, measurement: TimingMeasurement) {
 }
 
 fn emit_note(kind: TimingEventKind, name: String, detail: String) {
-    let event = TimingEvent {
-        kind,
-        name,
-        data: TimingEventData::Note(detail),
-    };
+    let event = TimingEvent::Note { kind, name, detail };
     match record_timing_event(event) {
         TimingRecord::Recorded | TimingRecord::Discarded => {}
         TimingRecord::Unscoped(event) => print_event(&event),
@@ -1008,23 +992,34 @@ fn print_event(event: &TimingEvent) {
 }
 
 fn format_event(event: &TimingEvent) -> String {
-    match (event.kind, &event.data) {
-        (TimingEventKind::Stage, TimingEventData::Measurement(measurement)) => {
-            format_measurement_event("timing", &event.name, *measurement)
+    match event {
+        TimingEvent::Measurement {
+            kind: TimingEventKind::Stage,
+            name,
+            measurement,
+        } => format_measurement_event("timing", name, *measurement),
+        TimingEvent::Measurement {
+            kind: TimingEventKind::Query,
+            name,
+            measurement,
+        } => format_measurement_event("query timing", name, *measurement),
+        TimingEvent::Note {
+            kind: TimingEventKind::Stage,
+            name,
+            detail,
+        } => {
+            format!("timing {name}: {detail}")
         }
-        (TimingEventKind::Query, TimingEventData::Measurement(measurement)) => {
-            format_measurement_event("query timing", &event.name, *measurement)
+        TimingEvent::Note {
+            kind: TimingEventKind::Query,
+            name,
+            detail,
+        } => {
+            format!("query timing {name}: {detail}")
         }
-        (TimingEventKind::Stage, TimingEventData::Note(detail)) => {
-            format!("timing {}: {}", event.name, detail)
+        TimingEvent::Counter { name, value } => {
+            format!("timing counter {name}: {value}")
         }
-        (TimingEventKind::Query, TimingEventData::Note(detail)) => {
-            format!("query timing {}: {}", event.name, detail)
-        }
-        (TimingEventKind::Counter, TimingEventData::Counter(value)) => {
-            format!("timing counter {}: {value}", event.name)
-        }
-        _ => unreachable!("timing event kind and data must agree"),
     }
 }
 
@@ -1078,15 +1073,19 @@ impl TimingCollector {
     }
 
     fn record(&mut self, event: TimingEvent) {
-        match event.data {
-            TimingEventData::Measurement(measurement) => {
-                self.emit_measurement(event.kind, event.name, measurement);
+        match event {
+            TimingEvent::Measurement {
+                kind,
+                name,
+                measurement,
+            } => {
+                self.emit_measurement(kind, name, measurement);
             }
-            TimingEventData::Note(detail) => {
-                self.emit_note(event.kind, event.name, detail);
+            TimingEvent::Note { kind, name, detail } => {
+                self.emit_note(kind, name, detail);
             }
-            TimingEventData::Counter(value) => {
-                self.emit_counter(event.name, value);
+            TimingEvent::Counter { name, value } => {
+                self.emit_counter(name, value);
             }
         }
     }
@@ -1098,10 +1097,10 @@ impl TimingCollector {
         measurement: TimingMeasurement,
     ) {
         if let Some(events) = &mut self.trace_events {
-            events.push(TimingEvent {
+            events.push(TimingEvent::Measurement {
                 kind,
                 name: name.clone(),
-                data: TimingEventData::Measurement(measurement),
+                measurement,
             });
         }
         self.report.record(kind, name, measurement);
@@ -1109,20 +1108,15 @@ impl TimingCollector {
 
     fn emit_note(&mut self, kind: TimingEventKind, name: String, detail: String) {
         if let Some(events) = &mut self.trace_events {
-            events.push(TimingEvent {
-                kind,
-                name,
-                data: TimingEventData::Note(detail),
-            });
+            events.push(TimingEvent::Note { kind, name, detail });
         }
     }
 
     fn emit_counter(&mut self, name: String, value: u64) {
         if let Some(events) = &mut self.trace_events {
-            events.push(TimingEvent {
-                kind: TimingEventKind::Counter,
+            events.push(TimingEvent::Counter {
                 name: name.clone(),
-                data: TimingEventData::Counter(value),
+                value,
             });
         }
         *self.counters.entry(name).or_default() += value;
@@ -1218,10 +1212,15 @@ impl TimingReport {
     fn from_events(events: &[TimingEvent]) -> Self {
         let mut builder = TimingReportBuilder::default();
         for event in events {
-            let TimingEventData::Measurement(measurement) = &event.data else {
+            let TimingEvent::Measurement {
+                kind,
+                name,
+                measurement,
+            } = event
+            else {
                 continue;
             };
-            builder.record(event.kind, event.name.clone(), *measurement);
+            builder.record(*kind, name.clone(), *measurement);
         }
         TimingReport {
             entries: builder.finish_entries(),
@@ -1303,7 +1302,6 @@ fn format_report_entry(entry: &TimingReportEntry) -> String {
     let prefix = match entry.kind {
         TimingEventKind::Stage => "timing summary stage",
         TimingEventKind::Query => "timing summary query",
-        TimingEventKind::Counter => unreachable!("counters are not timing entries"),
     };
     format!(
         "{prefix} {}: total={:.3}s count={} max={:.3}s",
@@ -1339,19 +1337,16 @@ fn format_json_report(report: &TimingReport, process: ProcessMeasurement) -> Str
             match entry.kind {
                 TimingEventKind::Stage => "stage",
                 TimingEventKind::Query => "query",
-                TimingEventKind::Counter => unreachable!("counters are not timing entries"),
             },
         );
         output.push_str(",\"name\":");
         push_json_string(&mut output, &entry.name);
-        write!(
-            output,
+        output.push_str(&format!(
             ",\"count\":{},\"total_seconds\":{:.9},\"max_seconds\":{:.9}}}",
             entry.count,
             entry.total.as_secs_f64(),
             entry.max.as_secs_f64(),
-        )
-        .expect("writing JSON to a string cannot fail");
+        ));
     }
     output.push_str("],\"counters\":{");
     for (index, counter) in report.counters.iter().enumerate() {
@@ -1359,7 +1354,8 @@ fn format_json_report(report: &TimingReport, process: ProcessMeasurement) -> Str
             output.push(',');
         }
         push_json_string(&mut output, &counter.name);
-        write!(output, ":{}", counter.value).expect("writing JSON to a string cannot fail");
+        output.push(':');
+        output.push_str(&counter.value.to_string());
     }
     output.push_str("}}");
     output
@@ -1373,14 +1369,14 @@ fn push_json_duration(output: &mut String, name: &str, value: Option<Duration>) 
 
 fn push_json_optional_u64(output: &mut String, value: Option<u64>) {
     match value {
-        Some(value) => write!(output, "{value}").expect("writing JSON to a string cannot fail"),
+        Some(value) => output.push_str(&value.to_string()),
         None => output.push_str("null"),
     }
 }
 
 fn push_json_optional_f64(output: &mut String, value: Option<f64>) {
     match value {
-        Some(value) => write!(output, "{value:.9}").expect("writing JSON to a string cannot fail"),
+        Some(value) => output.push_str(&format!("{value:.9}")),
         None => output.push_str("null"),
     }
 }
@@ -1397,8 +1393,7 @@ fn push_json_string(output: &mut String, value: &str) {
             '\r' => output.push_str("\\r"),
             '\t' => output.push_str("\\t"),
             character if character <= '\u{1f}' => {
-                write!(output, "\\u{:04x}", character as u32)
-                    .expect("writing JSON to a string cannot fail");
+                output.push_str(&format!("\\u{:04x}", character as u32));
             }
             character => output.push(character),
         }
@@ -1496,30 +1491,30 @@ mod tests {
     fn formats_stage_and_query_timings_separately() {
         let elapsed = Duration::from_millis(7);
         assert_eq!(
-            format_event(&TimingEvent {
+            format_event(&TimingEvent::Measurement {
                 kind: TimingEventKind::Stage,
                 name: "check".to_string(),
-                data: TimingEventData::Measurement(TimingMeasurement::single(elapsed)),
+                measurement: TimingMeasurement::single(elapsed),
             }),
             "timing check: 0.007s"
         );
         assert_eq!(
-            format_event(&TimingEvent {
+            format_event(&TimingEvent::Measurement {
                 kind: TimingEventKind::Query,
                 name: "checked_module".to_string(),
-                data: TimingEventData::Measurement(TimingMeasurement::single(elapsed)),
+                measurement: TimingMeasurement::single(elapsed),
             }),
             "query timing checked_module: 0.007s"
         );
         assert_eq!(
-            format_event(&TimingEvent {
+            format_event(&TimingEvent::Measurement {
                 kind: TimingEventKind::Query,
                 name: "body_check.profile.function.check_block[ModuleId(0)]".to_string(),
-                data: TimingEventData::Measurement(TimingMeasurement {
+                measurement: TimingMeasurement {
                     total: Duration::from_millis(9),
                     max: Duration::from_millis(4),
                     count: 3,
-                }),
+                },
             }),
             "query timing body_check.profile.function.check_block[ModuleId(0)]: total=0.009s count=3 max=0.004s"
         );
@@ -1601,34 +1596,29 @@ mod tests {
 
     #[test]
     fn thread_bag_flushes_measurements_and_trace_into_session() {
-        let session = Arc::new(TimingSession::new(
-            TimingMode::Detail,
-            TimingTrace::Events,
-            TimingFormat::Text,
-        ));
+        let session = Arc::new(
+            TimingSession::new(TimingMode::Detail, TimingTrace::Events, TimingFormat::Text)
+                .expect("create timing session"),
+        );
         let mut bag = ThreadTimingBag::new(Arc::clone(&session));
-        bag.record(TimingEvent {
+        bag.record(TimingEvent::Measurement {
             kind: TimingEventKind::Query,
             name: "body_check".to_string(),
-            data: TimingEventData::Measurement(TimingMeasurement::single(Duration::from_millis(2))),
+            measurement: TimingMeasurement::single(Duration::from_millis(2)),
         });
-        bag.record(TimingEvent {
+        bag.record(TimingEvent::Measurement {
             kind: TimingEventKind::Query,
             name: "body_check".to_string(),
-            data: TimingEventData::Measurement(TimingMeasurement::single(Duration::from_millis(5))),
+            measurement: TimingMeasurement::single(Duration::from_millis(5)),
         });
-        bag.record(TimingEvent {
+        bag.record(TimingEvent::Note {
             kind: TimingEventKind::Query,
             name: "body_check".to_string(),
-            data: TimingEventData::Note("items=4".to_string()),
+            detail: "items=4".to_string(),
         });
         bag.flush();
 
-        let (report, trace_events) = session
-            .collector
-            .lock()
-            .expect("timing collector poisoned")
-            .drain();
+        let (report, trace_events) = session.collector.lock().drain();
         assert_eq!(
             report.entries,
             vec![TimingReportEntry {
@@ -1649,11 +1639,7 @@ mod tests {
     fn active_scope_counters() -> Vec<TimingCounter> {
         let session = active_timing_session().expect("a collection scope must be active");
         flush_local_timing_bag_for_session(session.id);
-        let (report, _) = session
-            .collector
-            .lock()
-            .expect("timing collector poisoned")
-            .drain();
+        let (report, _) = session.collector.lock().drain();
         report.counters
     }
 
@@ -1690,10 +1676,9 @@ mod tests {
     #[test]
     fn disabled_scope_discards_instead_of_falling_back_to_printing() {
         let _lock = collector_test_lock();
-        let counter = || TimingEvent {
-            kind: TimingEventKind::Counter,
+        let counter = || TimingEvent::Counter {
             name: "probe.counter".to_string(),
-            data: TimingEventData::Counter(1),
+            value: 1,
         };
         assert!(
             matches!(record_timing_event(counter()), TimingRecord::Unscoped(_)),
@@ -1729,31 +1714,25 @@ mod tests {
     #[test]
     fn report_aggregates_duration_events_by_kind_and_name() {
         let report = TimingReport::from_events(&[
-            TimingEvent {
+            TimingEvent::Measurement {
                 kind: TimingEventKind::Query,
                 name: "checked_module".to_string(),
-                data: TimingEventData::Measurement(TimingMeasurement::single(
-                    Duration::from_millis(2),
-                )),
+                measurement: TimingMeasurement::single(Duration::from_millis(2)),
             },
-            TimingEvent {
+            TimingEvent::Measurement {
                 kind: TimingEventKind::Query,
                 name: "checked_module".to_string(),
-                data: TimingEventData::Measurement(TimingMeasurement::single(
-                    Duration::from_millis(5),
-                )),
+                measurement: TimingMeasurement::single(Duration::from_millis(5)),
             },
-            TimingEvent {
+            TimingEvent::Measurement {
                 kind: TimingEventKind::Stage,
                 name: "check".to_string(),
-                data: TimingEventData::Measurement(TimingMeasurement::single(
-                    Duration::from_millis(3),
-                )),
+                measurement: TimingMeasurement::single(Duration::from_millis(3)),
             },
-            TimingEvent {
+            TimingEvent::Note {
                 kind: TimingEventKind::Query,
                 name: "checked_module".to_string(),
-                data: TimingEventData::Note("items=4".to_string()),
+                detail: "items=4".to_string(),
             },
         ]);
 
