@@ -40,7 +40,9 @@ pub(in crate::query) fn provide_backend_module_source_item_plan(
 ) -> QueryResult<BackendModuleSourceItemPlan> {
     let facts = db.get(ExecutableCheckedModuleFactsQuery)?;
     let Some(module) = facts.modules.iter().find(|module| module.id == module_id) else {
-        panic!("Nia ICE: missing executable facts for module {module_id:?}");
+        return Err(QueryError::internal(format!(
+            "missing executable facts for module {module_id:?}"
+        )));
     };
     let mut functions = facts
         .runtime_functions
@@ -87,10 +89,11 @@ pub(in crate::query) fn provide_backend_module_function_instance_plan(
     module_id: ModuleId,
 ) -> QueryResult<BackendModuleFunctionInstancePlan> {
     let facts = db.get(ExecutableCheckedModuleFactsQuery)?;
-    assert!(
-        facts.modules.iter().any(|module| module.id == module_id),
-        "Nia ICE: missing executable facts for module {module_id:?}"
-    );
+    if !facts.modules.iter().any(|module| module.id == module_id) {
+        return Err(QueryError::internal(format!(
+            "missing executable facts for module {module_id:?}"
+        )));
+    }
     let monomorphization = db.get(MonomorphizationQuery)?;
     let mut instances = monomorphization
         .semantic
@@ -100,32 +103,33 @@ pub(in crate::query) fn provide_backend_module_function_instance_plan(
         .collect::<Vec<_>>();
     instances.sort_by(|left, right| left.symbol.cmp(&right.symbol));
     let mut seen = HashSet::new();
-    let instances = instances
-        .into_iter()
-        .map(|instance| {
-            let key = (
-                instance.def_id,
-                instance.arg_module_id,
-                instance.self_arg,
-                instance.args.clone(),
-                instance.const_args.clone(),
-            );
-            assert!(
-                seen.insert(key),
-                "Nia ICE: duplicate monomorphized function instance `{}`",
+    let mut planned_instances = Vec::with_capacity(instances.len());
+    for instance in instances {
+        let key = (
+            instance.def_id,
+            instance.arg_module_id,
+            instance.self_arg,
+            instance.args.clone(),
+            instance.const_args.clone(),
+        );
+        if !seen.insert(key) {
+            return Err(QueryError::internal(format!(
+                "duplicate monomorphized function instance `{}`",
                 instance.symbol
-            );
-            nia_backend_lower::BackendFunctionInstancePlan {
-                def_id: instance.def_id,
-                arg_module_id: instance.arg_module_id,
-                self_arg: instance.self_arg,
-                args: instance.args.clone(),
-                const_args: instance.const_args.clone(),
-                span: instance.span,
-            }
-        })
-        .collect();
-    Ok(BackendModuleFunctionInstancePlan { instances })
+            )));
+        }
+        planned_instances.push(nia_backend_lower::BackendFunctionInstancePlan {
+            def_id: instance.def_id,
+            arg_module_id: instance.arg_module_id,
+            self_arg: instance.self_arg,
+            args: instance.args.clone(),
+            const_args: instance.const_args.clone(),
+            span: instance.span,
+        });
+    }
+    Ok(BackendModuleFunctionInstancePlan {
+        instances: planned_instances,
+    })
 }
 
 pub(super) fn provide_monomorphization(
@@ -175,35 +179,40 @@ pub(super) fn monomorphization_for_checked_modules(
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
+    let mut module_inputs = Vec::with_capacity(checked_modules.len());
+    for (module, semantic_instantiations) in checked_modules.iter().zip(&semantic_instantiations) {
+        let Some(symbol_package_identity) = symbol_package_identities.get(&module.id).cloned()
+        else {
+            return Err(QueryError::internal(format!(
+                "monomorphization module {:?} is missing package identity",
+                module.id
+            )));
+        };
+        let Some(signatures) = local_signatures.get(&module.id) else {
+            return Err(QueryError::internal(format!(
+                "monomorphization signatures are missing for checked module {:?}",
+                module.id
+            )));
+        };
+        module_inputs.push(MonomorphizeModuleInput {
+            module_id: module.id,
+            source_identity: module.path.identity(),
+            symbol_package_identity,
+            defs: &module.defs,
+            generic_params: &generic_params,
+            normalization: &module.type_normalization,
+            const_eval: &module.const_eval,
+            const_expr_summaries: &module.type_lowering.const_expr_summaries,
+            layouts: Some(&module.layouts),
+            local_enums: &signatures.enums,
+            program_enums,
+            trait_impls,
+            trait_impl_index,
+            instantiations: semantic_instantiations,
+        });
+    }
     Ok(nia_monomorphize::collect_monomorphizations(
-        &checked_modules
-            .iter()
-            .zip(semantic_instantiations.iter())
-            .map(
-                |(module, semantic_instantiations)| MonomorphizeModuleInput {
-                    module_id: module.id,
-                    source_identity: module.path.identity(),
-                    symbol_package_identity: symbol_package_identities
-                        .get(&module.id)
-                        .cloned()
-                        .expect("Nia ICE: monomorphization module is missing package identity"),
-                    defs: &module.defs,
-                    generic_params: &generic_params,
-                    normalization: &module.type_normalization,
-                    const_eval: &module.const_eval,
-                    const_expr_summaries: &module.type_lowering.const_expr_summaries,
-                    layouts: Some(&module.layouts),
-                    local_enums: &local_signatures
-                        .get(&module.id)
-                        .expect("monomorphization signatures must exist for checked module")
-                        .enums,
-                    program_enums,
-                    trait_impls,
-                    trait_impl_index,
-                    instantiations: semantic_instantiations,
-                },
-            )
-            .collect::<Vec<_>>(),
+        &module_inputs,
         source_identities,
         &db.context().type_store,
     ))
@@ -819,9 +828,12 @@ fn closure_support_modules(
         if let std::collections::hash_map::Entry::Vacant(entry) = modules.entry(def_id.module_id) {
             entry.insert(db.get(CheckedModuleQuery(def_id.module_id))?);
         }
-        let module = modules
-            .get(&def_id.module_id)
-            .expect("closure support module was materialized");
+        let Some(module) = modules.get(&def_id.module_id) else {
+            return Err(QueryError::internal(format!(
+                "closure support module {:?} was not materialized",
+                def_id.module_id
+            )));
+        };
         if !module.body_ir.function_bodies.contains_key(&def_id) {
             continue;
         }
