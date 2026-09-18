@@ -74,7 +74,9 @@ impl std::fmt::Debug for ItemSignatureInput<'_> {
 }
 
 /// Collects declaration signatures from the selected source representation.
-pub fn collect_item_signatures(input: ItemSignatureInput<'_>) -> ItemSignatures {
+pub fn collect_item_signatures(
+    input: ItemSignatureInput<'_>,
+) -> nia_ice::IceResult<ItemSignatures> {
     let append = input.type_store.append_for_module(input.defs.module_id);
     let collect = |items| {
         collect_item_signatures_from_items(
@@ -102,7 +104,7 @@ fn collect_item_signatures_from_items(
     type_store: &TypeStore,
     append: &TypeStoreAppend,
     symbols: Option<&dyn SymbolText>,
-) -> ItemSignatures {
+) -> nia_ice::IceResult<ItemSignatures> {
     let mut collector = SignatureCollector {
         defs,
         lowered,
@@ -110,6 +112,7 @@ fn collect_item_signatures_from_items(
         append,
         symbols,
         diagnostics: Vec::new(),
+        internal_error: None,
         duplicate_impl_identities: HashMap::new(),
     };
     let mut signatures = ItemSignatures {
@@ -127,8 +130,11 @@ fn collect_item_signatures_from_items(
     for item in items {
         collector.collect_item_into(&mut signatures, item);
     }
+    if let Some(error) = collector.internal_error {
+        return Err(error);
+    }
     signatures.diagnostics = collector.diagnostics;
-    signatures
+    Ok(signatures)
 }
 
 struct SignatureCollector<'a> {
@@ -138,6 +144,7 @@ struct SignatureCollector<'a> {
     append: &'a TypeStoreAppend,
     symbols: Option<&'a dyn SymbolText>,
     diagnostics: Vec<Diagnostic>,
+    internal_error: Option<nia_ice::Ice>,
     duplicate_impl_identities: HashMap<TraitImplIdentity, u32>,
 }
 
@@ -587,9 +594,7 @@ impl<'a> SignatureCollector<'a> {
             return self.error();
         };
         match builtin {
-            BuiltinTypeDeclaration::Opaque(builtin) => {
-                self.append.intern(TyKind::BuiltinType(builtin))
-            }
+            BuiltinTypeDeclaration::Opaque(builtin) => self.intern(TyKind::BuiltinType(builtin)),
             BuiltinTypeDeclaration::Primitive(anchor) => {
                 self.primitive(builtin_type_anchor_primitive(anchor))
             }
@@ -818,7 +823,7 @@ impl<'a> SignatureCollector<'a> {
             .collect();
         let return_type = match &function.return_type {
             Some(ty) => self.ty_for_type(ty),
-            None => self.append.intern(TyKind::Tuple(Vec::new())),
+            None => self.intern(TyKind::Tuple(Vec::new())),
         };
         FunctionSignature {
             name: function.name,
@@ -1404,11 +1409,24 @@ impl<'a> SignatureCollector<'a> {
         }
     }
 
-    fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
-        self.append.intern(TyKind::Primitive(primitive))
+    fn intern(&mut self, kind: TyKind) -> InternedTyId {
+        if self.internal_error.is_some() {
+            return self.type_store.error();
+        }
+        match self.append.intern(kind) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.internal_error = Some(error);
+                self.type_store.error()
+            }
+        }
+    }
+
+    fn primitive(&mut self, primitive: PrimitiveTy) -> InternedTyId {
+        self.intern(TyKind::Primitive(primitive))
     }
 
     fn error(&self) -> InternedTyId {
-        self.append.intern(TyKind::Error)
+        self.type_store.error()
     }
 }

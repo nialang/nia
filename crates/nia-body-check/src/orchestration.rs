@@ -19,7 +19,10 @@ pub fn check_module_bodies(
     let Some(target_layout) = target_data_layout(&target) else {
         return body_check_target_layout_error(&target);
     };
-    let layouts = nia_layout::compute_layouts(type_store, defs, signatures, target_layout);
+    let layouts = match nia_layout::compute_layouts(type_store, defs, signatures, target_layout) {
+        Ok(layouts) => layouts,
+        Err(error) => return body_check_internal_error(error),
+    };
     let empty_const_module = ResolvedConstModule::default();
     let empty_extensions = VisibleExtensionMethods::default();
     let empty_program_extension_methods = ExtensionMethods::default();
@@ -96,8 +99,7 @@ pub fn check_module_bodies_with_program_signatures(
     let Some(target_layout) = target_data_layout(input.target) else {
         return body_check_target_layout_error(input.target);
     };
-    let layouts =
-        nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
+    let layouts = match nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
             type_store: input.type_store,
             defs: input.defs,
             signatures: input.signatures,
@@ -106,7 +108,10 @@ pub fn check_module_bodies_with_program_signatures(
             array_lengths: &array_lengths,
             target: target_layout,
             program: nia_layout::ProgramLayoutContext::default(),
-        });
+        }) {
+        Ok(layouts) => layouts,
+        Err(error) => return body_check_internal_error(error),
+    };
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         type_store: input.type_store,
         source_version: input.source_version,
@@ -157,6 +162,7 @@ fn body_check_target_layout_error(target: &TargetConfig) -> BodyCheck {
         ),
     );
     BodyCheck {
+        internal_error: None,
         ir: Arc::new(BodyIr {
             function_bodies: HashMap::new(),
             global_inits: HashMap::new(),
@@ -168,6 +174,23 @@ fn body_check_target_layout_error(target: &TargetConfig) -> BodyCheck {
         provider_demands_by_function: HashMap::new(),
         diagnostic_owners: vec![None],
         diagnostics: Arc::new(vec![diagnostic]),
+    }
+}
+
+fn body_check_internal_error(error: nia_ice::Ice) -> BodyCheck {
+    BodyCheck {
+        internal_error: Some(error),
+        ir: Arc::new(BodyIr {
+            function_bodies: HashMap::new(),
+            global_inits: HashMap::new(),
+        }),
+        facts: Arc::new(SemanticFacts::default()),
+        static_init_refs: HashMap::new(),
+        checked_functions: HashSet::new(),
+        provider_demands: Arc::new(HashSet::new()),
+        provider_demands_by_function: HashMap::new(),
+        diagnostic_owners: Vec::new(),
+        diagnostics: Arc::new(Vec::new()),
     }
 }
 
@@ -436,6 +459,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
             .diagnostic_owners
             .resize(checker.diagnostics.len(), None);
         BodyCheck {
+            internal_error: checker.interner.internal_error(),
             ir: Arc::new(BodyIr {
                 function_bodies: checker.function_bodies,
                 global_inits: checker.global_inits,

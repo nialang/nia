@@ -215,7 +215,7 @@ impl TypeLowerer<'_, '_> {
             .collect();
         let return_type = match return_type {
             Some(return_type) => self.lower_type_in_context(return_type, TypeContext::Return),
-            None => self.append.intern(TyKind::Tuple(Vec::new())),
+            None => self.intern(TyKind::Tuple(Vec::new())),
         };
         (params, return_type)
     }

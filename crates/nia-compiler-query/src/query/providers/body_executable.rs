@@ -597,14 +597,14 @@ fn const_inputs_for_body_check(
         "executable_body_check.const_eval.array_lengths",
         module_id,
         || nia_const_check::compute_module_const_array_lengths(const_input),
-    );
+    )?;
     array_lengths.diagnostics.extend(module.diagnostics.clone());
     let enum_values = time_module_provider(
         db,
         "executable_body_check.const_eval.enum_values",
         module_id,
         || nia_const_check::compute_module_const_enum_values(const_input, array_lengths.clone()),
-    );
+    )?;
     let values = time_module_provider(
         db,
         "executable_body_check.const_eval.values",
@@ -616,7 +616,7 @@ fn const_inputs_for_body_check(
                 enum_values.clone(),
             )
         },
-    );
+    )?;
     let typed_facts = time_module_provider(
         db,
         "executable_body_check.const_eval.typed_facts",
@@ -629,7 +629,7 @@ fn const_inputs_for_body_check(
                 values.clone(),
             )
         },
-    );
+    )?;
     let output = BodyCheckConstInputs {
         module,
         array_lengths,
@@ -1198,9 +1198,9 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     |module_id| fact_mode.signature_facts_for(module_id),
                     |input, module| {
                         let mut array_lengths =
-                            nia_const_check::compute_module_const_array_lengths(input);
+                            nia_const_check::compute_module_const_array_lengths(input)?;
                         array_lengths.diagnostics.extend(module.diagnostics.clone());
-                        array_lengths
+                        Ok(array_lengths)
                     },
                 );
                 if let Some(array_lengths) = capture_query_failure(&query_failure, array_lengths) {
@@ -1250,9 +1250,9 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                         let mut enum_values = nia_const_check::compute_module_const_enum_values(
                             input,
                             Arc::unwrap_or_clone(Arc::clone(&array_lengths)),
-                        );
+                        )?;
                         enum_values.diagnostics.extend(module.diagnostics.clone());
-                        enum_values
+                        Ok(enum_values)
                     },
                 );
                 let enum_values = capture_query_failure(&query_failure, enum_values)?;
@@ -1266,9 +1266,9 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                             input,
                             Arc::unwrap_or_clone(array_lengths),
                             enum_values,
-                        );
+                        )?;
                         values.diagnostics.extend(module.diagnostics.clone());
-                        values
+                        Ok(values)
                     },
                 );
                 if let Some(values) = capture_query_failure(&query_failure, values) {
@@ -1536,9 +1536,9 @@ pub(super) fn executable_layouts_for_reachable_items(
                     },
                     |input, module| {
                         let mut array_lengths =
-                            nia_const_check::compute_module_const_array_lengths(input);
+                            nia_const_check::compute_module_const_array_lengths(input)?;
                         array_lengths.diagnostics.extend(module.diagnostics.clone());
-                        array_lengths
+                        Ok(array_lengths)
                     },
                 )
             } else {
@@ -1548,9 +1548,9 @@ pub(super) fn executable_layouts_for_reachable_items(
                     non_function_signatures_override,
                     |input, module| {
                         let mut array_lengths =
-                            nia_const_check::compute_module_const_array_lengths(input);
+                            nia_const_check::compute_module_const_array_lengths(input)?;
                         array_lengths.diagnostics.extend(module.diagnostics.clone());
-                        array_lengths
+                        Ok(array_lengths)
                     },
                 )
             }
@@ -1585,9 +1585,9 @@ pub(super) fn executable_layouts_for_reachable_items(
                         non_function_signatures_override,
                         |input, module| {
                             let mut array_lengths =
-                                nia_const_check::compute_module_const_array_lengths(input);
+                                nia_const_check::compute_module_const_array_lengths(input)?;
                             array_lengths.diagnostics.extend(module.diagnostics.clone());
-                            array_lengths
+                            Ok(array_lengths)
                         },
                     ),
                 )
@@ -1645,7 +1645,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                     unions: &roots.unions,
                 },
             )
-        });
+        })?;
         match query_failure.into_inner() {
             Some(error) => Err(error),
             None => Ok(layouts),
@@ -1925,12 +1925,12 @@ pub(super) fn executable_signature_checked_module(
         module_id,
         Some(program_signatures),
         |input, module| {
-            let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input);
+            let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input)?;
             array_lengths.diagnostics.extend(module.diagnostics.clone());
             let mut enum_values =
-                nia_const_check::compute_module_const_enum_values(input, array_lengths.clone());
+                nia_const_check::compute_module_const_enum_values(input, array_lengths.clone())?;
             enum_values.diagnostics.extend(module.diagnostics.clone());
-            (array_lengths, enum_values)
+            Ok((array_lengths, enum_values))
         },
     )?;
     let mut const_diagnostics = array_lengths.diagnostics.clone();

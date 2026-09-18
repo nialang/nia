@@ -194,9 +194,10 @@ pub fn infer_resolved_const_expr_type(
     input: TypedConstQueryInput<'_>,
     expr: &ResolvedConstExpr,
     expected: Option<InternedTyId>,
-) -> Option<ConstValueType> {
+) -> nia_ice::IceResult<Option<ConstValueType>> {
     let mut analyzer = Analyzer::for_typed_query(input);
-    analyzer.resolved_const_expr_type(expr, expected)
+    let result = analyzer.resolved_const_expr_type(expr, expected);
+    analyzer.finish(result)
 }
 
 /// Runs every const-analysis phase for a module in dependency order.
@@ -205,36 +206,44 @@ pub fn infer_resolved_const_expr_type(
 /// discriminants, both feed initializer values, and those values feed runtime
 /// type facts. Each phase receives the prior phase's diagnostics and cached
 /// maps, so a caller can reuse any completed prefix without changing results.
-pub fn check_module_const(input: ConstInput<'_>) -> ConstCheck {
-    let array_lengths = compute_module_const_array_lengths(input);
-    let enum_values = compute_module_const_enum_values(input, array_lengths.clone());
-    let values = compute_module_const_values(input, array_lengths.clone(), enum_values.clone());
+pub fn check_module_const(input: ConstInput<'_>) -> nia_ice::IceResult<ConstCheck> {
+    let array_lengths = compute_module_const_array_lengths(input)?;
+    let enum_values = compute_module_const_enum_values(input, array_lengths.clone())?;
+    let values = compute_module_const_values(input, array_lengths.clone(), enum_values.clone())?;
     let typed_facts = compute_module_const_typed_facts(
         input,
         array_lengths.clone(),
         enum_values.clone(),
         values.clone(),
-    );
-    check_module_const_with_all_phases(array_lengths, enum_values, values, typed_facts)
+    )?;
+    Ok(check_module_const_with_all_phases(
+        array_lengths,
+        enum_values,
+        values,
+        typed_facts,
+    ))
 }
 
 /// Evaluates array-length expressions needed by the module's lowered types.
-pub fn compute_module_const_array_lengths(input: ConstInput<'_>) -> ConstArrayLengths {
+pub fn compute_module_const_array_lengths(
+    input: ConstInput<'_>,
+) -> nia_ice::IceResult<ConstArrayLengths> {
     let mut analyzer = Analyzer::new(input);
     analyzer.analyze_array_lengths();
-    ConstArrayLengths {
+    analyzer.finish(())?;
+    Ok(ConstArrayLengths {
         values: Arc::new(analyzer.array_lengths),
         provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
-    }
+    })
 }
 
 /// Completes module const checking from a previously cached array-length phase.
 pub fn check_module_const_with_array_lengths(
     input: ConstInput<'_>,
     array_lengths: ConstArrayLengths,
-) -> ConstCheck {
-    let enum_values = compute_module_const_enum_values(input, array_lengths.clone());
+) -> nia_ice::IceResult<ConstCheck> {
+    let enum_values = compute_module_const_enum_values(input, array_lengths.clone())?;
     check_module_const_with_phases(input, array_lengths, enum_values)
 }
 
@@ -242,18 +251,19 @@ pub fn check_module_const_with_array_lengths(
 pub fn compute_module_const_enum_values(
     input: ConstInput<'_>,
     array_lengths: ConstArrayLengths,
-) -> ConstEnumValues {
+) -> nia_ice::IceResult<ConstEnumValues> {
     let mut analyzer = Analyzer::new(input);
     analyzer.array_lengths = Arc::unwrap_or_clone(array_lengths.values);
     analyzer.provider_demands = Arc::unwrap_or_clone(array_lengths.provider_demands);
     analyzer.diagnostics = array_lengths.diagnostics;
     analyzer.analyze_enum_values();
-    ConstEnumValues {
+    analyzer.finish(())?;
+    Ok(ConstEnumValues {
         values: Arc::new(analyzer.enum_values),
         typed_values: Arc::new(analyzer.typed_enum_values),
         provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
-    }
+    })
 }
 
 /// Completes module const checking from cached array-length and enum phases.
@@ -261,15 +271,20 @@ pub fn check_module_const_with_phases(
     input: ConstInput<'_>,
     array_lengths: ConstArrayLengths,
     enum_values: ConstEnumValues,
-) -> ConstCheck {
-    let values = compute_module_const_values(input, array_lengths.clone(), enum_values.clone());
+) -> nia_ice::IceResult<ConstCheck> {
+    let values = compute_module_const_values(input, array_lengths.clone(), enum_values.clone())?;
     let typed_facts = compute_module_const_typed_facts(
         input,
         array_lengths.clone(),
         enum_values.clone(),
         values.clone(),
-    );
-    check_module_const_with_all_phases(array_lengths, enum_values, values, typed_facts)
+    )?;
+    Ok(check_module_const_with_all_phases(
+        array_lengths,
+        enum_values,
+        values,
+        typed_facts,
+    ))
 }
 
 /// Evaluates global and local const initializers after prerequisite phases.
@@ -277,7 +292,7 @@ pub fn compute_module_const_values(
     input: ConstInput<'_>,
     array_lengths: ConstArrayLengths,
     enum_values: ConstEnumValues,
-) -> ConstValues {
+) -> nia_ice::IceResult<ConstValues> {
     let mut analyzer = Analyzer::new(input);
     analyzer.array_lengths = Arc::unwrap_or_clone(array_lengths.values);
     analyzer.enum_values = Arc::unwrap_or_clone(enum_values.values);
@@ -285,12 +300,13 @@ pub fn compute_module_const_values(
     analyzer.provider_demands = Arc::unwrap_or_clone(enum_values.provider_demands);
     analyzer.diagnostics = enum_values.diagnostics;
     analyzer.analyze_values();
-    ConstValues {
+    analyzer.finish(())?;
+    Ok(ConstValues {
         values: Arc::new(analyzer.values),
         typed_values: Arc::new(analyzer.typed_values),
         provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
-    }
+    })
 }
 
 /// Assembles independently cached phase outputs into the public result.
@@ -317,7 +333,7 @@ pub fn compute_module_const_typed_facts(
     array_lengths: ConstArrayLengths,
     enum_values: ConstEnumValues,
     values: ConstValues,
-) -> ConstTypedFacts {
+) -> nia_ice::IceResult<ConstTypedFacts> {
     let mut analyzer = Analyzer::new(input);
     analyzer.array_lengths = Arc::unwrap_or_clone(array_lengths.values);
     analyzer.enum_values = Arc::unwrap_or_clone(enum_values.values);
@@ -326,23 +342,30 @@ pub fn compute_module_const_typed_facts(
     analyzer.typed_values = Arc::unwrap_or_clone(values.typed_values);
     analyzer.provider_demands = Arc::unwrap_or_clone(values.provider_demands);
     analyzer.diagnostics = values.diagnostics;
-    ConstTypedFacts {
+    analyzer.finish(())?;
+    Ok(ConstTypedFacts {
         typed_values: Arc::new(analyzer.typed_values),
         provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
-    }
+    })
 }
 
 struct ConstTypeCx<'a> {
     store: &'a nia_ty::TypeStore,
     append: TypeStoreAppend,
+    internal_error: Arc<parking_lot::Mutex<Option<nia_ice::Ice>>>,
 }
 
 impl<'a> ConstTypeCx<'a> {
-    fn new(store: &'a nia_ty::TypeStore, module_id: ModuleId) -> Self {
+    fn new(
+        store: &'a nia_ty::TypeStore,
+        module_id: ModuleId,
+        internal_error: Arc<parking_lot::Mutex<Option<nia_ice::Ice>>>,
+    ) -> Self {
         Self {
             store,
             append: store.append_for_module(module_id),
+            internal_error,
         }
     }
 
@@ -351,7 +374,36 @@ impl<'a> ConstTypeCx<'a> {
     }
 
     fn intern(&self, kind: TyKind) -> InternedTyId {
-        self.append.intern(kind)
+        match self.append.intern(kind) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.internal_error.lock().get_or_insert(error);
+                self.store.error()
+            }
+        }
+    }
+
+    fn substitute(
+        &self,
+        ty: InternedTyId,
+        type_lookup: &impl Fn(&SymbolId) -> Option<InternedTyId>,
+        const_lookup: &impl Fn(&SymbolId) -> Option<ConstGenericArg>,
+        self_ty: Option<InternedTyId>,
+    ) -> InternedTyId {
+        match nia_ty::substitute_ty(
+            self.store,
+            &self.append,
+            ty,
+            type_lookup,
+            const_lookup,
+            self_ty,
+        ) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.internal_error.lock().get_or_insert(error);
+                self.store.error()
+            }
+        }
     }
 }
 
@@ -379,6 +431,7 @@ pub(crate) struct Analyzer<'a> {
     resolved_expr_types: Vec<HashMap<Span, InternedTyId>>,
     const_eval_budget: nia_const_eval::ConstEvalBudget,
     next_const_allocation_serial: u64,
+    internal_error: Arc<parking_lot::Mutex<Option<nia_ice::Ice>>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -431,6 +484,7 @@ impl Analyzer<'_> {
     }
 
     fn new<'a>(input: ConstInput<'a>) -> Analyzer<'a> {
+        let internal_error = Arc::new(parking_lot::Mutex::new(None));
         Analyzer {
             input,
             values: HashMap::new(),
@@ -446,7 +500,11 @@ impl Analyzer<'_> {
             active: HashSet::new(),
             type_contexts: HashMap::from([(
                 input.defs.module_id,
-                ConstTypeCx::new(input.type_store, input.defs.module_id),
+                ConstTypeCx::new(
+                    input.type_store,
+                    input.defs.module_id,
+                    Arc::clone(&internal_error),
+                ),
             )]),
             program_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
@@ -455,10 +513,12 @@ impl Analyzer<'_> {
             resolved_expr_types: Vec::new(),
             const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
             next_const_allocation_serial: 0,
+            internal_error,
         }
     }
 
     fn for_typed_query(input: TypedConstQueryInput<'_>) -> Analyzer<'_> {
+        let internal_error = Arc::new(parking_lot::Mutex::new(None));
         Analyzer {
             input: ConstInput {
                 module: input.module,
@@ -494,7 +554,11 @@ impl Analyzer<'_> {
             active: HashSet::new(),
             type_contexts: HashMap::from([(
                 input.defs.module_id,
-                ConstTypeCx::new(input.type_store, input.defs.module_id),
+                ConstTypeCx::new(
+                    input.type_store,
+                    input.defs.module_id,
+                    Arc::clone(&internal_error),
+                ),
             )]),
             program_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
@@ -503,6 +567,41 @@ impl Analyzer<'_> {
             resolved_expr_types: Vec::new(),
             const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
             next_const_allocation_serial: 0,
+            internal_error,
+        }
+    }
+
+    fn finish<T>(&self, value: T) -> nia_ice::IceResult<T> {
+        match self.internal_error.lock().take() {
+            Some(error) => Err(error.with_context(format!(
+                "checking const semantics for module {:?}",
+                self.input.defs.module_id
+            ))),
+            None => Ok(value),
+        }
+    }
+
+    fn recover_internal<T>(&self, result: nia_ice::IceResult<T>) -> Option<T> {
+        match result {
+            Ok(value) => Some(value),
+            Err(error) => {
+                self.internal_error.lock().get_or_insert(error);
+                None
+            }
+        }
+    }
+
+    fn intern_type_for_module(&self, module_id: ModuleId, kind: TyKind) -> InternedTyId {
+        match self.type_contexts.get(&module_id) {
+            Some(types) => types.intern(kind),
+            None => {
+                self.internal_error.lock().get_or_insert_with(|| {
+                    nia_ice::Ice::new(format!(
+                        "missing const-analysis type context for module {module_id:?}"
+                    ))
+                });
+                self.input.type_store.error()
+            }
         }
     }
 
@@ -604,10 +703,10 @@ impl Analyzer<'_> {
                 .get(&enum_id.def_id)
                 .map(|signature| signature.backing_type)
                 .unwrap_or_else(|| {
-                    self.input
-                        .type_store
-                        .append_for_module(self.input.defs.module_id)
-                        .intern(TyKind::Primitive(PrimitiveTy::Isize))
+                    self.intern_type_for_module(
+                        self.input.defs.module_id,
+                        TyKind::Primitive(PrimitiveTy::Isize),
+                    )
                 });
             self.typed_enum_values.insert(
                 variant_id.def_id,

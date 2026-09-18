@@ -4,6 +4,13 @@
 use super::*;
 
 impl TraitSolver<'_> {
+    pub(crate) fn finish_operation<T>(&mut self, value: T) -> nia_ice::IceResult<T> {
+        match self.interner.internal_error.lock().take() {
+            Some(error) => Err(error.with_context("solving trait obligation")),
+            None => Ok(value),
+        }
+    }
+
     pub(crate) fn is_enum(&self, ty: InternedTyId) -> bool {
         let ty = self.normalization.normalize(ty);
         let Some(TyKind::Nominal { def_id, .. }) = self.interner.get(ty) else {
@@ -18,7 +25,12 @@ impl TraitSolver<'_> {
 
     /// Resolves a trait goal using assumptions, visible source impls, then
     /// compiler intrinsics, in that order.
-    pub fn resolve(&mut self, goal: TraitGoal) -> TraitResolution {
+    pub fn resolve(&mut self, goal: TraitGoal) -> nia_ice::IceResult<TraitResolution> {
+        let resolution = self.resolve_inner(goal);
+        self.finish_operation(resolution)
+    }
+
+    pub(crate) fn resolve_inner(&mut self, goal: TraitGoal) -> TraitResolution {
         let goal = self.normalize_goal(goal);
         // Explicit assumptions describe the current generic environment and therefore outrank
         // global implementations. Visible user implementations outrank compiler-provided
@@ -42,7 +54,12 @@ impl TraitSolver<'_> {
     }
 
     /// Selects only among visible source impls for `goal`.
-    pub fn select_user_impl(&mut self, goal: TraitGoal) -> TraitSelection {
+    pub fn select_user_impl(&mut self, goal: TraitGoal) -> nia_ice::IceResult<TraitSelection> {
+        let selection = self.select_user_impl_inner(goal);
+        self.finish_operation(selection)
+    }
+
+    fn select_user_impl_inner(&mut self, goal: TraitGoal) -> TraitSelection {
         let goal = self.normalize_goal(goal);
         self.select_user_impl_for_normalized_goal(&goal)
     }
@@ -84,9 +101,14 @@ impl TraitSolver<'_> {
     ///
     /// Ambiguity is not proof, even if every remaining candidate would imply
     /// the same marker trait.
-    pub fn proves(&mut self, goal: TraitGoal) -> bool {
+    pub fn proves(&mut self, goal: TraitGoal) -> nia_ice::IceResult<bool> {
+        let proves = self.proves_inner(goal);
+        self.finish_operation(proves)
+    }
+
+    pub(crate) fn proves_inner(&mut self, goal: TraitGoal) -> bool {
         matches!(
-            self.resolve(goal),
+            self.resolve_inner(goal),
             TraitResolution::Intrinsic(_) | TraitResolution::User(_) | TraitResolution::Assumed(_)
         )
     }
@@ -96,6 +118,24 @@ impl TraitSolver<'_> {
     /// Returns `None` for missing items, ambiguous impls, assumption-only
     /// goals without a projection equality, and recursive projections.
     pub fn resolve_associated_type(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
+        name: &SymbolId,
+    ) -> nia_ice::IceResult<Option<InternedTyId>> {
+        let resolved = self.resolve_associated_type_unchecked(
+            self_ty,
+            trait_id,
+            trait_args,
+            trait_const_args,
+            name,
+        );
+        self.finish_operation(resolved)
+    }
+
+    pub(crate) fn resolve_associated_type_unchecked(
         &mut self,
         self_ty: InternedTyId,
         trait_id: TraitId,
@@ -122,6 +162,24 @@ impl TraitSolver<'_> {
         trait_args: &[InternedTyId],
         trait_const_args: &[ConstGenericArg],
         name: &SymbolId,
+    ) -> nia_ice::IceResult<Option<AssociatedConstResolution>> {
+        let resolved = self.resolve_associated_const_inner(
+            self_ty,
+            trait_id,
+            trait_args,
+            trait_const_args,
+            name,
+        );
+        self.finish_operation(resolved)
+    }
+
+    fn resolve_associated_const_inner(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
+        name: &SymbolId,
     ) -> Option<AssociatedConstResolution> {
         let goal = self.normalize_goal(TraitGoal {
             self_ty,
@@ -132,7 +190,7 @@ impl TraitSolver<'_> {
         let resolution = match self.select_user_impl_for_normalized_goal(&goal) {
             TraitSelection::User(user_impl) => TraitResolution::User(user_impl),
             TraitSelection::Ambiguous => TraitResolution::Ambiguous,
-            TraitSelection::Unsatisfied => self.resolve(goal.clone()),
+            TraitSelection::Unsatisfied => self.resolve_inner(goal.clone()),
         };
         match resolution {
             TraitResolution::User(user_impl) => {
@@ -212,7 +270,7 @@ impl TraitSolver<'_> {
         let resolution = match self.select_user_impl_for_normalized_goal(&goal) {
             TraitSelection::User(user_impl) => TraitResolution::User(user_impl),
             TraitSelection::Ambiguous => TraitResolution::Ambiguous,
-            TraitSelection::Unsatisfied => self.resolve(goal),
+            TraitSelection::Unsatisfied => self.resolve_inner(goal),
         };
         let resolved = match resolution {
             TraitResolution::User(user_impl) => {
@@ -264,11 +322,11 @@ impl TraitSolver<'_> {
                     && trait_id == key.goal.trait_id
                     && trait_args.len() == key.goal.trait_args.len()
                     && trait_const_args.len() == key.goal.trait_const_args.len()
-                    && self.types_equivalent(self_ty, key.goal.self_ty)
+                    && self.types_equivalent_inner(self_ty, key.goal.self_ty)
                     && trait_args
                         .iter()
                         .zip(&key.goal.trait_args)
-                        .all(|(left, right)| self.types_equivalent(*left, *right))
+                        .all(|(left, right)| self.types_equivalent_inner(*left, *right))
                     && trait_const_args
                         .iter()
                         .zip(&key.goal.trait_const_args)
@@ -283,7 +341,7 @@ impl TraitSolver<'_> {
         left: &ConstGenericArg,
         right: &ConstGenericArg,
     ) -> bool {
-        self.types_equivalent(left.ty, right.ty)
+        self.types_equivalent_inner(left.ty, right.ty)
             && self.const_generic_values_equivalent(left.ty, &left.value, &right.value)
     }
 
@@ -368,13 +426,13 @@ impl TraitSolver<'_> {
                 let [rhs_ty] = goal.trait_args.as_slice() else {
                     return false;
                 };
-                self.types_equivalent(self_ty, *rhs_ty) && self.is_numeric(self_ty)
+                self.types_equivalent_inner(self_ty, *rhs_ty) && self.is_numeric(self_ty)
             }
             BuiltinTrait::BitAnd | BuiltinTrait::BitOr | BuiltinTrait::BitXor => {
                 let [rhs_ty] = goal.trait_args.as_slice() else {
                     return false;
                 };
-                self.types_equivalent(self_ty, *rhs_ty) && self.is_integer(self_ty)
+                self.types_equivalent_inner(self_ty, *rhs_ty) && self.is_integer(self_ty)
             }
             BuiltinTrait::Shl | BuiltinTrait::Shr => {
                 let [rhs_ty] = goal.trait_args.as_slice() else {
@@ -385,15 +443,15 @@ impl TraitSolver<'_> {
             BuiltinTrait::Neg => goal.trait_args.is_empty() && self.is_numeric(self_ty),
             BuiltinTrait::BitNot => goal.trait_args.is_empty() && self.is_integer(self_ty),
             BuiltinTrait::Not => {
-                goal.trait_args.is_empty() && self.types_equivalent(self_ty, self.bool())
+                goal.trait_args.is_empty() && self.types_equivalent_inner(self_ty, self.bool())
             }
             BuiltinTrait::Eq => {
                 let [rhs_ty] = goal.trait_args.as_slice() else {
                     return false;
                 };
-                self.types_equivalent(self_ty, *rhs_ty)
+                self.types_equivalent_inner(self_ty, *rhs_ty)
                     && (self.is_numeric(self_ty)
-                        || self.types_equivalent(self_ty, self.bool())
+                        || self.types_equivalent_inner(self_ty, self.bool())
                         || self.is_char(self_ty)
                         || self.is_pointer(self_ty)
                         || self.is_enum(self_ty))
@@ -402,7 +460,7 @@ impl TraitSolver<'_> {
                 let [rhs_ty] = goal.trait_args.as_slice() else {
                     return false;
                 };
-                self.types_equivalent(self_ty, *rhs_ty)
+                self.types_equivalent_inner(self_ty, *rhs_ty)
                     && (self.is_numeric(self_ty) || self.is_char(self_ty))
             }
             BuiltinTrait::Sized => goal.trait_args.is_empty() && self.layout_of(self_ty),
@@ -449,7 +507,7 @@ impl TraitSolver<'_> {
             BuiltinTrait::Iterable => {
                 goal.trait_args.is_empty()
                     && !matches!(
-                        self.resolve(TraitGoal {
+                        self.resolve_inner(TraitGoal {
                             self_ty,
                             trait_id: TraitId::Builtin(BuiltinTrait::Iterator),
                             trait_args: Vec::new(),
@@ -502,7 +560,7 @@ impl TraitSolver<'_> {
                 let [rhs_ty] = trait_args else {
                     return None;
                 };
-                (self.types_equivalent(self_ty, *rhs_ty)
+                (self.types_equivalent_inner(self_ty, *rhs_ty)
                     && (self.is_numeric(self_ty) || self.is_integer(self_ty)))
                 .then_some(self.normalize(self_ty))
             }

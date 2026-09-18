@@ -232,9 +232,9 @@ fn trait_impl_signature_by_id(
 pub fn collect_extension_method_diagnostics_for_module(
     module: &ExtensionModuleInput<'_>,
     input: ExtensionMethodValidationInput<'_>,
-) -> Vec<Diagnostic> {
+) -> nia_ice::IceResult<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
-    validate_supertraits(module, input, &mut diagnostics);
+    validate_supertraits(module, input, &mut diagnostics)?;
     for impl_signature in &module.signatures.trait_impls {
         if impl_signature.builtin.is_some() {
             continue;
@@ -267,7 +267,7 @@ pub fn collect_extension_method_diagnostics_for_module(
                     trait_id,
                     input,
                     &mut diagnostics,
-                );
+                )?;
             }
             Some(TraitId::Builtin(trait_id)) => {
                 validate_builtin_trait_impl(
@@ -283,7 +283,7 @@ pub fn collect_extension_method_diagnostics_for_module(
             None => {}
         }
     }
-    diagnostics
+    Ok(diagnostics)
 }
 
 /// Builds the extension-method index for one module.
@@ -598,7 +598,7 @@ fn validate_supertraits(
     module: &ExtensionModuleInput<'_>,
     input: ExtensionMethodValidationInput<'_>,
     diagnostics: &mut Vec<Diagnostic>,
-) {
+) -> nia_ice::IceResult<()> {
     for (trait_def_id, trait_signature) in &module.signatures.traits {
         for supertrait in &trait_signature.supertraits {
             let _ = supertrait_id(
@@ -619,8 +619,9 @@ fn validate_supertraits(
             },
             trait_signature,
             diagnostics,
-        );
+        )?;
     }
+    Ok(())
 }
 
 fn validate_supertrait_associated_binding_conflicts(
@@ -630,14 +631,14 @@ fn validate_supertrait_associated_binding_conflicts(
     trait_id: GlobalDefId,
     trait_signature: &TraitSignature,
     diagnostics: &mut Vec<Diagnostic>,
-) {
+) -> nia_ice::IceResult<()> {
     let append = module.type_store.append_for_module(module.module_id);
     let mut trait_args = Vec::new();
     let mut trait_const_args = Vec::new();
     for parameter in &trait_signature.generic_params {
         match parameter.kind {
             GenericParamSignatureKind::Type => {
-                trait_args.push(append.intern(TyKind::GenericParam(parameter.name)));
+                trait_args.push(append.intern(TyKind::GenericParam(parameter.name))?);
             }
             GenericParamSignatureKind::Const { ty } => {
                 trait_const_args.push(nia_ty::ConstGenericArg {
@@ -656,14 +657,14 @@ fn validate_supertrait_associated_binding_conflicts(
             trait_signatures,
         },
         TraitGoal {
-            self_ty: append.intern(TyKind::SelfParam),
+            self_ty: append.intern(TyKind::SelfParam)?,
             trait_id: TraitId::Source(trait_id),
             trait_args,
             trait_const_args,
         },
         &mut assumptions,
         &mut bindings,
-    );
+    )?;
     let mut checked = Vec::new();
     for binding in &bindings {
         let duplicate = checked
@@ -703,6 +704,7 @@ fn validate_supertrait_associated_binding_conflicts(
             checked.push(binding.clone());
         }
     }
+    Ok(())
 }
 
 fn supertrait_id(
@@ -744,9 +746,9 @@ fn validate_trait_impl(
     trait_id: GlobalDefId,
     input: ExtensionMethodValidationInput<'_>,
     diagnostics: &mut Vec<Diagnostic>,
-) -> bool {
+) -> nia_ice::IceResult<bool> {
     let Some(trait_signature) = trait_signature_ref(input.trait_signatures, trait_id) else {
-        return false;
+        return Ok(false);
     };
     let start_len = diagnostics.len();
     let (trait_args, trait_const_args) =
@@ -809,7 +811,7 @@ fn validate_trait_impl(
             trait_args: &trait_args,
             trait_const_args: &trait_const_args,
             impl_signature,
-        }) {
+        })? {
             let name = symbol_name(input.symbols, associated_value.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
@@ -876,7 +878,7 @@ fn validate_trait_impl(
         &trait_goal,
         input,
         diagnostics,
-    );
+    )?;
     let append = input.type_store.append_for_module(module.module_id);
     for required in &trait_signature.signature.methods {
         let Some(method) = impl_signature
@@ -908,7 +910,8 @@ fn validate_trait_impl(
             self_ty: target_ty,
             trait_id,
             impl_signature,
-        }) else {
+        })?
+        else {
             diagnostics.push(Diagnostic::internal_error_at(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
@@ -926,7 +929,7 @@ fn validate_trait_impl(
             self_ty: target_ty,
             trait_id,
             impl_signature,
-        });
+        })?;
         let goal_context = TraitGoalExpansionContext {
             type_store: input.type_store,
             module,
@@ -936,7 +939,7 @@ fn validate_trait_impl(
             goal_context,
             trait_goal.clone(),
             input.trait_impls_for_trait,
-        );
+        )?;
         if !trait_method_signature_matches(TraitMethodSignatureMatch {
             type_store: input.type_store,
             module,
@@ -946,7 +949,7 @@ fn validate_trait_impl(
             trait_signatures: input.trait_signatures,
             required: &required_signature,
             actual: &actual_signature,
-        }) {
+        })? {
             let name = symbol_name(input.symbols, required.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
@@ -957,7 +960,7 @@ fn validate_trait_impl(
             ));
         }
     }
-    diagnostics.len() == start_len
+    Ok(diagnostics.len() == start_len)
 }
 
 struct TraitAssociatedConstTypeMatch<'a> {
@@ -973,14 +976,16 @@ struct TraitAssociatedConstTypeMatch<'a> {
     impl_signature: &'a TraitImplSignature,
 }
 
-fn trait_associated_const_type_matches(input: TraitAssociatedConstTypeMatch<'_>) -> bool {
+fn trait_associated_const_type_matches(
+    input: TraitAssociatedConstTypeMatch<'_>,
+) -> nia_ice::IceResult<bool> {
     let append = input.type_store.append_for_module(input.module.module_id);
     let Some((substitutions, const_substitutions)) = substitutions_from_generic_params(
         &input.trait_signature.signature.generic_params,
         input.trait_args,
         input.trait_const_args,
     ) else {
-        return false;
+        return Ok(false);
     };
     let projection_context = Some(ProjectionImplContext {
         trait_id: input.trait_id,
@@ -1000,7 +1005,7 @@ fn trait_associated_const_type_matches(input: TraitAssociatedConstTypeMatch<'_>)
             projection: projection_context,
             self_ty: Some(input.target_ty),
         },
-    );
+    )?;
     let actual = substitute_type(
         &append,
         input.module,
@@ -1012,8 +1017,12 @@ fn trait_associated_const_type_matches(input: TraitAssociatedConstTypeMatch<'_>)
             projection: projection_context,
             self_ty: None,
         },
-    );
-    types_equivalent_in_store(input.type_store, required, actual)
+    )?;
+    Ok(types_equivalent_in_store(
+        input.type_store,
+        required,
+        actual,
+    ))
 }
 
 fn validate_builtin_trait_impl(
@@ -1202,11 +1211,7 @@ fn builtin_trait_method_signature_matches(
     method: BuiltinTraitMethod,
 ) -> bool {
     if actual.params.len() != method.param_count()
-        || actual.return_type
-            == module
-                .type_store
-                .append_for_module(module.module_id)
-                .intern(TyKind::Error)
+        || actual.return_type == module.type_store.error()
     {
         return false;
     }
@@ -1372,7 +1377,7 @@ fn validate_supertrait_impls(
     trait_goal: &TraitGoal,
     input: ExtensionMethodValidationInput<'_>,
     diagnostics: &mut Vec<Diagnostic>,
-) {
+) -> nia_ice::IceResult<()> {
     let append = input.type_store.append_for_module(module.module_id);
     for supertrait in &trait_signature.signature.supertraits {
         let Some(supertrait_ty) = substitute_trait_bound(
@@ -1382,7 +1387,8 @@ fn validate_supertrait_impls(
             &trait_signature.signature.generic_params,
             &trait_goal.trait_args,
             &trait_goal.trait_const_args,
-        ) else {
+        )?
+        else {
             diagnostics.push(Diagnostic::internal_error_at(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
@@ -1453,7 +1459,7 @@ fn validate_supertrait_impls(
             .associated_type_bindings
             .iter()
             .map(|binding| {
-                (
+                Ok((
                     binding.name,
                     substitute_type(
                         &append,
@@ -1466,17 +1472,17 @@ fn validate_supertrait_impls(
                             projection: None,
                             self_ty: Some(trait_goal.self_ty),
                         },
-                    ),
-                )
+                    )?,
+                ))
             })
-            .collect::<Vec<_>>();
+            .collect::<nia_ice::IceResult<Vec<_>>>()?;
         if !supertrait_associated_bindings_hold(
             module,
             input.type_store,
             &trait_impls,
             &supertrait_goal,
             &bindings,
-        ) {
+        )? {
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
@@ -1492,6 +1498,7 @@ fn validate_supertrait_impls(
             ));
         }
     }
+    Ok(())
 }
 
 fn supertrait_associated_bindings_hold(
@@ -1500,9 +1507,9 @@ fn supertrait_associated_bindings_hold(
     trait_impls: &[ProgramTraitImplSignature],
     goal: &TraitGoal,
     bindings: &[(SymbolId, InternedTyId)],
-) -> bool {
+) -> nia_ice::IceResult<bool> {
     if bindings.is_empty() {
-        return true;
+        return Ok(true);
     }
     let context = TraitSolverContext {
         type_store,
@@ -1517,17 +1524,22 @@ fn supertrait_associated_bindings_hold(
         impl_is_visible: None,
     };
     let mut solver = context.solver(&[]);
-    bindings.iter().all(|(name, expected_ty)| {
-        solver
-            .resolve_associated_type(
-                goal.self_ty,
-                goal.trait_id,
-                &goal.trait_args,
-                &goal.trait_const_args,
-                name,
-            )
-            .is_some_and(|actual_ty| solver.types_equivalent(actual_ty, *expected_ty))
-    })
+    for (name, expected_ty) in bindings {
+        let Some(actual_ty) = solver.resolve_associated_type(
+            goal.self_ty,
+            goal.trait_id,
+            &goal.trait_args,
+            &goal.trait_const_args,
+            name,
+        )?
+        else {
+            return Ok(false);
+        };
+        if !solver.types_equivalent(actual_ty, *expected_ty)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn substitute_trait_bound(
@@ -1537,17 +1549,21 @@ fn substitute_trait_bound(
     trait_generic_params: &[GenericParamSignature],
     trait_args: &[nia_ids::InternedTyId],
     trait_const_args: &[nia_ty::ConstGenericArg],
-) -> Option<nia_ids::InternedTyId> {
-    let (substitutions, const_substitutions) =
-        generic_argument_substitutions(trait_generic_params, trait_args, trait_const_args)?;
-    Some(nia_ty::substitute_ty(
+) -> nia_ice::IceResult<Option<nia_ids::InternedTyId>> {
+    let Some((substitutions, const_substitutions)) =
+        generic_argument_substitutions(trait_generic_params, trait_args, trait_const_args)
+    else {
+        return Ok(None);
+    };
+    nia_ty::substitute_ty(
         type_store,
         append,
         ty,
         &|name| substitutions.get(name).copied(),
         &|name| const_substitutions.get(name).cloned(),
         None,
-    ))
+    )
+    .map(Some)
 }
 
 fn has_matching_trait_impl(
@@ -1630,7 +1646,9 @@ struct TraitMethodSignatureMatch<'a> {
     actual: &'a nia_item_signatures::FunctionSignature,
 }
 
-fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool {
+fn trait_method_signature_matches(
+    input: TraitMethodSignatureMatch<'_>,
+) -> nia_ice::IceResult<bool> {
     let TraitGoal {
         self_ty,
         trait_id,
@@ -1648,7 +1666,7 @@ fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool 
         input.trait_goal.clone(),
         &mut assumptions,
         &mut associated_type_assumptions,
-    );
+    )?;
     associated_type_assumptions.extend(
         input
             .impl_signature
@@ -1673,7 +1691,7 @@ fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool 
         input.trait_signatures,
         &mut assumptions,
         &mut associated_type_assumptions,
-    );
+    )?;
     let const_expr_value = |id, _ty| {
         input
             .module
@@ -1711,21 +1729,24 @@ fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool 
             nia_item_signatures::FunctionAttribute::TrackCaller
         )
     });
-    input.required.generics == input.actual.generics
-        && input.required.where_predicates == input.actual.where_predicates
-        && input.required.params.len() == input.actual.params.len()
-        && input
-            .required
-            .params
-            .iter()
-            .zip(input.actual.params.iter())
-            .all(|(required, actual)| {
-                required.receiver == actual.receiver
-                    && solver.types_equivalent(required.ty, actual.ty)
-            })
-        && solver.types_equivalent(input.required.return_type, input.actual.return_type)
-        && input.required.is_variadic == input.actual.is_variadic
-        && (!actual_tracks_caller || required_tracks_caller)
+    if input.required.generics != input.actual.generics
+        || input.required.where_predicates != input.actual.where_predicates
+        || input.required.params.len() != input.actual.params.len()
+    {
+        return Ok(false);
+    }
+    for (required, actual) in input.required.params.iter().zip(input.actual.params.iter()) {
+        if required.receiver != actual.receiver
+            || !solver.types_equivalent(required.ty, actual.ty)?
+        {
+            return Ok(false);
+        }
+    }
+    Ok(
+        solver.types_equivalent(input.required.return_type, input.actual.return_type)?
+            && input.required.is_variadic == input.actual.is_variadic
+            && (!actual_tracks_caller || required_tracks_caller),
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -1739,7 +1760,7 @@ fn trait_impls_for_trait_goal_and_supertraits(
     context: TraitGoalExpansionContext<'_>,
     goal: TraitGoal,
     trait_impls_for_trait: &dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
-) -> Vec<ProgramTraitImplSignature> {
+) -> nia_ice::IceResult<Vec<ProgramTraitImplSignature>> {
     let mut goals = Vec::new();
     let mut associated_type_assumptions = Vec::new();
     push_trait_goal_assumption_with_supertraits(
@@ -1747,13 +1768,13 @@ fn trait_impls_for_trait_goal_and_supertraits(
         goal,
         &mut goals,
         &mut associated_type_assumptions,
-    );
+    )?;
     let mut seen = HashSet::new();
-    goals
+    Ok(goals
         .into_iter()
         .filter_map(|goal| seen.insert(goal.trait_id).then_some(goal.trait_id))
         .flat_map(trait_impls_for_trait)
-        .collect()
+        .collect())
 }
 
 fn push_where_predicate_solver_assumptions(
@@ -1763,7 +1784,7 @@ fn push_where_predicate_solver_assumptions(
     trait_signatures: &HashMap<GlobalDefId, ProgramTraitSignature>,
     assumptions: &mut Vec<TraitGoal>,
     associated_type_assumptions: &mut Vec<AssociatedTypeProjectionEq>,
-) {
+) -> nia_ice::IceResult<()> {
     for predicate in predicates {
         let self_ty = module.normalization.normalize(predicate.ty);
         for bound in &predicate.bounds {
@@ -1787,7 +1808,7 @@ fn push_where_predicate_solver_assumptions(
                 },
                 assumptions,
                 associated_type_assumptions,
-            );
+            )?;
             for binding in &bound.associated_type_bindings {
                 let ty = module.normalization.normalize(binding.ty);
                 associated_type_assumptions.push(AssociatedTypeProjectionEq {
@@ -1803,6 +1824,7 @@ fn push_where_predicate_solver_assumptions(
             }
         }
     }
+    Ok(())
 }
 
 fn push_trait_goal_assumption_with_supertraits(
@@ -1810,14 +1832,14 @@ fn push_trait_goal_assumption_with_supertraits(
     goal: TraitGoal,
     assumptions: &mut Vec<TraitGoal>,
     associated_type_assumptions: &mut Vec<AssociatedTypeProjectionEq>,
-) {
+) -> nia_ice::IceResult<()> {
     push_trait_goal_assumption_with_supertraits_inner(
         context,
         goal,
         assumptions,
         associated_type_assumptions,
         &mut Vec::new(),
-    );
+    )
 }
 
 fn push_trait_goal_assumption_with_supertraits_inner(
@@ -1826,11 +1848,11 @@ fn push_trait_goal_assumption_with_supertraits_inner(
     assumptions: &mut Vec<TraitGoal>,
     associated_type_assumptions: &mut Vec<AssociatedTypeProjectionEq>,
     visited: &mut Vec<TraitGoal>,
-) {
+) -> nia_ice::IceResult<()> {
     if visited.iter().any(|existing| {
         trait_goals_equivalent(context.type_store, context.module.lowering, existing, &goal)
     }) {
-        return;
+        return Ok(());
     }
     // This guard is path-local: sibling supertraits must still be expanded after one
     // recursive or unavailable branch returns.
@@ -1864,14 +1886,14 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                     assumptions,
                     associated_type_assumptions,
                     visited,
-                );
+                )?;
             }
         }
         TraitId::Source(trait_id) => {
             let Some(trait_signature) = trait_signature_ref(context.trait_signatures, trait_id)
             else {
                 visited.pop();
-                return;
+                return Ok(());
             };
             let Some((substitutions, const_substitutions)) = substitutions_from_generic_params(
                 &trait_signature.signature.generic_params,
@@ -1879,7 +1901,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                 &goal.trait_const_args,
             ) else {
                 visited.pop();
-                return;
+                return Ok(());
             };
             let append = context
                 .type_store
@@ -1896,7 +1918,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                         projection: None,
                         self_ty: Some(goal.self_ty),
                     },
-                );
+                )?;
                 let Some((supertrait_id, supertrait_args, supertrait_const_args)) =
                     trait_id_and_args(context.type_store, supertrait_ty)
                 else {
@@ -1923,7 +1945,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                                 projection: None,
                                 self_ty: Some(goal.self_ty),
                             },
-                        ),
+                        )?,
                     });
                 }
                 push_trait_goal_assumption_with_supertraits_inner(
@@ -1932,11 +1954,12 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                     assumptions,
                     associated_type_assumptions,
                     visited,
-                );
+                )?;
             }
         }
     }
     visited.pop();
+    Ok(())
 }
 
 fn trait_goals_equivalent(

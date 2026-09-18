@@ -385,7 +385,7 @@ pub(super) fn provide_extension_provider_validation_facts(
                 trait_impls_for_trait: &trait_impls_for_trait,
                 symbols: &symbols,
             },
-        );
+        )?;
         if let Some(error) = query_failure.into_inner() {
             return Err(error);
         }

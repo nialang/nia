@@ -309,7 +309,7 @@ impl<'a> LayoutRootCollector<'a> {
                 &|name| const_substitutions.get(name).cloned(),
                 None,
             );
-            self.add(field_ty);
+            self.add(field_ty.unwrap_or_else(|_| self.type_store.error()));
         }
     }
 

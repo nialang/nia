@@ -341,9 +341,7 @@ impl Analyzer<'_> {
             let canonical = self.type_for_module_or_none(field.ty, current_module)?;
             let ty = {
                 let types = self.type_contexts.get(&current_module)?;
-                nia_ty::substitute_ty(
-                    types.store,
-                    &types.append,
+                types.substitute(
                     canonical,
                     &|generic| substitutions.get(generic).copied(),
                     &|generic| const_substitutions.get(generic).cloned(),

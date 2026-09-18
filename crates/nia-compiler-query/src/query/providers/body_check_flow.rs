@@ -135,6 +135,9 @@ pub(super) fn provide_body_check(
     time_module_provider(db, "body_check", module_id, || {
         let mut body_check =
             body_check_with_filter(db, module_id, nia_body_check::BodyCheckFilter::All)?;
+        if let Some(error) = body_check.internal_error.take() {
+            return Err(error.into());
+        }
         let diagnostics = std::mem::take(&mut body_check.diagnostics);
         Ok(ModuleBodyCheck {
             semantic: Arc::new(body_check),
@@ -466,5 +469,5 @@ fn collect_body_signature_subset(
             type_store: db.context().type_store(),
             symbols: Some(&symbols),
         },
-    ))
+    )?)
 }

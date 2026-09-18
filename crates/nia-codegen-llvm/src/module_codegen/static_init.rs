@@ -267,7 +267,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .program
             .type_store()
             .append_for_module(self.source.id)
-            .primitive(elem);
+            .primitive(elem)?;
         let values = lanes
             .iter()
             .map(|lane| self.static_init_value_in(lane_ty, lane, span))

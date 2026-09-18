@@ -11,6 +11,7 @@ nia-ast-walk.workspace = true
 nia-defs.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true
+nia-ice.workspace = true
 nia-item-tree.workspace = true
 nia-literals.workspace = true
 nia-node-id.workspace = true

@@ -363,7 +363,7 @@ pub fn compute_layouts(
     defs: &DefCollection,
     signatures: &ItemSignatures,
     target: TargetDataLayout,
-) -> Layouts {
+) -> nia_ice::IceResult<Layouts> {
     let normalized = HashMap::new();
     let empty_lengths = NoArrayLengthValues;
     let root_types = signatures.type_roots();
@@ -468,7 +468,9 @@ pub struct LayoutRoots<'a> {
 }
 
 /// Computes layouts for every root carried by `input`.
-pub fn compute_layouts_with_program_context(input: LayoutComputationInput<'_>) -> Layouts {
+pub fn compute_layouts_with_program_context(
+    input: LayoutComputationInput<'_>,
+) -> nia_ice::IceResult<Layouts> {
     LayoutComputer::new(input).compute()
 }
 
@@ -476,7 +478,7 @@ pub fn compute_layouts_with_program_context(input: LayoutComputationInput<'_>) -
 pub fn compute_layouts_for_roots_with_program_context(
     input: LayoutComputationInput<'_>,
     roots: LayoutRoots<'_>,
-) -> Layouts {
+) -> nia_ice::IceResult<Layouts> {
     LayoutComputer::new(input).compute_roots(roots)
 }
 
@@ -484,7 +486,7 @@ pub fn compute_layouts_for_roots_with_program_context(
 pub fn compute_struct_instance_layout_with_program_context(
     input: &LayoutComputationInput<'_>,
     request: InstanceLayoutRequest<'_>,
-) -> Option<StructLayout> {
+) -> nia_ice::IceResult<Option<StructLayout>> {
     let local_module_id = input.defs.module_id;
     let mut computer = LayoutComputer::new(input.reborrow());
     computer.detailed_struct_layout(
@@ -492,32 +494,35 @@ pub fn compute_struct_instance_layout_with_program_context(
         request.def_id,
         request.args,
         request.const_args,
-    )?;
+    );
+    if let Some(error) = computer.internal_error.take() {
+        return Err(error);
+    }
     if request.def_id.module_id != local_module_id {
-        return computer
+        return Ok(computer
             .external_struct_instances
             .get(&GlobalStructLayoutKey {
                 def_id: request.def_id,
                 args: request.args.to_vec(),
                 const_args: request.const_args.to_vec(),
             })
-            .cloned();
+            .cloned());
     }
-    computer
+    Ok(computer
         .struct_instances
         .get(&StructLayoutKey {
             def_id: request.def_id.def_id,
             args: request.args.to_vec(),
             const_args: request.const_args.to_vec(),
         })
-        .cloned()
+        .cloned())
 }
 
 /// Computes detailed layout for one local or foreign union instantiation.
 pub fn compute_union_instance_layout_with_program_context(
     input: &LayoutComputationInput<'_>,
     request: InstanceLayoutRequest<'_>,
-) -> Option<StructLayout> {
+) -> nia_ice::IceResult<Option<StructLayout>> {
     let local_module_id = input.defs.module_id;
     let mut computer = LayoutComputer::new(input.reborrow());
     computer.detailed_union_layout(
@@ -525,25 +530,28 @@ pub fn compute_union_instance_layout_with_program_context(
         request.def_id,
         request.args,
         request.const_args,
-    )?;
+    );
+    if let Some(error) = computer.internal_error.take() {
+        return Err(error);
+    }
     if request.def_id.module_id != local_module_id {
-        return computer
+        return Ok(computer
             .external_union_instances
             .get(&GlobalStructLayoutKey {
                 def_id: request.def_id,
                 args: request.args.to_vec(),
                 const_args: request.const_args.to_vec(),
             })
-            .cloned();
+            .cloned());
     }
-    computer
+    Ok(computer
         .union_instances
         .get(&StructLayoutKey {
             def_id: request.def_id.def_id,
             args: request.args.to_vec(),
             const_args: request.const_args.to_vec(),
         })
-        .cloned()
+        .cloned())
 }
 
 struct LayoutTypeCx<'a> {
@@ -574,6 +582,7 @@ struct LayoutComputer<'a> {
     external_struct_instances: HashMap<GlobalStructLayoutKey, StructLayout>,
     external_union_instances: HashMap<GlobalStructLayoutKey, StructLayout>,
     diagnostics: Vec<Diagnostic>,
+    internal_error: Option<nia_ice::Ice>,
     visiting: HashSet<InternedTyId>,
     visiting_structs: HashSet<StructLayoutKey>,
     visiting_unions: HashSet<StructLayoutKey>,
@@ -602,6 +611,7 @@ impl<'a> LayoutComputer<'a> {
             external_struct_instances: HashMap::new(),
             external_union_instances: HashMap::new(),
             diagnostics: Vec::new(),
+            internal_error: None,
             visiting: HashSet::new(),
             visiting_structs: HashSet::new(),
             visiting_unions: HashSet::new(),
@@ -609,7 +619,7 @@ impl<'a> LayoutComputer<'a> {
         }
     }
 
-    fn compute(mut self) -> Layouts {
+    fn compute(mut self) -> nia_ice::IceResult<Layouts> {
         for ty_id in self.root_types.iter().copied() {
             if self.is_inferred_array_type(ty_id) || self.is_open_generic_type(ty_id) {
                 continue;
@@ -652,7 +662,7 @@ impl<'a> LayoutComputer<'a> {
         symbol_text_from_optional_resolver(self.program.symbols, symbol)
     }
 
-    fn compute_roots(mut self, roots: LayoutRoots<'_>) -> Layouts {
+    fn compute_roots(mut self, roots: LayoutRoots<'_>) -> nia_ice::IceResult<Layouts> {
         for ty_id in roots.types {
             if self.is_inferred_array_type(*ty_id) || self.is_open_generic_type(*ty_id) {
                 continue;
@@ -676,8 +686,13 @@ impl<'a> LayoutComputer<'a> {
         self.finish()
     }
 
-    fn finish(self) -> Layouts {
-        Layouts {
+    fn finish(self) -> nia_ice::IceResult<Layouts> {
+        if let Some(error) = self.internal_error {
+            return Err(
+                error.with_context(format!("computing layouts for module {:?}", self.module_id))
+            );
+        }
+        Ok(Layouts {
             module_id: self.module_id,
             target: self.target,
             types: self.types,
@@ -687,6 +702,28 @@ impl<'a> LayoutComputer<'a> {
             struct_instances: self.struct_instances,
             union_instances: self.union_instances,
             diagnostics: self.diagnostics,
+        })
+    }
+
+    fn substitute_ty(
+        &mut self,
+        ty: InternedTyId,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+    ) -> InternedTyId {
+        match nia_ty::substitute_ty(
+            self.type_context.store,
+            &self.type_context.append,
+            ty,
+            &|name| substitutions.get(name).copied(),
+            &|name| const_substitutions.get(name).cloned(),
+            None,
+        ) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.internal_error.get_or_insert(error);
+                self.type_context.store.error()
+            }
         }
     }
 
@@ -1195,12 +1232,7 @@ impl<'a> LayoutComputer<'a> {
     ) -> Option<TypeLayout> {
         let (substitutions, const_substitutions) =
             generic_argument_substitutions(&signature.generic_params, args, const_args)?;
-        let target = substitute_layout_ty(
-            &self.type_context,
-            signature.target,
-            &substitutions,
-            &const_substitutions,
-        );
+        let target = self.substitute_ty(signature.target, &substitutions, &const_substitutions);
         self.layout_ty(target, span)
     }
 
@@ -1518,12 +1550,7 @@ impl<'a> LayoutComputer<'a> {
         let mut layouts = Vec::new();
         for (source_index, field) in fields.iter().enumerate() {
             let field_ty = self.normalize_ty(field.ty);
-            let field_ty = substitute_layout_ty(
-                &self.type_context,
-                field_ty,
-                substitutions,
-                const_substitutions,
-            );
+            let field_ty = self.substitute_ty(field_ty, substitutions, const_substitutions);
             let Some(field_layout) = self.layout_ty(field_ty, field.span) else {
                 self.visiting_structs.remove(key);
                 return None;
@@ -1547,12 +1574,7 @@ impl<'a> LayoutComputer<'a> {
         let mut fields = Vec::new();
         for field in &signature.fields {
             let field_ty = self.normalize_ty(field.ty);
-            let field_ty = substitute_layout_ty(
-                &self.type_context,
-                field_ty,
-                substitutions,
-                const_substitutions,
-            );
+            let field_ty = self.substitute_ty(field_ty, substitutions, const_substitutions);
             let Some(field_layout) = self.layout_ty(field_ty, field.span) else {
                 self.visiting_unions.remove(key);
                 return None;
@@ -1585,22 +1607,6 @@ impl LayoutComputer<'_> {
     fn normalize_ty(&self, ty_id: InternedTyId) -> InternedTyId {
         self.normalized.get(&ty_id).copied().unwrap_or(ty_id)
     }
-}
-
-fn substitute_layout_ty(
-    types: &LayoutTypeCx<'_>,
-    ty: InternedTyId,
-    substitutions: &SymbolMap<InternedTyId>,
-    const_substitutions: &SymbolMap<ConstGenericArg>,
-) -> InternedTyId {
-    nia_ty::substitute_ty(
-        types.store,
-        &types.append,
-        ty,
-        &|name| substitutions.get(name).copied(),
-        &|name| const_substitutions.get(name).cloned(),
-        None,
-    )
 }
 
 #[cfg(test)]

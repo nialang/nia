@@ -490,14 +490,20 @@ impl<'a> BodyChecker<'a> {
         substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> InternedTyId {
-        nia_ty::substitute_ty(
+        match nia_ty::substitute_ty(
             self.type_store,
             &self.interner.append,
             ty,
             &|name| substitutions.get(name).copied(),
             &|name| const_substitutions.get(name).cloned(),
             None,
-        )
+        ) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.interner.record_internal(error);
+                self.interner.error()
+            }
+        }
     }
 
     pub(crate) fn substitute_generics_and_consts_with_self(
@@ -507,13 +513,19 @@ impl<'a> BodyChecker<'a> {
         const_substitutions: &SymbolMap<ConstGenericArg>,
         self_ty: InternedTyId,
     ) -> InternedTyId {
-        nia_ty::substitute_ty(
+        match nia_ty::substitute_ty(
             self.type_store,
             &self.interner.append,
             ty,
             &|name| substitutions.get(name).copied(),
             &|name| const_substitutions.get(name).cloned(),
             Some(self_ty),
-        )
+        ) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.interner.record_internal(error);
+                self.interner.error()
+            }
+        }
     }
 }

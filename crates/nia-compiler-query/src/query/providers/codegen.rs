@@ -215,7 +215,7 @@ pub(super) fn monomorphization_for_checked_modules(
         &module_inputs,
         source_identities,
         &db.context().type_store,
-    ))
+    )?)
 }
 
 pub(super) fn checked_modules_for_codegen(
@@ -312,7 +312,10 @@ pub(in crate::query) fn provide_lowered_function_body(
         ),
     ) {
         Ok(lowered) => Ok(LoweredFunctionBodyValue::Body(lowered)),
-        Err(diagnostic) => Ok(LoweredFunctionBodyValue::Diagnostic(diagnostic)),
+        Err(nia_function_lower::FunctionLoweringError::Diagnostic(diagnostic)) => {
+            Ok(LoweredFunctionBodyValue::Diagnostic(diagnostic))
+        }
+        Err(nia_function_lower::FunctionLoweringError::Internal(error)) => Err(error.into()),
     }
 }
 

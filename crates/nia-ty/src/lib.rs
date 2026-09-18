@@ -7,7 +7,8 @@ use nia_ids::{
 };
 use nia_span::Span;
 use nia_symbol::SymbolId;
-use std::sync::{Arc, Mutex, OnceLock};
+use parking_lot::Mutex;
+use std::sync::{Arc, OnceLock};
 
 mod substitution;
 
@@ -37,16 +38,16 @@ impl Default for TypeKindArena {
 }
 
 impl TypeKindArena {
-    fn insert(&self, index: u32, kind: Arc<TyKind>) {
+    fn insert(&self, index: u32, kind: Arc<TyKind>) -> nia_ice::IceResult<()> {
         let [root_index, trunk_index, branch_index, leaf_index] =
             index.to_be_bytes().map(usize::from);
         let trunk = self.roots[root_index].get_or_init(|| Box::new(empty_type_kind_level()));
         let branch = trunk[trunk_index].get_or_init(|| Box::new(empty_type_kind_level()));
         let leaf = branch[branch_index].get_or_init(|| Box::new(empty_type_kind_level()));
-        assert!(
-            leaf[leaf_index].set(kind).is_ok(),
-            "Nia ICE: type store kind slot was published twice"
-        );
+        leaf[leaf_index]
+            .set(kind)
+            .map_err(|_| nia_ice::Ice::new("type store kind slot was published twice"))?;
+        Ok(())
     }
 
     fn get(&self, index: u32) -> Option<&TyKind> {
@@ -69,6 +70,7 @@ impl TypeKindArena {
 pub struct TypeStore {
     id: TypeStoreId,
     core: Arc<TypeStoreCore>,
+    error: InternedTyId,
 }
 
 #[derive(Debug)]
@@ -84,23 +86,29 @@ struct TypeStoreSlots {
 }
 
 impl TypeStoreCore {
-    fn intern(&self, kind: &TyKind) -> InternedTyId {
+    fn intern(&self, kind: &TyKind) -> nia_ice::IceResult<InternedTyId> {
+        let mut foreign_reference = None;
         kind.visit_referenced_types(|referenced| {
-            assert!(
-                self.get(referenced).is_some(),
-                "Nia ICE: interned type references a handle outside its session type store"
-            );
+            if foreign_reference.is_none() && self.get(referenced).is_none() {
+                foreign_reference = Some(referenced);
+            }
         });
-        let mut slots = self.slots.lock().expect("type store slots lock poisoned");
-        if let Some(ty) = slots.canonical.get(kind) {
-            return *ty;
+        if let Some(referenced) = foreign_reference {
+            return Err(nia_ice::Ice::new(format!(
+                "interned type references handle {referenced:?} outside its session type store"
+            )));
         }
-        let index = u32::try_from(slots.canonical.len()).expect("type store slot space exhausted");
+        let mut slots = self.slots.lock();
+        if let Some(ty) = slots.canonical.get(kind) {
+            return Ok(*ty);
+        }
+        let index = u32::try_from(slots.canonical.len())
+            .map_err(|_| nia_ice::Ice::new("type store slot space exhausted"))?;
         let ty = InternedTyId::new(self.id, TypeStoreIndex::from_store_index(index));
         let kind = Arc::new(kind.clone());
-        self.kinds.insert(index, Arc::clone(&kind));
+        self.kinds.insert(index, Arc::clone(&kind))?;
         slots.canonical.insert(kind, ty);
-        ty
+        Ok(ty)
     }
 
     fn get(&self, ty: InternedTyId) -> Option<&TyKind> {
@@ -123,11 +131,12 @@ impl Eq for TypeStore {}
 /// Module-scoped capability for appending types to a shared store.
 pub struct TypeStoreAppend {
     core: Arc<TypeStoreCore>,
+    error: InternedTyId,
 }
 
 impl TypeStoreAppend {
     /// Interns a type, canonicalizing callable pointers into callable views.
-    pub fn intern(&self, kind: TyKind) -> InternedTyId {
+    pub fn intern(&self, kind: TyKind) -> nia_ice::IceResult<InternedTyId> {
         if let TyKind::Pointer { is_readonly, elem } = &kind
             && let Some(TyKind::CallablePointee {
                 params,
@@ -145,16 +154,16 @@ impl TypeStoreAppend {
 
     /// Returns the canonical error type.
     pub fn error(&self) -> InternedTyId {
-        self.intern(TyKind::Error)
+        self.error
     }
 
     /// Interns a primitive type.
-    pub fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+    pub fn primitive(&self, primitive: PrimitiveTy) -> nia_ice::IceResult<InternedTyId> {
         self.intern(TyKind::Primitive(primitive))
     }
 
     /// Interns a builtin nominal type.
-    pub fn builtin_type(&self, builtin: BuiltinType) -> InternedTyId {
+    pub fn builtin_type(&self, builtin: BuiltinType) -> nia_ice::IceResult<InternedTyId> {
         self.intern(TyKind::BuiltinType(builtin))
     }
 }
@@ -163,19 +172,23 @@ impl TypeStore {
     /// Creates an empty type store with a fresh session identity.
     pub fn new() -> nia_ice::IceResult<Self> {
         let id = TypeStoreId::fresh()?;
-        Ok(Self {
+        let core = Arc::new(TypeStoreCore {
             id,
-            core: Arc::new(TypeStoreCore {
-                id,
-                slots: Mutex::new(TypeStoreSlots::default()),
-                kinds: TypeKindArena::default(),
-            }),
-        })
+            slots: Mutex::new(TypeStoreSlots::default()),
+            kinds: TypeKindArena::default(),
+        });
+        let error = core.intern(&TyKind::Error)?;
+        Ok(Self { id, core, error })
     }
 
     /// Returns this store's session identity.
     pub fn id(&self) -> TypeStoreId {
         self.id
+    }
+
+    /// Returns the canonical recovery type guaranteed by store construction.
+    pub fn error(&self) -> InternedTyId {
+        self.error
     }
 
     /// Looks up a type handle, rejecting handles from another store.
@@ -187,6 +200,7 @@ impl TypeStore {
     pub fn append_for_module(&self, _module_id: ModuleId) -> TypeStoreAppend {
         TypeStoreAppend {
             core: Arc::clone(&self.core),
+            error: self.error,
         }
     }
 }

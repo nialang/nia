@@ -4,6 +4,8 @@ use super::*;
 #[derive(Debug, Clone, PartialEq)]
 /// Outputs produced by one body-check query.
 pub struct BodyCheck {
+    /// Internal compiler failure encountered while producing this product.
+    pub internal_error: Option<nia_ice::Ice>,
     /// Typed Body IR, when the selected product emits it.
     pub ir: Arc<BodyIr>,
     /// Semantic facts collected from checked expressions and calls.

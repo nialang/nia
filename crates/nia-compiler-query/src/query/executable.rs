@@ -300,6 +300,7 @@ impl ExecutableFactModuleState {
             const_eval,
         } = body_check;
         let nia_body_check::BodyCheck {
+            internal_error: _,
             ir,
             facts,
             static_init_refs,
@@ -368,6 +369,7 @@ impl ExecutableFactModuleState {
             const_eval,
         } = increment;
         let nia_body_check::BodyCheck {
+            internal_error: _,
             ir,
             facts,
             static_init_refs,

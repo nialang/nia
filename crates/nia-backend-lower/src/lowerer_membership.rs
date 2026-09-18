@@ -4,7 +4,7 @@
 use super::*;
 
 impl<'a> ModuleLowerer<'a> {
-    pub(crate) fn finish_module(&mut self, module: &mut BackendModule) {
+    pub(crate) fn finish_module(&mut self, module: &mut BackendModule) -> nia_ice::IceResult<()> {
         self.devirtualize_direct_trait_calls(&mut module.functions, &mut module.function_instances);
         self.propagate_cross_function_constants(
             &mut module.functions,
@@ -22,11 +22,12 @@ impl<'a> ModuleLowerer<'a> {
         let mut layouts = BackendLayouts::from_module_layouts(self.input.layouts);
         crate::layout_extender::BackendLayoutExtender::new(self.input, self.type_store)
             .remove_generic_nominal_layouts_for_module(&mut layouts, module);
-        self.extend_backend_layouts_for_finalized_module(&mut layouts, module);
+        self.extend_backend_layouts_for_finalized_module(&mut layouts, module)?;
         module.layouts = layouts;
         module
             .closure_entries
             .sort_unstable_by(|left, right| left.symbol.cmp(&right.symbol));
+        Ok(())
     }
 
     pub(crate) fn complete_definition_membership(&mut self, module: &mut BackendModule) {

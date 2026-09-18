@@ -85,7 +85,7 @@ pub(super) fn rooted_layouts_for_checked_module(
             structs: &roots.structs,
             unions: &roots.unions,
         },
-    );
+    )?;
     match query_failure.into_inner() {
         Some(error) => Err(error),
         None => Ok(store_module_layouts(db.context(), layouts)?),

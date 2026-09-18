@@ -11,6 +11,7 @@ nia-ids.workspace = true
 nia-ice.workspace = true
 nia-span.workspace = true
 nia-symbol.workspace = true
+parking_lot.workspace = true
 
 [lib]
 path = "src/lib.rs"

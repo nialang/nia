@@ -20,9 +20,7 @@ impl Analyzer<'_> {
             .type_contexts
             .get(&module_id)
             .expect("type context must exist for current execution module");
-        nia_ty::substitute_ty(
-            interner.store,
-            &interner.append,
+        interner.substitute(
             ty,
             &|name| type_substitutions.get(name).copied(),
             &|name| const_substitutions.get(name).cloned(),
@@ -450,9 +448,7 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         self.ensure_type_context(module_id)?;
         let types = self.type_contexts.get(&module_id)?;
-        let substituted = nia_ty::substitute_ty(
-            types.store,
-            &types.append,
+        let substituted = types.substitute(
             ty,
             &|generic| type_substitutions.get(generic).copied(),
             &|generic| const_substitutions.get(generic).cloned(),

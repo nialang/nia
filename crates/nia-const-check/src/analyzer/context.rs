@@ -610,11 +610,10 @@ impl Analyzer<'_> {
             let current = *targets.last().expect("receiver target list is non-empty");
             let next = match self.ty_kind(current) {
                 Some(TyKind::Pointer { elem, .. }) => elem,
-                Some(TyKind::Slice { elem, .. }) => self
-                    .input
-                    .type_store
-                    .append_for_module(self.current_execution_module_id())
-                    .intern(TyKind::SlicePointee { elem }),
+                Some(TyKind::Slice { elem, .. }) => self.intern_type_for_module(
+                    self.current_execution_module_id(),
+                    TyKind::SlicePointee { elem },
+                ),
                 _ => break,
             };
             if targets.contains(&next) {
@@ -871,14 +870,14 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn enum_ty_in_current_module(&self, enum_id: GlobalDefId) -> InternedTyId {
-        self.input
-            .type_store
-            .append_for_module(self.current_execution_module_id())
-            .intern(TyKind::Nominal {
+        self.intern_type_for_module(
+            self.current_execution_module_id(),
+            TyKind::Nominal {
                 def_id: enum_id,
                 args: Vec::new(),
                 const_args: Vec::new(),
-            })
+            },
+        )
     }
 
     pub(super) fn const_function_body(
@@ -941,10 +940,7 @@ impl Analyzer<'_> {
         module_id: ModuleId,
         primitive: nia_ty::PrimitiveTy,
     ) -> nia_ids::InternedTyId {
-        self.input
-            .type_store
-            .append_for_module(module_id)
-            .intern(TyKind::Primitive(primitive))
+        self.intern_type_for_module(module_id, TyKind::Primitive(primitive))
     }
 
     pub(super) fn active_ty_kind(&self, ty: nia_ids::InternedTyId) -> TyKind {
@@ -960,7 +956,11 @@ impl Analyzer<'_> {
         }
         self.type_contexts.insert(
             module_id,
-            super::ConstTypeCx::new(self.input.type_store, module_id),
+            super::ConstTypeCx::new(
+                self.input.type_store,
+                module_id,
+                std::sync::Arc::clone(&self.internal_error),
+            ),
         );
         Some(())
     }
@@ -1139,7 +1139,7 @@ impl Analyzer<'_> {
                     message: "cannot compute layout for unsupported target pointer width"
                         .to_string(),
                 })?;
-        let layouts =
+        let Some(layouts) = self.recover_internal(
             nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
                 type_store: self.input.type_store,
                 defs: defs.as_ref(),
@@ -1158,7 +1158,13 @@ impl Analyzer<'_> {
                     type_alias: Some(&program_type_alias),
                     ..Default::default()
                 },
+            }),
+        ) else {
+            return Err(ConstError {
+                span,
+                message: "cannot compute layout after an internal compiler error".to_string(),
             });
+        };
         let ty = normalization
             .as_ref()
             .normalized
@@ -1289,18 +1295,25 @@ impl Analyzer<'_> {
             args: &args,
             const_args: &const_args,
         };
-        let offset =
-            nia_layout::compute_struct_instance_layout_with_program_context(&input, request)
-                .or_else(|| {
-                    nia_layout::compute_union_instance_layout_with_program_context(&input, request)
-                })
-                .and_then(|layout| {
-                    layout
-                        .fields
-                        .iter()
-                        .find(|candidate| candidate.def_id == field_def.def_id)
-                        .map(|field| field.offset)
-                });
+        let mut layout = self
+            .recover_internal(
+                nia_layout::compute_struct_instance_layout_with_program_context(&input, request),
+            )
+            .flatten();
+        if layout.is_none() {
+            layout = self
+                .recover_internal(
+                    nia_layout::compute_union_instance_layout_with_program_context(&input, request),
+                )
+                .flatten();
+        }
+        let offset = layout.and_then(|layout| {
+            layout
+                .fields
+                .iter()
+                .find(|candidate| candidate.def_id == field_def.def_id)
+                .map(|field| field.offset)
+        });
         let Some(offset) = offset else {
             return Err(ConstError {
                 span,
@@ -1546,7 +1559,7 @@ impl Analyzer<'_> {
         let program_union = |def_id| self.program_union_signature_for_layout(def_id);
         let program_enum = |def_id| self.program_enum_signature_for_layout(def_id);
         let program_type_alias = |def_id| self.program_type_alias_signature_for_layout(def_id);
-        Some(Arc::new(nia_layout::compute_layouts_with_program_context(
+        let layouts = self.recover_internal(nia_layout::compute_layouts_with_program_context(
             nia_layout::LayoutComputationInput {
                 type_store: self.input.type_store,
                 defs: defs.as_ref(),
@@ -1566,7 +1579,8 @@ impl Analyzer<'_> {
                     ..Default::default()
                 },
             },
-        )))
+        ))?;
+        Some(Arc::new(layouts))
     }
 }
 

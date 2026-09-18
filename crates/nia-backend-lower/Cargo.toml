@@ -35,6 +35,7 @@ nia-ty.workspace = true
 nia-type-lower.workspace = true
 nia-type-normalize.workspace = true
 nia-value-resolve.workspace = true
+parking_lot.workspace = true
 
 [dev-dependencies]
 nia-abi-check.workspace = true

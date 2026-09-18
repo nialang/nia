@@ -1710,7 +1710,14 @@ impl<'a> BodyChecker<'a> {
             array_lengths: self.const_eval.array_lengths,
             frames: &frames,
         };
-        let ty = nia_const_check::infer_resolved_const_expr_type(input, expr, expected)?;
+        let ty = match nia_const_check::infer_resolved_const_expr_type(input, expr, expected) {
+            Ok(Some(ty)) => ty,
+            Ok(None) => return None,
+            Err(error) => {
+                self.interner.record_internal(error);
+                return None;
+            }
+        };
         Some(self.import_current_const_expr_type(ty))
     }
 

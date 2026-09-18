@@ -67,7 +67,7 @@ pub(super) fn extend_reachable_traits_from_generic_instances(
     extension_index: &dyn ExecutableExtensionLookup,
     reachable_functions: &HashSet<GlobalDefId>,
     traits: &mut ReachableTraitRefs,
-) {
+) -> nia_ice::IceResult<()> {
     for def_id in reachable_functions {
         if !module_id_list_contains(current_reachable_modules, def_id.module_id) {
             continue;
@@ -90,9 +90,10 @@ pub(super) fn extend_reachable_traits_from_generic_instances(
                 &instantiation,
                 &mut visited,
                 &mut FastHashSet::default(),
-            );
+            )?;
         }
     }
+    Ok(())
 }
 
 pub(super) fn extend_reachable_traits_from_generic_instances_incremental(
@@ -101,7 +102,7 @@ pub(super) fn extend_reachable_traits_from_generic_instances_incremental(
     current_reachable_modules: &[ModuleId],
     program_signatures: ExecutableSignatureIndex<'_>,
     extension_index: &dyn ExecutableExtensionLookup,
-) {
+) -> nia_ice::IceResult<()> {
     let pending_functions = state
         .reachability
         .functions
@@ -132,9 +133,10 @@ pub(super) fn extend_reachable_traits_from_generic_instances_incremental(
                 &instantiation,
                 visited,
                 &mut FastHashSet::default(),
-            );
+            )?;
         }
     }
+    Ok(())
 }
 
 fn extend_reachable_traits_from_generic_instantiation(
@@ -145,14 +147,14 @@ fn extend_reachable_traits_from_generic_instantiation(
     instantiation: &nia_sema_ir::GenericInstantiation,
     visited: &mut FastHashSet<ReachableGenericInstantiationKey>,
     active_defs: &mut FastHashSet<GlobalDefId>,
-) {
+) -> nia_ice::IceResult<()> {
     let GenericTraitReachabilityContext {
         modules_by_id,
         program_signatures,
         extension_index,
     } = context;
     if !should_visit_generic_instantiation(instantiation, visited, active_defs) {
-        return;
+        return Ok(());
     }
     active_defs.insert(instantiation.def_id);
     extend_reachable_traits_from_trait_default_instantiation(
@@ -163,7 +165,7 @@ fn extend_reachable_traits_from_generic_instantiation(
     );
     let Some(signature) = (program_signatures.function)(instantiation.def_id) else {
         active_defs.remove(&instantiation.def_id);
-        return;
+        return Ok(());
     };
     let append = type_store.append_for_module(use_module_id);
     let types = ReachabilityTypeCx {
@@ -208,12 +210,82 @@ fn extend_reachable_traits_from_generic_instantiation(
     let self_ty = instantiation.self_arg;
     let substitutions =
         TypeSubstitutions::local_with_consts(self_ty, &generic_substitutions, &const_substitutions);
-    for predicate in &signature.signature.where_predicates {
-        let Some(self_ty) = substitute_ty(types, predicate.ty, &substitutions) else {
+    extend_traits_from_predicates(
+        use_module_id,
+        type_store,
+        program_signatures,
+        traits,
+        types,
+        &signature.signature.where_predicates,
+        &substitutions,
+    )?;
+    let mut predicate_result = Ok(());
+    extension_index.with_where_predicates_for_def(instantiation.def_id, &mut |predicates| {
+        if predicate_result.is_ok() {
+            predicate_result = extend_traits_from_predicates(
+                use_module_id,
+                type_store,
+                program_signatures,
+                traits,
+                types,
+                predicates,
+                &substitutions,
+            );
+        }
+    });
+    predicate_result?;
+    let Some(target_module) = modules_by_id.get(&instantiation.def_id.module_id) else {
+        active_defs.remove(&instantiation.def_id);
+        return Ok(());
+    };
+    let nested_instantiations = target_module
+        .semantic_facts
+        .function_facts
+        .get(&instantiation.def_id)
+        .into_iter()
+        .flat_map(|facts| facts.generic_instantiations.iter())
+        .chain(
+            target_module
+                .semantic_facts
+                .generic_instantiations
+                .iter()
+                .filter(|nested| nested.source_def_id == Some(instantiation.def_id)),
+        );
+    for nested in nested_instantiations {
+        let Some(nested_instantiation) =
+            instantiate_nested_generic_instantiation(types, nested, &substitutions)?
+        else {
+            continue;
+        };
+        extend_reachable_traits_from_generic_instantiation(
+            use_module_id,
+            type_store,
+            context,
+            traits,
+            &nested_instantiation,
+            visited,
+            active_defs,
+        )?;
+    }
+    active_defs.remove(&instantiation.def_id);
+    Ok(())
+}
+
+fn extend_traits_from_predicates(
+    use_module_id: ModuleId,
+    type_store: &TypeStore,
+    program_signatures: ExecutableSignatureIndex<'_>,
+    traits: &mut ReachableTraitRefs,
+    types: ReachabilityTypeCx<'_>,
+    predicates: &[nia_item_signatures::WherePredicateSignature],
+    substitutions: &TypeSubstitutions<'_>,
+) -> nia_ice::IceResult<()> {
+    for predicate in predicates {
+        let Some(self_ty) = substitute_ty(types, predicate.ty, substitutions)? else {
             continue;
         };
         for bound in &predicate.bounds {
-            let Some(trait_ty) = substitute_ty(types, bound.trait_ty, &substitutions) else {
+            let Some(trait_ty) = substitute_ty(types, bound.trait_ty, substitutions)? else {
                 continue;
             };
             let Some((trait_id, trait_args, trait_const_args)) =
@@ -232,72 +304,10 @@ fn extend_reachable_traits_from_generic_instantiation(
                     trait_args: &trait_args,
                     trait_const_args: &trait_const_args,
                 },
-            );
+            )?;
         }
     }
-    extension_index.with_where_predicates_for_def(instantiation.def_id, &mut |predicates| {
-        for predicate in predicates {
-            let Some(self_ty) = substitute_ty(types, predicate.ty, &substitutions) else {
-                continue;
-            };
-            for bound in &predicate.bounds {
-                let Some(trait_ty) = substitute_ty(types, bound.trait_ty, &substitutions) else {
-                    continue;
-                };
-                let Some((trait_id, trait_args, trait_const_args)) =
-                    trait_id_and_args(type_store, trait_ty)
-                else {
-                    continue;
-                };
-                insert_trait_and_supertrait_methods(
-                    program_signatures,
-                    type_store,
-                    traits,
-                    TraitMethodExpansionInput {
-                        module_id: use_module_id,
-                        trait_id,
-                        self_ty,
-                        trait_args: &trait_args,
-                        trait_const_args: &trait_const_args,
-                    },
-                );
-            }
-        }
-    });
-    let Some(target_module) = modules_by_id.get(&instantiation.def_id.module_id) else {
-        active_defs.remove(&instantiation.def_id);
-        return;
-    };
-    let nested_instantiations = target_module
-        .semantic_facts
-        .function_facts
-        .get(&instantiation.def_id)
-        .into_iter()
-        .flat_map(|facts| facts.generic_instantiations.iter())
-        .chain(
-            target_module
-                .semantic_facts
-                .generic_instantiations
-                .iter()
-                .filter(|nested| nested.source_def_id == Some(instantiation.def_id)),
-        );
-    for nested in nested_instantiations {
-        let Some(nested_instantiation) =
-            instantiate_nested_generic_instantiation(types, nested, &substitutions)
-        else {
-            continue;
-        };
-        extend_reachable_traits_from_generic_instantiation(
-            use_module_id,
-            type_store,
-            context,
-            traits,
-            &nested_instantiation,
-            visited,
-            active_defs,
-        );
-    }
-    active_defs.remove(&instantiation.def_id);
+    Ok(())
 }
 
 fn extend_reachable_traits_from_trait_default_instantiation(
@@ -355,7 +365,7 @@ pub(super) fn insert_trait_and_supertrait_methods(
     type_store: &TypeStore,
     traits: &mut ReachableTraitRefs,
     input: TraitMethodExpansionInput<'_>,
-) {
+) -> nia_ice::IceResult<()> {
     let append = type_store.append_for_module(input.module_id);
     TraitMethodExpansion {
         program_signatures,
@@ -372,7 +382,7 @@ pub(super) fn insert_trait_and_supertrait_methods(
         input.self_ty,
         input.trait_args,
         input.trait_const_args,
-    );
+    )
 }
 
 struct TraitMethodExpansion<'a, 'b> {
@@ -426,7 +436,7 @@ impl TraitMethodExpansion<'_, '_> {
         self_ty: InternedTyId,
         trait_args: &[InternedTyId],
         trait_const_args: &[nia_ty::ConstGenericArg],
-    ) {
+    ) -> nia_ice::IceResult<()> {
         if self.active_traits.iter().any(|active| {
             active_trait_expansion_matches(
                 self.types,
@@ -437,7 +447,7 @@ impl TraitMethodExpansion<'_, '_> {
                 trait_const_args,
             )
         }) {
-            return;
+            return Ok(());
         }
         let expansion_key = ReachableTraitVtableKey {
             module_id: self.module_id,
@@ -447,13 +457,13 @@ impl TraitMethodExpansion<'_, '_> {
             trait_const_args: trait_const_args.to_vec(),
         };
         if self.traits.expanded_method_sets.contains(&expansion_key) {
-            return;
+            return Ok(());
         }
         let trait_signature = match trait_id {
             TraitId::Builtin(_) => None,
             TraitId::Source(trait_def) => {
                 let Some(signature) = (self.program_signatures.trait_)(trait_def) else {
-                    return;
+                    return Ok(());
                 };
                 Some(signature)
             }
@@ -491,12 +501,15 @@ impl TraitMethodExpansion<'_, '_> {
                         self_ty,
                         supertrait_args,
                         &[],
-                    );
+                    )?;
                 }
             }
             TraitId::Source(_) => {
-                let trait_signature = trait_signature
-                    .expect("source trait signature was resolved before method-set expansion");
+                let Some(trait_signature) = trait_signature else {
+                    return Err(nia_ice::Ice::new(
+                        "source trait signature disappeared during reachability expansion",
+                    ));
+                };
                 self.traits.insert_methods_with_const_args(
                     self.module_id,
                     trait_id,
@@ -521,7 +534,7 @@ impl TraitMethodExpansion<'_, '_> {
                         &const_substitutions,
                     );
                     let Some(supertrait_ty) =
-                        substitute_ty(self.types, supertrait.ty, &substitutions)
+                        substitute_ty(self.types, supertrait.ty, &substitutions)?
                     else {
                         continue;
                     };
@@ -535,11 +548,12 @@ impl TraitMethodExpansion<'_, '_> {
                         self_ty,
                         &supertrait_args,
                         &supertrait_const_args,
-                    );
+                    )?;
                 }
             }
         }
         self.active_traits.pop();
+        Ok(())
     }
 }
 
@@ -631,22 +645,28 @@ fn instantiate_nested_generic_instantiation(
     types: ReachabilityTypeCx<'_>,
     instantiation: &nia_sema_ir::GenericInstantiation,
     substitutions: &TypeSubstitutions<'_>,
-) -> Option<nia_sema_ir::GenericInstantiation> {
+) -> nia_ice::IceResult<Option<nia_sema_ir::GenericInstantiation>> {
     let self_arg = match instantiation.self_arg {
-        Some(self_arg) => Some(substitute_ty(types, self_arg, substitutions)?),
+        Some(self_arg) => substitute_ty(types, self_arg, substitutions)?,
         None => None,
     };
-    let args = instantiation
+    let Some(args) = instantiation
         .args
         .iter()
         .map(|arg| substitute_ty(types, *arg, substitutions))
-        .collect::<Option<Vec<_>>>()?;
-    let const_args = instantiation
+        .collect::<nia_ice::IceResult<Option<Vec<_>>>>()?
+    else {
+        return Ok(None);
+    };
+    let Some(const_args) = instantiation
         .const_args
         .iter()
         .map(|arg| substitute_const_arg(types, arg, substitutions))
-        .collect::<Option<Vec<_>>>()?;
-    Some(nia_sema_ir::GenericInstantiation {
+        .collect::<nia_ice::IceResult<Option<Vec<_>>>>()?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(nia_sema_ir::GenericInstantiation {
         def_id: instantiation.def_id,
         self_arg,
         args,
@@ -654,7 +674,7 @@ fn instantiate_nested_generic_instantiation(
         generics: instantiation.generics.clone(),
         span: instantiation.span,
         source_def_id: instantiation.source_def_id,
-    })
+    }))
 }
 
 fn typed_executable_refs(
@@ -954,13 +974,13 @@ pub(super) fn extend_reachable_functions_from_traits(
     reachable_traits: &mut ReachableTraitRefs,
     reachability: &mut ExecutableReachability,
     pending_modules: &mut VecDeque<ModuleId>,
-) {
+) -> nia_ice::IceResult<()> {
     let Some(type_store) = modules_by_id
         .values()
         .next()
         .map(|module| module.type_store)
     else {
-        return;
+        return Ok(());
     };
     for vtable in reachable_traits.vtables.clone() {
         insert_trait_and_supertrait_methods(
@@ -974,7 +994,7 @@ pub(super) fn extend_reachable_functions_from_traits(
                 trait_args: &vtable.trait_args,
                 trait_const_args: &vtable.trait_const_args,
             },
-        );
+        )?;
     }
     let reachable_modules = &reachability.modules;
     let mut pending_module_set = HashSet::new();
@@ -1026,6 +1046,7 @@ pub(super) fn extend_reachable_functions_from_traits(
             ) {}
         });
     }
+    let mut callback_error = None;
     let mut method_index = 0;
     while method_index < reachable_traits.methods.len() {
         let mut discovered_traits = ReachableTraitRefs::default();
@@ -1049,13 +1070,18 @@ pub(super) fn extend_reachable_functions_from_traits(
                         },
                         &mut |matched| {
                             deferred_modules.add_function(method.def_id, program_signatures);
-                            extend_reachable_trait_methods_from_impl_where_predicates(
-                                program_signatures,
-                                type_store,
-                                &matched,
-                                reachable.module_id,
-                                &mut discovered_traits,
-                            );
+                            if callback_error.is_none()
+                                && let Err(error) =
+                                    extend_reachable_trait_methods_from_impl_where_predicates(
+                                        program_signatures,
+                                        type_store,
+                                        &matched,
+                                        reachable.module_id,
+                                        &mut discovered_traits,
+                                    )
+                            {
+                                callback_error = Some(error);
+                            }
                         },
                     ) {}
                 },
@@ -1063,6 +1089,10 @@ pub(super) fn extend_reachable_functions_from_traits(
         }
         method_index += 1;
         reachable_traits.extend(discovered_traits);
+    }
+    match callback_error {
+        Some(error) => Err(error),
+        None => Ok(()),
     }
 }
 
@@ -1072,18 +1102,18 @@ pub(super) fn extend_reachable_functions_from_traits_incremental(
     extension_index: &dyn ExecutableExtensionLookup,
     modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
     pending_modules: &mut VecDeque<ModuleId>,
-) {
+) -> nia_ice::IceResult<()> {
     if state.trait_function_scan.methods == state.reachable_traits.methods.len()
         && state.trait_function_scan.vtables == state.reachable_traits.vtables.len()
     {
-        return;
+        return Ok(());
     }
     let Some(type_store) = modules_by_id
         .values()
         .next()
         .map(|module| module.type_store)
     else {
-        return;
+        return Ok(());
     };
 
     let mut pending_module_set = HashSet::new();
@@ -1110,7 +1140,7 @@ pub(super) fn extend_reachable_functions_from_traits_incremental(
                 trait_args: &vtable.trait_args,
                 trait_const_args: &vtable.trait_const_args,
             },
-        );
+        )?;
         add_reachable_default_trait_methods_for_vtable(
             program_signatures,
             &vtable,
@@ -1137,6 +1167,7 @@ pub(super) fn extend_reachable_functions_from_traits_incremental(
         vtable_index += 1;
     }
 
+    let mut callback_error = None;
     let mut method_index = state
         .trait_function_scan
         .methods
@@ -1168,13 +1199,18 @@ pub(super) fn extend_reachable_functions_from_traits_incremental(
                         },
                         &mut |matched| {
                             deferred_modules.add_function(method.def_id, program_signatures);
-                            extend_reachable_trait_methods_from_impl_where_predicates(
-                                program_signatures,
-                                type_store,
-                                &matched,
-                                reachable.module_id,
-                                &mut discovered_traits,
-                            );
+                            if callback_error.is_none()
+                                && let Err(error) =
+                                    extend_reachable_trait_methods_from_impl_where_predicates(
+                                        program_signatures,
+                                        type_store,
+                                        &matched,
+                                        reachable.module_id,
+                                        &mut discovered_traits,
+                                    )
+                            {
+                                callback_error = Some(error);
+                            }
                         },
                     ) {}
                 },
@@ -1186,6 +1222,10 @@ pub(super) fn extend_reachable_functions_from_traits_incremental(
 
     state.trait_function_scan.vtables = vtable_index;
     state.trait_function_scan.methods = method_index;
+    match callback_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }
 
 fn add_reachable_default_trait_method_for_method(

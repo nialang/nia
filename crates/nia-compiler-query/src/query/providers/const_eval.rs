@@ -50,7 +50,7 @@ pub(super) fn provide_const(
                 typed_facts,
             );
             const_eval.diagnostics.extend(module.diagnostics.clone());
-            const_eval
+            Ok(const_eval)
         })
     })?;
     let declaration_check = super::body_executable::body_check_const_declarations(db, module_id)?;
@@ -69,9 +69,9 @@ pub(super) fn provide_const_array_lengths(
     module_id: ModuleId,
 ) -> QueryResult<nia_const_check::ConstArrayLengths> {
     with_const_input(db, module_id, |input, module| {
-        let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input);
+        let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input)?;
         array_lengths.diagnostics.extend(module.diagnostics.clone());
-        array_lengths
+        Ok(array_lengths)
     })
 }
 
@@ -82,9 +82,9 @@ pub(super) fn provide_const_enum_values(
     let array_lengths = Arc::unwrap_or_clone(db.get(ConstArrayLengthsQuery(module_id))?);
     with_const_input(db, module_id, |input, module| {
         let mut enum_values =
-            nia_const_check::compute_module_const_enum_values(input, array_lengths);
+            nia_const_check::compute_module_const_enum_values(input, array_lengths)?;
         enum_values.diagnostics.extend(module.diagnostics.clone());
-        enum_values
+        Ok(enum_values)
     })
 }
 
@@ -96,9 +96,9 @@ pub(super) fn provide_const_values(
     let enum_values = Arc::unwrap_or_clone(db.get(ConstEnumValuesQuery(module_id))?);
     with_const_input(db, module_id, |input, module| {
         let mut values =
-            nia_const_check::compute_module_const_values(input, array_lengths, enum_values);
+            nia_const_check::compute_module_const_values(input, array_lengths, enum_values)?;
         values.diagnostics.extend(module.diagnostics.clone());
-        values
+        Ok(values)
     })
 }
 
@@ -117,7 +117,7 @@ pub(super) fn provide_const_typed_facts(
 fn with_const_input<T>(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> T,
+    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> nia_ice::IceResult<T>,
 ) -> QueryResult<T> {
     with_const_input_and_program_facts(db, module_id, None, |_| false, f)
 }
@@ -127,7 +127,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
     module_id: ModuleId,
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
     use_signature_facts_for: impl Fn(ModuleId) -> bool,
-    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> T,
+    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> nia_ice::IceResult<T>,
 ) -> QueryResult<T> {
     let module = db.get(ConstModuleQuery(module_id))?;
     let defs = full_module_defs_semantic(db, module_id)?;
@@ -292,7 +292,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
             visible_extensions: Some(&visible_extensions_for_module),
         },
     };
-    let output = f(input, &module);
+    let output = f(input, &module)?;
     match query_failure.into_inner() {
         Some(error) => Err(error),
         None => Ok(output),

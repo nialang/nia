@@ -57,7 +57,7 @@ impl<'a> TypeLowerer<'a, '_> {
             def_id,
             object_args.trait_args.len() + object_args.trait_const_args.len(),
         );
-        Some(self.append.intern(TyKind::TraitObject {
+        Some(self.intern(TyKind::TraitObject {
             is_readonly,
             trait_id: TraitId::Source(def_id),
             trait_args: object_args.trait_args,
@@ -77,7 +77,7 @@ impl<'a> TypeLowerer<'a, '_> {
             .lower_trait_object_args(span, segment, TraitId::Builtin(trait_id))
             .unwrap_or_default();
         self.check_builtin_trait_arg_count(span, trait_id, object_args.trait_args.len());
-        self.append.intern(TyKind::TraitObject {
+        self.intern(TyKind::TraitObject {
             is_readonly,
             trait_id: TraitId::Builtin(trait_id),
             trait_args: object_args.trait_args,
@@ -366,7 +366,7 @@ impl<'a> TypeLowerer<'a, '_> {
                 .lower_trait_object_args(span, segment, TraitId::Builtin(trait_id))
                 .unwrap_or_default();
             self.check_builtin_trait_arg_count(span, trait_id, object_args.trait_args.len());
-            return self.append.intern(TyKind::TraitObjectPointee {
+            return self.intern(TyKind::TraitObjectPointee {
                 trait_id: TraitId::Builtin(trait_id),
                 trait_args: object_args.trait_args,
                 trait_const_args: object_args.trait_const_args,
@@ -464,7 +464,7 @@ impl<'a> TypeLowerer<'a, '_> {
             }
         }
         self.check_builtin_trait_arg_count(span, trait_id, args.len());
-        self.append.intern(TyKind::BuiltinTrait { trait_id, args })
+        self.intern(TyKind::BuiltinTrait { trait_id, args })
     }
 
     pub(crate) fn projection_trait_id(
@@ -572,20 +572,20 @@ impl<'a> TypeLowerer<'a, '_> {
             return self.lower_type_in_context(ty, TypeContext::Value);
         }
         let TypeKind::Path { segments } = &ty.kind else {
-            return self.append.intern(TyKind::Error);
+            return self.intern(TyKind::Error);
         };
         let [segment] = segments.as_slice() else {
-            return self.append.intern(TyKind::Error);
+            return self.intern(TyKind::Error);
         };
         if !segment.args.is_empty() {
-            return self.append.intern(TyKind::Error);
+            return self.intern(TyKind::Error);
         }
         let Some(name) = type_path_segment_name(segment) else {
-            return self.append.intern(TyKind::Error);
+            return self.intern(TyKind::Error);
         };
         PrimitiveTy::from_known_symbol(*name)
-            .map(|primitive| self.append.intern(TyKind::Primitive(primitive)))
-            .unwrap_or_else(|| self.append.intern(TyKind::Error))
+            .map(|primitive| self.intern(TyKind::Primitive(primitive)))
+            .unwrap_or_else(|| self.intern(TyKind::Error))
     }
 
     pub(crate) fn const_generic_value_from_type_ref(
@@ -709,7 +709,7 @@ impl<'a> TypeLowerer<'a, '_> {
                 span,
                 "associated type shorthand cannot take generic arguments",
             ));
-            return self.append.intern(TyKind::Error);
+            return self.intern(TyKind::Error);
         }
         let Some(scope) = self
             .associated_type_scope_stack
@@ -724,9 +724,9 @@ impl<'a> TypeLowerer<'a, '_> {
                 span,
                 format!("unknown associated type `{name}`"),
             ));
-            return self.append.intern(TyKind::Error);
+            return self.intern(TyKind::Error);
         };
-        self.append.intern(TyKind::Projection {
+        self.intern(TyKind::Projection {
             self_ty: scope.self_ty,
             trait_id: scope.trait_id,
             trait_args: scope.trait_args,

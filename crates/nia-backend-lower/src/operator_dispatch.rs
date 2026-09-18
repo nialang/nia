@@ -1275,12 +1275,18 @@ impl<'a> ModuleLowerer<'a> {
             impl_is_visible: None,
         };
         let mut solver = context.solver(&[]);
-        solver.resolve(TraitGoal {
+        match solver.resolve(TraitGoal {
             self_ty,
             trait_id: TraitId::Builtin(trait_id),
             trait_args: trait_args.to_vec(),
             trait_const_args: Vec::new(),
-        })
+        }) {
+            Ok(resolution) => resolution,
+            Err(error) => {
+                self.type_context.record_internal(error);
+                TraitResolution::Unsatisfied
+            }
+        }
     }
 }
 

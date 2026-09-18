@@ -182,12 +182,14 @@ impl SignatureTypeEquivalence<'_> {
 
 pub(super) fn lower_trait_method_signature(
     input: TraitMethodSubstitution<'_>,
-) -> Option<FunctionSignature> {
-    let (substitutions, const_substitutions) = substitutions_from_generic_params(
+) -> nia_ice::IceResult<Option<FunctionSignature>> {
+    let Some((substitutions, const_substitutions)) = substitutions_from_generic_params(
         input.trait_generic_params,
         input.trait_args,
         input.trait_const_args,
-    )?;
+    ) else {
+        return Ok(None);
+    };
     let target = TypeSubstitutionTarget {
         projection: Some(ProjectionImplContext {
             trait_id: input.trait_id,
@@ -202,21 +204,23 @@ pub(super) fn lower_trait_method_signature(
     signature.params = signature
         .params
         .iter()
-        .map(|param| ParamSignature {
-            name: param.name,
-            receiver: param.receiver,
-            ty: substitute_type(
-                input.append,
-                input.module,
-                input.type_store,
-                param.ty,
-                &substitutions,
-                &const_substitutions,
-                target,
-            ),
-            span: param.span,
+        .map(|param| {
+            Ok(ParamSignature {
+                name: param.name,
+                receiver: param.receiver,
+                ty: substitute_type(
+                    input.append,
+                    input.module,
+                    input.type_store,
+                    param.ty,
+                    &substitutions,
+                    &const_substitutions,
+                    target,
+                )?,
+                span: param.span,
+            })
         })
-        .collect();
+        .collect::<nia_ice::IceResult<_>>()?;
     signature.return_type = substitute_type(
         input.append,
         input.module,
@@ -225,13 +229,13 @@ pub(super) fn lower_trait_method_signature(
         &substitutions,
         &const_substitutions,
         target,
-    );
-    Some(signature)
+    )?;
+    Ok(Some(signature))
 }
 
 pub(super) fn normalize_impl_method_signature(
     input: ImplMethodSignatureNormalize<'_>,
-) -> FunctionSignature {
+) -> nia_ice::IceResult<FunctionSignature> {
     let substitutions = SymbolMap::default();
     let const_substitutions = SymbolMap::default();
     let target = TypeSubstitutionTarget {
@@ -248,21 +252,23 @@ pub(super) fn normalize_impl_method_signature(
     signature.params = signature
         .params
         .iter()
-        .map(|param| ParamSignature {
-            name: param.name,
-            receiver: param.receiver,
-            ty: substitute_type(
-                input.append,
-                input.module,
-                input.type_store,
-                param.ty,
-                &substitutions,
-                &const_substitutions,
-                target,
-            ),
-            span: param.span,
+        .map(|param| {
+            Ok(ParamSignature {
+                name: param.name,
+                receiver: param.receiver,
+                ty: substitute_type(
+                    input.append,
+                    input.module,
+                    input.type_store,
+                    param.ty,
+                    &substitutions,
+                    &const_substitutions,
+                    target,
+                )?,
+                span: param.span,
+            })
         })
-        .collect();
+        .collect::<nia_ice::IceResult<_>>()?;
     signature.return_type = substitute_type(
         input.append,
         input.module,
@@ -271,8 +277,8 @@ pub(super) fn normalize_impl_method_signature(
         &substitutions,
         &const_substitutions,
         target,
-    );
-    signature
+    )?;
+    Ok(signature)
 }
 
 pub(super) struct TraitMethodSubstitution<'a> {
@@ -326,15 +332,15 @@ pub(super) fn substitute_type(
     substitutions: &SymbolMap<nia_ids::InternedTyId>,
     const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
     target: TypeSubstitutionTarget<'_>,
-) -> nia_ids::InternedTyId {
+) -> nia_ice::IceResult<nia_ids::InternedTyId> {
     let TypeSubstitutionTarget {
         projection: projection_context,
         self_ty: self_substitution,
     } = target;
     match type_store.get(ty) {
-        Some(TyKind::GenericParam(name)) => substitutions.get(name).copied().unwrap_or(ty),
-        Some(TyKind::SelfParam) => self_substitution.unwrap_or(ty),
-        Some(TyKind::Opaque) => ty,
+        Some(TyKind::GenericParam(name)) => Ok(substitutions.get(name).copied().unwrap_or(ty)),
+        Some(TyKind::SelfParam) => Ok(self_substitution.unwrap_or(ty)),
+        Some(TyKind::Opaque) => Ok(ty),
         Some(TyKind::Tuple(elems)) => {
             let elems = elems
                 .iter()
@@ -352,7 +358,7 @@ pub(super) fn substitute_type(
                         },
                     )
                 })
-                .collect();
+                .collect::<nia_ice::IceResult<Vec<_>>>()?;
             append.intern(TyKind::Tuple(elems))
         }
         Some(TyKind::ClosureState {
@@ -377,9 +383,17 @@ pub(super) fn substitute_type(
             };
             append.intern(TyKind::ClosureState {
                 closure_id: *closure_id,
-                captures: captures.iter().copied().map(substitute).collect(),
-                params: params.iter().copied().map(substitute).collect(),
-                return_type: substitute(*return_type),
+                captures: captures
+                    .iter()
+                    .copied()
+                    .map(substitute)
+                    .collect::<nia_ice::IceResult<Vec<_>>>()?,
+                params: params
+                    .iter()
+                    .copied()
+                    .map(substitute)
+                    .collect::<nia_ice::IceResult<Vec<_>>>()?,
+                return_type: substitute(*return_type)?,
             })
         }
         Some(TyKind::Pointer { is_readonly, elem }) => {
@@ -395,7 +409,7 @@ pub(super) fn substitute_type(
                     projection: projection_context,
                     self_ty: self_substitution,
                 },
-            );
+            )?;
             append.intern(TyKind::Pointer { is_readonly, elem })
         }
         Some(TyKind::VolatilePointer { is_readonly, elem }) => {
@@ -411,7 +425,7 @@ pub(super) fn substitute_type(
                     projection: projection_context,
                     self_ty: self_substitution,
                 },
-            );
+            )?;
             append.intern(TyKind::VolatilePointer { is_readonly, elem })
         }
         Some(TyKind::Slice { is_readonly, elem }) => {
@@ -427,7 +441,7 @@ pub(super) fn substitute_type(
                     projection: projection_context,
                     self_ty: self_substitution,
                 },
-            );
+            )?;
             append.intern(TyKind::Slice { is_readonly, elem })
         }
         Some(TyKind::SlicePointee { elem }) => {
@@ -442,7 +456,7 @@ pub(super) fn substitute_type(
                     projection: projection_context,
                     self_ty: self_substitution,
                 },
-            );
+            )?;
             append.intern(TyKind::SlicePointee { elem })
         }
         Some(TyKind::Array { len, elem }) => {
@@ -457,7 +471,7 @@ pub(super) fn substitute_type(
                     projection: projection_context,
                     self_ty: self_substitution,
                 },
-            );
+            )?;
             let elem = substitute_type(
                 append,
                 module,
@@ -469,24 +483,26 @@ pub(super) fn substitute_type(
                     projection: projection_context,
                     self_ty: self_substitution,
                 },
-            );
+            )?;
             append.intern(TyKind::Array { len, elem })
         }
         Some(TyKind::Range { kind, bound }) => {
-            let bound = bound.map(|bound| {
-                substitute_type(
-                    append,
-                    module,
-                    type_store,
-                    bound,
-                    substitutions,
-                    const_substitutions,
-                    TypeSubstitutionTarget {
-                        projection: projection_context,
-                        self_ty: self_substitution,
-                    },
-                )
-            });
+            let bound = bound
+                .map(|bound| {
+                    substitute_type(
+                        append,
+                        module,
+                        type_store,
+                        bound,
+                        substitutions,
+                        const_substitutions,
+                        TypeSubstitutionTarget {
+                            projection: projection_context,
+                            self_ty: self_substitution,
+                        },
+                    )
+                })
+                .transpose()?;
             append.intern(TyKind::Range { kind: *kind, bound })
         }
         Some(TyKind::Optional { elem }) => {
@@ -501,7 +517,7 @@ pub(super) fn substitute_type(
                     projection: projection_context,
                     self_ty: self_substitution,
                 },
-            );
+            )?;
             append.intern(TyKind::Optional { elem })
         }
         Some(TyKind::ErrorUnion { error, value }) => {
@@ -516,7 +532,7 @@ pub(super) fn substitute_type(
                     projection: projection_context,
                     self_ty: self_substitution,
                 },
-            );
+            )?;
             let value = substitute_type(
                 append,
                 module,
@@ -528,7 +544,7 @@ pub(super) fn substitute_type(
                     projection: projection_context,
                     self_ty: self_substitution,
                 },
-            );
+            )?;
             append.intern(TyKind::ErrorUnion { error, value })
         }
         Some(TyKind::FunctionPointer {
@@ -552,7 +568,7 @@ pub(super) fn substitute_type(
                         },
                     )
                 })
-                .collect();
+                .collect::<nia_ice::IceResult<Vec<_>>>()?;
             let return_type = substitute_type(
                 append,
                 module,
@@ -564,7 +580,7 @@ pub(super) fn substitute_type(
                     projection: projection_context,
                     self_ty: self_substitution,
                 },
-            );
+            )?;
             append.intern(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -592,8 +608,12 @@ pub(super) fn substitute_type(
             };
             append.intern(TyKind::Callable {
                 is_readonly: *is_readonly,
-                params: params.iter().copied().map(substitute).collect(),
-                return_type: substitute(*return_type),
+                params: params
+                    .iter()
+                    .copied()
+                    .map(substitute)
+                    .collect::<nia_ice::IceResult<Vec<_>>>()?,
+                return_type: substitute(*return_type)?,
             })
         }
         Some(TyKind::CallablePointee {
@@ -615,8 +635,12 @@ pub(super) fn substitute_type(
                 )
             };
             append.intern(TyKind::CallablePointee {
-                params: params.iter().copied().map(substitute).collect(),
-                return_type: substitute(*return_type),
+                params: params
+                    .iter()
+                    .copied()
+                    .map(substitute)
+                    .collect::<nia_ice::IceResult<Vec<_>>>()?,
+                return_type: substitute(*return_type)?,
             })
         }
         Some(TyKind::Nominal {
@@ -640,7 +664,7 @@ pub(super) fn substitute_type(
                         },
                     )
                 })
-                .collect();
+                .collect::<nia_ice::IceResult<Vec<_>>>()?;
             let const_args = const_args
                 .iter()
                 .map(|arg| {
@@ -657,7 +681,7 @@ pub(super) fn substitute_type(
                         },
                     )
                 })
-                .collect();
+                .collect::<nia_ice::IceResult<Vec<_>>>()?;
             append.intern(TyKind::Nominal {
                 def_id: *def_id,
                 args,
@@ -681,7 +705,7 @@ pub(super) fn substitute_type(
                         },
                     )
                 })
-                .collect();
+                .collect::<nia_ice::IceResult<Vec<_>>>()?;
             append.intern(TyKind::BuiltinTrait {
                 trait_id: *trait_id,
                 args,
@@ -711,7 +735,7 @@ pub(super) fn substitute_type(
                         },
                     )
                 })
-                .collect();
+                .collect::<nia_ice::IceResult<Vec<_>>>()?;
             let trait_const_args = trait_const_args
                 .iter()
                 .map(|arg| {
@@ -728,62 +752,24 @@ pub(super) fn substitute_type(
                         },
                     )
                 })
-                .collect();
+                .collect::<nia_ice::IceResult<Vec<_>>>()?;
             let associated_type_bindings = associated_type_bindings
                 .iter()
-                .map(|binding| nia_ty::AssociatedTypeBindingTy {
-                    trait_id: binding.trait_id,
-                    trait_args: binding
-                        .trait_args
-                        .iter()
-                        .map(|arg| {
-                            substitute_type(
-                                append,
-                                module,
-                                type_store,
-                                *arg,
-                                substitutions,
-                                const_substitutions,
-                                TypeSubstitutionTarget {
-                                    projection: projection_context,
-                                    self_ty: self_substitution,
-                                },
-                            )
-                        })
-                        .collect(),
-                    trait_const_args: binding
-                        .trait_const_args
-                        .iter()
-                        .map(|arg| {
-                            substitute_const_arg(
-                                append,
-                                module,
-                                type_store,
-                                arg,
-                                substitutions,
-                                const_substitutions,
-                                TypeSubstitutionTarget {
-                                    projection: projection_context,
-                                    self_ty: self_substitution,
-                                },
-                            )
-                        })
-                        .collect(),
-                    name: binding.name,
-                    ty: substitute_type(
+                .map(|binding| {
+                    substitute_associated_type_binding(
                         append,
                         module,
                         type_store,
-                        binding.ty,
+                        binding,
                         substitutions,
                         const_substitutions,
                         TypeSubstitutionTarget {
                             projection: projection_context,
                             self_ty: self_substitution,
                         },
-                    ),
+                    )
                 })
-                .collect();
+                .collect::<nia_ice::IceResult<Vec<_>>>()?;
             append.intern(TyKind::TraitObject {
                 is_readonly: *is_readonly,
                 trait_id: *trait_id,
@@ -814,7 +800,7 @@ pub(super) fn substitute_type(
                         },
                     )
                 })
-                .collect();
+                .collect::<nia_ice::IceResult<Vec<_>>>()?;
             let trait_const_args = trait_const_args
                 .iter()
                 .map(|arg| {
@@ -831,62 +817,24 @@ pub(super) fn substitute_type(
                         },
                     )
                 })
-                .collect();
+                .collect::<nia_ice::IceResult<Vec<_>>>()?;
             let associated_type_bindings = associated_type_bindings
                 .iter()
-                .map(|binding| nia_ty::AssociatedTypeBindingTy {
-                    trait_id: binding.trait_id,
-                    trait_args: binding
-                        .trait_args
-                        .iter()
-                        .map(|arg| {
-                            substitute_type(
-                                append,
-                                module,
-                                type_store,
-                                *arg,
-                                substitutions,
-                                const_substitutions,
-                                TypeSubstitutionTarget {
-                                    projection: projection_context,
-                                    self_ty: self_substitution,
-                                },
-                            )
-                        })
-                        .collect(),
-                    trait_const_args: binding
-                        .trait_const_args
-                        .iter()
-                        .map(|arg| {
-                            substitute_const_arg(
-                                append,
-                                module,
-                                type_store,
-                                arg,
-                                substitutions,
-                                const_substitutions,
-                                TypeSubstitutionTarget {
-                                    projection: projection_context,
-                                    self_ty: self_substitution,
-                                },
-                            )
-                        })
-                        .collect(),
-                    name: binding.name,
-                    ty: substitute_type(
+                .map(|binding| {
+                    substitute_associated_type_binding(
                         append,
                         module,
                         type_store,
-                        binding.ty,
+                        binding,
                         substitutions,
                         const_substitutions,
                         TypeSubstitutionTarget {
                             projection: projection_context,
                             self_ty: self_substitution,
                         },
-                    ),
+                    )
                 })
-                .collect();
+                .collect::<nia_ice::IceResult<Vec<_>>>()?;
             append.intern(TyKind::TraitObjectPointee {
                 trait_id: *trait_id,
                 trait_args,
@@ -912,7 +860,7 @@ pub(super) fn substitute_type(
                     projection: projection_context,
                     self_ty: self_substitution,
                 },
-            );
+            )?;
             let trait_args = trait_args
                 .iter()
                 .map(|arg| {
@@ -929,7 +877,7 @@ pub(super) fn substitute_type(
                         },
                     )
                 })
-                .collect::<Vec<_>>();
+                .collect::<nia_ice::IceResult<Vec<_>>>()?;
             let trait_const_args = trait_const_args
                 .iter()
                 .map(|arg| {
@@ -946,7 +894,7 @@ pub(super) fn substitute_type(
                         },
                     )
                 })
-                .collect::<Vec<_>>();
+                .collect::<nia_ice::IceResult<Vec<_>>>()?;
             if let Some(context) = projection_context
                 && *trait_id == TraitId::Source(context.trait_id)
                 && projection_context_matches(
@@ -964,7 +912,7 @@ pub(super) fn substitute_type(
                     .find(|associated_type| associated_type.name == *name)
             {
                 let ty = module.normalization.normalize(associated_type.ty);
-                return ty;
+                return Ok(ty);
             }
             append.intern(TyKind::Projection {
                 self_ty,
@@ -975,7 +923,7 @@ pub(super) fn substitute_type(
             })
         }
         Some(TyKind::Error | TyKind::ConstOnly | TyKind::Primitive(_) | TyKind::Vector { .. })
-        | None => ty,
+        | None => Ok(ty),
     }
 }
 
@@ -998,13 +946,13 @@ fn substitute_const_arg(
     substitutions: &SymbolMap<nia_ids::InternedTyId>,
     const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
     target: TypeSubstitutionTarget<'_>,
-) -> nia_ty::ConstGenericArg {
+) -> nia_ice::IceResult<nia_ty::ConstGenericArg> {
     if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
         && let Some(substituted) = const_substitutions.get(name)
     {
-        return substituted.clone();
+        return Ok(substituted.clone());
     }
-    nia_ty::ConstGenericArg {
+    Ok(nia_ty::ConstGenericArg {
         ty: substitute_type(
             append,
             module,
@@ -1013,9 +961,63 @@ fn substitute_const_arg(
             substitutions,
             const_substitutions,
             target,
-        ),
+        )?,
         value: arg.value.clone(),
-    }
+    })
+}
+
+fn substitute_associated_type_binding(
+    append: &TypeStoreAppend,
+    module: &ExtensionModuleInput<'_>,
+    type_store: &TypeStore,
+    binding: &nia_ty::AssociatedTypeBindingTy,
+    substitutions: &SymbolMap<nia_ids::InternedTyId>,
+    const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
+    target: TypeSubstitutionTarget<'_>,
+) -> nia_ice::IceResult<nia_ty::AssociatedTypeBindingTy> {
+    Ok(nia_ty::AssociatedTypeBindingTy {
+        trait_id: binding.trait_id,
+        trait_args: binding
+            .trait_args
+            .iter()
+            .map(|arg| {
+                substitute_type(
+                    append,
+                    module,
+                    type_store,
+                    *arg,
+                    substitutions,
+                    const_substitutions,
+                    target,
+                )
+            })
+            .collect::<nia_ice::IceResult<Vec<_>>>()?,
+        trait_const_args: binding
+            .trait_const_args
+            .iter()
+            .map(|arg| {
+                substitute_const_arg(
+                    append,
+                    module,
+                    type_store,
+                    arg,
+                    substitutions,
+                    const_substitutions,
+                    target,
+                )
+            })
+            .collect::<nia_ice::IceResult<Vec<_>>>()?,
+        name: binding.name,
+        ty: substitute_type(
+            append,
+            module,
+            type_store,
+            binding.ty,
+            substitutions,
+            const_substitutions,
+            target,
+        )?,
+    })
 }
 
 fn substitute_array_len(
@@ -1026,8 +1028,8 @@ fn substitute_array_len(
     substitutions: &SymbolMap<nia_ids::InternedTyId>,
     const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
     target: TypeSubstitutionTarget<'_>,
-) -> nia_ty::ArrayLenTy {
-    match len {
+) -> nia_ice::IceResult<nia_ty::ArrayLenTy> {
+    Ok(match len {
         nia_ty::ArrayLenTy::GenericParam(name) => const_substitutions
             .get(&name)
             .and_then(nia_ty::array_len_from_const_arg)
@@ -1042,8 +1044,8 @@ fn substitute_array_len(
                 substitutions,
                 const_substitutions,
                 target,
-            ),
+            )?,
         },
         len => len,
-    }
+    })
 }

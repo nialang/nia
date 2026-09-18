@@ -163,12 +163,19 @@ impl<'a> ModuleLowerer<'a> {
             impl_is_visible: None,
         };
         let mut solver = context.solver(&[]);
-        let TraitSelection::User(user_impl) = solver.select_user_impl(TraitGoal {
+        let selection = match solver.select_user_impl(TraitGoal {
             self_ty,
             trait_id: key.trait_id,
             trait_args: trait_args.to_vec(),
             trait_const_args: trait_const_args.to_vec(),
-        }) else {
+        }) {
+            Ok(selection) => selection,
+            Err(error) => {
+                self.type_context.record_internal(error);
+                return None;
+            }
+        };
+        let TraitSelection::User(user_impl) = selection else {
             return None;
         };
         let impl_signature = self.input.program.trait_impls().get(user_impl.impl_index)?;
@@ -283,26 +290,43 @@ impl<'a> ModuleLowerer<'a> {
         let mut solver = context
             .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
         for (self_ty, trait_id, trait_args, trait_const_args, associated_type_bindings) in checks {
-            if !solver.proves(TraitGoal {
+            let proven = match solver.proves(TraitGoal {
                 self_ty,
                 trait_id,
                 trait_args: trait_args.clone(),
                 trait_const_args: trait_const_args.clone(),
             }) {
+                Ok(proven) => proven,
+                Err(error) => {
+                    self.type_context.record_internal(error);
+                    return false;
+                }
+            };
+            if !proven {
                 return false;
             }
             for binding in associated_type_bindings {
-                let Some(actual_ty) = solver.resolve_associated_type(
+                let actual_ty = match solver.resolve_associated_type(
                     self_ty,
                     trait_id,
                     &trait_args,
                     &trait_const_args,
                     &binding.name,
-                ) else {
-                    return false;
+                ) {
+                    Ok(Some(actual_ty)) => actual_ty,
+                    Ok(None) => return false,
+                    Err(error) => {
+                        self.type_context.record_internal(error);
+                        return false;
+                    }
                 };
-                if !solver.types_equivalent(actual_ty, binding.ty) {
-                    return false;
+                match solver.types_equivalent(actual_ty, binding.ty) {
+                    Ok(true) => {}
+                    Ok(false) => return false,
+                    Err(error) => {
+                        self.type_context.record_internal(error);
+                        return false;
+                    }
                 }
             }
         }
@@ -383,10 +407,15 @@ impl<'a> ModuleLowerer<'a> {
                         .then(|| (*trait_id, signature.signature.generic_params.clone()))
                 })?
         };
-        let (trait_args, trait_const_args) =
-            trait_owner_generic_arguments(&self.type_context.append, &generic_params);
+        let (trait_args, trait_const_args) = match trait_owner_generic_arguments(&self.type_context.append, &generic_params) {
+            Ok(arguments) => arguments,
+            Err(error) => {
+                self.type_context.record_internal(error);
+                return None;
+            }
+        };
         Some(TraitGoal {
-            self_ty: self.type_context.append.intern(TyKind::SelfParam),
+            self_ty: self.type_context.intern(TyKind::SelfParam),
             trait_id: TraitId::Source(trait_def_id),
             trait_args,
             trait_const_args,
@@ -601,7 +630,7 @@ impl<'a> ModuleLowerer<'a> {
                 };
                 Some(FunctionExpr {
                     span: receiver_ptr.span,
-                    ty: self.type_context.append.intern(TyKind::Pointer {
+                    ty: self.type_context.intern(TyKind::Pointer {
                         is_readonly: matches!(trait_id, BuiltinTrait::Deref),
                         elem,
                     }),
@@ -633,7 +662,7 @@ impl<'a> ModuleLowerer<'a> {
                 };
                 Some(FunctionExpr {
                     span: index.span,
-                    ty: self.type_context.append.intern(TyKind::Pointer {
+                    ty: self.type_context.intern(TyKind::Pointer {
                         is_readonly: matches!(trait_id, BuiltinTrait::Index),
                         elem,
                     }),
@@ -716,7 +745,7 @@ impl<'a> ModuleLowerer<'a> {
                 trait_args: trait_args.to_vec(),
                 trait_const_args: Vec::new(),
             }),
-            TraitResolution::Intrinsic(_)
+            Ok(TraitResolution::Intrinsic(_))
         )
     }
 
@@ -751,12 +780,18 @@ impl<'a> ModuleLowerer<'a> {
             impl_is_visible: None,
         };
         let mut solver = context.solver(&assumptions);
-        let resolution = solver.resolve(TraitGoal {
+        let resolution = match solver.resolve(TraitGoal {
             self_ty: key.self_ty,
             trait_id: TraitId::Builtin(key.trait_id),
             trait_args: key.trait_args.clone(),
             trait_const_args: Vec::new(),
-        });
+        }) {
+            Ok(resolution) => resolution,
+            Err(error) => {
+                self.type_context.record_internal(error);
+                return TraitResolution::Unsatisfied;
+            }
+        };
         if assumptions.is_empty() {
             self.trait_context
                 .builtin_trait_resolutions
@@ -850,13 +885,13 @@ impl<'a> ModuleLowerer<'a> {
 fn trait_owner_generic_arguments(
     append: &nia_ty::TypeStoreAppend,
     generic_params: &[nia_item_signatures::GenericParamSignature],
-) -> (Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>) {
+) -> nia_ice::IceResult<(Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
     let mut trait_args = Vec::new();
     let mut trait_const_args = Vec::new();
     for param in generic_params {
         match param.kind {
             nia_item_signatures::GenericParamSignatureKind::Type => {
-                trait_args.push(append.intern(TyKind::GenericParam(param.name)));
+                trait_args.push(append.intern(TyKind::GenericParam(param.name))?);
             }
             nia_item_signatures::GenericParamSignatureKind::Const { ty } => {
                 trait_const_args.push(nia_ty::ConstGenericArg {
@@ -866,7 +901,7 @@ fn trait_owner_generic_arguments(
             }
         }
     }
-    (trait_args, trait_const_args)
+    Ok((trait_args, trait_const_args))
 }
 
 #[cfg(test)]
@@ -900,7 +935,7 @@ mod tests {
             },
         ];
 
-        let (type_args, const_args) = trait_owner_generic_arguments(&append, &params);
+        let (type_args, const_args) = trait_owner_generic_arguments(&append, &params).expect("trait owner arguments");
 
         assert_eq!(type_args.len(), 2);
         assert!(matches!(

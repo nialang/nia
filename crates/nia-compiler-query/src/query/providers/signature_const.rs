@@ -4,7 +4,7 @@ pub(super) fn with_type_signature_const_input<T>(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
-    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> T,
+    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> nia_ice::IceResult<T>,
 ) -> QueryResult<T> {
     with_signature_const_input(db, module_id, non_function_signatures_override, f)
 }
@@ -13,7 +13,7 @@ fn with_signature_const_input<T>(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
-    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> T,
+    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> nia_ice::IceResult<T>,
 ) -> QueryResult<T> {
     let module = db.get(SignatureConstModuleQuery(module_id))?;
     let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id))?;
@@ -185,7 +185,7 @@ fn with_signature_const_input<T>(
             visible_extensions: Some(&visible_extensions_for_module),
         },
     };
-    let output = f(input, &module);
+    let output = f(input, &module)?;
     match query_failure.into_inner() {
         Some(error) => Err(error),
         None => Ok(output),
@@ -258,9 +258,9 @@ pub(super) fn signature_const_array_lengths(
         module_id,
         non_function_signatures_override,
         |input, module| {
-            let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input);
+            let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input)?;
             array_lengths.diagnostics.extend(module.diagnostics.clone());
-            array_lengths
+            Ok(array_lengths)
         },
     )
 }
@@ -278,9 +278,9 @@ pub(super) fn signature_const_values(
         non_function_signatures_override,
         |input, module| {
             let mut enum_values =
-                nia_const_check::compute_module_const_enum_values(input, array_lengths.clone());
+                nia_const_check::compute_module_const_enum_values(input, array_lengths.clone())?;
             enum_values.diagnostics.extend(module.diagnostics.clone());
-            enum_values
+            Ok(enum_values)
         },
     )?;
     with_type_signature_const_input(
@@ -289,9 +289,9 @@ pub(super) fn signature_const_values(
         non_function_signatures_override,
         |input, module| {
             let mut values =
-                nia_const_check::compute_module_const_values(input, array_lengths, enum_values);
+                nia_const_check::compute_module_const_values(input, array_lengths, enum_values)?;
             values.diagnostics.extend(module.diagnostics.clone());
-            values
+            Ok(values)
         },
     )
 }
@@ -536,9 +536,9 @@ pub(super) fn signature_layouts_for_types(
             module_id,
             non_function_signatures_override,
             |input, module| {
-                let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input);
+                let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input)?;
                 array_lengths.diagnostics.extend(module.diagnostics.clone());
-                array_lengths
+                Ok(array_lengths)
             },
         )?);
         let local_array_lengths = |id| {
@@ -555,9 +555,9 @@ pub(super) fn signature_layouts_for_types(
                     non_function_signatures_override,
                     |input, module| {
                         let mut array_lengths =
-                            nia_const_check::compute_module_const_array_lengths(input);
+                            nia_const_check::compute_module_const_array_lengths(input)?;
                         array_lengths.diagnostics.extend(module.diagnostics.clone());
-                        array_lengths
+                        Ok(array_lengths)
                     },
                 ),
             )
@@ -612,7 +612,7 @@ pub(super) fn signature_layouts_for_types(
                 structs: &roots.structs,
                 unions: &roots.unions,
             },
-        );
+        )?;
         match query_failure.into_inner() {
             Some(error) => Err(error),
             None => Ok(layouts),

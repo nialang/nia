@@ -36,32 +36,32 @@ impl TypeLowerer<'_, '_> {
 
     pub(crate) fn lower_type(&mut self, ty: &TypeRef, context: TypeContext) -> InternedTyId {
         match &ty.kind {
-            TypeKind::Error => self.append.intern(TyKind::Error),
+            TypeKind::Error => self.intern(TyKind::Error),
             TypeKind::Infer => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_NORMALIZATION,
                     ty.span,
                     "`_` type inference is not valid in this type lowering context",
                 ));
-                self.append.intern(TyKind::Error)
+                self.intern(TyKind::Error)
             }
-            TypeKind::Opaque => self.append.intern(TyKind::Opaque),
-            TypeKind::Never => self.append.intern(TyKind::Primitive(PrimitiveTy::Never)),
+            TypeKind::Opaque => self.intern(TyKind::Opaque),
+            TypeKind::Never => self.intern(TyKind::Primitive(PrimitiveTy::Never)),
             TypeKind::Tuple { elems } => {
                 let elems = elems
                     .iter()
                     .map(|elem| self.lower_type_in_context(elem, TypeContext::Value))
                     .collect();
-                self.append.intern(TyKind::Tuple(elems))
+                self.intern(TyKind::Tuple(elems))
             }
             TypeKind::Optional { elem } => {
                 let elem = self.lower_type_in_context(elem, TypeContext::Value);
-                self.append.intern(TyKind::Optional { elem })
+                self.intern(TyKind::Optional { elem })
             }
             TypeKind::ErrorUnion { error, value } => {
                 let error = self.lower_type_in_context(error, TypeContext::Value);
                 let value = self.lower_type_in_context(value, TypeContext::Value);
-                self.append.intern(TyKind::ErrorUnion { error, value })
+                self.intern(TyKind::ErrorUnion { error, value })
             }
             TypeKind::SelfType => self.self_type_stack.last().copied().unwrap_or_else(|| {
                 self.diagnostics.push(Diagnostic::user_error_at(
@@ -69,7 +69,7 @@ impl TypeLowerer<'_, '_> {
                     ty.span,
                     "`Self` is only valid in traits and extend blocks",
                 ));
-                self.append.intern(TyKind::Error)
+                self.intern(TyKind::Error)
             }),
             TypeKind::Pointer { is_readonly, elem } => {
                 if let TypeKind::Callable {
@@ -79,7 +79,7 @@ impl TypeLowerer<'_, '_> {
                 {
                     let (params, return_type) =
                         self.lower_callable_signature(params, return_type.as_deref());
-                    self.append.intern(TyKind::Callable {
+                    self.intern(TyKind::Callable {
                         is_readonly: *is_readonly,
                         params,
                         return_type,
@@ -89,7 +89,7 @@ impl TypeLowerer<'_, '_> {
                     trait_object
                 } else {
                     let elem = self.lower_type_in_context(elem, TypeContext::Pointee);
-                    self.append.intern(TyKind::Pointer {
+                    self.intern(TyKind::Pointer {
                         is_readonly: *is_readonly,
                         elem,
                     })
@@ -97,26 +97,26 @@ impl TypeLowerer<'_, '_> {
             }
             TypeKind::VolatilePointer { is_readonly, elem } => {
                 let elem = self.lower_type_in_context(elem, TypeContext::Pointee);
-                self.append.intern(TyKind::VolatilePointer {
+                self.intern(TyKind::VolatilePointer {
                     is_readonly: *is_readonly,
                     elem,
                 })
             }
             TypeKind::Slice { is_readonly, elem } => {
                 let elem = self.lower_type_in_context(elem, TypeContext::Value);
-                self.append.intern(TyKind::Slice {
+                self.intern(TyKind::Slice {
                     is_readonly: *is_readonly,
                     elem,
                 })
             }
             TypeKind::SlicePointee { elem } => {
                 let elem = self.lower_type_in_context(elem, TypeContext::Value);
-                self.append.intern(TyKind::SlicePointee { elem })
+                self.intern(TyKind::SlicePointee { elem })
             }
             TypeKind::Array { len, elem } => {
                 let len = self.lower_array_len(len);
                 let elem = self.lower_type_in_context(elem, TypeContext::Value);
-                self.append.intern(TyKind::Array { len, elem })
+                self.intern(TyKind::Array { len, elem })
             }
             TypeKind::Range {
                 start,
@@ -136,9 +136,9 @@ impl TypeLowerer<'_, '_> {
                     Some(return_type) => {
                         self.lower_type_in_context(return_type, TypeContext::Return)
                     }
-                    None => self.append.intern(TyKind::Tuple(Vec::new())),
+                    None => self.intern(TyKind::Tuple(Vec::new())),
                 };
-                self.append.intern(TyKind::FunctionPointer {
+                self.intern(TyKind::FunctionPointer {
                     params,
                     return_type,
                     is_variadic: *is_variadic,
@@ -150,17 +150,17 @@ impl TypeLowerer<'_, '_> {
             } => {
                 let (params, return_type) =
                     self.lower_callable_signature(params, return_type.as_deref());
-                self.append.intern(TyKind::CallablePointee {
+                self.intern(TyKind::CallablePointee {
                     params,
                     return_type,
                 })
             }
             TypeKind::Path { segments } => {
                 let Some(first) = segments.first() else {
-                    return self.append.intern(TyKind::Error);
+                    return self.intern(TyKind::Error);
                 };
                 let Some(type_segment) = type_name_segment(segments) else {
-                    return self.append.intern(TyKind::Error);
+                    return self.intern(TyKind::Error);
                 };
                 match self
                     .resolved
@@ -180,13 +180,13 @@ impl TypeLowerer<'_, '_> {
                         ),
                     Some(TypeNameResolution::GenericParam) => {
                         let Some(name) = type_path_segment_name(first) else {
-                            return self.append.intern(TyKind::Error);
+                            return self.intern(TyKind::Error);
                         };
-                        self.append.intern(TyKind::GenericParam(*name))
+                        self.intern(TyKind::GenericParam(*name))
                     }
                     Some(TypeNameResolution::AssociatedType) => {
                         let Some(name) = type_path_segment_name(first) else {
-                            return self.append.intern(TyKind::Error);
+                            return self.intern(TyKind::Error);
                         };
                         self.lower_scoped_associated_type(ty.span, name, type_segment)
                     }
@@ -205,7 +205,7 @@ impl TypeLowerer<'_, '_> {
                     Some(TypeNameResolution::External(global_id)) => {
                         self.lower_path_type(ty.span, type_segment, global_id, context)
                     }
-                    Some(TypeNameResolution::Error) | None => self.append.intern(TyKind::Error),
+                    Some(TypeNameResolution::Error) | None => self.intern(TyKind::Error),
                 }
             }
             TypeKind::Projection {
@@ -222,7 +222,7 @@ impl TypeLowerer<'_, '_> {
                         trait_ref.span,
                         "projection trait must resolve to a trait",
                     ));
-                    return self.append.intern(TyKind::Error);
+                    return self.intern(TyKind::Error);
                 };
                 if !self.trait_id_has_associated_type(trait_id, name) {
                     let name = self.symbol_name(*name);
@@ -231,9 +231,9 @@ impl TypeLowerer<'_, '_> {
                         ty.span,
                         format!("trait does not define associated type `{name}`"),
                     ));
-                    return self.append.intern(TyKind::Error);
+                    return self.intern(TyKind::Error);
                 }
-                self.append.intern(TyKind::Projection {
+                self.intern(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args: args,
@@ -266,7 +266,7 @@ impl TypeLowerer<'_, '_> {
                     span,
                     "inclusive range type requires an end bound",
                 ));
-                return self.append.intern(TyKind::Error);
+                return self.intern(TyKind::Error);
             }
         };
         let bound = match (start_ty, end_ty) {
@@ -277,7 +277,7 @@ impl TypeLowerer<'_, '_> {
                         span,
                         "range type bounds must have the same type",
                     ));
-                    return self.append.intern(TyKind::Error);
+                    return self.intern(TyKind::Error);
                 }
                 Some(start_ty)
             }
@@ -292,9 +292,9 @@ impl TypeLowerer<'_, '_> {
                 span,
                 "range bound type must be an integer type",
             ));
-            return self.append.intern(TyKind::Error);
+            return self.intern(TyKind::Error);
         }
-        self.append.intern(TyKind::Range { kind, bound })
+        self.intern(TyKind::Range { kind, bound })
     }
 
     pub(crate) fn normalize_if_known(&self, ty: InternedTyId) -> InternedTyId {
@@ -460,14 +460,14 @@ impl TypeLowerer<'_, '_> {
             let object_args = self
                 .lower_trait_object_args(span, segment, TraitId::Source(def_id))
                 .unwrap_or_default();
-            return self.append.intern(TyKind::TraitObjectPointee {
+            return self.intern(TyKind::TraitObjectPointee {
                 trait_id: TraitId::Source(def_id),
                 trait_args: object_args.trait_args,
                 trait_const_args: object_args.trait_const_args,
                 associated_type_bindings: object_args.associated_type_bindings,
             });
         }
-        self.append.intern(TyKind::Nominal {
+        self.intern(TyKind::Nominal {
             def_id,
             args,
             const_args,
@@ -486,7 +486,7 @@ impl TypeLowerer<'_, '_> {
                 ty.span,
                 "expected type generic argument",
             ));
-            return self.append.intern(TyKind::Error);
+            return self.intern(TyKind::Error);
         }
         self.lower_type_in_context(ty, TypeContext::Value)
     }

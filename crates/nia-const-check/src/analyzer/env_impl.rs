@@ -1459,29 +1459,32 @@ impl Analyzer<'_> {
             self.struct_signature_for(def_id)
                 .map(|signature| nia_item_signatures::ProgramStructSignature { signature })
         };
-        nia_layout::compute_struct_instance_layout_with_program_context(
-            &nia_layout::LayoutComputationInput {
-                type_store: self.input.type_store,
-                defs: defs.as_ref(),
-                signatures: signatures.as_ref(),
-                root_types: &[],
-                normalized: &normalization.as_ref().normalized,
-                array_lengths: &array_length,
-                target,
-                program: nia_layout::ProgramLayoutContext {
-                    symbols: Some(self.input.symbols),
-                    layouts: Some(&layout_query),
-                    array_lengths: Some(&array_length),
-                    struct_: Some(&program_struct),
-                    ..Default::default()
+        self.recover_internal(
+            nia_layout::compute_struct_instance_layout_with_program_context(
+                &nia_layout::LayoutComputationInput {
+                    type_store: self.input.type_store,
+                    defs: defs.as_ref(),
+                    signatures: signatures.as_ref(),
+                    root_types: &[],
+                    normalized: &normalization.as_ref().normalized,
+                    array_lengths: &array_length,
+                    target,
+                    program: nia_layout::ProgramLayoutContext {
+                        symbols: Some(self.input.symbols),
+                        layouts: Some(&layout_query),
+                        array_lengths: Some(&array_length),
+                        struct_: Some(&program_struct),
+                        ..Default::default()
+                    },
                 },
-            },
-            nia_layout::InstanceLayoutRequest {
-                def_id,
-                args,
-                const_args,
-            },
+                nia_layout::InstanceLayoutRequest {
+                    def_id,
+                    args,
+                    const_args,
+                },
+            ),
         )
+        .flatten()
     }
 
     fn eval_selected_const_method(

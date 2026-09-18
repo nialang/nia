@@ -614,9 +614,7 @@ impl Analyzer<'_> {
         self.ensure_type_context(source_module_id)?;
         let substituted = {
             let types = self.type_contexts.get(&source_module_id)?;
-            nia_ty::substitute_ty(
-                types.store,
-                &types.append,
+            types.substitute(
                 ty,
                 &|generic| type_substitutions.get(generic).copied(),
                 &|generic| const_substitutions.get(generic).cloned(),

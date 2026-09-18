@@ -346,9 +346,7 @@ impl<'a> ModuleLowerer<'a> {
             .map(|(generic, _)| {
                 (
                     *generic,
-                    self.type_context
-                        .append
-                        .intern(TyKind::GenericParam(*generic)),
+                    self.type_context.intern(TyKind::GenericParam(*generic)),
                 )
             })
             .collect::<SymbolMap<_>>();
@@ -493,14 +491,14 @@ impl<'a> ModuleLowerer<'a> {
             }
             ReceiverKind::RefReadOnly => {
                 let elem = self.receiver_base_ty(local_ty).unwrap_or(local_ty);
-                self.type_context.append.intern(TyKind::Pointer {
+                self.type_context.intern(TyKind::Pointer {
                     is_readonly: true,
                     elem,
                 })
             }
             ReceiverKind::Ref => {
                 let elem = self.receiver_base_ty(local_ty).unwrap_or(local_ty);
-                self.type_context.append.intern(TyKind::Pointer {
+                self.type_context.intern(TyKind::Pointer {
                     is_readonly: false,
                     elem,
                 })
@@ -550,7 +548,7 @@ impl<'a> ModuleLowerer<'a> {
                 elem: target_ty,
             },
         };
-        self.type_context.append.intern(kind)
+        self.type_context.intern(kind)
     }
 
     fn receiver_base_ty(&self, ty: nia_ids::InternedTyId) -> Option<nia_ids::InternedTyId> {

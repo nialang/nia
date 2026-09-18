@@ -24,16 +24,14 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_, '_> {
             }
             ItemKind::Trait(item_trait) => {
                 self.with_generics(&item_trait.generics, |lowerer| {
-                    let self_ty = lowerer.append.intern(TyKind::SelfParam);
+                    let self_ty = lowerer.intern(TyKind::SelfParam);
                     lowerer.with_self_type(self_ty, |lowerer| {
                         if let Some(trait_id) = lowerer.local_trait_id(&item.node_key) {
                             let trait_args = item_trait
                                 .generics
                                 .iter()
                                 .filter(|generic| matches!(generic.kind, GenericParamKind::Type))
-                                .map(|generic| {
-                                    lowerer.append.intern(TyKind::GenericParam(generic.name))
-                                })
+                                .map(|generic| lowerer.intern(TyKind::GenericParam(generic.name)))
                                 .collect::<Vec<_>>();
                             let trait_const_args = item_trait
                                 .generics
@@ -264,16 +262,14 @@ impl TypeLowerer<'_, '_> {
             }
             ItemTreeNodeKind::Trait(item_trait) => {
                 self.with_generics(&item_trait.generics, |lowerer| {
-                    let self_ty = lowerer.append.intern(TyKind::SelfParam);
+                    let self_ty = lowerer.intern(TyKind::SelfParam);
                     lowerer.with_self_type(self_ty, |lowerer| {
                         if let Some(trait_id) = lowerer.local_trait_id(&item.node_key) {
                             let trait_args = item_trait
                                 .generics
                                 .iter()
                                 .filter(|generic| matches!(generic.kind, GenericParamKind::Type))
-                                .map(|generic| {
-                                    lowerer.append.intern(TyKind::GenericParam(generic.name))
-                                })
+                                .map(|generic| lowerer.intern(TyKind::GenericParam(generic.name)))
                                 .collect::<Vec<_>>();
                             let trait_const_args = item_trait
                                 .generics

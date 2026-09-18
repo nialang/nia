@@ -199,6 +199,7 @@ pub struct TraitSolverContext<'a> {
 struct TraitSolverTypeCx<'a> {
     store: &'a TypeStore,
     append: TypeStoreAppend,
+    internal_error: parking_lot::Mutex<Option<nia_ice::Ice>>,
 }
 
 impl TraitSolverTypeCx<'_> {
@@ -206,12 +207,18 @@ impl TraitSolverTypeCx<'_> {
         self.store.get(ty)
     }
 
-    fn intern(&mut self, kind: TyKind) -> InternedTyId {
-        self.append.intern(kind)
+    fn intern(&self, kind: TyKind) -> InternedTyId {
+        match self.append.intern(kind) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.internal_error.lock().get_or_insert(error);
+                self.store.error()
+            }
+        }
     }
 
     fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
-        self.append.intern(TyKind::Primitive(primitive))
+        self.intern(TyKind::Primitive(primitive))
     }
 }
 
@@ -244,6 +251,7 @@ impl<'a> TraitSolverContext<'a> {
             interner: TraitSolverTypeCx {
                 store: self.type_store,
                 append: self.type_store.append_for_module(self.local_module_id),
+                internal_error: parking_lot::Mutex::new(None),
             },
             active_goals: Vec::new(),
             normalization: self.normalization,
@@ -272,6 +280,7 @@ impl<'a> TraitSolverContext<'a> {
             interner: TraitSolverTypeCx {
                 store: self.type_store,
                 append: self.type_store.append_for_module(self.local_module_id),
+                internal_error: parking_lot::Mutex::new(None),
             },
             active_goals: Vec::new(),
             normalization: self.normalization,

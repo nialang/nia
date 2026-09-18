@@ -568,9 +568,7 @@ impl<'a> ModuleLowerer<'a> {
             .map(|(generic, _)| {
                 (
                     *generic,
-                    self.type_context
-                        .append
-                        .intern(TyKind::GenericParam(*generic)),
+                    self.type_context.intern(TyKind::GenericParam(*generic)),
                 )
             })
             .collect::<SymbolMap<_>>();
