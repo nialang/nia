@@ -537,7 +537,7 @@ fn concurrent_completion_order_does_not_change_visible_order() {
 
 #[test]
 fn single_worker_action_limit_serializes_ready_tasks() {
-    let session = QuerySession::new();
+    let session = QuerySession::new().expect("create query session");
     let active = Arc::new(AtomicUsize::new(0));
     let peak = Arc::new(AtomicUsize::new(0));
     let tasks = (0..64).map(|value| {
@@ -565,7 +565,7 @@ fn single_worker_action_limit_serializes_ready_tasks() {
 
 #[test]
 fn action_resource_capacity_only_reduces_inherited_capacity() {
-    let session = QuerySession::new();
+    let session = QuerySession::new().expect("create query session");
     let inherited = session.executor_parallelism();
     assert_eq!(action_resource_capacity(&session, None), inherited);
     assert_eq!(
@@ -636,7 +636,7 @@ fn bounded_wide_graph_stress_preserves_deterministic_report() {
     .unwrap();
 
     for iteration in 0..32usize {
-        let session = QuerySession::new();
+        let session = QuerySession::new().expect("create query session");
         let limit = std::num::NonZeroUsize::new(if iteration % 4 == 0 { 1 } else { 4 });
         let report = execute_selected_closure(&plan, |items| {
             let tasks = items

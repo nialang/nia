@@ -63,19 +63,31 @@ impl<C> QueryDb<C> {
     }
 
     /// Creates an unregistered database with an isolated default session.
-    pub fn new(context: C) -> Self
+    pub fn new(context: C) -> nia_ice::IceResult<Self>
     where
         C: Send + Sync + 'static,
     {
         Self::new_with_timings(context, nia_timing::TimingMode::Off)
     }
 
-    /// Creates an unregistered database with timing instrumentation enabled as requested.
-    pub fn new_with_timings(context: C, timings: nia_timing::TimingMode) -> Self
+    #[cfg(test)]
+    pub(super) fn new_for_test(context: C) -> Self
     where
         C: Send + Sync + 'static,
     {
-        Self::new_with_timings_in_session(context, timings, QuerySession::new())
+        Self::new(context).unwrap_or_else(|ice| panic!("failed to create query database: {ice}"))
+    }
+
+    /// Creates an unregistered database with timing instrumentation enabled as requested.
+    pub fn new_with_timings(context: C, timings: nia_timing::TimingMode) -> nia_ice::IceResult<Self>
+    where
+        C: Send + Sync + 'static,
+    {
+        Ok(Self::new_with_timings_in_session(
+            context,
+            timings,
+            QuerySession::new()?,
+        ))
     }
 
     /// Creates an unregistered database attached to an explicitly shared session.
@@ -91,11 +103,20 @@ impl<C> QueryDb<C> {
     }
 
     /// Creates a database that enforces membership in `registry` for every query type.
-    pub fn new_registered(context: C, registry: QueryRegistry) -> Self
+    pub fn new_registered(context: C, registry: QueryRegistry) -> nia_ice::IceResult<Self>
     where
         C: Send + Sync + 'static,
     {
         Self::new_registered_with_timings(context, nia_timing::TimingMode::Off, registry)
+    }
+
+    #[cfg(test)]
+    pub(super) fn new_registered_for_test(context: C, registry: QueryRegistry) -> Self
+    where
+        C: Send + Sync + 'static,
+    {
+        Self::new_registered(context, registry)
+            .unwrap_or_else(|ice| panic!("failed to create registered query database: {ice}"))
     }
 
     /// Creates a registered database attached to an explicitly shared session.
@@ -120,16 +141,16 @@ impl<C> QueryDb<C> {
         context: C,
         timings: nia_timing::TimingMode,
         registry: QueryRegistry,
-    ) -> Self
+    ) -> nia_ice::IceResult<Self>
     where
         C: Send + Sync + 'static,
     {
-        Self::new_registered_with_timings_in_session(
+        Ok(Self::new_registered_with_timings_in_session(
             context,
             timings,
             registry,
-            QuerySession::new(),
-        )
+            QuerySession::new()?,
+        ))
     }
 
     /// Creates a registered database with explicit timing and session configuration.

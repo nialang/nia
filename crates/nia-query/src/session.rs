@@ -6,17 +6,16 @@
 
 use super::*;
 
-impl Default for QuerySession {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl QuerySession {
     /// Creates a session with process-budgeted executor parallelism.
-    pub fn new() -> Self {
+    pub fn new() -> nia_ice::IceResult<Self> {
         let parallelism = default_query_parallelism();
-        Self::with_execution_budget(parallelism, process_query_execution_budget(parallelism))
+        Self::with_execution_budget_result(parallelism, process_query_execution_budget(parallelism))
+    }
+
+    #[cfg(test)]
+    pub(super) fn new_for_test() -> Self {
+        Self::new().unwrap_or_else(|ice| panic!("failed to create query session: {ice}"))
     }
 
     #[cfg(test)]
@@ -27,12 +26,30 @@ impl QuerySession {
         )
     }
 
+    #[cfg(test)]
     pub(super) fn with_execution_budget(
         parallelism: usize,
         execution_budget: Arc<QueryExecutionBudget>,
     ) -> Self {
+        Self::from_execution_budget(parallelism, execution_budget)
+            .unwrap_or_else(|ice| panic!("failed to create query session: {ice}"))
+    }
+
+    fn with_execution_budget_result(
+        parallelism: usize,
+        execution_budget: nia_ice::IceResult<Arc<QueryExecutionBudget>>,
+    ) -> nia_ice::IceResult<Self> {
+        Self::from_execution_budget(parallelism, execution_budget?)
+    }
+
+    pub(super) fn from_execution_budget(
+        parallelism: usize,
+        execution_budget: Arc<QueryExecutionBudget>,
+    ) -> nia_ice::IceResult<Self> {
+        let parallelism = NonZeroUsize::new(parallelism)
+            .ok_or_else(|| nia_ice::Ice::new("query executor parallelism must be non-zero"))?;
         let id = QuerySessionId::fresh();
-        Self {
+        Ok(Self {
             inner: Arc::new(QuerySessionInner {
                 id,
                 executor: QueryExecutor::new(id, parallelism, execution_budget),
@@ -42,7 +59,7 @@ impl QuerySession {
                 activity_ready: Condvar::new(),
                 unexpected_failure: Mutex::new(None),
             }),
-        }
+        })
     }
 
     /// Tests whether two handles share the same dependency and cache domain.
@@ -158,16 +175,24 @@ impl QuerySession {
                 let session = Arc::clone(&self.inner);
                 QueryTask {
                     batch: batch_id,
-                    run: Box::new(move || {
-                        batch.complete(index, session.capture_unexpected_panic(task));
+                    settle: Box::new(move |failure| {
+                        let outcome = match failure {
+                            Some(ice) => Err(session.record_failure(ice)),
+                            None => session.capture_unexpected_panic(task),
+                        };
+                        if let Err(ice) = batch.complete(index, outcome) {
+                            session.record_failure(ice);
+                        }
                         executor_shared.notify_waiters();
                     }),
                 }
             })
             .collect();
-        executor.submit_all(tasks);
+        executor
+            .submit_all(tasks)
+            .map_err(|ice| self.inner.record_failure(ice))?;
         while !batch.is_complete() {
-            if !executor.try_run_one(batch_id) {
+            if !executor.try_run_one(batch_id)? {
                 executor.wait_for_batch_progress(&batch);
             }
         }
@@ -197,14 +222,22 @@ impl QuerySession {
                 let session = Arc::clone(&self.inner);
                 QueryTask {
                     batch: batch_id,
-                    run: Box::new(move || {
-                        batch.complete(index, session.capture_unexpected_panic(task));
+                    settle: Box::new(move |failure| {
+                        let outcome = match failure {
+                            Some(ice) => Err(session.record_failure(ice)),
+                            None => session.capture_unexpected_panic(task),
+                        };
+                        if let Err(ice) = batch.complete(index, outcome) {
+                            session.record_failure(ice);
+                        }
                         executor_shared.notify_waiters();
                     }),
                 }
             })
             .collect();
-        executor.submit_all(tasks);
+        executor
+            .submit_all(tasks)
+            .map_err(|ice| self.inner.record_failure(ice))?;
         let mut stream = TaskCompletionStream {
             executor,
             batch,
@@ -340,6 +373,14 @@ impl QuerySessionInner {
             }
         }
         result
+    }
+
+    pub(super) fn record_failure(&self, ice: nia_ice::Ice) -> nia_ice::Ice {
+        let mut failure = self.unexpected_failure.lock();
+        if failure.is_none() {
+            *failure = Some(ice.clone());
+        }
+        ice
     }
 }
 

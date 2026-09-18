@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn consecutive_input_revisions_validate_against_latest_value() {
-    let db = QueryDb::new(RedGreenContext {
+    let db = QueryDb::new_for_test(RedGreenContext {
         input: AtomicUsize::new(7),
         derived_executions: AtomicUsize::new(0),
         parent_executions: AtomicUsize::new(0),
@@ -20,7 +20,7 @@ fn consecutive_input_revisions_validate_against_latest_value() {
 
 #[test]
 fn stable_get_many_records_dependency_fingerprints_for_green_validation() {
-    let db = QueryDb::new(RedGreenContext {
+    let db = QueryDb::new_for_test(RedGreenContext {
         input: AtomicUsize::new(7),
         derived_executions: AtomicUsize::new(0),
         parent_executions: AtomicUsize::new(0),
@@ -47,7 +47,7 @@ fn stable_get_many_records_dependency_fingerprints_for_green_validation() {
 #[test]
 fn invalidation_during_validation_cannot_restore_stale_green_value() {
     let control = Arc::new((Mutex::new(ValidationRaceState::default()), Condvar::new()));
-    let db = QueryDb::new(ValidationRaceContext {
+    let db = QueryDb::new_for_test(ValidationRaceContext {
         input: AtomicUsize::new(7),
         input_executions: AtomicUsize::new(0),
         derived_executions: AtomicUsize::new(0),

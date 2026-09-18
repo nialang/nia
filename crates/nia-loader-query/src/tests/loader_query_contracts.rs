@@ -15,7 +15,7 @@ fn recursive_source_identities_are_stable_across_physical_relocation() {
             source_dir.join("main.nia").to_string_lossy(),
             "build-package:root:/src/main.nia",
         );
-        let database = LoaderDatabase::new(LoadRequest::from_source_path(entry));
+        let database = LoaderDatabase::new_for_test(LoadRequest::from_source_path(entry));
 
         assert_no_error_diagnostics(&database.load_program().expect("load relocated program"));
         database
@@ -59,7 +59,7 @@ fn source_input_manifest_represents_missing_recursive_sources() {
     let root = temp_dir("source_input_manifest_missing");
     let main = root.join("main.nia");
     fs::write(&main, "module child;").expect("write entry with missing child");
-    let database = LoaderDatabase::new(LoadRequest::new(main.to_string_lossy()));
+    let database = LoaderDatabase::new_for_test(LoadRequest::new(main.to_string_lossy()));
 
     let program = database.load_program().expect("load missing-child program");
     assert!(has_error_diagnostics(&program.diagnostics));
@@ -149,7 +149,8 @@ fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let first_file = sources.set_source(main.clone(), "fn main() i32 { 0 }");
-    let database = LoaderDatabase::new(LoadRequest::new(main.as_str()).with_sources(sources));
+    let database =
+        LoaderDatabase::new_for_test(LoadRequest::new(main.as_str()).with_sources(sources));
     assert_no_error_diagnostics(&database.load_program().expect("initial program load"));
     let first_version = first_file.version();
     let old_parsed = database
@@ -241,7 +242,8 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     sources.set_source(main.clone(), "fn main() i32 { 0 }");
-    let database = LoaderDatabase::new(LoadRequest::new(main.as_str()).with_sources(sources));
+    let database =
+        LoaderDatabase::new_for_test(LoadRequest::new(main.as_str()).with_sources(sources));
     let initial_graph = database.db.expect_get(crate::graph::ModuleGraphQuery);
     let initial_entry = initial_graph.semantic.entry();
 
@@ -311,8 +313,9 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
 fn compiler_loader_roots_record_cross_database_dependencies() {
     let sources = SourceDatabase::new();
     sources.set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }");
-    let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_sources(sources));
-    let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone()));
+    let loader = LoaderDatabase::new_for_test(LoadRequest::new("main.nia").with_sources(sources));
+    let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone()))
+        .expect("create compiler database");
     assert!(compiler.query_session().ptr_eq(&loader.query_session()));
 
     let checked = compiler.check_program().expect("compiler check");

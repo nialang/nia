@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn shared_session_records_and_invalidates_cross_database_dependencies() {
-    let session = QuerySession::new();
+    let session = QuerySession::new_for_test();
     let value = Arc::new(AtomicUsize::new(3));
     let input_db = QueryDb::new_with_timings_in_session(
         SessionInputContext {
@@ -48,11 +48,11 @@ fn shared_session_records_and_invalidates_cross_database_dependencies() {
 #[test]
 fn separate_sessions_do_not_record_cross_database_dependencies() {
     let value = Arc::new(AtomicUsize::new(3));
-    let input_db = QueryDb::new(SessionInputContext {
+    let input_db = QueryDb::new_for_test(SessionInputContext {
         value: Arc::clone(&value),
     });
     let executions = Arc::new(AtomicUsize::new(0));
-    let parent_db = QueryDb::new(SessionParentContext {
+    let parent_db = QueryDb::new_for_test(SessionParentContext {
         input_db: input_db.clone(),
         executions: Arc::clone(&executions),
     });

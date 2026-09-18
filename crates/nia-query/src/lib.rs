@@ -28,6 +28,7 @@ use std::{
     collections::VecDeque,
     fmt::{self, Debug},
     hash::Hash,
+    num::NonZeroUsize,
     sync::{
         Arc, OnceLock, Weak,
         atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering},
@@ -192,7 +193,7 @@ struct QueryRetirementGuard<'a> {
 
 struct QueryTask {
     batch: usize,
-    run: Box<dyn FnOnce() + Send + 'static>,
+    settle: Box<dyn FnOnce(Option<nia_ice::Ice>) + Send + 'static>,
 }
 
 struct QueryExecutor {
@@ -221,7 +222,7 @@ struct QueryExecutorWorkers {
 }
 
 struct QueryExecutorStackGuard {
-    executor: usize,
+    previous_depth: usize,
 }
 
 struct QueryExecutorActivityGuard {
@@ -256,10 +257,17 @@ struct QueryExecutionPermit {
 }
 
 struct QueryExecutionBudgetStackGuard {
-    budget: usize,
+    previous_depth: usize,
 }
 
 type QueryBatchOutcome<O> = nia_ice::IceResult<O>;
+type QueryBatchProgress<O> = (Vec<(usize, QueryBatchOutcome<O>)>, bool);
+
+enum QueryBatchSlot<O> {
+    Pending,
+    Ready(QueryBatchOutcome<O>),
+    Taken,
+}
 
 struct QueryBatch<O> {
     state: Mutex<QueryBatchState<O>>,
@@ -267,8 +275,9 @@ struct QueryBatch<O> {
 
 struct QueryBatchState<O> {
     remaining: usize,
-    outcomes: Vec<Option<QueryBatchOutcome<O>>>,
+    outcomes: Vec<QueryBatchSlot<O>>,
     completed: VecDeque<usize>,
+    failure: Option<nia_ice::Ice>,
 }
 
 struct TaskCompletionStream<'a, O> {
@@ -864,9 +873,13 @@ fn default_query_parallelism() -> usize {
         .clamp(1, DEFAULT_MAX_QUERY_EXECUTOR_PARALLELISM)
 }
 
-fn process_query_execution_budget(parallelism: usize) -> Arc<QueryExecutionBudget> {
-    static BUDGET: OnceLock<Arc<QueryExecutionBudget>> = OnceLock::new();
-    Arc::clone(BUDGET.get_or_init(|| Arc::new(QueryExecutionBudget::from_environment(parallelism))))
+fn process_query_execution_budget(
+    parallelism: usize,
+) -> nia_ice::IceResult<Arc<QueryExecutionBudget>> {
+    static BUDGET: OnceLock<nia_ice::IceResult<Arc<QueryExecutionBudget>>> = OnceLock::new();
+    BUDGET
+        .get_or_init(|| QueryExecutionBudget::from_environment(parallelism).map(Arc::new))
+        .clone()
 }
 
 #[cfg(test)]

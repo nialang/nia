@@ -576,8 +576,14 @@ impl CompilerDatabase {
     }
 
     /// Creates a compiler database and registers the complete query provider graph.
-    pub fn new(request: CompileRequest) -> Self {
+    pub fn new(request: CompileRequest) -> QueryResult<Self> {
         compiler_database_with_providers(request, CompilerQueryProviders::default())
+    }
+
+    #[cfg(test)]
+    pub(super) fn new_for_test(request: CompileRequest) -> Self {
+        Self::new(request)
+            .unwrap_or_else(|error| panic!("failed to create compiler database: {error}"))
     }
 
     /// Returns the shared session that owns this database and its loader facts.
@@ -2607,9 +2613,14 @@ impl CompilerInvalidation {
 fn compiler_database_with_providers(
     request: CompileRequest,
     providers: CompilerQueryProviders,
-) -> CompilerDatabase {
-    let session = request.loader_facts.query_session().unwrap_or_default();
-    compiler_database_with_providers_in_session(request, providers, session)
+) -> QueryResult<CompilerDatabase> {
+    let session = match request.loader_facts.query_session() {
+        Some(session) => session,
+        None => nia_query::QuerySession::new()?,
+    };
+    Ok(compiler_database_with_providers_in_session(
+        request, providers, session,
+    ))
 }
 
 fn compiler_database_with_providers_in_session(

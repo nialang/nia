@@ -89,8 +89,8 @@ fn shared_execution_budget_caps_tasks_across_sessions() {
 
 #[test]
 fn default_sessions_share_the_process_execution_budget() {
-    let first = QuerySession::new();
-    let second = QuerySession::new();
+    let first = QuerySession::new_for_test();
+    let second = QuerySession::new_for_test();
 
     assert!(!first.ptr_eq(&second));
     assert!(Arc::ptr_eq(

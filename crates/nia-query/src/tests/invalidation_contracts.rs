@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn invalidating_uncached_key_reports_root_without_allocating_slot() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -15,7 +15,7 @@ fn invalidating_uncached_key_reports_root_without_allocating_slot() {
 
 #[test]
 fn invalidates_transitive_dependents() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -37,7 +37,7 @@ fn invalidates_transitive_dependents() {
 
 #[test]
 fn invalidates_get_many_dependents_without_reordering_results() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -55,7 +55,7 @@ fn invalidates_get_many_dependents_without_reordering_results() {
 
 #[test]
 fn invalidation_reports_branching_dependents_in_stable_order() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -77,7 +77,7 @@ fn invalidation_reports_branching_dependents_in_stable_order() {
 
 #[test]
 fn dependency_identity_does_not_merge_keys_with_same_debug_label() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -104,7 +104,7 @@ fn dependency_identity_does_not_merge_keys_with_same_debug_label() {
 #[test]
 fn invalidation_during_get_many_prevents_stale_cache_writeback() {
     let control = Arc::new((Mutex::new(RaceState::default()), Condvar::new()));
-    let db = QueryDb::new(RaceContext {
+    let db = QueryDb::new_for_test(RaceContext {
         executions: AtomicUsize::new(0),
         control: control.clone(),
     });

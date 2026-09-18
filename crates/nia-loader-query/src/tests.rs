@@ -229,6 +229,7 @@ fn test_loader_context(
 
 fn registered_query_db(context: LoaderContext) -> QueryDb<LoaderContext> {
     QueryDb::new_registered(context, crate::loader_query_registry())
+        .expect("create registered loader query database")
 }
 
 fn query_executions(trace: &nia_query::QueryTrace, name: &str) -> usize {
@@ -471,7 +472,7 @@ fn load_program_with_provider_demand(
     method_name: &str,
 ) -> LoadedProgram {
     let source_path = SourcePath::new(entry_path.to_string_lossy());
-    let database = LoaderDatabase::new(
+    let database = LoaderDatabase::new_for_test(
         LoadRequest::new(entry_path.to_string_lossy().into_owned())
             .with_module_map(module_map)
             .with_toolchain_layout(test_toolchain_layout()),
@@ -497,7 +498,7 @@ fn load_program_with_trait_provider_demand(
     trait_type_argument_names: &[Option<&str>],
 ) -> LoadedProgram {
     let source_path = SourcePath::new(entry_path.to_string_lossy());
-    let database = LoaderDatabase::new(
+    let database = LoaderDatabase::new_for_test(
         LoadRequest::new(entry_path.to_string_lossy().into_owned())
             .with_module_map(module_map)
             .with_toolchain_layout(test_toolchain_layout()),

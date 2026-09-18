@@ -113,7 +113,8 @@ fn source_existence_change_rebuilds_missing_module_graph() {
     let main = root.join("main.nia");
     let defs = root.join("defs.nia");
     write(&main, "module defs;");
-    let database = LoaderDatabase::new(LoadRequest::new(main.to_string_lossy().into_owned()));
+    let database =
+        LoaderDatabase::new_for_test(LoadRequest::new(main.to_string_lossy().into_owned()));
 
     let missing = database
         .load_program()

@@ -537,7 +537,14 @@ impl Driver {
         request: &CheckRequest,
     ) -> DriverOutput<SourceInputManifest> {
         DriverOutput::catch_unexpected_panic(|| {
-            let loader = self.loader_database(request);
+            let loader = match self.loader_database(request) {
+                Ok(loader) => loader,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
             if let Err(error) = loader.load_program() {
                 return DriverOutput::from_error(DriverError::InternalDiagnostic(
                     query_error_diagnostic(error),
@@ -719,7 +726,7 @@ impl Driver {
         request: &CheckRequest,
         codegen_scope: CodegenScope,
     ) -> nia_query::QueryResult<(CompilerDatabase, LoaderDatabase)> {
-        let loader = self.loader_database(request);
+        let loader = self.loader_database(request)?;
         loader.load_program()?;
         let query_session = loader.query_session();
         let mut compiler_guard = self.compiler.lock().expect("driver compiler lock poisoned");
@@ -745,7 +752,7 @@ impl Driver {
                     .with_current_package(request.current_package.clone())
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
                     .with_frontend_cache_verification(self.config.verify_frontend_cache),
-            );
+            )?;
             *compiler_guard = Some(SessionCompiler {
                 database: database.clone(),
             });
@@ -1570,7 +1577,7 @@ impl Driver {
             .map(|fingerprint| StaticArchiveCacheEnvironment { fingerprint })
     }
 
-    fn loader_database(&self, request: &CheckRequest) -> LoaderDatabase {
+    fn loader_database(&self, request: &CheckRequest) -> nia_query::QueryResult<LoaderDatabase> {
         let key = LoaderKey {
             entry_path: request.entry_path.clone(),
             package_root: request.package_root.clone(),
@@ -1597,7 +1604,7 @@ impl Driver {
                 if let Some(package_root) = &key.package_root {
                     load_request = load_request.with_package_root(package_root.clone());
                 }
-                let database = LoaderDatabase::new(load_request);
+                let database = LoaderDatabase::new(load_request)?;
                 *loader_guard = Some(SessionLoader {
                     key,
                     database: database.clone(),
@@ -1606,7 +1613,7 @@ impl Driver {
             }
         };
         drop(loader_guard);
-        database
+        Ok(database)
     }
 
     fn loader_query_trace(&self) -> nia_query::QueryTrace {

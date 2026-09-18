@@ -114,10 +114,12 @@ pub(super) fn codegen_program_request(
 ) -> nia_compiler_query::CodegenProgram {
     let loader = nia_loader_query::LoaderDatabase::new(
         request.with_toolchain_layout(test_toolchain_layout()),
-    );
+    )
+    .expect("create loader database");
     let compiler = nia_compiler_query::CompilerDatabase::new(
         nia_compiler_query::CompileRequest::new(loader.clone()).with_optimization(optimization),
-    );
+    )
+    .expect("create compiler database");
     compiler.codegen_program().expect("test codegen program")
 }
 
@@ -147,7 +149,7 @@ pub(super) fn emit_llvm_ir(
     crate::emit_llvm_ir(
         Arc::clone(lowering),
         Arc::clone(type_store),
-        &nia_query::QuerySession::new(),
+        &nia_query::QuerySession::new().expect("create query session"),
     )
 }
 
@@ -159,7 +161,7 @@ pub(super) fn emit_llvm_ir_with_options(
     crate::emit_llvm_ir_with_options(
         Arc::clone(lowering),
         Arc::clone(type_store),
-        &nia_query::QuerySession::new(),
+        &nia_query::QuerySession::new().expect("create query session"),
         options,
     )
 }
@@ -172,7 +174,7 @@ pub(super) fn emit_native_objects(
     crate::emit_native_objects(
         Arc::clone(lowering),
         Arc::clone(type_store),
-        &nia_query::QuerySession::new(),
+        &nia_query::QuerySession::new().expect("create query session"),
         options,
         None,
     )

@@ -155,7 +155,7 @@ extend types::Widget {
     module_map.insert("dep", SourcePath::new(pkg_root.to_string_lossy()));
 
     let entry_path = SourcePath::new(main.to_string_lossy());
-    let database = LoaderDatabase::new(
+    let database = LoaderDatabase::new_for_test(
         LoadRequest::new(main.to_string_lossy().into_owned()).with_module_map(module_map),
     );
     database

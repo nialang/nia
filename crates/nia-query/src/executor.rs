@@ -9,7 +9,7 @@
 use super::*;
 
 impl QueryExecutionBudget {
-    pub(super) fn from_environment(parallelism: usize) -> Self {
+    pub(super) fn from_environment(parallelism: usize) -> nia_ice::IceResult<Self> {
         // SAFETY: the process launcher owns the jobserver environment contract. We validate that
         // inherited Unix descriptors are pipes, and the process-wide OnceLock below ensures Nia
         // opens them only once instead of creating competing clients for the same raw descriptors.
@@ -23,11 +23,15 @@ impl QueryExecutionBudget {
                         | jobserver::FromEnvErrorKind::NoJobserver
                 ) =>
             {
-                jobserver::Client::new(parallelism.saturating_sub(1)).unwrap_or_else(|error| {
-                    panic!("Nia ICE: failed to create query jobserver: {error}")
-                })
+                jobserver::Client::new(parallelism.saturating_sub(1)).map_err(|error| {
+                    nia_ice::Ice::new(format!("failed to create query jobserver: {error}"))
+                })?
             }
-            Err(error) => panic!("Nia ICE: failed to inherit query jobserver: {error}"),
+            Err(error) => {
+                return Err(nia_ice::Ice::new(format!(
+                    "failed to inherit query jobserver: {error}"
+                )));
+            }
         };
         Self::from_client(client)
     }
@@ -36,10 +40,10 @@ impl QueryExecutionBudget {
     pub(super) fn owned(parallelism: usize) -> Self {
         let client = jobserver::Client::new(parallelism.saturating_sub(1))
             .unwrap_or_else(|error| panic!("Nia ICE: failed to create query jobserver: {error}"));
-        Self::from_client(client)
+        Self::from_client(client).unwrap_or_else(|ice| panic!("{ice}"))
     }
 
-    fn from_client(client: jobserver::Client) -> Self {
+    fn from_client(client: jobserver::Client) -> nia_ice::IceResult<Self> {
         let shared = Arc::new(QueryExecutionBudgetShared {
             state: Mutex::new(QueryExecutionBudgetState {
                 implicit_available: true,
@@ -56,26 +60,31 @@ impl QueryExecutionBudget {
             .into_helper_thread(move |delivery| {
                 let delivery = delivery.map_err(|error| error.to_string());
                 let mut state = callback_shared.state.lock();
-                state.pending_requests = state
-                    .pending_requests
-                    .checked_sub(1)
-                    .expect("query execution budget request count underflow");
+                let Some(pending_requests) = state.pending_requests.checked_sub(1) else {
+                    state.deliveries.push_back(Err(
+                        "query execution budget received an unrequested token".to_string(),
+                    ));
+                    drop(state);
+                    callback_shared.ready.notify_all();
+                    return;
+                };
+                state.pending_requests = pending_requests;
                 if state.waiting > 0 {
                     state.deliveries.push_back(delivery);
                 }
                 drop(state);
                 callback_shared.ready.notify_all();
             })
-            .unwrap_or_else(|error| {
-                panic!("Nia ICE: failed to start query jobserver helper: {error}")
-            });
-        Self {
+            .map_err(|error| {
+                nia_ice::Ice::new(format!("failed to start query jobserver helper: {error}"))
+            })?;
+        Ok(Self {
             shared,
             helper: Mutex::new(helper),
-        }
+        })
     }
 
-    fn acquire(&self) -> QueryExecutionPermit {
+    fn acquire(&self) -> nia_ice::IceResult<QueryExecutionPermit> {
         let mut state = self.shared.state.lock();
         state.waiting += 1;
         loop {
@@ -88,28 +97,30 @@ impl QueryExecutionBudget {
                     Ok(token) => token,
                     Err(error) => {
                         drop(state);
-                        panic!("Nia ICE: failed to acquire query jobserver token: {error}");
+                        return Err(nia_ice::Ice::new(format!(
+                            "failed to acquire query jobserver token: {error}"
+                        )));
                     }
                 };
                 state.active += 1;
                 self.shared.record_active(state.active);
                 drop(state);
-                return QueryExecutionPermit {
+                return Ok(QueryExecutionPermit {
                     shared: Arc::clone(&self.shared),
                     implicit: false,
                     token: Some(token),
-                };
+                });
             }
             if state.implicit_available {
                 state.implicit_available = false;
                 state.waiting -= 1;
                 state.active += 1;
                 self.shared.record_active(state.active);
-                return QueryExecutionPermit {
+                return Ok(QueryExecutionPermit {
                     shared: Arc::clone(&self.shared),
                     implicit: true,
                     token: None,
-                };
+                });
             }
             let represented_waiters = state.pending_requests + state.deliveries.len();
             let requests = state.waiting.saturating_sub(represented_waiters);
@@ -143,15 +154,8 @@ impl QueryExecutionBudgetShared {
 impl Drop for QueryExecutionPermit {
     fn drop(&mut self) {
         let mut state = self.shared.state.lock();
-        state.active = state
-            .active
-            .checked_sub(1)
-            .expect("query execution budget active count underflow");
+        state.active = state.active.saturating_sub(1);
         if self.implicit {
-            assert!(
-                !state.implicit_available,
-                "query execution budget returned the implicit token twice"
-            );
             state.implicit_available = true;
         }
         drop(state);
@@ -163,13 +167,10 @@ impl Drop for QueryExecutionPermit {
 impl QueryExecutor {
     pub(super) fn new(
         session_id: QuerySessionId,
-        parallelism: usize,
+        parallelism: NonZeroUsize,
         execution_budget: Arc<QueryExecutionBudget>,
     ) -> Self {
-        assert!(
-            parallelism > 0,
-            "query executor parallelism must be non-zero"
-        );
+        let parallelism = parallelism.get();
         Self {
             session_id,
             shared: Arc::new(QueryExecutorShared {
@@ -185,7 +186,7 @@ impl QueryExecutor {
         }
     }
 
-    fn ensure_workers(&self, work_items: usize) {
+    fn ensure_workers(&self, work_items: usize) -> nia_ice::IceResult<()> {
         let mut workers = self.workers.lock();
         let worker_target = self
             .shared
@@ -198,46 +199,51 @@ impl QueryExecutor {
             let handle = std::thread::Builder::new()
                 .name(format!("nia-query-{}-{worker_index}", self.session_id.0))
                 .spawn(move || shared.worker_loop(execution_budget))
-                .unwrap_or_else(|error| {
-                    panic!("Nia ICE: failed to start query executor worker: {error}")
-                });
+                .map_err(|error| {
+                    nia_ice::Ice::new(format!("failed to start query executor worker: {error}"))
+                })?;
             workers.handles.push(handle);
         }
+        Ok(())
     }
 
-    pub(super) fn submit_all(&self, tasks: Vec<QueryTask>) {
+    pub(super) fn submit_all(&self, tasks: Vec<QueryTask>) -> nia_ice::IceResult<()> {
         if tasks.is_empty() {
-            return;
+            return Ok(());
         }
-        self.ensure_workers(tasks.len());
+        self.ensure_workers(tasks.len())?;
         let mut state = self.shared.state.lock();
-        assert!(
-            !state.shutdown,
-            "query executor accepted work after shutdown"
-        );
+        if state.shutdown {
+            return Err(nia_ice::Ice::new(
+                "query executor cannot accept work after shutdown",
+            ));
+        }
         state.queue.extend(tasks);
         drop(state);
         self.shared.ready.notify_all();
+        Ok(())
     }
 
-    fn submit_all_priority(&self, tasks: Vec<QueryTask>) {
+    fn submit_all_priority(&self, tasks: Vec<QueryTask>) -> nia_ice::IceResult<()> {
         if tasks.is_empty() {
-            return;
+            return Ok(());
         }
-        self.ensure_workers(self.shared.parallelism);
+        self.ensure_workers(self.shared.parallelism)?;
         let mut state = self.shared.state.lock();
-        assert!(
-            !state.shutdown,
-            "query executor accepted work after shutdown"
-        );
+        if state.shutdown {
+            return Err(nia_ice::Ice::new(
+                "query executor cannot accept work after shutdown",
+            ));
+        }
         for task in tasks.into_iter().rev() {
             state.queue.push_front(task);
         }
         drop(state);
         self.shared.ready.notify_all();
+        Ok(())
     }
 
-    pub(super) fn try_run_one(&self, batch: usize) -> bool {
+    pub(super) fn try_run_one(&self, batch: usize) -> nia_ice::IceResult<bool> {
         let nested = query_executor_is_active(self.identity());
         let can_run = {
             let state = self.shared.state.lock();
@@ -245,57 +251,66 @@ impl QueryExecutor {
                 && (nested || state.active < self.shared.parallelism)
         };
         if !can_run {
-            return false;
+            return Ok(false);
         }
         // A query waiting inside this executor helps its own batch. Nested work inherits the
         // caller's executor activity and process-wide permit: reacquiring either capacity here
         // could deadlock when every admitted worker is waiting on descendants.
-        let execution_permit = if query_execution_budget_is_active(self.execution_budget.identity())
-        {
+        let execution_budget = &self.execution_budget;
+        let execution_permit = if query_execution_budget_is_active(execution_budget.identity()) {
             None
         } else {
-            Some(self.execution_budget.acquire())
+            match execution_budget.acquire() {
+                Ok(permit) => Some(permit),
+                Err(ice) => {
+                    if let Some(task) = self.take_batch_task(batch) {
+                        (task.settle)(Some(ice));
+                        self.shared.notify_waiters();
+                        return Ok(true);
+                    }
+                    return Err(ice);
+                }
+            }
         };
         let task = {
             let mut state = self.shared.state.lock();
             let position = state.queue.iter().rposition(|task| task.batch == batch);
-            if nested {
-                position.map(|position| {
-                    (
-                        state
-                            .queue
-                            .remove(position)
-                            .expect("query batch task position must remain valid"),
-                        false,
-                    )
-                })
-            } else if state.active < self.shared.parallelism {
-                position.map(|position| {
+            if let Some(position) = position {
+                let Some(task) = state.queue.remove(position) else {
+                    return Err(nia_ice::Ice::new("query batch task position disappeared"));
+                };
+                if nested {
+                    Some((task, false))
+                } else if state.active < self.shared.parallelism {
                     state.active += 1;
                     self.shared.record_active(state.active);
-                    (
-                        state
-                            .queue
-                            .remove(position)
-                            .expect("query batch task position must remain valid"),
-                        true,
-                    )
-                })
+                    Some((task, true))
+                } else {
+                    state.queue.insert(position, task);
+                    None
+                }
             } else {
                 None
             }
         };
         let Some((task, counts_activity)) = task else {
             drop(execution_permit);
-            return false;
+            return Ok(false);
         };
         self.shared.run_task(
-            task.run,
+            task.settle,
             counts_activity,
             execution_permit,
-            self.execution_budget.identity(),
+            execution_budget.identity(),
+            None,
         );
-        true
+        Ok(true)
+    }
+
+    fn take_batch_task(&self, batch: usize) -> Option<QueryTask> {
+        let mut state = self.shared.state.lock();
+        let position = state.queue.iter().rposition(|task| task.batch == batch)?;
+        state.queue.remove(position)
     }
 
     fn identity(&self) -> usize {
@@ -371,21 +386,27 @@ impl QueryExecutorShared {
                 drop(execution_permit);
                 continue;
             };
+            let (execution_permit, failure) = match execution_permit {
+                Ok(permit) => (Some(permit), None),
+                Err(ice) => (None, Some(ice)),
+            };
             self.run_task(
-                task.run,
+                task.settle,
                 true,
-                Some(execution_permit),
+                execution_permit,
                 execution_budget.identity(),
+                failure,
             );
         }
     }
 
     fn run_task(
         self: &Arc<Self>,
-        task: Box<dyn FnOnce() + Send + 'static>,
+        settle: Box<dyn FnOnce(Option<nia_ice::Ice>) + Send + 'static>,
         counts_activity: bool,
         execution_permit: Option<QueryExecutionPermit>,
         execution_budget: usize,
+        failure: Option<nia_ice::Ice>,
     ) {
         let _activity = QueryExecutorActivityGuard {
             shared: Arc::clone(self),
@@ -394,7 +415,7 @@ impl QueryExecutorShared {
         };
         let _execution_budget_stack = QueryExecutionBudgetStackGuard::enter(execution_budget);
         let _stack = QueryExecutorStackGuard::enter(Arc::as_ptr(self) as usize);
-        task();
+        settle(failure);
     }
 
     fn record_active(&self, active: usize) {
@@ -413,10 +434,7 @@ impl Drop for QueryExecutorActivityGuard {
             return;
         }
         let mut state = self.shared.state.lock();
-        state.active = state
-            .active
-            .checked_sub(1)
-            .expect("query executor active task count underflow");
+        state.active = state.active.saturating_sub(1);
         drop(state);
         self.shared.ready.notify_all();
     }
@@ -424,26 +442,32 @@ impl Drop for QueryExecutorActivityGuard {
 
 impl QueryExecutorStackGuard {
     fn enter(executor: usize) -> Self {
-        QUERY_EXECUTOR_STACK.with(|stack| stack.borrow_mut().push(executor));
-        Self { executor }
+        let previous_depth = QUERY_EXECUTOR_STACK.with(|stack| {
+            let mut stack = stack.borrow_mut();
+            let previous_depth = stack.len();
+            stack.push(executor);
+            previous_depth
+        });
+        Self { previous_depth }
     }
 }
 
 impl QueryExecutionBudgetStackGuard {
     fn enter(budget: usize) -> Self {
-        QUERY_EXECUTION_BUDGET_STACK.with(|stack| stack.borrow_mut().push(budget));
-        Self { budget }
+        let previous_depth = QUERY_EXECUTION_BUDGET_STACK.with(|stack| {
+            let mut stack = stack.borrow_mut();
+            let previous_depth = stack.len();
+            stack.push(budget);
+            previous_depth
+        });
+        Self { previous_depth }
     }
 }
 
 impl Drop for QueryExecutionBudgetStackGuard {
     fn drop(&mut self) {
         QUERY_EXECUTION_BUDGET_STACK.with(|stack| {
-            assert_eq!(
-                stack.borrow_mut().pop(),
-                Some(self.budget),
-                "query execution budget stack is unbalanced"
-            );
+            stack.borrow_mut().truncate(self.previous_depth);
         });
     }
 }
@@ -451,11 +475,7 @@ impl Drop for QueryExecutionBudgetStackGuard {
 impl Drop for QueryExecutorStackGuard {
     fn drop(&mut self) {
         QUERY_EXECUTOR_STACK.with(|stack| {
-            assert_eq!(
-                stack.borrow_mut().pop(),
-                Some(self.executor),
-                "query executor stack is unbalanced"
-            );
+            stack.borrow_mut().truncate(self.previous_depth);
         });
     }
 }
@@ -465,44 +485,69 @@ impl<O> QueryBatch<O> {
         Self {
             state: Mutex::new(QueryBatchState {
                 remaining: work_items,
-                outcomes: (0..work_items).map(|_| None).collect(),
+                outcomes: (0..work_items).map(|_| QueryBatchSlot::Pending).collect(),
                 completed: VecDeque::with_capacity(work_items),
+                failure: None,
             }),
         }
     }
 
-    pub(super) fn complete(&self, index: usize, outcome: QueryBatchOutcome<O>) {
+    pub(super) fn complete(
+        &self,
+        index: usize,
+        outcome: QueryBatchOutcome<O>,
+    ) -> nia_ice::IceResult<()> {
         let mut state = self.state.lock();
-        let slot = state
-            .outcomes
-            .get_mut(index)
-            .expect("query batch result index out of bounds");
-        assert!(slot.is_none(), "query batch result completed twice");
-        *slot = Some(outcome);
+        if let Some(ice) = &state.failure {
+            return Err(ice.clone());
+        }
+        let Some(slot) = state.outcomes.get_mut(index) else {
+            let ice = nia_ice::Ice::new("query batch result index is out of bounds");
+            state.fail(ice.clone());
+            return Err(ice);
+        };
+        if !matches!(slot, QueryBatchSlot::Pending) {
+            let ice = nia_ice::Ice::new("query batch result completed twice");
+            state.fail(ice.clone());
+            return Err(ice);
+        }
+        *slot = QueryBatchSlot::Ready(outcome);
         state.completed.push_back(index);
-        state.remaining = state
-            .remaining
-            .checked_sub(1)
-            .expect("query batch remaining count underflow");
+        if state.remaining == 0 {
+            let ice = nia_ice::Ice::new("query batch remaining count underflow");
+            state.fail(ice.clone());
+            return Err(ice);
+        }
+        state.remaining -= 1;
+        Ok(())
     }
 
     pub(super) fn is_complete(&self) -> bool {
         self.state.lock().remaining == 0
     }
 
-    fn take_completed(&self) -> (Vec<(usize, QueryBatchOutcome<O>)>, bool) {
+    pub(super) fn take_completed(&self) -> nia_ice::IceResult<QueryBatchProgress<O>> {
         let mut state = self.state.lock();
+        if let Some(ice) = &state.failure {
+            return Err(ice.clone());
+        }
         let completed = std::mem::take(&mut state.completed);
-        let outcomes = completed
-            .into_iter()
-            .map(|index| {
-                let outcome = state.outcomes[index]
-                    .take()
-                    .expect("completed query batch result must exist");
-                (index, outcome)
-            })
-            .collect();
-        (outcomes, state.remaining == 0)
+        let mut outcomes = Vec::with_capacity(completed.len());
+        for index in completed {
+            let Some(slot) = state.outcomes.get_mut(index) else {
+                let ice = nia_ice::Ice::new("completed query batch result is missing");
+                state.fail(ice.clone());
+                return Err(ice);
+            };
+            let QueryBatchSlot::Ready(outcome) = std::mem::replace(slot, QueryBatchSlot::Taken)
+            else {
+                let ice = nia_ice::Ice::new("completed query batch result is missing");
+                state.fail(ice.clone());
+                return Err(ice);
+            };
+            outcomes.push((index, outcome));
+        }
+        Ok((outcomes, state.remaining == 0))
     }
 
     pub(super) fn finish(&self) -> nia_ice::IceResult<Vec<O>> {
@@ -510,13 +555,20 @@ impl<O> QueryBatch<O> {
         // by submission position so the non-streaming API is deterministic across schedules.
         let outcomes = {
             let mut state = self.state.lock();
-            assert_eq!(state.remaining, 0, "query batch finished before completion");
+            if let Some(ice) = &state.failure {
+                return Err(ice.clone());
+            }
+            if state.remaining != 0 {
+                return Err(nia_ice::Ice::new("query batch finished before completion"));
+            }
             std::mem::take(&mut state.outcomes)
         };
         let mut values = Vec::with_capacity(outcomes.len());
         let mut failure = None;
         for outcome in outcomes {
-            let outcome = outcome.expect("completed query batch result must exist");
+            let QueryBatchSlot::Ready(outcome) = outcome else {
+                return Err(nia_ice::Ice::new("completed query batch result is missing"));
+            };
             match outcome {
                 Ok(value) if failure.is_none() => values.push(value),
                 Ok(_) => {}
@@ -528,6 +580,16 @@ impl<O> QueryBatch<O> {
             Some(ice) => Err(ice),
             None => Ok(values),
         }
+    }
+}
+
+impl<O> QueryBatchState<O> {
+    fn fail(&mut self, ice: nia_ice::Ice) {
+        if self.failure.is_none() {
+            self.failure = Some(ice);
+        }
+        self.remaining = 0;
+        self.completed.clear();
     }
 }
 
@@ -545,7 +607,7 @@ impl<O> TaskCompletionStream<'_, O> {
                     }
                 }
             }
-            let (completed, is_complete) = self.batch.take_completed();
+            let (completed, is_complete) = self.batch.take_completed()?;
             self.pending.extend(completed);
             if !self.pending.is_empty() {
                 continue;
@@ -556,7 +618,7 @@ impl<O> TaskCompletionStream<'_, O> {
                 }
                 return Ok(None);
             }
-            if !self.executor.try_run_one(self.batch_id) {
+            if !self.executor.try_run_one(self.batch_id)? {
                 self.executor.wait_for_batch_progress(&self.batch);
             }
         }
@@ -588,11 +650,18 @@ where
             .executor
             .submit_all_priority(vec![QueryTask {
                 batch: batch_id,
-                run: Box::new(move || {
-                    task_batch.complete(0, session.capture_unexpected_panic(task));
+                settle: Box::new(move |failure| {
+                    let outcome = match failure {
+                        Some(ice) => Err(session.record_failure(ice)),
+                        None => session.capture_unexpected_panic(task),
+                    };
+                    if let Err(ice) = task_batch.complete(0, outcome) {
+                        session.record_failure(ice);
+                    }
                     executor_shared.notify_waiters();
                 }),
-            }]);
+            }])
+            .map_err(|ice| self.session.inner.record_failure(ice))?;
         let position = self.next_position;
         self.next_position += 1;
         self.pending.push_back(SpawnedQueryTask {
@@ -631,23 +700,23 @@ where
                 .iter()
                 .position(|task| task.batch.is_complete())
             {
-                let task = self
-                    .pending
-                    .remove(index)
-                    .expect("completed query task must remain pending");
-                let output = task
-                    .batch
-                    .finish()?
-                    .pop()
-                    .expect("single query task output");
+                let Some(task) = self.pending.remove(index) else {
+                    return Err(nia_ice::Ice::new(
+                        "completed query task disappeared from the pending pool",
+                    ));
+                };
+                let Some(output) = task.batch.finish()?.pop() else {
+                    return Err(nia_ice::Ice::new(
+                        "single query task completed without an output",
+                    ));
+                };
                 self.completed.push((task.position, output));
                 return Ok(());
             }
-            let task = self
-                .pending
-                .front()
-                .expect("query task pool must have a pending task");
-            if !self.session.inner.executor.try_run_one(task.batch_id) {
+            let Some(task) = self.pending.front() else {
+                return Err(nia_ice::Ice::new("query task pool lost its pending task"));
+            };
+            if !self.session.inner.executor.try_run_one(task.batch_id)? {
                 self.session
                     .inner
                     .executor

@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn semantic_value_validation_reuses_fingerprint_only_for_equal_outputs() {
-    let db = QueryDb::new(RedGreenContext {
+    let db = QueryDb::new_for_test(RedGreenContext {
         input: AtomicUsize::new(7),
         derived_executions: AtomicUsize::new(0),
         parent_executions: AtomicUsize::new(0),
@@ -26,7 +26,7 @@ fn semantic_value_validation_reuses_fingerprint_only_for_equal_outputs() {
 
 #[test]
 fn direct_invalidation_preserves_stable_dependents_for_validation() {
-    let db = QueryDb::new(RedGreenContext {
+    let db = QueryDb::new_for_test(RedGreenContext {
         input: AtomicUsize::new(7),
         derived_executions: AtomicUsize::new(0),
         parent_executions: AtomicUsize::new(0),
@@ -59,7 +59,7 @@ fn direct_invalidation_preserves_stable_dependents_for_validation() {
 
 #[test]
 fn derived_red_green_validation_reexecutes_dependents_when_output_changes() {
-    let db = QueryDb::new(RedGreenContext {
+    let db = QueryDb::new_for_test(RedGreenContext {
         input: AtomicUsize::new(7),
         derived_executions: AtomicUsize::new(0),
         parent_executions: AtomicUsize::new(0),

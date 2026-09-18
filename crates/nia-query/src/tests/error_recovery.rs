@@ -11,7 +11,7 @@ fn assert_wait_graph_released(nodes: impl IntoIterator<Item = QueryNodeId>) {
 
 #[test]
 fn reports_same_thread_query_cycles() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -28,7 +28,7 @@ fn reports_same_thread_query_cycles() {
 
 #[test]
 fn get_returns_query_error() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -38,7 +38,7 @@ fn get_returns_query_error() {
 
 #[test]
 fn query_can_report_invalid_input_as_query_error() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -58,7 +58,7 @@ fn query_can_report_invalid_input_as_query_error() {
 
 #[test]
 fn get_many_reports_query_failures_as_values() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -78,7 +78,7 @@ fn get_many_reports_query_failures_as_values() {
 
 #[test]
 fn failed_parent_query_drops_speculative_dependencies() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -109,7 +109,7 @@ fn failed_parent_query_drops_speculative_dependencies() {
 
 #[test]
 fn get_many_workers_detect_cycles_through_parent_stack() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
     let worker_db = db.clone();
@@ -224,7 +224,7 @@ fn distinct_sessions_detect_cross_stack_query_cycles() {
 
 #[test]
 fn panicking_query_reports_internal_error_and_taints_session() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 

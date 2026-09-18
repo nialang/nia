@@ -702,7 +702,8 @@ fn compiler_database_exposes_query_trace() {
 #[test]
 fn compiler_update_rejects_untracked_snapshot_provider() {
     let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
-    let database = crate::query::CompilerDatabase::new(CompileRequest::new(fixture.program()));
+    let database =
+        crate::query::CompilerDatabase::new_for_test(CompileRequest::new(fixture.program()));
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _ = database.update(CompileRequest::new(fixture.program()));
@@ -724,6 +725,7 @@ fn compiler_query_providers_can_override_query_execution() {
     let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
     let checked =
         compiler_database_with_providers(CompileRequest::new(fixture.program()), providers)
+            .expect("create compiler database")
             .codegen_program()
             .expect("overridden codegen program");
 
@@ -750,7 +752,8 @@ fn missing_loaded_module_id_propagates_query_failure() {
     let database = compiler_database_with_providers(
         CompileRequest::new(fixture.program()).with_optimization(NiaOptimizationLevel::Oz),
         providers,
-    );
+    )
+    .expect("create compiler database");
     let missing_module = unknown_module_id();
     for error in [
         database

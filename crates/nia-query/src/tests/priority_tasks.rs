@@ -51,26 +51,30 @@ fn priority_task_pool_runs_before_queued_batch_work() {
     let normal_task_batch = Arc::clone(&normal_batch);
     let normal_shared = Arc::clone(&executor.shared);
 
-    executor.submit_all(vec![
-        QueryTask {
-            batch: normal_batch_id,
-            run: Box::new(move || {
-                started_sender.send(()).expect("signal blocker start");
-                release_receiver.recv().expect("release blocker");
-                blocker_batch.complete(0, Ok(()));
-                blocker_shared.notify_waiters();
-            }),
-        },
-        QueryTask {
-            batch: normal_batch_id,
-            run: Box::new(move || {
-                normal_order.lock().push("normal");
-                normal_task_batch.complete(1, Ok(()));
-                normal_shared.notify_waiters();
-                normal_sender.send(()).expect("signal normal completion");
-            }),
-        },
-    ]);
+    executor
+        .submit_all(vec![
+            QueryTask {
+                batch: normal_batch_id,
+                settle: Box::new(move |_| {
+                    started_sender.send(()).expect("signal blocker start");
+                    release_receiver.recv().expect("release blocker");
+                    blocker_batch.complete(0, Ok(())).expect("complete blocker");
+                    blocker_shared.notify_waiters();
+                }),
+            },
+            QueryTask {
+                batch: normal_batch_id,
+                settle: Box::new(move |_| {
+                    normal_order.lock().push("normal");
+                    normal_task_batch
+                        .complete(1, Ok(()))
+                        .expect("complete normal task");
+                    normal_shared.notify_waiters();
+                    normal_sender.send(()).expect("signal normal completion");
+                }),
+            },
+        ])
+        .expect("submit normal tasks");
     started_receiver.recv().expect("wait for blocker start");
 
     let priority_order = Arc::clone(&order);
