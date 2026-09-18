@@ -587,18 +587,19 @@ fn emit_i128_to_float<'ctx>(
         .target_ty
         .fn_type(&[i128_ty.into()], false)
         .map_err(diagnostic_from_llvm_error)?;
+    let function_name = match (target, signed) {
+        (PrimitiveTy::F32, true) => "__floattisf",
+        (PrimitiveTy::F64, true) => "__floattidf",
+        (PrimitiveTy::F32, false) => "__floatuntisf",
+        (PrimitiveTy::F64, false) => "__floatuntidf",
+        _ => {
+            return Err(diagnostic_from_llvm_error(LlvmError::ice(
+                "unsupported i128 integer conversion target",
+            )));
+        }
+    };
     let function = module
-        .add_function(
-            match target {
-                PrimitiveTy::F32 if signed => "__floattisf",
-                PrimitiveTy::F64 if signed => "__floattidf",
-                PrimitiveTy::F32 => "__floatuntisf",
-                PrimitiveTy::F64 => "__floatuntidf",
-                _ => unreachable!("target primitive checked above"),
-            },
-            fn_ty,
-            Some(Linkage::External),
-        )
+        .add_function(function_name, fn_ty, Some(Linkage::External))
         .map_err(diagnostic_from_llvm_error)?;
     let entry = context
         .append_basic_block(function, "entry")
@@ -930,18 +931,19 @@ fn emit_i128_from_float<'ctx>(
     let fn_ty = i128_ty
         .fn_type(&[source_ty.into()], false)
         .map_err(diagnostic_from_llvm_error)?;
+    let function_name = match (source, signed) {
+        (PrimitiveTy::F32, true) => "__fixsfti",
+        (PrimitiveTy::F64, true) => "__fixdfti",
+        (PrimitiveTy::F32, false) => "__fixunssfti",
+        (PrimitiveTy::F64, false) => "__fixunsdfti",
+        _ => {
+            return Err(diagnostic_from_llvm_error(LlvmError::ice(
+                "unsupported i128 float conversion source",
+            )));
+        }
+    };
     let function = module
-        .add_function(
-            match source {
-                PrimitiveTy::F32 if signed => "__fixsfti",
-                PrimitiveTy::F64 if signed => "__fixdfti",
-                PrimitiveTy::F32 => "__fixunssfti",
-                PrimitiveTy::F64 => "__fixunsdfti",
-                _ => unreachable!("source primitive checked above"),
-            },
-            fn_ty,
-            Some(Linkage::External),
-        )
+        .add_function(function_name, fn_ty, Some(Linkage::External))
         .map_err(diagnostic_from_llvm_error)?;
     let entry = context
         .append_basic_block(function, "entry")

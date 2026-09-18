@@ -233,11 +233,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     .map_err(|_| self.error(span, "failed to return enum constructor result"))?;
             }
             AbiReturn::IndirectOut(_) => {
+                let Some(out_ptr) = out_ptr else {
+                    return Err(self.error(
+                        span,
+                        "indirect enum constructor return lacks an out pointer",
+                    ));
+                };
                 builder
-                    .build_store(
-                        out_ptr.expect("indirect enum constructor return has an out pointer"),
-                        enum_value,
-                    )
+                    .build_store(out_ptr, enum_value)
                     .map_err(|_| self.error(span, "failed to store enum constructor result"))?;
                 builder
                     .build_return(None)

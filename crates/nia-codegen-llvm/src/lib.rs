@@ -730,7 +730,13 @@ fn emit_llvm_ir_partition(
         partition,
         declarations,
     } = prepared;
-    let module = index.module_for_partition(&partition);
+    let Some(module) = index.module_for_partition(&partition) else {
+        return Err(vec![nia_diagnostic::Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            nia_span::Span::default(),
+            "codegen partition has no matching published owner module",
+        )]);
+    };
     let diagnostics =
         validate_backend_partition_declarations(&declarations, &index, module.layouts.target);
     if !diagnostics.is_empty() {
@@ -780,7 +786,13 @@ fn emit_native_object_partition(
         TargetMachine::native_identity,
     )
     .map_err(|error| vec![error.diagnostic()])?;
-    let module = index.module_for_partition(&partition);
+    let Some(module) = index.module_for_partition(&partition) else {
+        return Err(vec![nia_diagnostic::Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            nia_span::Span::default(),
+            "codegen partition has no matching published owner module",
+        )]);
+    };
     let diagnostics =
         validate_backend_partition_declarations(&declarations, &index, module.layouts.target);
     if !diagnostics.is_empty() {
@@ -793,23 +805,22 @@ fn emit_native_object_partition(
         options,
         fingerprint::ArtifactTarget::NativeObject(&target_identity),
     )?;
-    let lookup = load_object_work_product(cache, &partition.key, fingerprints);
-    if let ObjectReuseLookup::Hit(bytes) = lookup {
-        return Ok((
-            IncrementalLinkInput {
-                key: partition.key,
-                fingerprint: fingerprints.fingerprint,
-                object: NativeObject {
-                    unit: partition.id,
-                    name: module.name.clone(),
-                    bytes,
+    let miss = match load_object_work_product(cache, &partition.key, fingerprints) {
+        ObjectReuseLookup::Hit(bytes) => {
+            return Ok((
+                IncrementalLinkInput {
+                    key: partition.key,
+                    fingerprint: fingerprints.fingerprint,
+                    object: NativeObject {
+                        unit: partition.id,
+                        name: module.name.clone(),
+                        bytes,
+                    },
                 },
-            },
-            ObjectReuse::Hit,
-        ));
-    }
-    let ObjectReuseLookup::Miss(miss) = lookup else {
-        unreachable!("object cache hit returned before codegen")
+                ObjectReuse::Hit,
+            ));
+        }
+        ObjectReuseLookup::Miss(miss) => miss,
     };
     let memory_permit = nia_query::acquire_llvm_memory_permit()
         .map_err(|ice| vec![nia_diagnostic::Diagnostic::from(ice)])?;
@@ -863,24 +874,24 @@ fn emit_compiler_builtins_object(
     .map_err(|error| error.diagnostic())?;
     let fingerprints =
         fingerprint::compiler_builtins_fingerprint(&symbols, options, &target_identity);
-    let lookup = load_object_work_product(cache, &CodegenUnitKey::CompilerBuiltins, fingerprints);
-    if let ObjectReuseLookup::Hit(bytes) = lookup {
-        return Ok((
-            IncrementalLinkInput {
-                key: CodegenUnitKey::CompilerBuiltins,
-                fingerprint: fingerprints.fingerprint,
-                object: NativeObject {
-                    unit: CodegenUnitId::CompilerBuiltins,
-                    name: "nia.compiler_builtins".to_string(),
-                    bytes,
-                },
-            },
-            ObjectReuse::Hit,
-        ));
-    }
-    let ObjectReuseLookup::Miss(miss) = lookup else {
-        unreachable!("object cache hit returned before codegen")
-    };
+    let miss =
+        match load_object_work_product(cache, &CodegenUnitKey::CompilerBuiltins, fingerprints) {
+            ObjectReuseLookup::Hit(bytes) => {
+                return Ok((
+                    IncrementalLinkInput {
+                        key: CodegenUnitKey::CompilerBuiltins,
+                        fingerprint: fingerprints.fingerprint,
+                        object: NativeObject {
+                            unit: CodegenUnitId::CompilerBuiltins,
+                            name: "nia.compiler_builtins".to_string(),
+                            bytes,
+                        },
+                    },
+                    ObjectReuse::Hit,
+                ));
+            }
+            ObjectReuseLookup::Miss(miss) => miss,
+        };
     let memory_permit =
         nia_query::acquire_llvm_memory_permit().map_err(nia_diagnostic::Diagnostic::from)?;
     record_memory_permit(options.timings, memory_permit.waited());

@@ -49,23 +49,34 @@ impl CodegenDeclarationMembership {
         MembershipBuilder::new(index, owners).build(partition)
     }
 
-    pub(super) fn validate_dependencies(&self, partition: &CodegenPartition, index: &ProgramIndex) {
-        assert_eq!(
-            self.dependencies.unit(),
-            partition.id,
-            "Nia ICE: codegen dependency closure belongs to a different unit"
-        );
-        let owner = index.module_for_partition(partition);
-        assert!(
-            self.dependencies.contains(owner.id),
-            "Nia ICE: codegen dependency closure omits its definition owner"
-        );
-        for &module_id in self.dependencies.modules() {
-            assert!(
-                index.module(module_id).is_some(),
-                "Nia ICE: codegen dependency module {module_id:?} is not published"
-            );
+    pub(super) fn validate_dependencies(
+        &self,
+        partition: &CodegenPartition,
+        index: &ProgramIndex,
+    ) -> Result<(), Diagnostic> {
+        if self.dependencies.unit() != partition.id {
+            return Err(invalid_membership(
+                "codegen dependency closure belongs to a different unit",
+            ));
         }
+        let Some(owner) = index.module_for_partition(partition) else {
+            return Err(invalid_membership(
+                "codegen partition has no matching published owner module",
+            ));
+        };
+        if !self.dependencies.contains(owner.id) {
+            return Err(invalid_membership(
+                "codegen dependency closure omits its definition owner",
+            ));
+        }
+        for &module_id in self.dependencies.modules() {
+            if index.module(module_id).is_none() {
+                return Err(invalid_membership(format!(
+                    "codegen dependency module {module_id:?} is not published"
+                )));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -113,7 +124,13 @@ impl<'a> MembershipBuilder<'a> {
     }
 
     fn build(mut self, partition: &CodegenPartition) -> CodegenDeclarationMembershipBuild {
-        let owner = self.index.module_for_partition(partition);
+        let Some(owner) = self.index.module_for_partition(partition) else {
+            return CodegenDeclarationMembershipBuild::Invalid {
+                diagnostics: vec![invalid_membership(
+                    "codegen partition has no matching published owner module",
+                )],
+            };
+        };
         self.dependency_modules.insert(owner.id);
         for &index in partition.global_definitions() {
             self.add_global_definition(&owner.globals[index]);
@@ -656,41 +673,37 @@ impl<'a> MembershipBuilder<'a> {
         struct_instances.sort_unstable_by(|left, right| {
             self.index
                 .struct_instance(left.def_id, &left.args, &left.const_args)
-                .unwrap()
-                .symbol
+                .map(|item| item.symbol.as_str())
                 .cmp(
                     &self
                         .index
                         .struct_instance(right.def_id, &right.args, &right.const_args)
-                        .unwrap()
-                        .symbol,
+                        .map(|item| item.symbol.as_str()),
                 )
         });
         let mut union_instances = self.union_instances.into_iter().collect::<Vec<_>>();
         union_instances.sort_unstable_by(|left, right| {
             self.index
                 .union_instance(left.def_id, &left.args, &left.const_args)
-                .unwrap()
-                .symbol
+                .map(|item| item.symbol.as_str())
                 .cmp(
                     &self
                         .index
                         .union_instance(right.def_id, &right.args, &right.const_args)
-                        .unwrap()
-                        .symbol,
+                        .map(|item| item.symbol.as_str()),
                 )
         });
         let mut function_instances = self.function_instances.into_iter().collect::<Vec<_>>();
         function_instances.sort_unstable_by(|left, right| {
             function_instance(self.index, left)
-                .symbol
-                .cmp(&function_instance(self.index, right).symbol)
+                .map(|item| item.symbol.as_str())
+                .cmp(&function_instance(self.index, right).map(|item| item.symbol.as_str()))
         });
         let mut global_instances = self.global_instances.into_iter().collect::<Vec<_>>();
         global_instances.sort_unstable_by(|left, right| {
             global_instance(self.index, left)
-                .symbol
-                .cmp(&global_instance(self.index, right).symbol)
+                .map(|item| item.symbol.as_str())
+                .cmp(&global_instance(self.index, right).map(|item| item.symbol.as_str()))
         });
         let mut unions = self.unions.into_iter().collect::<Vec<_>>();
         unions.sort_unstable_by(|left, right| {
@@ -848,25 +861,29 @@ fn stable_type_key(index: &ProgramIndex, ty: InternedTyId) -> String {
 fn function_instance<'a>(
     index: &'a ProgramIndex,
     key: &FunctionInstanceKey,
-) -> &'a BackendFunctionInstance {
-    index
-        .function_instance(
-            key.def_id,
-            key.arg_module_id,
-            key.self_arg,
-            &key.args,
-            &key.const_args,
-        )
-        .unwrap()
+) -> Option<&'a BackendFunctionInstance> {
+    index.function_instance(
+        key.def_id,
+        key.arg_module_id,
+        key.self_arg,
+        &key.args,
+        &key.const_args,
+    )
 }
 
 fn global_instance<'a>(
     index: &'a ProgramIndex,
     key: &BackendGlobalInstanceKey,
-) -> &'a BackendGlobalInstance {
-    index
-        .global_instance(key.def_id, key.arg_module_id, &key.args, &key.const_args)
-        .unwrap()
+) -> Option<&'a BackendGlobalInstance> {
+    index.global_instance(key.def_id, key.arg_module_id, &key.args, &key.const_args)
+}
+
+fn invalid_membership(message: impl Into<String>) -> Diagnostic {
+    Diagnostic::internal_error_at(
+        nia_diagnostic::codes::INVALID_BACKEND_IR,
+        Span::default(),
+        message,
+    )
 }
 
 #[cfg(test)]

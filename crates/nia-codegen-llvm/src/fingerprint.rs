@@ -55,12 +55,18 @@ pub(super) fn source_unit_fingerprint(
     options: LlvmCodegenOptions,
     target: ArtifactTarget<'_>,
 ) -> Result<CodegenUnitFingerprintSet, Vec<nia_diagnostic::Diagnostic>> {
-    declarations.validate_dependencies(partition, index);
-    let diagnostics = validate_backend_partition_declarations(
-        declarations,
-        index,
-        index.module_for_partition(partition).layouts.target,
-    );
+    if let Err(diagnostic) = declarations.validate_dependencies(partition, index) {
+        return Err(vec![diagnostic]);
+    }
+    let Some(owner) = index.module_for_partition(partition) else {
+        return Err(vec![nia_diagnostic::Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            nia_span::Span::default(),
+            "codegen partition has no matching published owner module",
+        )]);
+    };
+    let diagnostics =
+        validate_backend_partition_declarations(declarations, index, owner.layouts.target);
     if !diagnostics.is_empty() {
         return Err(diagnostics);
     }
@@ -70,12 +76,13 @@ pub(super) fn source_unit_fingerprint(
     policy.optimization(options.optimization);
     policy.artifact_kind(target);
 
-    let owner = index.module_for_partition(partition);
     let mut definition = Encoder::new(SOURCE_DEFINITION_DOMAIN, index);
     definition.partition_definitions(partition, owner);
 
     let mut declaration = Encoder::new(SOURCE_DECLARATIONS_DOMAIN, index);
-    declaration.declaration_membership(declarations, owner.layouts.target);
+    declaration
+        .declaration_membership(declarations, owner.layouts.target)
+        .map_err(|diagnostic| vec![diagnostic])?;
 
     let mut target_component = Encoder::new(SOURCE_TARGET_DOMAIN, index);
     target_component.artifact_target(target);

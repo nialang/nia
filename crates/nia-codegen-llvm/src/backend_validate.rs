@@ -554,7 +554,13 @@ pub(super) fn validate_backend_partition_definitions(
     partition: &CodegenPartition,
     index: &ProgramIndex,
 ) -> Vec<Diagnostic> {
-    let module = index.module_for_partition(partition);
+    let Some(module) = index.module_for_partition(partition) else {
+        return vec![Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            nia_span::Span::default(),
+            "codegen partition has no matching published owner module",
+        )];
+    };
     let mut validator = BackendValidator::new(index, module.layouts.target);
     validator.validate_layout_owners(module);
     validator.validate_type_layout_products(module);

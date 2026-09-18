@@ -8,7 +8,7 @@ impl Encoder<'_> {
         &mut self,
         declarations: &CodegenDeclarationMembership,
         target: nia_layout::TargetDataLayout,
-    ) {
+    ) -> Result<(), nia_diagnostic::Diagnostic> {
         self.builder.write_u64(target.pointer_size);
         self.builder.write_u64(target.pointer_align);
 
@@ -17,9 +17,11 @@ impl Encoder<'_> {
         // the unit while still covering every declaration codegen may inspect.
         self.len(declarations.structs.len());
         for &def_id in &declarations.structs {
-            let item = self.index.struct_item(def_id).unwrap_or_else(|| {
-                panic!("Nia ICE: declaration membership references missing struct {def_id:?}")
-            });
+            let Some(item) = self.index.struct_item(def_id) else {
+                return Err(missing_declaration(format!(
+                    "declaration membership references missing struct {def_id:?}"
+                )));
+            };
             self.aggregate(
                 item.def_id,
                 item.name,
@@ -31,12 +33,14 @@ impl Encoder<'_> {
         }
         self.len(declarations.struct_instances.len());
         for key in &declarations.struct_instances {
-            let item = self
+            let Some(item) = self
                 .index
                 .struct_instance(key.def_id, &key.args, &key.const_args)
-                .unwrap_or_else(|| {
-                    panic!("Nia ICE: declaration membership references missing struct instance")
-                });
+            else {
+                return Err(missing_declaration(
+                    "declaration membership references missing struct instance",
+                ));
+            };
             self.aggregate_instance(
                 item.def_id,
                 item.name,
@@ -54,9 +58,11 @@ impl Encoder<'_> {
         }
         self.len(declarations.unions.len());
         for &def_id in &declarations.unions {
-            let item = self.index.union_item(def_id).unwrap_or_else(|| {
-                panic!("Nia ICE: declaration membership references missing union {def_id:?}")
-            });
+            let Some(item) = self.index.union_item(def_id) else {
+                return Err(missing_declaration(format!(
+                    "declaration membership references missing union {def_id:?}"
+                )));
+            };
             self.aggregate(
                 item.def_id,
                 item.name,
@@ -68,12 +74,14 @@ impl Encoder<'_> {
         }
         self.len(declarations.union_instances.len());
         for key in &declarations.union_instances {
-            let item = self
+            let Some(item) = self
                 .index
                 .union_instance(key.def_id, &key.args, &key.const_args)
-                .unwrap_or_else(|| {
-                    panic!("Nia ICE: declaration membership references missing union instance")
-                });
+            else {
+                return Err(missing_declaration(
+                    "declaration membership references missing union instance",
+                ));
+            };
             self.aggregate_instance(
                 item.def_id,
                 item.name,
@@ -91,51 +99,61 @@ impl Encoder<'_> {
         }
         self.len(declarations.globals.len());
         for &def_id in &declarations.globals {
-            let item = self.index.global(def_id).unwrap_or_else(|| {
-                panic!("Nia ICE: declaration membership references missing global {def_id:?}")
-            });
+            let Some(item) = self.index.global(def_id) else {
+                return Err(missing_declaration(format!(
+                    "declaration membership references missing global {def_id:?}"
+                )));
+            };
             self.global_declaration(item);
         }
         self.len(declarations.global_instances.len());
         for key in &declarations.global_instances {
-            let item = self
-                .index
-                .global_instance(key.def_id, key.arg_module_id, &key.args, &key.const_args)
-                .unwrap_or_else(|| {
-                    panic!("Nia ICE: declaration membership references missing global instance")
-                });
+            let Some(item) = self.index.global_instance(
+                key.def_id,
+                key.arg_module_id,
+                &key.args,
+                &key.const_args,
+            ) else {
+                return Err(missing_declaration(
+                    "declaration membership references missing global instance",
+                ));
+            };
             self.global_instance_declaration(item);
         }
         self.len(declarations.functions.len());
         for &def_id in &declarations.functions {
-            let item = self.index.function(def_id).unwrap_or_else(|| {
-                panic!("Nia ICE: declaration membership references missing function {def_id:?}")
-            });
+            let Some(item) = self.index.function(def_id) else {
+                return Err(missing_declaration(format!(
+                    "declaration membership references missing function {def_id:?}"
+                )));
+            };
             self.function_declaration(item);
         }
         self.len(declarations.function_instances.len());
         for key in &declarations.function_instances {
-            let item = self
-                .index
-                .function_instance(
-                    key.def_id,
-                    key.arg_module_id,
-                    key.self_arg,
-                    &key.args,
-                    &key.const_args,
-                )
-                .unwrap_or_else(|| {
-                    panic!("Nia ICE: declaration membership references missing function instance")
-                });
+            let Some(item) = self.index.function_instance(
+                key.def_id,
+                key.arg_module_id,
+                key.self_arg,
+                &key.args,
+                &key.const_args,
+            ) else {
+                return Err(missing_declaration(
+                    "declaration membership references missing function instance",
+                ));
+            };
             self.function_instance_declaration(item);
         }
         self.len(declarations.vtables.len());
         for key in &declarations.vtables {
-            let item = self.index.trait_object_vtable(key).unwrap_or_else(|| {
-                panic!("Nia ICE: declaration membership references missing vtable {key:?}")
-            });
+            let Some(item) = self.index.trait_object_vtable(key) else {
+                return Err(missing_declaration(format!(
+                    "declaration membership references missing vtable {key:?}"
+                )));
+            };
             self.trait_object_vtable_declaration(item);
         }
+        Ok(())
     }
 
     fn global_declaration(&mut self, item: &BackendGlobal) {
@@ -185,4 +203,12 @@ impl Encoder<'_> {
         self.ty(item.key.object_ty);
         self.len(item.entries.len());
     }
+}
+
+fn missing_declaration(message: impl Into<String>) -> nia_diagnostic::Diagnostic {
+    nia_diagnostic::Diagnostic::internal_error_at(
+        nia_diagnostic::codes::INVALID_BACKEND_IR,
+        nia_span::Span::default(),
+        message,
+    )
 }

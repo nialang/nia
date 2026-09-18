@@ -321,15 +321,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Ok(None);
         }
         match abi_return {
-            AbiReturn::Direct(ty) | AbiReturn::IndirectOut(ty) => self
-                .builder
-                .build_load(
-                    self.module.llvm_basic_type(ty, expr.span)?,
-                    result_ptr.unwrap(),
-                    "callable.result",
-                )
-                .map(Some)
-                .map_err(|_| self.error(expr.span, "failed to load callable result")),
+            AbiReturn::Direct(ty) | AbiReturn::IndirectOut(ty) => {
+                let Some(result_ptr) = result_ptr else {
+                    return Err(self.error(expr.span, "callable result pointer is missing"));
+                };
+                self.builder
+                    .build_load(
+                        self.module.llvm_basic_type(ty, expr.span)?,
+                        result_ptr,
+                        "callable.result",
+                    )
+                    .map(Some)
+                    .map_err(|_| self.error(expr.span, "failed to load callable result"))
+            }
             AbiReturn::Void | AbiReturn::Never => Ok(None),
         }
     }

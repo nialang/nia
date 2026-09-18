@@ -41,7 +41,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     FunctionMemoryIntrinsicOp::Move => {
                         self.emit_overlapping_byte_copy(memory.span, dest_ptr, source_ptr, size)?;
                     }
-                    FunctionMemoryIntrinsicOp::Set => unreachable!(),
+                    FunctionMemoryIntrinsicOp::Set => {
+                        return Err(
+                            self.error(memory.span, "memory set operation lacks a byte source")
+                        );
+                    }
                 }
             }
             (FunctionMemoryIntrinsicOp::Set, FunctionMemoryIntrinsicSource::Byte(value)) => {

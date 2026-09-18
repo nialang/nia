@@ -2581,7 +2581,7 @@ impl BackendValidator<'_> {
         let valid_kind = match kind {
             "struct" => self.index.has_struct(def_id) || self.index.has_struct_instances(def_id),
             "union" => self.index.has_union(def_id) || self.index.has_union_instances(def_id),
-            _ => unreachable!("aggregate literal kind is statically selected"),
+            _ => false,
         };
         if !valid_kind {
             self.invalid_literal_contract(span, kind, "definition has the wrong aggregate kind");
@@ -3684,7 +3684,7 @@ impl BackendValidator<'_> {
                 let has_bound = match method {
                     nia_function_ir::FunctionBuiltinMethod::Start => kind.has_start_bound(),
                     nia_function_ir::FunctionBuiltinMethod::End => kind.has_end_bound(),
-                    _ => unreachable!(),
+                    _ => false,
                 };
                 if !has_bound {
                     self.invalid_call_contract(
