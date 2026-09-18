@@ -65,7 +65,7 @@ fn lower_test_module(
     defs: &nia_defs::DefCollection,
 ) -> (TypeStore, nia_type_lower::TypeLowering) {
     let module_id = defs.module_id;
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let program_defs =
         std::collections::HashMap::from([(module_id, std::sync::Arc::new(defs.clone()))]);
     let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();

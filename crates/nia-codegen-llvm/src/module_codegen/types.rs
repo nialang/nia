@@ -1503,7 +1503,10 @@ mod tests {
 
     #[test]
     fn const_argument_matching_uses_array_length_facts_when_available() {
-        let ty = InternedTyId::new(TypeStoreId::fresh(), TypeStoreIndex::from_store_index(0));
+        let ty = InternedTyId::new(
+            TypeStoreId::fresh().expect("allocate type store ID"),
+            TypeStoreIndex::from_store_index(0),
+        );
         let modules = ModuleIdAllocator::new().expect("create module ID allocator");
         let left_expr = GlobalConstExprId {
             module_id: modules.allocate().expect("allocate module ID"),

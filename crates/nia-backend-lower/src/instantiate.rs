@@ -2848,7 +2848,7 @@ mod tests {
     fn missing_type_diagnostic_identifies_invalid_backend_ir() {
         let modules = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = modules.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let valid = type_store
             .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);
@@ -2870,7 +2870,7 @@ mod tests {
 
     #[test]
     fn array_length_matching_recurses_through_builtin_operands() {
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(
             nia_ids::ModuleIdAllocator::new()
                 .expect("create module ID allocator")
@@ -2955,7 +2955,7 @@ mod tests {
     fn trait_object_pointee_matching_dispatches_all_structural_components() {
         let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
         let left_ty = append.primitive(PrimitiveTy::I32);
         let right_ty = append.primitive(PrimitiveTy::I64);
@@ -3044,7 +3044,7 @@ mod tests {
 
     #[test]
     fn associated_binding_matching_backtracks_duplicate_keys() {
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(
             nia_ids::ModuleIdAllocator::new()
                 .expect("create module ID allocator")

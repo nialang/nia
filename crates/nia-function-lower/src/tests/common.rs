@@ -69,7 +69,7 @@ fn test_type_fixture() -> &'static (TypeStore, ModuleId) {
     FIXTURE.get_or_init(|| {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         (
-            TypeStore::new(),
+            TypeStore::new().expect("create type store"),
             module_ids.allocate().expect("allocate module ID"),
         )
     })

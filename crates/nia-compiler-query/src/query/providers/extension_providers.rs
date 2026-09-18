@@ -1061,7 +1061,7 @@ mod tests {
             module_id: array_module,
             const_expr_id: ConstExprId(3),
         };
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(trait_module);
         let usize_ty = append.primitive(PrimitiveTy::Usize);
         let bool_ty = append.primitive(PrimitiveTy::Bool);

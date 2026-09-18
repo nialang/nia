@@ -1603,7 +1603,7 @@ mod tests {
     fn innermost_execution_substitution_wins() {
         let modules = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = modules.allocate().expect("allocate module ID");
-        let store = nia_ty::TypeStore::new();
+        let store = nia_ty::TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
         let outer_ty = append.primitive(PrimitiveTy::I32);
         let function_ty = append.primitive(PrimitiveTy::U32);
@@ -1630,9 +1630,9 @@ mod tests {
 
     #[test]
     fn missing_type_handles_recover_as_error_types() {
-        let store = nia_ty::TypeStore::new();
+        let store = nia_ty::TypeStore::new().expect("create type store");
         let missing = nia_ids::InternedTyId::new(
-            nia_ids::TypeStoreId::fresh(),
+            nia_ids::TypeStoreId::fresh().expect("allocate type store ID"),
             nia_ids::TypeStoreIndex::from_store_index(0),
         );
 

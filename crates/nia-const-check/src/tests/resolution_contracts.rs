@@ -17,7 +17,7 @@ y
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module);
     let type_names = resolve_module_types_with_symbols(&module, &defs, &symbols);
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let lowered = lower_module_types_with_context(
         module_id,
         &module,

@@ -1323,7 +1323,7 @@ mod tests {
     fn for_item_pattern_function_references_are_reachable() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let types = nia_ty::TypeStore::new();
+        let types = nia_ty::TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
             .primitive(nia_ty::PrimitiveTy::Bool);
@@ -1399,7 +1399,7 @@ mod tests {
     fn typed_function_instance_values_retain_generic_identity() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let types = nia_ty::TypeStore::new();
+        let types = nia_ty::TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
             .primitive(nia_ty::PrimitiveTy::I32);
@@ -1475,7 +1475,7 @@ mod tests {
     fn typed_method_callees_retain_method_const_arguments() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let types = nia_ty::TypeStore::new();
+        let types = nia_ty::TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
             .primitive(nia_ty::PrimitiveTy::I32);
@@ -1599,7 +1599,7 @@ mod tests {
     fn static_function_instance_values_retain_generic_identity() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let types = nia_ty::TypeStore::new();
+        let types = nia_ty::TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
             .primitive(nia_ty::PrimitiveTy::I32);
@@ -1657,7 +1657,7 @@ mod tests {
     fn semantic_fact_filter_keeps_only_requested_function_and_global_owners() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let types = nia_ty::TypeStore::new();
+        let types = nia_ty::TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
             .primitive(nia_ty::PrimitiveTy::Bool);
@@ -1719,7 +1719,7 @@ mod tests {
     fn typed_reference_collection_covers_hidden_expression_containers() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let types = nia_ty::TypeStore::new();
+        let types = nia_ty::TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
             .primitive(nia_ty::PrimitiveTy::Bool);

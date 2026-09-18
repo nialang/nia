@@ -2390,7 +2390,7 @@ mod tests {
 
     #[test]
     fn array_length_equivalence_recurses_through_builtin_operands() {
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(
             nia_ids::ModuleIdAllocator::new()
                 .expect("create module ID allocator")

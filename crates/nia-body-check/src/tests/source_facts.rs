@@ -140,7 +140,7 @@ fn main() i32 {
     let defs = collect_module_defs(module_id, &module);
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let item_tree = ModuleItemTree::from_module(&module);
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let lowered = lower_module_types_from_item_tree_with_context(
         module_id,
         &item_tree,
@@ -317,7 +317,7 @@ fn main() i32 {
     let defs = collect_module_defs(module_id, &module);
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let item_tree = ModuleItemTree::from_module(&module);
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let lowered = lower_module_types_from_item_tree_with_context(
         module_id,
         &item_tree,

@@ -20,7 +20,7 @@ fn structural_equivalence_resolves_const_expression_array_lengths() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let left_module = module_ids.allocate().expect("allocate module ID");
     let right_module = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);
     let left_u8 = left.primitive(PrimitiveTy::U8);
@@ -87,7 +87,7 @@ fn sized_lookup_matches_layout_array_const_expressions_semantically() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
     let layout_module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let layout_append = type_store.append_for_module(layout_module_id);
     let u8_ty = append.primitive(PrimitiveTy::U8);
@@ -164,7 +164,7 @@ fn sized_lookup_matches_layout_nominal_const_expressions_semantically() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
     let layout_module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let layout_append = type_store.append_for_module(layout_module_id);
     let usize_ty = append.primitive(PrimitiveTy::Usize);
@@ -251,7 +251,7 @@ fn enum_classification_reads_new_types_from_canonical_store() {
         module_id,
         def_id: local_enum_id,
     };
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let ty = append.intern(TyKind::Nominal {
         def_id: local_enum,
@@ -294,7 +294,7 @@ fn enum_classification_reads_new_types_from_canonical_store() {
 fn user_impl_infers_const_generic_from_layout_builtin_array_length() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let usize_ty = append.intern(TyKind::Primitive(PrimitiveTy::Usize));
     let u8_ty = append.intern(TyKind::Primitive(PrimitiveTy::U8));
@@ -391,7 +391,7 @@ fn user_impl_infers_const_generic_from_layout_builtin_array_length() {
 fn user_impl_infers_type_generic_from_layout_builtin_array_operand() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let u8_ty = append.intern(TyKind::Primitive(PrimitiveTy::U8));
     let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
@@ -467,7 +467,7 @@ fn sized_lookup_matches_layout_nominal_const_arguments_semantically() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
     let layout_module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let layout_append = type_store.append_for_module(layout_module_id);
     let usize_ty = append.primitive(PrimitiveTy::Usize);
@@ -530,7 +530,7 @@ fn sized_lookup_matches_layout_nominal_const_arguments_semantically() {
 fn sized_lookup_matches_layout_tuple_elements_structurally() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let usize_ty = append.primitive(PrimitiveTy::Usize);
     let def_id = GlobalDefId {
@@ -588,7 +588,7 @@ fn sized_lookup_matches_layout_tuple_elements_structurally() {
 fn failed_array_element_match_does_not_publish_const_length_inference() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let u8_ty = append.primitive(PrimitiveTy::U8);
     let bool_ty = append.primitive(PrimitiveTy::Bool);
@@ -642,7 +642,7 @@ fn failed_array_element_match_does_not_publish_const_length_inference() {
 fn failed_tuple_match_does_not_publish_earlier_type_inference() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let bool_ty = append.primitive(PrimitiveTy::Bool);
     let u8_ty = append.primitive(PrimitiveTy::U8);
@@ -686,7 +686,7 @@ fn failed_tuple_match_does_not_publish_earlier_type_inference() {
 fn trait_object_impl_matching_backtracks_without_reusing_bindings() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let i32_ty = append.primitive(PrimitiveTy::I32);
     let bool_ty = append.primitive(PrimitiveTy::Bool);
@@ -804,7 +804,7 @@ fn trait_object_impl_matching_backtracks_without_reusing_bindings() {
 fn callable_pointees_are_unsized_while_callable_views_are_sized() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let i32_ty = append.primitive(PrimitiveTy::I32);
     let pointee = append.intern(TyKind::CallablePointee {
@@ -851,7 +851,7 @@ fn callable_pointees_are_unsized_while_callable_views_are_sized() {
 fn builtin_traits_reject_const_arguments() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let vector = append.intern(TyKind::Vector {
         elem: PrimitiveTy::I32,
@@ -905,7 +905,7 @@ fn builtin_traits_reject_const_arguments() {
 fn concrete_closure_states_are_sized_when_their_captures_are_sized() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let i32_ty = append.primitive(PrimitiveTy::I32);
     let closure = append.intern(TyKind::ClosureState {
@@ -952,7 +952,7 @@ fn concrete_closure_states_are_sized_when_their_captures_are_sized() {
 fn user_impl_substitutes_const_argument_types_before_matching() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let u8_ty = append.primitive(PrimitiveTy::U8);
     let u16_ty = append.primitive(PrimitiveTy::U16);
@@ -1041,7 +1041,7 @@ fn user_impl_substitutes_const_argument_types_before_matching() {
 fn associated_type_substitutes_const_arguments_inferred_from_impl_target() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let usize_ty = append.primitive(PrimitiveTy::Usize);
     let u8_ty = append.primitive(PrimitiveTy::U8);
@@ -1143,7 +1143,7 @@ fn associated_type_substitutes_const_arguments_inferred_from_impl_target() {
 fn impl_where_predicate_substitutes_const_arguments_from_target() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let usize_ty = append.primitive(PrimitiveTy::Usize);
     let n = SymbolId::from_stable_hash(20);
@@ -1266,7 +1266,7 @@ fn impl_where_predicate_substitutes_const_arguments_from_target() {
 fn concrete_trait_const_argument_is_more_specific_than_a_parameter() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let usize_ty = append.primitive(PrimitiveTy::Usize);
     let n = SymbolId::from_stable_hash(30);
@@ -1348,7 +1348,7 @@ fn concrete_trait_const_argument_is_more_specific_than_a_parameter() {
 fn repeated_type_parameter_across_impl_header_is_more_specific() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let i32_ty = append.primitive(PrimitiveTy::I32);
     let a = SymbolId::from_stable_hash(32);
@@ -1418,7 +1418,7 @@ fn repeated_type_parameter_across_impl_header_is_more_specific() {
 fn repeated_const_parameter_across_impl_header_is_more_specific() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let usize_ty = append.primitive(PrimitiveTy::Usize);
     let a = SymbolId::from_stable_hash(35);
@@ -1510,7 +1510,7 @@ fn repeated_const_parameter_across_impl_header_is_more_specific() {
 fn cyclic_impl_where_predicates_do_not_prove_each_other() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let target = append.intern(TyKind::Nominal {
         def_id: GlobalDefId {
@@ -1601,7 +1601,7 @@ fn cyclic_impl_where_predicates_do_not_prove_each_other() {
 fn cyclic_where_goal_guard_uses_semantic_const_identity() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let usize_ty = append.primitive(PrimitiveTy::Usize);
     let target_def = GlobalDefId {
@@ -1688,7 +1688,7 @@ fn cyclic_where_goal_guard_uses_semantic_const_identity() {
 fn associated_projection_guard_uses_semantic_goal_identity() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let usize_ty = append.primitive(PrimitiveTy::Usize);
     let target_def = GlobalDefId {
@@ -1760,7 +1760,7 @@ fn projection_equivalence_guard_uses_semantic_pair_identity() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let left_module = module_ids.allocate().expect("allocate module ID");
     let right_module = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);
     let left_usize = left.primitive(PrimitiveTy::Usize);
@@ -1816,7 +1816,7 @@ fn projection_equivalence_guard_uses_semantic_pair_identity() {
 fn array_layout_builtin_equivalence_recurses_through_operand_types() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let usize_ty = append.primitive(PrimitiveTy::Usize);
     let u8_ty = append.primitive(PrimitiveTy::U8);
@@ -1886,7 +1886,7 @@ fn array_layout_builtin_equivalence_recurses_through_operand_types() {
 fn projection_equivalence_recurses_through_tuple_elements() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let usize_ty = append.primitive(PrimitiveTy::Usize);
     let trait_id = TraitId::Source(GlobalDefId {

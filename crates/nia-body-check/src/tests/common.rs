@@ -301,7 +301,7 @@ fn pipeline_with_options_and_trait_impls(
         type_resolved.diagnostics
     );
     let item_tree = ModuleItemTree::from_module(&module);
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let program_defs = HashMap::from([(module_id, std::sync::Arc::new(defs.clone()))]);
     let defs_by_module = |module_id| program_defs.get(&module_id).cloned();
     let lowered = lower_module_types_from_item_tree_with_context(

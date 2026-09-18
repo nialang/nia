@@ -1575,7 +1575,7 @@ mod tests {
     ) -> crate::ExtensionTraitMethodCandidate {
         let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let type_store = nia_ty::TypeStore::new();
+        let type_store = nia_ty::TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
         let ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize));
         crate::ExtensionTraitMethodCandidate {

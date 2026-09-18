@@ -2446,7 +2446,7 @@ mod owner_tests {
                 .expect("create module ID allocator")
                 .allocate()
                 .expect("allocate module ID");
-            let type_store = TypeStore::new();
+            let type_store = TypeStore::new().expect("create type store");
             let interner = type_store.append_for_module(module_id);
             let return_type = interner.primitive(PrimitiveTy::I32);
             drop(interner);
@@ -2583,7 +2583,10 @@ mod owner_tests {
         let store =
             Arc::new(BackendModuleStore::new([module_id]).expect("create backend module store"));
         store.publish(module).expect("publish backend module");
-        let (index, mut publisher) = ProgramIndex::new(store, Arc::new(TypeStore::new()));
+        let (index, mut publisher) = ProgramIndex::new(
+            store,
+            Arc::new(TypeStore::new().expect("create type store")),
+        );
         publisher.publish(module_id).expect("publish module");
         let unit = CodegenUnitId::SourceModule {
             module_id,
@@ -2622,7 +2625,7 @@ mod owner_tests {
     fn vtable_symbol_uses_evaluated_array_lengths() {
         let modules = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = modules.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(module_id);
         let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
         let left_expr = GlobalConstExprId {

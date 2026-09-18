@@ -849,10 +849,9 @@ mod tests {
         static TYPE_STORE: std::sync::OnceLock<(nia_ty::TypeStore, nia_ids::ModuleId)> =
             std::sync::OnceLock::new();
         TYPE_STORE.get_or_init(|| {
-            let module_ids =
-                nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+            let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
             (
-                nia_ty::TypeStore::new(),
+                nia_ty::TypeStore::new().expect("create type store"),
                 module_ids.allocate().expect("allocate module ID"),
             )
         })

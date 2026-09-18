@@ -213,7 +213,7 @@ fn consume(packet: Packet[u8, 2, u16]) () {}
         (consuming_module_id, Arc::new(consuming_defs.clone())),
     ]);
     let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let lowered = lower_module_types_with_context(
         consuming_module_id,
         &consuming_module,

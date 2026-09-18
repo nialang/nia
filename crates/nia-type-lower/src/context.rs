@@ -241,7 +241,7 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
         let const_ty = append.primitive(PrimitiveTy::Usize);
         let left_expr = GlobalConstExprId {
@@ -298,7 +298,7 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
         let const_ty = append.primitive(PrimitiveTy::Usize);
         let def_id = GlobalDefId {

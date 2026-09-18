@@ -686,7 +686,7 @@ mod tests {
     fn const_expression_metadata_contributes_type_owner_modules() {
         let modules = ModuleIdAllocator::new().expect("create module ID allocator");
         let const_owner = modules.allocate().expect("allocate module ID");
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(const_owner)
             .primitive(PrimitiveTy::Usize);
@@ -732,7 +732,7 @@ mod tests {
             module_id: leaf_module,
             def_id: nia_defs::DefId(3),
         };
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(use_module);
         let backing = append.primitive(PrimitiveTy::U8);
         let leaf_ty = append.intern(TyKind::Nominal {

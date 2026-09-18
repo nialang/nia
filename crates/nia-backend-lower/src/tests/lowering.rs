@@ -45,7 +45,7 @@ fn main() i32 {
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module);
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let type_lowering = lower_module_types_with_context(
         module_id,
         &module,

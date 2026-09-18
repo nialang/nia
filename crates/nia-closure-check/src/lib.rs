@@ -2098,6 +2098,7 @@ mod tests {
             stmts: Vec::new(),
             tail: None,
             ty: nia_ty::TypeStore::new()
+                .expect("create type store")
                 .append_for_module(module)
                 .intern(TyKind::Tuple(Vec::new())),
         };
@@ -2176,7 +2177,7 @@ mod tests {
             module_id,
             def_id: DefId(1),
         };
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
         let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
         let ty = append.intern(TyKind::Callable {
@@ -2254,7 +2255,7 @@ mod tests {
             def_id: DefId(1),
         };
         let closure_id = ClosureId { owner, ordinal: 0 };
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
         let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
         let ty = append.intern(TyKind::Callable {
@@ -2366,7 +2367,7 @@ mod tests {
             def_id: DefId(1),
         };
         let closure_id = ClosureId { owner, ordinal: 0 };
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
         let callable_ty = append.intern(TyKind::Callable {
             is_readonly: true,
@@ -2440,7 +2441,7 @@ mod tests {
             def_id: DefId(1),
         };
         let closure_id = ClosureId { owner, ordinal: 0 };
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
         let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
         let bool_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Bool));
@@ -2538,7 +2539,7 @@ mod tests {
             def_id: DefId(1),
         };
         let closure_id = ClosureId { owner, ordinal: 0 };
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
         let i32_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::I32));
         let pair_ty = append.intern(TyKind::Tuple(vec![i32_ty, i32_ty]));
@@ -2565,7 +2566,7 @@ mod tests {
             def_id: DefId(1),
         };
         let closure_id = ClosureId { owner, ordinal: 0 };
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
         let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
         let callable_ty = append.intern(TyKind::Callable {
@@ -2654,7 +2655,7 @@ mod tests {
             def_id: DefId(1),
         };
         let closure_id = ClosureId { owner, ordinal: 0 };
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
         let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
         let callable_ty = append.intern(TyKind::Callable {
@@ -2728,7 +2729,7 @@ mod tests {
             def_id: DefId(1),
         };
         let closure_id = ClosureId { owner, ordinal: 0 };
-        let types = TypeStore::new();
+        let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
         let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
         let callable_ty = append.intern(TyKind::Callable {

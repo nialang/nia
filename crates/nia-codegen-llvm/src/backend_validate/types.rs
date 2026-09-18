@@ -792,7 +792,7 @@ mod tests {
     fn validate_type_accepts_registered_owner_before_index_publication() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let owner = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(owner);
         let ty = interner.primitive(PrimitiveTy::I32);
         let nominal = interner.intern(TyKind::Nominal {
@@ -825,7 +825,7 @@ mod tests {
     fn validate_type_accepts_registered_owner_before_payload_write() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let owner = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(owner);
         let nominal = interner.intern(TyKind::Nominal {
             def_id: GlobalDefId {
@@ -855,7 +855,7 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let owner = module_ids.allocate().expect("allocate module ID");
         let foreign = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(owner);
         let ty = interner.primitive(PrimitiveTy::I32);
         drop(interner);
@@ -895,7 +895,7 @@ mod tests {
     fn validate_array_len_defers_for_registered_unwritten_owner() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let owner = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let store =
             Arc::new(BackendModuleStore::new([owner]).expect("create backend module store"));
         let (index, _publisher) = ProgramIndex::new(store, Arc::new(type_store));
@@ -915,7 +915,7 @@ mod tests {
     fn validate_array_len_reads_written_owner_before_index_publication() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let owner = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let len_id = GlobalConstExprId {
             module_id: owner,
             const_expr_id: ConstExprId(0),
@@ -942,7 +942,7 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let left_module = module_ids.allocate().expect("allocate module ID");
         let right_module = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let left_ty = {
             let interner = type_store.append_for_module(left_module);
             interner.primitive(PrimitiveTy::I32)
@@ -1012,7 +1012,7 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let owner = module_ids.allocate().expect("allocate module ID");
         let foreign = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let store =
             Arc::new(BackendModuleStore::new([owner]).expect("create backend module store"));
         let (index, _publisher) = ProgramIndex::new(store, Arc::new(type_store));
@@ -1037,7 +1037,7 @@ mod tests {
     fn validate_const_arg_rejects_generic_parameter_value() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let owner = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(owner);
         let ty = interner.primitive(PrimitiveTy::I32);
         drop(interner);

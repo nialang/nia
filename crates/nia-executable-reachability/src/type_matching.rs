@@ -1600,7 +1600,7 @@ mod tests {
     #[test]
     fn nominal_pattern_recovers_type_and_const_arguments() {
         let module_id = module();
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
         let usize_ty = append.primitive(PrimitiveTy::Usize);
         let i32_ty = append.primitive(PrimitiveTy::I32);
@@ -1666,7 +1666,7 @@ mod tests {
     #[test]
     fn repeated_const_pattern_rejects_conflicting_values() {
         let module_id = module();
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
         let usize_ty = append.primitive(PrimitiveTy::Usize);
         let const_name = symbol("N");
@@ -1720,7 +1720,7 @@ mod tests {
     #[test]
     fn repeated_const_pattern_compares_integer_values_semantically() {
         let module_id = module();
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
         let usize_ty = append.primitive(PrimitiveTy::Usize);
         let const_name = symbol("N");
@@ -1785,7 +1785,7 @@ mod tests {
     #[test]
     fn array_pattern_accepts_builtin_length_without_fabricating_const_value() {
         let module_id = module();
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
         let usize_ty = append.primitive(PrimitiveTy::Usize);
         let i32_ty = append.primitive(PrimitiveTy::I32);
@@ -1831,7 +1831,7 @@ mod tests {
     #[test]
     fn array_pattern_infers_type_from_builtin_length_operand() {
         let module_id = module();
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
         let i32_ty = append.primitive(PrimitiveTy::I32);
         let generic_name = symbol("T");
@@ -1879,7 +1879,7 @@ mod tests {
     #[test]
     fn recovery_types_only_match_the_same_recovery_kind() {
         let module_id = module();
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
         let error = append.error();
         let const_only = append.intern(TyKind::ConstOnly);
@@ -1915,7 +1915,7 @@ mod tests {
     #[test]
     fn composite_pattern_mismatch_does_not_leak_early_substitutions() {
         let module_id = module();
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
         let i32_ty = append.primitive(PrimitiveTy::I32);
         let i64_ty = append.primitive(PrimitiveTy::I64);
@@ -1945,7 +1945,7 @@ mod tests {
     #[test]
     fn substitution_descends_into_closures_and_array_lengths() {
         let module_id = module();
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
         let usize_ty = append.primitive(PrimitiveTy::Usize);
         let i32_ty = append.primitive(PrimitiveTy::I32);
@@ -2011,8 +2011,8 @@ mod tests {
     #[test]
     fn trait_object_equivalence_matches_duplicate_binding_keys_by_value() {
         let module_id = module();
-        let left = TypeStore::new();
-        let right = TypeStore::new();
+        let left = TypeStore::new().expect("create type store");
+        let right = TypeStore::new().expect("create type store");
         let left_append = left.append_for_module(module_id);
         let right_append = right.append_for_module(module_id);
         let left_i32 = left_append.primitive(PrimitiveTy::I32);
@@ -2078,8 +2078,8 @@ mod tests {
     #[test]
     fn composite_equivalence_recurses_through_tuple_elements() {
         let module_id = module();
-        let left = TypeStore::new();
-        let right = TypeStore::new();
+        let left = TypeStore::new().expect("create type store");
+        let right = TypeStore::new().expect("create type store");
         let left_append = left.append_for_module(module_id);
         let right_append = right.append_for_module(module_id);
         let left_usize = left_append.primitive(PrimitiveTy::Usize);

@@ -706,7 +706,8 @@ mod tests {
 
     fn test_ty(index: u32) -> InternedTyId {
         static TYPE_STORE: std::sync::OnceLock<nia_ty::TypeStore> = std::sync::OnceLock::new();
-        let type_store = TYPE_STORE.get_or_init(nia_ty::TypeStore::new);
+        let type_store =
+            TYPE_STORE.get_or_init(|| nia_ty::TypeStore::new().expect("create type store"));
         InternedTyId::new(type_store.id(), TypeStoreIndex::from_store_index(index))
     }
 }

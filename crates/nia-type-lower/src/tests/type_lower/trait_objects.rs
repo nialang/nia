@@ -71,7 +71,7 @@ fn duplicate(source: &Source[Item = i32, Item = bool]) () {}
     );
     let program_defs = HashMap::from([(module_id, Arc::new(defs.clone()))]);
     let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
-    let type_store = nia_ty::TypeStore::new();
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
     let lowered = lower_module_types_with_context(
         module_id,
         &module,

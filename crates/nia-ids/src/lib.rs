@@ -155,7 +155,7 @@ pub struct TypeStoreId(u32);
 
 impl TypeStoreId {
     #[doc(hidden)]
-    pub fn fresh() -> Self {
+    pub fn fresh() -> nia_ice::IceResult<Self> {
         use std::sync::atomic::{AtomicU32, Ordering};
 
         static NEXT_TYPE_STORE_ID: AtomicU32 = AtomicU32::new(1);
@@ -163,8 +163,8 @@ impl TypeStoreId {
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |index| {
                 index.checked_add(1)
             })
-            .expect("type store identity space exhausted");
-        Self(index)
+            .map_err(|_| nia_ice::Ice::new("type store identity space exhausted"))?;
+        Ok(Self(index))
     }
 }
 

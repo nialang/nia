@@ -174,7 +174,7 @@ fn bodyless_non_extern_functions_require_builtin_attribute() {
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module);
     let resolved = resolve_module_types(&module, &defs);
-    let type_store = TypeStore::new();
+    let type_store = TypeStore::new().expect("create type store");
     let lowering = lower_module_types_with_context(
         module_id,
         &module,

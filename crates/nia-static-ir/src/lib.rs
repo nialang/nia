@@ -314,7 +314,7 @@ mod tests {
             module_id,
             def_id: DefId(0),
         };
-        let types = nia_ty::TypeStore::new();
+        let types = nia_ty::TypeStore::new().expect("create type store");
         let arg = types
             .append_for_module(module_id)
             .primitive(nia_ty::PrimitiveTy::Usize);
@@ -352,7 +352,7 @@ mod tests {
             module_id,
             def_id: DefId(0),
         };
-        let types = nia_ty::TypeStore::new();
+        let types = nia_ty::TypeStore::new().expect("create type store");
         let arg_ty = types
             .append_for_module(module_id)
             .primitive(nia_ty::PrimitiveTy::Usize);

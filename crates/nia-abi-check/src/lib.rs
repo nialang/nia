@@ -943,7 +943,7 @@ extern fn bad_callable_pointee(callback: Fn(i32) i32);
         let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
             module_id,
             &module,
@@ -1000,7 +1000,7 @@ extern fn consume(header: Header);
         let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
             module_id,
             &module,
@@ -1032,7 +1032,7 @@ extern struct Header[N: usize] {
         let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
             module_id,
             &module,
@@ -1064,7 +1064,7 @@ extern struct Header[N: usize] {
         let module_id = module_ids.allocate().expect("allocate module ID");
         let foreign_module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
         let type_name = SymbolId::from_stable_hash(stable_hash("T"));
         let const_name = SymbolId::from_stable_hash(stable_hash("N"));
@@ -1202,7 +1202,7 @@ extern fn effect() Unit;
         let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
             module_id,
             &module,
@@ -1244,7 +1244,7 @@ extern struct Header { values: Repeat[bool, 4] }
         let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let program_defs =
             |requested| (requested == module_id).then(|| std::sync::Arc::new(defs.clone()));
         let lowered = lower_module_types_with_context(
@@ -1299,7 +1299,7 @@ extern fn bad_return() (i32, bool);
         let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
             module_id,
             &module,
@@ -1332,7 +1332,7 @@ extern fn bad_return() (i32, bool);
         use nia_layout::TargetDataLayout;
         use nia_ty::PrimitiveTy;
 
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let module = ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()
@@ -1369,7 +1369,7 @@ extern fn bad_return() (i32, bool);
         use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
         use nia_layout::TargetDataLayout;
 
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let module = ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()
@@ -1413,7 +1413,7 @@ extern fn bad_return() (i32, bool);
         use nia_layout::TargetDataLayout;
         use nia_ty::PrimitiveTy;
 
-        let store = TypeStore::new();
+        let store = TypeStore::new().expect("create type store");
         let module = ModuleIdAllocator::new()
             .expect("create module ID allocator")
             .allocate()

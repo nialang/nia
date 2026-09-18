@@ -413,7 +413,7 @@ mod tests {
     fn program_ir_indexes_borrow_query_owned_payloads() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let type_store = TypeStore::new();
+        let type_store = TypeStore::new().expect("create type store");
         let ty = type_store
             .append_for_module(module_id)
             .intern(TyKind::Primitive(PrimitiveTy::I32));
