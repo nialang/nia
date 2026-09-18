@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 #[test]
 fn resolves_locals_from_active_item_tree_only() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 @[if false]
@@ -49,8 +49,8 @@ value
 
 #[test]
 fn filtered_local_resolution_preserves_full_tree_local_ids() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 fn unused(a: i32) i32 {

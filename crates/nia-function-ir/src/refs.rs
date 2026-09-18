@@ -756,9 +756,9 @@ mod tests {
 
     #[test]
     fn traverses_nested_typed_value_references() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
-        let arg_module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
+        let arg_module_id = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new();
         let ty = types
             .append_for_module(module_id)
@@ -990,8 +990,8 @@ mod tests {
 
     #[test]
     fn trait_callees_retain_method_const_argument_types() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new();
         let append = types.append_for_module(module_id);
         let receiver_ty = append.primitive(PrimitiveTy::U8);
@@ -1070,7 +1070,10 @@ mod tests {
 
     #[test]
     fn array_len_does_not_retain_unevaluated_receiver_value() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let types = TypeStore::new();
         let append = types.append_for_module(module_id);
         let elem_ty = append.primitive(PrimitiveTy::U8);
@@ -1129,8 +1132,8 @@ mod tests {
 
     #[test]
     fn instance_keys_ignore_reference_spans() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let def_id = global(module_id, 1);
         let types = TypeStore::new();
         let ty = types
@@ -1152,8 +1155,8 @@ mod tests {
 
     #[test]
     fn union_storage_relocation_pointee_participates_in_reachability() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new();
         let ty = types
             .append_for_module(module_id)
@@ -1204,7 +1207,10 @@ mod tests {
 
     #[test]
     fn error_nodes_are_reported_without_panicking_reference_traversal() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let types = TypeStore::new();
         let ty = types
             .append_for_module(module_id)

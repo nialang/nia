@@ -153,7 +153,8 @@ fn stable_graph_relations_remap_fork_local_module_handles() {
         new_fixture.add_child(entry, "child", "main/child.nia", "pub fn value() i32 { 1 }");
     let old_root = old_fixture
         .graph
-        .intern_package_root(&package, SourcePath::new("pkg/root.nia"));
+        .intern_package_root(&package, SourcePath::new("pkg/root.nia"))
+        .expect("intern old package root");
     old_fixture.modules.push(loaded_module(
         old_root,
         "pkg/root.nia",
@@ -161,7 +162,8 @@ fn stable_graph_relations_remap_fork_local_module_handles() {
     ));
     let new_root = new_fixture
         .graph
-        .intern_package_root(&package, SourcePath::new("pkg/root.nia"));
+        .intern_package_root(&package, SourcePath::new("pkg/root.nia"))
+        .expect("intern new package root");
     new_fixture.modules.push(loaded_module(
         new_root,
         "pkg/root.nia",
@@ -227,7 +229,8 @@ fn stable_source_identity_with_new_module_id_invalidates_old_key_and_recomputes_
     let mut new_fixture = LoadedProgramFixture::new("bootstrap.nia", "");
     let new_module_id = new_fixture
         .graph
-        .intern_package_root(&sym("replacement"), SourcePath::new("main.nia"));
+        .intern_package_root(&sym("replacement"), SourcePath::new("main.nia"))
+        .expect("intern replacement package root");
     new_fixture.graph.mark_process_used_paths(new_module_id);
     new_fixture.modules = vec![loaded_module(new_module_id, "main.nia", source)];
     let new_program = new_fixture.program();

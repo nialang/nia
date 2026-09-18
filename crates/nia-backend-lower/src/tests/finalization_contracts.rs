@@ -14,7 +14,10 @@ fn module_finalization_task_contract_is_send_and_sync() {
 
 #[test]
 fn collector_reports_missing_module_completion() {
-    let module_id = ModuleIdAllocator::new().allocate();
+    let module_id = ModuleIdAllocator::new()
+        .expect("create module ID allocator")
+        .allocate()
+        .expect("allocate module ID");
     let finalization = BackendItemPlanFinalization {
         optimization: OptimizationPolicy::default(),
         optimization_report: BackendOptimizationReport::default(),
@@ -75,9 +78,9 @@ fn module_finalizations_merge_in_program_order() {
         }
     }
 
-    let mut module_ids = ModuleIdAllocator::new();
-    let first = module_ids.allocate();
-    let second = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let first = module_ids.allocate().expect("allocate module ID");
+    let second = module_ids.allocate().expect("allocate module ID");
     let finalization = BackendItemPlanFinalization {
         optimization: OptimizationPolicy::default(),
         optimization_report: BackendOptimizationReport::default(),
@@ -170,9 +173,9 @@ fn module_finalizations_merge_in_program_order() {
 
 #[test]
 fn foreign_backend_item_plan_groups_and_orders_source_functions_by_owner() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let entry = module_ids.allocate();
-    let child = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let entry = module_ids.allocate().expect("allocate module ID");
+    let child = module_ids.allocate().expect("allocate module ID");
     let entry_low = GlobalDefId {
         module_id: entry,
         def_id: DefId(1),
@@ -201,8 +204,8 @@ fn foreign_backend_item_plan_groups_and_orders_source_functions_by_owner() {
 
 #[test]
 fn foreign_backend_item_plan_reports_missing_owner_module() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let missing = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let missing = module_ids.allocate().expect("allocate module ID");
     let mut pending = PendingForeignBackendItems::default();
     pending.functions.push_back(GlobalDefId {
         module_id: missing,

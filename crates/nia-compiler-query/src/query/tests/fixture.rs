@@ -40,7 +40,8 @@ pub(super) struct LoadedProgramFixture {
 impl LoadedProgramFixture {
     pub(super) fn new(entry_path: &str, source: &str) -> Self {
         let graph =
-            ModuleGraph::with_symbol_text(SourcePath::new(entry_path), Arc::new(test_symbols()));
+            ModuleGraph::with_symbol_text(SourcePath::new(entry_path), Arc::new(test_symbols()))
+                .expect("create module graph");
         let entry_id = graph.entry();
         Self {
             graph,
@@ -126,7 +127,8 @@ impl LoadedProgramFixture {
             SourcePath::with_identity("runtime/pkg.nia", "toolchain:/runtime/pkg.nia");
         let runtime_root = self
             .graph
-            .intern_runtime_package_root(runtime_root_path.clone());
+            .intern_runtime_package_root(runtime_root_path.clone())
+            .expect("intern runtime package root");
         self.modules.push(loaded_module_with_source_path(
             runtime_root,
             runtime_root_path,

@@ -1636,9 +1636,9 @@ mod tests {
 
     #[test]
     fn layout_queries_reject_same_local_definition_from_foreign_module() {
-        let mut modules = ModuleIdAllocator::new();
-        let owner = modules.allocate();
-        let foreign_module = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let owner = modules.allocate().expect("allocate module ID");
+        let foreign_module = modules.allocate().expect("allocate module ID");
         let def_id = nia_defs::DefId(7);
         let layout = TypeLayout { size: 4, align: 4 };
         let struct_layout = StructLayout {

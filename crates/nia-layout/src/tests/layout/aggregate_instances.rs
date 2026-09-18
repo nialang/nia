@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn computes_separate_generic_struct_instance_layouts() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
 struct ArrayBox[T] {
@@ -73,8 +73,8 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
 
 #[test]
 fn computes_union_layouts() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
 union Bits[T] {

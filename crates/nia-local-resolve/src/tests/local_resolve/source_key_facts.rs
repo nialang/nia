@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn records_local_facts_by_source_versioned_node_keys() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let version = SourceVersion {
         id: SourceId(4),
         revision: SourceRevision(2),
@@ -37,8 +37,8 @@ x
 
 #[test]
 fn records_local_facts_by_red_child_path_origins() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let version = SourceVersion {
         id: SourceId(5),
         revision: SourceRevision(1),

@@ -1351,9 +1351,9 @@ mod tests {
 
     #[test]
     fn publishes_ready_modules_out_of_order_for_concurrent_readers() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let first = module_ids.allocate();
-        let second = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let first = module_ids.allocate().expect("allocate module ID");
+        let second = module_ids.allocate().expect("allocate module ID");
         let first_def = global(first, 1);
         let second_def = global(second, 1);
         let type_store = TypeStore::new();
@@ -1416,9 +1416,9 @@ mod tests {
 
     #[test]
     fn target_layout_iteration_includes_unpublished_modules() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let first = module_ids.allocate();
-        let second = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let first = module_ids.allocate().expect("allocate module ID");
+        let second = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let interner = type_store.append_for_module(first);
         let first_ty = interner.primitive(PrimitiveTy::I32);
@@ -1452,10 +1452,10 @@ mod tests {
     /// merely mid-lowering.
     #[test]
     fn separates_registered_written_and_published_module_states() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let written = module_ids.allocate();
-        let unwritten = module_ids.allocate();
-        let foreign = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let written = module_ids.allocate().expect("allocate module ID");
+        let unwritten = module_ids.allocate().expect("allocate module ID");
+        let foreign = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let interner = type_store.append_for_module(written);
         let ty = interner.primitive(PrimitiveTy::I32);
@@ -1494,9 +1494,9 @@ mod tests {
     /// partition became ready before the last module finished lowering.
     #[test]
     fn target_layout_iteration_skips_registered_but_unwritten_modules() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let first = module_ids.allocate();
-        let second = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let first = module_ids.allocate().expect("allocate module ID");
+        let second = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let interner = type_store.append_for_module(first);
         let first_ty = interner.primitive(PrimitiveTy::I32);
@@ -1519,9 +1519,9 @@ mod tests {
 
     #[test]
     fn indexes_codegen_lookup_tables_by_exact_keys_and_fallback_groups() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let semantic_module_id = module_ids.allocate();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let semantic_module_id = module_ids.allocate().expect("allocate module ID");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let interner = type_store.append_for_module(module_id);
         let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -1765,9 +1765,9 @@ mod tests {
 
     #[test]
     fn instance_lookup_matches_semantically_equal_rebuilt_arguments() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let owner_module = module_ids.allocate();
-        let argument_module = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let owner_module = module_ids.allocate().expect("allocate module ID");
+        let argument_module = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let owner_append = type_store.append_for_module(owner_module);
         let argument_append = type_store.append_for_module(argument_module);
@@ -1974,9 +1974,9 @@ mod tests {
 
     #[test]
     fn indexed_nominal_positions_require_the_definition_module_owner() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let owner = module_ids.allocate();
-        let foreign = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let owner = module_ids.allocate().expect("allocate module ID");
+        let foreign = module_ids.allocate().expect("allocate module ID");
         let position = ItemPosition {
             module: owner,
             item: 0,
@@ -1994,8 +1994,8 @@ mod tests {
 
     #[test]
     fn resolves_types_without_a_program_module_view() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let ty = {
             let interner = type_store.append_for_module(module_id);
@@ -2019,9 +2019,9 @@ mod tests {
 
     #[test]
     fn type_equivalence_matches_evaluated_array_lengths_across_expression_owners() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let left_module = module_ids.allocate();
-        let right_module = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let left_module = module_ids.allocate().expect("allocate module ID");
+        let right_module = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let left_expr = nia_ids::GlobalConstExprId {
             module_id: left_module,

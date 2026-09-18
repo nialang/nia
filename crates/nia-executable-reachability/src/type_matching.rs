@@ -1591,7 +1591,10 @@ mod tests {
     }
 
     fn module() -> ModuleId {
-        ModuleIdAllocator::new().allocate()
+        ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID")
     }
 
     #[test]

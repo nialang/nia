@@ -61,8 +61,8 @@ fn module_with_global(
 
 #[test]
 fn closure_entry_keys_distinguish_source_and_concrete_instance_owners() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let owner = GlobalDefId {
         module_id,
         def_id: DefId(7),
@@ -89,8 +89,8 @@ fn closure_entry_keys_distinguish_source_and_concrete_instance_owners() {
 
 #[test]
 fn backend_layout_conversion_uses_the_layout_product_owner() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let owner = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let owner = module_ids.allocate().expect("allocate module ID");
     let def_id = DefId(7);
     let layout = nia_layout::StructLayout {
         layout: nia_layout::TypeLayout { size: 4, align: 4 },
@@ -121,8 +121,8 @@ fn backend_layout_conversion_uses_the_layout_product_owner() {
 
 #[test]
 fn partitioning_defers_dangling_closure_instance_owners_to_validation() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let ty = type_store
         .append_for_module(module_id)
@@ -182,9 +182,9 @@ fn partitioning_defers_dangling_closure_instance_owners_to_validation() {
 
 #[test]
 fn owner_directory_records_actual_instance_publication_module() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let semantic_owner = module_ids.allocate();
-    let publication_owner = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let semantic_owner = module_ids.allocate().expect("allocate module ID");
+    let publication_owner = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let ty = type_store
         .append_for_module(semantic_owner)
@@ -224,10 +224,10 @@ fn owner_directory_records_actual_instance_publication_module() {
 
 #[test]
 fn codegen_partitions_are_definition_filtered_and_stable_key_ordered() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let first_id = module_ids.allocate();
-    let declaration_id = module_ids.allocate();
-    let second_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let first_id = module_ids.allocate().expect("allocate module ID");
+    let declaration_id = module_ids.allocate().expect("allocate module ID");
+    let second_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let first_ty = type_store
         .append_for_module(first_id)
@@ -301,8 +301,8 @@ fn codegen_partitions_are_definition_filtered_and_stable_key_ordered() {
 
 #[test]
 fn codegen_partition_membership_canonicalizes_instance_order() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let ty = type_store
         .append_for_module(module_id)
@@ -344,9 +344,9 @@ fn codegen_partition_membership_canonicalizes_instance_order() {
 
 #[test]
 fn codegen_partition_order_does_not_depend_on_module_id_allocation() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let z_id = module_ids.allocate();
-    let a_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let z_id = module_ids.allocate().expect("allocate module ID");
+    let a_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let z_ty = type_store
         .append_for_module(z_id)
@@ -368,8 +368,8 @@ fn codegen_partition_order_does_not_depend_on_module_id_allocation() {
 
 #[test]
 fn large_source_modules_use_stable_bounded_definition_buckets() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let ty = type_store
         .append_for_module(module_id)
@@ -414,9 +414,9 @@ fn codegen_bucket_assignment_uses_full_stable_numeric_width() {
 #[test]
 #[should_panic(expected = "duplicate stable codegen partition key")]
 fn codegen_partition_plan_rejects_duplicate_stable_source_keys() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let first_id = module_ids.allocate();
-    let second_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let first_id = module_ids.allocate().expect("allocate module ID");
+    let second_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let first_ty = type_store
         .append_for_module(first_id)
@@ -436,9 +436,9 @@ fn codegen_partition_plan_rejects_duplicate_stable_source_keys() {
 #[test]
 #[should_panic(expected = "duplicate trait-object vtable definition")]
 fn codegen_partition_plan_rejects_duplicate_vtable_definitions() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let first_id = module_ids.allocate();
-    let second_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let first_id = module_ids.allocate().expect("allocate module ID");
+    let second_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let ty = type_store
         .append_for_module(first_id)
@@ -470,8 +470,8 @@ fn codegen_partition_plan_rejects_duplicate_vtable_definitions() {
 #[test]
 #[should_panic(expected = "codegen partition plan does not match")]
 fn codegen_partition_plan_rejects_definition_membership_mutation() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let ty = type_store
         .append_for_module(module_id)
@@ -488,9 +488,9 @@ fn codegen_partition_plan_rejects_definition_membership_mutation() {
 
 #[test]
 fn codegen_unit_dependencies_preserve_unit_and_canonicalize_modules() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let first_id = module_ids.allocate();
-    let second_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let first_id = module_ids.allocate().expect("allocate module ID");
+    let second_id = module_ids.allocate().expect("allocate module ID");
     let unit = CodegenUnitId::SourceModule {
         module_id: first_id,
         ordinal: 2,
@@ -507,8 +507,8 @@ fn codegen_unit_dependencies_preserve_unit_and_canonicalize_modules() {
 #[test]
 #[should_panic(expected = "dependency modules must include its owner")]
 fn codegen_unit_dependencies_reject_empty_module_sets() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
 
     let _ = CodegenUnitDependencies::new(
         CodegenUnitId::SourceModule {
@@ -521,9 +521,9 @@ fn codegen_unit_dependencies_reject_empty_module_sets() {
 
 #[test]
 fn backend_module_store_publishes_concurrently_without_moving_payloads() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let first_id = module_ids.allocate();
-    let second_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let first_id = module_ids.allocate().expect("allocate module ID");
+    let second_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let first_ty = type_store
         .append_for_module(first_id)
@@ -568,8 +568,8 @@ fn backend_module_store_publishes_concurrently_without_moving_payloads() {
 
 #[test]
 fn backend_module_store_rejects_duplicate_registered_owners() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
 
     let error = BackendModuleStore::new([module_id, module_id])
         .expect_err("duplicate owners must be rejected");
@@ -578,8 +578,8 @@ fn backend_module_store_rejects_duplicate_registered_owners() {
 
 #[test]
 fn backend_module_store_rejects_duplicate_publication() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let ty = type_store
         .append_for_module(module_id)
@@ -597,9 +597,9 @@ fn backend_module_store_rejects_duplicate_publication() {
 
 #[test]
 fn backend_module_store_rejects_unregistered_owner() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let registered = module_ids.allocate();
-    let unregistered = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let registered = module_ids.allocate().expect("allocate module ID");
+    let unregistered = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let ty = type_store
         .append_for_module(unregistered)
@@ -616,9 +616,9 @@ fn backend_module_store_rejects_unregistered_owner() {
 
 #[test]
 fn backend_module_readiness_delivers_publish_order_and_terminal_state() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let first_id = module_ids.allocate();
-    let second_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let first_id = module_ids.allocate().expect("allocate module ID");
+    let second_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let first_ty = type_store
         .append_for_module(first_id)

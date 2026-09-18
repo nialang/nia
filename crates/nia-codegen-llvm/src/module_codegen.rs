@@ -997,9 +997,9 @@ mod tests {
 
     #[test]
     fn missing_module_mangle_path_is_stable_and_distinct() {
-        let mut modules = ModuleIdAllocator::new();
-        let first = modules.allocate();
-        let second = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let first = modules.allocate().expect("allocate module ID");
+        let second = modules.allocate().expect("allocate module ID");
 
         assert_eq!(
             mangle_module_id_path(first, None).raw(),

@@ -15,7 +15,7 @@ use crate::{LoaderContext, RuntimeSpec, runtime_package_root_path};
 use nia_compiler_query::{ProgramDiagnostic, ProgramDiagnosticBundles};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
-    ModuleGraph, ModuleGraphSnapshot, ModuleNode, ResolvedModuleDeclaration,
+    ModuleGraph, ModuleGraphError, ModuleGraphSnapshot, ModuleNode, ResolvedModuleDeclaration,
     module_declaration_visibility_allows,
 };
 use nia_query::{QueryDb, QueryError, QueryKey, QueryResult};
@@ -37,6 +37,21 @@ impl From<QueryError> for TraversalError {
 impl From<Diagnostic> for TraversalError {
     fn from(diagnostic: Diagnostic) -> Self {
         Self::Diagnostic(diagnostic)
+    }
+}
+
+impl From<nia_ice::Ice> for TraversalError {
+    fn from(ice: nia_ice::Ice) -> Self {
+        Self::Query(ice.into())
+    }
+}
+
+impl From<ModuleGraphError> for TraversalError {
+    fn from(error: ModuleGraphError) -> Self {
+        match error {
+            ModuleGraphError::Diagnostic(diagnostic) => Self::Diagnostic(diagnostic),
+            ModuleGraphError::Internal(ice) => Self::Query(ice.into()),
+        }
     }
 }
 
@@ -158,8 +173,8 @@ fn build_module_graph(
                     db.context().entry_path.clone(),
                     std::sync::Arc::new(db.context().symbols.clone()),
                 ),
-            };
-            inject_entry_runtime(db, &mut graph);
+            }?;
+            inject_entry_runtime(db, &mut graph)?;
             (
                 graph,
                 ProgramDiagnosticBundles::from_diagnostics_in(
@@ -180,7 +195,7 @@ fn build_module_graph(
             if graph.package_root(package).is_none()
                 && let Some(path) = db.context().module_map.get_name(package)
             {
-                graph.intern_package_root(package, path.clone());
+                graph.intern_package_root(package, path.clone())?;
             }
         }
         if should_eager_add_declarations(db.context(), &node) {
@@ -275,7 +290,7 @@ fn process_semantic_module_dependencies(
         if graph.package_root(package).is_none()
             && let Some(path) = db.context().module_map.get_name(package)
         {
-            graph.intern_package_root(package, path.clone());
+            graph.intern_package_root(package, path.clone())?;
         }
     }
     for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
@@ -482,7 +497,7 @@ fn activate_package_facade(
         if graph.package_root(package).is_none()
             && let Some(path) = db.context().module_map.get_name(package)
         {
-            graph.intern_package_root(package, path.clone());
+            graph.intern_package_root(package, path.clone())?;
         }
     }
     for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
@@ -522,7 +537,7 @@ pub(crate) fn mark_process_used_paths_and_process(
         if graph.package_root(package).is_none()
             && let Some(path) = db.context().module_map.get_name(package)
         {
-            graph.intern_package_root(package, path.clone());
+            graph.intern_package_root(package, path.clone())?;
         }
     }
     for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
@@ -752,14 +767,18 @@ fn add_declared_module_child_with_processing(
     )?)
 }
 
-fn inject_entry_runtime(db: &QueryDb<LoaderContext>, graph: &mut ModuleGraph) {
+fn inject_entry_runtime(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+) -> nia_ice::IceResult<()> {
     match &db.context().runtime {
         RuntimeSpec::Bare => {}
         RuntimeSpec::Source(runtime) => {
             let runtime_root_path = runtime_package_root_path(runtime);
-            let runtime_root = graph.intern_runtime_package_root(runtime_root_path);
+            let runtime_root = graph.intern_runtime_package_root(runtime_root_path)?;
             graph.mark_process_declared_children(runtime_root);
             graph.mark_executable_root_subtree(runtime_root);
         }
     }
+    Ok(())
 }

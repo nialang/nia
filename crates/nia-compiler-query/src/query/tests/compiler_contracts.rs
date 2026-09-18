@@ -524,9 +524,9 @@ fn stable_module_index_keeps_package_identity_in_the_lookup_key() {
         version: "1.0.0".into(),
     };
     let mut index = StableModuleIndex::new();
-    let mut allocator = nia_ids::ModuleIdAllocator::new();
-    let first_module = allocator.allocate();
-    let second_module = allocator.allocate();
+    let allocator = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let first_module = allocator.allocate().expect("allocate module ID");
+    let second_module = allocator.allocate().expect("allocate module ID");
     index.insert(
         nia_package_metadata::ModuleId {
             package: first.clone(),
@@ -737,9 +737,9 @@ fn compiler_query_providers_can_override_query_execution() {
 #[test]
 fn missing_loaded_module_id_propagates_query_failure() {
     fn unknown_module_id() -> ModuleId {
-        let mut module_ids = nia_ids::ModuleIdAllocator::new();
-        module_ids.allocate();
-        module_ids.allocate()
+        let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        module_ids.allocate().expect("allocate module ID");
+        module_ids.allocate().expect("allocate module ID")
     }
 
     fn unknown_checked_module(_: &QueryDb<CompilerContext>) -> QueryResult<Vec<ModuleId>> {

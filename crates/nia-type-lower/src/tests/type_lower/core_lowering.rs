@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn lowers_primitive_pointer_array_function_and_nominal_types() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 struct Box[T] {
@@ -57,8 +57,8 @@ let mut tmp: [i32; _] = [1, 2, 3];
 
 #[test]
 fn lowers_const_generic_array_lengths_and_nominal_args() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 struct Buffer[T, N: usize] {
@@ -117,8 +117,8 @@ fn use_buffer(buf: Buffer[u8, 4]) () {}
 
 #[test]
 fn lowers_interleaved_type_and_const_alias_arguments() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 type Mixed[T, N: usize, U] = ([T; N], U);
@@ -166,9 +166,9 @@ fn consume(value: Mixed[u8, 4, u16]) () {}
 
 #[test]
 fn lowers_external_const_generic_parameter_types_in_their_defining_module() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let defining_module_id = module_ids.allocate();
-    let consuming_module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let defining_module_id = module_ids.allocate().expect("allocate module ID");
+    let consuming_module_id = module_ids.allocate().expect("allocate module ID");
     let (defining_module, defining_errors) = parse_module(
         r#"
 pub struct Packet[T, N: usize, U] {
@@ -242,8 +242,8 @@ fn consume(packet: Packet[u8, 2, u16]) () {}
 
 #[test]
 fn lowers_trait_associated_type_shorthand_to_projection() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 trait Writer {
@@ -294,8 +294,8 @@ fn write(& self) Error!() {
 
 #[test]
 fn lowers_slice_extend_target_to_slice_pointee() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 extend[T] [T] {
@@ -329,8 +329,8 @@ fn len2(& self) usize {
 
 #[test]
 fn lowers_callable_interfaces_and_views_with_distinct_identity() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 type Callback = Fn(i32, bool) i32;
@@ -385,8 +385,8 @@ type CallbackMut = &mut Fn(i32, bool) i32;
 
 #[test]
 fn rejects_bare_callable_interfaces_in_value_positions() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module("fn invoke(callback: Fn(i32) i32) {}");
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module);

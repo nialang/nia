@@ -257,7 +257,10 @@ fn generic_call_lowering_uses_semantic_facts_to_distinguish_type_and_const_args(
         [EarlyConstGenericArg::Type(_)]
     ));
 
-    let module_id = ModuleIdAllocator::new().allocate();
+    let module_id = ModuleIdAllocator::new()
+        .expect("create module ID allocator")
+        .allocate()
+        .expect("allocate module ID");
     let mut semantic_uses = SemanticUseTable::builder();
     semantic_uses.insert_node_global_value_use(
         function_key,
@@ -320,7 +323,10 @@ fn generic_call_lowering_preserves_inferred_underscore_slots() {
         [EarlyConstGenericArg::Infer(span)] if *span == other_span()
     ));
 
-    let module_id = ModuleIdAllocator::new().allocate();
+    let module_id = ModuleIdAllocator::new()
+        .expect("create module ID allocator")
+        .allocate()
+        .expect("allocate module ID");
     let mut semantic_uses = SemanticUseTable::builder();
     semantic_uses.insert_node_global_value_use(
         expr_key(0),

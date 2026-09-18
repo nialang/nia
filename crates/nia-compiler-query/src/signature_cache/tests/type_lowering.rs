@@ -23,9 +23,9 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
         program_sources,
     );
 
-    let mut old_ids = ModuleIdAllocator::new();
-    let old_module = old_ids.allocate();
-    let old_dependency = old_ids.allocate();
+    let old_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let old_module = old_ids.allocate().expect("allocate module ID");
+    let old_dependency = old_ids.allocate().expect("allocate module ID");
     let old_version = SourceVersion {
         id: SourceId(4),
         revision: SourceRevision(7),
@@ -199,9 +199,9 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
         )
         .expect("publish lowering");
 
-    let mut new_ids = ModuleIdAllocator::new();
-    let new_dependency = new_ids.allocate();
-    let new_module = new_ids.allocate();
+    let new_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let new_dependency = new_ids.allocate().expect("allocate module ID");
+    let new_module = new_ids.allocate().expect("allocate module ID");
     let new_version = SourceVersion {
         id: SourceId(90),
         revision: SourceRevision(2),
@@ -283,8 +283,8 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
 
 #[test]
 fn type_lowering_rejects_const_expression_handles() {
-    let mut ids = ModuleIdAllocator::new();
-    let module_id = ids.allocate();
+    let ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = ids.allocate().expect("allocate module ID");
     let store = TypeStore::new();
     let append = store.append_for_module(module_id);
     let primitive = append.intern(TyKind::Primitive(PrimitiveTy::Usize));

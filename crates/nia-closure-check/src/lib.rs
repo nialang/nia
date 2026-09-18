@@ -2088,7 +2088,10 @@ mod tests {
 
     #[test]
     fn closure_presence_probe_skips_plain_function_bodies() {
-        let module = ModuleIdAllocator::new().allocate();
+        let module = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let body = TypedBody {
             span: Span::default(),
             locals: Vec::new(),
@@ -2152,7 +2155,10 @@ mod tests {
     }
 
     fn closure_id() -> ClosureId {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         ClosureId {
             owner: GlobalDefId {
                 module_id,
@@ -2164,8 +2170,8 @@ mod tests {
 
     #[test]
     fn discovers_closures_nested_in_pattern_operands() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let owner = GlobalDefId {
             module_id,
             def_id: DefId(1),
@@ -2241,8 +2247,8 @@ mod tests {
 
     #[test]
     fn pattern_operand_effects_contribute_to_escape_analysis() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let owner = GlobalDefId {
             module_id,
             def_id: DefId(1),
@@ -2353,8 +2359,8 @@ mod tests {
 
     #[test]
     fn expression_callee_mutations_precede_argument_provenance_reads() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let owner = GlobalDefId {
             module_id,
             def_id: DefId(1),
@@ -2427,8 +2433,8 @@ mod tests {
 
     #[test]
     fn while_backedges_reapply_condition_provenance_transfers() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let owner = GlobalDefId {
             module_id,
             def_id: DefId(1),
@@ -2525,8 +2531,8 @@ mod tests {
 
     #[test]
     fn repeated_value_types_do_not_look_like_recursive_borrowed_state() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let owner = GlobalDefId {
             module_id,
             def_id: DefId(1),
@@ -2552,8 +2558,8 @@ mod tests {
 
     #[test]
     fn defers_observe_exit_state_and_execute_in_lifo_order() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let owner = GlobalDefId {
             module_id,
             def_id: DefId(1),
@@ -2641,8 +2647,8 @@ mod tests {
 
     #[test]
     fn active_return_defers_use_an_isolated_exit_environment() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let owner = GlobalDefId {
             module_id,
             def_id: DefId(1),
@@ -2715,8 +2721,8 @@ mod tests {
 
     #[test]
     fn assignment_places_are_evaluated_before_the_rhs() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let owner = GlobalDefId {
             module_id,
             def_id: DefId(1),

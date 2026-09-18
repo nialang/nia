@@ -1459,8 +1459,8 @@ mod tests {
 
     #[test]
     fn builtin_scan_skips_registered_but_unpublished_modules() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let store =
             Arc::new(BackendModuleStore::new([module_id]).expect("create backend module store"));
         let (index, _publisher) = ProgramIndex::new(store, Arc::new(TypeStore::new()));

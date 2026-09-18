@@ -1040,11 +1040,11 @@ mod tests {
 
     #[test]
     fn signature_type_modules_include_const_expression_owners() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let trait_module = module_ids.allocate();
-        let binding_trait_module = module_ids.allocate();
-        let const_module = module_ids.allocate();
-        let array_module = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let trait_module = module_ids.allocate().expect("allocate module ID");
+        let binding_trait_module = module_ids.allocate().expect("allocate module ID");
+        let const_module = module_ids.allocate().expect("allocate module ID");
+        let array_module = module_ids.allocate().expect("allocate module ID");
         let trait_id = nia_ty::TraitId::Source(GlobalDefId {
             module_id: trait_module,
             def_id: DefId(1),

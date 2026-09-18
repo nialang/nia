@@ -833,8 +833,8 @@ mod tests {
 
     #[test]
     fn const_expression_collector_descends_trait_metadata() {
-        let mut modules = ModuleIdAllocator::new();
-        let module_id = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = modules.allocate().expect("allocate module ID");
         let trait_id = nia_ids::TraitId::Source(GlobalDefId {
             module_id,
             def_id: DefId(1),

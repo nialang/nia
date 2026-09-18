@@ -7,11 +7,13 @@
 //! names, descriptors, and exhaustive `ALL` lists live here as one registry so
 //! resolution, checking, const evaluation, and cache codecs share one domain.
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Session-local identity of one loaded module.
 ///
-/// The owner and generation fields prevent handles from independent compiler
-/// sessions or allocator lifetimes from comparing equal by local index alone.
+/// The owner and generation prevent handles from independent compiler
+/// sessions or allocator forks from comparing equal by local index alone.
 pub struct ModuleId {
     owner: u32,
     index: u32,
@@ -34,56 +36,56 @@ impl ModuleId {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 /// Allocates module identities within one compiler session owner.
 pub struct ModuleIdAllocator {
     owner: u32,
-    next_index: u32,
+    next_index: AtomicU32,
+}
+
+impl Clone for ModuleIdAllocator {
+    fn clone(&self) -> Self {
+        Self {
+            owner: self.owner,
+            next_index: AtomicU32::new(self.next_index.load(Ordering::Relaxed)),
+        }
+    }
 }
 
 impl ModuleIdAllocator {
     /// Creates an allocator with a fresh session owner identity.
-    pub fn new() -> Self {
-        use std::sync::atomic::{AtomicU32, Ordering};
-
+    pub fn new() -> nia_ice::IceResult<Self> {
         static NEXT_OWNER: AtomicU32 = AtomicU32::new(1);
         let owner = NEXT_OWNER
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
                 owner.checked_add(1)
             })
-            .expect("module owner identity space exhausted");
-        Self {
+            .map_err(|_| nia_ice::Ice::new("module owner identity space exhausted"))?;
+        Ok(Self {
             owner,
-            next_index: 0,
-        }
+            next_index: AtomicU32::new(0),
+        })
     }
 
     /// Allocates the next module identity from this session.
-    pub fn allocate(&mut self) -> ModuleId {
-        use std::sync::atomic::{AtomicU32, Ordering};
-
+    pub fn allocate(&self) -> nia_ice::IceResult<ModuleId> {
         static NEXT_GENERATION: AtomicU32 = AtomicU32::new(1);
-        let index = self.next_index;
-        self.next_index = self
+        let index = self
             .next_index
-            .checked_add(1)
-            .expect("module identity space exhausted");
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |index| {
+                index.checked_add(1)
+            })
+            .map_err(|_| nia_ice::Ice::new("module identity space exhausted"))?;
         let generation = NEXT_GENERATION
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |generation| {
                 generation.checked_add(1)
             })
-            .expect("module generation identity space exhausted");
-        ModuleId {
+            .map_err(|_| nia_ice::Ice::new("module generation identity space exhausted"))?;
+        Ok(ModuleId {
             owner: self.owner,
             index,
             generation,
-        }
-    }
-}
-
-impl Default for ModuleIdAllocator {
-    fn default() -> Self {
-        Self::new()
+        })
     }
 }
 

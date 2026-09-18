@@ -2391,7 +2391,12 @@ mod tests {
     #[test]
     fn array_length_equivalence_recurses_through_builtin_operands() {
         let type_store = TypeStore::new();
-        let append = type_store.append_for_module(nia_ids::ModuleIdAllocator::new().allocate());
+        let append = type_store.append_for_module(
+            nia_ids::ModuleIdAllocator::new()
+                .expect("create module ID allocator")
+                .allocate()
+                .expect("allocate module ID"),
+        );
         let left_ty = append.primitive(PrimitiveTy::I32);
         let right_ty = append.primitive(PrimitiveTy::I64);
         let left = ArrayLenTy::Builtin {
@@ -2427,13 +2432,13 @@ mod tests {
 
     #[test]
     fn array_length_equivalence_uses_evaluated_expression_values() {
-        let mut modules = nia_ids::ModuleIdAllocator::new();
+        let modules = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let left = ArrayLenTy::ConstExpr(nia_ids::GlobalConstExprId {
-            module_id: modules.allocate(),
+            module_id: modules.allocate().expect("allocate module ID"),
             const_expr_id: nia_ids::ConstExprId(1),
         });
         let right_id = nia_ids::GlobalConstExprId {
-            module_id: modules.allocate(),
+            module_id: modules.allocate().expect("allocate module ID"),
             const_expr_id: nia_ids::ConstExprId(2),
         };
         let right = ArrayLenTy::ConstExpr(right_id);

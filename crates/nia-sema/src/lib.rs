@@ -303,8 +303,8 @@ mod tests {
 
     #[test]
     fn array_literal_len_infers_checks_and_reports_mismatch() {
-        let mut module_ids = nia_ids::ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         assert_eq!(
             check_array_literal_len(None, None, Some(3)),
             ArrayLiteralLenCheck::Accepted(ArrayLenTy::ConstValue(3))

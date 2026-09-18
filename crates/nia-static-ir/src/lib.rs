@@ -237,7 +237,10 @@ mod tests {
 
     #[test]
     fn empty_repeat_does_not_retain_static_references() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let function = GlobalDefId {
             module_id,
             def_id: DefId(0),
@@ -269,7 +272,10 @@ mod tests {
 
     #[test]
     fn nonempty_static_references_are_deduplicated() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let function = GlobalDefId {
             module_id,
             def_id: DefId(0),
@@ -302,8 +308,8 @@ mod tests {
 
     #[test]
     fn typed_refs_preserve_function_instance_identity() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let function = GlobalDefId {
             module_id,
             def_id: DefId(0),
@@ -340,8 +346,8 @@ mod tests {
 
     #[test]
     fn typed_refs_preserve_function_instance_const_identity() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let function = GlobalDefId {
             module_id,
             def_id: DefId(0),

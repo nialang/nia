@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn resolves_index_expr_inside_field_bracket_suffix() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 struct S {
@@ -45,8 +45,8 @@ t.xs[2].x
 
 #[test]
 fn resolves_local_named_like_type_inside_field_bracket_suffix() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 struct S {

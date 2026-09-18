@@ -15,8 +15,8 @@ fn signatures_ok(source: &str) -> ItemSignatures {
 fn signatures(source: &str) -> ItemSignatures {
     let (module, errors) = parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let defs = collect_module_defs(module_id, &module);
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     let resolved = resolve_module_types(&module, &defs);

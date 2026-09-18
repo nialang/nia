@@ -250,7 +250,10 @@ fn rejects_error_exprs_hidden_in_lowering_operand_containers() {
         base: PlaceBase::Deref(Box::new(error())),
         elems: Vec::new(),
     };
-    let module_id = ModuleIdAllocator::new().allocate();
+    let module_id = ModuleIdAllocator::new()
+        .expect("create module ID allocator")
+        .allocate()
+        .expect("allocate module ID");
     let malformed = vec![
         TypedExpr {
             span: Span::default(),

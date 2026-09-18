@@ -1284,8 +1284,8 @@ mod tests {
 
     #[test]
     fn recursive_type_filters_visit_const_argument_types() {
-        let mut modules = ModuleIdAllocator::new();
-        let module_id = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = modules.allocate().expect("allocate module ID");
         let nominal = test_ty(3);
         let generic = test_ty(0);
         let projection = test_ty(1);
@@ -1345,8 +1345,8 @@ mod tests {
 
     #[test]
     fn recursive_type_filters_visit_layout_builtin_array_length_types() {
-        let mut modules = ModuleIdAllocator::new();
-        let module_id = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = modules.allocate().expect("allocate module ID");
         let generic = test_ty(0);
         let projection = test_ty(1);
         let error = test_ty(2);

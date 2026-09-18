@@ -1548,7 +1548,10 @@ mod tests {
 
     #[test]
     fn const_generic_method_calls_require_instance_metadata() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let types = TypeStore::new();
         let usize_ty = types
             .append_for_module(module_id)

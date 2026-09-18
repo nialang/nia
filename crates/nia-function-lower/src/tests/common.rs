@@ -67,8 +67,11 @@ fn test_module_id() -> ModuleId {
 fn test_type_fixture() -> &'static (TypeStore, ModuleId) {
     static FIXTURE: std::sync::OnceLock<(TypeStore, ModuleId)> = std::sync::OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let mut module_ids = ModuleIdAllocator::new();
-        (TypeStore::new(), module_ids.allocate())
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        (
+            TypeStore::new(),
+            module_ids.allocate().expect("allocate module ID"),
+        )
     })
 }
 

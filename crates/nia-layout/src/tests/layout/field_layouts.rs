@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn computes_nia_struct_layout_in_physical_field_order() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
 struct Mixed {
@@ -42,8 +42,8 @@ c: u8,
 
 #[test]
 fn preserves_tuple_struct_field_order() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module("struct Mixed(u8, i64, u16)");
     let defs = collect_module_defs(module_id, &module);
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
@@ -76,8 +76,8 @@ fn preserves_tuple_struct_field_order() {
 
 #[test]
 fn ignores_inferred_array_placeholders_during_global_layout_scan() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
 fn main() {
@@ -102,8 +102,8 @@ let mut xs: [u8; _] = [1, 2];
 
 #[test]
 fn computes_extern_struct_c_field_layout() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
 extern struct CPair {

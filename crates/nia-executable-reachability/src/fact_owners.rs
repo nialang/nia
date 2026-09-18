@@ -684,8 +684,8 @@ mod tests {
 
     #[test]
     fn const_expression_metadata_contributes_type_owner_modules() {
-        let mut modules = ModuleIdAllocator::new();
-        let const_owner = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let const_owner = modules.allocate().expect("allocate module ID");
         let types = TypeStore::new();
         let ty = types
             .append_for_module(const_owner)
@@ -715,11 +715,11 @@ mod tests {
 
     #[test]
     fn enum_payloads_and_alias_targets_contribute_type_owner_modules() {
-        let mut modules = ModuleIdAllocator::new();
-        let use_module = modules.allocate();
-        let outer_module = modules.allocate();
-        let alias_module = modules.allocate();
-        let leaf_module = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let use_module = modules.allocate().expect("allocate module ID");
+        let outer_module = modules.allocate().expect("allocate module ID");
+        let alias_module = modules.allocate().expect("allocate module ID");
+        let leaf_module = modules.allocate().expect("allocate module ID");
         let outer_id = GlobalDefId {
             module_id: outer_module,
             def_id: nia_defs::DefId(1),

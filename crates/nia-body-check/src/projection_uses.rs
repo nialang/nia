@@ -97,7 +97,10 @@ const result: usize = {
         let mut keys = ExprKeyCollector(Vec::new());
         keys.visit_expr(root);
 
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let ty = TypeStore::new()
             .append_for_module(module_id)
             .primitive(PrimitiveTy::Usize);

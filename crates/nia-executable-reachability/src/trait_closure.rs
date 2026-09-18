@@ -1276,7 +1276,10 @@ mod tests {
 
     #[test]
     fn repeated_trait_method_set_expansion_is_memoized() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let store = TypeStore::new();
         let self_ty = store
             .append_for_module(module_id)
@@ -1316,7 +1319,10 @@ mod tests {
 
     #[test]
     fn trait_const_arguments_are_part_of_reachability_identity() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let store = TypeStore::new();
         let bool_ty = store
             .append_for_module(module_id)
@@ -1354,7 +1360,10 @@ mod tests {
 
     #[test]
     fn generic_trait_closure_identity_includes_method_receiver() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let store = TypeStore::new();
         let append = store.append_for_module(module_id);
         let receiver_a = append.primitive(PrimitiveTy::U8);
@@ -1383,7 +1392,10 @@ mod tests {
 
     #[test]
     fn recursive_definition_guard_does_not_poison_sibling_instance_keys() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let store = TypeStore::new();
         let append = store.append_for_module(module_id);
         let i32_ty = append.primitive(PrimitiveTy::I32);
@@ -1424,7 +1436,10 @@ mod tests {
 
     #[test]
     fn active_trait_expansion_guard_matches_rebuilt_types_and_integer_bits() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let left_store = TypeStore::new();
         let right_store = TypeStore::new();
         let left_append = left_store.append_for_module(module_id);

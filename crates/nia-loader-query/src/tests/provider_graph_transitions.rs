@@ -70,7 +70,7 @@ fn provider_demand_update_keeps_unmatched_and_known_demands_graph_stable() {
 
 #[test]
 fn semantic_provider_demand_remaps_across_graph_owners() {
-    let mut initial = ModuleGraph::new(SourcePath::new("main.nia"));
+    let mut initial = ModuleGraph::new(SourcePath::new("main.nia")).expect("create module graph");
     let initial_provider = initial
         .intern_declared_child_with_processing(
             initial.entry(),
@@ -82,7 +82,7 @@ fn semantic_provider_demand_remaps_across_graph_owners() {
         )
         .expect("initial provider module");
     let provider_path = initial.get(initial_provider).unwrap().path.clone();
-    let mut rebuilt = ModuleGraph::new(SourcePath::new("main.nia"));
+    let mut rebuilt = ModuleGraph::new(SourcePath::new("main.nia")).expect("create module graph");
     let rebuilt_provider = rebuilt
         .intern_declared_child_with_processing(
             rebuilt.entry(),

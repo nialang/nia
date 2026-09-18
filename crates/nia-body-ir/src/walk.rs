@@ -331,7 +331,10 @@ mod tests {
     impl Fixture {
         fn new() -> Self {
             let types = TypeStore::new();
-            let module_id = ModuleIdAllocator::new().allocate();
+            let module_id = ModuleIdAllocator::new()
+                .expect("create module ID allocator")
+                .allocate()
+                .expect("allocate module ID");
             let ty = types
                 .append_for_module(module_id)
                 .primitive(PrimitiveTy::Bool);

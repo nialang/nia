@@ -237,7 +237,10 @@ mod tests {
 
     #[test]
     fn type_equivalence_matches_evaluated_nominal_const_arguments() {
-        let module_id = nia_ids::ModuleIdAllocator::new().allocate();
+        let module_id = nia_ids::ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let type_store = TypeStore::new();
         let append = type_store.append_for_module(module_id);
         let const_ty = append.primitive(PrimitiveTy::Usize);
@@ -291,7 +294,10 @@ mod tests {
 
     #[test]
     fn type_equivalence_keeps_unresolved_const_arguments_distinct() {
-        let module_id = nia_ids::ModuleIdAllocator::new().allocate();
+        let module_id = nia_ids::ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let type_store = TypeStore::new();
         let append = type_store.append_for_module(module_id);
         let const_ty = append.primitive(PrimitiveTy::Usize);

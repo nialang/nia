@@ -382,9 +382,9 @@ mod tests {
 
     #[test]
     fn aggregate_field_roots_substitute_interleaved_const_arguments() {
-        let mut module_ids = nia_ids::ModuleIdAllocator::new();
-        let defining_module = module_ids.allocate();
-        let consuming_module = module_ids.allocate();
+        let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        let defining_module = module_ids.allocate().expect("allocate module ID");
+        let consuming_module = module_ids.allocate().expect("allocate module ID");
         let packet_id = GlobalDefId {
             module_id: defining_module,
             def_id: nia_defs::DefId(1),
@@ -459,8 +459,8 @@ mod tests {
 
     #[test]
     fn trait_object_const_argument_types_are_layout_roots() {
-        let mut module_ids = nia_ids::ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let type_store = nia_ty::TypeStore::new();
         let types = type_store.append_for_module(module_id);
         let nominal_id = GlobalDefId {

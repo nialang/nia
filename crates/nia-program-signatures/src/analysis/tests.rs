@@ -84,9 +84,9 @@ fn using_type_entry(def_id: GlobalDefId) -> UsingEntry {
 
 #[test]
 fn type_equivalence_resolves_nominal_const_expression_summaries() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let left_module = module_ids.allocate();
-    let right_module = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let left_module = module_ids.allocate().expect("allocate module ID");
+    let right_module = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new();
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);
@@ -173,9 +173,9 @@ fn type_equivalence_resolves_nominal_const_expression_summaries() {
 
 #[test]
 fn trait_goal_guard_resolves_const_expression_summaries() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let left_module = module_ids.allocate();
-    let right_module = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let left_module = module_ids.allocate().expect("allocate module ID");
+    let right_module = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new();
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);
@@ -253,7 +253,8 @@ fn trait_goal_guard_resolves_const_expression_summaries() {
 #[test]
 fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave() {
     let mut graph =
-        ModuleGraph::with_symbol_text(SourcePath::new("main.nia"), Arc::new(test_symbols()));
+        ModuleGraph::with_symbol_text(SourcePath::new("main.nia"), Arc::new(test_symbols()))
+            .expect("create module graph");
     let entry = graph.entry();
     let types_module = intern_child(&mut graph, entry, "types", nia_ids::Visibility::Public);
     let used_provider = intern_child(
@@ -342,8 +343,8 @@ fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave()
 
 #[test]
 fn const_generic_supertrait_instances_require_exact_impl_arguments() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new();
     let append = type_store.append_for_module(module_id);
     let usize_ty = append.intern(TyKind::Primitive(PrimitiveTy::Usize));
@@ -429,9 +430,9 @@ fn const_generic_supertrait_instances_require_exact_impl_arguments() {
 
 #[test]
 fn projection_context_matching_uses_semantic_arguments() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let left_module = module_ids.allocate();
-    let right_module = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let left_module = module_ids.allocate().expect("allocate module ID");
+    let right_module = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new();
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);
@@ -459,8 +460,8 @@ fn projection_context_matching_uses_semantic_arguments() {
 
 #[test]
 fn substitutes_generic_type_inside_array_layout_builtin() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let defs = defs_from_source(module_id, "struct Dummy {}");
     let type_store = TypeStore::new();
     let append = type_store.append_for_module(module_id);
@@ -527,9 +528,9 @@ fn substitutes_generic_type_inside_array_layout_builtin() {
 
 #[test]
 fn trait_goal_assumption_identity_is_semantic_and_includes_self_type() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let left_module = module_ids.allocate();
-    let right_module = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let left_module = module_ids.allocate().expect("allocate module ID");
+    let right_module = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new();
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);

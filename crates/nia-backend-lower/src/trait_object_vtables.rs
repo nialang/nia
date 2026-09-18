@@ -665,8 +665,8 @@ mod tests {
 
     #[test]
     fn trait_object_vtable_cache_reuses_positive_entries() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let mut cache = TraitObjectVtableCache::default();
         let key = test_key(0);
         let vtable = BackendTraitObjectVtable {

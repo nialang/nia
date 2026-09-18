@@ -905,8 +905,8 @@ mod tests {
     fn pipeline(source: &str) -> FlowCheck {
         let (module, parse_errors) = parse_module(source);
         assert!(parse_errors.is_empty(), "{parse_errors:?}");
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
@@ -929,8 +929,8 @@ mod tests {
     fn pipeline_with_reachable_filter(source: &str) -> FlowCheck {
         let (module, parse_errors) = parse_module(source);
         assert!(parse_errors.is_empty(), "{parse_errors:?}");
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();

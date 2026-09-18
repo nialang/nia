@@ -2846,8 +2846,8 @@ mod tests {
 
     #[test]
     fn missing_type_diagnostic_identifies_invalid_backend_ir() {
-        let mut modules = nia_ids::ModuleIdAllocator::new();
-        let module_id = modules.allocate();
+        let modules = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = modules.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let valid = type_store
             .append_for_module(module_id)
@@ -2871,7 +2871,12 @@ mod tests {
     #[test]
     fn array_length_matching_recurses_through_builtin_operands() {
         let type_store = TypeStore::new();
-        let append = type_store.append_for_module(nia_ids::ModuleIdAllocator::new().allocate());
+        let append = type_store.append_for_module(
+            nia_ids::ModuleIdAllocator::new()
+                .expect("create module ID allocator")
+                .allocate()
+                .expect("allocate module ID"),
+        );
         let left_ty = append.primitive(PrimitiveTy::I32);
         let right_ty = append.primitive(PrimitiveTy::I64);
         let left = ArrayLenTy::Builtin {
@@ -2907,13 +2912,13 @@ mod tests {
 
     #[test]
     fn array_length_matching_uses_evaluated_expression_values() {
-        let mut modules = nia_ids::ModuleIdAllocator::new();
+        let modules = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let left = nia_ids::GlobalConstExprId {
-            module_id: modules.allocate(),
+            module_id: modules.allocate().expect("allocate module ID"),
             const_expr_id: nia_ids::ConstExprId(1),
         };
         let right = nia_ids::GlobalConstExprId {
-            module_id: modules.allocate(),
+            module_id: modules.allocate().expect("allocate module ID"),
             const_expr_id: nia_ids::ConstExprId(2),
         };
         assert!(same_array_len_with_values(
@@ -2948,8 +2953,8 @@ mod tests {
 
     #[test]
     fn trait_object_pointee_matching_dispatches_all_structural_components() {
-        let mut module_ids = nia_ids::ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let append = type_store.append_for_module(module_id);
         let left_ty = append.primitive(PrimitiveTy::I32);
@@ -3040,7 +3045,12 @@ mod tests {
     #[test]
     fn associated_binding_matching_backtracks_duplicate_keys() {
         let store = TypeStore::new();
-        let append = store.append_for_module(nia_ids::ModuleIdAllocator::new().allocate());
+        let append = store.append_for_module(
+            nia_ids::ModuleIdAllocator::new()
+                .expect("create module ID allocator")
+                .allocate()
+                .expect("allocate module ID"),
+        );
         let ty_one = append.primitive(PrimitiveTy::I32);
         let ty_two = append.primitive(PrimitiveTy::I64);
         let binding = |ty| nia_ty::AssociatedTypeBindingTy {

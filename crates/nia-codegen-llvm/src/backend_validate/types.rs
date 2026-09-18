@@ -790,8 +790,8 @@ mod tests {
 
     #[test]
     fn validate_type_accepts_registered_owner_before_index_publication() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let owner = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let owner = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let interner = type_store.append_for_module(owner);
         let ty = interner.primitive(PrimitiveTy::I32);
@@ -823,8 +823,8 @@ mod tests {
 
     #[test]
     fn validate_type_accepts_registered_owner_before_payload_write() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let owner = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let owner = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let interner = type_store.append_for_module(owner);
         let nominal = interner.intern(TyKind::Nominal {
@@ -852,9 +852,9 @@ mod tests {
 
     #[test]
     fn validate_type_rejects_foreign_nominal_owner() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let owner = module_ids.allocate();
-        let foreign = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let owner = module_ids.allocate().expect("allocate module ID");
+        let foreign = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let interner = type_store.append_for_module(owner);
         let ty = interner.primitive(PrimitiveTy::I32);
@@ -893,8 +893,8 @@ mod tests {
 
     #[test]
     fn validate_array_len_defers_for_registered_unwritten_owner() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let owner = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let owner = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let store =
             Arc::new(BackendModuleStore::new([owner]).expect("create backend module store"));
@@ -913,8 +913,8 @@ mod tests {
 
     #[test]
     fn validate_array_len_reads_written_owner_before_index_publication() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let owner = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let owner = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let len_id = GlobalConstExprId {
             module_id: owner,
@@ -939,9 +939,9 @@ mod tests {
 
     #[test]
     fn same_const_args_resolves_cross_module_expression_values() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let left_module = module_ids.allocate();
-        let right_module = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let left_module = module_ids.allocate().expect("allocate module ID");
+        let right_module = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let left_ty = {
             let interner = type_store.append_for_module(left_module);
@@ -1009,9 +1009,9 @@ mod tests {
 
     #[test]
     fn validate_array_len_rejects_foreign_owner() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let owner = module_ids.allocate();
-        let foreign = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let owner = module_ids.allocate().expect("allocate module ID");
+        let foreign = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let store =
             Arc::new(BackendModuleStore::new([owner]).expect("create backend module store"));
@@ -1035,8 +1035,8 @@ mod tests {
 
     #[test]
     fn validate_const_arg_rejects_generic_parameter_value() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let owner = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let owner = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let interner = type_store.append_for_module(owner);
         let ty = interner.primitive(PrimitiveTy::I32);

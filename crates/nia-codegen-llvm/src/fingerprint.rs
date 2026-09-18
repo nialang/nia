@@ -2145,7 +2145,10 @@ mod tests {
 
     #[test]
     fn linkage_fingerprint_distinguishes_imports_from_exports() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let store = TypeStore::new();
         let ty = store
             .append_for_module(module_id)
@@ -2177,8 +2180,8 @@ mod tests {
 
     #[test]
     fn encoder_recovers_missing_module_and_type_handles() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let missing_module = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let missing_module = module_ids.allocate().expect("allocate module ID");
         let store = TypeStore::new();
         let missing_type = InternedTyId::new(store.id(), TypeStoreIndex::from_store_index(77));
         let modules = Arc::new(
@@ -2200,8 +2203,8 @@ mod tests {
 
     #[test]
     fn fingerprint_rejects_stale_declaration_membership() {
-        let mut modules = ModuleIdAllocator::new();
-        let module_id = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = modules.allocate().expect("allocate module ID");
         let store = TypeStore::new();
         let ty = store
             .append_for_module(module_id)
@@ -2300,13 +2303,17 @@ mod tests {
 
     #[test]
     fn union_relocation_fingerprint_uses_stable_source_identity() {
-        let mut first_ids = ModuleIdAllocator::new();
-        let (first, first_ty) =
-            relocation_fingerprint_fixture(first_ids.allocate(), first_ids.allocate());
-        let mut second_ids = ModuleIdAllocator::new();
-        let _unused = second_ids.allocate();
-        let (second, second_ty) =
-            relocation_fingerprint_fixture(second_ids.allocate(), second_ids.allocate());
+        let first_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let (first, first_ty) = relocation_fingerprint_fixture(
+            first_ids.allocate().expect("allocate module ID"),
+            first_ids.allocate().expect("allocate module ID"),
+        );
+        let second_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let _unused = second_ids.allocate().expect("allocate module ID");
+        let (second, second_ty) = relocation_fingerprint_fixture(
+            second_ids.allocate().expect("allocate module ID"),
+            second_ids.allocate().expect("allocate module ID"),
+        );
         let first_expr = union_storage_expr(
             first_ty,
             first.index.module_ids()[1],
@@ -2330,8 +2337,11 @@ mod tests {
 
     #[test]
     fn union_relocation_fingerprint_covers_identity_layout_and_pointee() {
-        let mut ids = ModuleIdAllocator::new();
-        let (fixture, ty) = relocation_fingerprint_fixture(ids.allocate(), ids.allocate());
+        let ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let (fixture, ty) = relocation_fingerprint_fixture(
+            ids.allocate().expect("allocate module ID"),
+            ids.allocate().expect("allocate module ID"),
+        );
         let origin = fixture.index.module_ids()[1];
         let baseline = union_storage_expr(ty, origin, Span::new(10, 14), 0, 7);
 
@@ -2349,10 +2359,10 @@ mod tests {
 
     #[test]
     fn declaration_dependencies_include_only_referenced_module_owners() {
-        let mut ids = ModuleIdAllocator::new();
-        let main_id = ids.allocate();
-        let foreign_id = ids.allocate();
-        let unrelated_id = ids.allocate();
+        let ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let main_id = ids.allocate().expect("allocate module ID");
+        let foreign_id = ids.allocate().expect("allocate module ID");
+        let unrelated_id = ids.allocate().expect("allocate module ID");
         let store = TypeStore::new();
         let ty = store.append_for_module(main_id).primitive(PrimitiveTy::I32);
         let foreign_def = GlobalDefId {
@@ -2393,9 +2403,9 @@ mod tests {
 
     #[test]
     fn declaration_dependencies_are_self_contained_without_foreign_refs() {
-        let mut ids = ModuleIdAllocator::new();
-        let main_id = ids.allocate();
-        let unrelated_id = ids.allocate();
+        let ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let main_id = ids.allocate().expect("allocate module ID");
+        let unrelated_id = ids.allocate().expect("allocate module ID");
         let store = TypeStore::new();
         let ty = store.append_for_module(main_id).primitive(PrimitiveTy::I32);
         let fixture = fixture(
@@ -2419,8 +2429,8 @@ mod tests {
 
     #[test]
     fn source_unit_fingerprint_ignores_session_local_handle_allocation() {
-        let mut first_ids = ModuleIdAllocator::new();
-        let first_id = first_ids.allocate();
+        let first_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let first_id = first_ids.allocate().expect("allocate module ID");
         let first_store = TypeStore::new();
         let first_ty = first_store
             .append_for_module(first_id)
@@ -2435,9 +2445,9 @@ mod tests {
             "main.nia",
         );
 
-        let mut second_ids = ModuleIdAllocator::new();
-        let _unrelated = second_ids.allocate();
-        let second_id = second_ids.allocate();
+        let second_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let _unrelated = second_ids.allocate().expect("allocate module ID");
+        let second_id = second_ids.allocate().expect("allocate module ID");
         let second_store = TypeStore::new();
         let _unrelated_ty = second_store
             .append_for_module(second_id)
@@ -2463,9 +2473,9 @@ mod tests {
 
     #[test]
     fn source_unit_fingerprint_is_independent_of_module_input_order() {
-        let mut ids = ModuleIdAllocator::new();
-        let main_id = ids.allocate();
-        let helper_id = ids.allocate();
+        let ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let main_id = ids.allocate().expect("allocate module ID");
+        let helper_id = ids.allocate().expect("allocate module ID");
         let store = TypeStore::new();
         let ty = store.append_for_module(main_id).primitive(PrimitiveTy::I32);
         let main = module_with_global(main_id, "main.nia", ty, 1);
@@ -2480,9 +2490,9 @@ mod tests {
             "main.nia",
         );
 
-        let mut ids = ModuleIdAllocator::new();
-        let main_id = ids.allocate();
-        let helper_id = ids.allocate();
+        let ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let main_id = ids.allocate().expect("allocate module ID");
+        let helper_id = ids.allocate().expect("allocate module ID");
         let store = TypeStore::new();
         let ty = store.append_for_module(main_id).primitive(PrimitiveTy::I32);
         let second = fixture(
@@ -2506,8 +2516,8 @@ mod tests {
 
     #[test]
     fn source_unit_fingerprint_tracks_definition_and_ignores_span() {
-        let mut ids = ModuleIdAllocator::new();
-        let module_id = ids.allocate();
+        let ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = ids.allocate().expect("allocate module ID");
         let store = TypeStore::new();
         let ty = store
             .append_for_module(module_id)
@@ -2522,8 +2532,8 @@ mod tests {
             "main.nia",
         );
 
-        let mut ids = ModuleIdAllocator::new();
-        let module_id = ids.allocate();
+        let ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = ids.allocate().expect("allocate module ID");
         let store = TypeStore::new();
         let ty = store
             .append_for_module(module_id)
@@ -2540,8 +2550,8 @@ mod tests {
             "main.nia",
         );
 
-        let mut ids = ModuleIdAllocator::new();
-        let module_id = ids.allocate();
+        let ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = ids.allocate().expect("allocate module ID");
         let store = TypeStore::new();
         let ty = store
             .append_for_module(module_id)
@@ -2578,7 +2588,10 @@ mod tests {
     #[test]
     fn source_unit_fingerprint_tracks_closure_entry_abi_and_body() {
         fn make(value: &str, span: Span) -> Fixture {
-            let module_id = ModuleIdAllocator::new().allocate();
+            let module_id = ModuleIdAllocator::new()
+                .expect("create module ID allocator")
+                .allocate()
+                .expect("allocate module ID");
             let store = TypeStore::new();
             let append = store.append_for_module(module_id);
             let i32_ty = append.primitive(PrimitiveTy::I32);
@@ -2706,9 +2719,9 @@ mod tests {
     #[test]
     fn source_unit_fingerprint_ignores_unreferenced_cross_module_abi() {
         fn make(return_ty: PrimitiveTy) -> Fixture {
-            let mut ids = ModuleIdAllocator::new();
-            let main_id = ids.allocate();
-            let foreign_id = ids.allocate();
+            let ids = ModuleIdAllocator::new().expect("create module ID allocator");
+            let main_id = ids.allocate().expect("allocate module ID");
+            let foreign_id = ids.allocate().expect("allocate module ID");
             let store = TypeStore::new();
             let append = store.append_for_module(main_id);
             let i32_ty = append.primitive(PrimitiveTy::I32);
@@ -2785,9 +2798,9 @@ mod tests {
     #[test]
     fn source_unit_fingerprint_tracks_referenced_cross_module_abi() {
         fn make(return_ty: PrimitiveTy) -> Fixture {
-            let mut ids = ModuleIdAllocator::new();
-            let main_id = ids.allocate();
-            let foreign_id = ids.allocate();
+            let ids = ModuleIdAllocator::new().expect("create module ID allocator");
+            let main_id = ids.allocate().expect("allocate module ID");
+            let foreign_id = ids.allocate().expect("allocate module ID");
             let store = TypeStore::new();
             let append = store.append_for_module(main_id);
             let i32_ty = append.primitive(PrimitiveTy::I32);
@@ -2848,9 +2861,9 @@ mod tests {
     #[test]
     fn source_unit_fingerprint_ignores_foreign_parameter_local_type() {
         fn make(local_ty: PrimitiveTy) -> Fixture {
-            let mut ids = ModuleIdAllocator::new();
-            let main_id = ids.allocate();
-            let foreign_id = ids.allocate();
+            let ids = ModuleIdAllocator::new().expect("create module ID allocator");
+            let main_id = ids.allocate().expect("allocate module ID");
+            let foreign_id = ids.allocate().expect("allocate module ID");
             let store = TypeStore::new();
             let append = store.append_for_module(main_id);
             let i32_ty = append.primitive(PrimitiveTy::I32);
@@ -2906,8 +2919,8 @@ mod tests {
 
     #[test]
     fn native_object_fingerprint_tracks_exact_target_identity() {
-        let mut ids = ModuleIdAllocator::new();
-        let module_id = ids.allocate();
+        let ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = ids.allocate().expect("allocate module ID");
         let store = TypeStore::new();
         let ty = store
             .append_for_module(module_id)

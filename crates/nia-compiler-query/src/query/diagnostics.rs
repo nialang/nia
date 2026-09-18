@@ -415,9 +415,9 @@ mod tests {
 
     #[test]
     fn module_diagnostic_bundles_preserve_order_and_only_group_adjacent_owners() {
-        let mut modules = ModuleIdAllocator::new();
-        let first = modules.allocate();
-        let second = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let first = modules.allocate().expect("allocate module ID");
+        let second = modules.allocate().expect("allocate module ID");
         let store = DiagnosticStore::new().expect("create diagnostic store");
         let diagnostic =
             |summary| Diagnostic::user_error_at(codes::NAME_RESOLUTION, Span::new(0, 1), summary);

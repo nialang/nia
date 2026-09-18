@@ -1270,7 +1270,10 @@ mod tests {
     #[test]
     fn canonical_instance_api_preserves_argument_order() {
         let store = TypeStore::new();
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let append = store.append_for_module(module_id);
         let first = append.primitive(PrimitiveTy::I32);
         let second = append.primitive(PrimitiveTy::Bool);
@@ -1322,10 +1325,10 @@ mod tests {
 
     #[test]
     fn stable_definition_key_ignores_session_local_module_owner() {
-        let mut first = ModuleIdAllocator::new();
-        let first_module = first.allocate();
-        let mut second = ModuleIdAllocator::new();
-        let second_module = second.allocate();
+        let first = ModuleIdAllocator::new().expect("create module ID allocator");
+        let first_module = first.allocate().expect("allocate module ID");
+        let second = ModuleIdAllocator::new().expect("create module ID allocator");
+        let second_module = second.allocate().expect("allocate module ID");
         assert_eq!(
             stable_definition_key(GlobalDefId {
                 module_id: first_module,
@@ -1340,11 +1343,11 @@ mod tests {
 
     #[test]
     fn base_mangling_is_stable_across_module_allocator_universes() {
-        let mut first_ids = ModuleIdAllocator::new();
-        let first_module = first_ids.allocate();
-        let mut second_ids = ModuleIdAllocator::new();
-        let _unrelated_module = second_ids.allocate();
-        let second_module = second_ids.allocate();
+        let first_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let first_module = first_ids.allocate().expect("allocate module ID");
+        let second_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let _unrelated_module = second_ids.allocate().expect("allocate module ID");
+        let second_module = second_ids.allocate().expect("allocate module ID");
         let stable_module = MangleModuleId::from_normalized_source_path("std/error.nia");
 
         assert_eq!(
@@ -1374,10 +1377,10 @@ mod tests {
     #[test]
     fn nominal_mangling_is_stable_across_module_allocator_universes() {
         let type_store = TypeStore::new();
-        let mut module_ids = ModuleIdAllocator::new();
-        let first_module = module_ids.allocate();
-        let _unrelated_module = module_ids.allocate();
-        let second_module = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let first_module = module_ids.allocate().expect("allocate module ID");
+        let _unrelated_module = module_ids.allocate().expect("allocate module ID");
+        let second_module = module_ids.allocate().expect("allocate module ID");
         let first = type_store
             .append_for_module(first_module)
             .intern(TyKind::Nominal {
@@ -1423,8 +1426,8 @@ mod tests {
     #[test]
     fn nominal_mangling_distinguishes_source_identities() {
         let type_store = TypeStore::new();
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let ty = type_store
             .append_for_module(module_id)
             .intern(TyKind::Nominal {
@@ -1461,7 +1464,10 @@ mod tests {
     fn closure_entry_mangling_uses_concrete_owner_symbol_and_ordinal() {
         use nia_ids::{DefId, ModuleIdAllocator};
 
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let closure_id = ClosureId {
             owner: GlobalDefId {
                 module_id,
@@ -1518,8 +1524,10 @@ mod tests {
     #[test]
     fn mangles_real_error_type_for_diagnostic_recovery() {
         let type_store = TypeStore::new();
-        let mut module_ids = ModuleIdAllocator::new();
-        let error = type_store.append_for_module(module_ids.allocate()).error();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let error = type_store
+            .append_for_module(module_ids.allocate().expect("allocate module ID"))
+            .error();
 
         assert_eq!(
             mangle_type_with(
@@ -1538,8 +1546,8 @@ mod tests {
     #[test]
     fn tuple_mangling_preserves_unit_arity_and_element_order() {
         let type_store = TypeStore::new();
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let append = type_store.append_for_module(module_id);
         let i32_ty = append.primitive(PrimitiveTy::I32);
         let bool_ty = append.primitive(PrimitiveTy::Bool);
@@ -1571,7 +1579,10 @@ mod tests {
     #[test]
     fn generic_mangling_records_argument_counts_not_encoded_text_lengths() {
         let type_store = TypeStore::new();
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let append = type_store.append_for_module(module_id);
         let i32_ty = append.primitive(PrimitiveTy::I32);
         let nominal = append.intern(TyKind::Nominal {
@@ -1605,7 +1616,10 @@ mod tests {
     #[test]
     fn function_and_callable_mangling_preserve_arity_mutability_and_signature_order() {
         let type_store = TypeStore::new();
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let append = type_store.append_for_module(module_id);
         let i32_ty = append.primitive(PrimitiveTy::I32);
         let bool_ty = append.primitive(PrimitiveTy::Bool);

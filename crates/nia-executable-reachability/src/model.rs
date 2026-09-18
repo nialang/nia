@@ -214,9 +214,9 @@ mod tests {
 
     #[test]
     fn inserting_items_also_retains_their_owner_modules() {
-        let mut modules = ModuleIdAllocator::new();
-        let function_module = modules.allocate();
-        let global_module = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let function_module = modules.allocate().expect("allocate module ID");
+        let global_module = modules.allocate().expect("allocate module ID");
         let function = GlobalDefId {
             module_id: function_module,
             def_id: DefId(1),
@@ -237,7 +237,10 @@ mod tests {
 
     #[test]
     fn pending_owner_modules_are_enqueued_only_on_first_activation() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let first = GlobalDefId {
             module_id,
             def_id: DefId(1),
@@ -257,11 +260,11 @@ mod tests {
 
     #[test]
     fn body_module_projection_excludes_type_only_and_compile_time_global_modules() {
-        let mut modules = ModuleIdAllocator::new();
-        let function_module = modules.allocate();
-        let runtime_global_module = modules.allocate();
-        let const_global_module = modules.allocate();
-        let type_only_module = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let function_module = modules.allocate().expect("allocate module ID");
+        let runtime_global_module = modules.allocate().expect("allocate module ID");
+        let const_global_module = modules.allocate().expect("allocate module ID");
+        let type_only_module = modules.allocate().expect("allocate module ID");
         let function = GlobalDefId {
             module_id: function_module,
             def_id: DefId(1),
