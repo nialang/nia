@@ -582,6 +582,99 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn const_call_rejects_unsatisfied_generic_where_bound() {
+    let root = temp_dir("const_call_rejects_unsatisfied_generic_where_bound");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Marker {}
+
+const fn constrained[T]() usize
+where T: Marker {
+    7usize
+}
+
+const width: usize = constrained[i32]();
+
+fn main() i32 { width as i32 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("trait bound not satisfied for const function call")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn const_call_forwards_enclosing_generic_where_bound() {
+    let root = temp_dir("const_call_forwards_enclosing_generic_where_bound");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Marker {}
+
+const fn constrained[T]() usize
+where T: Marker {
+    7usize
+}
+
+const fn forwarding[T]() usize
+where T: Marker {
+    constrained[T]()
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+}
+
+#[test]
+fn imported_const_call_rejects_unsatisfied_generic_where_bound() {
+    let root = temp_dir("imported_const_call_rejects_unsatisfied_generic_where_bound");
+    write(
+        &root.join("main.nia"),
+        r#"
+module api;
+using entry::api;
+
+const width: usize = api::constrained[i32]();
+
+fn main() i32 { width as i32 }
+"#,
+    );
+    write(
+        &root.join("api.nia"),
+        r#"
+pub trait Marker {}
+
+pub const fn constrained[T]() usize
+where T: Marker {
+    7usize
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("trait bound not satisfied for const function call")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn unused_const_function_rejects_match_pattern_and_checks_arm_body() {
     let root = temp_dir("unused_const_function_rejects_match_pattern_and_checks_arm_body");
     write(

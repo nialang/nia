@@ -107,8 +107,23 @@ impl Analyzer<'_> {
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
     ) -> bool {
+        self.proves_trait_obligation_with_const_args(self_ty, trait_id, trait_args, Vec::new())
+    }
+
+    pub(super) fn proves_trait_obligation_with_const_args(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<ConstGenericArg>,
+    ) -> bool {
         matches!(
-            self.resolve_trait_obligation(self_ty, trait_id, trait_args),
+            self.resolve_trait_obligation_with_const_args(
+                self_ty,
+                trait_id,
+                trait_args,
+                trait_const_args,
+            ),
             TraitResolution::Intrinsic(_) | TraitResolution::User(_) | TraitResolution::Assumed(_)
         )
     }
@@ -118,6 +133,16 @@ impl Analyzer<'_> {
         self_ty: InternedTyId,
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
+    ) -> TraitResolution {
+        self.resolve_trait_obligation_with_const_args(self_ty, trait_id, trait_args, Vec::new())
+    }
+
+    pub(super) fn resolve_trait_obligation_with_const_args(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<ConstGenericArg>,
     ) -> TraitResolution {
         let Some(module_id) = self.ensure_trait_solver_module(self_ty, &trait_args) else {
             return TraitResolution::Unsatisfied;
@@ -144,7 +169,7 @@ impl Analyzer<'_> {
             self_ty,
             trait_id,
             &trait_args,
-            &[],
+            &trait_const_args,
             &assumptions,
             &trait_impls,
         );
@@ -169,25 +194,135 @@ impl Analyzer<'_> {
             return TraitResolution::Unsatisfied;
         }
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
+        let layout_module_id = match self.ty_kind(self_ty) {
+            Some(TyKind::Nominal { def_id, .. }) => def_id.module_id,
+            _ => module_id,
+        };
+        let layouts = matches!(trait_id, TraitId::Builtin(nia_ty::BuiltinTrait::Sized))
+            .then(|| self.compute_program_layout(layout_module_id, &array_lengths))
+            .flatten();
         let context = TraitSolverContext {
             type_store: self.input.type_store,
             normalization: normalization.as_ref(),
             trait_impls: &trait_impls,
             trait_impl_index: Some(&trait_impl_index),
-            layouts: None,
+            layouts: layouts.as_deref(),
             local_module_id: module_id,
             local_enums: &local_enums,
             program_is_enum: Some(&program_is_enum),
             const_expr_value: Some(&const_expr_value),
             impl_is_visible: Some(&impl_is_visible),
         };
-        let mut solver = context.solver(&assumptions);
-        solver.resolve(TraitGoal {
+        let goal = TraitGoal {
             self_ty,
             trait_id,
             trait_args,
-            trait_const_args: Vec::new(),
-        })
+            trait_const_args,
+        };
+        let mut solver = context.solver(&assumptions);
+        let resolution = solver.resolve(goal.clone());
+        if matches!(resolution, TraitResolution::Unsatisfied)
+            && goal.trait_id == TraitId::Builtin(nia_ty::BuiltinTrait::Sized)
+            && self
+                .resolve_layout_builtin_for_ty(
+                    Span::default(),
+                    nia_ids::LayoutBuiltin::Size,
+                    goal.self_ty,
+                )
+                .is_ok()
+        {
+            TraitResolution::Intrinsic(nia_trait_solve::IntrinsicImpl { goal })
+        } else {
+            resolution
+        }
+    }
+
+    pub(super) fn validate_const_call_where_predicates(
+        &mut self,
+        span: Span,
+        signature_module_id: ModuleId,
+        predicates: &[WherePredicateSignature],
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+    ) -> Result<(), ConstError> {
+        for predicate in predicates {
+            let self_ty = self
+                .const_expected_param_type(
+                    signature_module_id,
+                    predicate.ty,
+                    substitutions,
+                    const_substitutions,
+                )
+                .ok_or_else(|| ConstError {
+                    span,
+                    message: "cannot resolve const call trait bound target type".to_string(),
+                })?;
+            for bound in &predicate.bounds {
+                let trait_ty = self
+                    .const_expected_param_type(
+                        signature_module_id,
+                        bound.trait_ty,
+                        substitutions,
+                        const_substitutions,
+                    )
+                    .ok_or_else(|| ConstError {
+                        span,
+                        message: "cannot resolve const call trait bound".to_string(),
+                    })?;
+                let Some((trait_id, trait_args, trait_const_args)) =
+                    self.trait_id_and_args(trait_ty)
+                else {
+                    continue;
+                };
+                if !self.proves_trait_obligation_with_const_args(
+                    self_ty,
+                    trait_id,
+                    trait_args.clone(),
+                    trait_const_args.clone(),
+                ) {
+                    return Err(ConstError {
+                        span,
+                        message: "trait bound not satisfied for const function call".to_string(),
+                    });
+                }
+                for binding in &bound.associated_type_bindings {
+                    let expected = self
+                        .const_expected_param_type(
+                            signature_module_id,
+                            binding.ty,
+                            substitutions,
+                            const_substitutions,
+                        )
+                        .ok_or_else(|| ConstError {
+                            span,
+                            message: "cannot resolve const call associated type bound".to_string(),
+                        })?;
+                    let actual = self
+                        .resolve_associated_type_projection(
+                            self_ty,
+                            trait_id,
+                            &trait_args,
+                            &trait_const_args,
+                            &binding.name,
+                        )
+                        .ok_or_else(|| ConstError {
+                            span,
+                            message: "associated type bound not satisfied for const function call"
+                                .to_string(),
+                        })?;
+                    let expected = self.normalize_projection(expected);
+                    let actual = self.normalize_projection(actual);
+                    if !self.const_function_types_match(expected, actual) {
+                        return Err(ConstError {
+                            span,
+                            message: "associated type bound not satisfied for const function call"
+                                .to_string(),
+                        });
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn resolve_associated_type_projection(

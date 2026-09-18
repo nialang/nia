@@ -1512,6 +1512,13 @@ impl Analyzer<'_> {
             })?;
         let type_substitutions = callee.target_instantiation.type_substitutions;
         let const_substitutions = callee.target_instantiation.const_substitutions;
+        self.validate_const_call_where_predicates(
+            span,
+            function_id.module_id,
+            &signature.where_predicates,
+            &type_substitutions,
+            &const_substitutions,
+        )?;
         let mut output = nia_const_eval::eval_resolved_const_function_call(
             nia_const_eval::ResolvedConstCallInput {
                 span,
