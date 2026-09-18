@@ -210,7 +210,9 @@ impl TestLoaderFacts {
         }
         *current = program;
         drop(current);
-        self.db.invalidate(TestLoadedProgramQuery)
+        self.db
+            .invalidate(TestLoadedProgramQuery)
+            .expect("invalidate loaded program")
     }
 
     pub(super) fn replace_provider_facts(
@@ -228,7 +230,9 @@ impl TestLoaderFacts {
         }
         *current = provider_facts;
         drop(current);
-        self.db.invalidate(TestProviderFactsQuery)
+        self.db
+            .invalidate(TestProviderFactsQuery)
+            .expect("invalidate provider facts")
     }
 }
 

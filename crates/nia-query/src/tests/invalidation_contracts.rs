@@ -6,7 +6,7 @@ fn invalidating_uncached_key_reports_root_without_allocating_slot() {
         executions: AtomicUsize::new(0),
     });
 
-    let invalidation = db.invalidate(Double(9));
+    let invalidation = db.invalidate(Double(9)).expect("invalidate query");
 
     assert_eq!(invalidation.invalidated.len(), 1);
     assert_eq!(invalidation.invalidated[0].description, "double(9)");
@@ -23,7 +23,7 @@ fn invalidates_transitive_dependents() {
     assert_eq!(*db.expect_get(DoubleTwice(7)), 28);
     assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
 
-    let invalidation = db.invalidate(Double(7));
+    let invalidation = db.invalidate(Double(7)).expect("invalidate query");
     let invalidated = invalidation
         .invalidated
         .iter()
@@ -42,7 +42,7 @@ fn invalidates_get_many_dependents_without_reordering_results() {
     });
 
     assert_eq!(*db.expect_get(DoubleMany([2, 5])), 14);
-    let invalidation = db.invalidate(Double(2));
+    let invalidation = db.invalidate(Double(2)).expect("invalidate query");
     let invalidated = invalidation
         .invalidated
         .iter()
@@ -64,6 +64,7 @@ fn invalidation_reports_branching_dependents_in_stable_order() {
 
     let invalidated = db
         .invalidate(Double(7))
+        .expect("invalidate query")
         .invalidated
         .into_iter()
         .map(|frame| frame.description)
@@ -84,7 +85,9 @@ fn dependency_identity_does_not_merge_keys_with_same_debug_label() {
     assert_eq!(*db.expect_get(DebugCollisionParent(1)), 4);
     assert_eq!(*db.expect_get(DebugCollisionParent(2)), 8);
 
-    let invalidation = db.invalidate(DebugCollisionLeaf(1));
+    let invalidation = db
+        .invalidate(DebugCollisionLeaf(1))
+        .expect("invalidate query");
     let invalidated_names = invalidation
         .invalidated
         .iter()
@@ -124,7 +127,7 @@ fn invalidation_during_get_many_prevents_stale_cache_writeback() {
         }
         drop(state);
 
-        let invalidation = db.invalidate(SlowDouble(1));
+        let invalidation = db.invalidate(SlowDouble(1)).expect("invalidate query");
         assert_eq!(invalidation.invalidated[0].description, "slow_double(1)");
 
         let mut state = lock.lock();

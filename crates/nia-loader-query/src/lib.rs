@@ -24,7 +24,7 @@ use nia_compiler_query::{
     source_content_fingerprint,
 };
 use nia_imports::{ModuleMap, StableModuleKey};
-use nia_query::{QueryDb, QueryResult, QueryRetirement, QuerySession};
+use nia_query::{QueryDb, QueryError, QueryResult, QueryRetirement, QuerySession};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceRevision, SourceVersion};
 use nia_symbol_table::SymbolTable;
 use nia_target_config::{BuildProfile, CompilationMode, TargetConfig};
@@ -368,51 +368,57 @@ impl LoaderDatabase {
         &self.sources
     }
 
-    /// Replaces source text, retires the previous revision, and invalidates dependents atomically.
-    pub fn set_source(&self, path: impl Into<String>, text: impl Into<Arc<str>>) -> SourceFile {
+    /// Replaces source text after retiring the previous revision under one quiescent barrier.
+    pub fn set_source(
+        &self,
+        path: impl Into<String>,
+        text: impl Into<Arc<str>>,
+    ) -> QueryResult<SourceFile> {
         let path = SourcePath::new(path.into());
         let source_id = self.sources.id_for_path(&path);
-        let previous_version = self.sources.source_for_id(source_id).map_or(
-            SourceVersion {
-                id: source_id,
-                revision: SourceRevision::INITIAL,
-            },
-            |file| file.version(),
-        );
         let text = text.into();
-        self.db.retirement_transaction(|retirement| {
-            let file = self.sources.set_source(path, text);
-            self.reset_provider_facts(retirement);
-            retirement.invalidate(SourceTextQuery(file.id));
-            queries::retire_source_revision_queries(retirement, previous_version);
+        self.db.with_retirement(|retirement| {
+            let previous_version = self.sources.source_for_id(source_id).map_or(
+                SourceVersion {
+                    id: source_id,
+                    revision: SourceRevision::INITIAL,
+                },
+                |file| file.version(),
+            );
+            self.reset_provider_facts(retirement)?;
+            retirement.invalidate(SourceTextQuery(source_id))?;
+            queries::retire_source_revision_queries(retirement, previous_version)?;
             self.db
                 .context()
                 .node_store
                 .retire_revision(previous_version);
-            file
+            Ok(self.sources.set_source(path, text))
         })
     }
 
     /// Invalidates one source and retires its revision-owned query identities.
-    pub fn invalidate_source(&self, path: impl Into<String>) -> nia_query::QueryInvalidation {
+    pub fn invalidate_source(
+        &self,
+        path: impl Into<String>,
+    ) -> QueryResult<nia_query::QueryInvalidation> {
         let path = SourcePath::new(path.into());
         let source_id = self.sources.id_for_path(&path);
-        let previous_version = self.sources.source_for_id(source_id).map_or(
-            SourceVersion {
-                id: source_id,
-                revision: SourceRevision::INITIAL,
-            },
-            |file| file.version(),
-        );
-        self.db.retirement_transaction(|retirement| {
-            self.reset_provider_facts(retirement);
-            let invalidation = retirement.invalidate(SourceTextQuery(source_id));
-            queries::retire_source_revision_queries(retirement, previous_version);
+        self.db.with_retirement(|retirement| {
+            let previous_version = self.sources.source_for_id(source_id).map_or(
+                SourceVersion {
+                    id: source_id,
+                    revision: SourceRevision::INITIAL,
+                },
+                |file| file.version(),
+            );
+            self.reset_provider_facts(retirement)?;
+            let invalidation = retirement.invalidate(SourceTextQuery(source_id))?;
+            queries::retire_source_revision_queries(retirement, previous_version)?;
             self.db
                 .context()
                 .node_store
                 .retire_revision(previous_version);
-            invalidation
+            Ok(invalidation)
         })
     }
 
@@ -445,13 +451,17 @@ impl LoaderDatabase {
         if added.is_empty() {
             return Ok(nia_compiler_query::ProviderGraphUpdate::Stable);
         }
-        self.db.invalidate(ProviderDemandsQuery);
+        self.db.invalidate(ProviderDemandsQuery)?;
         let graph = self.db.get(graph::ModuleGraphQuery)?;
         let current_revision = self.db.get(ProviderDemandsQuery)?.revision();
-        assert!(self.db.seal_and_retire_predecessor(
+        if !self.db.seal_and_retire_predecessor(
             &graph::ModuleGraphRevisionQuery(current_revision),
             &graph::ModuleGraphRevisionQuery(previous_revision),
-        ));
+        )? {
+            return Err(QueryError::internal(
+                "provider graph predecessor was unavailable for retirement",
+            ));
+        }
         if graph == previous_graph {
             Ok(nia_compiler_query::ProviderGraphUpdate::Stable)
         } else {
@@ -486,7 +496,15 @@ impl LoaderDatabase {
         Ok(())
     }
 
-    fn reset_provider_facts(&self, retirement: &QueryRetirement<'_, LoaderContext>) {
+    fn reset_provider_facts(
+        &self,
+        retirement: &QueryRetirement<'_, LoaderContext>,
+    ) -> QueryResult<()> {
+        let previous_revision = self.db.context().provider_facts.revision_if_nonempty();
+        if let Some(previous_revision) = previous_revision {
+            retirement.invalidate(ProviderDemandsQuery)?;
+            retirement.retire(&graph::ModuleGraphRevisionQuery(previous_revision))?;
+        }
         if let (Some(cache), Some(key)) = (
             self.db.context().frontend_cache.as_ref(),
             self.db.context().provider_demand_plan_key,
@@ -499,10 +517,8 @@ impl LoaderDatabase {
                 .lock()
                 .expect("provider demand plan candidate lock poisoned") = None;
         }
-        if let Some(previous_revision) = self.db.context().provider_facts.clear() {
-            retirement.invalidate(ProviderDemandsQuery);
-            retirement.retire(&graph::ModuleGraphRevisionQuery(previous_revision));
-        }
+        self.db.context().provider_facts.clear();
+        Ok(())
     }
 
     fn settle_provider_demand_plan(&self) -> QueryResult<()> {

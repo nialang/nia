@@ -19,7 +19,7 @@ fn externally_published_shared_values_support_repeated_reads() {
             .expect("inspect shared publication")
     );
 
-    db.invalidate(Double(3));
+    db.invalidate(Double(3)).expect("invalidate producer");
     assert!(db.get(PublishedSharedValueQuery(3)).is_err());
     assert!(
         db.can_publish_shared(PublishedSharedValueQuery(3))
@@ -81,7 +81,9 @@ fn single_consumer_query_moves_non_clone_value_and_tracks_parent_dependency() {
             && dependency.to.name == "owned_non_clone_value"
     }));
 
-    let invalidation = db.invalidate(OwnedNonCloneValueQuery(21));
+    let invalidation = db
+        .invalidate(OwnedNonCloneValueQuery(21))
+        .expect("invalidate owned query");
     assert!(
         invalidation
             .invalidated
@@ -132,7 +134,7 @@ fn externally_published_owned_query_moves_once_and_tracks_its_predecessor() {
             && dependency.to.name == "owned_non_clone_value"
     }));
 
-    let invalidation = db.invalidate(predecessor);
+    let invalidation = db.invalidate(predecessor).expect("invalidate producer");
     assert!(
         invalidation
             .invalidated
@@ -159,7 +161,7 @@ fn invalidating_a_producer_drops_an_unconsumed_published_payload() {
     )
     .expect("publish owned value");
 
-    db.invalidate(predecessor);
+    db.invalidate(predecessor).expect("invalidate producer");
     assert_eq!(drops.load(Ordering::SeqCst), 1);
     assert!(db.get_owned(PublishedOwnedValueQuery(5)).is_err());
 }

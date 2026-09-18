@@ -1464,7 +1464,7 @@ impl CompilerDatabase {
         if graph_changed {
             // The executable fact epoch contains session-local module handles;
             // a graph replacement makes that value and every dependent red.
-            invalidation.extend(self.db.invalidate(ExecutableFactEpochQuery));
+            invalidation.extend(self.db.invalidate(ExecutableFactEpochQuery)?);
             if handle_generation_changed {
                 self.db
                     .session()
@@ -1538,14 +1538,14 @@ impl CompilerDatabase {
                 .validate_input(ProviderFactWorklistQuery, &provider_worklist)?,
         );
         if optimization_changed {
-            invalidation.extend(self.db.invalidate(CompilerOptimizationQuery));
+            invalidation.extend(self.db.invalidate(CompilerOptimizationQuery)?);
         }
         if codegen_scope_changed {
-            invalidation.extend(self.db.invalidate(CompilerCodegenScopeQuery));
+            invalidation.extend(self.db.invalidate(CompilerCodegenScopeQuery)?);
         }
         if current_package_changed {
-            invalidation.extend(self.db.invalidate(MonomorphizationQuery));
-            invalidation.extend(self.db.invalidate(BackendLoweringInputsQuery));
+            invalidation.extend(self.db.invalidate(MonomorphizationQuery)?);
+            invalidation.extend(self.db.invalidate(BackendLoweringInputsQuery)?);
         }
         Ok(invalidation)
     }

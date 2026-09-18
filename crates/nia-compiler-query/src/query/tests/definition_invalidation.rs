@@ -11,7 +11,9 @@ fn direct_module_defs_invalidation_stops_at_snapshot_boundary() {
     let db = query_db(fixture.program());
 
     let _ = db.expect_get(TypeResolutionQuery(module_id));
-    let invalidation = db.invalidate(ModuleDefsQuery(module_id));
+    let invalidation = db
+        .invalidate(ModuleDefsQuery(module_id))
+        .expect("invalidate module definitions");
     let invalidated = invalidation
         .invalidated
         .iter()
@@ -40,7 +42,9 @@ fn invalidates_module_defs_after_item_tree_changes() {
     let db = query_db(fixture.program());
 
     let _ = db.expect_get(ModuleDefsQuery(module_id));
-    let invalidation = db.invalidate(ModuleItemTreeInputQuery(module_id));
+    let invalidation = db
+        .invalidate(ModuleItemTreeInputQuery(module_id))
+        .expect("invalidate module item tree input");
     let invalidated = invalidation
         .invalidated
         .iter()

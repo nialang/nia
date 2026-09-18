@@ -261,7 +261,8 @@ impl<C> QueryDb<C> {
         }
         let _activity = self.inner.session.enter_activity();
         let detail_timing = self.inner.timings.detail();
-        let slot = nia_timing::time_detail(detail_timing, "query.slot_for", || self.slot_for(&key));
+        let slot =
+            nia_timing::time_detail(detail_timing, "query.slot_for", || self.slot_for(&key))?;
         let node_id = slot.node_id;
         nia_timing::time_detail(detail_timing, "query.record_dependency", || {
             record_dependency_on_current_stack(self.inner.session.inner.id, node_id)
@@ -400,7 +401,7 @@ impl<C> QueryDb<C> {
                 "query does not declare an external producer",
             ));
         }
-        let slot = self.slot_for(&key);
+        let slot = self.slot_for(&key)?;
         let state = slot.state.lock();
         Ok(matches!(&*state, QueryState::Empty | QueryState::Consumed))
     }
@@ -433,8 +434,8 @@ impl<C> QueryDb<C> {
             ));
         }
         let _activity = self.inner.session.enter_activity();
-        let slot = self.slot_for(&key);
-        let predecessor_slot = self.slot_for(predecessor);
+        let slot = self.slot_for(&key)?;
+        let predecessor_slot = self.slot_for(predecessor)?;
         {
             let mut state = slot.state.lock();
             if !matches!(&*state, QueryState::Empty | QueryState::Consumed) {
@@ -470,7 +471,7 @@ impl<C> QueryDb<C> {
                 "query does not declare an external producer",
             ));
         }
-        let slot = self.slot_for(&key);
+        let slot = self.slot_for(&key)?;
         let state = slot.state.lock();
         Ok(matches!(&*state, QueryState::Empty))
     }
@@ -500,8 +501,8 @@ impl<C> QueryDb<C> {
             ));
         }
         let _activity = self.inner.session.enter_activity();
-        let slot = self.slot_for(&key);
-        let predecessor_slot = self.slot_for(predecessor);
+        let slot = self.slot_for(&key)?;
+        let predecessor_slot = self.slot_for(predecessor)?;
         {
             let mut state = slot.state.lock();
             if !matches!(&*state, QueryState::Empty) {
@@ -536,7 +537,8 @@ impl<C> QueryDb<C> {
         }
         let _activity = self.inner.session.enter_activity();
         let detail_timing = self.inner.timings.detail();
-        let slot = nia_timing::time_detail(detail_timing, "query.slot_for", || self.slot_for(&key));
+        let slot =
+            nia_timing::time_detail(detail_timing, "query.slot_for", || self.slot_for(&key))?;
         let node_id = slot.node_id;
         nia_timing::time_detail(detail_timing, "query.record_dependency", || {
             record_dependency_on_current_stack(self.inner.session.inner.id, node_id)
@@ -953,7 +955,7 @@ impl<C> QueryDb<C> {
     }
 
     /// Invalidates `key` and every known dependent while retaining slot identity.
-    pub fn invalidate<K>(&self, key: K) -> QueryInvalidation
+    pub fn invalidate<K>(&self, key: K) -> QueryResult<QueryInvalidation>
     where
         K: QueryKey<C>,
     {
@@ -961,16 +963,16 @@ impl<C> QueryDb<C> {
         self.invalidate_during_retirement(key)
     }
 
-    fn invalidate_during_retirement<K>(&self, key: K) -> QueryInvalidation
+    fn invalidate_during_retirement<K>(&self, key: K) -> QueryResult<QueryInvalidation>
     where
         K: QueryKey<C>,
     {
-        let Some(root) = self.cached_slot(&key).map(|slot| slot.node_id) else {
-            return QueryInvalidation {
+        let Some(root) = self.cached_slot(&key)?.map(|slot| slot.node_id) else {
+            return Ok(QueryInvalidation {
                 invalidated: vec![query_frame::<C, K>(&key)],
-            };
+            });
         };
-        self.invalidate_cached_root(root)
+        Ok(self.invalidate_cached_root(root))
     }
 
     /// Validates a stable input fingerprint and invalidates it only when changed.
@@ -994,7 +996,7 @@ impl<C> QueryDb<C> {
         let current_fingerprint = key.fingerprint(current_value).ok_or_else(|| {
             Self::internal_query_error(&key, "stable value query did not produce a fingerprint")
         })?;
-        let Some(slot) = self.cached_slot(&key) else {
+        let Some(slot) = self.cached_slot(&key)? else {
             return Ok(QueryInvalidation::default());
         };
         let is_green = {
@@ -1042,7 +1044,7 @@ impl<C> QueryDb<C> {
     }
 
     /// Removes a typed slot and its dependency identity after session quiescence.
-    pub fn retire<K>(&self, key: &K) -> bool
+    pub fn retire<K>(&self, key: &K) -> QueryResult<bool>
     where
         K: QueryKey<C>,
     {
@@ -1051,124 +1053,174 @@ impl<C> QueryDb<C> {
     }
 
     /// Runs several invalidation or retirement operations under one quiescent barrier.
-    pub fn retirement_transaction<R>(
+    pub fn with_retirement<R>(
         &self,
-        operation: impl FnOnce(&QueryRetirement<'_, C>) -> R,
-    ) -> R {
+        operation: impl FnOnce(&QueryRetirement<'_, C>) -> QueryResult<R>,
+    ) -> QueryResult<R> {
         let _retirement = self.inner.session.enter_retirement();
         operation(&QueryRetirement { db: self })
     }
 
-    fn retire_during_retirement<K>(&self, key: &K) -> bool
+    fn retire_during_retirement<K>(&self, key: &K) -> QueryResult<bool>
     where
         K: QueryKey<C>,
     {
         if let Some(registry) = &self.inner.registry {
-            registry.assert_registered::<C, K>();
+            registry.require_registered::<C, K>()?;
         }
         let caches = self.inner.caches.read();
         let Some(cache) = caches.get(&TypeId::of::<K>()) else {
-            return false;
+            return Ok(false);
         };
         let cache = cache
             .as_any()
             .downcast_ref::<Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<K::Value>>>>>()
-            .expect("query cache type mismatch");
+            .ok_or_else(|| Self::internal_query_error(key, "query cache type mismatch"))?;
         let mut cache = cache.lock();
-        let Some(node_id) = cache.get(key).map(|slot| slot.node_id) else {
-            return false;
+        let Some(slot) = cache.get(key).cloned() else {
+            return Ok(false);
         };
+        let node_id = slot.node_id;
+
+        {
+            let slots = self.inner.slots.lock();
+            let Some(record) = slots.get(self.inner.id, node_id) else {
+                return Err(Self::internal_query_error(
+                    key,
+                    "retired query slot is not registered",
+                ));
+            };
+            if !Arc::ptr_eq(&record.slot, &(slot.clone() as Arc<dyn ErasedQuerySlot>)) {
+                return Err(Self::internal_query_error(
+                    key,
+                    "retired typed cache and slot identity disagree",
+                ));
+            }
+        }
 
         self.invalidate_cached_root(node_id);
-        let (_, slot) = cache
-            .remove_entry(key)
-            .expect("retired query cache entry must remain present");
-        let record = self
+        if cache.remove_entry(key).is_none() {
+            return Err(Self::internal_query_error(
+                key,
+                "retired query cache entry disappeared",
+            ));
+        }
+        if self
             .inner
             .slots
             .lock()
             .remove(self.inner.id, node_id)
-            .expect("retired query slot must remain registered");
-        assert!(
-            Arc::ptr_eq(&record.slot, &(slot as Arc<dyn ErasedQuerySlot>)),
-            "retired typed cache and slot identity disagree"
-        );
+            .is_none()
+        {
+            return Err(Self::internal_query_error(
+                key,
+                "retired query slot registration disappeared",
+            ));
+        }
         self.inner
             .session
             .inner
             .dependencies
             .lock()
             .remove_node(node_id);
-        true
+        Ok(true)
     }
 
     /// Seals an owned current value, severs its sole predecessor edge, and retires that
     /// predecessor. The current query must have copied everything it needs from the immutable
     /// predecessor rather than retaining the predecessor value as part of its own payload.
-    pub fn seal_and_retire_predecessor<K>(&self, current: &K, predecessor: &K) -> bool
+    pub fn seal_and_retire_predecessor<K>(&self, current: &K, predecessor: &K) -> QueryResult<bool>
     where
         K: QueryKey<C>,
     {
-        assert_eq!(
-            K::FINGERPRINT,
-            QueryFingerprintPolicy::None,
-            "query predecessor retirement requires an owned, non-validating query value"
-        );
+        if K::FINGERPRINT != QueryFingerprintPolicy::None {
+            return Err(Self::internal_query_error(
+                current,
+                "query predecessor retirement requires an owned, non-validating query value",
+            ));
+        }
         if let Some(registry) = &self.inner.registry {
-            registry.assert_registered::<C, K>();
+            registry.require_registered::<C, K>()?;
         }
         let _retirement = self.inner.session.enter_retirement();
         let caches = self.inner.caches.read();
         let Some(cache) = caches.get(&TypeId::of::<K>()) else {
-            return false;
+            return Ok(false);
         };
         let cache = cache
             .as_any()
             .downcast_ref::<Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<K::Value>>>>>()
-            .expect("query cache type mismatch");
+            .ok_or_else(|| Self::internal_query_error(current, "query cache type mismatch"))?;
         let mut cache = cache.lock();
         let Some(current_node) = cache.get(current).map(|slot| slot.node_id) else {
-            return false;
+            return Ok(false);
         };
-        let Some(predecessor_node) = cache.get(predecessor).map(|slot| slot.node_id) else {
-            return false;
+        let Some(predecessor_slot) = cache.get(predecessor).cloned() else {
+            return Ok(false);
         };
-        assert_ne!(
-            current_node, predecessor_node,
-            "query cannot retire itself as its predecessor"
-        );
-        assert!(
-            matches!(
-                &*cache
-                    .get(current)
-                    .expect("current query slot must remain cached")
-                    .state
-                    .lock(),
-                QueryState::Ready { .. }
-            ),
-            "current query must own a ready value before sealing its predecessor"
-        );
+        let predecessor_node = predecessor_slot.node_id;
+        if current_node == predecessor_node {
+            return Err(Self::internal_query_error(
+                current,
+                "query cannot retire itself as its predecessor",
+            ));
+        }
+        let Some(current_slot) = cache.get(current) else {
+            return Err(Self::internal_query_error(
+                current,
+                "current query cache entry disappeared",
+            ));
+        };
+        if !matches!(&*current_slot.state.lock(), QueryState::Ready { .. }) {
+            return Err(Self::internal_query_error(
+                current,
+                "current query must own a ready value before sealing its predecessor",
+            ));
+        }
         let mut dependencies = self.inner.session.inner.dependencies.lock();
-        dependencies.assert_only_predecessor(predecessor_node, current_node);
+        dependencies
+            .require_only_predecessor(predecessor_node, current_node)
+            .map_err(|error| error.with_query_context(query_frame::<C, K>(current)))?;
 
-        let (_, predecessor_slot) = cache
-            .remove_entry(predecessor)
-            .expect("retired predecessor cache entry must remain present");
-        let record = self
+        {
+            let slots = self.inner.slots.lock();
+            let Some(record) = slots.get(self.inner.id, predecessor_node) else {
+                return Err(Self::internal_query_error(
+                    predecessor,
+                    "retired predecessor slot is not registered",
+                ));
+            };
+            if !Arc::ptr_eq(
+                &record.slot,
+                &(predecessor_slot.clone() as Arc<dyn ErasedQuerySlot>),
+            ) {
+                return Err(Self::internal_query_error(
+                    predecessor,
+                    "retired predecessor cache and slot identity disagree",
+                ));
+            }
+        }
+
+        if cache.remove_entry(predecessor).is_none() {
+            return Err(Self::internal_query_error(
+                predecessor,
+                "retired predecessor cache entry disappeared",
+            ));
+        }
+        if self
             .inner
             .slots
             .lock()
             .remove(self.inner.id, predecessor_node)
-            .expect("retired predecessor slot must remain registered");
-        assert!(
-            Arc::ptr_eq(
-                &record.slot,
-                &(predecessor_slot as Arc<dyn ErasedQuerySlot>)
-            ),
-            "retired predecessor cache and slot identity disagree"
-        );
+            .is_none()
+        {
+            return Err(Self::internal_query_error(
+                predecessor,
+                "retired predecessor slot registration disappeared",
+            ));
+        }
         dependencies.remove_node(predecessor_node);
-        true
+        Ok(true)
     }
 
     fn invalidate_cached_root(&self, root: QueryNodeId) -> QueryInvalidation {
@@ -1212,7 +1264,7 @@ impl<C> QueryDb<C> {
         }
     }
 
-    pub(super) fn slot_for<K>(&self, key: &K) -> Arc<QuerySlot<K::Value>>
+    pub(super) fn slot_for<K>(&self, key: &K) -> QueryResult<Arc<QuerySlot<K::Value>>>
     where
         K: QueryKey<C>,
     {
@@ -1220,7 +1272,7 @@ impl<C> QueryDb<C> {
         let Some(cache) = caches.get(&TypeId::of::<K>()) else {
             drop(caches);
             if let Some(registry) = &self.inner.registry {
-                registry.assert_registered::<C, K>();
+                registry.require_registered::<C, K>()?;
             }
             self.inner
                 .caches
@@ -1236,10 +1288,10 @@ impl<C> QueryDb<C> {
         let cache = cache
             .as_any()
             .downcast_ref::<Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<K::Value>>>>>()
-            .expect("query cache type mismatch");
+            .ok_or_else(|| Self::internal_query_error(key, "query cache type mismatch"))?;
         let mut cache = cache.lock();
         if let Some(slot) = cache.get(key) {
-            return slot.clone();
+            return Ok(slot.clone());
         }
         let key = Arc::new(key.clone());
         let identity = Arc::new(query_slot_identity::<C, K>(Arc::clone(&key)));
@@ -1260,20 +1312,22 @@ impl<C> QueryDb<C> {
             slot.clone() as Arc<dyn ErasedQuerySlot>,
             ensure_query_from_erased::<C, K>,
         );
-        slot
+        Ok(slot)
     }
 
-    pub(super) fn cached_slot<K>(&self, key: &K) -> Option<Arc<QuerySlot<K::Value>>>
+    pub(super) fn cached_slot<K>(&self, key: &K) -> QueryResult<Option<Arc<QuerySlot<K::Value>>>>
     where
         K: QueryKey<C>,
     {
         let caches = self.inner.caches.read();
-        let cache = caches
-            .get(&TypeId::of::<K>())?
+        let Some(cache) = caches.get(&TypeId::of::<K>()) else {
+            return Ok(None);
+        };
+        let cache = cache
             .as_any()
             .downcast_ref::<Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<K::Value>>>>>()
-            .expect("query cache type mismatch");
-        cache.lock().get(key).cloned()
+            .ok_or_else(|| Self::internal_query_error(key, "query cache type mismatch"))?;
+        Ok(cache.lock().get(key).cloned())
     }
 
     fn enter_query(&self, entry: QueryStackEntry) -> QueryResult<QueryStackGuard> {
@@ -1377,7 +1431,7 @@ impl<C> QueryDb<C> {
 
 impl<C> QueryRetirement<'_, C> {
     /// Invalidates a key while the enclosing retirement transaction is quiescent.
-    pub fn invalidate<K>(&self, key: K) -> QueryInvalidation
+    pub fn invalidate<K>(&self, key: K) -> QueryResult<QueryInvalidation>
     where
         K: QueryKey<C>,
     {
@@ -1385,7 +1439,7 @@ impl<C> QueryRetirement<'_, C> {
     }
 
     /// Retires a key while the enclosing retirement transaction is quiescent.
-    pub fn retire<K>(&self, key: &K) -> bool
+    pub fn retire<K>(&self, key: &K) -> QueryResult<bool>
     where
         K: QueryKey<C>,
     {

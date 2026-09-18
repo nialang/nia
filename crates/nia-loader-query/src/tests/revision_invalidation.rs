@@ -18,7 +18,9 @@ fn compiler_loader_update_detaches_current_defs_from_old_source_revision() {
             .all(|(key, _)| key.revision == nia_source::SourceRevision::INITIAL)
     );
 
-    let latest_source = loader.set_source("main.nia", "fn main() i32 { 1 }");
+    let latest_source = loader
+        .set_source("main.nia", "fn main() i32 { 1 }")
+        .expect("replace source");
     compiler
         .update(CompileRequest::new(loader.clone()))
         .expect("compiler update");
@@ -60,7 +62,8 @@ fn body_only_source_change_refreshes_revision_bearing_field_dependents() {
     let first_signature = db.expect_get(signature_key);
 
     sources.set_source(path, "fn main() i32 { 2 }");
-    db.invalidate(SourceTextQuery(first_source.id));
+    db.invalidate(SourceTextQuery(first_source.id))
+        .expect("invalidate source text");
     let latest_declaration = db.expect_get(declaration_key);
     let latest_signature = db.expect_get(signature_key);
 

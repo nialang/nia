@@ -106,20 +106,27 @@ impl QueryDependencyGraph {
         }
     }
 
-    pub(super) fn assert_only_predecessor(&self, predecessor: QueryNodeId, current: QueryNodeId) {
-        let dependents = self
-            .reverse
-            .get(&predecessor)
-            .expect("sealed predecessor must have a current dependent");
-        assert_eq!(
-            dependents.len(),
-            1,
-            "sealed predecessor must have exactly one dependent"
-        );
-        assert!(
-            dependents.contains(&current),
-            "sealed predecessor must only feed the current query"
-        );
+    pub(super) fn require_only_predecessor(
+        &self,
+        predecessor: QueryNodeId,
+        current: QueryNodeId,
+    ) -> QueryResult<()> {
+        let Some(dependents) = self.reverse.get(&predecessor) else {
+            return Err(QueryError::internal(
+                "sealed predecessor has no current dependent",
+            ));
+        };
+        if dependents.len() != 1 {
+            return Err(QueryError::internal(
+                "sealed predecessor does not have exactly one dependent",
+            ));
+        }
+        if !dependents.contains(&current) {
+            return Err(QueryError::internal(
+                "sealed predecessor feeds a different query",
+            ));
+        }
+        Ok(())
     }
 }
 

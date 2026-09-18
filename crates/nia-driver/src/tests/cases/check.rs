@@ -96,7 +96,9 @@ fn run_incremental_check_case(driver: &crate::Driver, case_root: &Path) {
     });
     let edited_text = fs::read_to_string(&source)
         .unwrap_or_else(|error| panic!("read edited source {}: {error}", source.display()));
-    driver.set_source(source.to_string_lossy().into_owned(), edited_text);
+    driver
+        .set_source(source.to_string_lossy().into_owned(), edited_text)
+        .expect("replace source");
     let edited_snapshot = case_root.join(&case.source).with_extension("after.snap");
     assert_check_case(
         driver,

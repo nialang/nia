@@ -127,7 +127,9 @@ pub fn score(&self) i32 {
     );
     let provider_entry = program.graph.entry();
 
-    database.set_source(main_path.to_string_lossy().into_owned(), main_source);
+    database
+        .set_source(main_path.to_string_lossy().into_owned(), main_source)
+        .expect("replace source");
     let reset = database.load_program().expect("reset program load");
 
     assert_ne!(reset.graph.entry(), provider_entry);

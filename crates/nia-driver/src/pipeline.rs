@@ -502,14 +502,23 @@ impl Driver {
     }
 
     /// Installs or replaces an in-memory source for subsequent requests.
-    pub fn set_source(&self, path: impl Into<String>, text: impl Into<std::sync::Arc<str>>) {
+    pub fn set_source(
+        &self,
+        path: impl Into<String>,
+        text: impl Into<std::sync::Arc<str>>,
+    ) -> Result<(), DriverError> {
         let path = path.into();
         let loader = self.loader.lock().expect("driver loader lock poisoned");
         if let Some(loader) = &*loader {
-            loader.database.set_source(path, text);
+            loader
+                .database
+                .set_source(path, text)
+                .map(drop)
+                .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))
         } else {
             drop(loader);
             self.sources.set_source(SourcePath::new(path), text);
+            Ok(())
         }
     }
 

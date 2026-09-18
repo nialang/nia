@@ -24,7 +24,9 @@ fn shared_session_records_and_invalidates_cross_database_dependencies() {
     assert!(parent_db.session().ptr_eq(&input_db.session()));
     assert_eq!(*parent_db.expect_get(SessionParent), 6);
     value.store(4, Ordering::SeqCst);
-    let invalidation = input_db.invalidate(SessionInput);
+    let invalidation = input_db
+        .invalidate(SessionInput)
+        .expect("invalidate session input");
 
     assert!(
         invalidation
@@ -60,7 +62,9 @@ fn separate_sessions_do_not_record_cross_database_dependencies() {
     assert!(!parent_db.session().ptr_eq(&input_db.session()));
     assert_eq!(*parent_db.expect_get(SessionParent), 6);
     value.store(4, Ordering::SeqCst);
-    let invalidation = input_db.invalidate(SessionInput);
+    let invalidation = input_db
+        .invalidate(SessionInput)
+        .expect("invalidate session input");
 
     assert!(
         invalidation

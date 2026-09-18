@@ -21,15 +21,17 @@ fn driver_invocation_target_overrides_toolchain_default() {
     let driver = crate::Driver::with_config(
         crate::DriverConfig::new(toolchain).with_artifact_target(invocation_target.clone()),
     );
-    driver.set_source(
-        "main.nia",
-        r#"
+    driver
+        .set_source(
+            "main.nia",
+            r#"
 @[if os == "driver-invocation-target"]
 fn selected() i32 { 1 }
 
 fn main() i32 { selected() }
 "#,
-    );
+        )
+        .expect("set source");
 
     let output = driver.check_entry(crate::CheckRequest::new("main.nia"));
 

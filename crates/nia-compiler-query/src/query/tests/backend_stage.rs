@@ -497,11 +497,14 @@ fn backend_module_plan_slots_are_consumed_and_republished_after_invalidation() {
         );
     }
 
-    db.invalidate(BackendLoweringQuery);
+    db.invalidate(BackendLoweringQuery)
+        .expect("invalidate backend lowering");
     let second = db.expect_get(BackendLoweringQuery);
     assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
 
-    let invalidation = db.invalidate(BackendItemPlanQuery);
+    let invalidation = db
+        .invalidate(BackendItemPlanQuery)
+        .expect("invalidate backend item plan");
     assert!(
         invalidation
             .invalidated
