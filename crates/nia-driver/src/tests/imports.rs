@@ -3225,3 +3225,38 @@ fn main() usize {
         program.diagnostics
     );
 }
+
+#[test]
+fn omitted_const_associated_calls_use_external_struct_result_types() {
+    let root = temp_dir("omitted_const_associated_calls_use_external_struct_result_types");
+    write(
+        &root.join("main.nia"),
+        r#"
+module model;
+using pkg::model;
+
+const fn make() model::Value {
+    .init(42)
+}
+
+fn main() i32 {
+    make().0
+}
+"#,
+    );
+    write(
+        &root.join("model.nia"),
+        r#"
+pub struct Value(i32)
+
+extend Value {
+    pub(pkg) const fn init(value: i32) Value {
+        Value(value)
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+}
