@@ -55,10 +55,7 @@ impl QueryExecutionBudget {
         let helper = client
             .into_helper_thread(move |delivery| {
                 let delivery = delivery.map_err(|error| error.to_string());
-                let mut state = callback_shared
-                    .state
-                    .lock()
-                    .expect("query execution budget lock poisoned");
+                let mut state = callback_shared.state.lock();
                 state.pending_requests = state
                     .pending_requests
                     .checked_sub(1)
@@ -79,11 +76,7 @@ impl QueryExecutionBudget {
     }
 
     fn acquire(&self) -> QueryExecutionPermit {
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .expect("query execution budget lock poisoned");
+        let mut state = self.shared.state.lock();
         state.waiting += 1;
         loop {
             // A jobserver contributes one implicit slot plus its explicit tokens. Deliveries are
@@ -122,19 +115,12 @@ impl QueryExecutionBudget {
             let requests = state.waiting.saturating_sub(represented_waiters);
             state.pending_requests += requests;
             if requests > 0 {
-                let helper = self
-                    .helper
-                    .lock()
-                    .expect("query jobserver helper lock poisoned");
+                let helper = self.helper.lock();
                 for _ in 0..requests {
                     helper.request_token();
                 }
             }
-            state = self
-                .shared
-                .ready
-                .wait(state)
-                .expect("query execution budget lock poisoned while waiting");
+            self.shared.ready.wait(&mut state);
         }
     }
 
@@ -156,11 +142,7 @@ impl QueryExecutionBudgetShared {
 
 impl Drop for QueryExecutionPermit {
     fn drop(&mut self) {
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .expect("query execution budget lock poisoned");
+        let mut state = self.shared.state.lock();
         state.active = state
             .active
             .checked_sub(1)
@@ -204,10 +186,7 @@ impl QueryExecutor {
     }
 
     fn ensure_workers(&self, work_items: usize) {
-        let mut workers = self
-            .workers
-            .lock()
-            .expect("query executor worker lock poisoned");
+        let mut workers = self.workers.lock();
         let worker_target = self
             .shared
             .parallelism
@@ -231,11 +210,7 @@ impl QueryExecutor {
             return;
         }
         self.ensure_workers(tasks.len());
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .expect("query executor state lock poisoned");
+        let mut state = self.shared.state.lock();
         assert!(
             !state.shutdown,
             "query executor accepted work after shutdown"
@@ -250,11 +225,7 @@ impl QueryExecutor {
             return;
         }
         self.ensure_workers(self.shared.parallelism);
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .expect("query executor state lock poisoned");
+        let mut state = self.shared.state.lock();
         assert!(
             !state.shutdown,
             "query executor accepted work after shutdown"
@@ -269,11 +240,7 @@ impl QueryExecutor {
     pub(super) fn try_run_one(&self, batch: usize) -> bool {
         let nested = query_executor_is_active(self.identity());
         let can_run = {
-            let state = self
-                .shared
-                .state
-                .lock()
-                .expect("query executor state lock poisoned");
+            let state = self.shared.state.lock();
             state.queue.iter().any(|task| task.batch == batch)
                 && (nested || state.active < self.shared.parallelism)
         };
@@ -290,11 +257,7 @@ impl QueryExecutor {
             Some(self.execution_budget.acquire())
         };
         let task = {
-            let mut state = self
-                .shared
-                .state
-                .lock()
-                .expect("query executor state lock poisoned");
+            let mut state = self.shared.state.lock();
             let position = state.queue.iter().rposition(|task| task.batch == batch);
             if nested {
                 position.map(|position| {
@@ -340,18 +303,9 @@ impl QueryExecutor {
     }
 
     pub(super) fn wait_for_batch_progress<V>(&self, batch: &QueryBatch<V>) {
-        let state = self
-            .shared
-            .state
-            .lock()
-            .expect("query executor state lock poisoned");
+        let mut state = self.shared.state.lock();
         if !batch.is_complete() {
-            drop(
-                self.shared
-                    .ready
-                    .wait(state)
-                    .expect("query executor state lock poisoned while waiting"),
-            );
+            self.shared.ready.wait(&mut state);
         }
     }
 
@@ -366,22 +320,12 @@ impl Drop for QueryExecutor {
         // Closing admission precedes joining so workers drain every accepted task and no task is
         // left without a thread that can publish its batch completion.
         {
-            let mut state = self
-                .shared
-                .state
-                .lock()
-                .expect("query executor state lock poisoned");
+            let mut state = self.shared.state.lock();
             state.shutdown = true;
         }
         self.shared.ready.notify_all();
         let current_thread = std::thread::current().id();
-        let handles = std::mem::take(
-            &mut self
-                .workers
-                .lock()
-                .expect("query executor worker lock poisoned")
-                .handles,
-        );
+        let handles = std::mem::take(&mut self.workers.lock().handles);
         for handle in handles {
             if handle.thread().id() == current_thread {
                 drop(handle);
@@ -396,10 +340,7 @@ impl QueryExecutorShared {
     fn worker_loop(self: Arc<Self>, execution_budget: Arc<QueryExecutionBudget>) {
         loop {
             {
-                let mut state = self
-                    .state
-                    .lock()
-                    .expect("query executor state lock poisoned");
+                let mut state = self.state.lock();
                 loop {
                     if state.shutdown && state.queue.is_empty() {
                         return;
@@ -407,18 +348,12 @@ impl QueryExecutorShared {
                     if state.active < self.parallelism && !state.queue.is_empty() {
                         break;
                     }
-                    state = self
-                        .ready
-                        .wait(state)
-                        .expect("query executor state lock poisoned while waiting");
+                    self.ready.wait(&mut state);
                 }
             }
             let execution_permit = execution_budget.acquire();
             let task = {
-                let mut state = self
-                    .state
-                    .lock()
-                    .expect("query executor state lock poisoned");
+                let mut state = self.state.lock();
                 if state.active < self.parallelism {
                     match state.queue.pop_front() {
                         Some(task) => {
@@ -467,11 +402,7 @@ impl QueryExecutorShared {
     }
 
     pub(super) fn notify_waiters(&self) {
-        drop(
-            self.state
-                .lock()
-                .expect("query executor state lock poisoned"),
-        );
+        drop(self.state.lock());
         self.ready.notify_all();
     }
 }
@@ -481,11 +412,7 @@ impl Drop for QueryExecutorActivityGuard {
         if !self.counts_activity {
             return;
         }
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .expect("query executor state lock poisoned");
+        let mut state = self.shared.state.lock();
         state.active = state
             .active
             .checked_sub(1)
@@ -545,7 +472,7 @@ impl<O> QueryBatch<O> {
     }
 
     pub(super) fn complete(&self, index: usize, outcome: QueryBatchOutcome<O>) {
-        let mut state = self.state.lock().expect("query batch state lock poisoned");
+        let mut state = self.state.lock();
         let slot = state
             .outcomes
             .get_mut(index)
@@ -560,15 +487,11 @@ impl<O> QueryBatch<O> {
     }
 
     pub(super) fn is_complete(&self) -> bool {
-        self.state
-            .lock()
-            .expect("query batch state lock poisoned")
-            .remaining
-            == 0
+        self.state.lock().remaining == 0
     }
 
     fn take_completed(&self) -> (Vec<(usize, QueryBatchOutcome<O>)>, bool) {
-        let mut state = self.state.lock().expect("query batch state lock poisoned");
+        let mut state = self.state.lock();
         let completed = std::mem::take(&mut state.completed);
         let outcomes = completed
             .into_iter()
@@ -586,7 +509,7 @@ impl<O> QueryBatch<O> {
         // `completed` drives responsive streaming in completion order; `outcomes` remains indexed
         // by submission position so the non-streaming API is deterministic across schedules.
         let outcomes = {
-            let mut state = self.state.lock().expect("query batch state lock poisoned");
+            let mut state = self.state.lock();
             assert_eq!(state.remaining, 0, "query batch finished before completion");
             std::mem::take(&mut state.outcomes)
         };

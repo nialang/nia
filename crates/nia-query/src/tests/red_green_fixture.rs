@@ -260,11 +260,11 @@ impl QueryKey<ValidationRaceContext> for ValidationRaceInput {
         let execution = db.context().input_executions.fetch_add(1, Ordering::SeqCst);
         if execution > 0 {
             let (lock, ready) = &*db.context().control;
-            let mut state = lock.lock().expect("validation race lock poisoned");
+            let mut state = lock.lock();
             state.started = true;
             ready.notify_all();
             while !state.release {
-                state = ready.wait(state).expect("validation race lock poisoned");
+                ready.wait(&mut state);
             }
         }
         Ok(db.context().input.load(Ordering::SeqCst))

@@ -222,17 +222,9 @@ impl QuerySession {
         // every frame would let retirement wait on frames that cannot finish until it releases
         // admission, while counting only the outer edge gives retirement a quiescence barrier.
         if !nested {
-            let mut state = self
-                .inner
-                .activity
-                .lock()
-                .expect("query activity lock poisoned");
+            let mut state = self.inner.activity.lock();
             while state.retiring {
-                state = self
-                    .inner
-                    .activity_ready
-                    .wait(state)
-                    .expect("query activity lock poisoned while waiting");
+                self.inner.activity_ready.wait(&mut state);
             }
             state.active += 1;
         }
@@ -248,28 +240,16 @@ impl QuerySession {
             !query_activity_is_active(identity),
             "query cache retirement cannot run inside an active query"
         );
-        let mut state = self
-            .inner
-            .activity
-            .lock()
-            .expect("query activity lock poisoned");
+        let mut state = self.inner.activity.lock();
         while state.retiring {
-            state = self
-                .inner
-                .activity_ready
-                .wait(state)
-                .expect("query activity lock poisoned while waiting");
+            self.inner.activity_ready.wait(&mut state);
         }
         // Set `retiring` before waiting for active work so no new outer activity can enter while
         // the current generation drains. The guard reopens admission even if retirement panics.
         state.retiring = true;
         self.inner.activity_ready.notify_all();
         while state.active > 0 {
-            state = self
-                .inner
-                .activity_ready
-                .wait(state)
-                .expect("query activity lock poisoned while waiting for quiescence");
+            self.inner.activity_ready.wait(&mut state);
         }
         drop(state);
         QueryRetirementGuard {
@@ -288,7 +268,6 @@ impl QuerySession {
             .inner
             .databases
             .lock()
-            .expect("query session database lock poisoned")
             .insert(db.inner.id, registration);
         assert!(previous.is_none(), "query database registered twice");
     }
@@ -297,7 +276,6 @@ impl QuerySession {
         self.inner
             .databases
             .lock()
-            .expect("query session database lock poisoned")
             .get(&db_id)
             .cloned()
             .expect("query node references an unknown database")
@@ -330,7 +308,6 @@ impl QuerySession {
         let from_frame = from_identity.frame();
         let cycle = query_wait_graph()
             .lock()
-            .expect("query wait-for graph lock poisoned")
             .begin(from, from_frame, to, to_frame);
         if let Some(cycle) = cycle {
             return Err(QueryError::Cycle { cycle });
@@ -341,10 +318,7 @@ impl QuerySession {
 
 impl QuerySessionInner {
     pub(super) fn ensure_healthy(&self) -> nia_ice::IceResult<()> {
-        let failure = self
-            .unexpected_failure
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let failure = self.unexpected_failure.lock();
         match failure.as_ref() {
             Some(ice) => Err(ice
                 .clone()
@@ -360,10 +334,7 @@ impl QuerySessionInner {
         self.ensure_healthy()?;
         let result = nia_ice::catch_unexpected_panic(f);
         if let Err(ice) = &result {
-            let mut failure = self
-                .unexpected_failure
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut failure = self.unexpected_failure.lock();
             if failure.is_none() {
                 *failure = Some(ice.clone());
             }
@@ -374,10 +345,7 @@ impl QuerySessionInner {
 
 impl Drop for QueryWaitGuard {
     fn drop(&mut self) {
-        query_wait_graph()
-            .lock()
-            .expect("query wait-for graph lock poisoned")
-            .end(self.from, self.to);
+        query_wait_graph().lock().end(self.from, self.to);
     }
 }
 
@@ -387,11 +355,7 @@ impl Drop for QueryActivityGuard<'_> {
         if !leave_query_activity(identity) {
             return;
         }
-        let mut state = self
-            .session
-            .activity
-            .lock()
-            .expect("query activity lock poisoned");
+        let mut state = self.session.activity.lock();
         state.active = state
             .active
             .checked_sub(1)
@@ -403,11 +367,7 @@ impl Drop for QueryActivityGuard<'_> {
 
 impl Drop for QueryRetirementGuard<'_> {
     fn drop(&mut self) {
-        let mut state = self
-            .session
-            .activity
-            .lock()
-            .expect("query activity lock poisoned");
+        let mut state = self.session.activity.lock();
         assert!(state.retiring, "query retirement guard released twice");
         state.retiring = false;
         drop(state);

@@ -1,9 +1,7 @@
 use super::*;
 
 fn assert_wait_graph_released(nodes: impl IntoIterator<Item = QueryNodeId>) {
-    let wait_graph = query_wait_graph()
-        .lock()
-        .expect("query wait-for graph lock poisoned");
+    let wait_graph = query_wait_graph().lock();
     for node in nodes {
         assert!(!wait_graph.edges.contains_key(&node));
         assert!(!wait_graph.edges.values().any(|target| *target == node));
@@ -192,8 +190,8 @@ fn distinct_sessions_detect_cross_stack_query_cycles() {
         left_db.slot_for(&CrossSessionCycle::Left).node_id,
         right_db.slot_for(&CrossSessionCycle::Right).node_id,
     ];
-    *left_link.lock().expect("left cycle link lock poisoned") = Some(left_db.clone());
-    *right_link.lock().expect("right cycle link lock poisoned") = Some(right_db.clone());
+    *left_link.lock() = Some(left_db.clone());
+    *right_link.lock() = Some(right_db.clone());
     let (sender, receiver) = std::sync::mpsc::channel();
     let left_sender = sender.clone();
     let left_thread = std::thread::spawn(move || {
@@ -219,8 +217,8 @@ fn distinct_sessions_detect_cross_stack_query_cycles() {
     );
     left_thread.join().expect("left cycle worker");
     right_thread.join().expect("right cycle worker");
-    *left_link.lock().expect("left cycle link lock poisoned") = None;
-    *right_link.lock().expect("right cycle link lock poisoned") = None;
+    *left_link.lock() = None;
+    *right_link.lock() = None;
     assert_wait_graph_released(cycle_nodes);
 }
 

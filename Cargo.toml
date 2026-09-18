@@ -81,6 +81,7 @@ license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
 jobserver = "0.1.35"
+parking_lot = "0.12.5"
 libc = "0.2.186"
 hashbrown = { version = "0.17.1", default-features = false }
 regex = "1.13.1"

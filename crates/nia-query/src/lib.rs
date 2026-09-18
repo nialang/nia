@@ -29,13 +29,14 @@ use std::{
     fmt::{self, Debug},
     hash::Hash,
     sync::{
-        Arc, Condvar, Mutex, OnceLock, RwLock, Weak,
+        Arc, OnceLock, Weak,
         atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
     thread::JoinHandle,
 };
 
 use nia_hash::{FastHashMap, FastHashSet};
+use parking_lot::{Condvar, Mutex, RwLock};
 
 // Keep enough lanes busy on modern hosts while the shared execution and
 // memory budgets continue to cap aggregate pressure from nested queries.
@@ -77,7 +78,6 @@ impl QuerySession {
             .inner
             .databases
             .lock()
-            .expect("query session database lock poisoned")
             .values()
             .cloned()
             .collect::<Vec<_>>();
@@ -404,9 +404,7 @@ where
     V: Send + Sync + 'static,
 {
     fn remove_nodes(&self, nodes: &FastHashSet<QueryNodeId>) {
-        self.lock()
-            .expect("query cache lock poisoned")
-            .retain(|_, slot| !nodes.contains(&slot.node_id));
+        self.lock().retain(|_, slot| !nodes.contains(&slot.node_id));
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -549,7 +547,7 @@ where
     V: Send + Sync + 'static,
 {
     fn invalidate(&self) {
-        let mut state = self.state.lock().expect("query cache lock poisoned");
+        let mut state = self.state.lock();
         match &mut *state {
             QueryState::Empty | QueryState::Consumed | QueryState::Published { .. } => {
                 *state = QueryState::Empty;
@@ -565,7 +563,7 @@ where
     }
 
     fn mark_potentially_outdated(&self) -> QueryInvalidationDisposition {
-        let mut state = self.state.lock().expect("query cache lock poisoned");
+        let mut state = self.state.lock();
         let previous = std::mem::replace(&mut *state, QueryState::Empty);
         match previous {
             QueryState::Ready {
@@ -611,7 +609,7 @@ where
     }
 
     fn fingerprint(&self) -> Option<QueryFingerprint> {
-        let state = self.state.lock().expect("query cache lock poisoned");
+        let state = self.state.lock();
         match &*state {
             QueryState::Ready { fingerprint, .. } => *fingerprint,
             QueryState::Empty
@@ -628,7 +626,7 @@ where
     }
 
     fn stabilize(&self) {
-        let mut state = self.state.lock().expect("query cache lock poisoned");
+        let mut state = self.state.lock();
         match &mut *state {
             QueryState::Ready {
                 dependency_fingerprints,
@@ -875,7 +873,7 @@ fn process_query_execution_budget(parallelism: usize) -> Arc<QueryExecutionBudge
 mod tests {
     use super::*;
     use std::sync::{
-        Barrier, Condvar,
+        Barrier,
         atomic::{AtomicUsize, Ordering},
     };
 
