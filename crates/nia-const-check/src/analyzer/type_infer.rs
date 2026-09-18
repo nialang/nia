@@ -339,6 +339,13 @@ impl Analyzer<'_> {
                 }
             }
         }
+        self.validate_const_call_where_predicates(
+            span,
+            signature_module_id,
+            &signature.where_predicates,
+            &substitutions,
+            &const_substitutions,
+        )?;
         Ok(ConstGenericInstantiation {
             type_substitutions: substitutions,
             const_substitutions,
