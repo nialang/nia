@@ -28,6 +28,11 @@ impl DiagnosticBundle {
     pub fn id(&self) -> DiagnosticBundleId {
         self.0.id
     }
+
+    /// Borrows the immutable diagnostics carried by this bundle.
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        self.0.diagnostics.as_slice()
+    }
 }
 
 impl fmt::Debug for DiagnosticBundle {
@@ -84,15 +89,15 @@ pub struct DiagnosticStore {
 
 impl DiagnosticStore {
     /// Creates an empty store with a fresh owner identity.
-    pub fn new() -> Self {
+    pub fn new() -> nia_ice::IceResult<Self> {
         let id = NEXT_STORE_ID
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)
             })
-            .ok()
-            .and_then(NonZeroU32::new)
-            .unwrap_or_else(|| panic!("Nia ICE: exhausted diagnostic store identities"));
-        Self {
+            .map_err(|_| nia_ice::Ice::new("exhausted diagnostic store identities"))?;
+        let id = NonZeroU32::new(id)
+            .ok_or_else(|| nia_ice::Ice::new("allocated zero diagnostic store identity"))?;
+        Ok(Self {
             id,
             next_bundle_index: AtomicU32::new(1),
             empty: DiagnosticBundle(Arc::new(DiagnosticBundleData {
@@ -102,47 +107,47 @@ impl DiagnosticStore {
                 },
                 diagnostics: DiagnosticStorage::Owned(Box::new([])),
             })),
-        }
+        })
     }
 
     /// Publishes an owned diagnostic vector as an immutable bundle.
-    pub fn bundle(&self, diagnostics: Vec<Diagnostic>) -> DiagnosticBundle {
+    pub fn bundle(&self, diagnostics: Vec<Diagnostic>) -> nia_ice::IceResult<DiagnosticBundle> {
         if diagnostics.is_empty() {
-            return self.empty.clone();
+            return Ok(self.empty.clone());
         }
-        let index = self
-            .next_bundle_index
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-                current.checked_add(1)
-            })
-            .unwrap_or_else(|_| panic!("Nia ICE: exhausted diagnostic bundle identities"));
-        DiagnosticBundle(Arc::new(DiagnosticBundleData {
-            id: DiagnosticBundleId {
-                store: self.id,
-                index,
-            },
+        let id = self.allocate_bundle_id()?;
+        Ok(DiagnosticBundle(Arc::new(DiagnosticBundleData {
+            id,
             diagnostics: DiagnosticStorage::Owned(diagnostics.into_boxed_slice()),
-        }))
+        })))
     }
 
     /// Publishes a shared diagnostic vector without copying its payload.
-    pub fn bundle_shared(&self, diagnostics: Arc<Vec<Diagnostic>>) -> DiagnosticBundle {
+    pub fn bundle_shared(
+        &self,
+        diagnostics: Arc<Vec<Diagnostic>>,
+    ) -> nia_ice::IceResult<DiagnosticBundle> {
         if diagnostics.is_empty() {
-            return self.empty.clone();
+            return Ok(self.empty.clone());
         }
+        let id = self.allocate_bundle_id()?;
+        Ok(DiagnosticBundle(Arc::new(DiagnosticBundleData {
+            id,
+            diagnostics: DiagnosticStorage::Shared(diagnostics),
+        })))
+    }
+
+    fn allocate_bundle_id(&self) -> nia_ice::IceResult<DiagnosticBundleId> {
         let index = self
             .next_bundle_index
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)
             })
-            .unwrap_or_else(|_| panic!("Nia ICE: exhausted diagnostic bundle identities"));
-        DiagnosticBundle(Arc::new(DiagnosticBundleData {
-            id: DiagnosticBundleId {
-                store: self.id,
-                index,
-            },
-            diagnostics: DiagnosticStorage::Shared(diagnostics),
-        }))
+            .map_err(|_| nia_ice::Ice::new("exhausted diagnostic bundle identities"))?;
+        Ok(DiagnosticBundleId {
+            store: self.id,
+            index,
+        })
     }
 
     /// Borrows a bundle's diagnostics when it belongs to this store.
@@ -151,12 +156,6 @@ impl DiagnosticStore {
         bundle: &'bundle DiagnosticBundle,
     ) -> Option<&'bundle [Diagnostic]> {
         (bundle.id().store == self.id).then(|| bundle.0.diagnostics.as_slice())
-    }
-}
-
-impl Default for DiagnosticStore {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -175,14 +174,16 @@ mod tests {
             std::mem::size_of::<usize>(),
         );
 
-        let first = DiagnosticStore::new();
-        let second = DiagnosticStore::new();
+        let first = DiagnosticStore::new().expect("create first diagnostic store");
+        let second = DiagnosticStore::new().expect("create second diagnostic store");
         let diagnostics = vec![Diagnostic::user_error_at(
             codes::TYPE_CHECK,
             Span::new(2, 4),
             "bad type",
         )];
-        let bundle = first.bundle(diagnostics.clone());
+        let bundle = first
+            .bundle(diagnostics.clone())
+            .expect("publish diagnostic bundle");
 
         assert_eq!(first.diagnostics(&bundle), Some(diagnostics.as_slice()));
         assert_eq!(second.diagnostics(&bundle), None);
@@ -190,9 +191,9 @@ mod tests {
 
     #[test]
     fn empty_diagnostics_share_the_session_bundle() {
-        let store = DiagnosticStore::new();
-        let first = store.bundle(Vec::new());
-        let second = store.bundle(Vec::new());
+        let store = DiagnosticStore::new().expect("create diagnostic store");
+        let first = store.bundle(Vec::new()).expect("publish empty bundle");
+        let second = store.bundle(Vec::new()).expect("publish empty bundle");
 
         assert_eq!(first.id(), second.id());
         assert_eq!(store.diagnostics(&first), Some([].as_slice()));
@@ -200,12 +201,14 @@ mod tests {
 
     #[test]
     fn non_empty_payload_is_reclaimed_with_its_last_handle() {
-        let store = DiagnosticStore::new();
-        let bundle = store.bundle(vec![Diagnostic::user_error_at(
-            codes::TYPE_CHECK,
-            Span::new(0, 1),
-            "bad type",
-        )]);
+        let store = DiagnosticStore::new().expect("create diagnostic store");
+        let bundle = store
+            .bundle(vec![Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                Span::new(0, 1),
+                "bad type",
+            )])
+            .expect("publish diagnostic bundle");
         let payload = Arc::downgrade(&bundle.0);
 
         drop(bundle);
@@ -215,13 +218,15 @@ mod tests {
 
     #[test]
     fn shared_payload_keeps_its_existing_allocation() {
-        let store = DiagnosticStore::new();
+        let store = DiagnosticStore::new().expect("create diagnostic store");
         let diagnostics = Arc::new(vec![Diagnostic::user_error_at(
             codes::TYPE_CHECK,
             Span::new(0, 1),
             "bad type",
         )]);
-        let bundle = store.bundle_shared(Arc::clone(&diagnostics));
+        let bundle = store
+            .bundle_shared(Arc::clone(&diagnostics))
+            .expect("publish shared diagnostic bundle");
 
         assert!(matches!(
             &bundle.0.diagnostics,

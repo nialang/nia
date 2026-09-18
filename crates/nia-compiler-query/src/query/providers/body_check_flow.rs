@@ -138,7 +138,7 @@ pub(super) fn provide_body_check(
         let diagnostics = std::mem::take(&mut body_check.diagnostics);
         Ok(ModuleBodyCheck {
             semantic: Arc::new(body_check),
-            diagnostics: db.context().diagnostic_store.bundle_shared(diagnostics),
+            diagnostics: db.context().diagnostic_store.bundle_shared(diagnostics)?,
         })
     })
 }
@@ -306,10 +306,10 @@ pub(super) fn body_check_resolution_inputs_for_filter(
             let resolution_diagnostics = vec![
                 db.context()
                     .diagnostic_store
-                    .bundle(std::mem::take(&mut filtered_values.diagnostics)),
+                    .bundle(std::mem::take(&mut filtered_values.diagnostics))?,
                 db.context()
                     .diagnostic_store
-                    .bundle(std::mem::take(&mut filtered_locals.diagnostics)),
+                    .bundle(std::mem::take(&mut filtered_locals.diagnostics))?,
             ];
             let output = BodyCheckResolutionInputs {
                 active_item_tree: filtered_active_item_tree,

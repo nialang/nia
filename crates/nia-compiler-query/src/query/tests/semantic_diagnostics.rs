@@ -13,7 +13,7 @@ fn signature_type_resolution_separates_semantic_value_from_diagnostics() {
         nia_item_tree::SignatureItemSet::Functions,
     ));
     assert!(resolution.semantic.diagnostics.is_empty());
-    assert!(!resolve_diagnostic_bundle(db.context(), &resolution.diagnostics).is_empty());
+    assert!(!resolve_diagnostic_bundle(&resolution.diagnostics).is_empty());
 }
 
 #[test]
@@ -24,7 +24,7 @@ fn type_resolution_separates_semantic_value_from_diagnostics() {
 
     let resolution = db.expect_get(TypeResolutionQuery(module_id));
     assert!(resolution.semantic.diagnostics.is_empty());
-    assert!(!resolve_diagnostic_bundle(db.context(), &resolution.diagnostics).is_empty());
+    assert!(!resolve_diagnostic_bundle(&resolution.diagnostics).is_empty());
 }
 
 #[test]
@@ -42,7 +42,7 @@ fn signature_type_lowering_separates_semantic_value_from_diagnostics() {
     ));
     assert!(lowering.semantic.diagnostics.is_empty());
     assert!(
-        resolve_diagnostic_bundle(db.context(), &lowering.diagnostics)
+        resolve_diagnostic_bundle(&lowering.diagnostics)
             .iter()
             .any(|diagnostic| diagnostic
                 .summary
@@ -62,7 +62,7 @@ fn type_lowering_separates_semantic_value_from_diagnostics() {
     let lowering = db.expect_get(TypeLoweringQuery(module_id));
     assert!(lowering.semantic.diagnostics.is_empty());
     assert!(
-        resolve_diagnostic_bundle(db.context(), &lowering.diagnostics)
+        resolve_diagnostic_bundle(&lowering.diagnostics)
             .iter()
             .any(|diagnostic| diagnostic
                 .summary
@@ -82,7 +82,7 @@ fn signature_item_signatures_separate_semantic_value_from_diagnostics() {
     ));
     assert!(signatures.semantic.diagnostics.is_empty());
     assert!(
-        resolve_diagnostic_bundle(db.context(), &signatures.diagnostics)
+        resolve_diagnostic_bundle(&signatures.diagnostics)
             .iter()
             .any(|diagnostic| diagnostic
                 .summary
@@ -99,7 +99,7 @@ fn item_signatures_separate_semantic_value_from_diagnostics() {
     let signatures = db.expect_get(ItemSignaturesQuery(module_id));
     assert!(signatures.semantic.diagnostics.is_empty());
     assert!(
-        resolve_diagnostic_bundle(db.context(), &signatures.diagnostics)
+        resolve_diagnostic_bundle(&signatures.diagnostics)
             .iter()
             .any(|diagnostic| diagnostic
                 .summary
@@ -124,7 +124,7 @@ fn value_resolution_separates_semantic_value_from_diagnostics() {
 
     let resolution = db.expect_get(ValueResolutionQuery(module_id));
     assert!(resolution.semantic.diagnostics.is_empty());
-    assert!(!resolve_diagnostic_bundle(db.context(), &resolution.diagnostics).is_empty());
+    assert!(!resolve_diagnostic_bundle(&resolution.diagnostics).is_empty());
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn local_resolution_separates_semantic_value_from_diagnostics() {
 
     let resolution = db.expect_get(LocalResolutionQuery(module_id));
     assert!(resolution.semantic.diagnostics.is_empty());
-    assert!(!resolve_diagnostic_bundle(db.context(), &resolution.diagnostics).is_empty());
+    assert!(!resolve_diagnostic_bundle(&resolution.diagnostics).is_empty());
 }
 
 #[test]
@@ -220,7 +220,7 @@ fn flow_check_separates_semantic_value_from_diagnostics() {
     let flow_check = db.expect_get(FlowCheckQuery(module_id));
     assert!(flow_check.semantic.diagnostics.is_empty());
     assert!(
-        resolve_diagnostic_bundle(db.context(), &flow_check.diagnostics)
+        resolve_diagnostic_bundle(&flow_check.diagnostics)
             .iter()
             .any(|diagnostic| diagnostic
                 .summary
@@ -240,7 +240,7 @@ fn terminal_checks_separate_semantic_values_from_diagnostics() {
 
     assert!(static_check.semantic.diagnostics.is_empty());
     assert!(
-        resolve_diagnostic_bundle(static_db.context(), &static_check.diagnostics)
+        resolve_diagnostic_bundle(&static_check.diagnostics)
             .iter()
             .any(|diagnostic| diagnostic
                 .summary
@@ -254,7 +254,7 @@ fn terminal_checks_separate_semantic_values_from_diagnostics() {
 
     assert!(abi_check.semantic.diagnostics.is_empty());
     assert!(
-        resolve_diagnostic_bundle(abi_db.context(), &abi_check.diagnostics)
+        resolve_diagnostic_bundle(&abi_check.diagnostics)
             .iter()
             .any(|diagnostic| diagnostic.summary.contains("cannot use `bool` directly"))
     );
@@ -269,7 +269,7 @@ fn layouts_separate_semantic_value_from_diagnostics() {
     let layouts = db.expect_get(LayoutsQuery(module_id));
     assert!(layouts.semantic.diagnostics.is_empty());
     assert!(
-        resolve_diagnostic_bundle(db.context(), &layouts.diagnostics)
+        resolve_diagnostic_bundle(&layouts.diagnostics)
             .iter()
             .any(|diagnostic| diagnostic
                 .summary
@@ -299,7 +299,7 @@ fn const_check_separates_semantic_value_from_diagnostics() {
     });
     assert!(const_eval.semantic.diagnostics.is_empty());
     assert!(
-        resolve_diagnostic_bundle(db.context(), &const_eval.diagnostics)
+        resolve_diagnostic_bundle(&const_eval.diagnostics)
             .iter()
             .any(|diagnostic| diagnostic.summary == "cyclic const dependency")
     );
@@ -326,7 +326,7 @@ fn monomorphization_separates_semantic_value_from_diagnostics() {
     let monomorphization = db.expect_get(MonomorphizationQuery);
     assert!(monomorphization.semantic.diagnostics.is_empty());
     assert!(
-        resolve_diagnostic_bundle(db.context(), &monomorphization.diagnostics)
+        resolve_diagnostic_bundle(&monomorphization.diagnostics)
             .iter()
             .any(|diagnostic| diagnostic.summary.contains("type depth limit"))
     );
@@ -340,7 +340,7 @@ fn body_check_separates_semantic_value_from_diagnostics() {
 
     let body_check = db.expect_get(BodyCheckQuery(module_id));
     assert!(body_check.semantic.diagnostics.is_empty());
-    assert!(!resolve_diagnostic_bundle(db.context(), &body_check.diagnostics).is_empty());
+    assert!(!resolve_diagnostic_bundle(&body_check.diagnostics).is_empty());
 }
 
 #[test]
@@ -354,7 +354,7 @@ fn signature_type_normalization_separates_semantic_value_from_diagnostics() {
         nia_item_tree::SignatureItemSet::Types,
     ));
     assert!(normalization.semantic.diagnostics.is_empty());
-    assert!(!resolve_diagnostic_bundle(db.context(), &normalization.diagnostics).is_empty());
+    assert!(!resolve_diagnostic_bundle(&normalization.diagnostics).is_empty());
 }
 
 #[test]
@@ -365,5 +365,5 @@ fn type_normalization_separates_semantic_value_from_diagnostics() {
 
     let normalization = db.expect_get(TypeNormalizationQuery(module_id));
     assert!(normalization.semantic.diagnostics.is_empty());
-    assert!(!resolve_diagnostic_bundle(db.context(), &normalization.diagnostics).is_empty());
+    assert!(!resolve_diagnostic_bundle(&normalization.diagnostics).is_empty());
 }

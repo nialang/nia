@@ -258,7 +258,7 @@ extend u8 : CheckedAdd[u8] {
             .any(|def_id| def_id.module_id == traits_id)
     );
     let validation = db.expect_get(ExtensionProviderValidationFactsQuery(math_id));
-    let diagnostics = resolve_diagnostic_bundle(db.context(), &validation.diagnostics);
+    let diagnostics = resolve_diagnostic_bundle(&validation.diagnostics);
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
     let checked_add = sym("checkedAdd");
     let provider_facts = db.expect_get(ExtensionProviderModuleFactsQuery(math_id));

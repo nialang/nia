@@ -668,7 +668,7 @@ fn executable_check_in_session(
             } else {
                 ReachableBodyModules::new(&round_reachable_body_modules)
             };
-            let layouts = store_module_layouts(db.context(), {
+            let layouts = match store_module_layouts(db.context(), {
                 let reachability = reachability_state.reachability();
                 match executable_layouts_for_reachable_items(
                     db,
@@ -682,7 +682,10 @@ fn executable_check_in_session(
                     Ok(layouts) => layouts,
                     Err(error) => return_session_error!(error),
                 }
-            });
+            }) {
+                Ok(layouts) => layouts,
+                Err(error) => return_session_error!(error),
+            };
             let seed = fact_by_id
                 .get(&module_id)
                 .map(|state| nia_body_check::BodyCheckSeed {
@@ -968,7 +971,13 @@ fn executable_check_in_session(
                 .expect("executable layout cache must contain the requested module"),
             None => {
                 match signature_layouts_for_types(db, module_id, Some(&*non_function_signatures)) {
-                    Ok(layouts) => store_module_layouts(db.context(), layouts),
+                    Ok(layouts) => match store_module_layouts(db.context(), layouts) {
+                        Ok(layouts) => layouts,
+                        Err(error) => {
+                            drop(executable_program_layouts);
+                            return_session_error!(error)
+                        }
+                    },
                     Err(error) => {
                         drop(executable_program_layouts);
                         return_session_error!(error)
@@ -1332,7 +1341,7 @@ fn final_executable_checked_modules(
         )?;
         program_layout_cache
             .borrow_mut()
-            .insert(module_id, store_module_layouts(db.context(), layouts));
+            .insert(module_id, store_module_layouts(db.context(), layouts)?);
     }
     let executable_program_layouts = executable_program_layouts(
         db,
@@ -1364,7 +1373,7 @@ fn final_executable_checked_modules(
                                 None,
                                 Some(ReachableBodyModules::new(&reachable_body_modules)),
                             )?,
-                        )
+                        )?
                     };
                 let filter = nia_body_check::BodyCheckFilter::ReachableItems {
                     functions: module_functions,

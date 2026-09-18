@@ -210,7 +210,9 @@ fn test_loader_context(
         ),
         sources,
         node_store: nia_node_id::NodeStore::new(),
-        diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
+        diagnostic_store: Arc::new(
+            nia_diagnostic::DiagnosticStore::new().expect("create diagnostic store"),
+        ),
         symbols: SymbolTable::new(),
         target: TargetConfig::host(),
         profile: nia_target_config::BuildProfile::Debug,

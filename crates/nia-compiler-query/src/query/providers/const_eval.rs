@@ -60,7 +60,7 @@ pub(super) fn provide_const(
     let diagnostics = std::mem::take(&mut const_eval.diagnostics);
     Ok(ModuleConstCheck {
         semantic: Arc::new(const_eval),
-        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
     })
 }
 

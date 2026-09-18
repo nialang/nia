@@ -116,7 +116,7 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
         for node in graph.semantic.modules() {
             let parsed = db.get(parsed_module_query(db, &node.path)?)?;
             let declarations = db.get(module_declarations_query(db, &node.path)?)?;
-            diagnostics = diagnostics.append(&ProgramDiagnosticBundles::from_diagnostics_in(
+            let parse_diagnostics = ProgramDiagnosticBundles::from_diagnostics_in(
                 db.context().diagnostic_store.clone(),
                 parsed
                     .semantic
@@ -131,21 +131,24 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
                         ),
                     })
                     .collect(),
-            ));
-            diagnostics = diagnostics.append(&ProgramDiagnosticBundles::from_source_bundle(
+            )?;
+            diagnostics = diagnostics.append(&parse_diagnostics)?;
+            let prune_diagnostics = ProgramDiagnosticBundles::from_source_bundle(
                 db.context().diagnostic_store.clone(),
                 node.path.clone(),
                 parsed.prune_diagnostics.clone(),
-            ));
+            )?;
+            diagnostics = diagnostics.append(&prune_diagnostics)?;
             for bundle in declarations.diagnostics.iter() {
-                diagnostics = diagnostics.append(&ProgramDiagnosticBundles::from_source_bundle(
+                let declaration_diagnostics = ProgramDiagnosticBundles::from_source_bundle(
                     db.context().diagnostic_store.clone(),
                     node.path.clone(),
                     bundle.clone(),
-                ));
+                )?;
+                diagnostics = diagnostics.append(&declaration_diagnostics)?;
             }
             if node.module_path.is_entry_package() {
-                diagnostics = diagnostics.append(&ProgramDiagnosticBundles::from_diagnostics_in(
+                let unused_diagnostics = ProgramDiagnosticBundles::from_diagnostics_in(
                     db.context().diagnostic_store.clone(),
                     unused_import_diagnostics(
                         &graph.semantic,
@@ -154,7 +157,8 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
                         &declarations.semantic,
                         &db.context().symbols,
                     ),
-                ));
+                )?;
+                diagnostics = diagnostics.append(&unused_diagnostics)?;
             }
         }
         Ok(diagnostics)
@@ -309,7 +313,7 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             prune_diagnostics: db
                 .context()
                 .diagnostic_store
-                .bundle(prune_result.diagnostics),
+                .bundle(prune_result.diagnostics)?,
             read_diagnostics: source.diagnostics.clone(),
         })
     }
@@ -505,7 +509,7 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
         Ok(match db.context().sources.read_source(&path) {
             Ok(file) => SourceText {
                 file: Some(file),
-                diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+                diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
             },
             Err(err) => SourceText {
                 file: None,
@@ -516,7 +520,7 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
                     )
                     .debug("path", path.as_str())
                     .finish(),
-                ]),
+                ])?,
             },
         })
     }
@@ -667,7 +671,7 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
         let declaration_diagnostics = db
             .context()
             .diagnostic_store
-            .bundle(declaration_diagnostics);
+            .bundle(declaration_diagnostics)?;
         let mut diagnostic_bundles = Vec::new();
         if !parsed.read_diagnostics.is_empty() {
             diagnostic_bundles.push(parsed.read_diagnostics.clone());

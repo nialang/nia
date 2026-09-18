@@ -353,7 +353,7 @@ impl crate::LoaderFactProvider for TestLoaderFacts {
         };
         Ok(ProgramDiagnosticBundles::from_diagnostics(
             diagnostics.clone(),
-        ))
+        )?)
     }
 
     fn symbols(&self) -> nia_symbol_table::SymbolTable {

@@ -1700,7 +1700,7 @@ pub(super) fn executable_program_layouts<'a>(
                 signature_layouts_for_types(db, module_id, non_function_signatures_override),
             )?
         };
-        let layouts = store_module_layouts(db.context(), layouts);
+        let layouts = capture_query_failure(failure, store_module_layouts(db.context(), layouts))?;
         cache.borrow_mut().insert(module_id, layouts.clone());
         Some(layouts.semantic)
     }
@@ -1794,7 +1794,7 @@ fn checked_module_with_body_and_flow_check(
         layout_diagnostics: query_layouts
             .as_ref()
             .map(|layouts| layouts.diagnostics.clone())
-            .unwrap_or_else(|| db.context().diagnostic_store.bundle(Vec::new())),
+            .map_or_else(|| db.context().diagnostic_store.bundle(Vec::new()), Ok)?,
         abi_diagnostics: abi_check.diagnostics.clone(),
         flow_diagnostics: flow_check.diagnostics.clone(),
     })
@@ -1820,7 +1820,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
     let flow_diagnostics = db
         .context()
         .diagnostic_store
-        .bundle(std::mem::take(&mut flow_check.diagnostics));
+        .bundle(std::mem::take(&mut flow_check.diagnostics))?;
     let (const_eval, const_diagnostics) = match const_eval {
         Some(mut const_eval) => {
             // Executable checking evaluates only reachable const inputs, but a
@@ -1838,7 +1838,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
                     }
                 }
             }
-            let diagnostics = db.context().diagnostic_store.bundle(diagnostics);
+            let diagnostics = db.context().diagnostic_store.bundle(diagnostics)?;
             (Arc::new(const_eval), diagnostics)
         }
         None => {
@@ -1881,7 +1881,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         body_diagnostics: db
             .context()
             .diagnostic_store
-            .bundle_shared(body_check.diagnostics),
+            .bundle_shared(body_check.diagnostics)?,
         frontend_diagnostics: vec![
             type_resolution.diagnostics.clone(),
             type_normalization.diagnostics.clone(),
@@ -1890,9 +1890,9 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         resolution_diagnostics: body_inputs.resolution_diagnostics,
         item_diagnostics: item_signatures.diagnostics.clone(),
         const_diagnostics,
-        static_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        static_diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
         layout_diagnostics: layouts.diagnostics,
-        abi_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        abi_diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
         flow_diagnostics,
     })
 }
@@ -1947,7 +1947,7 @@ pub(super) fn executable_signature_checked_module(
     let const_diagnostics = db
         .context()
         .diagnostic_store
-        .bundle(std::mem::take(&mut const_eval.diagnostics));
+        .bundle(std::mem::take(&mut const_eval.diagnostics))?;
     let provider_demands = Arc::clone(&const_eval.provider_demands);
     Ok(CheckedModule {
         id: module_id,
@@ -1983,7 +1983,7 @@ pub(super) fn executable_signature_checked_module(
         executable_reachable_structs: None,
         executable_reachable_unions: None,
         executable_type_only: true,
-        body_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        body_diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
         frontend_diagnostics: vec![
             signature_type_resolution.diagnostics.clone(),
             type_lowering.diagnostics.clone(),
@@ -1991,12 +1991,12 @@ pub(super) fn executable_signature_checked_module(
             type_normalization.diagnostics.clone(),
         ],
         resolution_diagnostics: Vec::new(),
-        item_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        item_diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
         const_diagnostics,
-        static_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        static_diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
         layout_diagnostics: layouts.diagnostics,
-        abi_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
-        flow_diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        abi_diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
+        flow_diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
     })
 }
 

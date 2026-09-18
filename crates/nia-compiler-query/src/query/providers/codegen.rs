@@ -141,7 +141,7 @@ pub(super) fn provide_monomorphization(
         let diagnostics = std::mem::take(&mut monomorphization.diagnostics);
         Ok(ProgramMonomorphization {
             semantic: Arc::new(monomorphization),
-            diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+            diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
         })
     })
 }
@@ -324,7 +324,7 @@ pub(super) fn provide_backend_lowering(
         let diagnostics = std::mem::take(&mut lowering.diagnostics);
         Ok(ProgramBackendLowering {
             semantic: Arc::new(lowering),
-            diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+            diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
         })
     })
 }
@@ -347,7 +347,7 @@ pub(in crate::query) fn provide_backend_item_plan(
             }
             None => Ok(nia_backend_lower::BackendItemPlan::from_diagnostics(
                 optimization,
-                resolve_diagnostic_bundle(db.context(), &inputs.diagnostics).to_vec(),
+                resolve_diagnostic_bundle(&inputs.diagnostics).to_vec(),
             )),
         }
     })
@@ -597,7 +597,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
             diagnostics: db
                 .context()
                 .diagnostic_store
-                .bundle(function_lowering_diagnostics),
+                .bundle(function_lowering_diagnostics)?,
         });
     }
     let non_function_signatures = executable_program_non_function_signatures_for_modules(
@@ -643,7 +643,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
     )?;
     Ok(ProgramBackendLoweringInputs {
         semantic: Some(Arc::new(inputs)),
-        diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+        diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
     })
 }
 
@@ -712,7 +712,7 @@ pub(super) fn early_program_diagnostics(
         let path = db.get(ModulePathQuery(bundle.module_id))?;
         diagnostics.extend(module_diagnostics(
             &path,
-            resolve_diagnostic_bundle(db.context(), &bundle.diagnostics),
+            resolve_diagnostic_bundle(&bundle.diagnostics),
         ));
     }
     Ok(diagnostics)
@@ -726,60 +726,58 @@ pub(super) fn checked_module_diagnostics(
     for checked in checked_modules {
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            resolve_diagnostic_bundle(db.context(), &checked.definition_diagnostics),
+            resolve_diagnostic_bundle(&checked.definition_diagnostics),
         ));
         for bundle in &checked.frontend_diagnostics {
             diagnostics.extend(module_diagnostics(
                 &checked.path,
-                resolve_diagnostic_bundle(db.context(), bundle),
+                resolve_diagnostic_bundle(bundle),
             ));
         }
         for bundle in &checked.resolution_diagnostics {
             diagnostics.extend(module_diagnostics(
                 &checked.path,
-                resolve_diagnostic_bundle(db.context(), bundle),
+                resolve_diagnostic_bundle(bundle),
             ));
         }
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            resolve_diagnostic_bundle(db.context(), &checked.item_diagnostics),
+            resolve_diagnostic_bundle(&checked.item_diagnostics),
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            resolve_diagnostic_bundle(db.context(), &checked.const_diagnostics),
+            resolve_diagnostic_bundle(&checked.const_diagnostics),
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            resolve_diagnostic_bundle(db.context(), &checked.static_diagnostics),
+            resolve_diagnostic_bundle(&checked.static_diagnostics),
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            resolve_diagnostic_bundle(db.context(), &checked.layout_diagnostics),
+            resolve_diagnostic_bundle(&checked.layout_diagnostics),
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            resolve_diagnostic_bundle(db.context(), &checked.abi_diagnostics),
+            resolve_diagnostic_bundle(&checked.abi_diagnostics),
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            resolve_diagnostic_bundle(db.context(), &checked.flow_diagnostics),
+            resolve_diagnostic_bundle(&checked.flow_diagnostics),
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            resolve_diagnostic_bundle(db.context(), &checked.body_diagnostics),
+            resolve_diagnostic_bundle(&checked.body_diagnostics),
         ));
         let extension_validation = db.get(ExtensionProviderValidationFactsQuery(checked.id))?;
         let extension_validation_diagnostics =
-            resolve_diagnostic_bundle(db.context(), &extension_validation.diagnostics);
+            resolve_diagnostic_bundle(&extension_validation.diagnostics);
         diagnostics.extend(module_diagnostics(
             &checked.path,
             extension_validation_diagnostics,
         ));
         let extension_provider = db.get(ExtensionProviderModuleFactsQuery(checked.id))?;
-        let associated_value_diagnostics = resolve_diagnostic_bundle(
-            db.context(),
-            &extension_provider.associated_value_diagnostics,
-        );
+        let associated_value_diagnostics =
+            resolve_diagnostic_bundle(&extension_provider.associated_value_diagnostics);
         diagnostics.extend(module_diagnostics(
             &checked.path,
             associated_value_diagnostics,

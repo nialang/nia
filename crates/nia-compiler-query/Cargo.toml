@@ -27,6 +27,7 @@ nia-static-ir.workspace = true
 nia-function-lower.workspace = true
 nia-hash.workspace = true
 nia-ids.workspace = true
+nia-ice.workspace = true
 nia-imports.workspace = true
 nia-item-tree.workspace = true
 nia-item-signatures.workspace = true

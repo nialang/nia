@@ -163,7 +163,7 @@ fn full_module_definitions_separate_semantic_value_from_diagnostics() {
 
     assert!(definitions.semantic.diagnostics.is_empty());
     assert!(
-        resolve_diagnostic_bundle(db.context(), &definitions.diagnostics)
+        resolve_diagnostic_bundle(&definitions.diagnostics)
             .iter()
             .any(|diagnostic| diagnostic
                 .primary_message()
