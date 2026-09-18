@@ -3,7 +3,9 @@ use super::*;
 #[test]
 fn compiler_loader_update_detaches_current_defs_from_old_source_revision() {
     let sources = SourceDatabase::new();
-    sources.set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }");
+    sources
+        .set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }")
+        .expect("store source");
     let loader = LoaderDatabase::new_for_test(LoadRequest::new("main.nia").with_sources(sources));
     let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone()))
         .expect("create compiler database");
@@ -47,7 +49,9 @@ fn compiler_loader_update_detaches_current_defs_from_old_source_revision() {
 fn body_only_source_change_refreshes_revision_bearing_field_dependents() {
     let sources = SourceDatabase::new();
     let path = SourcePath::new("main.nia");
-    let first_source = sources.set_source(path.clone(), "fn main() i32 { 1 }");
+    let first_source = sources
+        .set_source(path.clone(), "fn main() i32 { 1 }")
+        .expect("store first source");
     let db = QueryDb::new(test_loader_context(
         path.clone(),
         ModuleMap::default(),
@@ -61,7 +65,9 @@ fn body_only_source_change_refreshes_revision_bearing_field_dependents() {
     let first_declaration = db.expect_get(declaration_key);
     let first_signature = db.expect_get(signature_key);
 
-    sources.set_source(path, "fn main() i32 { 2 }");
+    sources
+        .set_source(path, "fn main() i32 { 2 }")
+        .expect("store second source");
     db.invalidate(SourceTextQuery(first_source.id))
         .expect("invalidate source text");
     let latest_declaration = db.expect_get(declaration_key);

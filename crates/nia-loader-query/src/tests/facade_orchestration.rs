@@ -7,8 +7,12 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let facade = SourcePath::new("facade.nia");
-    sources.set_source(main.clone(), "fn main() () {}");
-    let facade_file = sources.set_source(facade, "pub struct Widget {}");
+    sources
+        .set_source(main.clone(), "fn main() () {}")
+        .expect("store main source");
+    let facade_file = sources
+        .set_source(facade, "pub struct Widget {}")
+        .expect("store facade source");
     let module_map = ModuleMap::new();
     let identity = facade_cache_identity(&facade_file, &main, &module_map);
     let cache = crate::frontend_cache::PersistentFrontendCache::new(root.join("cache"));

@@ -518,8 +518,14 @@ impl Driver {
                 .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))
         } else {
             drop(loader);
-            self.sources.set_source(SourcePath::new(path), text);
-            Ok(())
+            self.sources
+                .set_source(SourcePath::new(path), text)
+                .map(drop)
+                .map_err(|error| {
+                    DriverError::InternalDiagnostic(Diagnostic::from(nia_ice::Ice::new(
+                        error.to_string(),
+                    )))
+                })
         }
     }
 

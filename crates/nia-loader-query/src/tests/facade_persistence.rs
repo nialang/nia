@@ -6,9 +6,12 @@ fn persistent_facade_facts_reuse_body_stable_entries_and_recover_from_corruption
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let facade = SourcePath::new("facade.nia");
-    sources.set_source(main.clone(), "fn main() () {}");
-    let first_file =
-        sources.set_source(facade.clone(), "pub struct Widget {} fn helper() i32 { 1 }");
+    sources
+        .set_source(main.clone(), "fn main() () {}")
+        .expect("store main source");
+    let first_file = sources
+        .set_source(facade.clone(), "pub struct Widget {} fn helper() i32 { 1 }")
+        .expect("store facade source");
     let module_map = ModuleMap::default();
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
         root.join("cache"),
@@ -45,10 +48,12 @@ fn persistent_facade_facts_reuse_body_stable_entries_and_recover_from_corruption
         1
     );
 
-    let edited_file = sources.set_source(
-        facade.clone(),
-        "pub struct Widget {} fn helper() i32 { 20 + 22 }",
-    );
+    let edited_file = sources
+        .set_source(
+            facade.clone(),
+            "pub struct Widget {} fn helper() i32 { 20 + 22 }",
+        )
+        .expect("store edited facade source");
     let edited_identity = facade_cache_identity(&edited_file, &main, &module_map);
     assert_ne!(first_identity.source_key, edited_identity.source_key);
     assert_eq!(
@@ -79,8 +84,12 @@ fn facade_facts_cache_keys_include_effective_module_map() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let facade = SourcePath::new("facade.nia");
-    sources.set_source(main.clone(), "fn main() () {}");
-    let facade_file = sources.set_source(facade.clone(), "pub using dep::Widget;");
+    sources
+        .set_source(main.clone(), "fn main() () {}")
+        .expect("store main source");
+    let facade_file = sources
+        .set_source(facade.clone(), "pub using dep::Widget;")
+        .expect("store facade source");
     let mut mapped = ModuleMap::new();
     mapped.insert("dep", SourcePath::new("deps/root.nia"));
     let unmapped = ModuleMap::new();
@@ -131,8 +140,12 @@ fn facade_facts_verification_replaces_semantically_wrong_valid_entry() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let facade = SourcePath::new("facade.nia");
-    sources.set_source(main.clone(), "fn main() () {}");
-    let facade_file = sources.set_source(facade.clone(), "pub struct Widget {}");
+    sources
+        .set_source(main.clone(), "fn main() () {}")
+        .expect("store main source");
+    let facade_file = sources
+        .set_source(facade.clone(), "pub struct Widget {}")
+        .expect("store facade source");
     let module_map = ModuleMap::new();
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
         root.join("cache"),

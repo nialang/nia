@@ -112,7 +112,7 @@ fn loader_query_registry_covers_all_declared_query_contracts() {
 fn source_status_tracks_missing_and_present_revisions() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    let source_id = sources.id_for_path(&main);
+    let source_id = sources.id_for_path(&main).expect("allocate source id");
     let db = registered_query_db(test_loader_context(
         main.clone(),
         ModuleMap::default(),
@@ -121,7 +121,9 @@ fn source_status_tracks_missing_and_present_revisions() {
 
     let missing = db.expect_get(SourceStatusQuery(source_id));
     assert_eq!(*missing, SourceStatus::Missing);
-    let file = sources.set_source(main, "fn main() i32 { 0 }");
+    let file = sources
+        .set_source(main, "fn main() i32 { 0 }")
+        .expect("store source");
     db.invalidate(SourceTextQuery(source_id))
         .expect("invalidate source text");
     let present = db.expect_get(SourceStatusQuery(source_id));
@@ -151,7 +153,9 @@ fn source_products_propagate_unknown_source_query_failures() {
 fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    let first_file = sources.set_source(main.clone(), "fn main() i32 { 0 }");
+    let first_file = sources
+        .set_source(main.clone(), "fn main() i32 { 0 }")
+        .expect("store first source");
     let database =
         LoaderDatabase::new_for_test(LoadRequest::new(main.as_str()).with_sources(sources));
     assert_no_error_diagnostics(&database.load_program().expect("initial program load"));
@@ -246,7 +250,9 @@ fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
 fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    sources.set_source(main.clone(), "fn main() i32 { 0 }");
+    sources
+        .set_source(main.clone(), "fn main() i32 { 0 }")
+        .expect("store source");
     let database =
         LoaderDatabase::new_for_test(LoadRequest::new(main.as_str()).with_sources(sources));
     let initial_graph = database.db.expect_get(crate::graph::ModuleGraphQuery);
@@ -321,7 +327,9 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
 #[test]
 fn compiler_loader_roots_record_cross_database_dependencies() {
     let sources = SourceDatabase::new();
-    sources.set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }");
+    sources
+        .set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }")
+        .expect("store source");
     let loader = LoaderDatabase::new_for_test(LoadRequest::new("main.nia").with_sources(sources));
     let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone()))
         .expect("create compiler database");

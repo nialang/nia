@@ -6,7 +6,9 @@ fn module_dependencies_cache_round_trips_all_stable_fields() {
     let root = temp_dir("module_dependencies_cache_round_trips_all_stable_fields");
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    let file = sources.set_source(main.clone(), " ".repeat(256));
+    let file = sources
+        .set_source(main.clone(), " ".repeat(256))
+        .expect("store source");
     let module_map = ModuleMap::new();
     let identity = module_dependencies_cache_identity(&file, &main, &module_map);
     let cache = crate::frontend_cache::PersistentFrontendCache::new(root.join("cache"));

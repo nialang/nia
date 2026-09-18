@@ -12,7 +12,9 @@ fn public_surface_facts_cache_round_trips_all_stable_fields() {
     let root = temp_dir("public_surface_facts_round_trip_all_stable_fields");
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    let file = sources.set_source(main, " ".repeat(512));
+    let file = sources
+        .set_source(main, " ".repeat(512))
+        .expect("store source");
     let identity = public_surface_facts_cache_identity(&file);
     let cache = crate::frontend_cache::PersistentFrontendCache::new(root.join("cache"));
     let names = [
@@ -244,7 +246,9 @@ fn public_surface_facts_cache_round_trips_all_stable_fields() {
     );
 
     let short_sources = SourceDatabase::new();
-    let short_file = short_sources.set_source(SourcePath::new("short.nia"), " ".repeat(32));
+    let short_file = short_sources
+        .set_source(SourcePath::new("short.nia"), " ".repeat(32))
+        .expect("store short source");
     let short_identity = public_surface_facts_cache_identity(&short_file);
     assert!(
         cache

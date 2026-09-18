@@ -30,13 +30,10 @@ use nia_symbol_table::SymbolTable;
 use nia_target_config::{BuildProfile, CompilationMode, TargetConfig};
 use nia_toolchain::ToolchainLayout;
 use nia_toolchain::{RuntimeSpec, SourceRuntimeSpec};
+use parking_lot::Mutex;
 use provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use queries::{LoadedProgramQuery, SourceTextQuery};
-use std::{
-    collections::HashSet,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashSet, path::PathBuf, sync::Arc};
 
 /// Returns the physical and relocation-independent identity of the selected
 /// private runtime source package.
@@ -344,7 +341,10 @@ impl LoaderDatabase {
         let graph = self.db.get(graph::ModuleGraphQuery)?;
         let mut sources = Vec::with_capacity(graph.semantic.modules().count());
         for module in graph.semantic.modules() {
-            let source_id = self.sources.id_for_path(&module.path);
+            let source_id = self
+                .sources
+                .id_for_path(&module.path)
+                .map_err(|error| QueryError::internal(error.to_string()))?;
             let source = self.db.get(SourceTextQuery(source_id))?;
             let content = source
                 .file
@@ -375,7 +375,10 @@ impl LoaderDatabase {
         text: impl Into<Arc<str>>,
     ) -> QueryResult<SourceFile> {
         let path = SourcePath::new(path.into());
-        let source_id = self.sources.id_for_path(&path);
+        let source_id = self
+            .sources
+            .id_for_path(&path)
+            .map_err(|error| QueryError::internal(error.to_string()))?;
         let text = text.into();
         self.db.with_retirement(|retirement| {
             let previous_version = self.sources.source_for_id(source_id).map_or(
@@ -392,7 +395,9 @@ impl LoaderDatabase {
                 .context()
                 .node_store
                 .retire_revision(previous_version);
-            Ok(self.sources.set_source(path, text))
+            self.sources
+                .set_source(path, text)
+                .map_err(|error| QueryError::internal(error.to_string()))
         })
     }
 
@@ -402,7 +407,10 @@ impl LoaderDatabase {
         path: impl Into<String>,
     ) -> QueryResult<nia_query::QueryInvalidation> {
         let path = SourcePath::new(path.into());
-        let source_id = self.sources.id_for_path(&path);
+        let source_id = self
+            .sources
+            .id_for_path(&path)
+            .map_err(|error| QueryError::internal(error.to_string()))?;
         self.db.with_retirement(|retirement| {
             let previous_version = self.sources.source_for_id(source_id).map_or(
                 SourceVersion {
@@ -482,7 +490,6 @@ impl LoaderDatabase {
             .context()
             .provider_demand_plan_candidate
             .lock()
-            .expect("provider demand plan candidate lock poisoned")
             .clone();
         if let Some(demands) = candidate
             && !self
@@ -510,12 +517,7 @@ impl LoaderDatabase {
             self.db.context().provider_demand_plan_key,
         ) {
             cache.remove_provider_demand_plan(key);
-            *self
-                .db
-                .context()
-                .provider_demand_plan_candidate
-                .lock()
-                .expect("provider demand plan candidate lock poisoned") = None;
+            *self.db.context().provider_demand_plan_candidate.lock() = None;
         }
         self.db.context().provider_facts.clear();
         Ok(())
@@ -530,11 +532,7 @@ impl LoaderDatabase {
             return Ok(());
         };
         let provider_facts = self.db.get(ProviderDemandsQuery)?;
-        let candidate = context
-            .provider_demand_plan_candidate
-            .lock()
-            .expect("provider demand plan candidate lock poisoned")
-            .take();
+        let candidate = context.provider_demand_plan_candidate.lock().take();
         if candidate
             .as_ref()
             .is_some_and(|demands| demands == provider_facts.as_snapshot().demands())
@@ -579,10 +577,15 @@ impl LoaderDatabase {
         module_id: nia_imports::ModuleId,
     ) -> QueryResult<Option<nia_source::SourceId>> {
         let graph = self.db.get(graph::ModuleGraphQuery)?;
-        Ok(graph
+        graph
             .semantic
             .get(module_id)
-            .map(|module| self.sources.id_for_path(&module.path)))
+            .map(|module| {
+                self.sources
+                    .id_for_path(&module.path)
+                    .map_err(|error| QueryError::internal(error.to_string()))
+            })
+            .transpose()
     }
 }
 
@@ -642,7 +645,10 @@ impl LoaderFactProvider for LoaderDatabase {
         let Some(module) = graph.semantic.get(module_id) else {
             return Ok(None);
         };
-        let source_id = self.sources.id_for_path(&module.path);
+        let source_id = self
+            .sources
+            .id_for_path(&module.path)
+            .map_err(|error| QueryError::internal(error.to_string()))?;
         Ok(match *self.db.get(queries::SourceStatusQuery(source_id))? {
             queries::SourceStatus::Present(version) => Some(version),
             queries::SourceStatus::Missing => None,

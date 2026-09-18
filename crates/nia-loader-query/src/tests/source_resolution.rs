@@ -62,8 +62,12 @@ fn query_loader_resolves_root_children_relative_to_entry_file() {
 #[test]
 fn query_loader_accepts_in_memory_sources() {
     let sources = SourceDatabase::new();
-    sources.set_source(SourcePath::new("main.nia"), "module defs;");
-    sources.set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }");
+    sources
+        .set_source(SourcePath::new("main.nia"), "module defs;")
+        .expect("store main source");
+    sources
+        .set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }")
+        .expect("store defs source");
 
     let program = load_program_from_sources("main.nia", ModuleMap::default(), sources);
 

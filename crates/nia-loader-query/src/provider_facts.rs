@@ -1,10 +1,8 @@
 use crate::LoaderContext;
 use nia_compiler_query::{ProviderDemand, ProviderFactRevision, ProviderFactSnapshot};
 use nia_query::{QueryDb, QueryFingerprintPolicy, QueryKey, QueryResult};
-use std::{
-    collections::HashSet,
-    sync::{Arc, Mutex},
-};
+use parking_lot::Mutex;
+use std::{collections::HashSet, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderFacts {
@@ -72,18 +70,12 @@ impl Default for ProviderFactStore {
 
 impl ProviderFactStore {
     pub(crate) fn revision_if_nonempty(&self) -> Option<ProviderFactRevision> {
-        let state = self
-            .state
-            .lock()
-            .expect("loader provider fact store lock poisoned");
+        let state = self.state.lock();
         (!state.current.demands.is_empty()).then_some(state.current.revision)
     }
 
     pub(crate) fn contains_all(&self, demands: &[ProviderDemand]) -> bool {
-        let state = self
-            .state
-            .lock()
-            .expect("loader provider fact store lock poisoned");
+        let state = self.state.lock();
         demands
             .iter()
             .all(|demand| state.current.demands.contains(demand))
@@ -93,10 +85,7 @@ impl ProviderFactStore {
         &self,
         demands: impl IntoIterator<Item = ProviderDemand>,
     ) -> HashSet<ProviderDemand> {
-        let mut state = self
-            .state
-            .lock()
-            .expect("loader provider fact store lock poisoned");
+        let mut state = self.state.lock();
         let added = demands
             .into_iter()
             .filter(|demand| !state.current.demands.contains(demand))
@@ -115,10 +104,7 @@ impl ProviderFactStore {
     }
 
     pub(crate) fn clear(&self) -> Option<ProviderFactRevision> {
-        let mut state = self
-            .state
-            .lock()
-            .expect("loader provider fact store lock poisoned");
+        let mut state = self.state.lock();
         if state.current.demands.is_empty() {
             None
         } else {
@@ -133,10 +119,7 @@ impl ProviderFactStore {
     }
 
     pub(crate) fn event(&self, revision: ProviderFactRevision) -> Option<ProviderFactEvent> {
-        let state = self
-            .state
-            .lock()
-            .expect("loader provider fact store lock poisoned");
+        let state = self.state.lock();
         (state.current.revision == revision).then(|| {
             state
                 .transition
@@ -148,32 +131,19 @@ impl ProviderFactStore {
     }
 
     pub(crate) fn compact_transition(&self, revision: ProviderFactRevision) {
-        let mut state = self
-            .state
-            .lock()
-            .expect("loader provider fact store lock poisoned");
+        let mut state = self.state.lock();
         if state.current.revision == revision {
             state.transition = None;
         }
     }
 
     fn snapshot(&self) -> ProviderFacts {
-        self.state
-            .lock()
-            .expect("loader provider fact store lock poisoned")
-            .current
-            .clone()
+        self.state.lock().current.clone()
     }
 
     #[cfg(test)]
     pub(crate) fn retained_transition_count(&self) -> usize {
-        usize::from(
-            self.state
-                .lock()
-                .expect("loader provider fact store lock poisoned")
-                .transition
-                .is_some(),
-        )
+        usize::from(self.state.lock().transition.is_some())
     }
 }
 

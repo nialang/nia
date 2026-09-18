@@ -223,7 +223,7 @@ fn test_loader_context(
         frontend_cache: None,
         verify_frontend_cache: false,
         provider_demand_plan_key: None,
-        provider_demand_plan_candidate: std::sync::Mutex::new(None),
+        provider_demand_plan_candidate: parking_lot::Mutex::new(None),
     }
 }
 

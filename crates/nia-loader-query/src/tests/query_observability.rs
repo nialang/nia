@@ -28,10 +28,13 @@ fn provider_summary_is_cached_per_module_source_version() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let provider = SourcePath::new("provider.nia");
-    sources.set_source(main.clone(), "fn main() () {}");
-    sources.set_source(
-        provider.clone(),
-        r#"
+    sources
+        .set_source(main.clone(), "fn main() () {}")
+        .expect("store main source");
+    sources
+        .set_source(
+            provider.clone(),
+            r#"
 struct Widget { value: i32 }
 
 extend Widget {
@@ -40,7 +43,8 @@ extend Widget {
     }
 }
 "#,
-    );
+        )
+        .expect("store provider source");
     let db = registered_query_db(test_loader_context(
         main.clone(),
         ModuleMap::default(),
@@ -113,10 +117,11 @@ fn missing_provider_products_refresh_when_source_appears() {
     assert!(!missing_summary.has_providers());
     assert!(missing_facade.provider_source_paths().is_empty());
 
-    let source_id = sources.id_for_path(&provider);
-    sources.set_source(
-        provider.clone(),
-        r#"
+    let source_id = sources.id_for_path(&provider).expect("allocate source id");
+    sources
+        .set_source(
+            provider.clone(),
+            r#"
 pub struct Widget {}
 
 extend Widget {
@@ -125,7 +130,8 @@ extend Widget {
 
 pub using dep::Other;
 "#,
-    );
+        )
+        .expect("store provider source");
     db.invalidate(SourceTextQuery(source_id))
         .expect("invalidate source text");
 

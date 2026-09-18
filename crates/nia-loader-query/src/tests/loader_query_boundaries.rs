@@ -38,7 +38,9 @@ fn loader_diagnostic_queries_reuse_session_payload_handles() {
 fn retired_loader_diagnostic_handles_remain_readable() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    let first_file = sources.set_source(main.clone(), "module child; module child;");
+    let first_file = sources
+        .set_source(main.clone(), "module child; module child;")
+        .expect("store first source");
     let db = registered_query_db(test_loader_context(
         main.clone(),
         ModuleMap::default(),
@@ -48,7 +50,9 @@ fn retired_loader_diagnostic_handles_remain_readable() {
     let retained = first.diagnostics[0].clone();
     assert!(!retained.is_empty());
 
-    let second_file = sources.set_source(main.clone(), "");
+    let second_file = sources
+        .set_source(main.clone(), "")
+        .expect("store second source");
     db.with_retirement(|retirement| {
         retirement.invalidate(SourceTextQuery(first_file.id))?;
         crate::queries::retire_source_revision_queries(retirement, first_file.version())?;
@@ -74,7 +78,9 @@ fn retired_loader_diagnostic_handles_remain_readable() {
 fn invalidates_source_dependents_after_in_memory_text_change() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    sources.set_source(main.clone(), "fn main() i32 { 0 }");
+    sources
+        .set_source(main.clone(), "fn main() i32 { 0 }")
+        .expect("store source");
     let db = registered_query_db(test_loader_context(
         main.clone(),
         ModuleMap::default(),
@@ -106,8 +112,10 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
     );
     assert_eq!(first_locator.source_version(), first_version);
 
-    let source_id = sources.id_for_path(&main);
-    sources.set_source(main.clone(), "fn main() i32 { 1 }");
+    let source_id = sources.id_for_path(&main).expect("allocate source id");
+    sources
+        .set_source(main.clone(), "fn main() i32 { 1 }")
+        .expect("store edited source");
     let invalidation = db
         .with_retirement(|retirement| {
             let invalidation = retirement.invalidate(SourceTextQuery(source_id))?;
@@ -171,8 +179,12 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
 fn invalidates_module_graph_after_module_declaration_text_change() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    sources.set_source(main.clone(), "");
-    sources.set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }");
+    sources
+        .set_source(main.clone(), "")
+        .expect("store main source");
+    sources
+        .set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }")
+        .expect("store defs source");
     let db = registered_query_db(test_loader_context(
         main.clone(),
         ModuleMap::default(),
@@ -185,8 +197,10 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
     assert_module_not_loaded(&first, "defs.nia");
     let first_entry = first.graph.entry();
 
-    let source_id = sources.id_for_path(&main);
-    sources.set_source(main, "module defs;");
+    let source_id = sources.id_for_path(&main).expect("allocate source id");
+    sources
+        .set_source(main, "module defs;")
+        .expect("store edited source");
     db.invalidate(SourceTextQuery(source_id))
         .expect("invalidate source text");
 
@@ -205,8 +219,12 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
 fn loader_source_update_replaces_graph_only_at_query_boundary() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    sources.set_source(main.clone(), "");
-    sources.set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }");
+    sources
+        .set_source(main.clone(), "")
+        .expect("store main source");
+    sources
+        .set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }")
+        .expect("store defs source");
     let database =
         LoaderDatabase::new_for_test(LoadRequest::new(main.as_str()).with_sources(sources));
     let first = database.load_program().expect("initial program load");
@@ -246,7 +264,7 @@ fn loaded_module_query_reports_paths_outside_module_graph() {
         sources.clone(),
     ));
     let missing = SourcePath::new("missing.nia");
-    let missing_id = sources.id_for_path(&missing);
+    let missing_id = sources.id_for_path(&missing).expect("allocate source id");
 
     let err = db
         .get(LoadedModuleQuery(missing_id))

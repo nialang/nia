@@ -5,7 +5,9 @@ fn persistent_module_dependencies_hit_skips_parse_and_tracks_exact_source_spans(
     let root = temp_dir("persistent_module_dependencies_hit_skips_parse_and_tracks_spans");
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    sources.set_source(main.clone(), "fn helper() i32 { 1 } pub module child;");
+    sources
+        .set_source(main.clone(), "fn helper() i32 { 1 } pub module child;")
+        .expect("store source");
     let first_file = sources
         .source_for_path(&main)
         .expect("main source should be present");
@@ -52,10 +54,12 @@ fn persistent_module_dependencies_hit_skips_parse_and_tracks_exact_source_spans(
         1
     );
 
-    let edited_file = sources.set_source(
-        main.clone(),
-        "fn helper() i32 { 1000 + 2000 + 3000 } pub module child;",
-    );
+    let edited_file = sources
+        .set_source(
+            main.clone(),
+            "fn helper() i32 { 1000 + 2000 + 3000 } pub module child;",
+        )
+        .expect("store edited source");
     let edited_identity = module_dependencies_cache_identity(&edited_file, &main, &module_map);
     assert_ne!(first_identity.key, edited_identity.key);
     let edited = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
@@ -90,9 +94,15 @@ fn persistent_module_dependencies_skip_all_graph_discovery_parses_across_session
         root.join("cache"),
     ));
     let first_sources = SourceDatabase::new();
-    first_sources.set_source(main.clone(), "module middle;");
-    first_sources.set_source(SourcePath::new("middle.nia"), "module leaf;");
-    first_sources.set_source(SourcePath::new("middle/leaf.nia"), "pub struct Value {}");
+    first_sources
+        .set_source(main.clone(), "module middle;")
+        .expect("store main source");
+    first_sources
+        .set_source(SourcePath::new("middle.nia"), "module leaf;")
+        .expect("store middle source");
+    first_sources
+        .set_source(SourcePath::new("middle/leaf.nia"), "pub struct Value {}")
+        .expect("store leaf source");
     let first = frontend_cache_database(
         &main,
         &first_sources,
@@ -124,9 +134,15 @@ fn persistent_module_dependencies_skip_all_graph_discovery_parses_across_session
     drop(first);
 
     let second_sources = SourceDatabase::new();
-    second_sources.set_source(main.clone(), "module middle;");
-    second_sources.set_source(SourcePath::new("middle.nia"), "module leaf;");
-    second_sources.set_source(SourcePath::new("middle/leaf.nia"), "pub struct Value {}");
+    second_sources
+        .set_source(main.clone(), "module middle;")
+        .expect("store main source");
+    second_sources
+        .set_source(SourcePath::new("middle.nia"), "module leaf;")
+        .expect("store middle source");
+    second_sources
+        .set_source(SourcePath::new("middle/leaf.nia"), "pub struct Value {}")
+        .expect("store leaf source");
     let second =
         frontend_cache_database(&main, &second_sources, ModuleMap::default(), cache, false);
 

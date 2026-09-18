@@ -18,8 +18,8 @@ use nia_imports::{
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_provider_summary::ProviderSummary;
 use nia_query::{
-    FingerprintDomain, QueryDb, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintPolicy,
-    QueryKey, QueryResult, QueryRetirement,
+    FingerprintDomain, QueryDb, QueryError, QueryFingerprint, QueryFingerprintBuilder,
+    QueryFingerprintPolicy, QueryKey, QueryResult, QueryRetirement,
 };
 use nia_source::{SourceFile, SourceId, SourcePath, SourceRevision, SourceVersion};
 use nia_target_config::prune_module_for_target_with_profile_mode_and_symbols;
@@ -43,7 +43,11 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
             .semantic
             .modules()
             .map(|node| {
-                let source_id = db.context().sources.id_for_path(&node.path);
+                let source_id = db
+                    .context()
+                    .sources
+                    .id_for_path(&node.path)
+                    .map_err(|error| QueryError::internal(error.to_string()))?;
                 db.get(LoadedModuleQuery(source_id))
                     .map(|module| module.as_ref().clone())
             })
@@ -1152,14 +1156,23 @@ pub(crate) fn parsed_module_query(
     db: &QueryDb<LoaderContext>,
     path: &SourcePath,
 ) -> QueryResult<ParsedModuleQuery> {
-    parsed_module_query_for_id(db, db.context().sources.id_for_path(path))
+    let source_id = db
+        .context()
+        .sources
+        .id_for_path(path)
+        .map_err(|error| QueryError::internal(error.to_string()))?;
+    parsed_module_query_for_id(db, source_id)
 }
 
 pub(crate) fn module_declarations_query(
     db: &QueryDb<LoaderContext>,
     path: &SourcePath,
 ) -> QueryResult<ModuleDeclarationsQuery> {
-    let source_id = db.context().sources.id_for_path(path);
+    let source_id = db
+        .context()
+        .sources
+        .id_for_path(path)
+        .map_err(|error| QueryError::internal(error.to_string()))?;
     Ok(ModuleDeclarationsQuery(source_version(db, source_id)?))
 }
 
@@ -1167,7 +1180,11 @@ pub(crate) fn public_surface_module_facts_query(
     db: &QueryDb<LoaderContext>,
     path: &SourcePath,
 ) -> QueryResult<PublicSurfaceModuleFactsQuery> {
-    let source_id = db.context().sources.id_for_path(path);
+    let source_id = db
+        .context()
+        .sources
+        .id_for_path(path)
+        .map_err(|error| QueryError::internal(error.to_string()))?;
     Ok(PublicSurfaceModuleFactsQuery(source_version(
         db, source_id,
     )?))
@@ -1177,14 +1194,23 @@ pub(crate) fn provider_summary_query(
     db: &QueryDb<LoaderContext>,
     path: &SourcePath,
 ) -> QueryResult<ProviderSummaryQuery> {
-    provider_summary_query_for_id(db, db.context().sources.id_for_path(path))
+    let source_id = db
+        .context()
+        .sources
+        .id_for_path(path)
+        .map_err(|error| QueryError::internal(error.to_string()))?;
+    provider_summary_query_for_id(db, source_id)
 }
 
 pub(crate) fn module_facade_facts_query(
     db: &QueryDb<LoaderContext>,
     path: &SourcePath,
 ) -> QueryResult<ModuleFacadeFactsQuery> {
-    let source_id = db.context().sources.id_for_path(path);
+    let source_id = db
+        .context()
+        .sources
+        .id_for_path(path)
+        .map_err(|error| QueryError::internal(error.to_string()))?;
     Ok(ModuleFacadeFactsQuery(source_version(db, source_id)?))
 }
 
