@@ -897,7 +897,7 @@ pub(in crate::query) fn closure_safety_check(
         &functions,
         &support_functions,
         &db.context().type_store,
-    ))
+    )?)
 }
 
 pub(super) fn monomorphization_diagnostics(
