@@ -736,10 +736,19 @@ impl Analyzer<'_> {
             }
             ResolvedConstExprKind::TupleField { lhs, index } => {
                 let lhs_ty = self.resolved_const_arg_runtime_type(lhs, None)?;
-                let Some(TyKind::Tuple(elems)) = self.ty_kind(lhs_ty) else {
-                    return None;
+                let field_ty = match self.ty_kind(lhs_ty) {
+                    Some(TyKind::Tuple(elems)) => *elems.get(*index)?,
+                    Some(TyKind::Nominal { def_id, .. }) => {
+                        let signature = self.struct_signature_for(def_id)?;
+                        if !signature.is_tuple {
+                            return None;
+                        }
+                        let field = signature.fields.get(*index)?;
+                        self.const_nominal_aggregate_field_type(lhs_ty, &field.name)?
+                    }
+                    _ => return None,
                 };
-                Some(ConstValueType::Runtime(*elems.get(*index)?))
+                Some(ConstValueType::Runtime(field_ty))
             }
             ResolvedConstExprKind::StructLiteral { ty, fields } => {
                 self.resolved_const_aggregate_literal_type(expr.span(), fields, *ty)
@@ -931,6 +940,11 @@ impl Analyzer<'_> {
         let callee = match self.resolved_const_into_error_method(source_error, target_error) {
             ResolvedConstCalleeSelection::Unique(callee) => callee,
             ResolvedConstCalleeSelection::NoMatch => {
+                self.record_const_trait_provider_demand(
+                    source_error,
+                    TraitId::Builtin(nia_ids::BuiltinTrait::IntoError),
+                    &[target_error],
+                );
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::CONST,
                     span,
@@ -968,6 +982,55 @@ impl Analyzer<'_> {
         if let Some(frame) = self.call_locals.last_mut() {
             frame.try_error_conversions.insert(span, callee);
         }
+    }
+
+    fn record_const_trait_provider_demand(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+    ) {
+        let Some(source_path) = self.current_execution_source_path() else {
+            return;
+        };
+        let trait_name = match trait_id {
+            TraitId::Builtin(trait_id) => trait_id.symbol_id(),
+            TraitId::Source(def_id) => {
+                let Some(defs) = self.global_defs(def_id.module_id) else {
+                    return;
+                };
+                let Some(definition) = defs.as_ref().defs.get(def_id.def_id) else {
+                    return;
+                };
+                definition.name
+            }
+        };
+        let target_type_name = match self.ty_kind(self_ty) {
+            Some(TyKind::Primitive(primitive)) => Some(primitive.symbol_id()),
+            Some(TyKind::Nominal { def_id, .. }) => self
+                .global_defs(def_id.module_id)
+                .and_then(|defs| defs.as_ref().defs.get(def_id.def_id).map(|def| def.name)),
+            _ => None,
+        };
+        self.provider_demands.insert(ProviderDemand {
+            source_path,
+            request: ProviderRequest::TraitImpl {
+                target_type_name,
+                trait_name,
+                trait_type_argument_names: trait_args
+                    .iter()
+                    .map(|arg| match self.ty_kind(*arg) {
+                        Some(TyKind::Primitive(primitive)) => Some(primitive.symbol_id()),
+                        Some(TyKind::Nominal { def_id, .. }) => {
+                            self.global_defs(def_id.module_id).and_then(|defs| {
+                                defs.as_ref().defs.get(def_id.def_id).map(|def| def.name)
+                            })
+                        }
+                        _ => None,
+                    })
+                    .collect(),
+            },
+        });
     }
 
     pub(super) fn check_resolved_const_assignment(

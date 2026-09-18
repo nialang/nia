@@ -118,15 +118,18 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         });
     let const_array_lengths = nia_const_check::ConstArrayLengths {
         values: const_eval.array_lengths.clone(),
+        provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Vec::new(),
     };
     let const_values = nia_const_check::ConstValues {
         values: const_eval.values.clone(),
         typed_values: const_eval.typed_values.clone(),
+        provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Vec::new(),
     };
     let const_typed_facts = nia_const_check::ConstTypedFacts {
         typed_values: const_eval.typed_values.clone(),
+        provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Vec::new(),
     };
     let body_const = nia_body_check::BodyConst::from_phases(
@@ -235,6 +238,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
     mutate_const(&mut const_eval, &type_lowering);
     let const_array_lengths = nia_const_check::ConstArrayLengths {
         values: const_eval.array_lengths.clone(),
+        provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Vec::new(),
     };
     let program_const = HashMap::from([(module_id, const_array_lengths.values.as_ref())]);

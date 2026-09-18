@@ -7,7 +7,7 @@ fn callUserMain(init: process::Init) process::ExitCode {
     if entry::main(init) is error! {
         return error;
     }
-    .Success
+    process::ExitCode(0)
 }
 
 extern fn niaStartStack(stack: &usize) () {
@@ -45,7 +45,7 @@ extern fn niaStartStack(stack: &usize) () {
     let envp = envAddress as &&u8;
     let init = process::Init::init(argc, argv, envp);
     let exit = callUserMain(init);
-    os::exit(exit as i32);
+    os::exit(exit.0);
     loop {}
 }
 

@@ -40,13 +40,13 @@ pub fn main(init: process::Init) process::ExitCode!() {
     pair.0 += pair.1.1;
     let (answer, (enabled, tail)) = pair;
     if answer != 42 or not enabled or tail != 2 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if runtime_select((40, (true, 7))) != 7 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     if width != 8 {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     let () = ();
     !()
@@ -130,25 +130,25 @@ const total: i32 = constSum(Point { x: 19, y: 22 });
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     if total != 42 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if runtimeSum(Point { x: 20, y: 22 }) != 42 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     if unbox[i32](Box[i32] { value: 42, tag: 7 }) != 42 {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     if classify(Point { x: 0, y: 7 }) != 7 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     if classify(Point { x: 1, y: 7 }) != 9 {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     if readOptional(?Point { x: 42, y: 0 }) != 42 {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
     if eventScore(Event::Resize { wide: false, height: 99 }) != 2 {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
     !()
 }
@@ -200,16 +200,16 @@ fn read_error(value: i32!i32) i32 {
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     if read_optional(?4) != 4 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if read_optional(null) != 0 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     if read_error(!7) != 7 {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     if read_error(5!) != 5 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     !()
 }
@@ -318,62 +318,62 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match propagate[SourceError, TargetError](source(true)) {
         !value => {
             if value != 42 {
-                return process::exit(1)!;
+                return process::ExitCode(1)!;
             }
         },
         error! => {
             _ = error;
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
     if conversionCount != 0 {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     if sourceCount != 1 {
-        return process::exit(12)!;
+        return process::ExitCode(12)!;
     }
     match propagate[SourceError, TargetError](source(false)) {
         !value => {
             _ = value;
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
         TargetError::Converted! => {},
         error! => {
             _ = error;
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     }
     if conversionCount != 1 {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
     if sourceCount != 2 {
-        return process::exit(13)!;
+        return process::ExitCode(13)!;
     }
     conversionCount = 0;
     match propagateWithDefer() {
         !ok => {
             _ = ok;
-            return process::exit(7)!;
+            return process::ExitCode(7)!;
         },
         TargetError::Converted! => {},
         error! => {
             _ = error;
-            return process::exit(8)!;
+            return process::ExitCode(8)!;
         },
     }
     if conversionCount != 10 {
-        return process::exit(9)!;
+        return process::ExitCode(9)!;
     }
     conversionCount = 0;
     match propagateEmpty() {
         !ok => {
             _ = ok;
-            return process::exit(10)!;
+            return process::ExitCode(10)!;
         },
         error! => { _ = error; },
     }
     if conversionCount != 1 {
-        return process::exit(11)!;
+        return process::ExitCode(11)!;
     }
     !()
 }

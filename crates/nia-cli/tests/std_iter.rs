@@ -36,7 +36,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if invocationCount != 6 or total != 17
         or values[0] != 2 or values[1] != 3 or values[2] != 4
     {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     !()
 }
@@ -85,7 +85,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         acc + value
     });
     if total != 14 or summary.0 != 10 or summary.1 != 4 or prefix != 6 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     !()
 }
@@ -134,7 +134,7 @@ extend FoldError : builtin::IntoError[process::ExitCode] {
             FoldError::Rejected => {},
             _ => {},
         }
-        process::exit(9)
+        process::ExitCode(9)
     }
 }
 
@@ -152,7 +152,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
     let summary = folded.?;
     if summary.0 != 14 or summary.1 != 4 or invocationCount != 4 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
 
     invocationCount = 0;
@@ -170,16 +170,16 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match failed {
         !value => {
             _ = value;
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
         FoldError::Rejected! => {},
         error! => {
             _ = error;
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     }
     if invocationCount != 3 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     !()
 }
@@ -226,20 +226,20 @@ pub fn main(init: process::Init) process::ExitCode!() {
     });
     match index {
         ?found => if found != 3 {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
-        null => return process::exit(2)!,
+        null => return process::ExitCode(2)!,
     }
     let missing = (1..4).iter().position(&\value: i32 -> {
         predicateCount += 1;
         value == 9
     });
     match missing {
-        ?_ => return process::exit(3)!,
+        ?_ => return process::ExitCode(3)!,
         null => {},
     }
     if predicateCount != 7 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     !()
 }
@@ -312,45 +312,45 @@ pub fn main(init: process::Init) process::ExitCode!() {
         Counter { value: 4 },
     );
     match half.next() {
-        ?value => if value.value != 1 { return process::exit(1)!; },
-        null => return process::exit(2)!,
+        ?value => if value.value != 1 { return process::ExitCode(1)!; },
+        null => return process::ExitCode(2)!,
     }
     match half.nextBack() {
-        ?value => if value.value != 3 { return process::exit(3)!; },
-        null => return process::exit(4)!,
+        ?value => if value.value != 3 { return process::ExitCode(3)!; },
+        null => return process::ExitCode(4)!,
     }
     match half.next() {
-        ?value => if value.value != 2 { return process::exit(5)!; },
-        null => return process::exit(6)!,
+        ?value => if value.value != 2 { return process::ExitCode(5)!; },
+        null => return process::ExitCode(6)!,
     }
-    if half.next() is ?_ { return process::exit(7)!; }
+    if half.next() is ?_ { return process::ExitCode(7)!; }
 
     let mut inclusive = iter::RangeInclusive[Counter]::init(
         Counter { value: 2 },
         Counter { value: 3 },
     );
     match inclusive.nextBack() {
-        ?value => if value.value != 3 { return process::exit(8)!; },
-        null => return process::exit(9)!,
+        ?value => if value.value != 3 { return process::ExitCode(8)!; },
+        null => return process::ExitCode(9)!,
     }
     match inclusive.next() {
-        ?value => if value.value != 2 { return process::exit(10)!; },
-        null => return process::exit(11)!,
+        ?value => if value.value != 2 { return process::ExitCode(10)!; },
+        null => return process::ExitCode(11)!,
     }
-    if inclusive.next() is ?_ { return process::exit(12)!; }
+    if inclusive.next() is ?_ { return process::ExitCode(12)!; }
 
     let mut empty = iter::RangeInclusive[Counter]::init(
         Counter { value: 4 },
         Counter { value: 3 },
     );
-    if empty.next() is ?_ { return process::exit(13)!; }
+    if empty.next() is ?_ { return process::ExitCode(13)!; }
 
     let mut from = iter::RangeFrom[Counter]::init(Counter { value: 5 });
     match from.next() {
-        ?value => if value.value != 5 { return process::exit(14)!; },
-        null => return process::exit(15)!,
+        ?value => if value.value != 5 { return process::ExitCode(14)!; },
+        null => return process::ExitCode(15)!,
     }
-    if from.next() is ?_ { return process::exit(16)!; }
+    if from.next() is ?_ { return process::ExitCode(16)!; }
     !()
 }
 "#,
@@ -434,20 +434,20 @@ pub fn main(init: process::Init) process::ExitCode!() {
         Stride { value: 5 },
     );
     match forward.next() {
-        ?value => if value.value != 0 { return process::exit(1)!; },
-        null => return process::exit(2)!,
+        ?value => if value.value != 0 { return process::ExitCode(1)!; },
+        null => return process::ExitCode(2)!,
     }
     match forward.next() {
-        ?value => if value.value != 2 { return process::exit(3)!; },
-        null => return process::exit(4)!,
+        ?value => if value.value != 2 { return process::ExitCode(3)!; },
+        null => return process::ExitCode(4)!,
     }
     match forward.next() {
-        ?value => if value.value != 4 { return process::exit(5)!; },
-        null => return process::exit(6)!,
+        ?value => if value.value != 4 { return process::ExitCode(5)!; },
+        null => return process::ExitCode(6)!,
     }
-    if forward.next() is ?_ { return process::exit(7)!; }
+    if forward.next() is ?_ { return process::ExitCode(7)!; }
     if forward.start().value != 5 or forward.end().value != 5 {
-        return process::exit(8)!;
+        return process::ExitCode(8)!;
     }
 
     let mut backward = iter::Range[Stride]::init(
@@ -455,16 +455,16 @@ pub fn main(init: process::Init) process::ExitCode!() {
         Stride { value: 5 },
     );
     match backward.nextBack() {
-        ?value => if value.value != 3 { return process::exit(9)!; },
-        null => return process::exit(10)!,
+        ?value => if value.value != 3 { return process::ExitCode(9)!; },
+        null => return process::ExitCode(10)!,
     }
     match backward.nextBack() {
-        ?value => if value.value != 1 { return process::exit(11)!; },
-        null => return process::exit(12)!,
+        ?value => if value.value != 1 { return process::ExitCode(11)!; },
+        null => return process::ExitCode(12)!,
     }
-    if backward.nextBack() is ?_ { return process::exit(13)!; }
+    if backward.nextBack() is ?_ { return process::ExitCode(13)!; }
     if backward.start().value != 0 or backward.end().value != 0 {
-        return process::exit(14)!;
+        return process::ExitCode(14)!;
     }
 
     let mut inclusive = iter::RangeInclusive[Stride]::init(
@@ -472,76 +472,76 @@ pub fn main(init: process::Init) process::ExitCode!() {
         Stride { value: 5 },
     );
     match inclusive.next() {
-        ?value => if value.value != 0 { return process::exit(15)!; },
-        null => return process::exit(16)!,
+        ?value => if value.value != 0 { return process::ExitCode(15)!; },
+        null => return process::ExitCode(16)!,
     }
     match inclusive.next() {
-        ?value => if value.value != 2 { return process::exit(17)!; },
-        null => return process::exit(18)!,
+        ?value => if value.value != 2 { return process::ExitCode(17)!; },
+        null => return process::ExitCode(18)!,
     }
     match inclusive.next() {
-        ?value => if value.value != 4 { return process::exit(19)!; },
-        null => return process::exit(20)!,
+        ?value => if value.value != 4 { return process::ExitCode(19)!; },
+        null => return process::ExitCode(20)!,
     }
-    if inclusive.next() is ?_ { return process::exit(21)!; }
+    if inclusive.next() is ?_ { return process::ExitCode(21)!; }
 
     let mut inclusiveBack = iter::RangeInclusive[Stride]::init(
         Stride { value: 0 },
         Stride { value: 5 },
     );
     match inclusiveBack.nextBack() {
-        ?value => if value.value != 5 { return process::exit(22)!; },
-        null => return process::exit(23)!,
+        ?value => if value.value != 5 { return process::ExitCode(22)!; },
+        null => return process::ExitCode(23)!,
     }
     match inclusiveBack.nextBack() {
-        ?value => if value.value != 3 { return process::exit(24)!; },
-        null => return process::exit(25)!,
+        ?value => if value.value != 3 { return process::ExitCode(24)!; },
+        null => return process::ExitCode(25)!,
     }
     match inclusiveBack.nextBack() {
-        ?value => if value.value != 1 { return process::exit(26)!; },
-        null => return process::exit(27)!,
+        ?value => if value.value != 1 { return process::ExitCode(26)!; },
+        null => return process::ExitCode(27)!,
     }
-    if inclusiveBack.nextBack() is ?_ { return process::exit(28)!; }
+    if inclusiveBack.nextBack() is ?_ { return process::ExitCode(28)!; }
 
     let mut mixed = iter::RangeInclusive[Stride]::init(
         Stride { value: 0 },
         Stride { value: 5 },
     );
     match mixed.next() {
-        ?value => if value.value != 0 { return process::exit(29)!; },
-        null => return process::exit(30)!,
+        ?value => if value.value != 0 { return process::ExitCode(29)!; },
+        null => return process::ExitCode(30)!,
     }
     match mixed.nextBack() {
-        ?value => if value.value != 5 { return process::exit(31)!; },
-        null => return process::exit(32)!,
+        ?value => if value.value != 5 { return process::ExitCode(31)!; },
+        null => return process::ExitCode(32)!,
     }
     match mixed.next() {
-        ?value => if value.value != 2 { return process::exit(33)!; },
-        null => return process::exit(34)!,
+        ?value => if value.value != 2 { return process::ExitCode(33)!; },
+        null => return process::ExitCode(34)!,
     }
-    if mixed.nextBack() is ?_ { return process::exit(35)!; }
+    if mixed.nextBack() is ?_ { return process::ExitCode(35)!; }
 
     let mut stalled = iter::RangeInclusive[Stride]::init(
         Stride { value: 8 },
         Stride { value: 9 },
     );
     match stalled.next() {
-        ?value => if value.value != 8 { return process::exit(36)!; },
-        null => return process::exit(37)!,
+        ?value => if value.value != 8 { return process::ExitCode(36)!; },
+        null => return process::ExitCode(37)!,
     }
-    if stalled.next() is ?_ { return process::exit(38)!; }
+    if stalled.next() is ?_ { return process::ExitCode(38)!; }
 
     let mut stalledBack = iter::Range[Stride]::init(
         Stride { value: 0 },
         Stride { value: 7 },
     );
-    if stalledBack.nextBack() is ?_ { return process::exit(39)!; }
+    if stalledBack.nextBack() is ?_ { return process::ExitCode(39)!; }
 
     let mut absentBack = iter::Range[Stride]::init(
         Stride { value: -5 },
         Stride { value: -3 },
     );
-    if absentBack.nextBack() is ?_ { return process::exit(40)!; }
+    if absentBack.nextBack() is ?_ { return process::ExitCode(40)!; }
     !()
 }
 "#,
@@ -583,36 +583,36 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let mut half = iter::Range[u128]::init(first, u128::MAX);
     match half.next() {
-        ?value => if value != first { return process::exit(1)!; },
-        null => return process::exit(2)!,
+        ?value => if value != first { return process::ExitCode(1)!; },
+        null => return process::ExitCode(2)!,
     }
     match half.nextBack() {
-        ?value => if value != u128::MAX - 1u128 { return process::exit(3)!; },
-        null => return process::exit(4)!,
+        ?value => if value != u128::MAX - 1u128 { return process::ExitCode(3)!; },
+        null => return process::ExitCode(4)!,
     }
-    if half.next() is ?_ { return process::exit(5)!; }
+    if half.next() is ?_ { return process::ExitCode(5)!; }
 
     let mut inclusive = (first..=u128::MAX).iter();
     match inclusive.nextBack() {
-        ?value => if value != u128::MAX { return process::exit(6)!; },
-        null => return process::exit(7)!,
+        ?value => if value != u128::MAX { return process::ExitCode(6)!; },
+        null => return process::ExitCode(7)!,
     }
     match inclusive.next() {
-        ?value => if value != first { return process::exit(8)!; },
-        null => return process::exit(9)!,
+        ?value => if value != first { return process::ExitCode(8)!; },
+        null => return process::ExitCode(9)!,
     }
     match inclusive.next() {
-        ?value => if value != u128::MAX - 1u128 { return process::exit(10)!; },
-        null => return process::exit(11)!,
+        ?value => if value != u128::MAX - 1u128 { return process::ExitCode(10)!; },
+        null => return process::ExitCode(11)!,
     }
-    if inclusive.next() is ?_ { return process::exit(12)!; }
+    if inclusive.next() is ?_ { return process::ExitCode(12)!; }
 
     let mut from = iter::RangeFrom[u128]::init(u128::MAX);
     match from.next() {
-        ?value => if value != u128::MAX { return process::exit(13)!; },
-        null => return process::exit(14)!,
+        ?value => if value != u128::MAX { return process::ExitCode(13)!; },
+        null => return process::ExitCode(14)!,
     }
-    if from.next() is ?_ { return process::exit(15)!; }
+    if from.next() is ?_ { return process::ExitCode(15)!; }
     !()
 }
 "#,
@@ -656,31 +656,31 @@ pub fn main(init: process::Init) process::ExitCode!() {
         2,
     );
     match take.next() {
-        ?value => if value != 1 { return process::exit(1)!; },
-        null => return process::exit(2)!,
+        ?value => if value != 1 { return process::ExitCode(1)!; },
+        null => return process::ExitCode(2)!,
     }
     match take.next() {
-        ?value => if value != 2 { return process::exit(3)!; },
-        null => return process::exit(4)!,
+        ?value => if value != 2 { return process::ExitCode(3)!; },
+        null => return process::ExitCode(4)!,
     }
-    if take.next() is ?_ { return process::exit(5)!; }
+    if take.next() is ?_ { return process::ExitCode(5)!; }
 
     let mut rev = iter::Rev[iter::RangeInclusive[i32]]::init(
         iter::RangeInclusive[i32]::init(1, 3),
     );
     match rev.next() {
-        ?value => if value != 3 { return process::exit(6)!; },
-        null => return process::exit(7)!,
+        ?value => if value != 3 { return process::ExitCode(6)!; },
+        null => return process::ExitCode(7)!,
     }
     match rev.nextBack() {
-        ?value => if value != 1 { return process::exit(8)!; },
-        null => return process::exit(9)!,
+        ?value => if value != 1 { return process::ExitCode(8)!; },
+        null => return process::ExitCode(9)!,
     }
     match rev.next() {
-        ?value => if value != 2 { return process::exit(10)!; },
-        null => return process::exit(11)!,
+        ?value => if value != 2 { return process::ExitCode(10)!; },
+        null => return process::ExitCode(11)!,
     }
-    if rev.next() is ?_ { return process::exit(12)!; }
+    if rev.next() is ?_ { return process::ExitCode(12)!; }
     !()
 }
 "#,

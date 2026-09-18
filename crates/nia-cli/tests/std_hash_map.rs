@@ -19,7 +19,7 @@ using std::process;
 fn expect(seed: u64, input: &[u8], expected: u64, code: i32) process::ExitCode!() {
     let actual = hash::wyhash(seed, input);
     if actual != expected {
-        return process::exit(code)!;
+        return process::ExitCode(code)!;
     }
     !()
 }
@@ -30,14 +30,14 @@ fn expectStream(seed: u64, input: &[u8], splitAt: usize, code: i32) process::Exi
     let mut one = hash::Wyhash::init(seed);
     one.update(input);
     if one.finish() != expected or one.finish() != expected {
-        return process::exit(code)!;
+        return process::ExitCode(code)!;
     }
 
     let mut split = hash::Wyhash::init(seed);
     split.update(&input[0..splitAt]);
     split.update(&input[splitAt..]);
     if split.finish() != expected {
-        return process::exit(code + 1)!;
+        return process::ExitCode(code + 1)!;
     }
 
     let mut bytewise = hash::Wyhash::init(seed);
@@ -47,7 +47,7 @@ fn expectStream(seed: u64, input: &[u8], splitAt: usize, code: i32) process::Exi
         i += 1;
     }
     if bytewise.finish() != expected {
-        return process::exit(code + 2)!;
+        return process::ExitCode(code + 2)!;
     }
 
     let mut chunks = hash::Wyhash::init(seed);
@@ -61,7 +61,7 @@ fn expectStream(seed: u64, input: &[u8], splitAt: usize, code: i32) process::Exi
         i = end;
     }
     if chunks.finish() != expected {
-        return process::exit(code + 3)!;
+        return process::ExitCode(code + 3)!;
     }
     !()
 }
@@ -99,7 +99,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut one = hash::Wyhash::init(6u64);
     one.update(&long);
     if one.finish() != expected or one.finish() != expected {
-        return process::exit(8)!;
+        return process::ExitCode(8)!;
     }
 
     let mut split = hash::Wyhash::init(6u64);
@@ -109,7 +109,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     split.update(&long[48..49]);
     split.update(&long[49..]);
     if split.finish() != expected {
-        return process::exit(9)!;
+        return process::ExitCode(9)!;
     }
 
     let mut bytewise = hash::Wyhash::init(6u64);
@@ -119,7 +119,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         i += 1;
     }
     if bytewise.finish() != expected {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
 
     let boundary = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/";
@@ -140,21 +140,21 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut rawHasher = hash::Wyhash::init(12u64);
     rawHasher.write(&pair);
     if sliceHash == rawHasher.finish() {
-        return process::exit(70)!;
+        return process::ExitCode(70)!;
     }
 
     let mut manualSliceHasher = hash::Wyhash::init(12u64);
     (2usize).hash(&mut manualSliceHasher);
     manualSliceHasher.write(&pair);
     if sliceHash != manualSliceHasher.finish() {
-        return process::exit(71)!;
+        return process::ExitCode(71)!;
     }
 
     let mut intHasher = hash::Wyhash::init(13u64);
     (0x01020304u32).hash(&mut intHasher);
     let little_endian: [u8; 4] = [4u8, 3u8, 2u8, 1u8];
     if intHasher.finish() != hash::wyhash(13u64, &little_endian) {
-        return process::exit(72)!;
+        return process::ExitCode(72)!;
     }
 
     let mut boolTrue = hash::Wyhash::init(14u64);
@@ -162,7 +162,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut oneByte = hash::Wyhash::init(14u64);
     (1u8).hash(&mut oneByte);
     if boolTrue.finish() != oneByte.finish() {
-        return process::exit(73)!;
+        return process::ExitCode(73)!;
     }
 
     !()
@@ -225,32 +225,32 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let direct = std::HashMap[i32, i32]::init();
     if not direct.isEmpty() {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     let fallible = match std::HashMap[i32, i32]::tryInit() {
         !map => map,
         error! => {
             _ = error;
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
     if not fallible.isEmpty() {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     let contextual = collections::HashMapWithContext[i32, i32, Context]::initContext(Context::init());
     if not contextual.isEmpty() {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     let typed = match collections::HashMapWithContext[i32, i32, Context]::tryInitContext(Context::init()) {
         !map => map,
-        std::HashMapInitError::System! => return process::exit(5)!,
+        std::HashMapInitError::System! => return process::ExitCode(5)!,
         error! => {
             _ = error;
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         },
     };
     if not typed.isEmpty() {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
     !()
 }
@@ -1370,7 +1370,7 @@ fn run(init: process::Init) mem::Error!() {
 }
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    run(init).exit().?;
+    run(init).?;
     !()
 }
 "#,
@@ -1415,10 +1415,10 @@ fn run(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut map = std::HashMap[i32, i32]::initSeed(42u64);
-    defer map.deinit(&mut page).exit().?;
+    defer map.deinit(&mut page).?;
 
-    _ = map.insert(&mut page, 1, 10).exit().?;
-    _ = map.insert(&mut page, 2, 20).exit().?;
+    _ = map.insert(&mut page, 1, 10).?;
+    _ = map.insert(&mut page, 2, 20).?;
     io::debugPrint(&"hash_map={}\n", &[&map]).?;
     !()
 }
@@ -1638,7 +1638,7 @@ fn run(init: process::Init) mem::Error!() {
 }
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    run(init).exit().?;
+    run(init).?;
     !()
 }
 "#,
@@ -1766,7 +1766,7 @@ fn run(init: process::Init) mem::Error!() {
 }
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    run(init).exit().?;
+    run(init).?;
     !()
 }
 "#,
@@ -1948,7 +1948,7 @@ fn run(init: process::Init) mem::Error!() {
 }
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    run(init).exit().?;
+    run(init).?;
     !()
 }
 "#,

@@ -2,7 +2,7 @@ using std::io;
 using std::fmt;
 using std::mem;
 using std::process;
-using process::{Init, ExitCode, exit};
+using process::{Init, ExitCode};
 
 pub fn main(init: Init) ExitCode!() {
     _ = init;
@@ -26,7 +26,7 @@ pub fn main(init: Init) ExitCode!() {
 
     match scores.getEntryMut(&42) {
         mut ?entry => entry.valueMut().* = entry.value().* + 10,
-        null => return exit(1)!,
+        null => return ExitCode(1)!,
     }
 
     let mut listTotal = 0;
@@ -35,10 +35,10 @@ pub fn main(init: Init) ExitCode!() {
     }
     let answer = match scores.get(&42) {
         ?value => value.*,
-        null => return exit(2)!,
+        null => return ExitCode(2)!,
     };
     if listTotal != 60 or answer != 430 {
-        return exit(3)!;
+        return ExitCode(3)!;
     }
 
     let listLength = values.len();

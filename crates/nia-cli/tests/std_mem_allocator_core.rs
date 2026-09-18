@@ -21,19 +21,19 @@ fn check_page_allocator_allocates() process::ExitCode!() {
     let mut layout: mem::Layout;
     match mem::Layout::of[u8]() {
         !value => { layout = value; },
-        error! => { return process::exit(5)!; },
+        error! => { return process::ExitCode(5)!; },
     }
     match allocator.allocBytes(4096, layout.align()) {
         !block => { let mut ptr = block.ptr();
                 ptr.* = 42;
                 if ptr.* != 42 {
-                    return process::exit(2)!;
+                    return process::ExitCode(2)!;
                 }
                 match allocator.free(block) {
                     !ok => { _ = ok; },
-                    error! => { return process::exit(3)!; },
+                    error! => { return process::ExitCode(3)!; },
                 } },
-        error! => { return process::exit(1)!; },
+        error! => { return process::ExitCode(1)!; },
     }
     !()
 }
@@ -43,25 +43,25 @@ fn check_page_allocator_overaligned_layouts() process::ExitCode!() {
     let mut layout: mem::Layout;
     match mem::Layout::init(64, 8192) {
         !value => { layout = value; },
-        error! => { return process::exit(1)!; },
+        error! => { return process::ExitCode(1)!; },
     }
     let mut block: mem::Block;
     match allocator.alloc(layout) {
         !value => { block = value; },
-        error! => { return process::exit(2)!; },
+        error! => { return process::ExitCode(2)!; },
     }
     if block.ptr() as usize % 8192 != 0 {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     let mut bytes = block.bytes();
     bytes[0] = 17;
     bytes[63] = 23;
     if bytes[0] != 17 or bytes[63] != 23 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     match allocator.free(block) {
         !ok => { _ = ok; },
-        error! => { return process::exit(5)!; },
+        error! => { return process::ExitCode(5)!; },
     }
     !()
 }
@@ -69,9 +69,9 @@ fn check_page_allocator_overaligned_layouts() process::ExitCode!() {
 fn check_layout_rejects_invalid_alignment() process::ExitCode!() {
     match mem::Layout::init(16, 3) {
         !ok => { _ = ok;
-                return process::exit(1)!; },
+                return process::ExitCode(1)!; },
         err! => { if err as i32 != mem::Error::InvalidAlignment as i32 {
-                    return process::exit(2)!;
+                    return process::ExitCode(2)!;
                 } },
     }
     !()
@@ -80,9 +80,9 @@ fn check_layout_rejects_invalid_alignment() process::ExitCode!() {
 fn check_layout_rejects_array_size_overflow() process::ExitCode!() {
     match mem::Layout::array[i32](usize::MAX) {
         !ok => { _ = ok;
-                return process::exit(1)!; },
+                return process::ExitCode(1)!; },
         err! => { if err as i32 != mem::Error::OutOfMemory as i32 {
-                    return process::exit(2)!;
+                    return process::ExitCode(2)!;
                 } },
     }
     !()
@@ -96,14 +96,14 @@ fn check_allocator_can_allocate_typed_slices() process::ExitCode!() {
                 allocation.asMutSlice()[2] = 30;
                 allocation.asMutSlice()[3] = 40;
                 if allocation.len() != 4 {
-                    return process::exit(2)!;
+                    return process::ExitCode(2)!;
                 }
                 if allocation.asSlice()[0] + allocation.asSlice()[1]
                     + allocation.asSlice()[2] + allocation.asSlice()[3] != 100 {
-                    return process::exit(3)!;
+                    return process::ExitCode(3)!;
                 }
-                allocation.deinit(&mut allocator).exit().?; },
-        error! => { return process::exit(1)!; },
+                allocation.deinit(&mut allocator).?; },
+        error! => { return process::ExitCode(1)!; },
     }
     !()
 }
@@ -140,43 +140,43 @@ extend NonEmptyZeroAllocator : mem::Allocator {
 
 fn check_zero_length_slice_releases_block_owner() process::ExitCode!() {
     let mut allocator = NonEmptyZeroAllocator::init();
-    let mut allocation = allocator.allocSlice[u8](0).exit().?;
-    allocation.deinit(&mut allocator).exit().?;
+    let mut allocation = allocator.allocSlice[u8](0).?;
+    allocation.deinit(&mut allocator).?;
     if allocator.freeCount != 1 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
-    allocation.deinit(&mut allocator).exit().?;
+    allocation.deinit(&mut allocator).?;
     if allocator.freeCount != 1 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     !()
 }
 
 fn check_zero_sized_value_releases_block_owner() process::ExitCode!() {
     let mut allocator = NonEmptyZeroAllocator::init();
-    let mut owned = mem::allocValue[Empty](&mut allocator, {}).exit().?;
-    owned.deinit(&mut allocator).exit().?;
+    let mut owned = mem::allocValue[Empty](&mut allocator, {}).?;
+    owned.deinit(&mut allocator).?;
     if allocator.freeCount != 1 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
-    owned.deinit(&mut allocator).exit().?;
+    owned.deinit(&mut allocator).?;
     if allocator.freeCount != 1 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
 
-    let mut callableStorage = mem::allocValue[Empty](&mut allocator, {}).exit().?;
+    let mut callableStorage = mem::allocValue[Empty](&mut allocator, {}).?;
     let mut callableOwner = callableStorage.intoCallable(42u8);
-    callableStorage.deinit(&mut allocator).exit().?;
+    callableStorage.deinit(&mut allocator).?;
     if allocator.freeCount != 1 or callableOwner.callback() != 42u8 {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
-    callableOwner.deinit(&mut allocator).exit().?;
+    callableOwner.deinit(&mut allocator).?;
     if allocator.freeCount != 2 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
-    callableOwner.deinit(&mut allocator).exit().?;
+    callableOwner.deinit(&mut allocator).?;
     if allocator.freeCount != 2 {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     !()
 }
@@ -230,43 +230,43 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut storage: [u8; 64] = [0; 64];
     let mut allocator = mem::FixedBufferAllocator::init(&mut storage[..]);
 
-    let first_layout = mem::Layout::init(8, 8).exit().?;
-    let mut first = allocator.alloc(first_layout).exit().?;
+    let first_layout = mem::Layout::init(8, 8).?;
+    let mut first = allocator.alloc(first_layout).?;
     if first.ptr() as usize % 8 != 0 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
 
-    let second_layout = mem::Layout::init(8, 1).exit().?;
-    let mut second = allocator.alloc(second_layout).exit().?;
-    if allocator.resize(first, mem::Layout::init(16, 8).exit().?) {
-        return process::exit(2)!;
+    let second_layout = mem::Layout::init(8, 1).?;
+    let mut second = allocator.alloc(second_layout).?;
+    if allocator.resize(first, mem::Layout::init(16, 8).?) {
+        return process::ExitCode(2)!;
     }
-    if not allocator.resize(first, mem::Layout::init(4, 8).exit().?) {
-        return process::exit(3)!;
+    if not allocator.resize(first, mem::Layout::init(4, 8).?) {
+        return process::ExitCode(3)!;
     }
 
-    match allocator.remap(second, mem::Layout::init(24, 1).exit().?) {
+    match allocator.remap(second, mem::Layout::init(24, 1).?) {
         ?grown => { second = grown; },
-        null => { return process::exit(4)!; },
+        null => { return process::ExitCode(4)!; },
     }
     if second.size() != 24 {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
 
-    allocator.free(second).exit().?;
+    allocator.free(second).?;
     match allocator.allocBytes(48, 1) {
-        !block => { allocator.free(block).exit().?; },
-        error! => { return process::exit(6)!; },
+        !block => { allocator.free(block).?; },
+        error! => { return process::ExitCode(6)!; },
     }
 
     allocator.reset();
     if allocator.used() != 0 or allocator.remaining() != 64 {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
 
     match allocator.allocBytes(64, 1) {
-        !block => { allocator.free(block).exit().?; },
-        error! => { return process::exit(8)!; },
+        !block => { allocator.free(block).?; },
+        error! => { return process::ExitCode(8)!; },
     }
     !()
 }
@@ -335,44 +335,44 @@ extend FailOnceAllocator : mem::Allocator {
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = FailOnceAllocator::init();
-    let mut owned = mem::allocValue[u64](&mut allocator, 42u64).exit().?;
+    let mut owned = mem::allocValue[u64](&mut allocator, 42u64).?;
     allocator.failNext();
     match owned.deinit(&mut allocator) {
         !ok => {
             _ = ok;
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
         mem::Error::Invalid! => {},
         error! => {
             _ = error;
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
-    owned.deinit(&mut allocator).exit().?;
-    owned.deinit(&mut allocator).exit().?;
+    owned.deinit(&mut allocator).?;
+    owned.deinit(&mut allocator).?;
 
     let base: i32 = 1;
     let mut callableStorage = mem::allocValue(
         &mut allocator,
         \[base] value: i32 -> { base + value },
-    ).exit().?;
+    ).?;
     let mut callableState = callableStorage.valueMut();
     let callableView: &mut Fn(i32) i32 = &mut callableState.*;
     let mut callableOwner = callableStorage.intoCallable(callableView);
-    callableStorage.deinit(&mut allocator).exit().?;
+    callableStorage.deinit(&mut allocator).?;
     allocator.failNext();
     match callableOwner.deinit(&mut allocator) {
         !ok => {
             _ = ok;
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
         mem::Error::Invalid! => {},
         error! => {
             _ = error;
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     }
-    callableOwner.deinit(&mut allocator).exit().?;
+    callableOwner.deinit(&mut allocator).?;
     !()
 }
 "#,

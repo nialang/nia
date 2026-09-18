@@ -1553,6 +1553,10 @@ fn write_provider_type_ref(encoded: &mut Vec<u8>, ty: &ProviderTypeRef) {
         }
         None => encoded.push(0),
     }
+    encoded.extend_from_slice(&(ty.type_argument_names.len() as u64).to_le_bytes());
+    for argument in &ty.type_argument_names {
+        write_optional_symbol(encoded, *argument);
+    }
     encoded.push(u8::from(ty.is_generic_or_structural_target));
     encoded.push(u8::from(ty.semantic_is_conservative));
 }
@@ -1563,8 +1567,14 @@ fn read_provider_type_ref(cursor: &mut Cursor<&[u8]>) -> Option<ProviderTypeRef>
         1 => Some(SymbolId::from_stable_hash(read_u64(cursor)?)),
         _ => return None,
     };
+    let argument_len = read_len(cursor, MAX_CACHE_SEQUENCE_LEN)?;
+    let mut type_argument_names = Vec::with_capacity(argument_len);
+    for _ in 0..argument_len {
+        type_argument_names.push(read_optional_symbol(cursor)?);
+    }
     Some(ProviderTypeRef {
         last_name,
+        type_argument_names,
         is_generic_or_structural_target: read_bool(cursor)?,
         semantic_is_conservative: read_bool(cursor)?,
     })
@@ -1576,10 +1586,22 @@ fn provider_summary_symbols(summary: &ProviderSummary) -> BTreeSet<SymbolId> {
         symbols.extend(provider.target.ty.last_name);
         symbols.extend(
             provider
+                .target
+                .ty
+                .type_argument_names
+                .iter()
+                .flatten()
+                .copied(),
+        );
+        symbols.extend(
+            provider
                 .trait_ref
                 .as_ref()
                 .and_then(|trait_ref| trait_ref.last_name),
         );
+        if let Some(trait_ref) = &provider.trait_ref {
+            symbols.extend(trait_ref.type_argument_names.iter().flatten().copied());
+        }
         symbols.extend(provider.associated_methods.iter().copied());
         symbols.extend(provider.associated_values.iter().copied());
     }

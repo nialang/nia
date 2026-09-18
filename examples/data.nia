@@ -1,7 +1,7 @@
 using std::io;
 using std::fmt;
 using std::process;
-using process::{Init, ExitCode, exit};
+using process::{Init, ExitCode};
 
 const width: usize = 4;
 static stable_bytes_storage = b"nia";
@@ -38,13 +38,13 @@ pub fn main(init: Init) ExitCode!() {
     let copied = copyBytes(&mut storage[..3], &bytes);
 
     if writable[0] != 2 or name.len() != 3 or bytes[2] != b'a' {
-        return exit(1)!;
+        return ExitCode(1)!;
     }
     if cName[3] != 0 or byteSum(&bytes) != 312 {
-        return exit(2)!;
+        return ExitCode(2)!;
     }
     if stable[2] != b'a' or copied != 3 {
-        return exit(3)!;
+        return ExitCode(3)!;
     }
 
     let windowLength = window.len();

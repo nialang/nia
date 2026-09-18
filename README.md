@@ -43,7 +43,7 @@ pub fn main(init: Init) ExitCode!() {
     let values = [point.lengthSquared(), 7, 13];
 
     if sum(&values) != 45 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
 
     io::debugPrint(&"Nia is running\n", &[]).?;

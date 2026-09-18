@@ -83,7 +83,12 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::TupleField { lhs, index } => {
                 let base = self.lower_place_inner(lhs, elems, mutable);
-                elems.push(PlaceElem::TupleField(*index));
+                let lhs_ty = self.expr_ty(lhs).unwrap_or_else(|| self.error());
+                let elem = self
+                    .tuple_struct_field_def(lhs_ty, *index)
+                    .map(PlaceElem::Field)
+                    .unwrap_or(PlaceElem::TupleField(*index));
+                elems.push(elem);
                 base
             }
             ExprKind::Index { lhs, index } => {

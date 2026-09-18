@@ -23,27 +23,27 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let old = value.fetchAddMonotonic(2usize);
     let now = value.loadAcquire();
     if old != 1usize or now != 3usize {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if value.fetchOrSeqCst(4usize) != 3usize {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     if value.fetchAndSeqCst(6usize) != 7usize {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     if value.fetchXorSeqCst(2usize) != 6usize {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     match value.cmpxchgStrongSeqCst(4usize, 5usize) {
         ?actual => { _ = actual;
-                return process::exit(5)!; },
+                return process::ExitCode(5)!; },
         null => { },
     }
     match value.cmpxchgStrongSeqCst(4usize, 5usize) {
         ?actual => { if actual != 5usize {
-                    return process::exit(6)!;
+                    return process::ExitCode(6)!;
                 } },
-        null => { return process::exit(7)!; },
+        null => { return process::ExitCode(7)!; },
     }
     atomic::fenceSeqCst();
     !()

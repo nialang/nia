@@ -40,112 +40,112 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut exact: std::ArrayList[i32];
     match std::ArrayList[i32]::initCapacity(page, 3) {
         !value => { exact = value; },
-        error! => { return process::exit(1)!; },
+        error! => { return process::ExitCode(1)!; },
     }
     if exact.len() != 0 or exact.capacity() != 3 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     match exact.deinit(page) {
         !ok => { _ = ok; },
-        error! => { return process::exit(3)!; },
+        error! => { return process::ExitCode(3)!; },
     }
 
     let mut ops = std::ArrayList[i32]::init();
     match ops.push(page, 1) {
         !ok => { _ = ok; },
-        error! => { return process::exit(26)!; },
+        error! => { return process::ExitCode(26)!; },
     }
     match ops.push(page, 3) {
         !ok => { _ = ok; },
-        error! => { return process::exit(27)!; },
+        error! => { return process::ExitCode(27)!; },
     }
     match ops.insert(page, 1, 2) {
         !ok => { _ = ok; },
-        error! => { return process::exit(28)!; },
+        error! => { return process::ExitCode(28)!; },
     }
     let insertedTail: [i32; 2] = [4, 5];
     match ops.insertSlice(page, 3, &insertedTail[..]) {
         !ok => { _ = ok; },
-        error! => { return process::exit(29)!; },
+        error! => { return process::ExitCode(29)!; },
     }
     let expectedOps: [i32; 5] = [1, 2, 3, 4, 5];
     if not ops.asSlice().equals(&expectedOps[..]) {
-        return process::exit(30)!;
+        return process::ExitCode(30)!;
     }
     match ops.orderedRemove(1) {
         ?value => { if value != 2 {
-                    return process::exit(31)!;
+                    return process::ExitCode(31)!;
                 } },
-        null => { return process::exit(32)!; },
+        null => { return process::ExitCode(32)!; },
     }
     let expectedOrdered: [i32; 4] = [1, 3, 4, 5];
     if not ops.asSlice().equals(&expectedOrdered[..]) {
-        return process::exit(33)!;
+        return process::ExitCode(33)!;
     }
     match ops.swapRemove(0) {
         ?value => { if value != 1 {
-                    return process::exit(34)!;
+                    return process::ExitCode(34)!;
                 } },
-        null => { return process::exit(35)!; },
+        null => { return process::ExitCode(35)!; },
     }
     let expectedSwap: [i32; 3] = [5, 3, 4];
     if not ops.asSlice().equals(&expectedSwap[..]) {
-        return process::exit(36)!;
+        return process::ExitCode(36)!;
     }
     match ops.deinit(page) {
         !ok => { _ = ok; },
-        error! => { return process::exit(37)!; },
+        error! => { return process::ExitCode(37)!; },
     }
 
     let mut alias = std::ArrayList[i32]::init();
     match alias.reserveExact(page, 2) {
         !ok => { _ = ok; },
-        error! => { return process::exit(38)!; },
+        error! => { return process::ExitCode(38)!; },
     }
     match alias.push(page, 1) {
         !ok => { _ = ok; },
-        error! => { return process::exit(39)!; },
+        error! => { return process::ExitCode(39)!; },
     }
     match alias.push(page, 2) {
         !ok => { _ = ok; },
-        error! => { return process::exit(40)!; },
+        error! => { return process::ExitCode(40)!; },
     }
     match alias.appendSlice(page, alias.asSlice()) {
         !ok => { _ = ok; },
-        error! => { return process::exit(41)!; },
+        error! => { return process::ExitCode(41)!; },
     }
     let expectedAliasAppend: [i32; 4] = [1, 2, 1, 2];
     if not alias.asSlice().equals(&expectedAliasAppend[..]) {
-        return process::exit(42)!;
+        return process::ExitCode(42)!;
     }
     match alias.insertSlice(page, 1, alias.asSlice()) {
         !ok => { _ = ok; },
-        error! => { return process::exit(43)!; },
+        error! => { return process::ExitCode(43)!; },
     }
     let expectedAliasInsert: [i32; 8] = [1, 1, 2, 1, 2, 2, 1, 2];
     if not alias.asSlice().equals(&expectedAliasInsert[..]) {
-        return process::exit(44)!;
+        return process::ExitCode(44)!;
     }
     match alias.deinit(page) {
         !ok => { _ = ok; },
-        error! => { return process::exit(45)!; },
+        error! => { return process::ExitCode(45)!; },
     }
 
     let mut iterList = std::ArrayList[i32]::init();
     match iterList.push(page, 1) {
         !ok => { _ = ok; },
-        error! => { return process::exit(75)!; },
+        error! => { return process::ExitCode(75)!; },
     }
     match iterList.push(page, 2) {
         !ok => { _ = ok; },
-        error! => { return process::exit(76)!; },
+        error! => { return process::ExitCode(76)!; },
     }
     match iterList.push(page, 3) {
         !ok => { _ = ok; },
-        error! => { return process::exit(77)!; },
+        error! => { return process::ExitCode(77)!; },
     }
     if sumBorrowed(&iterList) != 6 or sumMutBorrowed(&mut iterList) != 6 {
-        return process::exit(81)!;
+        return process::ExitCode(81)!;
     }
     for value in iterList.iterMut() {
         value.* = value.* * 2;
@@ -158,180 +158,180 @@ pub fn main(init: process::Init) process::ExitCode!() {
         iterSum += value;
     }
     if iterSum != 14 {
-        return process::exit(80)!;
+        return process::ExitCode(80)!;
     }
     let expectedIterMut: [i32; 3] = [2, 5, 7];
     if not iterList.asSlice().equals(&expectedIterMut[..]) {
-        return process::exit(78)!;
+        return process::ExitCode(78)!;
     }
     match iterList.deinit(page) {
         !ok => { _ = ok; },
-        error! => { return process::exit(79)!; },
+        error! => { return process::ExitCode(79)!; },
     }
 
     let mut list = std::ArrayList[i32]::init();
     if list.len() != 0 or not list.isEmpty() {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     match list.reserveExact(page, 2) {
         !ok => { _ = ok; },
-        error! => { return process::exit(5)!; },
+        error! => { return process::ExitCode(5)!; },
     }
     if list.capacity() != 2 {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
     match list.reserve(page, 3) {
         !ok => { _ = ok; },
-        error! => { return process::exit(7)!; },
+        error! => { return process::ExitCode(7)!; },
     }
     if list.capacity() < 5 {
-        return process::exit(8)!;
+        return process::ExitCode(8)!;
     }
     let mut index = 0;
     while index < 6 {
         match list.push(page, index * 10) {
             !ok => { _ = ok; },
-            error! => { return process::exit(9)!; },
+            error! => { return process::ExitCode(9)!; },
         }
         index += 1;
     }
     if list.len() != 6 or list.capacity() < 6 {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
     let items = list.asSlice();
     if items[0] != 0 or items[1] != 10 or items[5] != 50 {
-        return process::exit(11)!;
+        return process::ExitCode(11)!;
     }
     match list.first() {
         ?value => { if value.* != 0 {
-                    return process::exit(64)!;
+                    return process::ExitCode(64)!;
                 } },
-        null => { return process::exit(65)!; },
+        null => { return process::ExitCode(65)!; },
     }
     match list.last() {
         ?value => { if value.* != 50 {
-                    return process::exit(66)!;
+                    return process::ExitCode(66)!;
                 } },
-        null => { return process::exit(67)!; },
+        null => { return process::ExitCode(67)!; },
     }
     match list.get(3) {
         ?value => { if value.* != 30 {
-                    return process::exit(68)!;
+                    return process::ExitCode(68)!;
                 } },
-        null => { return process::exit(69)!; },
+        null => { return process::ExitCode(69)!; },
     }
     match list.get(6) {
         ?value => { _ = value;
-                return process::exit(70)!; },
+                return process::ExitCode(70)!; },
         null => { },
     }
     match list.getMut(4) {
         mut ?value => { value.* = 44; },
-        null => { return process::exit(71)!; },
+        null => { return process::ExitCode(71)!; },
     }
     match list.lastMut() {
         mut ?value => { value.* = 55; },
-        null => { return process::exit(72)!; },
+        null => { return process::ExitCode(72)!; },
     }
     let expectedAfterAccessors: [i32; 6] = [0, 10, 20, 30, 44, 55];
     if not list.asSlice().equals(&expectedAfterAccessors[..]) {
-        return process::exit(73)!;
+        return process::ExitCode(73)!;
     }
 
     let more: [i32; 3] = [60, 70, 80];
     match list.appendSlice(page, &more[..]) {
         !ok => { _ = ok; },
-        error! => { return process::exit(12)!; },
+        error! => { return process::ExitCode(12)!; },
     }
     if list.len() != 9 or list.asSlice()[8] != 80 {
-        return process::exit(13)!;
+        return process::ExitCode(13)!;
     }
 
     match list.push(page, 90) {
         !ok => { _ = ok; },
-        error! => { return process::exit(14)!; },
+        error! => { return process::ExitCode(14)!; },
     }
     if list.len() != 10 or list.asSlice()[9] != 90 {
-        return process::exit(15)!;
+        return process::ExitCode(15)!;
     }
 
     let added: [i32; 2] = [100, 110];
     match list.appendSlice(page, &added[..]) {
         !ok => { _ = ok; },
-        error! => { return process::exit(16)!; },
+        error! => { return process::ExitCode(16)!; },
     }
     if list.len() != 12 or list.asSlice()[11] != 110 {
-        return process::exit(17)!;
+        return process::ExitCode(17)!;
     }
 
     let inserted: [i32; 2] = [21, 22];
     match list.insertSlice(page, 2, &inserted[..]) {
         !ok => { _ = ok; },
-        error! => { return process::exit(46)!; },
+        error! => { return process::ExitCode(46)!; },
     }
     if list.len() != 14 or list.asSlice()[2] != 21 or list.asSlice()[3] != 22 or list.asSlice()[4] != 20 {
-        return process::exit(47)!;
+        return process::ExitCode(47)!;
     }
 
     match list.reserveExact(page, 1) {
         !ok => { _ = ok; },
-        error! => { return process::exit(48)!; },
+        error! => { return process::ExitCode(48)!; },
     }
     list.appendAssumeCapacity(120);
     if list.len() != 15 or list.asSlice()[14] != 120 {
-        return process::exit(48)!;
+        return process::ExitCode(48)!;
     }
 
     list.truncate(10);
     let beforeShrinkCapacity = list.capacity();
     match list.shrinkToFit(page) {
         !ok => { _ = ok; },
-        error! => { return process::exit(57)!; },
+        error! => { return process::ExitCode(57)!; },
     }
     if list.len() != 10 or list.capacity() > beforeShrinkCapacity or list.capacity() < list.len() {
-        return process::exit(58)!;
+        return process::ExitCode(58)!;
     }
 
     let retainedCapacity = list.capacity();
     list.truncate(10);
     if list.len() != 10 or list.capacity() != retainedCapacity {
-        return process::exit(18)!;
+        return process::ExitCode(18)!;
     }
 
     match list.reserveExact(page, 2) {
         !ok => { _ = ok; },
-        error! => { return process::exit(74)!; },
+        error! => { return process::ExitCode(74)!; },
     }
     let tail: [i32; 2] = [100, 110];
     list.appendSliceAssumeCapacity(&tail[..]);
     if list.len() != 12 or list.asSlice()[10] != 100 or list.asSlice()[11] != 110 {
-        return process::exit(19)!;
+        return process::ExitCode(19)!;
     }
 
     match list.pop() {
         ?value => { if value != 110 {
-                    return process::exit(20)!;
+                    return process::ExitCode(20)!;
                 } },
-        null => { return process::exit(21)!; },
+        null => { return process::ExitCode(21)!; },
     }
     if list.len() != 11 {
-        return process::exit(22)!;
+        return process::ExitCode(22)!;
     }
     let mut mutableItems = list.asMutSlice();
     if mutableItems.len() != list.len() {
-        return process::exit(23)!;
+        return process::ExitCode(23)!;
     }
     mutableItems[2] = 77;
     if list.asSlice()[2] != 77 {
-        return process::exit(24)!;
+        return process::ExitCode(24)!;
     }
     list.clear();
     if not list.isEmpty() {
-        return process::exit(25)!;
+        return process::ExitCode(25)!;
     }
     match list.deinit(page) {
         !ok => { _ = ok; },
-        error! => { return process::exit(26)!; },
+        error! => { return process::ExitCode(26)!; },
     }
     !()
 }
@@ -376,43 +376,43 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut list = std::ArrayList[i32]::init();
     match list.push(page, 10) {
         !ok => { _ = ok; },
-        error! => { return process::exit(1)!; },
+        error! => { return process::ExitCode(1)!; },
     }
     match list.push(page, 20) {
         !ok => { _ = ok; },
-        error! => { return process::exit(2)!; },
+        error! => { return process::ExitCode(2)!; },
     }
     match list.shrinkToCapacity(page, 0) {
         !ok => { _ = ok; },
-        error! => { return process::exit(3)!; },
+        error! => { return process::ExitCode(3)!; },
     }
     if list.len() != 2 or list.capacity() != 2 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     list.clear();
     match list.shrinkToFit(page) {
         !ok => { _ = ok; },
-        error! => { return process::exit(4)!; },
+        error! => { return process::ExitCode(4)!; },
     }
     if list.len() != 0 or list.capacity() != 0 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
 
     match list.push(page, 30) {
         !ok => { _ = ok; },
-        error! => { return process::exit(5)!; },
+        error! => { return process::ExitCode(5)!; },
     }
     match list.push(page, 40) {
         !ok => { _ = ok; },
-        error! => { return process::exit(6)!; },
+        error! => { return process::ExitCode(6)!; },
     }
     let expected: [i32; 2] = [30, 40];
     if not list.asSlice().equals(&expected[..]) {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
     match list.deinit(page) {
         !ok => { _ = ok; },
-        error! => { return process::exit(8)!; },
+        error! => { return process::ExitCode(8)!; },
     }
     !()
 }
@@ -482,97 +482,97 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut sourcePage = mem::PageAllocator::init();
     let mut sourceGpa = mem::GeneralPurposeAllocator::init(&mut sourcePage);
-    defer sourceGpa.deinit().ok().exit().?;
+    defer sourceGpa.deinit().ok().?;
     let sourceAllocator = &mut sourceGpa;
 
     let mut targetPage = mem::PageAllocator::init();
     let mut targetGpa = mem::GeneralPurposeAllocator::init(&mut targetPage);
-    defer targetGpa.deinit().ok().exit().?;
+    defer targetGpa.deinit().ok().?;
     let targetAllocator = &mut targetGpa;
 
     let mut source = std::ArrayList[i32]::init();
-    source.push(sourceAllocator, 1).exit().?;
-    source.push(sourceAllocator, 2).exit().?;
+    source.push(sourceAllocator, 1).?;
+    source.push(sourceAllocator, 2).?;
 
-    let mut cloned = source.clone(sourceAllocator).exit().?;
+    let mut cloned = source.clone(sourceAllocator).?;
     let mut sourceItems = source.asMutSlice();
     sourceItems[0] = 9;
     let expectedSource: [i32; 2] = [9, 2];
     let expectedClone: [i32; 2] = [1, 2];
     if not source.asSlice().equals(&expectedSource[..]) {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     if not cloned.asSlice().equals(&expectedClone[..]) {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
 
-    let mut copied = source.toOwnedSlice(targetAllocator).exit().?;
+    let mut copied = source.toOwnedSlice(targetAllocator).?;
     if not copied.asSlice().equals(&expectedSource[..]) {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
-    copied.deinit(targetAllocator).exit().?;
+    copied.deinit(targetAllocator).?;
 
-    let mut owned = source.intoOwnedSlice(sourceAllocator).exit().?;
+    let mut owned = source.intoOwnedSlice(sourceAllocator).?;
     if source.len() != 0 or source.capacity() != 0 {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
     if not owned.asSlice().equals(&expectedSource[..]) {
-        return process::exit(8)!;
+        return process::ExitCode(8)!;
     }
-    owned.deinit(sourceAllocator).exit().?;
+    owned.deinit(sourceAllocator).?;
 
-    let mut external = targetAllocator.allocSlice[i32](3).exit().?;
+    let mut external = targetAllocator.allocSlice[i32](3).?;
     external.asMutSlice()[0] = 4;
     external.asMutSlice()[1] = 5;
     external.asMutSlice()[2] = 6;
     let mut adopted = std::ArrayList[i32]::fromOwnedAllocation(external);
     let expectedAdopted: [i32; 3] = [4, 5, 6];
     if adopted.capacity() != 3 or not adopted.asSlice().equals(&expectedAdopted[..]) {
-        return process::exit(11)!;
+        return process::ExitCode(11)!;
     }
 
     match cloned.deinit(targetAllocator) {
         !ok => {
             _ = ok;
-            return process::exit(12)!;
+            return process::ExitCode(12)!;
         },
         err! => {
             if err as i32 != mem::Error::Invalid as i32 {
-                return process::exit(13)!;
+                return process::ExitCode(13)!;
             }
         },
     }
     if not cloned.asSlice().equals(&expectedClone[..]) {
-        return process::exit(14)!;
+        return process::ExitCode(14)!;
     }
-    cloned.deinit(sourceAllocator).exit().?;
-    adopted.deinit(targetAllocator).exit().?;
+    cloned.deinit(sourceAllocator).?;
+    adopted.deinit(targetAllocator).?;
 
     let mut zeroAllocator = NonEmptyZeroAllocator::init();
-    let emptyAllocation = zeroAllocator.allocSlice[i32](0).exit().?;
+    let emptyAllocation = zeroAllocator.allocSlice[i32](0).?;
     let mut emptyList = std::ArrayList[i32]::fromOwnedAllocation(emptyAllocation);
-    emptyList.deinit(&mut zeroAllocator).exit().?;
+    emptyList.deinit(&mut zeroAllocator).?;
     if zeroAllocator.freeCount != 1 {
-        return process::exit(15)!;
+        return process::ExitCode(15)!;
     }
 
-    let emptyForTransfer = zeroAllocator.allocSlice[i32](0).exit().?;
+    let emptyForTransfer = zeroAllocator.allocSlice[i32](0).?;
     let mut transferList = std::ArrayList[i32]::fromOwnedAllocation(emptyForTransfer);
-    let mut transferred = transferList.intoOwnedSlice(&mut zeroAllocator).exit().?;
+    let mut transferred = transferList.intoOwnedSlice(&mut zeroAllocator).?;
     if zeroAllocator.freeCount != 2 or transferred.len() != 0 {
-        return process::exit(16)!;
+        return process::ExitCode(16)!;
     }
-    transferred.deinit(&mut zeroAllocator).exit().?;
+    transferred.deinit(&mut zeroAllocator).?;
 
-    let emptyForGrowth = zeroAllocator.allocSlice[i32](0).exit().?;
+    let emptyForGrowth = zeroAllocator.allocSlice[i32](0).?;
     let mut growingList = std::ArrayList[i32]::fromOwnedAllocation(emptyForGrowth);
-    growingList.push(&mut zeroAllocator, 42).exit().?;
+    growingList.push(&mut zeroAllocator, 42).?;
     if zeroAllocator.freeCount != 3 or growingList.len() != 1 or growingList.asSlice()[0] != 42 {
-        return process::exit(17)!;
+        return process::ExitCode(17)!;
     }
-    growingList.deinit(&mut zeroAllocator).exit().?;
+    growingList.deinit(&mut zeroAllocator).?;
     if zeroAllocator.freeCount != 4 {
-        return process::exit(18)!;
+        return process::ExitCode(18)!;
     }
     !()
 }
@@ -619,41 +619,41 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut list = std::ArrayList[Marker]::init();
     match list.reserve(page, 4) {
         !ok => { _ = ok; },
-        error! => { return process::exit(1)!; },
+        error! => { return process::ExitCode(1)!; },
     }
     if list.capacity() != usize::MAX {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     match list.push(page, {}) {
         !ok => { _ = ok; },
-        error! => { return process::exit(3)!; },
+        error! => { return process::ExitCode(3)!; },
     }
     match list.push(page, {}) {
         !ok => { _ = ok; },
-        error! => { return process::exit(4)!; },
+        error! => { return process::ExitCode(4)!; },
     }
     match list.push(page, {}) {
         !ok => { _ = ok; },
-        error! => { return process::exit(4)!; },
+        error! => { return process::ExitCode(4)!; },
     }
     match list.push(page, {}) {
         !ok => { _ = ok; },
-        error! => { return process::exit(4)!; },
+        error! => { return process::ExitCode(4)!; },
     }
     if list.len() != 4 or list.capacity() != usize::MAX {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     list.truncate(3);
     match list.shrinkToFit(page) {
         !ok => { _ = ok; },
-        error! => { return process::exit(6)!; },
+        error! => { return process::ExitCode(6)!; },
     }
     if list.len() != 3 or list.capacity() != usize::MAX {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
     match list.deinit(page) {
         !ok => { _ = ok; },
-        error! => { return process::exit(8)!; },
+        error! => { return process::ExitCode(8)!; },
     }
     !()
 }
@@ -741,90 +741,90 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut storage: [u8; 8192] = [0; 8192];
     let mut allocator = FailingAllocator::init(&mut storage);
     let mut list = std::ArrayList[i32]::init();
-    list.reserveExact(&mut allocator, 2).exit().?;
+    list.reserveExact(&mut allocator, 2).?;
     list.appendSliceAssumeCapacity(&[10, 20]);
     allocator.failNextFrees(2);
     match list.reserveExact(&mut allocator, 64) {
-        !ok => { _ = ok; return process::exit(1)!; },
+        !ok => { _ = ok; return process::ExitCode(1)!; },
         err! => { if err as i32 != mem::Error::Invalid as i32 {
-                return process::exit(2)!;
+                return process::ExitCode(2)!;
             } },
     }
     if allocator.freeCount != 2 or list.len() != 2 or list.asSlice()[0] != 10 or list.asSlice()[1] != 20 {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     allocator.failNextFrees(0);
-    list.deinit(&mut allocator).exit().?;
+    list.deinit(&mut allocator).?;
     if allocator.freeCount != 4 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
 
     let mut retryList = std::ArrayList[i32]::init();
-    retryList.reserveExact(&mut allocator, 2).exit().?;
+    retryList.reserveExact(&mut allocator, 2).?;
     retryList.appendSliceAssumeCapacity(&[30, 40]);
     allocator.failNextFrees(2);
     match retryList.reserveExact(&mut allocator, 64) {
-        !ok => { _ = ok; return process::exit(5)!; },
+        !ok => { _ = ok; return process::ExitCode(5)!; },
         err! => { if err as i32 != mem::Error::Invalid as i32 {
-                return process::exit(6)!;
+                return process::ExitCode(6)!;
             } },
     }
     allocator.failNextFrees(1);
     match retryList.deinit(&mut allocator) {
-        !ok => { _ = ok; return process::exit(7)!; },
+        !ok => { _ = ok; return process::ExitCode(7)!; },
         err! => { if err as i32 != mem::Error::Invalid as i32 {
-                return process::exit(8)!;
+                return process::ExitCode(8)!;
             } },
     }
     if allocator.freeCount != 8 {
-        return process::exit(9)!;
+        return process::ExitCode(9)!;
     }
     allocator.failNextFrees(0);
-    retryList.deinit(&mut allocator).exit().?;
+    retryList.deinit(&mut allocator).?;
     if allocator.freeCount != 9 {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
 
     let mut aliasList = std::ArrayList[i32]::init();
-    aliasList.reserveExact(&mut allocator, 8).exit().?;
+    aliasList.reserveExact(&mut allocator, 8).?;
     aliasList.appendSliceAssumeCapacity(&[1, 2, 3, 4]);
     let alias = &aliasList.asSlice()[1..3];
     allocator.failNextFrees(1);
     match aliasList.appendSlice(&mut allocator, alias) {
-        !ok => { _ = ok; return process::exit(11)!; },
+        !ok => { _ = ok; return process::ExitCode(11)!; },
         err! => { if err as i32 != mem::Error::Invalid as i32 {
-                return process::exit(12)!;
+                return process::ExitCode(12)!;
             } },
     }
     if aliasList.len() != 6 or aliasList.asSlice()[4] != 2 or aliasList.asSlice()[5] != 3 {
-        return process::exit(13)!;
+        return process::ExitCode(13)!;
     }
     let aliasFreeCount = allocator.freeCount;
     allocator.failNextFrees(0);
-    aliasList.deinit(&mut allocator).exit().?;
+    aliasList.deinit(&mut allocator).?;
     if allocator.freeCount != aliasFreeCount + 2 {
-        return process::exit(14)!;
+        return process::ExitCode(14)!;
     }
 
     let mut aliasRollback = std::ArrayList[i32]::init();
-    aliasRollback.reserveExact(&mut allocator, 4).exit().?;
+    aliasRollback.reserveExact(&mut allocator, 4).?;
     aliasRollback.appendSliceAssumeCapacity(&[5, 6, 7, 8]);
     let rollbackAlias = &aliasRollback.asSlice()[1..3];
     allocator.failNextFrees(3);
     match aliasRollback.appendSlice(&mut allocator, rollbackAlias) {
-        !ok => { _ = ok; return process::exit(15)!; },
+        !ok => { _ = ok; return process::ExitCode(15)!; },
         err! => { if err as i32 != mem::Error::Invalid as i32 {
-                return process::exit(16)!;
+                return process::ExitCode(16)!;
             } },
     }
     if aliasRollback.len() != 4 or aliasRollback.asSlice()[0] != 5 or aliasRollback.asSlice()[3] != 8 {
-        return process::exit(17)!;
+        return process::ExitCode(17)!;
     }
     let rollbackFreeCount = allocator.freeCount;
     allocator.failNextFrees(0);
-    aliasRollback.deinit(&mut allocator).exit().?;
+    aliasRollback.deinit(&mut allocator).?;
     if allocator.freeCount != rollbackFreeCount + 3 {
-        return process::exit(18)!;
+        return process::ExitCode(18)!;
     }
     !()
 }
@@ -865,9 +865,9 @@ using std::process;
 fn expectInvalid(result: mem::Error!()) process::ExitCode!() {
     match result {
         !ok => { _ = ok;
-                return process::exit(90)!; },
+                return process::ExitCode(90)!; },
         err! => { if err as i32 != mem::Error::Invalid as i32 {
-                    return process::exit(91)!;
+                    return process::ExitCode(91)!;
                 } },
     }
     !()
@@ -879,63 +879,63 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut page = &mut allocator;
 
     let mut list = std::ArrayList[i32]::init();
-    defer list.deinit(page).exit().?;
+    defer list.deinit(page).?;
 
     let initial: [i32; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
-    list.appendSlice(page, &initial[..]).exit().?;
+    list.appendSlice(page, &initial[..]).?;
 
-    list.removeRange(2, 3).exit().?;
+    list.removeRange(2, 3).?;
     let afterRemove: [i32; 5] = [0, 1, 5, 6, 7];
     if not list.asSlice().equals(&afterRemove[..]) {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
 
     let sameLen: [i32; 2] = [10, 11];
-    list.replaceRange(page, 1, 2, &sameLen[..]).exit().?;
+    list.replaceRange(page, 1, 2, &sameLen[..]).?;
     let afterSameLen: [i32; 5] = [0, 10, 11, 6, 7];
     if not list.asSlice().equals(&afterSameLen[..]) {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
 
     let smaller: [i32; 1] = [20];
-    list.replaceRange(page, 2, 2, &smaller[..]).exit().?;
+    list.replaceRange(page, 2, 2, &smaller[..]).?;
     let afterSmaller: [i32; 4] = [0, 10, 20, 7];
     if not list.asSlice().equals(&afterSmaller[..]) {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
 
     let larger: [i32; 4] = [30, 31, 32, 33];
-    list.replaceRange(page, 1, 1, &larger[..]).exit().?;
+    list.replaceRange(page, 1, 1, &larger[..]).?;
     let afterLarger: [i32; 7] = [0, 30, 31, 32, 33, 20, 7];
     if not list.asSlice().equals(&afterLarger[..]) {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
 
-    list.replaceRange(page, 2, 3, list.asSlice()).exit().?;
+    list.replaceRange(page, 2, 3, list.asSlice()).?;
     let afterAliasReplace: [i32; 11] = [0, 30, 0, 30, 31, 32, 33, 20, 7, 20, 7];
     if not list.asSlice().equals(&afterAliasReplace[..]) {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
 
     list.truncate(6);
     let afterTruncate: [i32; 6] = [0, 30, 0, 30, 31, 32];
     if not list.asSlice().equals(&afterTruncate[..]) {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
     list.truncate(99);
     if list.len() != 6 {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
 
-    let mut owned = list.toOwnedSlice(page).exit().?;
+    let mut owned = list.toOwnedSlice(page).?;
     if not owned.asSlice().equals(list.asSlice()) {
-        return process::exit(8)!;
+        return process::ExitCode(8)!;
     }
     owned.asMutSlice()[0] = 1234;
     if list.asSlice()[0] == 1234 {
-        return process::exit(9)!;
+        return process::ExitCode(9)!;
     }
-    owned.deinit(page).exit().?;
+    owned.deinit(page).?;
 
     expectInvalid(list.removeRange(7, 1)).?;
     expectInvalid(list.removeRange(5, 2)).?;
@@ -943,7 +943,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     expectInvalid(list.replaceRange(page, 7, 0, &invalidValues[..])).?;
     expectInvalid(list.replaceRange(page, 5, 2, &invalidValues[..])).?;
     if not list.asSlice().equals(&afterTruncate[..]) {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
 
     !()

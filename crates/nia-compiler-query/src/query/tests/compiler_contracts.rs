@@ -6,7 +6,7 @@ use super::*;
 fn compiler_query_registry_covers_all_declared_query_contracts() {
     let descriptors = compiler_query_registry().descriptors();
 
-    assert_eq!(descriptors.len(), 133);
+    assert_eq!(descriptors.len(), 134);
     assert!(
         !descriptors
             .iter()
@@ -19,6 +19,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         "module_graph_path",
         "module_graph_parent",
         "module_graph_child",
+        "module_graph_provider_dependencies",
         "module_package_root",
         "provider_fact_revision",
         "provider_fact_worklist",
@@ -61,6 +62,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "module_graph_entry"
             | "module_graph_parent"
             | "module_graph_path"
+            | "module_graph_provider_dependencies"
             | "module_package_root"
             | "module_path"
             | "module_source_version"

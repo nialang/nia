@@ -276,6 +276,7 @@ dependencies = [
  "nia-parser",
  "nia-pattern-analysis",
  "nia-program-signatures",
+ "nia-provider-summary",
  "nia-sema",
  "nia-sema-ir",
  "nia-source",
@@ -475,6 +476,7 @@ dependencies = [
  "nia-node-id",
  "nia-parser",
  "nia-pattern-analysis",
+ "nia-provider-summary",
  "nia-sema",
  "nia-sema-ir",
  "nia-source",
@@ -967,6 +969,7 @@ dependencies = [
  "nia-ids",
  "nia-item-tree",
  "nia-parser",
+ "nia-source",
  "nia-symbol",
 ]
 

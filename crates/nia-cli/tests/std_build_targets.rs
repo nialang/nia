@@ -309,9 +309,9 @@ fn rejectsDuplicateImport(result: build::Error!build::ModuleHandle) bool {
 pub fn main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
-    defer allocator.deinit().ok().exit().?;
-    let mut api = initBuild(init, &mut allocator).exit().?;
-    defer api.deinit().exit().?;
+    defer allocator.deinit().ok().?;
+    let mut api = initBuild(init, &mut allocator).?;
+    defer api.deinit().?;
 
     let host = api.hostTarget();
     let artifact = api.artifactTarget();
@@ -331,17 +331,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
         or not textIs(artifact.endian(), &"big")
         or artifact.pointerWidth() != 32u32
     {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
 
     let moduleHandle = api.addModule(
         build::ModuleOptions::init(&"main", fs::PathView::init(&"main.nia")),
-    ).exit().?;
+    ).?;
     let executable = api.addExecutable(
         build::ExecutableOptions::init(&"app", moduleHandle),
-    ).exit().?;
-    let emit = api.addEmitExecutableStep(&"emit", executable).exit().?;
-    api.setDefaultStep(emit).exit().?;
+    ).?;
+    let emit = api.addEmitExecutableStep(&"emit", executable).?;
+    api.setDefaultStep(emit).?;
     if not rejectsInvalidModule(
         api.addModule(build::ModuleOptions::init(
             &"bad name",
@@ -349,10 +349,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
         )),
         1usize,
     ) {
-        return process::exit(8)!;
+        return process::ExitCode(8)!;
     }
     if not rejectsInvalidStep(api.addAggregateStep(&"bad name"), 1usize) {
-        return process::exit(9)!;
+        return process::ExitCode(9)!;
     }
     if not rejectsInvalidStep(
         api.addGeneratedFileStep(
@@ -362,7 +362,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         ),
         1usize,
     ) {
-        return process::exit(11)!;
+        return process::ExitCode(11)!;
     }
     if not rejectsInvalidStep(
         api.addInstallExecutableStep(
@@ -372,7 +372,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         ),
         1usize,
     ) {
-        return process::exit(23)!;
+        return process::ExitCode(23)!;
     }
     let invalidArgument: [char; 3] = ['a', '\0', 'b'];
     let invalidArguments: [&[char]; 1] = [&invalidArgument];
@@ -383,7 +383,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         ),
         1usize,
     ) {
-        return process::exit(13)!;
+        return process::ExitCode(13)!;
     }
     let commandOutputs = [
         build::CommandArgument::buildOutput(build::BuildPathView::init(&"first.out")),
@@ -392,7 +392,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = api.addExternalCommandStep(
         &"multi-output-tool",
         build::ExternalCommandOptions::search(&"tool").withArguments(&commandOutputs),
-    ).exit().?;
+    ).?;
     if not rejectsInvalidStep(
         api.addExternalCommandStep(
             &"invalid-cwd",
@@ -401,7 +401,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         ),
         2usize,
     ) {
-        return process::exit(15)!;
+        return process::ExitCode(15)!;
     }
     let duplicateImports = [
         build::ModuleImport::init(&"dep", fs::PathView::init(&"first.nia")),
@@ -411,7 +411,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         build::ModuleOptions::init(&"duplicate-imports", fs::PathView::init(&"dup.nia"))
             .withImports(&duplicateImports[..]),
     )) {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
     if not rejectsInvalidPackage(
         api.addPackage(build::PackageOptions::init(
@@ -420,12 +420,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
         )),
         1usize,
     ) {
-        return process::exit(17)!;
+        return process::ExitCode(17)!;
     }
     let assets = api.addPackage(build::PackageOptions::init(
         &"assets",
         fs::PathView::init(&"packages/assets"),
-    )).exit().?;
+    )).?;
     if not rejectsInvalidPackage(
         api.addPackage(build::PackageOptions::init(
             &"assets",
@@ -445,7 +445,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         )),
         2usize,
     ) {
-        return process::exit(18)!;
+        return process::ExitCode(18)!;
     }
     let packageArguments = [build::CommandArgument::packageInput(
         assets,
@@ -454,40 +454,40 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = api.addExternalCommandStep(
         &"package-input",
         build::ExternalCommandOptions::search(&"tool").withArguments(&packageArguments),
-    ).exit().?;
+    ).?;
 
-    let mut other = initBuild(init, &mut allocator).exit().?;
-    defer other.deinit().exit().?;
+    let mut other = initBuild(init, &mut allocator).?;
+    defer other.deinit().?;
     let otherModule = other.addModule(
         build::ModuleOptions::init(&"other", fs::PathView::init(&"other.nia")),
-    ).exit().?;
+    ).?;
     let otherExecutable = other.addExecutable(
         build::ExecutableOptions::init(&"other-app", otherModule),
-    ).exit().?;
-    let otherStep = other.addEmitExecutableStep(&"other-emit", otherExecutable).exit().?;
+    ).?;
+    let otherStep = other.addEmitExecutableStep(&"other-emit", otherExecutable).?;
     let otherObject = other.addObject(
         build::ObjectOptions::init(&"other-objects", otherModule),
-    ).exit().?;
+    ).?;
     let otherStaticArchive = other.addStaticArchive(
         build::StaticArchiveOptions::init(&"other-archive", otherModule),
-    ).exit().?;
+    ).?;
     let foreignLinkedArchives = [otherStaticArchive];
     if not rejectsForeignStaticArchiveTarget(api.addExecutable(
         build::ExecutableOptions::init(&"foreign-linked", moduleHandle)
             .withStaticArchives(&foreignLinkedArchives[..]),
     )) {
-        return process::exit(30)!;
+        return process::ExitCode(30)!;
     }
     let otherPackage = other.addPackage(build::PackageOptions::init(
         &"other-package",
         fs::PathView::init(&"packages/other"),
-    )).exit().?;
+    )).?;
     if not rejectsForeignPackageModule(api.addModule(build::ModuleOptions::fromPackage(
         &"foreign-package-module",
         otherPackage,
         fs::PathView::init(&"main.nia"),
     ))) {
-        return process::exit(20)!;
+        return process::ExitCode(20)!;
     }
     let foreignPackageImports = [build::ModuleImport::fromPackage(
         &"foreignPackageImport",
@@ -498,7 +498,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         build::ModuleOptions::init(&"foreign-package-import", fs::PathView::init(&"main.nia"))
             .withImports(&foreignPackageImports),
     )) {
-        return process::exit(21)!;
+        return process::ExitCode(21)!;
     }
     let foreignPackageArguments = [build::CommandArgument::packageInput(
         otherPackage,
@@ -509,43 +509,43 @@ pub fn main(init: process::Init) process::ExitCode!() {
         build::ExternalCommandOptions::search(&"tool")
             .withArguments(&foreignPackageArguments),
     )) {
-        return process::exit(19)!;
+        return process::ExitCode(19)!;
     }
     if not rejectsForeignModule(api.addExecutable(
         build::ExecutableOptions::init(&"foreign-module", otherModule),
     )) {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     if not rejectsForeignExecutable(api.addEmitExecutableStep(&"foreign-executable", otherExecutable)) {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     if not rejectsForeignObject(api.addEmitObjectStep(&"foreign-object", otherObject)) {
-        return process::exit(25)!;
+        return process::ExitCode(25)!;
     }
     if not rejectsForeignStaticArchive(api.addEmitStaticArchiveStep(
         &"foreign-static-archive",
         otherStaticArchive,
     )) {
-        return process::exit(27)!;
+        return process::ExitCode(27)!;
     }
     if not rejectsForeignExecutable(api.addRunExecutableStep(
         &"foreign-run",
         build::RunOptions::init(otherExecutable),
     )) {
-        return process::exit(12)!;
+        return process::ExitCode(12)!;
     }
     if not rejectsForeignExecutable(api.addTestExecutableStep(
         &"foreign-test",
         build::RunOptions::init(otherExecutable),
     )) {
-        return process::exit(22)!;
+        return process::ExitCode(22)!;
     }
     if not rejectsForeignExecutable(api.addInstallExecutableStep(
         &"foreign-install",
         otherExecutable,
         build::BuildPathView::init(&"install/foreign"),
     )) {
-        return process::exit(24)!;
+        return process::ExitCode(24)!;
     }
     let foreignArtifactArguments = [build::CommandArgument::artifactInput(otherExecutable)];
     if not rejectsForeignExecutable(api.addExternalCommandStep(
@@ -553,7 +553,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         build::ExternalCommandOptions::search(&"tool")
             .withArguments(&foreignArtifactArguments[..]),
     )) {
-        return process::exit(14)!;
+        return process::ExitCode(14)!;
     }
     let foreignObjectArguments = [build::CommandArgument::objectInput(otherObject)];
     if not rejectsForeignObject(api.addExternalCommandStep(
@@ -561,7 +561,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         build::ExternalCommandOptions::search(&"tool")
             .withArguments(&foreignObjectArguments[..]),
     )) {
-        return process::exit(26)!;
+        return process::ExitCode(26)!;
     }
     let foreignArchiveArguments = [build::CommandArgument::staticArchiveInput(otherStaticArchive)];
     if not rejectsForeignStaticArchive(api.addExternalCommandStep(
@@ -569,71 +569,71 @@ pub fn main(init: process::Init) process::ExitCode!() {
         build::ExternalCommandOptions::search(&"tool")
             .withArguments(&foreignArchiveArguments[..]),
     )) {
-        return process::exit(28)!;
+        return process::ExitCode(28)!;
     }
     if not rejectsForeignStep(api.dependOn(emit, otherStep)) {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
     if not rejectsForeignStep(api.setDefaultStep(otherStep)) {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
 
-    let mut missingProducer = initBuild(init, &mut allocator).exit().?;
-    defer missingProducer.deinit().exit().?;
+    let mut missingProducer = initBuild(init, &mut allocator).?;
+    defer missingProducer.deinit().?;
     let generatedModule = missingProducer.addModule(
         build::ModuleOptions::fromBuild(
             &"generated",
             build::BuildPathView::init(&"generated/root.nia"),
         ),
-    ).exit().?;
+    ).?;
     let generatedExecutable = missingProducer.addExecutable(
         build::ExecutableOptions::init(&"generated-app", generatedModule),
-    ).exit().?;
+    ).?;
     let generatedEmit = missingProducer.addEmitExecutableStep(
         &"generated-emit",
         generatedExecutable,
-    ).exit().?;
-    missingProducer.setDefaultStep(generatedEmit).exit().?;
+    ).?;
+    missingProducer.setDefaultStep(generatedEmit).?;
     if not rejectsInvalidPlanModule(missingProducer.validatePlan(), 0usize) {
-        return process::exit(16)!;
+        return process::ExitCode(16)!;
     }
     if not rejectsInvalidStep(api.addRunExecutableStep(
         &"artifact-run",
         build::RunOptions::init(executable),
     ), 3usize) {
-        return process::exit(34)!;
+        return process::ExitCode(34)!;
     }
     if not rejectsInvalidStep(api.addTestExecutableStep(
         &"artifact-test",
         build::RunOptions::init(executable),
     ), 3usize) {
-        return process::exit(35)!;
+        return process::ExitCode(35)!;
     }
     let hostExecutable = api.addExecutable(
         build::ExecutableOptions::init(&"host-app", moduleHandle)
             .withOutputName(&"host-tool")
             .forHost(),
-    ).exit().?;
-    _ = api.addCheckExecutableStep(&"host-check", hostExecutable).exit().?;
-    _ = api.addEmitExecutableStep(&"host-emit", hostExecutable).exit().?;
+    ).?;
+    _ = api.addCheckExecutableStep(&"host-check", hostExecutable).?;
+    _ = api.addEmitExecutableStep(&"host-emit", hostExecutable).?;
     _ = api.addTestExecutableStep(
         &"host-test",
         build::RunOptions::init(hostExecutable),
-    ).exit().?;
+    ).?;
     let object = api.addObject(
         build::ObjectOptions::init(&"objects", moduleHandle)
             .withOutputName(&"objects-dir"),
-    ).exit().?;
-    _ = api.addEmitObjectStep(&"object-emit", object).exit().?;
+    ).?;
+    _ = api.addEmitObjectStep(&"object-emit", object).?;
     let hostObject = api.addObject(
         build::ObjectOptions::init(&"host-objects", moduleHandle)
             .withOutputName(&"host-objects-dir")
             .forHost(),
-    ).exit().?;
-    _ = api.addEmitObjectStep(&"host-object-emit", hostObject).exit().?;
+    ).?;
+    _ = api.addEmitObjectStep(&"host-object-emit", hostObject).?;
     let staticArchive = api.addStaticArchive(
         build::StaticArchiveOptions::init(&"archive", moduleHandle),
-    ).exit().?;
+    ).?;
     let missingArchiveProducerArguments = [
         build::CommandArgument::staticArchiveInput(staticArchive),
     ];
@@ -642,27 +642,27 @@ pub fn main(init: process::Init) process::ExitCode!() {
         build::ExternalCommandOptions::search(&"tool")
             .withArguments(&missingArchiveProducerArguments[..]),
     ), 8usize) {
-        return process::exit(29)!;
+        return process::ExitCode(29)!;
     }
-    _ = api.addEmitStaticArchiveStep(&"archive-emit", staticArchive).exit().?;
+    _ = api.addEmitStaticArchiveStep(&"archive-emit", staticArchive).?;
     let linkedArchives = [staticArchive];
     let linkedExecutable = api.addExecutable(
         build::ExecutableOptions::init(&"linked-app", moduleHandle)
             .withStaticArchives(&linkedArchives[..]),
-    ).exit().?;
-    _ = api.addEmitExecutableStep(&"linked-emit", linkedExecutable).exit().?;
+    ).?;
+    _ = api.addEmitExecutableStep(&"linked-emit", linkedExecutable).?;
     let hostStaticArchive = api.addStaticArchive(
         build::StaticArchiveOptions::init(&"host-archive", moduleHandle)
             .withOutputName(&"libhost-archive.a")
             .forHost(),
-    ).exit().?;
-    _ = api.addEmitStaticArchiveStep(&"host-archive-emit", hostStaticArchive).exit().?;
+    ).?;
+    _ = api.addEmitStaticArchiveStep(&"host-archive-emit", hostStaticArchive).?;
     let duplicateLinkedArchives = [staticArchive, staticArchive];
     if not rejectsInvalidExecutable(api.addExecutable(
         build::ExecutableOptions::init(&"duplicate-linked", moduleHandle)
             .withStaticArchives(&duplicateLinkedArchives[..]),
     ), 3usize) {
-        return process::exit(31)!;
+        return process::ExitCode(31)!;
     }
     let mismatchedLinkedArchives = [staticArchive];
     if not rejectsInvalidExecutable(api.addExecutable(
@@ -670,41 +670,41 @@ pub fn main(init: process::Init) process::ExitCode!() {
             .forHost()
             .withStaticArchives(&mismatchedLinkedArchives[..]),
     ), 3usize) {
-        return process::exit(32)!;
+        return process::ExitCode(32)!;
     }
 
-    let mut missingLinkedProducer = initBuild(init, &mut allocator).exit().?;
-    defer missingLinkedProducer.deinit().exit().?;
+    let mut missingLinkedProducer = initBuild(init, &mut allocator).?;
+    defer missingLinkedProducer.deinit().?;
     let missingLinkedModule = missingLinkedProducer.addModule(
         build::ModuleOptions::init(&"linked", fs::PathView::init(&"linked.nia")),
-    ).exit().?;
+    ).?;
     let missingLinkedArchive = missingLinkedProducer.addStaticArchive(
         build::StaticArchiveOptions::init(&"linked-archive", missingLinkedModule),
-    ).exit().?;
+    ).?;
     let missingLinkedArchives = [missingLinkedArchive];
     let missingLinkedExecutable = missingLinkedProducer.addExecutable(
         build::ExecutableOptions::init(&"linked-executable", missingLinkedModule)
             .withStaticArchives(&missingLinkedArchives[..]),
-    ).exit().?;
+    ).?;
     if not rejectsInvalidStep(missingLinkedProducer.addEmitExecutableStep(
         &"missing-linked-producer",
         missingLinkedExecutable,
     ), 0usize) {
-        return process::exit(33)!;
+        return process::ExitCode(33)!;
     }
     let objectArguments = [build::CommandArgument::objectInput(object)];
     _ = api.addExternalCommandStep(
         &"object-input",
         build::ExternalCommandOptions::search(&"tool")
             .withArguments(&objectArguments[..]),
-    ).exit().?;
+    ).?;
     let archiveArguments = [build::CommandArgument::staticArchiveInput(staticArchive)];
     _ = api.addExternalCommandStep(
         &"archive-input",
         build::ExternalCommandOptions::search(&"tool")
             .withArguments(&archiveArguments[..]),
-    ).exit().?;
-    api.writePlanDraft(fs::PathView::init(&"plan.draft")).exit().?;
+    ).?;
+    api.writePlanDraft(fs::PathView::init(&"plan.draft")).?;
     !()
 }
 "#

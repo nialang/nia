@@ -38,32 +38,32 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let resizeConstructor: &fn(i32, i32) Event = &Event::Resize;
     let remoteConstructor: &fn(helper::Pair) helper::RemoteEvent = &helper::RemoteEvent::Pair;
     if score(Event::Closed) != closed_score or closed_score != 0 {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
     if score(helper::id[Event](Event::Data(2))) != data_score or data_score != 2 {
-        return process::exit(11)!;
+        return process::ExitCode(11)!;
     }
     if score(Event::Move(3, 4)) != move_score or move_score != 7 {
-        return process::exit(12)!;
+        return process::ExitCode(12)!;
     }
     if score(Event::Resize { height: 5, width: 6 }) != resize_score or resize_score != 11 {
-        return process::exit(13)!;
+        return process::ExitCode(13)!;
     }
     if helper::marker() != 1 {
-        return process::exit(14)!;
+        return process::ExitCode(14)!;
     }
     if score(dataConstructor(17)) != 17 {
-        return process::exit(15)!;
+        return process::ExitCode(15)!;
     }
     if score(omittedConstructor(8, 9)) != 17 {
-        return process::exit(16)!;
+        return process::ExitCode(16)!;
     }
     if score(resizeConstructor(4, 5)) != 9 {
-        return process::exit(17)!;
+        return process::ExitCode(17)!;
     }
     let pair = helper::pair(6, 7);
     if helper::remoteScore(remoteConstructor(pair)) != 67 {
-        return process::exit(18)!;
+        return process::ExitCode(18)!;
     }
     !()
 }

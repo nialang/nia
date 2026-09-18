@@ -293,8 +293,8 @@ fn isModuleImportReleaseInvalid(error: build::Error) bool {
 fn reportUnexpected(init: process::Init, error: build::Error) process::ExitCode!() {
     let mut buffer: [u8; 512] = [0; 512];
     let mut stderr = io::FileWriter::stderr(&mut buffer[..]);
-    stderr.print(&"unexpected build error: {}\n", &[&error]).exit().?;
-    stderr.flush().exit().?;
+    stderr.print(&"unexpected build error: {}\n", &[&error]).?;
+    stderr.flush().?;
     !()
 }
 
@@ -321,17 +321,17 @@ fn checkInitRollback(init: process::Init) process::ExitCode!() {
     match initialization.finish() {
         !value => {
             let mut unexpected = value;
-            unexpected.deinit().exit().?;
-            return process::exit(1)!;
+            unexpected.deinit().?;
+            return process::ExitCode(1)!;
         },
         err! => {
             if not isBuildDirRetainOom(err) {
-                return process::exit(2)!;
+                return process::ExitCode(2)!;
             }
         },
     }
     if allocator.activeAllocations != 0usize {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     !()
 }
@@ -359,18 +359,18 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
     match initialization.finish() {
         !value => {
             let mut unexpected = value;
-            unexpected.deinit().exit().?;
-            return process::exit(14)!;
+            unexpected.deinit().?;
+            return process::ExitCode(14)!;
         },
         err! => {
             let host = successfulAllocations == 7usize;
             if not isTargetRetainOom(err, host) {
-                return process::exit(15)!;
+                return process::ExitCode(15)!;
             }
         },
     }
     if allocator.activeAllocations != 0usize {
-        return process::exit(16)!;
+        return process::ExitCode(16)!;
     }
     !()
 }
@@ -399,31 +399,31 @@ fn checkInitCleanupRetry(init: process::Init) process::ExitCode!() {
     match initialization.finish() {
         !value => {
             let mut unexpected = value;
-            unexpected.deinit().exit().?;
-            return process::exit(11)!;
+            unexpected.deinit().?;
+            return process::ExitCode(11)!;
         },
         err! => {
             if not isPackageRootReleaseInvalid(err) {
                 reportUnexpected(init, err).?;
-                return process::exit(12)!;
+                return process::ExitCode(12)!;
             }
         },
     }
     if allocator.activeAllocations != 1usize {
-        return process::exit(13)!;
+        return process::ExitCode(13)!;
     }
     match initialization.finish() {
         !value => {
             let mut unexpected = value;
-            unexpected.deinit().exit().?;
-            return process::exit(55)!;
+            unexpected.deinit().?;
+            return process::ExitCode(55)!;
         },
         err! => if not isBuildDirRetainOom(err) {
-            return process::exit(56)!;
+            return process::ExitCode(56)!;
         },
     }
     if allocator.activeAllocations != 0usize {
-        return process::exit(57)!;
+        return process::ExitCode(57)!;
     }
     !()
 }
@@ -447,10 +447,10 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
         null,
         false,
     );
-    let mut api = initialization.finish().exit().?;
+    let mut api = initialization.finish().?;
     let mut cleaned = false;
     defer if not cleaned {
-        api.deinit().exit().?;
+        api.deinit().?;
     };
     let packageOptions = build::PackageOptions::init(
         &"dependency",
@@ -462,17 +462,17 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     match api.addPackage(packageOptions) {
         !handle => {
             _ = handle;
-            return process::exit(58)!;
+            return process::ExitCode(58)!;
         },
         err! => if not isPackageRetainOom(err) {
-            return process::exit(59)!;
+            return process::ExitCode(59)!;
         },
     }
     if allocator.activeAllocations != beforePackage + 2usize {
-        return process::exit(60)!;
+        return process::ExitCode(60)!;
     }
     allocator.disableFailure();
-    _ = api.addPackage(packageOptions).exit().?;
+    _ = api.addPackage(packageOptions).?;
 
     let shortName = "a";
     let secondName = "c";
@@ -490,22 +490,22 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     ) {
         !handle => {
             _ = handle;
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
         err! => {
             if not isImportRetainOom(err) {
-                return process::exit(5)!;
+                return process::ExitCode(5)!;
             }
         },
     }
     // The outer module list, nested imports list, and both rejected import
     // fields remain attached to Build until the next insertion retries cleanup.
     if allocator.activeAllocations != beforeModule + 4usize {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
 
     allocator.disableFailure();
-    let moduleHandle = api.addModule(build::ModuleOptions::init(&"root", emptyPath)).exit().?;
+    let moduleHandle = api.addModule(build::ModuleOptions::init(&"root", emptyPath)).?;
     let objectOptions = build::ObjectOptions::init(&"object", moduleHandle)
         .withOutputName(&"object-output");
     let beforeObject = allocator.activeAllocations;
@@ -514,17 +514,17 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     match api.addObject(objectOptions) {
         !handle => {
             _ = handle;
-            return process::exit(61)!;
+            return process::ExitCode(61)!;
         },
         err! => if not isObjectRetainOom(err) {
-            return process::exit(62)!;
+            return process::ExitCode(62)!;
         },
     }
     if allocator.activeAllocations != beforeObject + 2usize {
-        return process::exit(63)!;
+        return process::ExitCode(63)!;
     }
     allocator.disableFailure();
-    _ = api.addObject(objectOptions).exit().?;
+    _ = api.addObject(objectOptions).?;
     let archiveOptions = build::StaticArchiveOptions::init(&"archive", moduleHandle)
         .withOutputName(&"archive-output");
     let beforeArchive = allocator.activeAllocations;
@@ -533,17 +533,17 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     match api.addStaticArchive(archiveOptions) {
         !handle => {
             _ = handle;
-            return process::exit(64)!;
+            return process::ExitCode(64)!;
         },
         err! => if not isStaticArchiveRetainOom(err) {
-            return process::exit(65)!;
+            return process::ExitCode(65)!;
         },
     }
     if allocator.activeAllocations != beforeArchive + 2usize {
-        return process::exit(66)!;
+        return process::ExitCode(66)!;
     }
     allocator.disableFailure();
-    let archive = api.addStaticArchive(archiveOptions).exit().?;
+    let archive = api.addStaticArchive(archiveOptions).?;
     let linkedArchives = [archive];
     let linkedOptions = build::ExecutableOptions::init(&"linked", moduleHandle)
         .withOutputName(&"linked-output")
@@ -554,17 +554,17 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     match api.addExecutable(linkedOptions) {
         !handle => {
             _ = handle;
-            return process::exit(67)!;
+            return process::ExitCode(67)!;
         },
         err! => if not isExecutableRetainOom(err) {
-            return process::exit(68)!;
+            return process::ExitCode(68)!;
         },
     }
     if allocator.activeAllocations != beforeLinked + 3usize {
-        return process::exit(69)!;
+        return process::ExitCode(69)!;
     }
     allocator.disableFailure();
-    _ = api.addExecutable(linkedOptions).exit().?;
+    _ = api.addExecutable(linkedOptions).?;
     let beforeTarget = allocator.activeAllocations;
     let targetName = "app";
     let outputName = "output";
@@ -574,22 +574,22 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     ) {
         !handle => {
             _ = handle;
-            return process::exit(7)!;
+            return process::ExitCode(7)!;
         },
         err! => {
             if not isExecutableRetainOom(err) {
-                return process::exit(8)!;
+                return process::ExitCode(8)!;
             }
         },
     }
     if allocator.activeAllocations != beforeTarget {
-        return process::exit(9)!;
+        return process::ExitCode(9)!;
     }
     allocator.disableFailure();
     let executable = api.addExecutable(
         build::ExecutableOptions::init(&targetName, moduleHandle).withOutputName(&outputName),
-    ).exit().?;
-    _ = api.addEmitExecutableStep(&"emit", executable).exit().?;
+    ).?;
+    _ = api.addEmitExecutableStep(&"emit", executable).?;
     let runArguments: [&[char]; 2] = [&"first", &"second"];
     let beforeRun = allocator.activeAllocations;
     allocator.failAfter(1usize);
@@ -599,16 +599,16 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     ) {
         !handle => {
             _ = handle;
-            return process::exit(30)!;
+            return process::ExitCode(30)!;
         },
         err! => {
             if not isRunRetainOom(err) {
-                return process::exit(31)!;
+                return process::ExitCode(31)!;
             }
         },
     }
     if allocator.activeAllocations != beforeRun {
-        return process::exit(32)!;
+        return process::ExitCode(32)!;
     }
     allocator.disableFailure();
     let beforeDependency = allocator.activeAllocations;
@@ -620,20 +620,20 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     ) {
         !handle => {
             _ = handle;
-            return process::exit(33)!;
+            return process::ExitCode(33)!;
         },
         err! => {
             if not isDependencyRetainOom(err) {
-                return process::exit(34)!;
+                return process::ExitCode(34)!;
             }
         },
     }
     if allocator.activeAllocations != beforeDependency + 4usize {
-        return process::exit(35)!;
+        return process::ExitCode(35)!;
     }
     allocator.disableFailure();
-    _ = api.addAggregateStep(&"rollback-cleanup").exit().?;
-    _ = api.addAggregateStep(&"capacity").exit().?;
+    _ = api.addAggregateStep(&"rollback-cleanup").?;
+    _ = api.addAggregateStep(&"capacity").?;
     let beforeGenerated = allocator.activeAllocations;
     allocator.failAfter(2usize);
     allocator.failNextRetainedFrees(2usize);
@@ -644,23 +644,23 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     ) {
         !handle => {
             _ = handle;
-            return process::exit(27)!;
+            return process::ExitCode(27)!;
         },
         err! => {
             if not isGeneratedFileRetainOom(err) {
-                return process::exit(28)!;
+                return process::ExitCode(28)!;
             }
         },
     }
     if allocator.activeAllocations != beforeGenerated + 2usize {
-        return process::exit(29)!;
+        return process::ExitCode(29)!;
     }
     allocator.disableFailure();
     _ = api.addGeneratedFileStep(
         &"generate",
         build::BuildPathView::init(&"generated/source.nia"),
         &b"contents"[..],
-    ).exit().?;
+    ).?;
     let commandArguments = [
         build::CommandArgument::literal(&"first"),
         build::CommandArgument::packageInput(api.rootPackage(), fs::PathView::init(&"input.txt")),
@@ -675,22 +675,22 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     ) {
         !handle => {
             _ = handle;
-            return process::exit(36)!;
+            return process::ExitCode(36)!;
         },
         err! => {
             if not isExternalCommandRetainOom(err) {
-                return process::exit(37)!;
+                return process::ExitCode(37)!;
             }
         },
     }
     if allocator.activeAllocations != beforeCommand + 4usize {
-        return process::exit(38)!;
+        return process::ExitCode(38)!;
     }
     allocator.disableFailure();
     cleaned = true;
-    api.deinit().exit().?;
+    api.deinit().?;
     if allocator.activeAllocations != 0usize {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
     !()
 }
@@ -714,26 +714,26 @@ fn checkPendingUncacheableStep(init: process::Init) process::ExitCode!() {
         null,
         false,
     );
-    let mut api = initialization.finish().exit().?;
+    let mut api = initialization.finish().?;
     allocator.failAfter(2usize);
     allocator.failNextRetainedFree();
     match api.addUncacheableStep(&"uncacheable", &"description") {
         !handle => {
             _ = handle;
-            return process::exit(72)!;
+            return process::ExitCode(72)!;
         },
         err! => if not isGeneratedFileRetainOom(err) {
-            return process::exit(73)!;
+            return process::ExitCode(73)!;
         },
     }
     if allocator.activeAllocations != 2usize {
-        return process::exit(74)!;
+        return process::ExitCode(74)!;
     }
     allocator.disableFailure();
-    _ = api.addUncacheableStep(&"uncacheable", &"description").exit().?;
-    api.deinit().exit().?;
+    _ = api.addUncacheableStep(&"uncacheable", &"description").?;
+    api.deinit().?;
     if allocator.activeAllocations != 0usize {
-        return process::exit(78)!;
+        return process::ExitCode(78)!;
     }
     !()
 }
@@ -757,10 +757,10 @@ fn checkPendingInstallStep(init: process::Init) process::ExitCode!() {
         null,
         false,
     );
-    let mut api = initialization.finish().exit().?;
-    let moduleHandle = api.addModule(build::ModuleOptions::init(&"root", emptyPath)).exit().?;
-    let executable = api.addExecutable(build::ExecutableOptions::init(&"app", moduleHandle)).exit().?;
-    _ = api.addEmitExecutableStep(&"emit", executable).exit().?;
+    let mut api = initialization.finish().?;
+    let moduleHandle = api.addModule(build::ModuleOptions::init(&"root", emptyPath)).?;
+    let executable = api.addExecutable(build::ExecutableOptions::init(&"app", moduleHandle)).?;
+    _ = api.addEmitExecutableStep(&"emit", executable).?;
     let beforeInstall = allocator.activeAllocations;
     allocator.failAfter(2usize);
     allocator.failNextRetainedFrees(2usize);
@@ -771,24 +771,24 @@ fn checkPendingInstallStep(init: process::Init) process::ExitCode!() {
     ) {
         !handle => {
             _ = handle;
-            return process::exit(75)!;
+            return process::ExitCode(75)!;
         },
         err! => if not isDependencyRetainOom(err) {
-            return process::exit(76)!;
+            return process::ExitCode(76)!;
         },
     }
     if allocator.activeAllocations != beforeInstall + 2usize {
-        return process::exit(77)!;
+        return process::ExitCode(77)!;
     }
     allocator.disableFailure();
     _ = api.addInstallExecutableStep(
         &"install",
         executable,
         build::BuildPathView::init(&"install/app"),
-    ).exit().?;
-    api.deinit().exit().?;
+    ).?;
+    api.deinit().?;
     if allocator.activeAllocations != 0usize {
-        return process::exit(79)!;
+        return process::ExitCode(79)!;
     }
     !()
 }
@@ -812,7 +812,7 @@ fn checkPendingExternalEnvironment(init: process::Init) process::ExitCode!() {
         null,
         false,
     );
-    let mut api = initialization.finish().exit().?;
+    let mut api = initialization.finish().?;
     let environment = [build::CommandEnvironmentInput::init(&"NAME", &"value")];
     let options = build::ExternalCommandOptions::search(&"tool")
         .withEnvironment(&environment[..]);
@@ -821,20 +821,20 @@ fn checkPendingExternalEnvironment(init: process::Init) process::ExitCode!() {
     match api.addExternalCommandStep(&"environment", options) {
         !handle => {
             _ = handle;
-            return process::exit(80)!;
+            return process::ExitCode(80)!;
         },
         err! => if not isExternalCommandRetainOom(err) {
-            return process::exit(81)!;
+            return process::ExitCode(81)!;
         },
     }
     if allocator.activeAllocations != 5usize {
-        return process::exit(82)!;
+        return process::ExitCode(82)!;
     }
     allocator.disableFailure();
-    _ = api.addExternalCommandStep(&"environment", options).exit().?;
-    api.deinit().exit().?;
+    _ = api.addExternalCommandStep(&"environment", options).?;
+    api.deinit().?;
     if allocator.activeAllocations != 0usize {
-        return process::exit(83)!;
+        return process::ExitCode(83)!;
     }
     !()
 }
@@ -858,10 +858,10 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!() {
         null,
         false,
     );
-    let mut api = initialization.finish().exit().?;
+    let mut api = initialization.finish().?;
     let mut cleaned = false;
     defer if not cleaned {
-        api.deinit().exit().?;
+        api.deinit().?;
     };
     let importName = "dependency";
     let importPath = "dependency.nia";
@@ -871,47 +871,47 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!() {
     let moduleHandle = api.addModule(
         build::ModuleOptions::init(&"root", fs::PathView::init(&"main.nia"))
             .withImports(&imports[..]),
-    ).exit().?;
+    ).?;
     let executable = api.addExecutable(
         build::ExecutableOptions::init(&"app", moduleHandle),
-    ).exit().?;
-    let emit = api.addEmitExecutableStep(&"emit", executable).exit().?;
-    api.setDefaultStep(emit).exit().?;
+    ).?;
+    let emit = api.addEmitExecutableStep(&"emit", executable).?;
+    api.setDefaultStep(emit).?;
     let beforeValidate = allocator.activeAllocations;
     allocator.failAfter(1usize);
     match api.validatePlan() {
         !ok => {
             _ = ok;
-            return process::exit(21)!;
+            return process::ExitCode(21)!;
         },
         err! => if not isPlanValidationOom(err) {
-            return process::exit(22)!;
+            return process::ExitCode(22)!;
         },
     }
     if allocator.activeAllocations != beforeValidate {
-        return process::exit(23)!;
+        return process::ExitCode(23)!;
     }
     allocator.disableFailure();
-    api.validatePlan().exit().?;
+    api.validatePlan().?;
     let beforeEncode = allocator.activeAllocations;
     allocator.failAfter(0usize);
     match api.writePlanDraft(fs::PathView::init(&"plan.draft")) {
         !ok => {
             _ = ok;
-            return process::exit(24)!;
+            return process::ExitCode(24)!;
         },
         err! => if not isPlanEncodingOom(err) {
-            return process::exit(25)!;
+            return process::ExitCode(25)!;
         },
     }
     if allocator.activeAllocations != beforeEncode {
-        return process::exit(26)!;
+        return process::ExitCode(26)!;
     }
     allocator.disableFailure();
     cleaned = true;
-    api.deinit().exit().?;
+    api.deinit().?;
     if allocator.activeAllocations != 0usize {
-        return process::exit(20)!;
+        return process::ExitCode(20)!;
     }
     !()
 }
@@ -935,38 +935,38 @@ fn checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!(
         null,
         false,
     );
-    let mut api = initialization.finish().exit().?;
+    let mut api = initialization.finish().?;
     let moduleHandle = api.addModule(
         build::ModuleOptions::init(&"root", fs::PathView::init(&"main.nia")),
-    ).exit().?;
+    ).?;
     let executable = api.addExecutable(
         build::ExecutableOptions::init(&"app", moduleHandle),
-    ).exit().?;
-    _ = api.addEmitExecutableStep(&"emit", executable).exit().?;
+    ).?;
+    _ = api.addEmitExecutableStep(&"emit", executable).?;
     let runArguments: [&[char]; 2] = [&"first", &"second"];
     _ = api.addRunExecutableStep(
         &"run",
         build::RunOptions::init(executable).withArguments(&runArguments[..]),
-    ).exit().?;
+    ).?;
 
     allocator.failNextRetainedFree();
     match api.deinit() {
         !ok => {
             _ = ok;
-            return process::exit(40)!;
+            return process::ExitCode(40)!;
         },
         err! => if not isStepReleaseInvalid(err) {
-            return process::exit(41)!;
+            return process::ExitCode(41)!;
         },
     }
     // The failed string owner plus both containing list allocations must stay
     // attached until a later cleanup attempt can reach them.
     if allocator.activeAllocations != 3usize {
-        return process::exit(42)!;
+        return process::ExitCode(42)!;
     }
-    api.deinit().exit().?;
+    api.deinit().?;
     if allocator.activeAllocations != 0usize {
-        return process::exit(43)!;
+        return process::ExitCode(43)!;
     }
 
     let mut importAllocator = FaultAllocator::init();
@@ -984,30 +984,30 @@ fn checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!(
         null,
         false,
     );
-    let mut importApi = importInitialization.finish().exit().?;
+    let mut importApi = importInitialization.finish().?;
     let imports = [
         build::ModuleImport::init(&"dependency", fs::PathView::init(&"dependency.nia")),
     ];
     _ = importApi.addModule(
         build::ModuleOptions::init(&"root", fs::PathView::init(&"main.nia"))
             .withImports(&imports[..]),
-    ).exit().?;
+    ).?;
     importAllocator.failNextRetainedFree();
     match importApi.deinit() {
         !ok => {
             _ = ok;
-            return process::exit(44)!;
+            return process::ExitCode(44)!;
         },
         err! => if not isModuleImportReleaseInvalid(err) {
-            return process::exit(45)!;
+            return process::ExitCode(45)!;
         },
     }
     if importAllocator.activeAllocations != 3usize {
-        return process::exit(46)!;
+        return process::ExitCode(46)!;
     }
-    importApi.deinit().exit().?;
+    importApi.deinit().?;
     if importAllocator.activeAllocations != 0usize {
-        return process::exit(47)!;
+        return process::ExitCode(47)!;
     }
     !()
 }
@@ -1030,44 +1030,44 @@ fn checkValidationScratchCleanupRetry(init: process::Init) process::ExitCode!() 
         null,
         false,
     );
-    let mut api = initialization.finish().exit().?;
-    let first = api.addAggregateStep(&"first").exit().?;
-    let second = api.addAggregateStep(&"second").exit().?;
-    api.setDefaultStep(first).exit().?;
-    api.dependOn(first, second).exit().?;
-    api.dependOn(second, first).exit().?;
+    let mut api = initialization.finish().?;
+    let first = api.addAggregateStep(&"first").?;
+    let second = api.addAggregateStep(&"second").?;
+    api.setDefaultStep(first).?;
+    api.dependOn(first, second).?;
+    api.dependOn(second, first).?;
     let beforeValidate = allocator.activeAllocations;
 
     allocator.failNextRetainedFrees(2usize);
     match api.validatePlan() {
         !ok => {
             _ = ok;
-            return process::exit(48)!;
+            return process::ExitCode(48)!;
         },
         err! => if not isStepCycle(err, 0usize, 1usize) {
             reportUnexpected(init, err).?;
-            return process::exit(49)!;
+            return process::ExitCode(49)!;
         },
     }
     if allocator.activeAllocations != beforeValidate + 2usize {
-        return process::exit(50)!;
+        return process::ExitCode(50)!;
     }
 
     match api.validatePlan() {
         !ok => {
             _ = ok;
-            return process::exit(51)!;
+            return process::ExitCode(51)!;
         },
         err! => if not isStepCycle(err, 0usize, 1usize) {
-            return process::exit(52)!;
+            return process::ExitCode(52)!;
         },
     }
     if allocator.activeAllocations != beforeValidate {
-        return process::exit(53)!;
+        return process::ExitCode(53)!;
     }
-    api.deinit().exit().?;
+    api.deinit().?;
     if allocator.activeAllocations != 0usize {
-        return process::exit(54)!;
+        return process::ExitCode(54)!;
     }
     !()
 }

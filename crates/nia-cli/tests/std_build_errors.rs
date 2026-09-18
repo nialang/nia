@@ -64,10 +64,10 @@ fn checkConfigurationDoesNotExecuteCompiler(
         init,
         allocator,
         fs::PathView::init(&"/definitely/missing/nia-compiler"),
-    ).exit().?;
-    defer api.deinit().exit().?;
-    addCheck(&mut api, fs::PathView::init(&"main.nia")).exit().?;
-    api.validatePlan().exit().?;
+    ).?;
+    defer api.deinit().?;
+    addCheck(&mut api, fs::PathView::init(&"main.nia")).?;
+    api.validatePlan().?;
     !()
 }
 
@@ -126,28 +126,28 @@ fn buildError(cause: process::Error) build::Error {
 
 pub fn main(init: process::Init) process::ExitCode!() {
     let spawn = buildError(process::Error::Spawn(process::SpawnError::Exec(process::SystemError::NotFound)));
-    if (spawn.asExitCode() as i32) != 2 {
-        return process::exit(1)!;
+    if (spawn.intoError().0) != 2 {
+        return process::ExitCode(1)!;
     }
     let close = buildError(process::Error::Close {
         stream: process::StdStream::Stdout,
         cause: io::Error::System(io::SystemError::BadFd),
     });
-    if (close.asExitCode() as i32) != 9 {
-        return process::exit(2)!;
+    if (close.intoError().0) != 9 {
+        return process::ExitCode(2)!;
     }
     let environment = buildError(process::Error::Environment {
         index: 1,
         cause: process::EnvEntryError::DuplicateName(0),
     });
-    if (environment.asExitCode() as i32) != 22 {
-        return process::exit(3)!;
+    if (environment.intoError().0) != 22 {
+        return process::ExitCode(3)!;
     }
 
     let mut buffer: [u8; 256] = [0; 256];
     let mut stdout = io::FileWriter::stdout(&mut buffer);
-    stdout.print(&"{}\n{}\n{}\n", &[&spawn, &close, &environment]).exit().?;
-    stdout.flush().exit().?;
+    stdout.print(&"{}\n{}\n{}\n", &[&spawn, &close, &environment]).?;
+    stdout.flush().?;
     !()
 }
 "#,
@@ -213,26 +213,26 @@ pub fn main(init: process::Init) process::ExitCode!() {
         build::ErrorOperation::Publish,
         build::ErrorSubject::BuildPlan,
     ) {
-        !ok => { _ = ok; return process::exit(1)!; },
+        !ok => { _ = ok; return process::ExitCode(1)!; },
         cause! => cause,
     };
     let system = match systemFailure().withBuildContext(
         build::ErrorOperation::Publish,
         build::ErrorSubject::BuildPlan,
     ) {
-        !ok => { _ = ok; return process::exit(2)!; },
+        !ok => { _ = ok; return process::ExitCode(2)!; },
         cause! => cause,
     };
-    if (path.asExitCode() as i32) != 22
-        or (system.asExitCode() as i32) != 2
+    if (path.intoError().0) != 22
+        or (system.intoError().0) != 2
     {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
 
     let mut buffer: [u8; 384] = [0; 384];
     let mut stdout = io::FileWriter::stdout(&mut buffer);
-    stdout.print(&"{}\n{}\n", &[&path, &system]).exit().?;
-    stdout.flush().exit().?;
+    stdout.print(&"{}\n{}\n", &[&path, &system]).?;
+    stdout.flush().?;
     !()
 }
 "#,

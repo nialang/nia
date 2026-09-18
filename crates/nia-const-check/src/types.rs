@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+    sync::Arc,
+};
 
 use nia_ast::Expr;
 use nia_const_ir::{
@@ -10,6 +14,7 @@ use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_item_signatures::{ItemSignatures, ProgramTraitImplSignature};
 use nia_item_tree::ActiveModuleItemTree;
 use nia_local_resolve::LocalResolution;
+use nia_provider_summary::ProviderDemand;
 use nia_sema_ir::SemanticUseTable;
 use nia_source::SourcePath;
 use nia_symbol_table::SymbolTable;
@@ -33,6 +38,8 @@ pub struct ConstCheck {
     pub typed_enum_values: Arc<HashMap<DefId, TypedConstValue>>,
     /// Array lengths required by lowered types.
     pub array_lengths: Arc<HashMap<GlobalConstExprId, u64>>,
+    /// Cross-module semantic facts required to complete const analysis.
+    pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics accumulated by all phases.
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -42,6 +49,8 @@ pub struct ConstCheck {
 pub struct ConstArrayLengths {
     /// Computed array lengths keyed by resolved expression identity.
     pub values: Arc<HashMap<GlobalConstExprId, u64>>,
+    /// Cross-module semantic facts required by this phase.
+    pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics emitted while computing lengths.
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -53,6 +62,8 @@ pub struct ConstEnumValues {
     pub values: Arc<HashMap<DefId, ConstValue>>,
     /// Discriminants paired with inferred runtime types.
     pub typed_values: Arc<HashMap<DefId, TypedConstValue>>,
+    /// Cross-module semantic facts required through this phase.
+    pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics emitted while evaluating discriminants.
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -64,6 +75,8 @@ pub struct ConstValues {
     pub values: Arc<HashMap<ConstKey, ConstValue>>,
     /// Initializer values paired with inferred runtime types.
     pub typed_values: Arc<HashMap<ConstKey, TypedConstValue>>,
+    /// Cross-module semantic facts required through this phase.
+    pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics emitted while evaluating initializers.
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -73,6 +86,8 @@ pub struct ConstValues {
 pub struct ConstTypedFacts {
     /// Runtime type facts keyed by initializer identity.
     pub typed_values: Arc<HashMap<ConstKey, TypedConstValue>>,
+    /// Cross-module semantic facts required through this phase.
+    pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics emitted while deriving runtime type facts.
     pub diagnostics: Vec<Diagnostic>,
 }

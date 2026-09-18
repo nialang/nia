@@ -65,6 +65,85 @@ fn main() () {
 }
 
 #[test]
+fn query_loader_loads_exit_code_conversion_provider_on_demand() {
+    let root = temp_dir("query_loader_loads_exit_code_conversion_provider_on_demand");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::process;
+using std::fs;
+"#,
+    );
+
+    let program = load_program_with_trait_provider_demand(
+        &main_path,
+        ModuleMap::default(),
+        Some("PathError"),
+        "IntoError",
+        &[Some("ExitCode")],
+    );
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/process/exit_code.nia");
+    assert_module_not_loaded(&program, "lib/std/process/command.nia");
+}
+
+#[test]
+fn query_loader_loads_provider_through_explicit_facade_reexport() {
+    let root = temp_dir("query_loader_loads_provider_through_explicit_facade_reexport");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::process::ExitCode;
+using std::fs::PathError;
+
+fn main(error: PathError) ExitCode!() {
+    error!
+}
+"#,
+    );
+
+    let program = load_program_with_trait_provider_demand(
+        &main_path,
+        ModuleMap::default(),
+        Some("PathError"),
+        "IntoError",
+        &[Some("ExitCode")],
+    );
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/process/exit_code.nia");
+    assert_module_not_loaded(&program, "lib/std/process/command.nia");
+}
+
+#[test]
+fn query_loader_filters_trait_providers_by_nominal_type_argument() {
+    let root = temp_dir("query_loader_filters_trait_providers_by_nominal_type_argument");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::collections;
+using std::process;
+"#,
+    );
+
+    let program = load_program_with_trait_provider_demand(
+        &main_path,
+        ModuleMap::default(),
+        Some("Error"),
+        "IntoError",
+        &[Some("ExitCode")],
+    );
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/process/exit_code.nia");
+    assert_module_not_loaded(&program, "lib/std/collections/hash_map/map.nia");
+}
+
+#[test]
 fn query_loader_loads_iterator_provider_for_for_in_iterator_values() {
     let root = temp_dir("query_loader_loads_iterator_provider_for_for_in_iterator_values");
     let main_path = root.join("main.nia");

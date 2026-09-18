@@ -23,24 +23,24 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     let mut page = mem::PageAllocator::init();
-    let mut path = fs::Path::fromView(&mut page, fs::PathView::init(&"subdir")).exit().?;
-    defer path.deinit(&mut page).exit().?;
+    let mut path = fs::Path::fromView(&mut page, fs::PathView::init(&"subdir")).?;
+    defer path.deinit(&mut page).?;
 
-    path.joinComponent(&mut page, &"/inside.txt").exit().?;
+    path.joinComponent(&mut page, &"/inside.txt").?;
     let expected: &[char] = &"subdir/inside.txt";
     if path.text().len() != expected.len() {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
 
-    let mut cwd = fs::Dir::cwd().exit().?;
-    defer cwd.close().exit().?;
-    cwd.createDir(fs::RelativePathView::fromText(&"subdir").exit().?, fs::CreateDirOptions::init()).exit().?;
-    let mut file = cwd.createFile(path.view().relative().exit().?, fs::CreateOptions::readWrite()).exit().?;
+    let mut cwd = fs::Dir::cwd().?;
+    defer cwd.close().?;
+    cwd.createDir(fs::RelativePathView::fromText(&"subdir").?, fs::CreateDirOptions::init()).?;
+    let mut file = cwd.createFile(path.view().relative().?, fs::CreateOptions::readWrite()).?;
     let mut buffer: [u8; 16] = [0; 16];
-    let mut writer = file.writer(&mut buffer[..]).exit().?;
-    writer.writeAll(&b"joined").exit().?;
-    writer.flush().exit().?;
-    file.close().exit().?;
+    let mut writer = file.writer(&mut buffer[..]).?;
+    writer.writeAll(&b"joined").?;
+    writer.flush().?;
+    file.close().?;
     !()
 }
 "#,
@@ -90,17 +90,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     };
     if cwd.len() == 0usize {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     if cwd[0] != b'/' {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     if cwd[cwd.len() - 1usize] == 0u8 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     !()
 }
@@ -144,30 +144,30 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let missingTerminator: [u8; 1] = [b'x'];
     match fs::NativePathView::fromBytes(&missingTerminator[..]) {
-        !value => { _ = value; return process::exit(1)!; },
+        !value => { _ = value; return process::ExitCode(1)!; },
         fs::PathError::MissingTerminator! => {},
-        error! => { _ = error; return process::exit(2)!; },
+        error! => { _ = error; return process::ExitCode(2)!; },
     }
     let interiorNul: [u8; 3] = [b'x', 0, 0];
     match fs::NativePathView::fromBytes(&interiorNul[..]) {
-        !value => { _ = value; return process::exit(3)!; },
+        !value => { _ = value; return process::ExitCode(3)!; },
         fs::PathError::ContainsNul! => {},
-        error! => { _ = error; return process::exit(4)!; },
+        error! => { _ = error; return process::ExitCode(4)!; },
     }
 
     let nativeBytes: [u8; 13] = [b'n', b'a', b't', b'i', b'v', b'e', b'-', 0xffu8, b'.', b'b', b'i', b'n', 0];
     let native = match fs::NativePathView::fromBytes(&nativeBytes[..]) {
         !value => value,
-        error! => { _ = error; return process::exit(5)!; },
+        error! => { _ = error; return process::ExitCode(5)!; },
     };
     if native.len() != 12usize or native.bytes()[7] != 0xffu8 {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
-    let mut cwd = fs::Dir::cwd().exit().?;
-    defer cwd.close().exit().?;
-    let relative = native.relative().exit().?;
-    let mut file = cwd.createNativeFile(relative, fs::CreateOptions::init()).exit().?;
-    file.close().exit().?;
+    let mut cwd = fs::Dir::cwd().?;
+    defer cwd.close().?;
+    let relative = native.relative().?;
+    let mut file = cwd.createNativeFile(relative, fs::CreateOptions::init()).?;
+    file.close().?;
     !()
 }
 "#,
@@ -212,67 +212,67 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     match fs::RelativePathView::fromText(&"/absolute") {
-        !path => { _ = path; return process::exit(1)!; },
+        !path => { _ = path; return process::ExitCode(1)!; },
         fs::PathError::Absolute! => {},
-        error! => { _ = error; return process::exit(2)!; },
+        error! => { _ = error; return process::ExitCode(2)!; },
     }
     match fs::RelativePathView::fromText(&"../outside") {
-        !path => { _ = path; return process::exit(3)!; },
+        !path => { _ = path; return process::ExitCode(3)!; },
         fs::PathError::ParentTraversal! => {},
-        error! => { _ = error; return process::exit(4)!; },
+        error! => { _ = error; return process::ExitCode(4)!; },
     }
     match fs::PathView::init(&"a/../outside").relative() {
-        !path => { _ = path; return process::exit(5)!; },
+        !path => { _ = path; return process::ExitCode(5)!; },
         fs::PathError::ParentTraversal! => {},
-        error! => { _ = error; return process::exit(6)!; },
+        error! => { _ = error; return process::ExitCode(6)!; },
     }
     match fs::RelativePathView::fromText(&"a/..") {
-        !path => { _ = path; return process::exit(7)!; },
+        !path => { _ = path; return process::ExitCode(7)!; },
         fs::PathError::ParentTraversal! => {},
-        error! => { _ = error; return process::exit(8)!; },
+        error! => { _ = error; return process::ExitCode(8)!; },
     }
 
     let absoluteBytes: [u8; 3] = [b'/', b'x', 0];
     match fs::RelativeNativePathView::fromBytes(&absoluteBytes[..]) {
-        !path => { _ = path; return process::exit(9)!; },
+        !path => { _ = path; return process::ExitCode(9)!; },
         fs::PathError::Absolute! => {},
-        error! => { _ = error; return process::exit(10)!; },
+        error! => { _ = error; return process::ExitCode(10)!; },
     }
     let parentBytes: [u8; 7] = [b'a', b'/', b'.', b'.', b'/', b'x', 0];
     let native = match fs::NativePathView::fromBytes(&parentBytes[..]) {
         !path => path,
-        error! => { _ = error; return process::exit(11)!; },
+        error! => { _ = error; return process::ExitCode(11)!; },
     };
     match native.relative() {
-        !path => { _ = path; return process::exit(12)!; },
+        !path => { _ = path; return process::ExitCode(12)!; },
         fs::PathError::ParentTraversal! => {},
-        error! => { _ = error; return process::exit(13)!; },
+        error! => { _ = error; return process::ExitCode(13)!; },
     }
 
-    let dot = fs::RelativePathView::fromText(&".").exit().?;
-    let repeated = fs::RelativePathView::fromText(&"a//b").exit().?;
-    let adjacent = fs::RelativePathView::fromText(&"a/..b/.../b").exit().?;
-    let empty = fs::RelativePathView::fromText(&"").exit().?;
+    let dot = fs::RelativePathView::fromText(&".").?;
+    let repeated = fs::RelativePathView::fromText(&"a//b").?;
+    let adjacent = fs::RelativePathView::fromText(&"a/..b/.../b").?;
+    let empty = fs::RelativePathView::fromText(&"").?;
     if dot.text().len() != 1usize
         or repeated.text().len() != 4usize
         or adjacent.text().len() != 11usize
         or empty.text().len() != 0usize
     {
-        return process::exit(14)!;
+        return process::ExitCode(14)!;
     }
     let adjacentBytes: [u8; 4] = [b'.', b'.', b'x', 0];
-    let adjacentNative = fs::RelativeNativePathView::fromBytes(&adjacentBytes[..]).exit().?;
+    let adjacentNative = fs::RelativeNativePathView::fromBytes(&adjacentBytes[..]).?;
     if adjacentNative.bytes().len() != 3usize {
-        return process::exit(15)!;
+        return process::ExitCode(15)!;
     }
 
-    let mut cwd = fs::Dir::cwd().exit().?;
-    defer cwd.close().exit().?;
-    let nested = fs::RelativePathView::fromText(&"nested").exit().?;
-    cwd.createDir(nested, fs::CreateDirOptions::init()).exit().?;
-    let child = fs::RelativePathView::fromText(&"nested/inside.txt").exit().?;
-    let mut file = cwd.createFile(child, fs::CreateOptions::init()).exit().?;
-    file.close().exit().?;
+    let mut cwd = fs::Dir::cwd().?;
+    defer cwd.close().?;
+    let nested = fs::RelativePathView::fromText(&"nested").?;
+    cwd.createDir(nested, fs::CreateDirOptions::init()).?;
+    let child = fs::RelativePathView::fromText(&"nested/inside.txt").?;
+    let mut file = cwd.createFile(child, fs::CreateOptions::init()).?;
+    file.close().?;
     !()
 }
 "#,
@@ -319,39 +319,39 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut page = mem::PageAllocator::init();
     let allocator: &mut mem::Allocator = &mut page;
     let mut longPath = fs::Path::init();
-    defer longPath.deinit(allocator).exit().?;
+    defer longPath.deinit(allocator).?;
     let mut index: usize = 0;
     while index < 4095usize {
-        longPath.push(allocator, 'a').exit().?;
+        longPath.push(allocator, 'a').?;
         index += 1;
     }
 
-    let mut cwd = fs::Dir::cwd().exit().?;
-    defer cwd.close().exit().?;
-    let syscallRelative = longPath.view().relative().exit().?;
+    let mut cwd = fs::Dir::cwd().?;
+    defer cwd.close().?;
+    let syscallRelative = longPath.view().relative().?;
     match cwd.createFile(syscallRelative, fs::CreateOptions::init()) {
-        !file => { _ = file; return process::exit(1)!; },
+        !file => { _ = file; return process::ExitCode(1)!; },
         fs::OperationError::System {
             operation: fs::Operation::CreateFile,
             cause: fs::Error::TooLong,
         }! => {},
-        error! => { _ = error; return process::exit(2)!; },
+        error! => { _ = error; return process::ExitCode(2)!; },
     }
 
-    longPath.push(allocator, 'a').exit().?;
-    let longRelative = longPath.view().relative().exit().?;
+    longPath.push(allocator, 'a').?;
+    let longRelative = longPath.view().relative().?;
     match cwd.createFile(longRelative, fs::CreateOptions::init()) {
-        !file => { _ = file; return process::exit(3)!; },
+        !file => { _ = file; return process::ExitCode(3)!; },
         fs::OperationError::Path {
             operation: fs::Operation::CreateFile,
             cause: fs::PathError::TooLong,
         }! => {},
-        error! => { _ = error; return process::exit(4)!; },
+        error! => { _ = error; return process::ExitCode(4)!; },
     }
 
-    let accepted = fs::RelativePathView::fromText(&"allocated.txt").exit().?;
-    let mut file = cwd.createFile(accepted, fs::CreateOptions::init()).exit().?;
-    file.close().exit().?;
+    let accepted = fs::RelativePathView::fromText(&"allocated.txt").?;
+    let mut file = cwd.createFile(accepted, fs::CreateOptions::init()).?;
+    file.close().?;
     !()
 }
 "#,
@@ -453,49 +453,49 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut cwd = fs::Dir::cwd().exit().?;
-    defer cwd.close().exit().?;
-    let createPath = fs::RelativePathView::fromText(&"escape/new-dir").exit().?;
+    let mut cwd = fs::Dir::cwd().?;
+    defer cwd.close().?;
+    let createPath = fs::RelativePathView::fromText(&"escape/new-dir").?;
     match cwd.createDir(createPath, fs::CreateDirOptions::init()) {
-        !ok => { _ = ok; return process::exit(4)!; },
+        !ok => { _ = ok; return process::ExitCode(4)!; },
         error! => { _ = error; },
     }
-    let deleteFilePath = fs::RelativePathView::fromText(&"escape/sentinel.txt").exit().?;
+    let deleteFilePath = fs::RelativePathView::fromText(&"escape/sentinel.txt").?;
     match cwd.deleteFile(deleteFilePath) {
-        !ok => { _ = ok; return process::exit(5)!; },
+        !ok => { _ = ok; return process::ExitCode(5)!; },
         error! => { _ = error; },
     }
-    let deleteDirPath = fs::RelativePathView::fromText(&"escape/sentinel-dir").exit().?;
+    let deleteDirPath = fs::RelativePathView::fromText(&"escape/sentinel-dir").?;
     match cwd.deleteDir(deleteDirPath) {
-        !ok => { _ = ok; return process::exit(6)!; },
+        !ok => { _ = ok; return process::ExitCode(6)!; },
         error! => { _ = error; },
     }
-    let localSource = fs::RelativePathView::fromText(&"rename-source.txt").exit().?;
-    let outsideDestination = fs::RelativePathView::fromText(&"escape/renamed.txt").exit().?;
+    let localSource = fs::RelativePathView::fromText(&"rename-source.txt").?;
+    let outsideDestination = fs::RelativePathView::fromText(&"escape/renamed.txt").?;
     match cwd.rename(localSource, outsideDestination) {
-        !ok => { _ = ok; return process::exit(7)!; },
+        !ok => { _ = ok; return process::ExitCode(7)!; },
         error! => { _ = error; },
     }
-    let outsideSource = fs::RelativePathView::fromText(&"escape/sentinel.txt").exit().?;
-    let localDestination = fs::RelativePathView::fromText(&"stolen.txt").exit().?;
+    let outsideSource = fs::RelativePathView::fromText(&"escape/sentinel.txt").?;
+    let localDestination = fs::RelativePathView::fromText(&"stolen.txt").?;
     match cwd.rename(outsideSource, localDestination) {
-        !ok => { _ = ok; return process::exit(8)!; },
+        !ok => { _ = ok; return process::ExitCode(8)!; },
         error! => { _ = error; },
     }
-    let path = fs::RelativePathView::fromText(&"escape/sentinel.txt").exit().?;
+    let path = fs::RelativePathView::fromText(&"escape/sentinel.txt").?;
     match cwd.metadata(path, fs::MetadataOptions::init()) {
-        !metadata => { _ = metadata; return process::exit(3)!; },
+        !metadata => { _ = metadata; return process::ExitCode(3)!; },
         error! => { _ = error; },
     }
     match cwd.openFile(path, fs::OpenOptions::readOnly()) {
-        !file => { return process::exit(1)!; },
+        !file => { return process::ExitCode(1)!; },
         fs::OperationError::System {
             operation: fs::Operation::OpenFile,
             cause: fs::Error::CrossDevice,
         }! => {},
         error! => {
             _ = error;
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
     !()
@@ -556,11 +556,11 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut cwd = fs::Dir::cwd().exit().?;
-    defer cwd.close().exit().?;
-    let path = fs::RelativePathView::fromText(&"alias.txt").exit().?;
-    let mut file = cwd.openFile(path, fs::OpenOptions::readOnly()).exit().?;
-    file.close().exit().?;
+    let mut cwd = fs::Dir::cwd().?;
+    defer cwd.close().?;
+    let path = fs::RelativePathView::fromText(&"alias.txt").?;
+    let mut file = cwd.openFile(path, fs::OpenOptions::readOnly()).?;
+    file.close().?;
     !()
 }
 "#,
@@ -605,23 +605,23 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut cwd = fs::Dir::cwd().exit().?;
-    defer cwd.close().exit().?;
+    let mut cwd = fs::Dir::cwd().?;
+    defer cwd.close().?;
     let mut source = cwd.openDir(
-        fs::RelativePathView::fromText(&"source").exit().?,
+        fs::RelativePathView::fromText(&"source").?,
         fs::OpenDirOptions::init(),
-    ).exit().?;
-    defer source.close().exit().?;
+    ).?;
+    defer source.close().?;
     let mut destination = cwd.openDir(
-        fs::RelativePathView::fromText(&"destination").exit().?,
+        fs::RelativePathView::fromText(&"destination").?,
         fs::OpenDirOptions::init(),
-    ).exit().?;
-    defer destination.close().exit().?;
+    ).?;
+    defer destination.close().?;
     source.renameTo(
-        fs::RelativePathView::fromText(&"item.txt").exit().?,
+        fs::RelativePathView::fromText(&"item.txt").?,
         &destination,
-        fs::RelativePathView::fromText(&"moved.txt").exit().?,
-    ).exit().?;
+        fs::RelativePathView::fromText(&"moved.txt").?,
+    ).?;
     !()
 }
 "#,
@@ -673,11 +673,11 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut cwd = fs::Dir::cwd().exit().?;
-    defer cwd.close().exit().?;
-    let path = fs::RelativePathView::fromText(&"alias").exit().?;
+    let mut cwd = fs::Dir::cwd().?;
+    defer cwd.close().?;
+    let path = fs::RelativePathView::fromText(&"alias").?;
     match cwd.openDir(path, fs::OpenDirOptions::noFollow()) {
-        !dir => { return process::exit(1)!; },
+        !dir => { return process::ExitCode(1)!; },
         error! => { _ = error; },
     }
     !()
@@ -721,14 +721,14 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let mut path = fs::RelativePathView::fromText(&"data.txt").exit().?;
+    let mut path = fs::RelativePathView::fromText(&"data.txt").?;
     let mut cwd: fs::Dir;
     match fs::Dir::cwd() {
         !value => {
             cwd = value;
         },
         error! => {
-            return process::exit(90)!;
+            return process::ExitCode(90)!;
         },
     }
     defer {
@@ -745,17 +745,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
             file = value;
         },
         error! => {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     }
     let mut write_buffer: [u8; 64] = [0; 64];
-    let mut writer = file.writer(&mut write_buffer[..]).exit().?;
+    let mut writer = file.writer(&mut write_buffer[..]).?;
     match writer.writeAll(&b"nia fs") {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
     match writer.flush() {
@@ -763,7 +763,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     }
     match file.close() {
@@ -771,7 +771,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     }
 
@@ -781,18 +781,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
             opened = value;
         },
         error! => {
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
     }
     let mut read_buffer: [u8; 64] = [0; 64];
-    let mut reader = opened.reader(&mut read_buffer[..]).exit().?;
+    let mut reader = opened.reader(&mut read_buffer[..]).?;
     let mut bytes: [u8; 6] = [0, 0, 0, 0, 0, 0];
     match reader.readExact(&mut bytes[..]) {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         },
     }
     match opened.close() {
@@ -800,14 +800,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(7)!;
+            return process::ExitCode(7)!;
         },
     }
     let mut expected: &[u8] = &b"nia fs";
     let mut index = 0usize;
     while index < bytes.len() {
         if bytes[index] != expected[index] {
-            return process::exit(8)!;
+            return process::ExitCode(8)!;
         }
         index += 1usize;
     }
@@ -862,17 +862,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
             file = value;
         },
         error! => {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     }
     let mut write_buffer: [u8; 16] = [0; 16];
-    let mut writer = file.writer(&mut write_buffer[..]).exit().?;
+    let mut writer = file.writer(&mut write_buffer[..]).?;
     match writer.writeAll(&b"open close") {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
     match writer.flush() {
@@ -880,7 +880,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     }
     match file.close() {
@@ -888,7 +888,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     }
 
@@ -898,18 +898,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
             opened = value;
         },
         error! => {
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
     }
     let mut read_buffer: [u8; 16] = [0; 16];
-    let mut reader = opened.reader(&mut read_buffer[..]).exit().?;
+    let mut reader = opened.reader(&mut read_buffer[..]).?;
     let mut bytes: [u8; 10] = [0; 10];
     match reader.readExact(&mut bytes[..]) {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         },
     }
     match opened.close() {
@@ -917,14 +917,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(7)!;
+            return process::ExitCode(7)!;
         },
     }
     let mut expected: &[u8] = &b"open close";
     let mut index = 0usize;
     while index < bytes.len() {
         if bytes[index] != expected[index] {
-            return process::exit(8)!;
+            return process::ExitCode(8)!;
         }
         index += 1usize;
     }
@@ -976,7 +976,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     };
     match file.close() {
@@ -984,28 +984,28 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
     match file.len() {
         !len => {
             _ = len;
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
         error! => {
             if error != fs::Error::BadFd {
-                return process::exit(4)!;
+                return process::ExitCode(4)!;
             }
         },
     }
     match file.close() {
         !ok => {
             _ = ok;
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
         error! => {
             if error != fs::Error::BadFd {
-                return process::exit(6)!;
+                return process::ExitCode(6)!;
             }
         },
     }
@@ -1013,11 +1013,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match file.writer(&mut buffer[..]) {
         !writer => {
             _ = writer;
-            return process::exit(7)!;
+            return process::ExitCode(7)!;
         },
         error! => {
             if error != fs::Error::BadFd {
-                return process::exit(8)!;
+                return process::ExitCode(8)!;
             }
         },
     }
@@ -1066,103 +1066,103 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut original = fs::File::create(
         fs::PathView::init(&"writer-original.txt"),
         fs::CreateOptions::init(),
-    ).exit().?;
+    ).?;
     let mut writeBuffer: [u8; 8] = [0; 8];
-    let mut writer = original.writer(&mut writeBuffer[..]).exit().?;
-    writer.writeAll(&b"old").exit().?;
-    original.close().exit().?;
+    let mut writer = original.writer(&mut writeBuffer[..]).?;
+    writer.writeAll(&b"old").?;
+    original.close().?;
 
     let mut replacement = fs::File::create(
         fs::PathView::init(&"writer-replacement.txt"),
         fs::CreateOptions::init(),
-    ).exit().?;
+    ).?;
     match writer.flush() {
         !ok => {
             _ = ok;
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
         error! => {
             if error != fs::Error::BadFd {
-                return process::exit(2)!;
+                return process::ExitCode(2)!;
             }
         },
     }
     if writer.len() != 3usize or not writer.buffered().equals(&b"old") {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
-    replacement.close().exit().?;
+    replacement.close().?;
 
     let mut readOriginal = fs::File::open(
         fs::PathView::init(&"reader-original.txt"),
         fs::OpenOptions::readOnly(),
-    ).exit().?;
+    ).?;
     let mut readBuffer: [u8; 8] = [0; 8];
-    let mut reader = readOriginal.reader(&mut readBuffer[..]).exit().?;
-    readOriginal.close().exit().?;
+    let mut reader = readOriginal.reader(&mut readBuffer[..]).?;
+    readOriginal.close().?;
 
     let mut readReplacement = fs::File::open(
         fs::PathView::init(&"reader-replacement.txt"),
         fs::OpenOptions::readOnly(),
-    ).exit().?;
+    ).?;
     let mut byte: [u8; 1] = [0];
     match reader.read(&mut byte[..]) {
         !count => {
             _ = count;
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
         error! => {
             if error != fs::Error::BadFd {
-                return process::exit(5)!;
+                return process::ExitCode(5)!;
             }
         },
     }
     if reader.len() != 0usize {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
-    readReplacement.close().exit().?;
+    readReplacement.close().?;
 
-    let mut cwd = fs::Dir::cwd().exit().?;
+    let mut cwd = fs::Dir::cwd().?;
     cwd.createDir(
-        fs::RelativePathView::fromText(&"dir-original").exit().?,
+        fs::RelativePathView::fromText(&"dir-original").?,
         fs::CreateDirOptions::init(),
-    ).exit().?;
+    ).?;
     cwd.createDir(
-        fs::RelativePathView::fromText(&"dir-replacement").exit().?,
+        fs::RelativePathView::fromText(&"dir-replacement").?,
         fs::CreateDirOptions::init(),
-    ).exit().?;
+    ).?;
     let mut dirOriginal = cwd.openDir(
-        fs::RelativePathView::fromText(&"dir-original").exit().?,
+        fs::RelativePathView::fromText(&"dir-original").?,
         fs::OpenDirOptions::init(),
-    ).exit().?;
+    ).?;
     let mut entryBuffer: [u8; 256] = [0; 256];
-    let mut entries = dirOriginal.entries(&mut entryBuffer[..]).exit().?;
-    dirOriginal.close().exit().?;
+    let mut entries = dirOriginal.entries(&mut entryBuffer[..]).?;
+    dirOriginal.close().?;
     let mut dirReplacement = cwd.openDir(
-        fs::RelativePathView::fromText(&"dir-replacement").exit().?,
+        fs::RelativePathView::fromText(&"dir-replacement").?,
         fs::OpenDirOptions::init(),
-    ).exit().?;
+    ).?;
     match entries.next() {
         ?result => {
             match result {
                 !entry => {
                     _ = entry;
-                    return process::exit(7)!;
+                    return process::ExitCode(7)!;
                 },
                 error! => {
                     if error != fs::Error::BadFd {
-                        return process::exit(8)!;
+                        return process::ExitCode(8)!;
                     }
                 },
             }
         },
         null => {
-            return process::exit(9)!;
+            return process::ExitCode(9)!;
         },
     }
-    dirReplacement.close().exit().?;
-    cwd.deleteDir(fs::RelativePathView::fromText(&"dir-original").exit().?).exit().?;
-    cwd.deleteDir(fs::RelativePathView::fromText(&"dir-replacement").exit().?).exit().?;
-    cwd.close().exit().?;
+    dirReplacement.close().?;
+    cwd.deleteDir(fs::RelativePathView::fromText(&"dir-original").?).?;
+    cwd.deleteDir(fs::RelativePathView::fromText(&"dir-replacement").?).?;
+    cwd.close().?;
     !()
 }
 "#,
@@ -1214,7 +1214,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     };
     match cwd.close() {
@@ -1222,42 +1222,42 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
     let mut entryBuffer: [u8; 1] = [0];
     match cwd.entries(&mut entryBuffer[..]) {
         !entries => {
             _ = entries;
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
         error! => {
             if error != fs::Error::BadFd {
-                return process::exit(4)!;
+                return process::ExitCode(4)!;
             }
         },
     }
     match cwd.close() {
         !ok => {
             _ = ok;
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
         error! => {
             if error != fs::Error::BadFd {
-                return process::exit(6)!;
+                return process::ExitCode(6)!;
             }
         },
     }
-    match cwd.createFile(fs::RelativePathView::fromText(&"bad.txt").exit().?, fs::CreateOptions::init()) {
+    match cwd.createFile(fs::RelativePathView::fromText(&"bad.txt").?, fs::CreateOptions::init()) {
         !file => {
             _ = file;
-            return process::exit(7)!;
+            return process::ExitCode(7)!;
         },
         fs::OperationError::System {
             operation: fs::Operation::CreateFile,
             cause: fs::Error::BadFd,
         }! => {},
-        error! => { _ = error; return process::exit(8)!; },
+        error! => { _ = error; return process::ExitCode(8)!; },
     }
     !()
 }
@@ -1305,18 +1305,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
             file = value;
         },
         error! => {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     }
 
     let mut write_buffer: [u8; 16] = [0; 16];
-    let mut writer = file.writer(&mut write_buffer[..]).exit().?;
+    let mut writer = file.writer(&mut write_buffer[..]).?;
     match writer.writeAll(&b"abcdef") {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
     match writer.flush() {
@@ -1324,58 +1324,58 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     }
 
     match file.len() {
         !value => {
             if value != 6u64 {
-                return process::exit(4)!;
+                return process::ExitCode(4)!;
             }
         },
         error! => {
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
     }
     match file.seekBy(0) {
         !value => {
             if value != 6u64 {
-                return process::exit(6)!;
+                return process::ExitCode(6)!;
             }
         },
         error! => {
-            return process::exit(7)!;
+            return process::ExitCode(7)!;
         },
     }
     match file.seekTo(2u64) {
         !value => {
             if value != 2u64 {
-                return process::exit(8)!;
+                return process::ExitCode(8)!;
             }
         },
         error! => {
-            return process::exit(9)!;
+            return process::ExitCode(9)!;
         },
     }
     match file.seekBy(1i64) {
         !value => {
             if value != 3u64 {
-                return process::exit(10)!;
+                return process::ExitCode(10)!;
             }
         },
         error! => {
-            return process::exit(11)!;
+            return process::ExitCode(11)!;
         },
     }
     match file.seekFromEnd(-2i64) {
         !value => {
             if value != 4u64 {
-                return process::exit(12)!;
+                return process::ExitCode(12)!;
             }
         },
         error! => {
-            return process::exit(13)!;
+            return process::ExitCode(13)!;
         },
     }
 
@@ -1384,39 +1384,39 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(14)!;
+            return process::ExitCode(14)!;
         },
     }
     match file.seekTo(9223372036854775808u64) {
         !value => {
             _ = value;
-            return process::exit(20)!;
+            return process::ExitCode(20)!;
         },
         err! => {
             if err != fs::Error::OutOfRange {
-                return process::exit(21)!;
+                return process::ExitCode(21)!;
             }
         },
     }
     match file.truncate(9223372036854775808u64) {
         !ok => {
             _ = ok;
-            return process::exit(22)!;
+            return process::ExitCode(22)!;
         },
         err! => {
             if err != fs::Error::OutOfRange {
-                return process::exit(23)!;
+                return process::ExitCode(23)!;
             }
         },
     }
     match file.len() {
         !value => {
             if value != 4u64 {
-                return process::exit(15)!;
+                return process::ExitCode(15)!;
             }
         },
         error! => {
-            return process::exit(16)!;
+            return process::ExitCode(16)!;
         },
     }
     match file.syncData() {
@@ -1424,7 +1424,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(17)!;
+            return process::ExitCode(17)!;
         },
     }
     match file.sync() {
@@ -1432,7 +1432,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(18)!;
+            return process::ExitCode(18)!;
         },
     }
     match file.close() {
@@ -1440,7 +1440,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(19)!;
+            return process::ExitCode(19)!;
         },
     }
     !()
@@ -1490,18 +1490,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
             file = value;
         },
         error! => {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     }
 
     let mut write_buffer: [u8; 16] = [0; 16];
-    let mut writer = file.writer(&mut write_buffer[..]).exit().?;
+    let mut writer = file.writer(&mut write_buffer[..]).?;
     match writer.writeAll(&b"metadata") {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
     match writer.flush() {
@@ -1509,32 +1509,32 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     }
 
     match file.metadata() {
         !metadata => {
             if metadata.kind() != fs::FileKind::File {
-                return process::exit(4)!;
+                return process::ExitCode(4)!;
             }
             if metadata.size() != 8u64 {
-                return process::exit(5)!;
+                return process::ExitCode(5)!;
             }
             match metadata.linkCount() {
                 ?value => {
                     if value == 0u32 {
-                        return process::exit(6)!;
+                        return process::ExitCode(6)!;
                     }
                 },
                 null => {},
             }
             if metadata.preferredBlockSize() == 0u32 {
-                return process::exit(7)!;
+                return process::ExitCode(7)!;
             }
         },
         error! => {
-            return process::exit(8)!;
+            return process::ExitCode(8)!;
         },
     }
 
@@ -1544,16 +1544,16 @@ pub fn main(init: process::Init) process::ExitCode!() {
             cwd = value;
         },
         error! => {
-            return process::exit(9)!;
+            return process::ExitCode(9)!;
         },
     }
-    match cwd.metadata(path.relative().exit().?, fs::MetadataOptions::init()) {
+    match cwd.metadata(path.relative().?, fs::MetadataOptions::init()) {
         !metadata => {
             if metadata.kind() != fs::FileKind::File {
-                return process::exit(10)!;
+                return process::ExitCode(10)!;
             }
             if metadata.size() != 8u64 {
-                return process::exit(11)!;
+                return process::ExitCode(11)!;
             }
             match metadata.accessed() {
                 ?time => {
@@ -1571,7 +1571,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             }
         },
         error! => {
-            return process::exit(12)!;
+            return process::ExitCode(12)!;
         },
     }
 
@@ -1580,7 +1580,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(13)!;
+            return process::ExitCode(13)!;
         },
     }
     match file.close() {
@@ -1588,7 +1588,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(14)!;
+            return process::ExitCode(14)!;
         },
     }
     !()
@@ -1632,9 +1632,9 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut path = fs::PathView::init(&"data.txt");
-    let mut file = fs::File::create(path, fs::CreateOptions::init()).exit().?;
-    defer file.close().exit().?;
-    file.setPermissions(0o755).exit().?;
+    let mut file = fs::File::create(path, fs::CreateOptions::init()).?;
+    defer file.close().?;
+    file.setPermissions(0o755).?;
     !()
 }
 "#,
@@ -1685,14 +1685,14 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let mut path = fs::RelativePathView::fromText(&"nia-λ.txt").exit().?;
+    let mut path = fs::RelativePathView::fromText(&"nia-λ.txt").?;
     let mut cwd: fs::Dir;
     match fs::Dir::cwd() {
         !value => {
             cwd = value;
         },
         error! => {
-            return process::exit(90)!;
+            return process::ExitCode(90)!;
         },
     }
     defer {
@@ -1709,17 +1709,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
             file = value;
         },
         error! => {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     }
     let mut buffer: [u8; 64] = [0; 64];
-    let mut writer = file.writer(&mut buffer[..]).exit().?;
+    let mut writer = file.writer(&mut buffer[..]).?;
     match writer.writeAll(&b"ok") {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
     match writer.flush() {
@@ -1727,7 +1727,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     }
     match file.close() {
@@ -1735,7 +1735,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     }
     !()
@@ -1786,60 +1786,60 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let valid: [u8; 3] = [b'A', 0xceu8, 0xbbu8];
     let mut path = match fs::Path::fromUtf8(&mut page, &valid) {
         !value => value,
-        error! => { _ = error; return process::exit(1)!; },
+        error! => { _ = error; return process::ExitCode(1)!; },
     };
-    defer path.deinit(&mut page).exit().?;
+    defer path.deinit(&mut page).?;
     if path.text().len() != 2
         or path.text()[0] != 'A'
         or path.text()[1].codepoint() != 0x03bbu32
     {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
 
     let mut encodedStorage: [u8; 4] = [0; 4];
     let encoded = match path.encode(&mut encodedStorage) {
         !value => value,
-        error! => { _ = error; return process::exit(3)!; },
+        error! => { _ = error; return process::ExitCode(3)!; },
     };
     if encoded.len() != 3
         or encoded.bytes()[0] != b'A'
         or encoded.nulTerminatedBytes().len() != 4
         or encoded.nulTerminatedBytes()[3] != 0
     {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
 
     let invalid: [u8; 5] = [b'o', b'k', 0xe2u8, 0x28u8, 0xa1u8];
     match fs::Path::fromUtf8(&mut page, &invalid) {
-        !value => { _ = value; return process::exit(5)!; },
+        !value => { _ = value; return process::ExitCode(5)!; },
         string::TextError::InvalidUtf8(unicode::Utf8DecodeError::InvalidContinuation)! => {},
-        error! => { _ = error; return process::exit(6)!; },
+        error! => { _ = error; return process::ExitCode(6)!; },
     }
 
     let mut invalidStorage: [u8; 16] = [0xa5u8; 16];
     match fs::PathView::init(&"bad\0path").encode(&mut invalidStorage) {
-        !value => { _ = value; return process::exit(7)!; },
+        !value => { _ = value; return process::ExitCode(7)!; },
         fs::PathError::ContainsNul! => {},
-        error! => { _ = error; return process::exit(8)!; },
+        error! => { _ = error; return process::ExitCode(8)!; },
     }
     let mut invalidIndex = 0usize;
     while invalidIndex < invalidStorage.len() {
         if invalidStorage[invalidIndex] != 0xa5u8 {
-            return process::exit(16)!;
+            return process::ExitCode(16)!;
         }
         invalidIndex += 1usize;
     }
 
     let mut shortStorage: [u8; 3] = [0x5au8; 3];
     match path.encode(&mut shortStorage) {
-        !value => { _ = value; return process::exit(9)!; },
+        !value => { _ = value; return process::ExitCode(9)!; },
         fs::PathError::TooLong! => {},
-        error! => { _ = error; return process::exit(10)!; },
+        error! => { _ = error; return process::ExitCode(10)!; },
     }
     let mut shortIndex = 0usize;
     while shortIndex < shortStorage.len() {
         if shortStorage[shortIndex] != 0x5au8 {
-            return process::exit(17)!;
+            return process::ExitCode(17)!;
         }
         shortIndex += 1usize;
     }
@@ -1847,32 +1847,32 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut fixedStorage: [u8; 96] = [0; 96];
     let mut fixed = mem::FixedBufferAllocator::init(&mut fixedStorage);
     let mut bounded = fs::Path::init();
-    bounded.append(&mut fixed, &"base").exit().?;
-    defer bounded.deinit(&mut fixed).exit().?;
+    bounded.append(&mut fixed, &"base").?;
+    defer bounded.deinit(&mut fixed).?;
     match bounded.joinComponent(&mut fixed, &"component-that-requires-growth") {
-        !ok => { _ = ok; return process::exit(11)!; },
+        !ok => { _ = ok; return process::ExitCode(11)!; },
         mem::Error::OutOfMemory! => {},
-        error! => { _ = error; return process::exit(12)!; },
+        error! => { _ = error; return process::ExitCode(12)!; },
     }
     if bounded.text().len() != 4
         or bounded.text()[0] != 'b'
         or bounded.text()[3] != 'e'
     {
-        return process::exit(13)!;
+        return process::ExitCode(13)!;
     }
 
-    let mut aliased = fs::Path::fromView(&mut page, fs::PathView::init(&"base")).exit().?;
-    defer aliased.deinit(&mut page).exit().?;
+    let mut aliased = fs::Path::fromView(&mut page, fs::PathView::init(&"base")).?;
+    defer aliased.deinit(&mut page).?;
     let aliasedComponent = aliased.text();
-    aliased.joinComponent(&mut page, aliasedComponent).exit().?;
+    aliased.joinComponent(&mut page, aliasedComponent).?;
     let aliasedExpected: &[char] = &"base/base";
     if aliased.text().len() != aliasedExpected.len() {
-        return process::exit(14)!;
+        return process::ExitCode(14)!;
     }
     let mut aliasIndex = 0usize;
     while aliasIndex < aliasedExpected.len() {
         if aliased.text()[aliasIndex] != aliasedExpected[aliasIndex] {
-            return process::exit(15)!;
+            return process::ExitCode(15)!;
         }
         aliasIndex += 1usize;
     }
@@ -1916,14 +1916,14 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut path = fs::RelativePathView::fromText(&"bad\0path").exit().?;
+    let mut path = fs::RelativePathView::fromText(&"bad\0path").?;
     let mut cwd: fs::Dir;
     match fs::Dir::cwd() {
         !value => {
             cwd = value;
         },
         error! => {
-            return process::exit(90)!;
+            return process::ExitCode(90)!;
         },
     }
     defer {
@@ -1937,26 +1937,26 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match cwd.openFile(path, fs::OpenOptions::readOnly()) {
         !file => {
             _ = file;
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
         fs::OperationError::Path {
             operation: fs::Operation::OpenFile,
             cause: fs::PathError::ContainsNul,
         }! => {},
-        err! => { _ = err; return process::exit(2)!; },
+        err! => { _ = err; return process::ExitCode(2)!; },
     }
-    let missing = fs::RelativePathView::fromText(&"definitely-missing.nia-test-file").exit().?;
+    let missing = fs::RelativePathView::fromText(&"definitely-missing.nia-test-file").?;
     match cwd.openFile(missing, fs::OpenOptions::readOnly()) {
         !value => {
             let mut file = value;
-            file.close().exit().?;
-            return process::exit(3)!;
+            file.close().?;
+            return process::ExitCode(3)!;
         },
         fs::OperationError::System {
             operation: fs::Operation::OpenFile,
             cause: fs::Error::NotFound,
         }! => {},
-        err! => { _ = err; return process::exit(4)!; },
+        err! => { _ = err; return process::ExitCode(4)!; },
     }
     !()
 }
@@ -2004,7 +2004,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             cwd = value;
         },
         error! => {
-            return process::exit(90)!;
+            return process::ExitCode(90)!;
         },
     }
     defer {
@@ -2016,12 +2016,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
         }
     };
     let mut file: fs::File;
-    match cwd.createFile(fs::RelativePathView::fromText(&"delete-me.txt").exit().?, fs::CreateOptions::init()) {
+    match cwd.createFile(fs::RelativePathView::fromText(&"delete-me.txt").?, fs::CreateOptions::init()) {
         !value => {
             file = value;
         },
         error! => {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     }
     match file.close() {
@@ -2029,30 +2029,30 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
-    match cwd.deleteFile(fs::RelativePathView::fromText(&"delete-me.txt").exit().?) {
+    match cwd.deleteFile(fs::RelativePathView::fromText(&"delete-me.txt").?) {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     }
-    match cwd.openFile(fs::RelativePathView::fromText(&"delete-me.txt").exit().?, fs::OpenOptions::readOnly()) {
+    match cwd.openFile(fs::RelativePathView::fromText(&"delete-me.txt").?, fs::OpenOptions::readOnly()) {
         !file => {
             _ = file;
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
         error! => {
         },
     }
 
-    match cwd.deleteFile(fs::RelativePathView::fromText(&"bad\0path").exit().?) {
+    match cwd.deleteFile(fs::RelativePathView::fromText(&"bad\0path").?) {
         !ok => {
             _ = ok;
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
         error! => {
         },
@@ -2106,7 +2106,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             cwd = value;
         },
         error! => {
-            return process::exit(90)!;
+            return process::ExitCode(90)!;
         },
     }
     defer {
@@ -2118,22 +2118,22 @@ pub fn main(init: process::Init) process::ExitCode!() {
         }
     };
 
-    match cwd.createDir(fs::RelativePathView::fromText(&"subdir").exit().?, fs::CreateDirOptions::init()) {
+    match cwd.createDir(fs::RelativePathView::fromText(&"subdir").?, fs::CreateDirOptions::init()) {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     }
 
     let mut file: fs::File;
-    match cwd.createFile(fs::RelativePathView::fromText(&"old-name.txt").exit().?, fs::CreateOptions::init()) {
+    match cwd.createFile(fs::RelativePathView::fromText(&"old-name.txt").?, fs::CreateOptions::init()) {
         !value => {
             file = value;
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
     match file.close() {
@@ -2141,37 +2141,37 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     }
 
     match cwd.rename(
-        fs::RelativePathView::fromText(&"old-name.txt").exit().?,
-        fs::RelativePathView::fromText(&"subdir/new-name.txt").exit().?,
+        fs::RelativePathView::fromText(&"old-name.txt").?,
+        fs::RelativePathView::fromText(&"subdir/new-name.txt").?,
     ) {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     }
 
-    match cwd.openFile(fs::RelativePathView::fromText(&"old-name.txt").exit().?, fs::OpenOptions::readOnly()) {
+    match cwd.openFile(fs::RelativePathView::fromText(&"old-name.txt").?, fs::OpenOptions::readOnly()) {
         !value => {
             _ = value;
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
         error! => {
         },
     }
 
-    match cwd.openFile(fs::RelativePathView::fromText(&"subdir/new-name.txt").exit().?, fs::OpenOptions::readOnly()) {
+    match cwd.openFile(fs::RelativePathView::fromText(&"subdir/new-name.txt").?, fs::OpenOptions::readOnly()) {
         !value => {
             file = value;
         },
         error! => {
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         },
     }
     match file.close() {
@@ -2179,40 +2179,40 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(7)!;
+            return process::ExitCode(7)!;
         },
     }
 
-    match cwd.deleteDir(fs::RelativePathView::fromText(&"subdir").exit().?) {
+    match cwd.deleteDir(fs::RelativePathView::fromText(&"subdir").?) {
         !ok => {
             _ = ok;
-            return process::exit(8)!;
+            return process::ExitCode(8)!;
         },
         error! => {
         },
     }
 
-    match cwd.deleteFile(fs::RelativePathView::fromText(&"subdir/new-name.txt").exit().?) {
+    match cwd.deleteFile(fs::RelativePathView::fromText(&"subdir/new-name.txt").?) {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(9)!;
+            return process::ExitCode(9)!;
         },
     }
-    match cwd.deleteDir(fs::RelativePathView::fromText(&"subdir").exit().?) {
+    match cwd.deleteDir(fs::RelativePathView::fromText(&"subdir").?) {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(10)!;
+            return process::ExitCode(10)!;
         },
     }
 
-    match cwd.createDir(fs::RelativePathView::fromText(&"bad\0path").exit().?, fs::CreateDirOptions::init()) {
+    match cwd.createDir(fs::RelativePathView::fromText(&"bad\0path").?, fs::CreateDirOptions::init()) {
         !ok => {
             _ = ok;
-            return process::exit(11)!;
+            return process::ExitCode(11)!;
         },
         error! => {
         },
@@ -2266,7 +2266,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             cwd = value;
         },
         error! => {
-            return process::exit(90)!;
+            return process::ExitCode(90)!;
         },
     }
     defer {
@@ -2277,32 +2277,32 @@ pub fn main(init: process::Init) process::ExitCode!() {
             error! => {},
         }
     };
-    match cwd.createDir(fs::RelativePathView::fromText(&"subdir").exit().?, fs::CreateDirOptions::init()) {
+    match cwd.createDir(fs::RelativePathView::fromText(&"subdir").?, fs::CreateDirOptions::init()) {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     }
 
     let mut subdir: fs::Dir;
-    match cwd.openDir(fs::RelativePathView::fromText(&"subdir").exit().?, fs::OpenDirOptions::init()) {
+    match cwd.openDir(fs::RelativePathView::fromText(&"subdir").?, fs::OpenDirOptions::init()) {
         !value => {
             subdir = value;
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
 
     let mut file: fs::File;
-    match subdir.createFile(fs::RelativePathView::fromText(&"inside.txt").exit().?, fs::CreateOptions::init()) {
+    match subdir.createFile(fs::RelativePathView::fromText(&"inside.txt").?, fs::CreateOptions::init()) {
         !value => {
             file = value;
         },
         error! => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     }
     match file.close() {
@@ -2310,16 +2310,16 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     }
 
-    match subdir.openFile(fs::RelativePathView::fromText(&"inside.txt").exit().?, fs::OpenOptions::readOnly()) {
+    match subdir.openFile(fs::RelativePathView::fromText(&"inside.txt").?, fs::OpenOptions::readOnly()) {
         !value => {
             file = value;
         },
         error! => {
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
     }
     match file.close() {
@@ -2327,7 +2327,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         },
     }
 
@@ -2336,33 +2336,33 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(7)!;
+            return process::ExitCode(7)!;
         },
     }
 
-    match cwd.openDir(fs::RelativePathView::fromText(&"subdir/inside.txt").exit().?, fs::OpenDirOptions::init()) {
+    match cwd.openDir(fs::RelativePathView::fromText(&"subdir/inside.txt").?, fs::OpenDirOptions::init()) {
         !value => {
             _ = value;
-            return process::exit(8)!;
+            return process::ExitCode(8)!;
         },
         error! => {
         },
     }
 
-    match cwd.deleteFile(fs::RelativePathView::fromText(&"subdir/inside.txt").exit().?) {
+    match cwd.deleteFile(fs::RelativePathView::fromText(&"subdir/inside.txt").?) {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(9)!;
+            return process::ExitCode(9)!;
         },
     }
-    match cwd.deleteDir(fs::RelativePathView::fromText(&"subdir").exit().?) {
+    match cwd.deleteDir(fs::RelativePathView::fromText(&"subdir").?) {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(10)!;
+            return process::ExitCode(10)!;
         },
     }
     !()
@@ -2416,26 +2416,26 @@ pub fn main(init: process::Init) process::ExitCode!() {
             cwd = value;
         },
         error! => {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     }
 
-    match cwd.createDir(fs::RelativePathView::fromText(&"entries").exit().?, fs::CreateDirOptions::init()) {
+    match cwd.createDir(fs::RelativePathView::fromText(&"entries").?, fs::CreateDirOptions::init()) {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
 
     let mut first: fs::File;
-    match cwd.createFile(fs::RelativePathView::fromText(&"entries/alpha.txt").exit().?, fs::CreateOptions::init()) {
+    match cwd.createFile(fs::RelativePathView::fromText(&"entries/alpha.txt").?, fs::CreateOptions::init()) {
         !value => {
             first = value;
         },
         error! => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     }
     match first.close() {
@@ -2443,17 +2443,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     }
 
     let mut second: fs::File;
-    match cwd.createFile(fs::RelativePathView::fromText(&"entries/beta.txt").exit().?, fs::CreateOptions::init()) {
+    match cwd.createFile(fs::RelativePathView::fromText(&"entries/beta.txt").?, fs::CreateOptions::init()) {
         !value => {
             second = value;
         },
         error! => {
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
     }
     match second.close() {
@@ -2461,17 +2461,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         },
     }
 
     let mut dir: fs::Dir;
-    match cwd.openDir(fs::RelativePathView::fromText(&"entries").exit().?, fs::OpenDirOptions::init()) {
+    match cwd.openDir(fs::RelativePathView::fromText(&"entries").?, fs::OpenDirOptions::init()) {
         !value => {
             dir = value;
         },
         error! => {
-            return process::exit(7)!;
+            return process::ExitCode(7)!;
         },
     }
 
@@ -2482,7 +2482,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             iter = value;
         },
         error! => {
-            return process::exit(8)!;
+            return process::ExitCode(8)!;
         },
     }
 
@@ -2495,13 +2495,13 @@ pub fn main(init: process::Init) process::ExitCode!() {
                 entry
             },
             error! => {
-                return process::exit(10)!;
+                return process::ExitCode(10)!;
             },
         };
         if not value.isDot() and not value.isDotDot() {
             count += 1usize;
             if value.kind() != fs::FileKind::File and value.kind() != fs::FileKind::Unknown {
-                return process::exit(9)!;
+                return process::ExitCode(9)!;
             }
             if bytes_equal(value.name(), &b"alpha.txt") {
                 saw_alpha = true;
@@ -2512,10 +2512,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     if count != 2usize {
-        return process::exit(11)!;
+        return process::ExitCode(11)!;
     }
     if not saw_alpha or not saw_beta {
-        return process::exit(12)!;
+        return process::ExitCode(12)!;
     }
 
     match dir.close() {
@@ -2523,31 +2523,31 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(13)!;
+            return process::ExitCode(13)!;
         },
     }
-    match cwd.deleteFile(fs::RelativePathView::fromText(&"entries/alpha.txt").exit().?) {
+    match cwd.deleteFile(fs::RelativePathView::fromText(&"entries/alpha.txt").?) {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(14)!;
+            return process::ExitCode(14)!;
         },
     }
-    match cwd.deleteFile(fs::RelativePathView::fromText(&"entries/beta.txt").exit().?) {
+    match cwd.deleteFile(fs::RelativePathView::fromText(&"entries/beta.txt").?) {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(15)!;
+            return process::ExitCode(15)!;
         },
     }
-    match cwd.deleteDir(fs::RelativePathView::fromText(&"entries").exit().?) {
+    match cwd.deleteDir(fs::RelativePathView::fromText(&"entries").?) {
         !ok => {
             _ = ok;
         },
         error! => {
-            return process::exit(16)!;
+            return process::ExitCode(16)!;
         },
     }
     match cwd.close() {
@@ -2555,7 +2555,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return process::exit(17)!;
+            return process::ExitCode(17)!;
         },
     }
     !()

@@ -63,7 +63,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let values: [i32; 5] = [2, 3, 5, 7, 11];
     if sum(&values) != 28 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
 
     let mut middle = 0;
@@ -71,189 +71,189 @@ pub fn main(init: process::Init) process::ExitCode!() {
         middle += value;
     }
     if middle != 15 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
 
     let mut writable: [i32; 3] = [10, 20, 30];
     if sumMutView(&mut writable) != 60 {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     for value in (&mut writable[..]).iterMut().rev() {
         value.* += 1;
     }
     if writable[0] != 11 or writable[1] != 21 or writable[2] != 31 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
 
     let iter = (&values[..]).iter();
     if iter.len() != 5 or iter.isEmpty() {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
 
     let mut mixed = (&values[..]).iter();
     if mixed.next() is ?value {
         if value.* != 2 {
-            return process::exit(47)!;
+            return process::ExitCode(47)!;
         }
     } else {
-        return process::exit(47)!;
+        return process::ExitCode(47)!;
     }
     if mixed.nextBack() is ?value {
         if value.* != 11 {
-            return process::exit(48)!;
+            return process::ExitCode(48)!;
         }
     } else {
-        return process::exit(48)!;
+        return process::ExitCode(48)!;
     }
     if mixed.nextBack() is ?value {
         if value.* != 7 {
-            return process::exit(49)!;
+            return process::ExitCode(49)!;
         }
     } else {
-        return process::exit(49)!;
+        return process::ExitCode(49)!;
     }
     if mixed.len() != 2 {
-        return process::exit(50)!;
+        return process::ExitCode(50)!;
     }
 
     let mut taken = (0usize..10usize).iter().take(3usize);
     if taken.next() is ?value {
         if value != 0usize {
-            return process::exit(51)!;
+            return process::ExitCode(51)!;
         }
     } else {
-        return process::exit(51)!;
+        return process::ExitCode(51)!;
     }
     if taken.next() is ?value {
         if value != 1usize {
-            return process::exit(52)!;
+            return process::ExitCode(52)!;
         }
     } else {
-        return process::exit(52)!;
+        return process::ExitCode(52)!;
     }
     if taken.next() is ?value {
         if value != 2usize {
-            return process::exit(53)!;
+            return process::ExitCode(53)!;
         }
     } else {
-        return process::exit(53)!;
+        return process::ExitCode(53)!;
     }
     if taken.next() is ?unexpected {
         _ = unexpected;
-        return process::exit(54)!;
+        return process::ExitCode(54)!;
     }
 
     let mut rear = (0usize..10usize).iter().rev().take(3usize);
     if rear.next() is ?value {
         if value != 9usize {
-            return process::exit(55)!;
+            return process::ExitCode(55)!;
         }
     } else {
-        return process::exit(55)!;
+        return process::ExitCode(55)!;
     }
     if rear.next() is ?value {
         if value != 8usize {
-            return process::exit(56)!;
+            return process::ExitCode(56)!;
         }
     } else {
-        return process::exit(56)!;
+        return process::ExitCode(56)!;
     }
     if rear.next() is ?value {
         if value != 7usize {
-            return process::exit(57)!;
+            return process::ExitCode(57)!;
         }
     } else {
-        return process::exit(57)!;
+        return process::ExitCode(57)!;
     }
 
     let mut maximum = (u8::MAX..).iter();
     if maximum.next() is ?value {
         if value != u8::MAX {
-            return process::exit(58)!;
+            return process::ExitCode(58)!;
         }
     } else {
-        return process::exit(58)!;
+        return process::ExitCode(58)!;
     }
     if maximum.next() is ?unexpected {
         _ = unexpected;
-        return process::exit(59)!;
+        return process::ExitCode(59)!;
     }
 
     let valueSlice = &values[..];
     if valueSlice.get(2) is ?value {
         if value.* != 5 {
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         }
     } else {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
     if valueSlice.get(5) is ?unexpected {
         _ = unexpected;
-        return process::exit(8)!;
+        return process::ExitCode(8)!;
     }
     if valueSlice.first() is ?value {
         if value.* != 2 {
-            return process::exit(9)!;
+            return process::ExitCode(9)!;
         }
     } else {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
     if valueSlice.last() is ?value {
         if value.* != 11 {
-            return process::exit(11)!;
+            return process::ExitCode(11)!;
         }
     } else {
-        return process::exit(12)!;
+        return process::ExitCode(12)!;
     }
 
     match valueSlice.getRange(1, 4) {
         ?middle => {
             if middle.len() != 3 or sum(middle) != 15 {
-                return process::exit(13)!;
+                return process::ExitCode(13)!;
             }
         },
-        null => { return process::exit(14)!; },
+        null => { return process::ExitCode(14)!; },
     }
     if valueSlice.getRange(4, 2) is ?unexpected {
         _ = unexpected;
-        return process::exit(15)!;
+        return process::ExitCode(15)!;
     }
     if valueSlice.getRange(0, 6) is ?unexpected {
         _ = unexpected;
-        return process::exit(16)!;
+        return process::ExitCode(16)!;
     }
 
     let empty = &values[values.len()..values.len()];
     if empty.first() is ?unexpected {
         _ = unexpected;
-        return process::exit(17)!;
+        return process::ExitCode(17)!;
     }
     if empty.last() is ?unexpected {
         _ = unexpected;
-        return process::exit(18)!;
+        return process::ExitCode(18)!;
     }
     match empty.getRange(0, 0) {
         ?range => {
             if not range.isEmpty() {
-                return process::exit(19)!;
+                return process::ExitCode(19)!;
             }
         },
-        null => { return process::exit(20)!; },
+        null => { return process::ExitCode(20)!; },
     }
 
     let mut checked: [i32; 4] = [1, 2, 3, 4];
     let mut checkedSlice = &mut checked[..];
     match checkedSlice.getMut(1) {
         mut ?value => { value.* = 20; },
-        null => { return process::exit(21)!; },
+        null => { return process::ExitCode(21)!; },
     }
     match checkedSlice.firstMut() {
         mut ?value => { value.* = 10; },
-        null => { return process::exit(22)!; },
+        null => { return process::ExitCode(22)!; },
     }
     match checkedSlice.lastMut() {
         mut ?value => { value.* = 40; },
-        null => { return process::exit(23)!; },
+        null => { return process::ExitCode(23)!; },
     }
     match checkedSlice.getRangeMut(1, 3) {
         mut ?range => {
@@ -261,10 +261,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
                 value.* += 1;
             }
         },
-        null => { return process::exit(24)!; },
+        null => { return process::ExitCode(24)!; },
     }
     if checked[0] != 10 or checked[1] != 21 or checked[2] != 4 or checked[3] != 40 {
-        return process::exit(25)!;
+        return process::ExitCode(25)!;
     }
 
     let mut wideCopy: [i32; 5] = [0, 0, 0, 44, 55];
@@ -277,7 +277,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         or wideCopy[3] != 44
         or wideCopy[4] != 55
     {
-        return process::exit(31)!;
+        return process::ExitCode(31)!;
     }
 
     let mut shortCopy: [i32; 2] = [0, 0];
@@ -286,33 +286,33 @@ pub fn main(init: process::Init) process::ExitCode!() {
         or shortCopy[0] != 11
         or shortCopy[1] != 22
     {
-        return process::exit(32)!;
+        return process::ExitCode(32)!;
     }
 
     let mut overlapRight: [i32; 5] = [1, 2, 3, 4, 5];
     if (&mut overlapRight[1..]).copyFrom(&overlapRight[0..4]) != 4
         or not (&overlapRight[..]).equals(&[1, 1, 2, 3, 4])
     {
-        return process::exit(33)!;
+        return process::ExitCode(33)!;
     }
     let mut overlapLeft: [i32; 5] = [1, 2, 3, 4, 5];
     if (&mut overlapLeft[0..4]).copyFrom(&overlapLeft[1..]) != 4
         or not (&overlapLeft[..]).equals(&[2, 3, 4, 5, 5])
     {
-        return process::exit(34)!;
+        return process::ExitCode(34)!;
     }
 
     let mut markers: [Marker; 2] = [Marker {}, Marker {}];
     let markerSource: [Marker; 3] = [Marker {}, Marker {}, Marker {}];
     if (&mut markers[..]).copyFrom(&markerSource) != 2 {
-        return process::exit(35)!;
+        return process::ExitCode(35)!;
     }
 
     let mut emptyCopy: [i32; 0] = [];
     if (&mut emptyCopy[..]).copyFrom(&wideSource) != 0
         or wideCopyView.copyFrom(&emptyCopy) != 0
     {
-        return process::exit(37)!;
+        return process::ExitCode(37)!;
     }
 
     let low: &[i32] = &[1, 2];
@@ -324,7 +324,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         or prefix.compare(low) != cmp::Ordering::Less
         or (&emptyCopy[..]).compare(prefix) != cmp::Ordering::Less
     {
-        return process::exit(36)!;
+        return process::ExitCode(36)!;
     }
 
     let sequence: [i32; 5] = [1, 2, 1, 2, 3];
@@ -336,7 +336,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         or not sequenceView.endsWith(&[2, 3])
         or sequenceView.endsWith(&[1, 2])
     {
-        return process::exit(26)!;
+        return process::ExitCode(26)!;
     }
     let emptyStorage: [i32; 0] = [];
     let emptyValues = &emptyStorage[..];
@@ -346,11 +346,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
         or not sequenceView.contains(emptyValues)
         or sequenceView.contains(&[3, 4])
     {
-        return process::exit(27)!;
+        return process::ExitCode(27)!;
     }
     if sequenceView.find(&[1, 2, 1, 2, 3, 4]) is ?unexpected {
         _ = unexpected;
-        return process::exit(28)!;
+        return process::ExitCode(28)!;
     }
 
     let noValues: &[i32] = emptyValues;
@@ -359,7 +359,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         or not noValues.endsWith(emptyValues)
         or noValues.contains(&[1])
     {
-        return process::exit(29)!;
+        return process::ExitCode(29)!;
     }
 
     let tokens: [Token; 4] = [
@@ -372,7 +372,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not (&tokens[..]).contains(&tokenNeedle[..])
         or not foundAt((&tokens[..]).find(&tokenNeedle[..]), 1)
     {
-        return process::exit(30)!;
+        return process::ExitCode(30)!;
     }
 
     let separated: [i32; 8] = [0, 1, 0, 0, 2, 0, 3, 0];
@@ -391,28 +391,28 @@ pub fn main(init: process::Init) process::ExitCode!() {
             false
         };
         if not matches {
-            return process::exit(38)!;
+            return process::ExitCode(38)!;
         }
         partIndex += 1;
     }
     if partIndex != 6 {
-        return process::exit(39)!;
+        return process::ExitCode(39)!;
     }
 
     let mut unsplit = (&separated[..]).split(emptyValues);
     if unsplit.next() is ?whole {
         if not whole.equals(&separated) {
-            return process::exit(42)!;
+            return process::ExitCode(42)!;
         }
     } else {
-        return process::exit(42)!;
+        return process::ExitCode(42)!;
     }
     if unsplit.next() is ?unexpected {
         _ = unexpected;
-        return process::exit(42)!;
+        return process::ExitCode(42)!;
     }
     if (&separated[..]).split(&[99]).count() != 1 or emptyValues.split(&separator).count() != 1 {
-        return process::exit(42)!;
+        return process::ExitCode(42)!;
     }
 
     let overlappingItems: [i32; 5] = [1, 1, 1, 1, 1];
@@ -421,19 +421,19 @@ pub fn main(init: process::Init) process::ExitCode!() {
     for part in (&overlappingItems[..]).split(&overlappingSeparator) {
         if overlappingIndex == 0 or overlappingIndex == 1 {
             if not part.isEmpty() {
-                return process::exit(44)!;
+                return process::ExitCode(44)!;
             }
         } else if overlappingIndex == 2 {
             if not part.equals(&[1]) {
-                return process::exit(43)!;
+                return process::ExitCode(43)!;
             }
         } else {
-            return process::exit(45)!;
+            return process::ExitCode(45)!;
         }
         overlappingIndex += 1;
     }
     if overlappingIndex != 3 {
-        return process::exit(46)!;
+        return process::ExitCode(46)!;
     }
 
     !()

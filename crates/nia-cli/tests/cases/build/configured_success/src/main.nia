@@ -5,15 +5,15 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     if helper::value() != 7 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     let argument = match init.args().get(1usize) {
         ?argument => argument,
-        null => return process::exit(2)!,
+        null => return process::ExitCode(2)!,
     };
     let mut buffer: [u8; 128] = [0; 128];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
-    stdout.print(&"run={}\n", &[&argument]).exit().?;
-    stdout.flush().exit().?;
+    stdout.print(&"run={}\n", &[&argument]).?;
+    stdout.flush().?;
     !()
 }

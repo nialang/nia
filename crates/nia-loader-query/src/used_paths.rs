@@ -208,6 +208,7 @@ impl QualifiedPathModuleCollector<'_> {
             UsedModulePathProcessing::IfProvidesTraitImpl {
                 target_type_name: None,
                 trait_name,
+                trait_type_argument_names: Vec::new(),
             },
         );
     }
@@ -1019,6 +1020,7 @@ pub(crate) enum UsedModulePathProcessing {
     IfProvidesTraitImpl {
         target_type_name: Option<SymbolId>,
         trait_name: SymbolId,
+        trait_type_argument_names: Vec<Option<SymbolId>>,
     },
     IfProvidesImplicitTraitImpl {
         trait_name: SymbolId,

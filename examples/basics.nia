@@ -1,7 +1,7 @@
 using std::io;
 using std::fmt;
 using std::process;
-using process::{Init, ExitCode, exit};
+using process::{Init, ExitCode};
 
 struct Point {
     x: i32,
@@ -47,11 +47,11 @@ pub fn main(init: Init) ExitCode!() {
     defer point.x = point.x + 1;
 
     if total != 176 {
-        return exit(1)!;
+        return ExitCode(1)!;
     }
     match band {
         .High => {},
-        _ => return exit(2)!,
+        _ => return ExitCode(2)!,
     }
 
     io::debugPrint(&"distance={} total={} score={}\n", &[&distance, &total, &samples[2]]).?;

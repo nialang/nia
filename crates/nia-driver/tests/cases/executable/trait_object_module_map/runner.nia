@@ -12,10 +12,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page_allocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut page_allocator);
-    defer allocator.deinit().ok().exit().?;
-    use_allocator(&mut allocator).exit().?;
+    defer allocator.deinit().ok().?;
+    use_allocator(&mut allocator).?;
     if build_script::marker() != 1 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     !()
 }

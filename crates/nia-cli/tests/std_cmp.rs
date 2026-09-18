@@ -19,13 +19,13 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     if cmp::max(3i32, 7i32) != 7i32 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if cmp::max(12usize, 5usize) != 12usize {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     if cmp::max(9u64, 9u64) != 9u64 {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     !()
 }

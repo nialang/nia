@@ -111,7 +111,7 @@
     "std/process/child.nia",
     "std/process/command.nia",
     "std/process/env.nia",
-    "std/process/exit.nia",
+    "std/process/exit_code.nia",
     "std/process/init.nia",
     "std/process/pipe.nia",
     "std/process/term.nia",

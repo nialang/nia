@@ -489,6 +489,36 @@ fn load_program_with_provider_demand(
     database.load_program().expect("provider program load")
 }
 
+fn load_program_with_trait_provider_demand(
+    entry_path: &Path,
+    module_map: ModuleMap,
+    target_type_name: Option<&str>,
+    trait_name: &str,
+    trait_type_argument_names: &[Option<&str>],
+) -> LoadedProgram {
+    let source_path = SourcePath::new(entry_path.to_string_lossy());
+    let database = LoaderDatabase::new(
+        LoadRequest::new(entry_path.to_string_lossy().into_owned())
+            .with_module_map(module_map)
+            .with_toolchain_layout(test_toolchain_layout()),
+    );
+    let update = database
+        .update_provider_demands([ProviderDemand {
+            source_path,
+            request: nia_compiler_query::ProviderRequest::TraitImpl {
+                target_type_name: target_type_name.map(sym),
+                trait_name: sym(trait_name),
+                trait_type_argument_names: trait_type_argument_names
+                    .iter()
+                    .map(|name| name.map(sym))
+                    .collect(),
+            },
+        }])
+        .expect("provider graph update");
+    let _ = update;
+    database.load_program().expect("provider program load")
+}
+
 fn assert_module_loaded(program: &LoadedProgram, suffix: &str) {
     assert!(
         program

@@ -465,6 +465,7 @@ fn declared_module_closure_inner(
     let mut pending_provider_targets = Vec::new();
     let mut resolved_provider_targets = HashSet::new();
     enqueue_using_scope_modules(context.using_scope, &mut queue);
+    queue.extend(context.graph.provider_dependencies(context.module_id));
     if include_item_target_modules {
         enqueue_using_scope_item_target_modules(context.using_scope, &mut queue);
     }
@@ -490,6 +491,7 @@ fn declared_module_closure_inner(
                     &mut pending_provider_targets,
                 );
             }
+            queue.extend(context.graph.provider_dependencies(visible));
         }
 
         pending_provider_targets.sort();

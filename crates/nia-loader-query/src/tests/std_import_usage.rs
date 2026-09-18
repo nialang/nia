@@ -45,11 +45,11 @@ fn namespace_and_explicit_mem_imports_select_builtin_layout_equally() {
     let narrow_path = root.join("narrow.nia");
     write(
         &broad_path,
-        "using std::mem;\nfn main() usize { mem::Layout::of[usize]().exit().?.size() }\n",
+        "using std::mem;\nfn main() usize { mem::Layout::of[usize]().?.size() }\n",
     );
     write(
         &narrow_path,
-        "using std::mem::Layout;\nfn main() usize { Layout::of[usize]().exit().?.size() }\n",
+        "using std::mem::Layout;\nfn main() usize { Layout::of[usize]().?.size() }\n",
     );
 
     let broad = load_program(broad_path.to_string_lossy().into_owned());
@@ -115,6 +115,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert!(!mem.process_used_paths, "{mem:?}");
     assert!(!process.process_used_paths, "{process:?}");
     assert_module_loaded(&program, "lib/std/process/types.nia");
+    assert_module_not_loaded(&program, "lib/std/process/exit_code.nia");
     assert_module_not_loaded(&program, "lib/std/build/core.nia");
     assert_module_not_loaded(&program, "lib/std/fs/file.nia");
     assert_module_not_loaded(&program, "lib/std/io/file_adapter.nia");
@@ -208,5 +209,6 @@ pub fn main(init: process::Init) process::ExitCode!() {
         program.diagnostics
     );
     assert_module_loaded(&program, "lib/std/process/types.nia");
+    assert_module_not_loaded(&program, "lib/std/process/exit_code.nia");
     assert_module_not_loaded(&program, "lib/std/process/command.nia");
 }

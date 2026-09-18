@@ -297,7 +297,7 @@ impl ExecutableFactModuleState {
         let BodyCheckWithResolutionInputs {
             body_check,
             inputs: _,
-            const_eval: _,
+            const_eval,
         } = body_check;
         let nia_body_check::BodyCheck {
             ir,
@@ -313,17 +313,22 @@ impl ExecutableFactModuleState {
             .values()
             .flat_map(|demands| demands.iter().cloned())
             .collect::<HashSet<_>>();
-        let unowned_provider_demands = provider_demands
+        let mut provider_demands = Arc::unwrap_or_clone(provider_demands);
+        let mut unowned_provider_demands = provider_demands
             .difference(&owned_provider_demands)
             .cloned()
-            .collect();
+            .collect::<HashSet<_>>();
+        if let Some(const_eval) = const_eval {
+            unowned_provider_demands.extend(const_eval.provider_demands.iter().cloned());
+            provider_demands.extend(const_eval.provider_demands.iter().cloned());
+        }
         let mut state = Self {
             module_id,
             defs: full_module_defs_semantic(db, module_id)?,
             body_ir: Arc::unwrap_or_clone(ir),
             static_init_refs,
             semantic_facts: Arc::unwrap_or_clone(facts),
-            provider_demands: Arc::unwrap_or_clone(provider_demands),
+            provider_demands,
             provider_demands_by_function,
             unowned_provider_demands,
             executable_refs: ExecutableModuleRefs::default(),
@@ -360,7 +365,7 @@ impl ExecutableFactModuleState {
         let BodyCheckWithResolutionInputs {
             body_check,
             inputs: _,
-            const_eval: _,
+            const_eval,
         } = increment;
         let nia_body_check::BodyCheck {
             ir,
@@ -397,6 +402,10 @@ impl ExecutableFactModuleState {
                 .difference(&owned_provider_demands)
                 .cloned(),
         );
+        if let Some(const_eval) = const_eval {
+            self.unowned_provider_demands
+                .extend(const_eval.provider_demands.iter().cloned());
+        }
         for (function, demands) in provider_demands_by_function {
             self.provider_demands_by_function
                 .entry(function)

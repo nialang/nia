@@ -12,7 +12,7 @@ fn module_dependencies_cache_round_trips_all_stable_fields() {
     let cache = crate::frontend_cache::PersistentFrontendCache::new(root.join("cache"));
     let symbols = symbols_for(&[
         "private", "super", "package", "public", "dep_b", "dep_a", "one", "two", "three", "four",
-        "Trait", "Alias", "value", "AliasB", "AliasA",
+        "Trait", "TraitArg", "Alias", "value", "AliasB", "AliasA",
     ]);
     let declarations = [
         ("private", Visibility::Private, nia_span::Span::new(1, 2)),
@@ -54,6 +54,7 @@ fn module_dependencies_cache_round_trips_all_stable_fields() {
             processing: UsedModulePathProcessing::IfProvidesTraitImpl {
                 target_type_name: None,
                 trait_name: sym("Trait"),
+                trait_type_argument_names: vec![Some(sym("TraitArg")), None],
             },
         },
     ];

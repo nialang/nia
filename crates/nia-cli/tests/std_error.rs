@@ -48,12 +48,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match success {
         !(left, right) => {
             if left + right != 42 {
-                return process::exit(1)!;
+                return process::ExitCode(1)!;
             }
         },
         error! => {
             _ = error;
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
 
@@ -67,12 +67,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match failure {
         !value => {
             _ = value;
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
         TargetError::Wrapped! => {},
         error! => {
             _ = error;
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     }
     !()
@@ -139,11 +139,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
     });
     match success {
         !(left, right) => if left + right != 42 {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
         cause! => {
             _ = cause;
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
 
@@ -157,11 +157,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
     });
     match recovered {
         !(left, right) => if left + right != 42 {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
         cause! => {
             _ = cause;
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     }
 
@@ -175,12 +175,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match replaced {
         !value => {
             _ = value;
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
         TargetError::Wrapped! => {},
         cause! => {
             _ = cause;
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         },
     }
     !()
@@ -234,20 +234,20 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let success = fallible(!20);
     if not success.isSuccess() or success.isError() {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     match success {
-        !value => if value != 42 { return process::exit(1)!; },
-        error! => return process::exit(2)!,
+        !value => if value != 42 { return process::ExitCode(1)!; },
+        error! => return process::ExitCode(2)!,
     }
     let failure = fallible(Failure::Bad!);
     if not failure.isError() or failure.isSuccess() {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     match failure {
         Failure::Bad! => {},
-        !value => { _ = value; return process::exit(3)!; },
-        error! => { _ = error; return process::exit(4)!; },
+        !value => { _ = value; return process::ExitCode(3)!; },
+        error! => { _ = error; return process::ExitCode(4)!; },
     }
     !()
 }
@@ -304,12 +304,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
     });
     match success {
         !value => if value != 42usize {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
-        error! => return process::exit(2)!,
+        error! => return process::ExitCode(2)!,
     }
     if calls != 1usize or observed != 0usize {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
 
     let failure = source(&mut calls, false).inspectError(&\[&mut observed] cause: Failure -> {
@@ -321,12 +321,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
         Failure::Missing! => {},
         !value => {
             _ = value;
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
-        error! => return process::exit(5)!,
+        error! => return process::ExitCode(5)!,
     }
     if calls != 2usize or observed != 10usize {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
     !()
 }
@@ -404,13 +404,13 @@ const width: usize = match success {
     cause! => 0,
 } + match standardFailure {
     !value => value,
-    cause! => cause as i32 as usize,
+    cause! => cause.0 as usize,
 };
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     if width != 52 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     !()
 }
@@ -467,34 +467,34 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut order = 0usize;
     match operation(&mut order, true).cleanupAfter(cleanup(&mut order, true)) {
-        !value => { if value != 7usize { return process::exit(1)!; } },
-        failure! => { _ = failure; return process::exit(2)!; },
+        !value => { if value != 7usize { return process::ExitCode(1)!; } },
+        failure! => { _ = failure; return process::ExitCode(2)!; },
     }
-    if order != 12usize { return process::exit(3)!; }
+    if order != 12usize { return process::ExitCode(3)!; }
 
     order = 0usize;
     match operation(&mut order, true).cleanupAfter(cleanup(&mut order, false)) {
         Failure::Cleanup! => {},
-        !value => { _ = value; return process::exit(4)!; },
-        failure! => { _ = failure; return process::exit(5)!; },
+        !value => { _ = value; return process::ExitCode(4)!; },
+        failure! => { _ = failure; return process::ExitCode(5)!; },
     }
-    if order != 12usize { return process::exit(6)!; }
+    if order != 12usize { return process::ExitCode(6)!; }
 
     order = 0usize;
     match operation(&mut order, false).cleanupAfter(cleanup(&mut order, true)) {
         Failure::Primary! => {},
-        !value => { _ = value; return process::exit(7)!; },
-        failure! => { _ = failure; return process::exit(8)!; },
+        !value => { _ = value; return process::ExitCode(7)!; },
+        failure! => { _ = failure; return process::ExitCode(8)!; },
     }
-    if order != 12usize { return process::exit(9)!; }
+    if order != 12usize { return process::ExitCode(9)!; }
 
     order = 0usize;
     match operation(&mut order, false).cleanupAfter(cleanup(&mut order, false)) {
         Failure::Primary! => {},
-        !value => { _ = value; return process::exit(10)!; },
-        failure! => { _ = failure; return process::exit(11)!; },
+        !value => { _ = value; return process::ExitCode(10)!; },
+        failure! => { _ = failure; return process::ExitCode(11)!; },
     }
-    if order != 12usize { return process::exit(12)!; }
+    if order != 12usize { return process::ExitCode(12)!; }
     !()
 }
 "#,
@@ -552,24 +552,24 @@ pub fn main(init: process::Init) process::ExitCode!() {
     cleanup.attempt(first(&mut counter));
     cleanup.attempt(second(&mut counter));
     if counter != 2usize or cleanup.isClean() {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     match cleanup.finish() {
         Failure::First! => {},
         error! => {
             _ = error;
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
         !value => {
             _ = value;
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     }
 
     let mut success = error::CleanupAccumulator[Failure]::init();
     success.attempt(!());
     if not success.isClean() {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     match success.finish() {
         !ok => {
@@ -577,7 +577,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
         error! => {
             _ = error;
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
     }
     !()

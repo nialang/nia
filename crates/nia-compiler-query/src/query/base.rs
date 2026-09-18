@@ -223,6 +223,41 @@ impl QueryKey<CompilerContext> for ModuleGraphChildQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModuleGraphProviderDependenciesQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ModuleGraphProviderDependenciesQuery {
+    type Value = StableModuleSequence;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+    fn name() -> &'static str {
+        "module_graph_provider_dependencies"
+    }
+
+    fn description(&self) -> String {
+        format!("module_graph_provider_dependencies({:?})", self.0)
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let graph = db.get(ModuleGraphQuery)?;
+        stable_module_sequence(
+            db,
+            graph
+                .get(self.0)
+                .into_iter()
+                .flat_map(|module| module.provider_dependencies.iter().copied()),
+        )
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(stable_module_sequence_fingerprint(
+            MODULE_GRAPH_PROVIDER_DEPENDENCIES_DOMAIN,
+            value,
+        ))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ModulePackageRootQuery(pub(super) SymbolId);
 
 impl QueryKey<CompilerContext> for ModulePackageRootQuery {

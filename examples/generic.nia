@@ -1,7 +1,7 @@
 using std::io;
 using std::fmt;
 using std::process;
-using process::{Init, ExitCode, exit};
+using process::{Init, ExitCode};
 
 trait Measured {
     fn measure(&self) i32;
@@ -56,10 +56,10 @@ pub fn main(init: Init) ExitCode!() {
 
     let found = match position {
         ?index => index,
-        null => return exit(1)!,
+        null => return ExitCode(1)!,
     };
     if measured != 42 or summary.0 != 14 or summary.1 != 4 or found != 2 {
-        return exit(2)!;
+        return ExitCode(2)!;
     }
 
     io::debugPrint(&"measured={} sum={} count={} position={}\n", &[
