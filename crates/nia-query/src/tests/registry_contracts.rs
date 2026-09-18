@@ -104,9 +104,10 @@ fn declarative_registry_records_and_enforces_query_contracts() {
     assert_eq!(descriptors[0].fingerprint, QueryFingerprintPolicy::None);
     assert_eq!(descriptors[0].storage, QueryStoragePolicy::CacheOwnedArc);
 
-    let missing =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| db.get(NonCloneValueQuery)));
-    assert!(missing.is_err());
+    assert!(matches!(
+        db.get(NonCloneValueQuery),
+        Err(QueryError::Internal(_))
+    ));
     assert_eq!(*db.expect_get(Double(22)), 44);
 }
 
@@ -257,8 +258,8 @@ fn query_node_ids_are_word_sized_and_database_scoped() {
         executions: AtomicUsize::new(0),
     });
 
-    let first_id = first.slot_for(&Double(1)).node_id;
-    let second_id = second.slot_for(&Double(1)).node_id;
+    let first_id = first.slot_for(&Double(1)).expect("create slot").node_id;
+    let second_id = second.slot_for(&Double(1)).expect("create slot").node_id;
 
     assert_ne!(first_id, second_id);
     assert_eq!(first_id.index, second_id.index);

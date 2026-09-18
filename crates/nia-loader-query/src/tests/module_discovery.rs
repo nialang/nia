@@ -123,7 +123,9 @@ fn source_existence_change_rebuilds_missing_module_graph() {
     let missing_entry = missing.graph.entry();
     write(&defs, "pub fn value() i32 { 1 }");
 
-    database.invalidate_source(defs.to_string_lossy().into_owned());
+    database
+        .invalidate_source(defs.to_string_lossy().into_owned())
+        .expect("invalidate source");
     let present = database
         .load_program()
         .expect("present-module program load");

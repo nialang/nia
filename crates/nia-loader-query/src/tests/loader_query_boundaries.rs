@@ -49,13 +49,15 @@ fn retired_loader_diagnostic_handles_remain_readable() {
     assert!(!retained.is_empty());
 
     let second_file = sources.set_source(main.clone(), "");
-    db.retirement_transaction(|retirement| {
-        retirement.invalidate(SourceTextQuery(first_file.id));
-        crate::queries::retire_source_revision_queries(retirement, first_file.version());
+    db.with_retirement(|retirement| {
+        retirement.invalidate(SourceTextQuery(first_file.id))?;
+        crate::queries::retire_source_revision_queries(retirement, first_file.version())?;
         db.context()
             .node_store
             .retire_revision(first_file.version());
-    });
+        Ok(())
+    })
+    .expect("retire first source revision");
     let second = db.expect_get(module_declarations_query(&db, &main));
 
     assert_eq!(second_file.id, first_file.id);
@@ -106,12 +108,14 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
 
     let source_id = sources.id_for_path(&main);
     sources.set_source(main.clone(), "fn main() i32 { 1 }");
-    let invalidation = db.retirement_transaction(|retirement| {
-        let invalidation = retirement.invalidate(SourceTextQuery(source_id));
-        crate::queries::retire_source_revision_queries(retirement, first_version);
-        db.context().node_store.retire_revision(first_version);
-        invalidation
-    });
+    let invalidation = db
+        .with_retirement(|retirement| {
+            let invalidation = retirement.invalidate(SourceTextQuery(source_id))?;
+            crate::queries::retire_source_revision_queries(retirement, first_version)?;
+            db.context().node_store.retire_revision(first_version);
+            Ok(invalidation)
+        })
+        .expect("retire first source revision");
     let invalidated = invalidation
         .invalidated
         .iter()
@@ -183,7 +187,8 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
 
     let source_id = sources.id_for_path(&main);
     sources.set_source(main, "module defs;");
-    db.invalidate(SourceTextQuery(source_id));
+    db.invalidate(SourceTextQuery(source_id))
+        .expect("invalidate source text");
 
     let second = db.expect_get(LoadedProgramQuery).to_program();
     assert_no_error_diagnostics(&second);
@@ -207,7 +212,9 @@ fn loader_source_update_replaces_graph_only_at_query_boundary() {
     let first = database.load_program().expect("initial program load");
     let executions_before_update = query_executions(&database.query_trace(), "module_graph");
 
-    database.set_source(main.as_str(), "module defs;");
+    database
+        .set_source(main.as_str(), "module defs;")
+        .expect("replace source");
 
     assert_eq!(
         query_executions(&database.query_trace(), "module_graph"),

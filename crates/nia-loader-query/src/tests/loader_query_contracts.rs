@@ -122,7 +122,8 @@ fn source_status_tracks_missing_and_present_revisions() {
     let missing = db.expect_get(SourceStatusQuery(source_id));
     assert_eq!(*missing, SourceStatus::Missing);
     let file = sources.set_source(main, "fn main() i32 { 0 }");
-    db.invalidate(SourceTextQuery(source_id));
+    db.invalidate(SourceTextQuery(source_id))
+        .expect("invalidate source text");
     let present = db.expect_get(SourceStatusQuery(source_id));
 
     assert!(!Arc::ptr_eq(&missing, &present));
@@ -184,7 +185,9 @@ fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
 
     let mut latest_version = first_version;
     for revision in 1..=100 {
-        let file = database.set_source(main.as_str(), format!("fn main() i32 {{ {revision} }}"));
+        let file = database
+            .set_source(main.as_str(), format!("fn main() i32 {{ {revision} }}"))
+            .expect("replace source");
         latest_version = file.version();
         assert_no_error_diagnostics(&database.load_program().expect("updated program load"));
         database
@@ -280,7 +283,9 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
             1
         );
 
-        database.set_source(main.as_str(), format!("fn main() i32 {{ {revision} }}"));
+        database
+            .set_source(main.as_str(), format!("fn main() i32 {{ {revision} }}"))
+            .expect("replace source");
         let graph = database.db.expect_get(crate::graph::ModuleGraphQuery);
         assert_eq!(
             graph

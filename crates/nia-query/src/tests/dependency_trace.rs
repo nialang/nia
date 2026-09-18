@@ -64,7 +64,7 @@ fn records_single_item_get_many_dependencies_from_parent_query() {
         dependency.from.name == "single_double_many" && dependency.to.description == "double(2)"
     }));
 
-    let invalidation = db.invalidate(Double(2));
+    let invalidation = db.invalidate(Double(2)).expect("invalidate query");
     let invalidated = invalidation
         .invalidated
         .iter()

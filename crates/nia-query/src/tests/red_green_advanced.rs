@@ -35,7 +35,9 @@ fn direct_invalidation_preserves_stable_dependents_for_validation() {
     });
     let first = db.expect_get(StableParityParent);
     db.context().input.store(9, Ordering::SeqCst);
-    let invalidation = db.invalidate(RedGreenInput);
+    let invalidation = db
+        .invalidate(RedGreenInput)
+        .expect("invalidate red-green input");
     assert_eq!(
         invalidation
             .invalidated

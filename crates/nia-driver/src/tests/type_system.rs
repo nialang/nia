@@ -1115,14 +1115,16 @@ fn driver_facade_formats_inspection_outputs() {
 #[test]
 fn driver_checks_in_memory_sources() {
     let driver = test_driver();
-    driver.set_source(
-        "main.nia",
-        r#"
+    driver
+        .set_source(
+            "main.nia",
+            r#"
 fn main() i32 {
     7
 }
 "#,
-    );
+        )
+        .expect("set source");
 
     let program = driver.analyze_all_modules(CheckRequest::new("main.nia"));
 
@@ -1141,13 +1143,17 @@ fn main() i32 {
 #[test]
 fn driver_invalidates_reused_loader_sources() {
     let driver = test_driver();
-    driver.set_source("main.nia", "fn main() i32 { 1 }");
+    driver
+        .set_source("main.nia", "fn main() i32 { 1 }")
+        .expect("set source");
 
     let first =
         checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
-    driver.set_source("main.nia", "fn main() i32 { true }");
+    driver
+        .set_source("main.nia", "fn main() i32 { true }")
+        .expect("replace source");
 
     let second =
         checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
@@ -1197,17 +1203,21 @@ fn main() () {
     let edited = initial.replace("TargetError::First\n    }", "TargetError::Second\n    }");
 
     let driver = test_driver();
-    driver.set_source("main.nia", initial);
+    driver.set_source("main.nia", initial).expect("set source");
     let first =
         checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
-    driver.set_source("main.nia", edited.clone());
+    driver
+        .set_source("main.nia", edited.clone())
+        .expect("replace source");
     let incremental =
         checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
 
     let clean_driver = test_driver();
-    clean_driver.set_source("main.nia", edited);
+    clean_driver
+        .set_source("main.nia", edited)
+        .expect("set clean source");
     let clean =
         checked_program_from_output(clean_driver.check_all_modules(CheckRequest::new("main.nia")));
     let incremental_summaries = incremental
@@ -1258,16 +1268,20 @@ fn main() TargetError!i32 {
     );
 
     let driver = test_driver();
-    driver.set_source("main.nia", initial);
+    driver.set_source("main.nia", initial).expect("set source");
     let first = checked_program_from_output(driver.check_entry(CheckRequest::new("main.nia")));
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
-    driver.set_source("main.nia", edited.clone());
+    driver
+        .set_source("main.nia", edited.clone())
+        .expect("replace source");
     let incremental =
         checked_program_from_output(driver.check_entry(CheckRequest::new("main.nia")));
 
     let clean_driver = test_driver();
-    clean_driver.set_source("main.nia", edited);
+    clean_driver
+        .set_source("main.nia", edited)
+        .expect("set clean source");
     let clean =
         checked_program_from_output(clean_driver.check_entry(CheckRequest::new("main.nia")));
     let incremental_summaries = incremental
@@ -1291,7 +1305,9 @@ fn main() TargetError!i32 {
 #[test]
 fn driver_replaces_compiler_with_loader_query_session() {
     let driver = test_driver();
-    driver.set_source("main.nia", "fn main() i32 { 1 }");
+    driver
+        .set_source("main.nia", "fn main() i32 { 1 }")
+        .expect("set source");
     let first =
         checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
@@ -1310,9 +1326,10 @@ fn driver_replaces_compiler_with_loader_query_session() {
 #[test]
 fn compiler_session_settles_providers_before_single_executable_finalization() {
     let driver = test_driver();
-    driver.set_source(
-        "main.nia",
-        r#"
+    driver
+        .set_source(
+            "main.nia",
+            r#"
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
@@ -1320,7 +1337,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     !()
 }
 "#,
-    );
+        )
+        .expect("set source");
 
     let program = checked_program_from_output(
         driver.check_entry(CheckRequest::new("main.nia").with_runtime(test_freestanding_runtime())),
@@ -1341,16 +1359,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
 #[test]
 fn incremental_executable_body_check_reuses_inferred_global_types() {
     let driver = test_driver();
-    driver.set_source(
-        "main.nia",
-        r#"
+    driver
+        .set_source(
+            "main.nia",
+            r#"
 static bytes = b"nia";
 
 fn main() u8 {
     bytes[0]
 }
 "#,
-    );
+        )
+        .expect("set source");
 
     let program = checked_program_from_output(driver.check_entry(CheckRequest::new("main.nia")));
 

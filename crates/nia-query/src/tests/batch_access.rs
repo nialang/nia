@@ -129,7 +129,9 @@ fn get_many_owned_records_dependencies_from_parent_query() {
     });
 
     assert_eq!(*db.expect_get(OwnedValueBatchParent), 10);
-    let invalidation = db.invalidate(OwnedNonCloneValueQuery(5));
+    let invalidation = db
+        .invalidate(OwnedNonCloneValueQuery(5))
+        .expect("invalidate owned query");
 
     assert!(
         invalidation

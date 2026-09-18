@@ -209,10 +209,12 @@ fn run_executable_case(driver: &crate::Driver, case_root: &Path) {
     let virtual_source = workspace.join(&case.virtual_source);
     let source_text = fs::read_to_string(&source)
         .unwrap_or_else(|error| panic!("read {}: {error}", source.display()));
-    driver.set_source(
-        virtual_source.to_string_lossy().into_owned(),
-        source_text.clone(),
-    );
+    driver
+        .set_source(
+            virtual_source.to_string_lossy().into_owned(),
+            source_text.clone(),
+        )
+        .expect("set virtual source");
 
     let mut module_map = crate::ModuleMap::new();
     for (name, relative_path) in case.module_map {

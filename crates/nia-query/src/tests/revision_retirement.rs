@@ -10,7 +10,7 @@ fn invalidates_direct_query_value() {
     assert_eq!(*db.expect_get(Double(9)), 18);
     assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
 
-    let invalidation = db.invalidate(Double(9));
+    let invalidation = db.invalidate(Double(9)).expect("invalidate query");
     assert_eq!(invalidation.invalidated.len(), 1);
     assert_eq!(invalidation.invalidated[0].description, "double(9)");
     assert_eq!(*db.expect_get(Double(9)), 18);
@@ -25,11 +25,12 @@ fn retiring_query_key_removes_its_slot_and_edges_without_reusing_node_id() {
     let old_parent = db.expect_get(DoubleTwice(7));
     let old_node = db
         .cached_slot(&Double(7))
+        .expect("inspect cached slot")
         .expect("cached child slot")
         .node_id;
     assert_eq!(db.query_trace().dependencies.len(), 1);
 
-    assert!(db.retire(&Double(7)));
+    assert!(db.retire(&Double(7)).expect("retire query"));
     let retired_trace = db.query_trace();
     assert_eq!(retired_trace.queries.len(), 1);
     assert!(retired_trace.dependencies.is_empty());
@@ -45,6 +46,7 @@ fn retiring_query_key_removes_its_slot_and_edges_without_reusing_node_id() {
     let latest_parent = db.expect_get(DoubleTwice(7));
     let latest_node = db
         .cached_slot(&Double(7))
+        .expect("inspect cached slot")
         .expect("replacement child slot")
         .node_id;
     assert_eq!(*latest_parent, 28);
@@ -61,6 +63,7 @@ fn scope_retirement_removes_typed_cache_entries_and_dependency_edges() {
     assert_eq!(*db.expect_get(DoubleTwice(7)), 28);
     let old_node = db
         .cached_slot(&Double(7))
+        .expect("inspect cached slot")
         .expect("cached child slot")
         .node_id;
 
@@ -81,6 +84,7 @@ fn scope_retirement_removes_typed_cache_entries_and_dependency_edges() {
     assert_eq!(*db.expect_get(Double(7)), 14);
     let new_node = db
         .cached_slot(&Double(7))
+        .expect("inspect cached slot")
         .expect("replacement child slot")
         .node_id;
     assert_ne!(old_node, new_node);
@@ -96,12 +100,16 @@ fn sealing_owned_query_value_retires_its_only_predecessor_without_invalidation()
     let predecessor = db.expect_get(OwnedRevision(0));
     let predecessor_node = db
         .cached_slot(&OwnedRevision(0))
+        .expect("inspect cached slot")
         .expect("cached predecessor slot")
         .node_id;
     assert_eq!(&*current, &[0, 1]);
     assert_eq!(db.query_trace().dependencies.len(), 1);
 
-    assert!(db.seal_and_retire_predecessor(&OwnedRevision(1), &OwnedRevision(0)));
+    assert!(
+        db.seal_and_retire_predecessor(&OwnedRevision(1), &OwnedRevision(0))
+            .expect("seal predecessor")
+    );
     let trace = db.query_trace();
     assert_eq!(trace.queries.len(), 1);
     assert!(trace.dependencies.is_empty());
@@ -118,7 +126,56 @@ fn sealing_owned_query_value_retires_its_only_predecessor_without_invalidation()
 }
 
 #[test]
-fn retirement_transaction_invalidates_and_retires_heterogeneous_keys_atomically() {
+fn rejected_predecessor_retirement_preserves_both_slots_and_edges() {
+    let db = QueryDb::new_for_test(TestContext {
+        executions: AtomicUsize::new(0),
+    });
+    assert_eq!(&*db.expect_get(OwnedRevision(2)), &[0, 1, 2]);
+
+    let error = db
+        .seal_and_retire_predecessor(&OwnedRevision(2), &OwnedRevision(0))
+        .expect_err("reject a non-direct predecessor");
+
+    assert!(matches!(error, QueryError::Internal(_)));
+    assert!(
+        db.cached_slot(&OwnedRevision(0))
+            .expect("inspect predecessor slot")
+            .is_some()
+    );
+    assert!(
+        db.cached_slot(&OwnedRevision(2))
+            .expect("inspect current slot")
+            .is_some()
+    );
+    assert_eq!(db.query_trace().dependencies.len(), 2);
+}
+
+#[test]
+fn retirement_registration_failure_does_not_remove_the_cached_slot() {
+    let db = QueryDb::new_for_test(TestContext {
+        executions: AtomicUsize::new(0),
+    });
+    assert_eq!(*db.expect_get(Double(7)), 14);
+    let slot = db
+        .cached_slot(&Double(7))
+        .expect("inspect cached slot")
+        .expect("cached query slot");
+    db.inner.slots.lock().remove(db.inner.id, slot.node_id);
+
+    let error = db
+        .retire(&Double(7))
+        .expect_err("reject an unregistered cached slot");
+
+    assert!(matches!(error, QueryError::Internal(_)));
+    assert!(
+        db.cached_slot(&Double(7))
+            .expect("inspect cached slot")
+            .is_some()
+    );
+}
+
+#[test]
+fn retirement_barrier_invalidates_and_retires_heterogeneous_keys() {
     let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
@@ -126,13 +183,15 @@ fn retirement_transaction_invalidates_and_retires_heterogeneous_keys_atomically(
     let owned = db.expect_get(OwnedRevision(0));
     let external_retirements = AtomicUsize::new(0);
 
-    db.retirement_transaction(|retirement| {
-        let invalidation = retirement.invalidate(Double(3));
+    db.with_retirement(|retirement| {
+        let invalidation = retirement.invalidate(Double(3))?;
         assert_eq!(invalidation.invalidated.len(), 1);
-        assert!(retirement.retire(&Double(3)));
-        assert!(retirement.retire(&OwnedRevision(0)));
+        assert!(retirement.retire(&Double(3))?);
+        assert!(retirement.retire(&OwnedRevision(0))?);
         external_retirements.fetch_add(1, Ordering::SeqCst);
-    });
+        Ok(())
+    })
+    .expect("run retirement transaction");
     assert!(db.query_trace().queries.is_empty());
     assert_eq!(*double, 6);
     assert_eq!(&*owned, &[0]);
@@ -140,14 +199,14 @@ fn retirement_transaction_invalidates_and_retires_heterogeneous_keys_atomically(
 }
 
 #[test]
-fn panicking_retirement_transaction_reopens_query_admission() {
+fn panicking_retirement_operation_reopens_query_admission() {
     let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
     assert_eq!(*db.expect_get(Double(3)), 6);
 
     let panic = catch_unwind(AssertUnwindSafe(|| {
-        db.retirement_transaction(|_| panic!("retirement fixture panic"));
+        let _ = db.with_retirement(|_| -> QueryResult<()> { panic!("retirement fixture panic") });
     }))
     .expect_err("retirement operation should panic");
     assert!(panic.is::<&'static str>());
@@ -206,7 +265,7 @@ fn retirement_waits_for_active_query_before_releasing_cached_slot() {
     ready.notify_all();
     drop(state);
     let old_value = query.join().expect("query worker panicked");
-    assert_eq!(receiver.recv(), Ok(true));
+    assert_eq!(receiver.recv(), Ok(Ok(true)));
     retirement.join().expect("retirement worker panicked");
     assert!(
         trace_receiver

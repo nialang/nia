@@ -1294,7 +1294,13 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
         })?;
     }
     let driver = Driver::with_config(build_runner_driver_config(invocation));
-    driver.set_source(runner.path.clone(), runner.source.clone());
+    driver
+        .set_source(runner.path.clone(), runner.source.clone())
+        .map_err(|error| BuildError::CompileRunner {
+            path: runner.path.clone(),
+            source: runner.source.clone(),
+            error: Box::new(error),
+        })?;
     let check = CheckRequest::new(runner.path.clone())
         .with_module_map(build_runner_module_map(invocation))
         .with_profile(invocation.profile)

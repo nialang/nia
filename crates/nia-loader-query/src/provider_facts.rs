@@ -71,6 +71,14 @@ impl Default for ProviderFactStore {
 }
 
 impl ProviderFactStore {
+    pub(crate) fn revision_if_nonempty(&self) -> Option<ProviderFactRevision> {
+        let state = self
+            .state
+            .lock()
+            .expect("loader provider fact store lock poisoned");
+        (!state.current.demands.is_empty()).then_some(state.current.revision)
+    }
+
     pub(crate) fn contains_all(&self, demands: &[ProviderDemand]) -> bool {
         let state = self
             .state

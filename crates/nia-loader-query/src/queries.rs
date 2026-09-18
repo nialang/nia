@@ -1191,13 +1191,14 @@ pub(crate) fn module_facade_facts_query(
 pub(crate) fn retire_source_revision_queries(
     retirement: &QueryRetirement<'_, LoaderContext>,
     version: SourceVersion,
-) {
-    retirement.retire(&ParsedModuleQuery(version));
-    retirement.retire(&SyntaxModuleQuery(version));
-    retirement.retire(&ModuleDeclarationsQuery(version));
-    retirement.retire(&PublicSurfaceModuleFactsQuery(version));
-    retirement.retire(&ProviderSummaryQuery(version));
-    retirement.retire(&ModuleFacadeFactsQuery(version));
+) -> QueryResult<()> {
+    retirement.retire(&ParsedModuleQuery(version))?;
+    retirement.retire(&SyntaxModuleQuery(version))?;
+    retirement.retire(&ModuleDeclarationsQuery(version))?;
+    retirement.retire(&PublicSurfaceModuleFactsQuery(version))?;
+    retirement.retire(&ProviderSummaryQuery(version))?;
+    retirement.retire(&ModuleFacadeFactsQuery(version))?;
+    Ok(())
 }
 
 fn parsed_module_query_for_id(

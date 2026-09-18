@@ -96,7 +96,7 @@ fn failed_parent_query_drops_speculative_dependencies() {
     }
     assert!(db.query_trace().dependencies.is_empty());
 
-    let invalidation = db.invalidate(Double(3));
+    let invalidation = db.invalidate(Double(3)).expect("invalidate query");
     assert_eq!(
         invalidation
             .invalidated
@@ -141,8 +141,12 @@ fn distinct_workers_detect_cross_stack_query_cycles() {
         session,
     );
     let cycle_nodes = [
-        db.slot_for(&ParallelCycle::Left).node_id,
-        db.slot_for(&ParallelCycle::Right).node_id,
+        db.slot_for(&ParallelCycle::Left)
+            .expect("create left slot")
+            .node_id,
+        db.slot_for(&ParallelCycle::Right)
+            .expect("create right slot")
+            .node_id,
     ];
     let worker_db = db.clone();
     let (sender, receiver) = std::sync::mpsc::channel();
@@ -187,8 +191,14 @@ fn distinct_sessions_detect_cross_stack_query_cycles() {
         QuerySession::with_parallelism(1),
     );
     let cycle_nodes = [
-        left_db.slot_for(&CrossSessionCycle::Left).node_id,
-        right_db.slot_for(&CrossSessionCycle::Right).node_id,
+        left_db
+            .slot_for(&CrossSessionCycle::Left)
+            .expect("create left slot")
+            .node_id,
+        right_db
+            .slot_for(&CrossSessionCycle::Right)
+            .expect("create right slot")
+            .node_id,
     ];
     *left_link.lock() = Some(left_db.clone());
     *right_link.lock() = Some(right_db.clone());

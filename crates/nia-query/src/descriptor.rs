@@ -383,15 +383,17 @@ impl QueryRegistry {
         descriptors
     }
 
-    pub(super) fn assert_registered<C, K>(&self)
+    pub(super) fn require_registered<C, K>(&self) -> nia_ice::IceResult<()>
     where
         K: QueryKey<C>,
     {
-        assert!(
-            self.is_registered::<K>(),
-            "query key type `{}` is not in the declarative registry",
-            std::any::type_name::<K>()
-        );
+        if !self.is_registered::<K>() {
+            return Err(nia_ice::Ice::new(format!(
+                "query key type `{}` is not in the declarative registry",
+                std::any::type_name::<K>()
+            )));
+        }
+        Ok(())
     }
 
     pub(super) fn is_registered<K: 'static>(&self) -> bool {

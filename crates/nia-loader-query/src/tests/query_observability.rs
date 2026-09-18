@@ -126,7 +126,8 @@ extend Widget {
 pub using dep::Other;
 "#,
     );
-    db.invalidate(SourceTextQuery(source_id));
+    db.invalidate(SourceTextQuery(source_id))
+        .expect("invalidate source text");
 
     let present_summary = db.expect_get(provider_summary_query(&db, &provider));
     let present_facade = db.expect_get(module_facade_facts_query(&db, &provider));
