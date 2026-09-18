@@ -46,7 +46,7 @@ fn declarative_registry_records_an_external_shared_producer() {
 fn declarative_registry_records_and_enforces_query_contracts() {
     let mut registry = QueryRegistry::new();
     registry.register::<TestContext, Double>();
-    let db = QueryDb::new_registered(
+    let db = QueryDb::new_registered_for_test(
         TestContext {
             executions: AtomicUsize::new(0),
         },
@@ -176,10 +176,10 @@ fn declarative_registry_rejects_duplicate_names() {
 #[test]
 fn query_node_ids_are_word_sized_and_database_scoped() {
     assert_eq!(std::mem::size_of::<QueryNodeId>(), 8);
-    let first = QueryDb::new(TestContext {
+    let first = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
-    let second = QueryDb::new(TestContext {
+    let second = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 

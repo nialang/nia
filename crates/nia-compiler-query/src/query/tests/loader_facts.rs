@@ -179,7 +179,8 @@ impl TestLoaderFacts {
                     provider_facts: RwLock::new(provider_facts),
                 },
                 registry,
-            ),
+            )
+            .expect("create test loader database"),
         }
     }
 

@@ -202,7 +202,8 @@ fn loader_source_update_replaces_graph_only_at_query_boundary() {
     let main = SourcePath::new("main.nia");
     sources.set_source(main.clone(), "");
     sources.set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }");
-    let database = LoaderDatabase::new(LoadRequest::new(main.as_str()).with_sources(sources));
+    let database =
+        LoaderDatabase::new_for_test(LoadRequest::new(main.as_str()).with_sources(sources));
     let first = database.load_program().expect("initial program load");
     let executions_before_update = query_executions(&database.query_trace(), "module_graph");
 

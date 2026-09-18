@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn records_query_dependencies() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -15,7 +15,7 @@ fn records_query_dependencies() {
 
 #[test]
 fn records_query_execution_and_cache_hit_stats() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -36,7 +36,7 @@ fn records_query_execution_and_cache_hit_stats() {
 
 #[test]
 fn records_get_many_dependencies_from_parent_query() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -53,7 +53,7 @@ fn records_get_many_dependencies_from_parent_query() {
 
 #[test]
 fn records_single_item_get_many_dependencies_from_parent_query() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 

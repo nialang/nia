@@ -14,7 +14,7 @@ pub fn execute_build_plan(
     recover_interrupted_output_transactions(&invocation.cache_dir, &invocation.build_dir)
         .map_err(|error| CoordinatorError::OutputRecovery(Box::new(error)))?;
     let executor = DriverActionExecutor::new(plan.clone(), invocation.clone());
-    let session = QuerySession::new();
+    let session = QuerySession::new().map_err(CoordinatorError::Internal)?;
     nia_timing::emit_counter(
         "build.action_resource_capacity",
         action_resource_capacity(&session, invocation.max_parallel_actions) as u64,

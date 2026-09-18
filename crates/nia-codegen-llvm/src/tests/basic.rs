@@ -52,7 +52,7 @@ fn native_object_cache_hit_skips_emission_and_publish() {
     let output = crate::emit_native_objects(
         Arc::clone(&codegen.backend_lowering),
         Arc::clone(&codegen.type_store),
-        &nia_query::QuerySession::new(),
+        &nia_query::QuerySession::new().expect("create query session"),
         LlvmCodegenOptions::default(),
         Some(cache.clone()),
     );

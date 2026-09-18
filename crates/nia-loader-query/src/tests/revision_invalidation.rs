@@ -4,8 +4,9 @@ use super::*;
 fn compiler_loader_update_detaches_current_defs_from_old_source_revision() {
     let sources = SourceDatabase::new();
     sources.set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }");
-    let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_sources(sources));
-    let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone()));
+    let loader = LoaderDatabase::new_for_test(LoadRequest::new("main.nia").with_sources(sources));
+    let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone()))
+        .expect("create compiler database");
 
     let first = compiler.analyze_program().expect("initial analysis");
     assert!(!has_error_diagnostics(&first.diagnostics));
@@ -49,7 +50,8 @@ fn body_only_source_change_refreshes_revision_bearing_field_dependents() {
         path.clone(),
         ModuleMap::default(),
         sources.clone(),
-    ));
+    ))
+    .expect("create loader query database");
     let declaration_key =
         SemanticFieldParent(first_source.id, SemanticFieldParentKind::Declaration);
     let signature_key =

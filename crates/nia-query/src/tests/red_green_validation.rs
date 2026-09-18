@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn stable_input_validation_keeps_identical_values_green() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(7),
     });
     let first = db.expect_get(StableInputParent);
@@ -17,7 +17,7 @@ fn stable_input_validation_keeps_identical_values_green() {
 
 #[test]
 fn stable_input_validation_invalidates_changed_values_and_dependents() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(7),
     });
     assert_eq!(*db.expect_get(StableInputParent), 14);
@@ -36,7 +36,7 @@ fn stable_input_validation_invalidates_changed_values_and_dependents() {
 
 #[test]
 fn derived_red_green_validation_reuses_dependents_when_output_is_unchanged() {
-    let db = QueryDb::new(RedGreenContext {
+    let db = QueryDb::new_for_test(RedGreenContext {
         input: AtomicUsize::new(7),
         derived_executions: AtomicUsize::new(0),
         parent_executions: AtomicUsize::new(0),

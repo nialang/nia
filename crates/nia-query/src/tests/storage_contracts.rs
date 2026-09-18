@@ -3,7 +3,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[test]
 fn externally_published_shared_values_support_repeated_reads() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
     assert!(db.get(PublishedSharedValueQuery(3)).is_err());
@@ -20,7 +20,7 @@ fn externally_published_shared_values_support_repeated_reads() {
 
 #[test]
 fn memoizes_query_values() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -31,7 +31,7 @@ fn memoizes_query_values() {
 
 #[test]
 fn get_reuses_cached_value_handles() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -46,7 +46,7 @@ fn get_reuses_cached_value_handles() {
 
 #[test]
 fn get_supports_non_clone_query_values() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -60,7 +60,7 @@ fn get_supports_non_clone_query_values() {
 
 #[test]
 fn single_consumer_query_moves_non_clone_value_and_tracks_parent_dependency() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -85,7 +85,7 @@ fn single_consumer_query_moves_non_clone_value_and_tracks_parent_dependency() {
 
 #[test]
 fn single_consumer_query_reproduces_after_its_payload_is_consumed() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -96,7 +96,7 @@ fn single_consumer_query_reproduces_after_its_payload_is_consumed() {
 
 #[test]
 fn externally_published_owned_query_moves_once_and_tracks_its_predecessor() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
     let predecessor = OwnedNonCloneValueQuery(3);
@@ -133,7 +133,7 @@ fn externally_published_owned_query_moves_once_and_tracks_its_predecessor() {
 
 #[test]
 fn invalidating_a_producer_drops_an_unconsumed_published_payload() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
     let predecessor = OwnedNonCloneValueQuery(5);
@@ -155,7 +155,7 @@ fn invalidating_a_producer_drops_an_unconsumed_published_payload() {
 
 #[test]
 fn query_storage_policy_rejects_the_wrong_access_mode() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 

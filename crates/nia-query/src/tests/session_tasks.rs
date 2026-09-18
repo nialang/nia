@@ -90,15 +90,68 @@ fn dropping_session_drains_all_accepted_executor_tasks() {
             let completed = Arc::clone(&completed);
             QueryTask {
                 batch,
-                run: Box::new(move || {
+                settle: Box::new(move |_| {
                     completed.fetch_add(1, Ordering::SeqCst);
                 }),
             }
         })
         .collect();
 
-    session.inner.executor.submit_all(tasks);
+    session
+        .inner
+        .executor
+        .submit_all(tasks)
+        .expect("submit session tasks");
     drop(session);
 
     assert_eq!(completed.load(Ordering::SeqCst), task_count);
+}
+
+#[test]
+fn session_construction_rejects_zero_parallelism() {
+    let result = QuerySession::from_execution_budget(0, Arc::new(QueryExecutionBudget::owned(1)));
+    let error = match result {
+        Ok(_) => panic!("zero parallelism must be rejected"),
+        Err(error) => error,
+    };
+
+    assert!(error.to_string().contains("parallelism must be non-zero"));
+}
+
+#[test]
+fn batch_rejects_duplicate_completion_after_streaming_consumption() {
+    let batch = QueryBatch::new(1);
+    batch.complete(0, Ok(7)).expect("complete batch item");
+    let (completed, is_complete) = batch.take_completed().expect("take completed item");
+
+    assert_eq!(completed.len(), 1);
+    assert_eq!(completed[0].0, 0);
+    assert_eq!(completed[0].1.as_ref().expect("completed value"), &7);
+    assert!(is_complete);
+    let error = batch
+        .complete(0, Ok(8))
+        .expect_err("duplicate completion must fail");
+    assert!(error.to_string().contains("completed twice"));
+    assert!(batch.is_complete());
+}
+
+#[test]
+fn executor_rejects_submission_after_shutdown_without_running_tasks() {
+    let session = QuerySession::with_parallelism(1);
+    session.inner.executor.shared.state.lock().shutdown = true;
+    let ran = Arc::new(AtomicUsize::new(0));
+    let task_ran = Arc::clone(&ran);
+    let error = session
+        .inner
+        .executor
+        .submit_all(vec![QueryTask {
+            batch: 0,
+            settle: Box::new(move |_| {
+                task_ran.fetch_add(1, Ordering::SeqCst);
+            }),
+        }])
+        .expect_err("shutdown executor must reject work");
+
+    assert!(error.to_string().contains("after shutdown"));
+    assert_eq!(ran.load(Ordering::SeqCst), 0);
 }

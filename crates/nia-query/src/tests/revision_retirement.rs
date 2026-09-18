@@ -3,7 +3,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[test]
 fn invalidates_direct_query_value() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
     assert_eq!(*db.expect_get(Double(9)), 18);
@@ -19,7 +19,7 @@ fn invalidates_direct_query_value() {
 
 #[test]
 fn retiring_query_key_removes_its_slot_and_edges_without_reusing_node_id() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
     let old_parent = db.expect_get(DoubleTwice(7));
@@ -55,7 +55,7 @@ fn retiring_query_key_removes_its_slot_and_edges_without_reusing_node_id() {
 
 #[test]
 fn scope_retirement_removes_typed_cache_entries_and_dependency_edges() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
     assert_eq!(*db.expect_get(DoubleTwice(7)), 28);
@@ -89,7 +89,7 @@ fn scope_retirement_removes_typed_cache_entries_and_dependency_edges() {
 
 #[test]
 fn sealing_owned_query_value_retires_its_only_predecessor_without_invalidation() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
     let current = db.expect_get(OwnedRevision(1));
@@ -119,7 +119,7 @@ fn sealing_owned_query_value_retires_its_only_predecessor_without_invalidation()
 
 #[test]
 fn retirement_transaction_invalidates_and_retires_heterogeneous_keys_atomically() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
     let double = db.expect_get(Double(3));
@@ -141,7 +141,7 @@ fn retirement_transaction_invalidates_and_retires_heterogeneous_keys_atomically(
 
 #[test]
 fn panicking_retirement_transaction_reopens_query_admission() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
     assert_eq!(*db.expect_get(Double(3)), 6);
@@ -160,7 +160,7 @@ fn panicking_retirement_transaction_reopens_query_admission() {
 #[test]
 fn retirement_waits_for_active_query_before_releasing_cached_slot() {
     let control = Arc::new((Mutex::new(RaceState::default()), Condvar::new()));
-    let db = QueryDb::new(RaceContext {
+    let db = QueryDb::new_for_test(RaceContext {
         executions: AtomicUsize::new(0),
         control: Arc::clone(&control),
     });

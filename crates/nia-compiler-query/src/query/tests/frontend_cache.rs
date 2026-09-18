@@ -27,6 +27,7 @@ pub(super) fn query_db(loaded: LoadedProgram) -> QueryDb<CompilerContext> {
         },
         compiler_query_registry(),
     )
+    .expect("create compiler query database")
 }
 
 struct FingerprintedLoadedProgram {
@@ -159,6 +160,7 @@ pub(super) fn query_db_with_frontend_cache(
         },
         compiler_query_registry(),
     )
+    .expect("create compiler query database")
 }
 
 pub(super) fn module_id_for_source_identity(

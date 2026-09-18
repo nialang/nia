@@ -78,7 +78,7 @@ pub fn score(&self) i32 {
     module_map.insert("dep", SourcePath::new(pkg_root.to_string_lossy()));
 
     let source_path = SourcePath::new(main_path.to_string_lossy());
-    let database = LoaderDatabase::new(
+    let database = LoaderDatabase::new_for_test(
         LoadRequest::new(main_path.to_string_lossy().into_owned()).with_module_map(module_map),
     );
     let initial = database.load_program().expect("initial program load");

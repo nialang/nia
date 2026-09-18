@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn executes_get_many_in_key_order() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -19,7 +19,7 @@ fn executes_get_many_in_key_order() {
 
 #[test]
 fn get_many_reuses_non_clone_cached_handles_in_key_order() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -35,7 +35,7 @@ fn get_many_reuses_non_clone_cached_handles_in_key_order() {
 
 #[test]
 fn get_many_owned_moves_non_clone_values_in_key_order() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -88,7 +88,7 @@ fn typed_owned_completion_stream_moves_values_in_completion_order() {
 
 #[test]
 fn typed_owned_completion_stream_reports_query_failures() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
@@ -124,7 +124,7 @@ fn typed_owned_completion_stream_reports_query_failures() {
 
 #[test]
 fn get_many_owned_records_dependencies_from_parent_query() {
-    let db = QueryDb::new(TestContext {
+    let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 

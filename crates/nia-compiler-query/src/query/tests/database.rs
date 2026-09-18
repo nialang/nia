@@ -17,7 +17,7 @@ impl CompilerDatabase {
         let program = materialize_loader_facts(request.loader_facts.as_ref());
         let loader = TestLoaderFacts::new(program, provider_facts);
         let request = request.with_loader_facts(loader.clone());
-        let compiler = super::super::CompilerDatabase::new(request);
+        let compiler = super::super::CompilerDatabase::new_for_test(request);
         Self { compiler, loader }
     }
 

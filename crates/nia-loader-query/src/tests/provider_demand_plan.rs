@@ -43,7 +43,7 @@ fn provider_demand_plan_remaps_logical_toolchain_paths_after_relocation() {
             .with_toolchain_layout(toolchain)
     };
 
-    let cold = LoaderDatabase::new(request(Arc::clone(&first_toolchain)));
+    let cold = LoaderDatabase::new_for_test(request(Arc::clone(&first_toolchain)));
     let program = cold.load_program().expect("cold program load");
     let first_unicode = program
         .modules
@@ -63,7 +63,7 @@ fn provider_demand_plan_remaps_logical_toolchain_paths_after_relocation() {
     nia_compiler_query::LoaderFactProvider::settle_provider_demands(&cold)
         .expect("settle cold provider demands");
 
-    let warm = LoaderDatabase::new(request(Arc::clone(&second_toolchain)));
+    let warm = LoaderDatabase::new_for_test(request(Arc::clone(&second_toolchain)));
     warm.load_program().expect("warm relocated program load");
     let warm_facts =
         nia_compiler_query::LoaderFactProvider::provider_facts(&warm).expect("warm provider facts");
@@ -108,7 +108,7 @@ fn provider_demand_plan_remaps_runtime_start_after_toolchain_relocation() {
             .with_toolchain_layout(toolchain)
     };
 
-    let cold = LoaderDatabase::new(request(Arc::clone(&first_toolchain)));
+    let cold = LoaderDatabase::new_for_test(request(Arc::clone(&first_toolchain)));
     let program = cold.load_program().expect("cold program load");
     let first_start = program
         .modules
@@ -127,7 +127,7 @@ fn provider_demand_plan_remaps_runtime_start_after_toolchain_relocation() {
     nia_compiler_query::LoaderFactProvider::settle_provider_demands(&cold)
         .expect("settle cold runtime provider demands");
 
-    let warm = LoaderDatabase::new(request(Arc::clone(&second_toolchain)));
+    let warm = LoaderDatabase::new_for_test(request(Arc::clone(&second_toolchain)));
     warm.load_program().expect("warm relocated program load");
     let warm_facts =
         nia_compiler_query::LoaderFactProvider::provider_facts(&warm).expect("warm provider facts");
@@ -165,7 +165,7 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
             .with_frontend_cache_dir(Some(cache_root.clone()))
     };
 
-    let cold = LoaderDatabase::new(request());
+    let cold = LoaderDatabase::new_for_test(request());
     let method = cold
         .db
         .context()
@@ -243,7 +243,7 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
         );
     assert!(plan_path.is_file());
 
-    let warm = LoaderDatabase::new(request());
+    let warm = LoaderDatabase::new_for_test(request());
     warm.load_program().expect("warm program load");
     assert_eq!(
         nia_compiler_query::LoaderFactProvider::provider_facts(&warm)
@@ -265,7 +265,7 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
     );
 
     write(&main_path, "fn main() i32 { 1 }");
-    let invalidated = LoaderDatabase::new(request());
+    let invalidated = LoaderDatabase::new_for_test(request());
     assert!(
         nia_compiler_query::LoaderFactProvider::provider_facts(&invalidated)
             .expect("invalidated provider facts")
@@ -291,7 +291,7 @@ fn provider_demand_plan_verification_replaces_semantically_wrong_artifact() {
             .with_frontend_cache_verification(verify)
     };
 
-    let seeded = LoaderDatabase::new(request(false));
+    let seeded = LoaderDatabase::new_for_test(request(false));
     let fake_method = seeded
         .db
         .context()
@@ -315,7 +315,7 @@ fn provider_demand_plan_verification_replaces_semantically_wrong_artifact() {
     nia_compiler_query::LoaderFactProvider::settle_provider_demands(&seeded)
         .expect("settle provider demands");
 
-    let verified_loader = LoaderDatabase::new(request(true));
+    let verified_loader = LoaderDatabase::new_for_test(request(true));
     assert!(
         nia_compiler_query::LoaderFactProvider::provider_facts(&verified_loader)
             .expect("verified provider facts")
@@ -327,7 +327,8 @@ fn provider_demand_plan_verification_replaces_semantically_wrong_artifact() {
         CompileRequest::new(verified_loader.clone())
             .with_frontend_cache_dir(Some(cache_root.clone()))
             .with_frontend_cache_verification(true),
-    );
+    )
+    .expect("create compiler database");
     let checked = compiler.check_program().expect("verified compiler check");
     assert!(!has_error_diagnostics(&checked.diagnostics));
     assert!(
@@ -337,7 +338,7 @@ fn provider_demand_plan_verification_replaces_semantically_wrong_artifact() {
             .contains(&fake)
     );
 
-    let warm = LoaderDatabase::new(request(false));
+    let warm = LoaderDatabase::new_for_test(request(false));
     assert!(
         !nia_compiler_query::LoaderFactProvider::provider_facts(&warm)
             .expect("warm provider facts")
@@ -357,7 +358,7 @@ fn corrupt_provider_demand_plan_is_physically_retired() {
         LoadRequest::new(main_path.to_string_lossy().into_owned())
             .with_frontend_cache_dir(Some(cache_root.clone()))
     };
-    let seeded = LoaderDatabase::new(request());
+    let seeded = LoaderDatabase::new_for_test(request());
     let method_name = seeded
         .db
         .context()
@@ -393,7 +394,7 @@ fn corrupt_provider_demand_plan_is_physically_retired() {
     assert!(plan_path.is_file());
     fs::write(&plan_path, b"corrupt").expect("corrupt provider plan");
 
-    let loaded = LoaderDatabase::new(request());
+    let loaded = LoaderDatabase::new_for_test(request());
     assert!(
         nia_compiler_query::LoaderFactProvider::provider_facts(&loaded)
             .expect("loaded provider facts")

@@ -111,7 +111,7 @@ pub fn load_program_with_map_and_runtime(
 
 /// Loads a program using the complete request configuration.
 pub fn load_program_request(request: LoadRequest) -> QueryResult<LoadedProgram> {
-    LoaderDatabase::new(request).load_program()
+    LoaderDatabase::new(request)?.load_program()
 }
 
 /// Query-backed loader database with mutable source revisions.
@@ -206,8 +206,14 @@ impl SourceInputManifest {
 
 impl LoaderDatabase {
     /// Creates a loader with an isolated default query session.
-    pub fn new(request: LoadRequest) -> Self {
-        Self::new_in_session(request, QuerySession::new())
+    pub fn new(request: LoadRequest) -> QueryResult<Self> {
+        Ok(Self::new_in_session(request, QuerySession::new()?))
+    }
+
+    #[cfg(test)]
+    fn new_for_test(request: LoadRequest) -> Self {
+        Self::new(request)
+            .unwrap_or_else(|error| panic!("failed to create loader database: {error}"))
     }
 
     /// Creates a loader sharing dependency and execution state with `session`.
@@ -944,7 +950,8 @@ fn load_program_trace(
             provider_demand_plan_candidate: Mutex::new(None),
         },
         loader_query_registry(),
-    );
+    )
+    .expect("create loader query database");
     let _program = db
         .get(LoadedProgramQuery)
         .expect("test program load must succeed");

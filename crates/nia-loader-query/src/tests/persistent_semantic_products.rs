@@ -12,14 +12,15 @@ fn unwrap[T](value: Box[T]) T { value.value }
 
     let first_sources = SourceDatabase::new();
     first_sources.set_source(SourcePath::new("main.nia"), source);
-    let first_loader = LoaderDatabase::new(
+    let first_loader = LoaderDatabase::new_for_test(
         LoadRequest::new("main.nia")
             .with_sources(first_sources)
             .with_frontend_cache_dir(Some(root.clone())),
     );
     let first_compiler = CompilerDatabase::new(
         CompileRequest::new(first_loader).with_frontend_cache_dir(Some(root.clone())),
-    );
+    )
+    .expect("create compiler database");
     let first = first_compiler.analyze_program().expect("cold analysis");
     assert!(!has_error_diagnostics(&first.diagnostics));
     let first_trace = first_compiler.query_trace();
@@ -41,14 +42,15 @@ fn unwrap[T](value: Box[T]) T { value.value }
 
     let second_sources = SourceDatabase::new();
     second_sources.set_source(SourcePath::new("main.nia"), source);
-    let second_loader = LoaderDatabase::new(
+    let second_loader = LoaderDatabase::new_for_test(
         LoadRequest::new("main.nia")
             .with_sources(second_sources)
             .with_frontend_cache_dir(Some(root.clone())),
     );
     let second_compiler = CompilerDatabase::new(
         CompileRequest::new(second_loader).with_frontend_cache_dir(Some(root.clone())),
-    );
+    )
+    .expect("create compiler database");
     let second = second_compiler.analyze_program().expect("warm analysis");
     assert!(!has_error_diagnostics(&second.diagnostics));
     assert_eq!(second.diagnostics, first.diagnostics);
@@ -82,7 +84,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
 
     let verified_sources = SourceDatabase::new();
     verified_sources.set_source(SourcePath::new("main.nia"), source);
-    let verified_loader = LoaderDatabase::new(
+    let verified_loader = LoaderDatabase::new_for_test(
         LoadRequest::new("main.nia")
             .with_sources(verified_sources)
             .with_frontend_cache_dir(Some(root.clone()))
@@ -92,7 +94,8 @@ fn unwrap[T](value: Box[T]) T { value.value }
         CompileRequest::new(verified_loader)
             .with_frontend_cache_dir(Some(root))
             .with_frontend_cache_verification(true),
-    );
+    )
+    .expect("create compiler database");
     let verified = verified_compiler
         .analyze_program()
         .expect("verified analysis");
@@ -151,7 +154,7 @@ fn main() i32 { Box[i32] { value: 1 }.get() }
     let compile = |verify| {
         let sources = SourceDatabase::new();
         sources.set_source(SourcePath::new("main.nia"), source);
-        let loader = LoaderDatabase::new(
+        let loader = LoaderDatabase::new_for_test(
             LoadRequest::new("main.nia")
                 .with_sources(sources)
                 .with_frontend_cache_dir(Some(root.clone()))
@@ -161,7 +164,8 @@ fn main() i32 { Box[i32] { value: 1 }.get() }
             CompileRequest::new(loader)
                 .with_frontend_cache_dir(Some(root.clone()))
                 .with_frontend_cache_verification(verify),
-        );
+        )
+        .expect("create compiler database");
         let checked = compiler.analyze_program().expect("cached analysis");
         assert!(!has_error_diagnostics(&checked.diagnostics));
         compiler.query_trace()
