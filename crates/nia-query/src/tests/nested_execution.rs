@@ -78,17 +78,9 @@ fn batch_waiter_does_not_run_tasks_that_depend_on_its_paused_query() {
     let (second_sender, second_receiver) = std::sync::mpsc::channel();
     let second_db = db.clone();
     std::thread::spawn(move || {
-        let mut started = second_db
-            .context()
-            .child_started
-            .lock()
-            .expect("batch isolation state lock poisoned");
+        let mut started = second_db.context().child_started.lock();
         while !*started {
-            started = second_db
-                .context()
-                .child_ready
-                .wait(started)
-                .expect("batch isolation state lock poisoned while waiting");
+            second_db.context().child_ready.wait(&mut started);
         }
         drop(started);
         let values = second_db

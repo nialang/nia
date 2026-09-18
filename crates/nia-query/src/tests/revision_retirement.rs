@@ -151,15 +151,7 @@ fn panicking_retirement_transaction_reopens_query_admission() {
     }))
     .expect_err("retirement operation should panic");
     assert!(panic.is::<&'static str>());
-    assert!(
-        !db.inner
-            .session
-            .inner
-            .activity
-            .lock()
-            .expect("query activity lock poisoned")
-            .retiring
-    );
+    assert!(!db.inner.session.inner.activity.lock().retiring);
 
     assert_eq!(*db.expect_get(Double(4)), 8);
     assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
@@ -175,9 +167,9 @@ fn retirement_waits_for_active_query_before_releasing_cached_slot() {
     let worker_db = db.clone();
     let query = std::thread::spawn(move || worker_db.expect_get(SlowDouble(1)));
     let (lock, ready) = &*control;
-    let mut state = lock.lock().expect("race state lock poisoned");
+    let mut state = lock.lock();
     while !state.started {
-        state = ready.wait(state).expect("race state lock poisoned");
+        ready.wait(&mut state);
     }
     drop(state);
 
@@ -188,21 +180,9 @@ fn retirement_waits_for_active_query_before_releasing_cached_slot() {
             .send(retirement_db.retire(&SlowDouble(1)))
             .expect("send retirement result");
     });
-    let mut activity = db
-        .inner
-        .session
-        .inner
-        .activity
-        .lock()
-        .expect("query activity lock poisoned");
+    let mut activity = db.inner.session.inner.activity.lock();
     while !activity.retiring {
-        activity = db
-            .inner
-            .session
-            .inner
-            .activity_ready
-            .wait(activity)
-            .expect("query activity lock poisoned while waiting");
+        db.inner.session.inner.activity_ready.wait(&mut activity);
     }
     drop(activity);
     assert_eq!(
@@ -221,7 +201,7 @@ fn retirement_waits_for_active_query_before_releasing_cached_slot() {
         Err(std::sync::mpsc::TryRecvError::Empty)
     );
 
-    let mut state = lock.lock().expect("race state lock poisoned");
+    let mut state = lock.lock();
     state.release = true;
     ready.notify_all();
     drop(state);

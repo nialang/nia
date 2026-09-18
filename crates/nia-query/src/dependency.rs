@@ -190,7 +190,6 @@ where
         inner
             .slots
             .lock()
-            .expect("query cache slot lock poisoned")
             .get(inner.id, node_id)
             .map(|record| record.identity.frame())
     }
@@ -200,7 +199,6 @@ where
         inner
             .slots
             .lock()
-            .expect("query cache slot lock poisoned")
             .get(inner.id, node_id)
             .map(|record| Arc::clone(&record.slot))
     }
@@ -211,7 +209,7 @@ where
             .upgrade()
             .expect("query dependency database was dropped");
         let (key, ensure) = {
-            let slots = inner.slots.lock().expect("query cache slot lock poisoned");
+            let slots = inner.slots.lock();
             let Some(record) = slots.get(inner.id, node_id) else {
                 return Err(QueryError::InvalidInput {
                     query: retired_query_frame(node_id),

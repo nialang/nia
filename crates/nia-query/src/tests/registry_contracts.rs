@@ -63,7 +63,8 @@ fn declarative_registry_records_and_enforces_query_contracts() {
     assert_eq!(descriptors[0].fingerprint, QueryFingerprintPolicy::None);
     assert_eq!(descriptors[0].storage, QueryStoragePolicy::CacheOwnedArc);
 
-    let missing = std::panic::catch_unwind(|| db.get(NonCloneValueQuery));
+    let missing =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| db.get(NonCloneValueQuery)));
     assert!(missing.is_err());
     assert_eq!(*db.expect_get(Double(22)), 44);
 }

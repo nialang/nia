@@ -4,10 +4,12 @@ use std::{
     marker::PhantomData,
     rc::Rc,
     sync::{
-        Condvar, Mutex, MutexGuard, OnceLock,
+        OnceLock,
         atomic::{AtomicUsize, Ordering},
     },
 };
+
+use parking_lot::{Condvar, Mutex};
 
 #[cfg(target_os = "linux")]
 use std::{fs, io::Read as _};
@@ -98,7 +100,7 @@ impl Drop for ProcessMemoryPermit<'_> {
         if !leave_memory_budget(self.budget.identity()) {
             return;
         }
-        let mut state = lock_unpoisoned(&self.budget.state);
+        let mut state = self.budget.state.lock();
         state.active = state
             .active
             .checked_sub(1)
@@ -125,13 +127,10 @@ impl MemoryBudget {
         let nested = memory_budget_is_active(identity);
         let mut waited = false;
         if !nested {
-            let mut state = lock_unpoisoned(&self.state);
+            let mut state = self.state.lock();
             while state.active >= self.capacity || !self.memory_pressure_allows(state.active) {
                 waited = true;
-                state = self
-                    .ready
-                    .wait(state)
-                    .unwrap_or_else(|error| error.into_inner());
+                self.ready.wait(&mut state);
             }
             state.active += 1;
             self.peak_active.fetch_max(state.active, Ordering::Relaxed);
@@ -229,10 +228,6 @@ fn memory_task_capacity(available_cpus: usize, memory_limit: Option<usize>) -> u
         })
         .unwrap_or(1);
     cpu_capacity.min(memory_capacity).max(1)
-}
-
-fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|error| error.into_inner())
 }
 
 #[cfg(target_os = "linux")]
@@ -456,9 +451,9 @@ mod tests {
         assert!(!inner.waited());
         assert_eq!(budget.peak_active(), 1);
         drop(outer);
-        assert_eq!(lock_unpoisoned(&budget.state).active, 1);
+        assert_eq!(budget.state.lock().active, 1);
         drop(inner);
-        assert_eq!(lock_unpoisoned(&budget.state).active, 0);
+        assert_eq!(budget.state.lock().active, 0);
     }
 
     #[cfg(target_os = "linux")]

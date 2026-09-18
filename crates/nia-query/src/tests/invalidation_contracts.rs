@@ -118,16 +118,16 @@ fn invalidation_during_get_many_prevents_stale_cache_writeback() {
         });
 
         let (lock, ready) = &*control;
-        let mut state = lock.lock().expect("race state lock poisoned");
+        let mut state = lock.lock();
         while !state.started {
-            state = ready.wait(state).expect("race state lock poisoned");
+            ready.wait(&mut state);
         }
         drop(state);
 
         let invalidation = db.invalidate(SlowDouble(1));
         assert_eq!(invalidation.invalidated[0].description, "slow_double(1)");
 
-        let mut state = lock.lock().expect("race state lock poisoned");
+        let mut state = lock.lock();
         state.release = true;
         ready.notify_all();
         drop(state);

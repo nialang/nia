@@ -60,14 +60,14 @@ fn invalidation_during_validation_cannot_restore_stale_green_value() {
     let latest = std::thread::scope(|scope| {
         let handle = scope.spawn(move || worker_db.expect_get(ValidationRaceDerived));
         let (lock, ready) = &*control;
-        let mut state = lock.lock().expect("validation race lock poisoned");
+        let mut state = lock.lock();
         while !state.started {
-            state = ready.wait(state).expect("validation race lock poisoned");
+            ready.wait(&mut state);
         }
         drop(state);
         db.context().input.store(11, Ordering::SeqCst);
         db.validate_input(ValidationRaceInput, &11);
-        let mut state = lock.lock().expect("validation race lock poisoned");
+        let mut state = lock.lock();
         state.release = true;
         ready.notify_all();
         drop(state);

@@ -159,7 +159,6 @@ impl QueryKey<CrossSessionCycleContext> for CrossSessionCycle {
             .context()
             .other
             .lock()
-            .expect("cross-session cycle link lock poisoned")
             .clone()
             .expect("cross-session cycle link must be installed");
         let dependency = match self {
@@ -292,11 +291,11 @@ impl QueryKey<RaceContext> for SlowDouble {
         db.context().executions.fetch_add(1, Ordering::SeqCst);
         if self.0 == 1 {
             let (lock, ready) = &*db.context().control;
-            let mut state = lock.lock().expect("race state lock poisoned");
+            let mut state = lock.lock();
             state.started = true;
             ready.notify_all();
             while !state.release {
-                state = ready.wait(state).expect("race state lock poisoned");
+                ready.wait(&mut state);
             }
         }
         Ok(self.0 * 2)

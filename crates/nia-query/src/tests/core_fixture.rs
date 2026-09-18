@@ -281,8 +281,7 @@ impl QueryKey<BatchIsolationContext> for BatchIsolationQuery {
             Self::ChildWait => {
                 *db.context()
                     .child_started
-                    .lock()
-                    .expect("batch isolation state lock poisoned") = true;
+                    .lock() = true;
                 db.context().child_ready.notify_all();
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
                 loop {
@@ -290,7 +289,6 @@ impl QueryKey<BatchIsolationContext> for BatchIsolationQuery {
                         .context()
                         .session
                         .lock()
-                        .expect("batch isolation session lock poisoned")
                         .clone()
                         .expect("batch isolation session must be installed");
                     let queued = session
@@ -299,7 +297,6 @@ impl QueryKey<BatchIsolationContext> for BatchIsolationQuery {
                         .shared
                         .state
                         .lock()
-                        .expect("query executor state lock poisoned")
                         .queue
                         .len();
                     if queued >= 3 {

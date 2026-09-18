@@ -64,10 +64,7 @@ fn priority_task_pool_runs_before_queued_batch_work() {
         QueryTask {
             batch: normal_batch_id,
             run: Box::new(move || {
-                normal_order
-                    .lock()
-                    .expect("task order lock poisoned")
-                    .push("normal");
+                normal_order.lock().push("normal");
                 normal_task_batch.complete(1, Ok(()));
                 normal_shared.notify_waiters();
                 normal_sender.send(()).expect("signal normal completion");
@@ -79,10 +76,7 @@ fn priority_task_pool_runs_before_queued_batch_work() {
     let priority_order = Arc::clone(&order);
     let mut pool = session.task_pool(1);
     pool.submit(move || {
-        priority_order
-            .lock()
-            .expect("task order lock poisoned")
-            .push("priority");
+        priority_order.lock().push("priority");
     })
     .expect("submit priority task");
     release_sender.send(()).expect("release executor worker");
@@ -95,10 +89,7 @@ fn priority_task_pool_runs_before_queued_batch_work() {
         normal_batch.finish().expect("finish normal batch"),
         vec![(), ()]
     );
-    assert_eq!(
-        *order.lock().expect("task order lock poisoned"),
-        vec!["priority", "normal"]
-    );
+    assert_eq!(*order.lock(), vec!["priority", "normal"]);
 }
 
 #[test]
