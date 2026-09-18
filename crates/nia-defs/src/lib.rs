@@ -830,7 +830,7 @@ pub fn stable_top_level_def_id(kind: DefKind, name: SymbolId) -> DefId {
             DefNamespace::Type
         }
         _ => {
-            panic!("top-level definition kind cannot be represented: {kind:?}");
+            panic!("Nia ICE: top-level definition kind cannot be represented: {kind:?}");
         }
     };
     DefId(stable_def_id(&DefIdentity::top(namespace, kind, &name)))
