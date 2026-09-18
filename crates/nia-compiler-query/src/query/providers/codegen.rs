@@ -438,7 +438,7 @@ pub(in crate::query) fn with_backend_finalization_schedule<R>(
                 ),
             )))
         },
-    );
+    )?;
     emit_backend_module_plan_allocation("after_consume");
     Ok(result)
 }

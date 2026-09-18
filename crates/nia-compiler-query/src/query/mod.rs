@@ -2678,6 +2678,7 @@ pub(crate) fn query_error_diagnostic(err: QueryError) -> Diagnostic {
                 .primary_fallback(Span::default(), "query input has no source span")
                 .finish()
         }
+        QueryError::Internal(ice) => Diagnostic::from(ice),
     }
 }
 

@@ -40,6 +40,7 @@ impl QuerySession {
                 dependencies: Mutex::new(QueryDependencyGraph::default()),
                 activity: Mutex::new(QueryActivityState::default()),
                 activity_ready: Condvar::new(),
+                unexpected_failure: Mutex::new(None),
             }),
         }
     }
@@ -55,7 +56,7 @@ impl QuerySession {
     }
 
     /// Runs independent tasks concurrently and restores submission order in the result.
-    pub fn run_tasks<T, O>(&self, tasks: impl IntoIterator<Item = T>) -> Vec<O>
+    pub fn run_tasks<T, O>(&self, tasks: impl IntoIterator<Item = T>) -> nia_ice::IceResult<Vec<O>>
     where
         T: FnOnce() -> O + Send + 'static,
         O: Send + 'static,
@@ -69,7 +70,7 @@ impl QuerySession {
         &self,
         tasks: impl IntoIterator<Item = T>,
         max_parallelism: usize,
-    ) -> Vec<O>
+    ) -> nia_ice::IceResult<Vec<O>>
     where
         T: FnOnce() -> O + Send + 'static,
         O: Send + 'static,
@@ -100,12 +101,12 @@ impl QuerySession {
                         .map(|(index, task)| (index, task()))
                         .collect::<Vec<_>>()
                 }
-            }))
+            }))?
             .into_iter()
             .flatten()
             .collect::<Vec<_>>();
         outcomes.sort_unstable_by_key(|(index, _)| *index);
-        outcomes.into_iter().map(|(_, output)| output).collect()
+        Ok(outcomes.into_iter().map(|(_, output)| output).collect())
     }
 
     /// Creates a backpressured pool whose `finish` result is submission ordered.
@@ -124,17 +125,25 @@ impl QuerySession {
             next_position: 0,
             pending: VecDeque::new(),
             completed: Vec::new(),
+            failure: None,
         }
     }
 
-    pub(super) fn run_tasks_inner<T, O>(&self, tasks: impl IntoIterator<Item = T>) -> Vec<O>
+    pub(super) fn run_tasks_inner<T, O>(
+        &self,
+        tasks: impl IntoIterator<Item = T>,
+    ) -> nia_ice::IceResult<Vec<O>>
     where
         T: FnOnce() -> O + Send + 'static,
         O: Send + 'static,
     {
+        self.inner.ensure_healthy()?;
         let tasks = tasks.into_iter().collect::<Vec<_>>();
         if tasks.len() <= 1 {
-            return tasks.into_iter().map(|task| task()).collect();
+            return tasks
+                .into_iter()
+                .map(|task| self.inner.capture_unexpected_panic(task))
+                .collect();
         }
         let batch = Arc::new(QueryBatch::new(tasks.len()));
         let batch_id = Arc::as_ptr(&batch) as usize;
@@ -146,10 +155,11 @@ impl QuerySession {
             .map(|(index, task)| {
                 let batch = Arc::clone(&batch);
                 let executor_shared = Arc::clone(&executor_shared);
+                let session = Arc::clone(&self.inner);
                 QueryTask {
                     batch: batch_id,
                     run: Box::new(move || {
-                        batch.complete(index, catch_unwind(AssertUnwindSafe(task)));
+                        batch.complete(index, session.capture_unexpected_panic(task));
                         executor_shared.notify_waiters();
                     }),
                 }
@@ -167,8 +177,8 @@ impl QuerySession {
     pub(super) fn with_task_completion_stream_inner<T, O, R>(
         &self,
         tasks: impl IntoIterator<Item = T>,
-        consume: impl FnOnce(&mut TaskCompletionStream<'_, O>) -> R,
-    ) -> R
+        consume: impl FnOnce(&mut TaskCompletionStream<'_, O>) -> nia_ice::IceResult<R>,
+    ) -> nia_ice::IceResult<R>
     where
         T: FnOnce() -> O + Send + 'static,
         O: Send + 'static,
@@ -184,10 +194,11 @@ impl QuerySession {
             .map(|(index, task)| {
                 let batch = Arc::clone(&batch);
                 let executor_shared = Arc::clone(&executor_shared);
+                let session = Arc::clone(&self.inner);
                 QueryTask {
                     batch: batch_id,
                     run: Box::new(move || {
-                        batch.complete(index, catch_unwind(AssertUnwindSafe(task)));
+                        batch.complete(index, session.capture_unexpected_panic(task));
                         executor_shared.notify_waiters();
                     }),
                 }
@@ -199,19 +210,9 @@ impl QuerySession {
             batch,
             batch_id,
             pending: VecDeque::new(),
-            panic: None,
+            failure: None,
         };
-        let result = catch_unwind(AssertUnwindSafe(|| consume(&mut stream)));
-        let drain = catch_unwind(AssertUnwindSafe(|| stream.drain()));
-        match result {
-            Ok(value) => {
-                if let Err(payload) = drain {
-                    resume_unwind(payload);
-                }
-                value
-            }
-            Err(payload) => resume_unwind(payload),
-        }
+        consume(&mut stream)
     }
 
     pub(super) fn enter_activity(&self) -> QueryActivityGuard<'_> {
@@ -335,6 +336,39 @@ impl QuerySession {
             return Err(QueryError::Cycle { cycle });
         }
         Ok(Some(QueryWaitGuard { from, to }))
+    }
+}
+
+impl QuerySessionInner {
+    pub(super) fn ensure_healthy(&self) -> nia_ice::IceResult<()> {
+        let failure = self
+            .unexpected_failure
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match failure.as_ref() {
+            Some(ice) => Err(ice
+                .clone()
+                .with_context("query session is no longer reusable")),
+            None => Ok(()),
+        }
+    }
+
+    pub(super) fn capture_unexpected_panic<T>(
+        &self,
+        f: impl FnOnce() -> T,
+    ) -> nia_ice::IceResult<T> {
+        self.ensure_healthy()?;
+        let result = nia_ice::catch_unexpected_panic(f);
+        if let Err(ice) = &result {
+            let mut failure = self
+                .unexpected_failure
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if failure.is_none() {
+                *failure = Some(ice.clone());
+            }
+        }
+        result
     }
 }
 

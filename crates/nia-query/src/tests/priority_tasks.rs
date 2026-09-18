@@ -18,10 +18,11 @@ fn bounded_priority_task_pool_preserves_submission_order_and_lanes() {
             barrier.wait();
             active.fetch_sub(1, Ordering::SeqCst);
             OwnedNonCloneValue { value }
-        });
+        })
+        .expect("submit priority task");
     }
 
-    let values = pool.finish();
+    let values = pool.finish().expect("finish priority tasks");
 
     assert_eq!(
         values
@@ -82,14 +83,18 @@ fn priority_task_pool_runs_before_queued_batch_work() {
             .lock()
             .expect("task order lock poisoned")
             .push("priority");
-    });
+    })
+    .expect("submit priority task");
     release_sender.send(()).expect("release executor worker");
     normal_receiver
         .recv_timeout(std::time::Duration::from_secs(2))
         .expect("queued normal task completion");
 
-    assert_eq!(pool.finish(), vec![()]);
-    assert_eq!(normal_batch.finish(), vec![(), ()]);
+    assert_eq!(pool.finish().expect("finish priority task"), vec![()]);
+    assert_eq!(
+        normal_batch.finish().expect("finish normal batch"),
+        vec![(), ()]
+    );
     assert_eq!(
         *order.lock().expect("task order lock poisoned"),
         vec!["priority", "normal"]
@@ -101,16 +106,26 @@ fn priority_task_pool_drains_after_task_panic() {
     let session = QuerySession::with_parallelism(2);
     let completed = Arc::new(AtomicUsize::new(0));
     let mut pool = session.task_pool(2);
-    pool.submit(|| -> usize { panic!("priority task failure") });
+    pool.submit(|| -> usize { panic!("priority task failure") })
+        .expect("submit panicking task");
     let task_completed = Arc::clone(&completed);
     pool.submit(move || {
         task_completed.fetch_add(1, Ordering::SeqCst);
         7
-    });
+    })
+    .expect("submit completing task");
 
-    let result = catch_unwind(AssertUnwindSafe(|| pool.finish()));
+    let failure = pool.finish().expect_err("task panic must become an ICE");
 
-    assert!(result.is_err());
-    assert_eq!(completed.load(Ordering::SeqCst), 1);
-    assert_eq!(session.run_tasks([|| 9]), vec![9]);
+    assert_eq!(failure.origin, nia_ice::IceOrigin::UnexpectedPanic);
+    assert_eq!(failure.message, "priority task failure");
+    assert!(
+        failure
+            .location
+            .as_deref()
+            .is_some_and(|location| location.contains("priority_tasks.rs")),
+        "{failure:?}"
+    );
+    assert_eq!(completed.load(Ordering::SeqCst), 0);
+    assert!(session.run_tasks([|| 9]).is_err());
 }

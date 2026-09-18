@@ -20,7 +20,9 @@ fn reports_same_thread_query_cycles() {
     let error = db.get(Recursive).expect_err("cycle should be reported");
     let cycle = match error {
         QueryError::Cycle { cycle } => cycle,
-        QueryError::InvalidInput { .. } => panic!("expected query cycle"),
+        QueryError::InvalidInput { .. } | QueryError::Internal(_) => {
+            panic!("expected query cycle")
+        }
     };
     assert_eq!(cycle.len(), 2);
     assert!(cycle.iter().all(|frame| frame.name == "recursive"));
@@ -50,7 +52,9 @@ fn query_can_report_invalid_input_as_query_error() {
             assert_eq!(query.name, "invalid_input_query");
             assert_eq!(message, "bad fixture");
         }
-        QueryError::Cycle { .. } => panic!("expected invalid input error"),
+        QueryError::Cycle { .. } | QueryError::Internal(_) => {
+            panic!("expected invalid input error")
+        }
     }
 }
 
@@ -68,7 +72,9 @@ fn get_many_reports_query_failures_as_values() {
             assert_eq!(query.name, "invalid_input_query");
             assert_eq!(message, "bad fixture");
         }
-        QueryError::Cycle { .. } => panic!("expected invalid input error"),
+        QueryError::Cycle { .. } | QueryError::Internal(_) => {
+            panic!("expected invalid input error")
+        }
     }
 }
 
@@ -86,7 +92,9 @@ fn failed_parent_query_drops_speculative_dependencies() {
             assert_eq!(query.name, "invalid_after_dependency");
             assert_eq!(message, "failed after dependency");
         }
-        QueryError::Cycle { .. } => panic!("expected invalid input error"),
+        QueryError::Cycle { .. } | QueryError::Internal(_) => {
+            panic!("expected invalid input error")
+        }
     }
     assert!(db.query_trace().dependencies.is_empty());
 
@@ -217,15 +225,14 @@ fn distinct_sessions_detect_cross_stack_query_cycles() {
 }
 
 #[test]
-fn panicking_query_resets_slot_for_later_attempts() {
+fn panicking_query_reports_internal_error_and_taints_session() {
     let db = QueryDb::new(TestContext {
         executions: AtomicUsize::new(0),
     });
 
-    let first = std::panic::catch_unwind(|| db.expect_get(PanicsOnce))
-        .expect_err("first query should panic");
-    assert!(first.is::<&'static str>());
+    let first = db.get(PanicsOnce).expect_err("first query should fail");
+    assert!(matches!(first, QueryError::Internal(_)));
 
-    assert_eq!(*db.expect_get(PanicsOnce), 99);
-    assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
+    assert!(matches!(db.get(PanicsOnce), Err(QueryError::Internal(_))));
+    assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
 }

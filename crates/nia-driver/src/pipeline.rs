@@ -515,7 +515,7 @@ impl Driver {
 
     /// Checks every module reachable from the request's module map.
     pub fn check_all_modules(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
-        DriverOutput::catch_ice(|| {
+        DriverOutput::catch_unexpected_panic(|| {
             let program = match self.check_all_modules_inner(request) {
                 Ok(program) => program,
                 Err(error) => {
@@ -536,7 +536,7 @@ impl Driver {
         &self,
         request: &CheckRequest,
     ) -> DriverOutput<SourceInputManifest> {
-        DriverOutput::catch_ice(|| {
+        DriverOutput::catch_unexpected_panic(|| {
             let loader = self.loader_database(request);
             if let Err(error) = loader.load_program() {
                 return DriverOutput::from_error(DriverError::InternalDiagnostic(
@@ -570,7 +570,7 @@ impl Driver {
 
     /// Checks the request entry and its reachable semantic program.
     pub fn check_entry(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
-        DriverOutput::catch_ice(|| {
+        DriverOutput::catch_unexpected_panic(|| {
             let program = match self.check_entry_inner(request) {
                 Ok(program) => program,
                 Err(error) => {
@@ -591,7 +591,7 @@ impl Driver {
         &self,
         request: CheckRequest,
     ) -> DriverOutput<CheckedProgramWithSourceManifest> {
-        DriverOutput::catch_ice(|| {
+        DriverOutput::catch_unexpected_panic(|| {
             let checked = match self.check_entry_with_source_manifest_inner(request) {
                 Ok(checked) => checked,
                 Err(error) => {
@@ -634,7 +634,7 @@ impl Driver {
 
     /// Checks and lowers the request into a code-generation program.
     pub fn codegen(&self, request: CheckRequest) -> DriverOutput<CodegenProgram> {
-        DriverOutput::catch_ice(|| {
+        DriverOutput::catch_unexpected_panic(|| {
             let program = match self.codegen_inner(request) {
                 Ok(program) => program,
                 Err(error) => {
@@ -757,7 +757,7 @@ impl Driver {
 
     /// Emits LLVM IR modules for a checked request.
     pub fn emit_llvm_ir(&self, request: EmitLlvmRequest) -> DriverOutput<LlvmIrArtifact> {
-        DriverOutput::catch_ice(|| {
+        DriverOutput::catch_unexpected_panic(|| {
             let timings = request.check.timings;
             let database = match self.compiler_database(&request.check) {
                 Ok(database) => database,
@@ -876,7 +876,7 @@ impl Driver {
         program: &CodegenProgram,
         timings: TimingMode,
     ) -> DriverOutput<LlvmIrArtifact> {
-        DriverOutput::catch_ice(|| {
+        DriverOutput::catch_unexpected_panic(|| {
             let session = self.codegen_query_session();
             let output = nia_codegen_llvm::emit_llvm_ir_with_options(
                 std::sync::Arc::clone(&program.backend_lowering),
@@ -912,7 +912,7 @@ impl Driver {
         &self,
         request: EmitObjectRequest,
     ) -> DriverOutput<ObjectArtifactWithSourceManifest> {
-        DriverOutput::catch_ice(|| {
+        DriverOutput::catch_unexpected_panic(|| {
             let timings = request.check.timings;
             let (database, loader) = match self
                 .compilation_databases_with_codegen_scope(&request.check, CodegenScope::Entry)
@@ -1050,7 +1050,7 @@ impl Driver {
         program: &CodegenProgram,
         timings: TimingMode,
     ) -> DriverOutput<ObjectArtifact> {
-        DriverOutput::catch_ice(|| {
+        DriverOutput::catch_unexpected_panic(|| {
             let session = self.codegen_query_session();
             let cache = self.object_cache.as_ref().map(|cache| {
                 cache.clone() as std::sync::Arc<dyn nia_codegen_llvm::ObjectWorkProductCache>
@@ -1095,7 +1095,7 @@ impl Driver {
         &self,
         request: WriteObjectRequest,
     ) -> DriverOutput<WrittenObjectArtifact> {
-        DriverOutput::catch_ice(|| {
+        DriverOutput::catch_unexpected_panic(|| {
             let output = self.emit_native_objects(EmitObjectRequest {
                 check: request.check,
             });
@@ -1113,7 +1113,7 @@ impl Driver {
         objects: &ObjectArtifact,
         output: ObjectOutput,
     ) -> DriverOutput<WrittenObjectArtifact> {
-        DriverOutput::catch_ice(|| {
+        DriverOutput::catch_unexpected_panic(|| {
             let written = match output {
                 ObjectOutput::Single(path) => {
                     if objects.link_inputs.len() != 1 {
@@ -1183,7 +1183,7 @@ impl Driver {
         &self,
         request: LinkExecutableRequest,
     ) -> DriverOutput<LinkedExecutableWithSourceManifest> {
-        DriverOutput::catch_ice(|| {
+        DriverOutput::catch_unexpected_panic(|| {
             let mut request = request;
             request.link_options.target =
                 LinkTarget::from_target_config(&self.config.artifact_target);
@@ -1246,7 +1246,7 @@ impl Driver {
         mut link_options: LinkOptions,
         timings: TimingMode,
     ) -> DriverOutput<ExecutableArtifact> {
-        DriverOutput::catch_ice(|| {
+        DriverOutput::catch_unexpected_panic(|| {
             link_options.target = LinkTarget::from_target_config(&self.config.artifact_target);
             let link_fingerprint = match link_options.result_fingerprint(
                 &objects.link_inputs,
@@ -1370,7 +1370,7 @@ impl Driver {
         output: PathBuf,
         mut archive_options: ArchiveOptions,
     ) -> DriverOutput<StaticArchiveArtifact> {
-        DriverOutput::catch_ice(|| {
+        DriverOutput::catch_unexpected_panic(|| {
             archive_options.target = LinkTarget::from_target_config(&self.config.artifact_target);
             let archive_fingerprint = match archive_options.result_fingerprint(
                 &objects.link_inputs,
@@ -2141,10 +2141,10 @@ impl<T> DriverOutput<T> {
         Self::from_error(DriverError::CodegenProgramDiagnostics(Box::new(program)))
     }
 
-    pub(crate) fn catch_ice(f: impl FnOnce() -> Self) -> Self {
-        match nia_ice::catch_ice(f) {
+    pub(crate) fn catch_unexpected_panic(f: impl FnOnce() -> Self) -> Self {
+        match nia_ice::catch_unexpected_panic(f) {
             Ok(output) => output,
-            Err(ice) => Self::from_error(DriverError::InternalDiagnostic(ice.diagnostic())),
+            Err(ice) => Self::from_error(DriverError::InternalDiagnostic(Diagnostic::from(ice))),
         }
     }
 }

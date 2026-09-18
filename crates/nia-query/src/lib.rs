@@ -28,7 +28,6 @@ use std::{
     collections::VecDeque,
     fmt::{self, Debug},
     hash::Hash,
-    panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     sync::{
         Arc, Condvar, Mutex, OnceLock, RwLock, Weak,
         atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering},
@@ -95,6 +94,7 @@ struct QuerySessionInner {
     dependencies: Mutex<QueryDependencyGraph>,
     activity: Mutex<QueryActivityState>,
     activity_ready: Condvar,
+    unexpected_failure: Mutex<Option<nia_ice::Ice>>,
 }
 
 #[derive(Default)]
@@ -259,7 +259,7 @@ struct QueryExecutionBudgetStackGuard {
     budget: usize,
 }
 
-type QueryBatchOutcome<O> = Result<O, Box<dyn Any + Send>>;
+type QueryBatchOutcome<O> = nia_ice::IceResult<O>;
 
 struct QueryBatch<O> {
     state: Mutex<QueryBatchState<O>>,
@@ -276,7 +276,7 @@ struct TaskCompletionStream<'a, O> {
     batch: Arc<QueryBatch<O>>,
     batch_id: usize,
     pending: VecDeque<(usize, QueryBatchOutcome<O>)>,
-    panic: Option<Box<dyn Any + Send>>,
+    failure: Option<nia_ice::Ice>,
 }
 
 struct SpawnedQueryTask<O> {
@@ -297,6 +297,7 @@ pub struct QueryTaskPool<'session, O: Send + 'static> {
     next_position: usize,
     pending: VecDeque<SpawnedQueryTask<O>>,
     completed: Vec<(usize, O)>,
+    failure: Option<nia_ice::Ice>,
 }
 
 /// Completion-order view over a batch of owned query results.
@@ -725,6 +726,25 @@ pub enum QueryError {
         /// Provider or storage diagnostic.
         message: String,
     },
+    /// The query provider or executor detected an internal compiler failure.
+    Internal(nia_ice::Ice),
+}
+
+impl QueryError {
+    fn with_query_context(self, query: QueryFrame) -> Self {
+        match self {
+            Self::Internal(ice) => {
+                Self::Internal(ice.with_context(format!("query `{}`", query.description)))
+            }
+            error => error,
+        }
+    }
+}
+
+impl From<nia_ice::Ice> for QueryError {
+    fn from(ice: nia_ice::Ice) -> Self {
+        Self::Internal(ice)
+    }
 }
 
 impl fmt::Display for QueryError {
@@ -744,6 +764,7 @@ impl fmt::Display for QueryError {
                     query.description
                 )
             }
+            QueryError::Internal(ice) => fmt::Display::fmt(ice, f),
         }
     }
 }
@@ -814,8 +835,10 @@ impl<O> QueryCompletionStream<'_, '_, O> {
     ///
     /// The returned index is the task's submission index. Worker dependency
     /// facts are merged into the logical parent before the value is yielded.
-    pub fn wait_next(&mut self) -> Option<(usize, O)> {
-        let (position, (value, task_dependencies)) = self.tasks.wait_next()?;
+    pub fn wait_next(&mut self) -> nia_ice::IceResult<Option<(usize, O)>> {
+        let Some((position, (value, task_dependencies))) = self.tasks.wait_next()? else {
+            return Ok(None);
+        };
         self.dependencies.nodes.extend(task_dependencies.nodes);
         if let (Some(dependencies), Some(task_dependencies)) = (
             self.dependencies.fingerprints.as_mut(),
@@ -823,7 +846,7 @@ impl<O> QueryCompletionStream<'_, '_, O> {
         ) {
             dependencies.extend(task_dependencies);
         }
-        Some((position, value))
+        Ok(Some((position, value)))
     }
 }
 

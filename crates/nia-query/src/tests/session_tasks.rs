@@ -4,7 +4,9 @@ use super::*;
 fn session_tasks_move_non_clone_outputs_in_submission_order() {
     let session = QuerySession::with_parallelism(2);
 
-    let values = session.run_tasks((0..4).map(|value| move || OwnedNonCloneValue { value }));
+    let values = session
+        .run_tasks((0..4).map(|value| move || OwnedNonCloneValue { value }))
+        .expect("session tasks");
 
     assert_eq!(
         values
@@ -34,7 +36,10 @@ fn session_tasks_use_the_shared_executor_budget() {
         }
     });
 
-    assert_eq!(session.run_tasks(tasks), vec![0, 1, 2, 3]);
+    assert_eq!(
+        session.run_tasks(tasks).expect("session tasks"),
+        vec![0, 1, 2, 3]
+    );
     assert_eq!(active.load(Ordering::SeqCst), 0);
     assert_eq!(peak_active.load(Ordering::SeqCst), 2);
     assert_eq!(session.inner.executor.peak_active(), 2);
@@ -59,7 +64,9 @@ fn bounded_session_tasks_preserve_order_and_limit_worker_lanes() {
         }
     });
 
-    let values = session.run_tasks_bounded(tasks, 2);
+    let values = session
+        .run_tasks_bounded(tasks, 2)
+        .expect("bounded session tasks");
 
     assert_eq!(
         values

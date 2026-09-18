@@ -1,4 +1,5 @@
 use super::*;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[test]
 fn invalidates_direct_query_value() {

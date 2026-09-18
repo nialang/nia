@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 jobserver.workspace = true
 nia-hash.workspace = true
+nia-ice.workspace = true
 nia-timing.workspace = true
 
 [lib]

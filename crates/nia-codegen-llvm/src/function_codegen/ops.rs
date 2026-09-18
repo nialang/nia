@@ -236,10 +236,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_conditional_branch(lhs_value, merge_block, rhs_block)
             }
             _ => {
-                return Err(nia_ice::Ice::new(
+                return Err(nia_diagnostic::Diagnostic::from(nia_ice::Ice::new(
                     "only logical operators reach short-circuit codegen",
-                )
-                .diagnostic());
+                )));
             }
         }
         .map_err(|_| self.error(span, "failed to build logical branch"))?;

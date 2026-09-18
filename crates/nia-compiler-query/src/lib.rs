@@ -121,7 +121,7 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
     pub fn wait_next(
         &mut self,
     ) -> nia_query::QueryResult<Option<nia_backend_ir::BackendModuleReady>> {
-        let Some((position, finalization)) = self.completions.wait_next() else {
+        let Some((position, finalization)) = self.completions.wait_next()? else {
             return Ok(None);
         };
         let finalization = finalization?;

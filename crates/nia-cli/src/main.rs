@@ -85,7 +85,7 @@ fn run_with_ice_boundary(
     f: impl FnOnce() -> ExitCode,
     report: impl FnOnce(&nia_ice::Ice),
 ) -> ExitCode {
-    match nia_ice::catch_ice(|| nia_timing::collect_to_stderr(timing_options, f)) {
+    match nia_ice::catch_unexpected_panic(|| nia_timing::collect_to_stderr(timing_options, f)) {
         Ok(code) => code,
         Err(ice) => {
             report(&ice);

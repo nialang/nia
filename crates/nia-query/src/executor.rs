@@ -582,7 +582,7 @@ impl<O> QueryBatch<O> {
         (outcomes, state.remaining == 0)
     }
 
-    pub(super) fn finish(&self) -> Vec<O> {
+    pub(super) fn finish(&self) -> nia_ice::IceResult<Vec<O>> {
         // `completed` drives responsive streaming in completion order; `outcomes` remains indexed
         // by submission position so the non-streaming API is deterministic across schedules.
         let outcomes = {
@@ -591,28 +591,33 @@ impl<O> QueryBatch<O> {
             std::mem::take(&mut state.outcomes)
         };
         let mut values = Vec::with_capacity(outcomes.len());
+        let mut failure = None;
         for outcome in outcomes {
             let outcome = outcome.expect("completed query batch result must exist");
-            let value = match outcome {
-                Ok(value) => value,
-                Err(payload) => resume_unwind(payload),
-            };
-            values.push(value);
+            match outcome {
+                Ok(value) if failure.is_none() => values.push(value),
+                Ok(_) => {}
+                Err(ice) if failure.is_none() => failure = Some(ice),
+                Err(_) => {}
+            }
         }
-        values
+        match failure {
+            Some(ice) => Err(ice),
+            None => Ok(values),
+        }
     }
 }
 
 impl<O> TaskCompletionStream<'_, O> {
-    pub(super) fn wait_next(&mut self) -> Option<(usize, O)> {
+    pub(super) fn wait_next(&mut self) -> nia_ice::IceResult<Option<(usize, O)>> {
         loop {
             while let Some((position, outcome)) = self.pending.pop_front() {
                 match outcome {
-                    Ok(value) if self.panic.is_none() => return Some((position, value)),
+                    Ok(value) if self.failure.is_none() => return Ok(Some((position, value))),
                     Ok(_) => {}
-                    Err(payload) => {
-                        if self.panic.is_none() {
-                            self.panic = Some(payload);
+                    Err(ice) => {
+                        if self.failure.is_none() {
+                            self.failure = Some(ice);
                         }
                     }
                 }
@@ -623,19 +628,15 @@ impl<O> TaskCompletionStream<'_, O> {
                 continue;
             }
             if is_complete {
-                if let Some(payload) = self.panic.take() {
-                    resume_unwind(payload);
+                if let Some(ice) = self.failure.take() {
+                    return Err(ice);
                 }
-                return None;
+                return Ok(None);
             }
             if !self.executor.try_run_one(self.batch_id) {
                 self.executor.wait_for_batch_progress(&self.batch);
             }
         }
-    }
-
-    pub(super) fn drain(&mut self) {
-        while self.wait_next().is_some() {}
     }
 }
 
@@ -649,21 +650,23 @@ where
     }
 
     /// Submits one task, helping/draining when the pool reaches capacity.
-    pub fn submit(&mut self, task: impl FnOnce() -> O + Send + 'static) {
+    pub fn submit(&mut self, task: impl FnOnce() -> O + Send + 'static) -> nia_ice::IceResult<()> {
         if self.pending.len() >= self.capacity {
-            self.wait_one();
+            self.wait_one()?;
         }
+        self.session.inner.ensure_healthy()?;
         let batch = Arc::new(QueryBatch::new(1));
         let batch_id = Arc::as_ptr(&batch) as usize;
         let executor_shared = Arc::clone(&self.session.inner.executor.shared);
         let task_batch = Arc::clone(&batch);
+        let session = Arc::clone(&self.session.inner);
         self.session
             .inner
             .executor
             .submit_all_priority(vec![QueryTask {
                 batch: batch_id,
                 run: Box::new(move || {
-                    task_batch.complete(0, catch_unwind(AssertUnwindSafe(task)));
+                    task_batch.complete(0, session.capture_unexpected_panic(task));
                     executor_shared.notify_waiters();
                 }),
             }]);
@@ -674,31 +677,31 @@ where
             batch,
             batch_id,
         });
+        Ok(())
     }
 
-    /// Drains all accepted tasks in submission order, rethrowing the first panic afterwards.
-    pub fn finish(mut self) -> Vec<O> {
-        let mut panic = None;
+    /// Drains all accepted tasks and returns the first internal failure after cleanup.
+    pub fn finish(mut self) -> nia_ice::IceResult<Vec<O>> {
         while !self.pending.is_empty() {
-            let result = catch_unwind(AssertUnwindSafe(|| self.wait_one()));
-            if let Err(payload) = result
-                && panic.is_none()
+            if let Err(ice) = self.wait_one()
+                && self.failure.is_none()
             {
-                panic = Some(payload);
+                self.failure = Some(ice);
             }
         }
-        if let Some(payload) = panic {
-            resume_unwind(payload);
+        if let Some(ice) = self.failure.take() {
+            return Err(ice);
         }
         self.completed
             .sort_unstable_by_key(|(position, _)| *position);
-        std::mem::take(&mut self.completed)
+        let completed = std::mem::take(&mut self.completed)
             .into_iter()
             .map(|(_, output)| output)
-            .collect()
+            .collect();
+        Ok(completed)
     }
 
-    fn wait_one(&mut self) {
+    fn wait_one(&mut self) -> nia_ice::IceResult<()> {
         loop {
             if let Some(index) = self
                 .pending
@@ -709,9 +712,13 @@ where
                     .pending
                     .remove(index)
                     .expect("completed query task must remain pending");
-                let output = task.batch.finish().pop().expect("single query task output");
+                let output = task
+                    .batch
+                    .finish()?
+                    .pop()
+                    .expect("single query task output");
                 self.completed.push((task.position, output));
-                return;
+                return Ok(());
             }
             let task = self
                 .pending
@@ -733,10 +740,7 @@ where
 {
     fn drop(&mut self) {
         while !self.pending.is_empty() {
-            let result = catch_unwind(AssertUnwindSafe(|| self.wait_one()));
-            if result.is_err() {
-                continue;
-            }
+            let _ = self.wait_one();
         }
     }
 }

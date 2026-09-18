@@ -320,6 +320,7 @@ dependencies = [
  "nia-compat",
  "nia-compiler-query",
  "nia-driver",
+ "nia-ice",
  "nia-imports",
  "nia-linker",
  "nia-loader-query",
@@ -544,6 +545,7 @@ name = "nia-diagnostic"
 version = "0.2.0-dev"
 dependencies = [
  "nia-compat",
+ "nia-ice",
  "nia-span",
 ]
 
@@ -686,9 +688,6 @@ version = "0.2.0-dev"
 [[package]]
 name = "nia-ice"
 version = "0.2.0-dev"
-dependencies = [
- "nia-diagnostic",
-]
 
 [[package]]
 name = "nia-ids"
@@ -992,6 +991,7 @@ version = "0.2.0-dev"
 dependencies = [
  "jobserver",
  "nia-hash",
+ "nia-ice",
  "nia-timing",
 ]
 

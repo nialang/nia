@@ -692,6 +692,21 @@ impl Diagnostic {
             .finish()
     }
 
+    /// Converts a structured compiler invariant failure into a reportable diagnostic.
+    pub fn from_ice(ice: &nia_ice::Ice) -> Diagnostic {
+        let mut diagnostic = Self::internal_error(codes::ICE, ice.render_summary()).note(
+            "this is a compiler bug; please report it with the source file and command that triggered it",
+        );
+        if let Some(location) = &ice.location {
+            diagnostic = diagnostic.debug("failure_location", location);
+        }
+        diagnostic = diagnostic.debug("ice_origin", ice.origin);
+        for (index, context) in ice.contexts.iter().enumerate() {
+            diagnostic = diagnostic.debug(format!("ice_context_{index}"), context);
+        }
+        diagnostic.finish()
+    }
+
     /// Returns the first primary span, falling back to the first label.
     pub fn primary_span(&self) -> Option<Span> {
         self.labels
@@ -725,6 +740,18 @@ impl Diagnostic {
     /// Reports whether the diagnostic uses an unregistered code.
     pub fn uses_unregistered_code(&self) -> bool {
         !self.code.is_registered()
+    }
+}
+
+impl From<&nia_ice::Ice> for Diagnostic {
+    fn from(ice: &nia_ice::Ice) -> Self {
+        Self::from_ice(ice)
+    }
+}
+
+impl From<nia_ice::Ice> for Diagnostic {
+    fn from(ice: nia_ice::Ice) -> Self {
+        Self::from_ice(&ice)
     }
 }
 
@@ -1173,6 +1200,31 @@ mod tests {
         let rendered = render_diagnostic("main.nia", "abc", &diagnostic);
         assert!(rendered.contains("error internal[I0001]: missing definition"));
         assert!(rendered.contains("debug: node_key = \"n1\""));
+    }
+
+    #[test]
+    fn structured_ice_uses_the_canonical_internal_diagnostic() {
+        let ice = nia_ice::Ice::new("broken query invariant")
+            .with_location(Some("worker.rs:12:3".to_string()))
+            .with_context("query `module_types(main)`");
+
+        let diagnostic = Diagnostic::from(ice);
+
+        assert_eq!(diagnostic.category, DiagnosticCategory::Internal);
+        assert_eq!(diagnostic.code.as_str(), "I0001");
+        assert!(diagnostic.summary.contains("broken query invariant"));
+        assert!(
+            diagnostic
+                .debug
+                .iter()
+                .any(|field| field.key == "failure_location")
+        );
+        assert!(
+            diagnostic
+                .debug
+                .iter()
+                .any(|field| field.key == "ice_context_0")
+        );
     }
 
     #[test]

@@ -38,24 +38,6 @@ impl crate::ObjectWorkProductCache for AlwaysHitObjectCache {
 }
 
 #[test]
-fn codegen_ice_boundary_converts_panic_to_diagnostic() {
-    let output = catch_llvm_codegen_ice(|| panic!("Nia ICE (LLVM): invalid value kind"));
-
-    assert!(output.modules.is_empty());
-    assert_eq!(output.diagnostics.len(), 1);
-    let diagnostic = &output.diagnostics[0];
-    assert_eq!(diagnostic.category, DiagnosticCategory::Internal);
-    assert_eq!(diagnostic.code.as_str(), "I0001");
-    assert!(diagnostic.summary.contains("invalid value kind"));
-    assert!(
-        diagnostic
-            .notes
-            .iter()
-            .any(|note| note.contains("compiler bug"))
-    );
-}
-
-#[test]
 fn native_object_cache_hit_skips_emission_and_publish() {
     let root = temp_dir("native_object_cache_hit_skips_emission_and_publish");
     let main = root.join("main.nia");
