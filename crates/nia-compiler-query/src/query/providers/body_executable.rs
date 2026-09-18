@@ -1374,6 +1374,9 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
             )
         };
     let body_check = run_body_check(inputs, body_const, const_module, filter, prechecked);
+    if let Some(error) = body_check.internal_error.clone() {
+        return Err(error.into());
+    }
     let stored_inputs = match (product, filter) {
         (
             nia_body_check::BodyCheckProduct::FactsOnly
