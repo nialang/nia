@@ -10,7 +10,7 @@ fn public_surface_snapshots_are_query_derived_facts() {
     let _ = db.expect_get(PublicSurfacesQuery);
     let _ = db.expect_get(ModulePublicSurfaceQuery(module_id));
     let _ = db.expect_get(ModuleUsingScopeQuery(module_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "public_surfaces"

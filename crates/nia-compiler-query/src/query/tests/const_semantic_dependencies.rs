@@ -12,7 +12,7 @@ fn body_check_uses_const_semantic_modules_not_ast_module_map() {
     let db = query_db(fixture.program());
 
     let _ = db.expect_get(BodyCheckQuery(module_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "body_check" && dependency.to.name == "const_module"

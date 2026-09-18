@@ -305,29 +305,29 @@ impl QuerySession {
         Ok(())
     }
 
-    pub(super) fn database(&self, db_id: QueryDbId) -> Arc<dyn ErasedQueryDatabase> {
+    pub(super) fn database(&self, db_id: QueryDbId) -> QueryResult<Arc<dyn ErasedQueryDatabase>> {
         self.inner
             .databases
             .lock()
             .get(&db_id)
             .cloned()
-            .expect("query node references an unknown database")
+            .ok_or_else(|| QueryError::internal("query node references an unknown database"))
     }
 
-    pub(super) fn frame(&self, node_id: QueryNodeId) -> QueryFrame {
-        self.database(node_id.db_id)
+    pub(super) fn frame(&self, node_id: QueryNodeId) -> QueryResult<QueryFrame> {
+        self.database(node_id.db_id)?
             .frame(node_id)
-            .expect("query node id must reference a registered slot")
+            .ok_or_else(|| QueryError::internal("query node id references no registered slot"))
     }
 
-    pub(super) fn slot(&self, node_id: QueryNodeId) -> Arc<dyn ErasedQuerySlot> {
-        self.database(node_id.db_id)
+    pub(super) fn slot(&self, node_id: QueryNodeId) -> QueryResult<Arc<dyn ErasedQuerySlot>> {
+        self.database(node_id.db_id)?
             .slot(node_id)
-            .expect("query node id must reference a registered slot")
+            .ok_or_else(|| QueryError::internal("query node id references no registered slot"))
     }
 
     pub(super) fn ensure(&self, node_id: QueryNodeId) -> QueryResult<()> {
-        self.database(node_id.db_id).ensure(node_id)
+        self.database(node_id.db_id)?.ensure(node_id)
     }
 
     pub(super) fn begin_query_wait(

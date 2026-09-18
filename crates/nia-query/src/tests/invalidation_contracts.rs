@@ -10,7 +10,7 @@ fn invalidating_uncached_key_reports_root_without_allocating_slot() {
 
     assert_eq!(invalidation.invalidated.len(), 1);
     assert_eq!(invalidation.invalidated[0].description, "double(9)");
-    assert!(db.query_trace().queries.is_empty());
+    assert!(db.query_trace().expect("query trace").queries.is_empty());
 }
 
 #[test]

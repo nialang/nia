@@ -44,7 +44,7 @@ fn parse_error_changes_keep_stable_program_module_membership_green() {
         nia_item_tree::SignatureItemSet::Functions,
     ));
     assert!(Arc::ptr_eq(&first, &latest));
-    let trace = database.query_trace();
+    let trace = database.query_trace().expect("query trace");
     let module_ids = trace
         .queries
         .iter()
@@ -76,7 +76,7 @@ fn signature_changes_keep_stable_program_module_membership_green() {
         nia_item_tree::SignatureItemSet::Functions,
     ));
     assert!(Arc::ptr_eq(&first, &latest));
-    let trace = database.query_trace();
+    let trace = database.query_trace().expect("query trace");
     let module_ids = trace
         .queries
         .iter()

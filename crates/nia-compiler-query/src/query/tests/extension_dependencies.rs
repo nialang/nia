@@ -14,7 +14,7 @@ fn extension_queries_use_module_semantic_queries() {
     let _ = db.expect_get(ExtensionProviderModuleFactsQuery(module_id));
     let _ = db.expect_get(ExtensionMethodIndexQuery);
     let _ = db.expect_get(ExtensionProviderDiscoveryIndexQuery);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(
         !trace

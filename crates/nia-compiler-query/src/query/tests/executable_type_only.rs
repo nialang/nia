@@ -61,7 +61,7 @@ missing_symbol
         type_module.const_eval.enum_values
     );
 
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     for full_query in ["type_resolution", "type_lowering", "value_resolution"] {
         assert!(
             !trace.queries.iter().any(|query| {
@@ -132,7 +132,7 @@ missing_symbol
         type_module.const_eval.array_lengths
     );
 
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     for full_query in ["type_resolution", "type_lowering", "value_resolution"] {
         assert!(
             !trace.queries.iter().any(|query| {

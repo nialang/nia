@@ -18,12 +18,18 @@ fn persistent_facade_facts_reuse_body_stable_entries_and_recover_from_corruption
     let first = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
     let first_facts = first.expect_get(module_facade_facts_query(&first, &facade));
     assert!(first_facts.public_type_exposes_name(&sym("Widget")));
-    assert_eq!(query_executions(&first.query_trace(), "parsed_module"), 1);
+    assert_eq!(
+        query_executions(&first.query_trace().expect("query trace"), "parsed_module"),
+        1
+    );
 
     let second = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
     let second_facts = second.expect_get(module_facade_facts_query(&second, &facade));
     assert_eq!(first_facts, second_facts);
-    assert_eq!(query_executions(&second.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&second.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 
     let path = cache.facade_facts_path(first_identity.facade_key);
     fs::write(&path, b"corrupt facade facts").expect("corrupt facade facts entry");
@@ -32,7 +38,10 @@ fn persistent_facade_facts_reuse_body_stable_entries_and_recover_from_corruption
     let repaired_facts = repaired.expect_get(module_facade_facts_query(&repaired, &facade));
     assert_eq!(first_facts, repaired_facts);
     assert_eq!(
-        query_executions(&repaired.query_trace(), "parsed_module"),
+        query_executions(
+            &repaired.query_trace().expect("query trace"),
+            "parsed_module"
+        ),
         1
     );
 
@@ -50,12 +59,18 @@ fn persistent_facade_facts_reuse_body_stable_entries_and_recover_from_corruption
     let edited = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
     let edited_facts = edited.expect_get(module_facade_facts_query(&edited, &facade));
     assert_eq!(first_facts, edited_facts);
-    assert_eq!(query_executions(&edited.query_trace(), "parsed_module"), 1);
+    assert_eq!(
+        query_executions(&edited.query_trace().expect("query trace"), "parsed_module"),
+        1
+    );
 
     let reused = frontend_cache_database(&main, &sources, module_map, cache, false);
     let reused_facts = reused.expect_get(module_facade_facts_query(&reused, &facade));
     assert_eq!(edited_facts, reused_facts);
-    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&reused.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 }
 
 #[test]
@@ -94,14 +109,20 @@ fn facade_facts_cache_keys_include_effective_module_map() {
     ));
     assert_ne!(mapped_facts, unmapped_facts);
     assert_eq!(
-        query_executions(&unmapped_db.query_trace(), "parsed_module"),
+        query_executions(
+            &unmapped_db.query_trace().expect("query trace"),
+            "parsed_module"
+        ),
         1
     );
 
     let reused = frontend_cache_database(&main, &sources, unmapped, cache, false);
     let reused_facts = reused.expect_get(module_facade_facts_query(&reused, &facade));
     assert_eq!(unmapped_facts, reused_facts);
-    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&reused.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 }
 
 #[test]
@@ -142,12 +163,18 @@ fn facade_facts_verification_replaces_semantically_wrong_valid_entry() {
     let verified = verifying.expect_get(module_facade_facts_query(&verifying, &facade));
     assert!(verified.public_type_exposes_name(&sym("Widget")));
     assert_eq!(
-        query_executions(&verifying.query_trace(), "parsed_module"),
+        query_executions(
+            &verifying.query_trace().expect("query trace"),
+            "parsed_module"
+        ),
         1
     );
 
     let reused = frontend_cache_database(&main, &sources, module_map, cache, false);
     let reused_facts = reused.expect_get(module_facade_facts_query(&reused, &facade));
     assert_eq!(verified, reused_facts);
-    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&reused.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 }

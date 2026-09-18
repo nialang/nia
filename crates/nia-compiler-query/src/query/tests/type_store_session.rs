@@ -30,7 +30,7 @@ fn revision_only_update_refreshes_all_revision_bearing_products() {
 
     fixture.update_module_source(module_id, source, SourceRevision(1));
     database.update(CompileRequest::new(fixture.program()));
-    let before_second_check = database.query_trace();
+    let before_second_check = database.query_trace().expect("query trace");
 
     let second = database.check_program();
     assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
@@ -38,7 +38,7 @@ fn revision_only_update_refreshes_all_revision_bearing_products() {
         .db
         .expect_get(DeclarationModuleItemTreeInputQuery(module_id));
     let latest_defs = database.db.expect_get(ModuleDefsQuery(module_id));
-    let after_second_check = database.query_trace();
+    let after_second_check = database.query_trace().expect("query trace");
 
     assert!(!Arc::ptr_eq(&first_tree, &latest_tree));
     assert!(!Arc::ptr_eq(&first_defs, &latest_defs));

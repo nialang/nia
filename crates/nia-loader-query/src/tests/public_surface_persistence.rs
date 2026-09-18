@@ -31,7 +31,10 @@ pub using self::Choice::{First as Selected, Second};
         .expect("Widget definition fact")
         .span;
     assert_eq!(
-        query_executions(&first.query_trace(), "loader_active_module_item_tree_fact"),
+        query_executions(
+            &first.query_trace().expect("query trace"),
+            "loader_active_module_item_tree_fact"
+        ),
         1
     );
 
@@ -47,14 +50,23 @@ pub using self::Choice::{First as Selected, Second};
     let second_facts = second.expect_get(public_surface_module_facts_query(&second, &main));
     assert_eq!(first_facts, second_facts);
     assert_eq!(
-        query_executions(&second.query_trace(), "loader_public_surface_module_facts"),
+        query_executions(
+            &second.query_trace().expect("query trace"),
+            "loader_public_surface_module_facts"
+        ),
         1
     );
     assert_eq!(
-        query_executions(&second.query_trace(), "loader_active_module_item_tree_fact"),
+        query_executions(
+            &second.query_trace().expect("query trace"),
+            "loader_active_module_item_tree_fact"
+        ),
         0
     );
-    assert_eq!(query_executions(&second.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&second.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
     assert_eq!(
         second.context().symbols.resolve(sym("Widget")).as_deref(),
         Some("Widget")
@@ -74,7 +86,10 @@ pub using self::Choice::{First as Selected, Second};
     let repaired_facts = repaired.expect_get(public_surface_module_facts_query(&repaired, &main));
     assert_eq!(first_facts, repaired_facts);
     assert_eq!(
-        query_executions(&repaired.query_trace(), "parsed_module"),
+        query_executions(
+            &repaired.query_trace().expect("query trace"),
+            "parsed_module"
+        ),
         1
     );
 
@@ -98,7 +113,10 @@ pub using self::Choice::{First as Selected, Second};
         .expect("edited Widget definition fact")
         .span;
     assert_ne!(first_widget_span, edited_widget_span);
-    assert_eq!(query_executions(&edited.query_trace(), "parsed_module"), 1);
+    assert_eq!(
+        query_executions(&edited.query_trace().expect("query trace"), "parsed_module"),
+        1
+    );
 
     let reused_sources = SourceDatabase::new();
     reused_sources.set_source(main.clone(), edited_source);
@@ -106,7 +124,10 @@ pub using self::Choice::{First as Selected, Second};
         frontend_cache_database(&main, &reused_sources, ModuleMap::default(), cache, false);
     let reused_facts = reused.expect_get(public_surface_module_facts_query(&reused, &main));
     assert_eq!(edited_facts, reused_facts);
-    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&reused.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 }
 
 #[test]
@@ -142,7 +163,10 @@ fn public_surface_facts_verification_replaces_semantically_wrong_valid_entry() {
     let verified = verifying.expect_get(public_surface_module_facts_query(&verifying, &main));
     assert!(verified.defs.iter().any(|def| def.name == sym("Widget")));
     assert_eq!(
-        query_executions(&verifying.query_trace(), "parsed_module"),
+        query_executions(
+            &verifying.query_trace().expect("query trace"),
+            "parsed_module"
+        ),
         1
     );
 
@@ -152,7 +176,10 @@ fn public_surface_facts_verification_replaces_semantically_wrong_valid_entry() {
         frontend_cache_database(&main, &reused_sources, ModuleMap::default(), cache, false);
     let reused_facts = reused.expect_get(public_surface_module_facts_query(&reused, &main));
     assert_eq!(verified, reused_facts);
-    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&reused.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 }
 
 #[test]

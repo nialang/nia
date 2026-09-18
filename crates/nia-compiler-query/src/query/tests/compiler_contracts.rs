@@ -693,7 +693,7 @@ fn compiler_database_exposes_query_trace() {
     let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
     let checked = database.check_program();
-    let trace = database.query_trace();
+    let trace = database.query_trace().expect("query trace");
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(trace.dependencies.iter().any(|dependency| {

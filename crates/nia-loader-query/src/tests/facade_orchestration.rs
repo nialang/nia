@@ -175,7 +175,7 @@ extend types::Widget {
         root.join("facade/providers.nia").to_string_lossy().as_ref(),
     );
 
-    let trace = database.query_trace();
+    let trace = database.query_trace().expect("query trace");
     let query = trace
         .queries
         .iter()

@@ -48,7 +48,7 @@ extend Used {
     let db = query_db(loaded);
 
     let _ = db.expect_get(VisibleExtensionsQuery(entry_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "visible_extensions"

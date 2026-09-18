@@ -16,7 +16,7 @@ fn module_defs_query_uses_active_item_tree_query() {
         .def_nodes
         .node_id(item_node_key)
         .expect("definition node id");
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert_eq!(
         defs.semantic.def_nodes.store_id(),
@@ -48,7 +48,7 @@ fn body_sensitive_resolution_uses_full_active_item_tree_query() {
     let db = query_db(fixture.program());
 
     let _ = db.expect_get(ValueResolutionQuery(module_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "value_resolution"
@@ -81,7 +81,7 @@ helper::value()
     let db = query_db(fixture.program());
 
     let values = db.expect_get(ValueResolutionQuery(entry_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
     assert!(!trace_has_dependency(
@@ -116,7 +116,7 @@ S::WIDTH
     let db = query_db(fixture.program());
 
     let values = db.expect_get(ValueResolutionQuery(module_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
     assert!(trace_has_dependency(
@@ -133,7 +133,7 @@ fn flow_check_uses_full_active_item_tree_query() {
     let db = query_db(fixture.program());
 
     let _ = db.expect_get(FlowCheckQuery(module_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "flow_check" && dependency.to.name == "full_active_module_item_tree"
@@ -157,7 +157,7 @@ fn static_check_uses_full_active_item_tree_query() {
     let db = query_db(fixture.program());
 
     let _ = db.expect_get(StaticCheckQuery(module_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "static_check"
@@ -199,7 +199,7 @@ fn body_check_collects_local_signature_subsets_with_full_type_lowering() {
     let db = query_db(fixture.program());
 
     let _ = db.expect_get(BodyCheckQuery(module_id));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "body_check" && dependency.to.name == "type_lowering"

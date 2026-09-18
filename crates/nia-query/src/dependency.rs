@@ -29,18 +29,17 @@ impl QueryDependencyGraph {
         &self,
         db_id: QueryDbId,
         session: &QuerySession,
-    ) -> Vec<QueryDependency> {
-        let mut dependencies = self
-            .forward
-            .iter()
-            .filter(|(from, _)| from.db_id == db_id)
-            .flat_map(|(from, targets)| {
-                targets.iter().map(move |to| QueryDependency {
-                    from: session.frame(*from),
-                    to: session.frame(*to),
-                })
-            })
-            .collect::<Vec<_>>();
+    ) -> QueryResult<Vec<QueryDependency>> {
+        let mut dependencies = Vec::new();
+        for (from, targets) in self.forward.iter().filter(|(from, _)| from.db_id == db_id) {
+            let from_frame = session.frame(*from)?;
+            for to in targets {
+                dependencies.push(QueryDependency {
+                    from: from_frame.clone(),
+                    to: session.frame(*to)?,
+                });
+            }
+        }
         dependencies.sort_by(|left, right| {
             (
                 left.from.name,
@@ -55,7 +54,7 @@ impl QueryDependencyGraph {
                     right.to.key.as_str(),
                 ))
         });
-        dependencies
+        Ok(dependencies)
     }
 
     pub(super) fn collect_dependents(&self, root: QueryNodeId) -> Vec<QueryNodeId> {
@@ -200,10 +199,11 @@ where
         ensure(&QueryDb { inner })
     }
 
-    fn invalidate_scope(&self, retain: &dyn Fn(&QueryFrame) -> bool) {
-        if let Some(inner) = self.inner.upgrade() {
-            QueryDb { inner }.retire_scope_during_retirement(retain);
-        }
+    fn invalidate_scope(&self, retain: &dyn Fn(&QueryFrame) -> bool) -> QueryResult<()> {
+        let Some(inner) = self.inner.upgrade() else {
+            return Ok(());
+        };
+        QueryDb { inner }.retire_scope_during_retirement(retain)
     }
 }
 

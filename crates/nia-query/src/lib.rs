@@ -73,7 +73,7 @@ pub struct QuerySession {
 impl QuerySession {
     /// Retires values tied to a replaced input scope while preserving selected
     /// stable-identity queries across the transition.
-    pub fn invalidate_scope(&self, retain: impl Fn(&QueryFrame) -> bool) {
+    pub fn invalidate_scope(&self, retain: impl Fn(&QueryFrame) -> bool) -> QueryResult<()> {
         let _retirement = self.enter_retirement();
         let databases = self
             .inner
@@ -83,8 +83,9 @@ impl QuerySession {
             .cloned()
             .collect::<Vec<_>>();
         for database in databases {
-            database.invalidate_scope(&retain);
+            database.invalidate_scope(&retain)?;
         }
+        Ok(())
     }
 }
 
@@ -466,13 +467,6 @@ impl<C> QuerySlotTable<C> {
             .then(|| self.entries.remove(&node_id.index))
             .flatten()
     }
-
-    fn frame(&self, db_id: QueryDbId, node_id: QueryNodeId) -> QueryFrame {
-        self.get(db_id, node_id)
-            .expect("query node id must reference a registered slot")
-            .identity
-            .frame()
-    }
 }
 
 #[derive(Debug, Default)]
@@ -702,7 +696,7 @@ trait ErasedQueryDatabase: Send + Sync {
     fn frame(&self, node_id: QueryNodeId) -> Option<QueryFrame>;
     fn slot(&self, node_id: QueryNodeId) -> Option<Arc<dyn ErasedQuerySlot>>;
     fn ensure(&self, node_id: QueryNodeId) -> QueryResult<()>;
-    fn invalidate_scope(&self, retain: &dyn Fn(&QueryFrame) -> bool);
+    fn invalidate_scope(&self, retain: &dyn Fn(&QueryFrame) -> bool) -> QueryResult<()>;
 }
 
 struct QueryDbRegistration<C> {

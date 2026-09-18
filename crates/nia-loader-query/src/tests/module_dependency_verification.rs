@@ -34,14 +34,20 @@ fn module_dependencies_cache_keys_include_effective_module_map() {
     ));
     assert_ne!(mapped_dependencies, unmapped_dependencies);
     assert_eq!(
-        query_executions(&unmapped_db.query_trace(), "parsed_module"),
+        query_executions(
+            &unmapped_db.query_trace().expect("query trace"),
+            "parsed_module"
+        ),
         1
     );
 
     let reused = frontend_cache_database(&main, &sources, unmapped, cache, false);
     let reused_dependencies = reused.expect_get(module_declarations_query(&reused, &main));
     assert_eq!(unmapped_dependencies, reused_dependencies);
-    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&reused.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 }
 
 #[test]
@@ -82,14 +88,20 @@ fn module_dependencies_verification_replaces_semantically_wrong_valid_entry() {
     assert_eq!(verified.semantic.declarations.len(), 1);
     assert_eq!(verified.semantic.declarations[0].name, sym("child"));
     assert_eq!(
-        query_executions(&verifying.query_trace(), "parsed_module"),
+        query_executions(
+            &verifying.query_trace().expect("query trace"),
+            "parsed_module"
+        ),
         1
     );
 
     let reused = frontend_cache_database(&main, &sources, module_map, cache, false);
     let reused_dependencies = reused.expect_get(module_declarations_query(&reused, &main));
     assert_eq!(verified, reused_dependencies);
-    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&reused.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
 }
 
 #[test]

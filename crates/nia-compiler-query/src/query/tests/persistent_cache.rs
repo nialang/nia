@@ -26,7 +26,7 @@ fn persistent_check_certificate_reuses_diagnostics_and_verifies_fresh() {
         let report = database
             .entry_check_program()
             .expect("test entry check report");
-        (report, database.query_trace())
+        (report, database.query_trace().expect("query trace"))
     };
 
     let source = "fn main() i32 { 1 }";
@@ -175,7 +175,11 @@ fn persistent_executable_value_ref_edges_skip_resolution_and_verify_replacement(
                 .unwrap(),
         };
         let edges = db.expect_get(ExecutableValueRefEdgesQuery(owner));
-        (owner, edges.functions.contains(&helper), db.query_trace())
+        (
+            owner,
+            edges.functions.contains(&helper),
+            db.query_trace().expect("query trace"),
+        )
     };
 
     let (cold_owner, cold_contains_helper, cold) = compile(false);

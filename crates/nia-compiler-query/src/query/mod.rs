@@ -1468,7 +1468,7 @@ impl CompilerDatabase {
             if handle_generation_changed {
                 self.db
                     .session()
-                    .invalidate_scope(|frame| frame.name == "loaded_modules");
+                    .invalidate_scope(|frame| frame.name == "loaded_modules")?;
             }
             let loaded_modules = StableModuleSequence::from_source_identities(
                 self.db
@@ -1510,7 +1510,7 @@ impl CompilerDatabase {
     }
 
     /// Returns a snapshot of query execution and reuse counters.
-    pub fn query_trace(&self) -> QueryTrace {
+    pub fn query_trace(&self) -> QueryResult<QueryTrace> {
         self.db.query_trace()
     }
 

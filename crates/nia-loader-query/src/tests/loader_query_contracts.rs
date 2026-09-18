@@ -179,7 +179,7 @@ fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
     database
         .db
         .expect_get(module_facade_facts_query(&database.db, &main));
-    let initial_query_count = database.query_trace().queries.len();
+    let initial_query_count = database.query_trace().expect("query trace").queries.len();
     let initial_node_count = database.db.context().node_store.len();
     assert_eq!(database.db.context().node_store.active_revision_count(), 1);
 
@@ -206,7 +206,7 @@ fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
         assert_eq!(database.db.context().node_store.len(), initial_node_count);
     }
 
-    let trace = database.query_trace();
+    let trace = database.query_trace().expect("query trace");
     assert_eq!(trace.queries.len(), initial_query_count);
     for name in [
         "parsed_module",
@@ -276,6 +276,7 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
         assert_eq!(
             database
                 .query_trace()
+                .expect("query trace")
                 .queries
                 .iter()
                 .filter(|query| query.frame.name == "module_graph_revision")
@@ -297,6 +298,7 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
         assert_eq!(
             database
                 .query_trace()
+                .expect("query trace")
                 .queries
                 .iter()
                 .filter(|query| query.frame.name == "module_graph_revision")
@@ -329,7 +331,7 @@ fn compiler_loader_roots_record_cross_database_dependencies() {
     let _ = compiler.provider_fact_revision();
 
     assert!(!has_error_diagnostics(&checked.diagnostics));
-    let trace = compiler.query_trace();
+    let trace = compiler.query_trace().expect("query trace");
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "loaded_modules" && dependency.to.name == "module_graph"
     }));

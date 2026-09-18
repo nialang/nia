@@ -25,7 +25,7 @@ fn executable_value_refs_resolve_only_the_requested_body_item() {
     };
 
     let edges = db.expect_get(ExecutableValueRefEdgesQuery(main));
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(edges.functions.contains(&helper), "{:?}", edges.functions);
     assert!(trace_has_dependency(

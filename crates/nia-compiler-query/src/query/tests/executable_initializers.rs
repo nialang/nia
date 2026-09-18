@@ -273,7 +273,7 @@ missing_symbol
     let db = query_db(loaded);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(
         modules.iter().all(|module| module.id != unused_id),

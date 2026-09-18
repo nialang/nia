@@ -210,20 +210,31 @@ fn loader_source_update_replaces_graph_only_at_query_boundary() {
     let database =
         LoaderDatabase::new_for_test(LoadRequest::new(main.as_str()).with_sources(sources));
     let first = database.load_program().expect("initial program load");
-    let executions_before_update = query_executions(&database.query_trace(), "module_graph");
+    let executions_before_update = query_executions(
+        &database.query_trace().expect("query trace"),
+        "module_graph",
+    );
 
     database
         .set_source(main.as_str(), "module defs;")
         .expect("replace source");
 
     assert_eq!(
-        query_executions(&database.query_trace(), "module_graph"),
+        query_executions(
+            &database.query_trace().expect("query trace"),
+            "module_graph"
+        ),
         executions_before_update
     );
     let second = database.load_program().expect("updated program load");
     assert_ne!(second.graph.entry(), first.graph.entry());
     assert_module_loaded(&second, "defs.nia");
-    assert!(query_executions(&database.query_trace(), "module_graph") > executions_before_update);
+    assert!(
+        query_executions(
+            &database.query_trace().expect("query trace"),
+            "module_graph"
+        ) > executions_before_update
+    );
 }
 
 #[test]

@@ -273,6 +273,7 @@ fn tracked_loader_update_refreshes_changed_module_field_inputs() {
     assert!(
         database
             .query_trace()
+            .expect("query trace")
             .dependencies
             .iter()
             .any(|dependency| {
@@ -311,7 +312,7 @@ fn timing_mode_update_does_not_invalidate_semantic_queries() {
 
     let first = database.check_program();
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    let before_update = database.query_trace();
+    let before_update = database.query_trace().expect("query trace");
 
     let invalidation =
         database.update(CompileRequest::new(loaded).with_timings(crate::TimingMode::Summary));
@@ -323,7 +324,7 @@ fn timing_mode_update_does_not_invalidate_semantic_queries() {
 
     let second = database.check_program();
     assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-    let after_second_check = database.query_trace();
+    let after_second_check = database.query_trace().expect("query trace");
 
     assert_query_executions_unchanged(&before_update, &after_second_check, "checked_program");
     assert_query_executions_unchanged(&before_update, &after_second_check, "checked_module_ids");

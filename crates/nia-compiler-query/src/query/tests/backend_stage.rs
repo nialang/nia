@@ -10,7 +10,7 @@ fn backend_lowering_uses_executable_per_item_ir() {
     let db = query_db(fixture.program());
 
     let _ = db.expect_get(BackendLoweringQuery);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(trace_has_dependency(
         &trace,
@@ -116,7 +116,7 @@ fn codegen_tracks_and_reuses_backend_stage_products() {
         db.expect_get(BackendModuleFunctionInstancePlanQuery(helper_id));
     let backend_lowering = db.expect_get(BackendLoweringQuery);
     let second_codegen = db.expect_get(CodegenProgramQuery);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(Arc::ptr_eq(&first_codegen, &second_codegen));
     assert!(Arc::ptr_eq(
@@ -520,7 +520,7 @@ fn backend_module_plan_slots_are_consumed_and_republished_after_invalidation() {
 
     let third = db.expect_get(BackendLoweringQuery);
     assert!(third.diagnostics.is_empty(), "{:?}", third.diagnostics);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     assert_eq!(query_executions(&trace, "backend_item_plan"), 3);
     assert_eq!(query_executions(&trace, "backend_module_item_plan"), 0);
     assert_eq!(query_executions(&trace, "backend_module_finalization"), 6);
@@ -656,7 +656,7 @@ value.number
     assert!(functions.contains(&main), "{functions:?}");
     assert!(!functions.contains(&unused), "{functions:?}");
 
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     assert!(trace_has_dependency(
         &trace,
         "backend_lowering_inputs",
@@ -678,7 +678,7 @@ fn codegen_reuses_per_function_lowering_between_mono_and_backend() {
     let db = query_db(fixture.program());
 
     let codegen = db.expect_get(CodegenProgramQuery);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
 
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
     let body_count = codegen

@@ -65,7 +65,7 @@ fn derived_red_green_validation_reuses_dependents_when_output_is_unchanged() {
     assert!(Arc::ptr_eq(&first, &second));
     assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
     assert_eq!(db.context().parent_executions.load(Ordering::SeqCst), 1);
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     let parent = trace
         .queries
         .iter()

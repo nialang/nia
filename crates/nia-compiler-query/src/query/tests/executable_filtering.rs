@@ -510,7 +510,7 @@ missing_symbol
         "type owner module should not retain or check function bodies"
     );
 
-    let trace = db.query_trace();
+    let trace = db.query_trace().expect("query trace");
     assert!(
         !trace.queries.iter().any(|query| {
             query.frame.name == "executable_body_check"
