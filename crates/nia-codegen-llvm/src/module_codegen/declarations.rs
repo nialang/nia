@@ -115,7 +115,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
         let function_ty = self.function_pointer_type_in(params, *return_type, false, span)?;
         let name = nia_mangle::mangle_derived_symbol_canonical(
-            self.symbol_package_identity(variant_id.module_id),
+            self.symbol_package_identity(variant_id.module_id, span)?,
             self.mangle_module_id(variant_id.module_id),
             nia_mangle::stable_definition_key(variant_id),
             "enum_ctor",
@@ -375,7 +375,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     format!("missing declared struct {def_id:?}"),
                 )
             })?;
-            let name = self.struct_symbol_name(item.def_id, item.name);
+            let name = self.struct_symbol_name(item.def_id, item.name)?;
             let ty = self
                 .context
                 .opaque_struct_type(&name)
@@ -408,7 +408,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     format!("missing declared union {def_id:?}"),
                 )
             })?;
-            let name = self.struct_symbol_name(item.def_id, item.name);
+            let name = self.struct_symbol_name(item.def_id, item.name)?;
             let ty = self
                 .context
                 .opaque_struct_type(&name)
@@ -562,7 +562,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             };
             let value = self
                 .module
-                .add_function(&self.function_symbol_name(function), ty, linkage)
+                .add_function(&self.function_symbol_name(function)?, ty, linkage)
                 .map_err(Self::diagnostic_from_llvm_error)?;
             self.apply_function_attributes(value, &function.attributes)?;
             self.functions.insert(function.def_id, value);
@@ -700,7 +700,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             let ty = self.llvm_basic_type_in(global.ty, global.span)?;
             let value = self
                 .module
-                .add_global(ty, None, &self.global_symbol_name(global))
+                .add_global(ty, None, &self.global_symbol_name(global)?)
                 .map_err(Self::diagnostic_from_llvm_error)?;
             let is_definition = self
                 .partition
@@ -993,7 +993,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             span,
         )?;
         let name = nia_mangle::mangle_derived_symbol_canonical(
-            self.symbol_package_identity(def_id.module_id),
+            self.symbol_package_identity(def_id.module_id, span)?,
             self.mangle_module_id(def_id.module_id),
             nia_mangle::stable_definition_key(def_id),
             "trait_object_adapter",
