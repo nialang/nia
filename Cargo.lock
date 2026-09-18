@@ -849,6 +849,7 @@ dependencies = [
  "nia-syntax",
  "nia-target-config",
  "nia-toolchain",
+ "parking_lot",
 ]
 
 [[package]]
@@ -1040,6 +1041,7 @@ name = "nia-source"
 version = "0.2.0-dev"
 dependencies = [
  "nia-hash",
+ "parking_lot",
 ]
 
 [[package]]

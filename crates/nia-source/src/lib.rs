@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Stable source identities, versioned files, and concurrent source storage.
 
+use parking_lot::Mutex;
 use std::{
     fs,
     hash::{Hash, Hasher},
     io::{self, Read},
     path::Path,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 /// Maximum UTF-8 source bytes accepted from one filesystem file.
@@ -54,14 +55,25 @@ impl SourceRevision {
     pub const INITIAL: Self = Self(0);
 
     /// Returns the following source revision.
-    pub const fn next(self) -> Self {
-        Self(
-            self.0
-                .checked_add(1)
-                .expect("source revision space exhausted"),
-        )
+    pub const fn next(self) -> Option<Self> {
+        match self.0.checked_add(1) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
     }
 }
+
+/// Failure returned when a source identity counter cannot allocate another id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceIdentityError;
+
+impl std::fmt::Display for SourceIdentityError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("source identity space exhausted")
+    }
+}
+
+impl std::error::Error for SourceIdentityError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Exact identity of one version of a source file.
@@ -288,41 +300,29 @@ impl SourceTable {
     }
 
     /// Returns the existing id for a path or allocates the next id.
-    pub fn id_for_path(&self, path: &SourcePath) -> SourceId {
-        // Source tables are shared across query workers. Poisoning means a
-        // worker panicked while mutating the id map, so continuing could assign
-        // inconsistent SourceIds and break versioned node identity.
-        let mut inner = self.inner.lock().expect("source table lock poisoned");
+    pub fn id_for_path(&self, path: &SourcePath) -> Result<SourceId, SourceIdentityError> {
+        let mut inner = self.inner.lock();
         if let Some(id) = inner.ids_by_path.get(path).copied() {
-            return id;
+            return Ok(id);
         }
 
         let id = SourceId(inner.next_id);
-        inner.next_id = inner
-            .next_id
-            .checked_add(1)
-            .expect("source id space exhausted");
+        inner.next_id = inner.next_id.checked_add(1).ok_or(SourceIdentityError)?;
         let path = Arc::new(path.clone());
         inner.ids_by_path.insert(path.clone(), id);
         inner.paths_by_id.push(path);
-        id
+        Ok(id)
     }
 
     /// Looks up an id without allocating one for a missing path.
     pub fn existing_id_for_path(&self, path: &SourcePath) -> Option<SourceId> {
-        self.inner
-            .lock()
-            .expect("source table lock poisoned")
-            .ids_by_path
-            .get(path)
-            .copied()
+        self.inner.lock().ids_by_path.get(path).copied()
     }
 
     /// Returns the logical path registered for an id.
     pub fn path_for_id(&self, id: SourceId) -> Option<Arc<SourcePath>> {
         self.inner
             .lock()
-            .expect("source table lock poisoned")
             .paths_by_id
             .get(usize::try_from(id.0).ok()?)
             .cloned()
@@ -343,7 +343,7 @@ impl SourceDatabase {
     }
 
     /// Returns or allocates the id for a logical path.
-    pub fn id_for_path(&self, path: &SourcePath) -> SourceId {
+    pub fn id_for_path(&self, path: &SourcePath) -> Result<SourceId, SourceIdentityError> {
         self.table.id_for_path(path)
     }
 
@@ -360,14 +360,7 @@ impl SourceDatabase {
 
     /// Returns the current snapshot for an id.
     pub fn source_for_id(&self, id: SourceId) -> Option<SourceFile> {
-        // A poisoned source database may contain a partially updated revision.
-        // Treat that as process-level corruption rather than a recoverable
-        // missing-source diagnostic.
-        self.files
-            .lock()
-            .expect("source database lock poisoned")
-            .get(&id)
-            .cloned()
+        self.files.lock().get(&id).cloned()
     }
 
     /// Returns a snapshot only when its current revision exactly matches.
@@ -378,28 +371,24 @@ impl SourceDatabase {
 
     /// Returns all current snapshots in unspecified order.
     pub fn source_files(&self) -> Vec<SourceFile> {
-        self.files
-            .lock()
-            .expect("source database lock poisoned")
-            .values()
-            .cloned()
-            .collect()
+        self.files.lock().values().cloned().collect()
     }
 
     /// Stores text, preserving its id and advancing an existing revision.
-    pub fn set_source(&self, path: SourcePath, text: impl Into<Arc<str>>) -> SourceFile {
-        let id = self.id_for_path(&path);
-        // Holding this lock covers both revision selection and replacement; a
-        // poisoned lock would make stale source-version queries indistinguishable
-        // from valid older revisions.
-        let mut files = self.files.lock().expect("source database lock poisoned");
-        let revision = files
-            .get(&id)
-            .map(|file| file.revision.next())
-            .unwrap_or(SourceRevision::INITIAL);
+    pub fn set_source(
+        &self,
+        path: SourcePath,
+        text: impl Into<Arc<str>>,
+    ) -> Result<SourceFile, SourceIdentityError> {
+        let id = self.id_for_path(&path)?;
+        let mut files = self.files.lock();
+        let revision = match files.get(&id) {
+            Some(file) => file.revision.next().ok_or(SourceIdentityError)?,
+            None => SourceRevision::INITIAL,
+        };
         let file = SourceFile::new(id, path, text).with_revision(revision);
         files.insert(id, file.clone());
-        file
+        Ok(file)
     }
 
     /// Returns a cached snapshot or reads and stores the source from disk.
@@ -409,12 +398,13 @@ impl SourceDatabase {
         }
 
         let text = read_source_text(path.as_str())?;
-        Ok(self.set_source(path.clone(), text))
+        self.set_source(path.clone(), text)
+            .map_err(io::Error::other)
     }
 
     /// Creates an unstored empty snapshot for a path at the initial revision.
-    pub fn empty_source(&self, path: &SourcePath) -> SourceFile {
-        SourceFile::new(self.id_for_path(path), path.clone(), "")
+    pub fn empty_source(&self, path: &SourcePath) -> Result<SourceFile, SourceIdentityError> {
+        Ok(SourceFile::new(self.id_for_path(path)?, path.clone(), ""))
     }
 }
 
@@ -424,13 +414,12 @@ mod tests {
 
     #[test]
     fn source_revision_advances_monotonically() {
-        assert_eq!(SourceRevision::INITIAL.next(), SourceRevision(1));
+        assert_eq!(SourceRevision::INITIAL.next(), Some(SourceRevision(1)));
     }
 
     #[test]
-    #[should_panic(expected = "source revision space exhausted")]
     fn source_revision_overflow_is_rejected() {
-        SourceRevision(u64::MAX).next();
+        assert_eq!(SourceRevision(u64::MAX).next(), None);
     }
 
     #[test]
@@ -534,9 +523,9 @@ mod tests {
         let main = SourcePath::new("main.nia");
         let defs = SourcePath::new("defs.nia");
 
-        assert_eq!(table.id_for_path(&main), SourceId(0));
-        assert_eq!(table.id_for_path(&defs), SourceId(1));
-        assert_eq!(table.id_for_path(&main), SourceId(0));
+        assert_eq!(table.id_for_path(&main), Ok(SourceId(0)));
+        assert_eq!(table.id_for_path(&defs), Ok(SourceId(1)));
+        assert_eq!(table.id_for_path(&main), Ok(SourceId(0)));
         assert_eq!(table.path_for_id(SourceId(0)).as_deref(), Some(&main));
         assert_eq!(table.path_for_id(SourceId(1)).as_deref(), Some(&defs));
         assert_eq!(table.path_for_id(SourceId(2)), None);
@@ -546,7 +535,7 @@ mod tests {
     fn source_table_rejects_ids_that_do_not_fit_target_indices() {
         let table = SourceTable::new();
         let path = SourcePath::new("main.nia");
-        table.id_for_path(&path);
+        table.id_for_path(&path).expect("allocate source id");
 
         assert_eq!(table.path_for_id(SourceId(u32::MAX)), None);
     }
@@ -556,7 +545,9 @@ mod tests {
         let sources = SourceDatabase::new();
         let path = SourcePath::new("main.nia");
 
-        let file = sources.set_source(path.clone(), "fn main() i32 { 0 }");
+        let file = sources
+            .set_source(path.clone(), "fn main() i32 { 0 }")
+            .expect("store source");
 
         assert_eq!(file.id, SourceId(0));
         assert_eq!(file.revision, SourceRevision::INITIAL);
@@ -571,9 +562,11 @@ mod tests {
 
         assert_eq!(sources.source_for_path(&missing), None);
 
-        let file = sources.set_source(main.clone(), "fn main() i32 { 0 }");
+        let file = sources
+            .set_source(main.clone(), "fn main() i32 { 0 }")
+            .expect("store source");
         assert_eq!(file.id, SourceId(0));
-        assert_eq!(sources.id_for_path(&missing), SourceId(1));
+        assert_eq!(sources.id_for_path(&missing), Ok(SourceId(1)));
     }
 
     #[test]
@@ -581,8 +574,12 @@ mod tests {
         let sources = SourceDatabase::new();
         let path = SourcePath::new("main.nia");
 
-        let first = sources.set_source(path.clone(), "fn main() i32 { 0 }");
-        let second = sources.set_source(path.clone(), "fn main() i32 { 1 }");
+        let first = sources
+            .set_source(path.clone(), "fn main() i32 { 0 }")
+            .expect("store first source");
+        let second = sources
+            .set_source(path.clone(), "fn main() i32 { 1 }")
+            .expect("store second source");
 
         assert_eq!(first.id, second.id);
         assert_eq!(first.revision, SourceRevision::INITIAL);
@@ -595,8 +592,12 @@ mod tests {
         let sources = SourceDatabase::new();
         let path = SourcePath::new("main.nia");
 
-        let first = sources.set_source(path.clone(), "fn main() i32 { 0 }");
-        let second = sources.set_source(path, "fn main() i32 { 1 }");
+        let first = sources
+            .set_source(path.clone(), "fn main() i32 { 0 }")
+            .expect("store first source");
+        let second = sources
+            .set_source(path, "fn main() i32 { 1 }")
+            .expect("store second source");
 
         assert_eq!(sources.source_for_version(first.version()), None);
         assert_eq!(sources.source_for_version(second.version()), Some(second));

@@ -11,7 +11,9 @@ fn unwrap[T](value: Box[T]) T { value.value }
 "#;
 
     let first_sources = SourceDatabase::new();
-    first_sources.set_source(SourcePath::new("main.nia"), source);
+    first_sources
+        .set_source(SourcePath::new("main.nia"), source)
+        .expect("store first source");
     let first_loader = LoaderDatabase::new_for_test(
         LoadRequest::new("main.nia")
             .with_sources(first_sources)
@@ -41,7 +43,9 @@ fn unwrap[T](value: Box[T]) T { value.value }
     }));
 
     let second_sources = SourceDatabase::new();
-    second_sources.set_source(SourcePath::new("main.nia"), source);
+    second_sources
+        .set_source(SourcePath::new("main.nia"), source)
+        .expect("store second source");
     let second_loader = LoaderDatabase::new_for_test(
         LoadRequest::new("main.nia")
             .with_sources(second_sources)
@@ -83,7 +87,9 @@ fn unwrap[T](value: Box[T]) T { value.value }
     }));
 
     let verified_sources = SourceDatabase::new();
-    verified_sources.set_source(SourcePath::new("main.nia"), source);
+    verified_sources
+        .set_source(SourcePath::new("main.nia"), source)
+        .expect("store verified source");
     let verified_loader = LoaderDatabase::new_for_test(
         LoadRequest::new("main.nia")
             .with_sources(verified_sources)
@@ -157,7 +163,9 @@ fn main() i32 { Box[i32] { value: 1 }.get() }
 "#;
     let compile = |verify| {
         let sources = SourceDatabase::new();
-        sources.set_source(SourcePath::new("main.nia"), source);
+        sources
+            .set_source(SourcePath::new("main.nia"), source)
+            .expect("store source");
         let loader = LoaderDatabase::new_for_test(
             LoadRequest::new("main.nia")
                 .with_sources(sources)

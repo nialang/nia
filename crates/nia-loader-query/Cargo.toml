@@ -26,6 +26,7 @@ nia-symbol.workspace = true
 nia-symbol-table.workspace = true
 nia-target-config.workspace = true
 nia-toolchain.workspace = true
+parking_lot.workspace = true
 
 [lib]
 path = "src/lib.rs"

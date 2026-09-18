@@ -5,7 +5,9 @@ fn module_dependencies_cache_keys_include_effective_module_map() {
     let root = temp_dir("module_dependencies_cache_keys_include_effective_module_map");
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    let file = sources.set_source(main.clone(), "using dep::Thing; fn main() () {}");
+    let file = sources
+        .set_source(main.clone(), "using dep::Thing; fn main() () {}")
+        .expect("store source");
     let mut mapped = ModuleMap::new();
     mapped.insert("dep", SourcePath::new("deps/root.nia"));
     let unmapped = ModuleMap::new();
@@ -55,7 +57,9 @@ fn module_dependencies_verification_replaces_semantically_wrong_valid_entry() {
     let root = temp_dir("module_dependencies_verification_replaces_wrong_valid_entry");
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    let file = sources.set_source(main.clone(), "pub module child;");
+    let file = sources
+        .set_source(main.clone(), "pub module child;")
+        .expect("store source");
     let module_map = ModuleMap::new();
     let identity = module_dependencies_cache_identity(&file, &main, &module_map);
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
@@ -109,7 +113,9 @@ fn module_dependencies_with_diagnostics_are_not_persisted() {
     let root = temp_dir("module_dependencies_with_diagnostics_are_not_persisted");
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    let file = sources.set_source(main.clone(), "module child; module child;");
+    let file = sources
+        .set_source(main.clone(), "module child; module child;")
+        .expect("store source");
     let module_map = ModuleMap::new();
     let identity = module_dependencies_cache_identity(&file, &main, &module_map);
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
@@ -121,7 +127,9 @@ fn module_dependencies_with_diagnostics_are_not_persisted() {
     assert!(!dependencies.diagnostics.is_empty());
     assert!(!cache.module_dependencies_path(identity.key).is_file());
 
-    let malformed_file = sources.set_source(main.clone(), "fn broken(");
+    let malformed_file = sources
+        .set_source(main.clone(), "fn broken(")
+        .expect("store malformed source");
     let malformed_identity =
         module_dependencies_cache_identity(&malformed_file, &main, &ModuleMap::new());
     let malformed =

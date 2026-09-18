@@ -14,7 +14,9 @@ pub using self::Choice::{First as Selected, Second};
         root.join("cache"),
     ));
     let first_sources = SourceDatabase::new();
-    let first_file = first_sources.set_source(main.clone(), source);
+    let first_file = first_sources
+        .set_source(main.clone(), source)
+        .expect("store first source");
     let first_identity = public_surface_facts_cache_identity(&first_file);
     let first = frontend_cache_database(
         &main,
@@ -39,7 +41,9 @@ pub using self::Choice::{First as Selected, Second};
     );
 
     let second_sources = SourceDatabase::new();
-    second_sources.set_source(main.clone(), source);
+    second_sources
+        .set_source(main.clone(), source)
+        .expect("store second source");
     let second = frontend_cache_database(
         &main,
         &second_sources,
@@ -75,7 +79,9 @@ pub using self::Choice::{First as Selected, Second};
     let path = cache.public_surface_facts_path(first_identity.key);
     fs::write(&path, b"corrupt public surface facts").expect("corrupt facts entry");
     let repaired_sources = SourceDatabase::new();
-    repaired_sources.set_source(main.clone(), source);
+    repaired_sources
+        .set_source(main.clone(), source)
+        .expect("store repaired source");
     let repaired = frontend_cache_database(
         &main,
         &repaired_sources,
@@ -95,7 +101,9 @@ pub using self::Choice::{First as Selected, Second};
 
     let edited_source = source.replace("{ 1 }", "{ 1000 + 2000 + 3000 }");
     let edited_sources = SourceDatabase::new();
-    let edited_file = edited_sources.set_source(main.clone(), edited_source.clone());
+    let edited_file = edited_sources
+        .set_source(main.clone(), edited_source.clone())
+        .expect("store edited source");
     let edited_identity = public_surface_facts_cache_identity(&edited_file);
     assert_ne!(first_identity.key, edited_identity.key);
     let edited = frontend_cache_database(
@@ -119,7 +127,9 @@ pub using self::Choice::{First as Selected, Second};
     );
 
     let reused_sources = SourceDatabase::new();
-    reused_sources.set_source(main.clone(), edited_source);
+    reused_sources
+        .set_source(main.clone(), edited_source)
+        .expect("store reused source");
     let reused =
         frontend_cache_database(&main, &reused_sources, ModuleMap::default(), cache, false);
     let reused_facts = reused.expect_get(public_surface_module_facts_query(&reused, &main));
@@ -135,7 +145,9 @@ fn public_surface_facts_verification_replaces_semantically_wrong_valid_entry() {
     let root = temp_dir("public_surface_facts_verification_replaces_wrong_entry");
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    let file = sources.set_source(main.clone(), "pub struct Widget {}");
+    let file = sources
+        .set_source(main.clone(), "pub struct Widget {}")
+        .expect("store source");
     let identity = public_surface_facts_cache_identity(&file);
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
         root.join("cache"),
@@ -171,7 +183,9 @@ fn public_surface_facts_verification_replaces_semantically_wrong_valid_entry() {
     );
 
     let reused_sources = SourceDatabase::new();
-    reused_sources.set_source(main.clone(), "pub struct Widget {}");
+    reused_sources
+        .set_source(main.clone(), "pub struct Widget {}")
+        .expect("store reused source");
     let reused =
         frontend_cache_database(&main, &reused_sources, ModuleMap::default(), cache, false);
     let reused_facts = reused.expect_get(public_surface_module_facts_query(&reused, &main));
@@ -187,7 +201,9 @@ fn public_surface_facts_with_diagnostics_are_not_persisted() {
     let root = temp_dir("public_surface_facts_with_diagnostics_are_not_persisted");
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
-    let file = sources.set_source(main.clone(), "pub fn value() () {} pub fn value() () {}");
+    let file = sources
+        .set_source(main.clone(), "pub fn value() () {} pub fn value() () {}")
+        .expect("store source");
     let identity = public_surface_facts_cache_identity(&file);
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
         root.join("cache"),
@@ -205,7 +221,9 @@ fn public_surface_facts_with_diagnostics_are_not_persisted() {
     );
     assert!(!cache.public_surface_facts_path(identity.key).is_file());
 
-    let malformed_file = sources.set_source(main.clone(), "pub fn broken(");
+    let malformed_file = sources
+        .set_source(main.clone(), "pub fn broken(")
+        .expect("store malformed source");
     let malformed_identity = public_surface_facts_cache_identity(&malformed_file);
     let malformed =
         frontend_cache_database(&main, &sources, ModuleMap::default(), cache.clone(), false);
