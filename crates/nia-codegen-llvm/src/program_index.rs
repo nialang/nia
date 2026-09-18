@@ -312,10 +312,8 @@ impl ProgramIndex {
         .then_some(module)
     }
 
-    fn module_at(&self, module_id: ModuleId) -> &nia_backend_ir::BackendModule {
-        self.modules
-            .get(module_id)
-            .expect("program index position references a missing published module")
+    fn module_at(&self, module_id: ModuleId) -> Option<&nia_backend_ir::BackendModule> {
+        self.modules.get(module_id)
     }
 }
 
@@ -598,9 +596,11 @@ impl ProgramIndex {
                     .get(&def_id)
                     .into_iter()
                     .flatten()
-                    .find(|position| {
-                        let item = &self.module_at(position.module).struct_instances[position.item];
+                    .find_map(|position| {
+                        let item =
+                            &self.module_at(position.module)?.struct_instances[position.item];
                         self.instance_args_match(args, const_args, &item.args, &item.const_args)
+                            .then_some(position)
                     })
                     .copied()
             })
@@ -624,9 +624,10 @@ impl ProgramIndex {
                     .get(&def_id)
                     .into_iter()
                     .flatten()
-                    .find(|position| {
-                        let item = &self.module_at(position.module).union_instances[position.item];
+                    .find_map(|position| {
+                        let item = &self.module_at(position.module)?.union_instances[position.item];
                         self.instance_args_match(args, const_args, &item.args, &item.const_args)
+                            .then_some(position)
                     })
                     .copied()
             })
@@ -656,15 +657,17 @@ impl ProgramIndex {
                     .get(&def_id)
                     .into_iter()
                     .flatten()
-                    .find(|position| {
-                        let item = &self.module_at(position.module).global_instances[position.item];
-                        item.arg_module_id == arg_module_id
+                    .find_map(|position| {
+                        let item =
+                            &self.module_at(position.module)?.global_instances[position.item];
+                        (item.arg_module_id == arg_module_id
                             && self.instance_args_match(
                                 args,
                                 const_args,
                                 &item.args,
                                 &item.const_args,
-                            )
+                            ))
+                        .then_some(position)
                     })
                     .copied()
             })
@@ -695,10 +698,10 @@ impl ProgramIndex {
                     .get(&def_id)
                     .into_iter()
                     .flatten()
-                    .find(|position| {
+                    .find_map(|position| {
                         let item =
-                            &self.module_at(position.module).function_instances[position.item];
-                        item.arg_module_id == arg_module_id
+                            &self.module_at(position.module)?.function_instances[position.item];
+                        (item.arg_module_id == arg_module_id
                             && self.function_instance_args_match(
                                 self_arg,
                                 args,
@@ -706,7 +709,8 @@ impl ProgramIndex {
                                 item.self_arg,
                                 &item.args,
                                 &item.const_args,
-                            )
+                            ))
+                        .then_some(position)
                     })
                     .copied()
             })
@@ -725,16 +729,17 @@ impl ProgramIndex {
                 self.tables()
                     .trait_object_vtables
                     .values()
-                    .find(|position| {
-                        let candidate = &self.module_at(position.module).trait_object_vtables
+                    .find_map(|position| {
+                        let candidate = &self.module_at(position.module)?.trait_object_vtables
                             [position.item]
                             .key;
                         let equivalence = ProgramTypeEquivalence {
                             type_store: &self.type_store,
                             modules: &self.modules,
                         };
-                        equivalence.same_type_for_equiv(key.self_ty, candidate.self_ty)
-                            && equivalence.same_type_for_equiv(key.object_ty, candidate.object_ty)
+                        (equivalence.same_type_for_equiv(key.self_ty, candidate.self_ty)
+                            && equivalence.same_type_for_equiv(key.object_ty, candidate.object_ty))
+                        .then_some(position)
                     })
                     .copied()
             })
@@ -797,25 +802,25 @@ impl ProgramIndex {
                 })
                 .map(|(_, position)| *position)
         })?;
-        Some(&self.module_at(position.module).layouts.types[position.layout].1)
+        Some(&self.module_at(position.module)?.layouts.types[position.layout].1)
     }
 
     pub(super) fn struct_layout(&self, def_id: GlobalDefId) -> Option<&StructLayout> {
         let position =
             owned_layout_position(def_id, self.tables().struct_layouts.get(&def_id).copied())?;
-        Some(&self.module_at(position.module).layouts.structs[position.layout].1)
+        Some(&self.module_at(position.module)?.layouts.structs[position.layout].1)
     }
 
     pub(super) fn union_layout(&self, def_id: GlobalDefId) -> Option<&StructLayout> {
         let position =
             owned_layout_position(def_id, self.tables().union_layouts.get(&def_id).copied())?;
-        Some(&self.module_at(position.module).layouts.unions[position.layout].1)
+        Some(&self.module_at(position.module)?.layouts.unions[position.layout].1)
     }
 
     pub(super) fn enum_layout(&self, def_id: GlobalDefId) -> Option<&nia_layout::EnumLayout> {
         let position =
             owned_layout_position(def_id, self.tables().enum_layouts.get(&def_id).copied())?;
-        Some(&self.module_at(position.module).layouts.enums[position.layout].1)
+        Some(&self.module_at(position.module)?.layouts.enums[position.layout].1)
     }
 
     pub(super) fn struct_instance_layout(
@@ -836,14 +841,15 @@ impl ProgramIndex {
                     .get(&def_id)
                     .into_iter()
                     .flatten()
-                    .find(|position| {
-                        let (key, _) = &self.module_at(position.module).layouts.struct_instances
+                    .find_map(|position| {
+                        let (key, _) = &self.module_at(position.module)?.layouts.struct_instances
                             [position.layout];
                         self.instance_args_match(args, const_args, &key.args, &key.const_args)
+                            .then_some(position)
                     })
                     .copied()
             })?;
-        Some(&self.module_at(position.module).layouts.struct_instances[position.layout].1)
+        Some(&self.module_at(position.module)?.layouts.struct_instances[position.layout].1)
     }
 
     pub(super) fn union_instance_layout(
@@ -864,14 +870,15 @@ impl ProgramIndex {
                     .get(&def_id)
                     .into_iter()
                     .flatten()
-                    .find(|position| {
-                        let (key, _) = &self.module_at(position.module).layouts.union_instances
+                    .find_map(|position| {
+                        let (key, _) = &self.module_at(position.module)?.layouts.union_instances
                             [position.layout];
                         self.instance_args_match(args, const_args, &key.args, &key.const_args)
+                            .then_some(position)
                     })
                     .copied()
             })?;
-        Some(&self.module_at(position.module).layouts.union_instances[position.layout].1)
+        Some(&self.module_at(position.module)?.layouts.union_instances[position.layout].1)
     }
 
     pub(super) fn struct_instance(
@@ -892,13 +899,15 @@ impl ProgramIndex {
                     .get(&def_id)
                     .into_iter()
                     .flatten()
-                    .find(|position| {
-                        let item = &self.module_at(position.module).struct_instances[position.item];
+                    .find_map(|position| {
+                        let item =
+                            &self.module_at(position.module)?.struct_instances[position.item];
                         self.instance_args_match(args, const_args, &item.args, &item.const_args)
+                            .then_some(position)
                     })
                     .copied()
             })?;
-        Some(&self.module_at(position.module).struct_instances[position.item])
+        Some(&self.module_at(position.module)?.struct_instances[position.item])
     }
 
     pub(super) fn union_instance(
@@ -919,13 +928,14 @@ impl ProgramIndex {
                     .get(&def_id)
                     .into_iter()
                     .flatten()
-                    .find(|position| {
-                        let item = &self.module_at(position.module).union_instances[position.item];
+                    .find_map(|position| {
+                        let item = &self.module_at(position.module)?.union_instances[position.item];
                         self.instance_args_match(args, const_args, &item.args, &item.const_args)
+                            .then_some(position)
                     })
                     .copied()
             })?;
-        Some(&self.module_at(position.module).union_instances[position.item])
+        Some(&self.module_at(position.module)?.union_instances[position.item])
     }
 
     pub(super) fn function_instance(
@@ -948,10 +958,10 @@ impl ProgramIndex {
                     .get(&def_id)
                     .into_iter()
                     .flatten()
-                    .find(|position| {
+                    .find_map(|position| {
                         let item =
-                            &self.module_at(position.module).function_instances[position.item];
-                        item.arg_module_id == arg_module_id
+                            &self.module_at(position.module)?.function_instances[position.item];
+                        (item.arg_module_id == arg_module_id
                             && self.function_instance_args_match(
                                 self_arg,
                                 args,
@@ -959,11 +969,12 @@ impl ProgramIndex {
                                 item.self_arg,
                                 &item.args,
                                 &item.const_args,
-                            )
+                            ))
+                        .then_some(position)
                     })
                     .copied()
             })?;
-        Some(&self.module_at(position.module).function_instances[position.item])
+        Some(&self.module_at(position.module)?.function_instances[position.item])
     }
 
     pub(super) fn struct_item(
@@ -971,7 +982,7 @@ impl ProgramIndex {
         def_id: GlobalDefId,
     ) -> Option<&nia_backend_ir::BackendStruct> {
         let position = owned_item_position(def_id, self.tables().structs.get(&def_id).copied())?;
-        Some(&self.module_at(position.module).structs[position.item])
+        Some(&self.module_at(position.module)?.structs[position.item])
     }
 
     pub(super) fn has_struct(&self, def_id: GlobalDefId) -> bool {
@@ -980,7 +991,7 @@ impl ProgramIndex {
 
     pub(super) fn union_item(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendUnion> {
         let position = owned_item_position(def_id, self.tables().unions.get(&def_id).copied())?;
-        Some(&self.module_at(position.module).unions[position.item])
+        Some(&self.module_at(position.module)?.unions[position.item])
     }
 
     pub(super) fn has_union(&self, def_id: GlobalDefId) -> bool {
@@ -1001,9 +1012,10 @@ impl ProgramIndex {
             .get(&def_id)
             .cloned()
             .unwrap_or_default();
-        positions
-            .into_iter()
-            .map(|position| &self.module_at(position.module).struct_instances[position.item])
+        positions.into_iter().filter_map(|position| {
+            self.module_at(position.module)
+                .map(|module| &module.struct_instances[position.item])
+        })
     }
 
     pub(super) fn has_union_instances(&self, def_id: GlobalDefId) -> bool {
@@ -1020,9 +1032,10 @@ impl ProgramIndex {
             .get(&def_id)
             .cloned()
             .unwrap_or_default();
-        positions
-            .into_iter()
-            .map(|position| &self.module_at(position.module).union_instances[position.item])
+        positions.into_iter().filter_map(|position| {
+            self.module_at(position.module)
+                .map(|module| &module.union_instances[position.item])
+        })
     }
 
     pub(super) fn has_enum(&self, def_id: GlobalDefId) -> bool {
@@ -1031,12 +1044,12 @@ impl ProgramIndex {
 
     pub(super) fn enum_item(&self, def_id: GlobalDefId) -> Option<&BackendEnum> {
         let position = owned_item_position(def_id, self.tables().enums.get(&def_id).copied())?;
-        Some(&self.module_at(position.module).enums[position.item])
+        Some(&self.module_at(position.module)?.enums[position.item])
     }
 
     pub(super) fn enum_variant_info(&self, def_id: GlobalDefId) -> Option<EnumVariantInfo<'_>> {
         let position = self.tables().enum_variants.get(&def_id).copied()?;
-        let owner = &self.module_at(position.module).enums[position.owner];
+        let owner = &self.module_at(position.module)?.enums[position.owner];
         if owner.def_id.module_id != def_id.module_id {
             return None;
         }
@@ -1055,15 +1068,14 @@ impl ProgramIndex {
         let Some(position) = self.tables().enum_variants.get(&def_id).copied() else {
             return false;
         };
-        self.module_at(position.module).enums[position.owner]
-            .def_id
-            .module_id
-            != def_id.module_id
+        self.module_at(position.module)
+            .map(|module| module.enums[position.owner].def_id.module_id != def_id.module_id)
+            .unwrap_or(false)
     }
 
     pub(super) fn global(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendGlobal> {
         let position = owned_item_position(def_id, self.tables().globals.get(&def_id).copied())?;
-        Some(&self.module_at(position.module).globals[position.item])
+        Some(&self.module_at(position.module)?.globals[position.item])
     }
 
     pub(super) fn has_global(&self, def_id: GlobalDefId) -> bool {
@@ -1089,24 +1101,26 @@ impl ProgramIndex {
                     .get(&def_id)
                     .into_iter()
                     .flatten()
-                    .find(|position| {
-                        let item = &self.module_at(position.module).global_instances[position.item];
-                        item.arg_module_id == arg_module_id
+                    .find_map(|position| {
+                        let item =
+                            &self.module_at(position.module)?.global_instances[position.item];
+                        (item.arg_module_id == arg_module_id
                             && self.instance_args_match(
                                 args,
                                 const_args,
                                 &item.args,
                                 &item.const_args,
-                            )
+                            ))
+                        .then_some(position)
                     })
                     .copied()
             })?;
-        Some(&self.module_at(position.module).global_instances[position.item])
+        Some(&self.module_at(position.module)?.global_instances[position.item])
     }
 
     pub(super) fn function(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendFunction> {
         let position = owned_item_position(def_id, self.tables().functions.get(&def_id).copied())?;
-        Some(&self.module_at(position.module).functions[position.item])
+        Some(&self.module_at(position.module)?.functions[position.item])
     }
 
     pub(super) fn closure_entry(
@@ -1114,7 +1128,7 @@ impl ProgramIndex {
         key: &nia_backend_ir::BackendClosureEntryKey,
     ) -> Option<&nia_backend_ir::BackendClosureEntry> {
         let position = self.tables().closure_entries.get(key).copied()?;
-        Some(&self.module_at(position.module).closure_entries[position.item])
+        Some(&self.module_at(position.module)?.closure_entries[position.item])
     }
 
     pub(super) fn has_function(&self, def_id: GlobalDefId) -> bool {
@@ -1131,9 +1145,10 @@ impl ProgramIndex {
             .get(&def_id)
             .cloned()
             .unwrap_or_default();
-        positions
-            .into_iter()
-            .map(|position| &self.module_at(position.module).function_instances[position.item])
+        positions.into_iter().filter_map(|position| {
+            self.module_at(position.module)
+                .map(|module| &module.function_instances[position.item])
+        })
     }
 
     pub(super) fn function_instance_count(&self, def_id: GlobalDefId) -> usize {
@@ -1153,10 +1168,10 @@ impl ProgramIndex {
             .get(&def_id)
             .cloned()
             .unwrap_or_default();
-        positions.into_iter().map(|position| {
+        positions.into_iter().filter_map(|position| {
             let (key, layout) =
-                &self.module_at(position.module).layouts.struct_instances[position.layout];
-            BackendLayoutInstance { key, layout }
+                &self.module_at(position.module)?.layouts.struct_instances[position.layout];
+            Some(BackendLayoutInstance { key, layout })
         })
     }
 
@@ -1170,10 +1185,10 @@ impl ProgramIndex {
             .get(&def_id)
             .cloned()
             .unwrap_or_default();
-        positions.into_iter().map(|position| {
+        positions.into_iter().filter_map(|position| {
             let (key, layout) =
-                &self.module_at(position.module).layouts.union_instances[position.layout];
-            BackendLayoutInstance { key, layout }
+                &self.module_at(position.module)?.layouts.union_instances[position.layout];
+            Some(BackendLayoutInstance { key, layout })
         })
     }
 
@@ -1205,9 +1220,10 @@ impl ProgramIndex {
                     .collect()
             }
         };
-        positions
-            .into_iter()
-            .map(|position| &self.module_at(position.module).trait_object_vtables[position.item])
+        positions.into_iter().filter_map(|position| {
+            self.module_at(position.module)
+                .map(|module| &module.trait_object_vtables[position.item])
+        })
     }
 
     pub(super) fn trait_object_vtable(
@@ -1223,20 +1239,21 @@ impl ProgramIndex {
                 self.tables()
                     .trait_object_vtables
                     .values()
-                    .find(|position| {
-                        let candidate = &self.module_at(position.module).trait_object_vtables
+                    .find_map(|position| {
+                        let candidate = &self.module_at(position.module)?.trait_object_vtables
                             [position.item]
                             .key;
                         let equivalence = ProgramTypeEquivalence {
                             type_store: &self.type_store,
                             modules: &self.modules,
                         };
-                        equivalence.same_type_for_equiv(key.self_ty, candidate.self_ty)
-                            && equivalence.same_type_for_equiv(key.object_ty, candidate.object_ty)
+                        (equivalence.same_type_for_equiv(key.self_ty, candidate.self_ty)
+                            && equivalence.same_type_for_equiv(key.object_ty, candidate.object_ty))
+                        .then_some(position)
                     })
                     .copied()
             })?;
-        Some(&self.module_at(position.module).trait_object_vtables[position.item])
+        Some(&self.module_at(position.module)?.trait_object_vtables[position.item])
     }
 
     pub(super) fn trait_object_vtables_for_trait(
@@ -1249,9 +1266,10 @@ impl ProgramIndex {
             .get(&trait_id)
             .cloned()
             .unwrap_or_default();
-        positions
-            .into_iter()
-            .map(|position| &self.module_at(position.module).trait_object_vtables[position.item])
+        positions.into_iter().filter_map(|position| {
+            self.module_at(position.module)
+                .map(|module| &module.trait_object_vtables[position.item])
+        })
     }
 
     /// Iterates every emitted trait-object vtable.
@@ -1266,7 +1284,8 @@ impl ProgramIndex {
             .iter()
             .copied()
             .filter(|module_id| self.is_published(*module_id))
-            .flat_map(move |module_id| self.module_at(module_id).trait_object_vtables.iter())
+            .filter_map(move |module_id| self.module_at(module_id))
+            .flat_map(|module| module.trait_object_vtables.iter())
     }
 }
 
