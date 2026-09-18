@@ -1071,7 +1071,7 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
-        let _retirement = self.inner.session.enter_retirement();
+        let _retirement = self.inner.session.enter_retirement()?;
         self.retire_during_retirement(key)
     }
 
@@ -1080,7 +1080,7 @@ impl<C> QueryDb<C> {
         &self,
         operation: impl FnOnce(&QueryRetirement<'_, C>) -> QueryResult<R>,
     ) -> QueryResult<R> {
-        let _retirement = self.inner.session.enter_retirement();
+        let _retirement = self.inner.session.enter_retirement()?;
         operation(&QueryRetirement { db: self })
     }
 
@@ -1165,7 +1165,7 @@ impl<C> QueryDb<C> {
         if let Some(registry) = &self.inner.registry {
             registry.require_registered::<C, K>()?;
         }
-        let _retirement = self.inner.session.enter_retirement();
+        let _retirement = self.inner.session.enter_retirement()?;
         let caches = self.inner.caches.read();
         let Some(cache) = caches.get(&TypeId::of::<K>()) else {
             return Ok(false);

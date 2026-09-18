@@ -305,22 +305,27 @@ pub(super) fn enter_query_activity(session: usize) {
     });
 }
 
-pub(super) fn leave_query_activity(session: usize) -> bool {
+pub(super) fn leave_query_activity(session: usize) -> Result<bool, nia_ice::Ice> {
     QUERY_ACTIVITY_DEPTHS.with(|depths| {
         let mut depths = depths.borrow_mut();
-        let position = depths
+        let Some(position) = depths
             .iter()
             .position(|(active_session, _depth)| *active_session == session)
-            .expect("query activity guard dropped without an active depth");
+        else {
+            return Err(nia_ice::Ice::new(
+                "query activity guard dropped without an active depth",
+            ));
+        };
         let depth = &mut depths[position].1;
-        *depth = depth
-            .checked_sub(1)
-            .expect("query activity depth underflow");
+        let Some(next_depth) = depth.checked_sub(1) else {
+            return Err(nia_ice::Ice::new("query activity depth underflow"));
+        };
+        *depth = next_depth;
         if *depth == 0 {
             depths.swap_remove(position);
-            true
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     })
 }

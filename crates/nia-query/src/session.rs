@@ -270,12 +270,13 @@ impl QuerySession {
         }
     }
 
-    pub(super) fn enter_retirement(&self) -> QueryRetirementGuard<'_> {
+    pub(super) fn enter_retirement(&self) -> nia_ice::IceResult<QueryRetirementGuard<'_>> {
         let identity = Arc::as_ptr(&self.inner) as usize;
-        assert!(
-            !query_activity_is_active(identity),
-            "query cache retirement cannot run inside an active query"
-        );
+        if query_activity_is_active(identity) {
+            return Err(nia_ice::Ice::new(
+                "query cache retirement cannot run inside an active query",
+            ));
+        }
         let mut state = self.inner.activity.lock();
         while state.retiring {
             self.inner.activity_ready.wait(&mut state);
@@ -288,9 +289,9 @@ impl QuerySession {
             self.inner.activity_ready.wait(&mut state);
         }
         drop(state);
-        QueryRetirementGuard {
+        Ok(QueryRetirementGuard {
             session: &self.inner,
-        }
+        })
     }
 
     pub(super) fn register<C>(&self, db: &QueryDb<C>) -> nia_ice::IceResult<()>
@@ -344,11 +345,15 @@ impl QuerySession {
         let from_frame = from_identity.frame();
         let cycle = query_wait_graph()
             .lock()
-            .begin(from, from_frame, to, to_frame);
+            .begin(from, from_frame, to, to_frame)?;
         if let Some(cycle) = cycle {
             return Err(QueryError::Cycle { cycle });
         }
-        Ok(Some(QueryWaitGuard { from, to }))
+        Ok(Some(QueryWaitGuard {
+            session: Arc::clone(&self.inner),
+            from,
+            to,
+        }))
     }
 }
 
@@ -389,21 +394,31 @@ impl QuerySessionInner {
 
 impl Drop for QueryWaitGuard {
     fn drop(&mut self) {
-        query_wait_graph().lock().end(self.from, self.to);
+        if let Err(QueryError::Internal(ice)) = query_wait_graph().lock().end(self.from, self.to) {
+            self.session.record_failure(ice);
+        }
     }
 }
 
 impl Drop for QueryActivityGuard<'_> {
     fn drop(&mut self) {
         let identity = self.session as *const QuerySessionInner as usize;
-        if !leave_query_activity(identity) {
+        let Ok(outermost) = leave_query_activity(identity) else {
+            self.session.record_failure(nia_ice::Ice::new(
+                "query activity guard dropped without a matching activity entry",
+            ));
+            return;
+        };
+        if !outermost {
             return;
         }
         let mut state = self.session.activity.lock();
-        state.active = state
-            .active
-            .checked_sub(1)
-            .expect("query activity count underflow");
+        let Some(active) = state.active.checked_sub(1) else {
+            self.session
+                .record_failure(nia_ice::Ice::new("query activity count underflow"));
+            return;
+        };
+        state.active = active;
         drop(state);
         self.session.activity_ready.notify_all();
     }
@@ -412,7 +427,11 @@ impl Drop for QueryActivityGuard<'_> {
 impl Drop for QueryRetirementGuard<'_> {
     fn drop(&mut self) {
         let mut state = self.session.activity.lock();
-        assert!(state.retiring, "query retirement guard released twice");
+        if !state.retiring {
+            self.session
+                .record_failure(nia_ice::Ice::new("query retirement guard released twice"));
+            return;
+        }
         state.retiring = false;
         drop(state);
         self.session.activity_ready.notify_all();
