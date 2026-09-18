@@ -1548,7 +1548,8 @@ mod tests {
         let type_store = nia_ty::TypeStore::new().expect("create type store");
         let ty = type_store
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::I32);
+            .primitive(PrimitiveTy::I32)
+            .expect("intern i32 type");
         let first_store = NodeStore::new();
         let mut builder = FunctionSemanticFactsBuilder::default();
         builder.node_expr_types.insert(key(), ty);
@@ -1594,7 +1595,8 @@ mod tests {
         let type_store = nia_ty::TypeStore::new().expect("create type store");
         let ty = type_store
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::I32);
+            .primitive(PrimitiveTy::I32)
+            .expect("intern i32 type");
         let first_store = NodeStore::new();
         let second_store = NodeStore::new();
         let mut first = SemanticFactsBuilder::default();
@@ -1663,7 +1665,8 @@ mod tests {
         let type_store = nia_ty::TypeStore::new().expect("create type store");
         let ty = type_store
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::I32);
+            .primitive(PrimitiveTy::I32)
+            .expect("intern i32 type");
         let projection = AssociatedConstProjection {
             self_ty: ty,
             trait_id: TraitId::Source(GlobalDefId {
