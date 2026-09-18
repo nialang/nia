@@ -53,10 +53,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let is_vector =
                         matches!(self.module.ty_kind(ty), Some(nia_ty::TyKind::Vector { .. }));
                     if is_vector {
-                        let lanes = match self.module.ty_kind(ty) {
-                            Some(nia_ty::TyKind::Vector { lanes, .. }) => *lanes,
-                            _ => unreachable!("vector negation requires a vector type"),
+                        let Some(nia_ty::TyKind::Vector { lanes, .. }) = self.module.ty_kind(ty)
+                        else {
+                            return Err(self.error(span, "vector negation requires a vector type"));
                         };
+                        let lanes = *lanes;
                         let zero = value
                             .get_type()?
                             .const_zero()
@@ -765,7 +766,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             (BinaryOp::Rem, false) => self
                 .builder
                 .build_basic_int_unsigned_rem(lhs, rhs, "remtmp"),
-            _ => unreachable!("only integer division and remainder reach checked div/rem codegen"),
+            _ => return Err(self.error(span, "invalid checked integer division operation")),
         };
         result.map_err(|_| self.error(span, "failed to build checked integer division operation"))
     }
@@ -820,7 +821,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             (BinaryOp::Sub, false) => "llvm.usub.with.overflow",
             (BinaryOp::Mul, true) => "llvm.smul.with.overflow",
             (BinaryOp::Mul, false) => "llvm.umul.with.overflow",
-            _ => unreachable!("only integer add/sub/mul reach checked arithmetic codegen"),
+            _ => return Err(self.error(span, "invalid checked integer arithmetic operation")),
         };
         let ty = lhs.get_type()?;
         let intrinsic = nia_llvm::intrinsics::Intrinsic::find(intrinsic_name)

@@ -295,23 +295,21 @@ impl ProgramIndex {
     pub(super) fn module_for_partition(
         &self,
         partition: &CodegenPartition,
-    ) -> &nia_backend_ir::BackendModule {
+    ) -> Option<&nia_backend_ir::BackendModule> {
         let (module_id, ordinal) = match partition.id {
             CodegenUnitId::SourceModule { module_id, ordinal } => (module_id, ordinal),
-            CodegenUnitId::CompilerBuiltins => {
-                panic!("Nia ICE: compiler builtins partition has no backend module")
-            }
+            CodegenUnitId::CompilerBuiltins => return None,
         };
-        assert!(self.is_published(module_id));
-        let module = self.module_at(module_id);
-        assert_eq!(
-            partition.key,
-            CodegenUnitKey::SourceModule {
+        if !self.is_published(module_id) {
+            return None;
+        }
+        let module = self.modules.get(module_id)?;
+        (partition.key
+            == CodegenUnitKey::SourceModule {
                 source_identity: module.source_identity.clone(),
                 ordinal,
-            }
-        );
-        module
+            })
+        .then_some(module)
     }
 
     fn module_at(&self, module_id: ModuleId) -> &nia_backend_ir::BackendModule {
