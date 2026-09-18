@@ -899,8 +899,18 @@ mod tests {
     use nia_ids::ModuleIdAllocator;
     use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
     use nia_parser::parse_module;
-    use nia_type_lower::{TypeLoweringContext, lower_module_types_with_context};
+    use nia_type_lower::{TypeLowering, TypeLoweringContext};
     use nia_type_resolve::resolve_module_types;
+
+    fn lower_module_types_with_context(
+        module_id: ModuleId,
+        module: &nia_ast::Module,
+        resolved: &nia_type_resolve::TypeResolution,
+        context: TypeLoweringContext<'_>,
+    ) -> TypeLowering {
+        nia_type_lower::lower_module_types_with_context(module_id, module, resolved, context)
+            .expect("lower test types")
+    }
 
     fn pipeline(source: &str) -> FlowCheck {
         let (module, parse_errors) = parse_module(source);
@@ -922,7 +932,8 @@ mod tests {
             lowered: &lowered,
             type_store: &type_store,
             symbols: None,
-        });
+        })
+        .expect("collect test signatures");
         check_module_flow(&module, &type_store, &signatures)
     }
 
@@ -946,7 +957,8 @@ mod tests {
             lowered: &lowered,
             type_store: &type_store,
             symbols: None,
-        });
+        })
+        .expect("collect test signatures");
         let main = defs
             .module_scope
             .values
