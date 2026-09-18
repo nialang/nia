@@ -687,16 +687,18 @@ fn empty_monomorphization() -> nia_monomorphize::Monomorphization {
     }
 }
 
-fn empty_backend_lowering(optimization: OptimizationPolicy) -> nia_backend_lower::BackendLowering {
-    let program = nia_backend_ir::BackendProgram::new(Vec::new());
-    nia_backend_lower::BackendLowering {
+fn empty_backend_lowering(
+    optimization: OptimizationPolicy,
+) -> QueryResult<nia_backend_lower::BackendLowering> {
+    let program = nia_backend_ir::BackendProgram::new(Vec::new())?;
+    Ok(nia_backend_lower::BackendLowering {
         codegen_partitions: program.codegen_partition_plan(),
         program,
         owner_directory: Arc::new(nia_backend_ir::BackendModuleOwnerDirectory::default()),
         optimization,
         optimization_report: nia_backend_lower::BackendOptimizationReport::default(),
         diagnostics: Vec::new(),
-    }
+    })
 }
 
 fn time_provider<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -> T {

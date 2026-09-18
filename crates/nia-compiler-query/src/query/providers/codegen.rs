@@ -429,6 +429,9 @@ pub(in crate::query) fn with_backend_finalization_schedule<R>(
         )?;
         return Ok(consume(Err(lowering)));
     }
+    let collector =
+        nia_backend_lower::BackendModuleFinalizationCollector::new(finalization, &module_ids)?;
+    let readiness = collector.take_readiness()?;
     let result = db.with_many_owned_completion(
         module_ids
             .iter()
@@ -441,10 +444,8 @@ pub(in crate::query) fn with_backend_finalization_schedule<R>(
         |completions| {
             consume(Ok(crate::BackendFinalizationSchedule::new(
                 completions,
-                nia_backend_lower::BackendModuleFinalizationCollector::new(
-                    finalization,
-                    &module_ids,
-                ),
+                collector,
+                readiness,
             )))
         },
     )?;

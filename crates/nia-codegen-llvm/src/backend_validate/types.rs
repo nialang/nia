@@ -805,8 +805,11 @@ mod tests {
         });
         drop(interner);
 
-        let store = Arc::new(BackendModuleStore::new([owner]));
-        store.publish(test_module(owner, ty));
+        let store =
+            Arc::new(BackendModuleStore::new([owner]).expect("create backend module store"));
+        store
+            .publish(test_module(owner, ty))
+            .expect("publish backend module");
         let (index, _publisher) = ProgramIndex::new(Arc::clone(&store), Arc::new(type_store));
         let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
 
@@ -834,7 +837,8 @@ mod tests {
         });
         drop(interner);
 
-        let store = Arc::new(BackendModuleStore::new([owner]));
+        let store =
+            Arc::new(BackendModuleStore::new([owner]).expect("create backend module store"));
         let (index, _publisher) = ProgramIndex::new(store, Arc::new(type_store));
         let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
 
@@ -866,8 +870,11 @@ mod tests {
         });
         drop(interner);
 
-        let store = Arc::new(BackendModuleStore::new([owner]));
-        store.publish(test_module(owner, ty));
+        let store =
+            Arc::new(BackendModuleStore::new([owner]).expect("create backend module store"));
+        store
+            .publish(test_module(owner, ty))
+            .expect("publish backend module");
         let (index, _publisher) = ProgramIndex::new(Arc::clone(&store), Arc::new(type_store));
         let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
 
@@ -889,7 +896,8 @@ mod tests {
         let mut module_ids = ModuleIdAllocator::new();
         let owner = module_ids.allocate();
         let type_store = TypeStore::new();
-        let store = Arc::new(BackendModuleStore::new([owner]));
+        let store =
+            Arc::new(BackendModuleStore::new([owner]).expect("create backend module store"));
         let (index, _publisher) = ProgramIndex::new(store, Arc::new(type_store));
         let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
 
@@ -919,8 +927,9 @@ mod tests {
             ty
         });
         module.const_eval.array_lengths.insert(len_id, 4);
-        let store = Arc::new(BackendModuleStore::new([owner]));
-        store.publish(module);
+        let store =
+            Arc::new(BackendModuleStore::new([owner]).expect("create backend module store"));
+        store.publish(module).expect("publish backend module");
         let (index, _publisher) = ProgramIndex::new(store, Arc::new(type_store));
         let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
 
@@ -954,9 +963,12 @@ mod tests {
         left.const_eval.array_lengths.insert(left_expr, 4);
         let mut right = test_module(right_module, right_ty);
         right.const_eval.array_lengths.insert(right_expr, 4);
-        let store = Arc::new(BackendModuleStore::new([left_module, right_module]));
-        store.publish(left);
-        store.publish(right);
+        let store = Arc::new(
+            BackendModuleStore::new([left_module, right_module])
+                .expect("create backend module store"),
+        );
+        store.publish(left).expect("publish backend module");
+        store.publish(right).expect("publish backend module");
         let (index, mut publisher) = ProgramIndex::new(store, Arc::new(type_store));
         publisher.publish(left_module).expect("publish module");
         publisher.publish(right_module).expect("publish module");
@@ -1001,7 +1013,8 @@ mod tests {
         let owner = module_ids.allocate();
         let foreign = module_ids.allocate();
         let type_store = TypeStore::new();
-        let store = Arc::new(BackendModuleStore::new([owner]));
+        let store =
+            Arc::new(BackendModuleStore::new([owner]).expect("create backend module store"));
         let (index, _publisher) = ProgramIndex::new(store, Arc::new(type_store));
         let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
 
@@ -1029,7 +1042,8 @@ mod tests {
         let ty = interner.primitive(PrimitiveTy::I32);
         drop(interner);
 
-        let store = Arc::new(BackendModuleStore::new([owner]));
+        let store =
+            Arc::new(BackendModuleStore::new([owner]).expect("create backend module store"));
         let (index, _publisher) = ProgramIndex::new(store, Arc::new(type_store));
         let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
         validator.validate_const_arg(

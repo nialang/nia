@@ -213,6 +213,7 @@ dependencies = [
  "nia-body-ir",
  "nia-const-check",
  "nia-function-ir",
+ "nia-ice",
  "nia-ids",
  "nia-layout",
  "nia-source",
@@ -220,6 +221,7 @@ dependencies = [
  "nia-static-ir",
  "nia-symbol",
  "nia-ty",
+ "parking_lot",
 ]
 
 [[package]]

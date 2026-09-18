@@ -39,7 +39,8 @@ fn single_module_program(
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     }
 }
 
@@ -119,7 +120,8 @@ fn emits_function_body_from_function_ir_when_available() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -282,7 +284,8 @@ fn scopes_template_local_promotions_to_function_instances() {
         closure_entries: Vec::new(),
         trait_object_vtables: Vec::new(),
         generic_instantiations: Vec::new(),
-    }]);
+    }])
+    .expect("build backend program");
 
     drop(interner);
     let output = emit_owned_llvm_ir(program, type_store);
@@ -560,7 +563,8 @@ fn validates_variadic_function_declarations_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -951,7 +955,8 @@ fn validates_function_instance_abi_metadata_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -1084,7 +1089,8 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(foreign_interner);
@@ -1194,7 +1200,8 @@ fn validates_global_instance_metadata_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(foreign_interner);
@@ -1968,7 +1975,8 @@ fn rejects_mixed_target_layouts_across_backend_modules() {
                 pointer_align: 4,
             },
         ),
-    ]);
+    ])
+    .expect("build backend program");
 
     let output = emit_owned_llvm_ir(program, nia_ty::TypeStore::new());
 
@@ -2064,7 +2072,8 @@ fn rejects_generated_llvm_symbol_collisions_before_emission() {
         closure_entries: Vec::new(),
         trait_object_vtables: Vec::new(),
         generic_instantiations: Vec::new(),
-    }]);
+    }])
+    .expect("build backend program");
 
     drop(interner);
     let output = emit_owned_llvm_ir(program, type_store);
@@ -2562,7 +2571,8 @@ fn rejects_malformed_layout_contracts_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
     drop(interner);
 
@@ -2777,7 +2787,8 @@ fn validates_aggregate_products_with_structurally_equal_const_args() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -5143,7 +5154,8 @@ fn validates_enum_expression_contracts_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
     drop(interner);
 
@@ -5465,7 +5477,8 @@ fn rejects_aggregate_field_with_foreign_owner_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -5542,7 +5555,7 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
         generic_instantiations: Vec::new(),
     };
     module.const_eval.array_lengths.clear();
-    let program = BackendProgram::new(vec![module]);
+    let program = BackendProgram::new(vec![module]).expect("build backend program");
 
     drop(interner);
     let output = emit_owned_llvm_ir(program, type_store);
@@ -5640,7 +5653,8 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -5717,7 +5731,8 @@ fn validates_backend_ir_error_type_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -6032,7 +6047,8 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -6220,7 +6236,8 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -6311,7 +6328,8 @@ fn validates_backend_ir_vtable_structure_and_function_refs_before_llvm() {
             }],
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -6694,7 +6712,8 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
             ],
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -6878,7 +6897,8 @@ fn emits_const_only_extern_method_instances_with_c_abi() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -7232,7 +7252,8 @@ fn validates_backend_ir_call_signatures_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -7477,7 +7498,8 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -7690,7 +7712,8 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -7816,7 +7839,8 @@ fn rejects_enum_variant_with_foreign_owner_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -7899,7 +7923,8 @@ fn validates_function_ir_missing_entry_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -7998,7 +8023,8 @@ fn validates_function_ir_missing_successor_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -8300,7 +8326,8 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -8626,7 +8653,8 @@ fn validates_closure_entry_call_and_view_contracts_before_llvm() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);
@@ -9054,7 +9082,8 @@ fn validates_static_function_address_instance_with_structurally_equal_args() {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
-        .into(),
+        .try_into()
+        .expect("build backend modules"),
     };
 
     drop(interner);

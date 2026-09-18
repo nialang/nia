@@ -125,7 +125,7 @@ pub(super) fn provide_codegen_program(
         let (backend_lowering, backend_diagnostics) =
             if crate::has_error_diagnostics(&preparation.diagnostics) {
                 (
-                    Arc::new(empty_backend_lowering(preparation.optimization)),
+                    Arc::new(empty_backend_lowering(preparation.optimization)?),
                     Vec::new(),
                 )
             } else {

@@ -10,6 +10,7 @@ nia-ast.workspace = true
 nia-body-ir.workspace = true
 nia-const-check.workspace = true
 nia-function-ir.workspace = true
+nia-ice.workspace = true
 nia-ids.workspace = true
 nia-layout.workspace = true
 nia-source.workspace = true
@@ -17,6 +18,7 @@ nia-span.workspace = true
 nia-static-ir.workspace = true
 nia-symbol.workspace = true
 nia-ty.workspace = true
+parking_lot.workspace = true
 
 [lib]
 path = "src/lib.rs"

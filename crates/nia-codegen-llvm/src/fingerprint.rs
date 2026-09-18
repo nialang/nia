@@ -2152,7 +2152,9 @@ mod tests {
             .primitive(PrimitiveTy::I32);
         let fixture = fixture(
             BackendProgram {
-                modules: vec![module_with_global(module_id, "main.nia", ty, 0)].into(),
+                modules: vec![module_with_global(module_id, "main.nia", ty, 0)]
+                    .try_into()
+                    .expect("build backend modules"),
             },
             store,
             "main.nia",
@@ -2179,7 +2181,9 @@ mod tests {
         let missing_module = module_ids.allocate();
         let store = TypeStore::new();
         let missing_type = InternedTyId::new(store.id(), TypeStoreIndex::from_store_index(77));
-        let modules = Arc::new(nia_backend_ir::BackendModuleStore::new([]));
+        let modules = Arc::new(
+            nia_backend_ir::BackendModuleStore::new([]).expect("create backend module store"),
+        );
         let (index, _publisher) = ProgramIndex::new(modules, Arc::new(store));
 
         let mut first = Encoder::new(TEST_EXPRESSION_DOMAIN, &index);
@@ -2204,7 +2208,9 @@ mod tests {
             .primitive(PrimitiveTy::I32);
         let fixture = fixture(
             BackendProgram {
-                modules: vec![module_with_global(module_id, "stale.nia", ty, 0)].into(),
+                modules: vec![module_with_global(module_id, "stale.nia", ty, 0)]
+                    .try_into()
+                    .expect("build backend modules"),
             },
             store,
             "stale.nia",
@@ -2283,7 +2289,8 @@ mod tests {
                     module_with_global(main_id, "main.nia", ty, 1),
                     module_with_global(origin_id, "origin.nia", ty, 2),
                 ]
-                .into(),
+                .try_into()
+                .expect("build backend modules"),
             },
             store,
             "main.nia",
@@ -2370,7 +2377,8 @@ mod tests {
                     ),
                     module_with_global(unrelated_id, "unrelated.nia", ty, 2),
                 ]
-                .into(),
+                .try_into()
+                .expect("build backend modules"),
             },
             store,
             "main.nia",
@@ -2396,7 +2404,8 @@ mod tests {
                     module_with_global(main_id, "main.nia", ty, 1),
                     module_with_global(unrelated_id, "unrelated.nia", ty, 2),
                 ]
-                .into(),
+                .try_into()
+                .expect("build backend modules"),
             },
             store,
             "main.nia",
@@ -2418,7 +2427,9 @@ mod tests {
             .primitive(PrimitiveTy::I32);
         let first = fixture(
             BackendProgram {
-                modules: vec![module_with_global(first_id, "main.nia", first_ty, 1)].into(),
+                modules: vec![module_with_global(first_id, "main.nia", first_ty, 1)]
+                    .try_into()
+                    .expect("build backend modules"),
             },
             first_store,
             "main.nia",
@@ -2436,7 +2447,9 @@ mod tests {
             .primitive(PrimitiveTy::I32);
         let second = fixture(
             BackendProgram {
-                modules: vec![module_with_global(second_id, "main.nia", second_ty, 1)].into(),
+                modules: vec![module_with_global(second_id, "main.nia", second_ty, 1)]
+                    .try_into()
+                    .expect("build backend modules"),
             },
             second_store,
             "main.nia",
@@ -2459,7 +2472,9 @@ mod tests {
         let helper = module_with_global(helper_id, "helper.nia", ty, 2);
         let first = fixture(
             BackendProgram {
-                modules: vec![main, helper].into(),
+                modules: vec![main, helper]
+                    .try_into()
+                    .expect("build backend modules"),
             },
             store,
             "main.nia",
@@ -2476,7 +2491,8 @@ mod tests {
                     module_with_global(helper_id, "helper.nia", ty, 2),
                     module_with_global(main_id, "main.nia", ty, 1),
                 ]
-                .into(),
+                .try_into()
+                .expect("build backend modules"),
             },
             store,
             "main.nia",
@@ -2498,7 +2514,9 @@ mod tests {
             .primitive(PrimitiveTy::I32);
         let baseline = fixture(
             BackendProgram {
-                modules: vec![module_with_global(module_id, "main.nia", ty, 1)].into(),
+                modules: vec![module_with_global(module_id, "main.nia", ty, 1)]
+                    .try_into()
+                    .expect("build backend modules"),
             },
             store,
             "main.nia",
@@ -2514,7 +2532,9 @@ mod tests {
         span_only_module.globals[0].span = Span::new(100, 200);
         let span_only = fixture(
             BackendProgram {
-                modules: vec![span_only_module].into(),
+                modules: vec![span_only_module]
+                    .try_into()
+                    .expect("build backend modules"),
             },
             store,
             "main.nia",
@@ -2528,7 +2548,9 @@ mod tests {
             .primitive(PrimitiveTy::I32);
         let changed = fixture(
             BackendProgram {
-                modules: vec![module_with_global(module_id, "main.nia", ty, 2)].into(),
+                modules: vec![module_with_global(module_id, "main.nia", ty, 2)]
+                    .try_into()
+                    .expect("build backend modules"),
             },
             store,
             "main.nia",
@@ -2658,7 +2680,7 @@ mod tests {
             });
             fixture(
                 BackendProgram {
-                    modules: vec![module].into(),
+                    modules: vec![module].try_into().expect("build backend modules"),
                 },
                 store,
                 "main.nia",
@@ -2710,7 +2732,8 @@ mod tests {
                             selected,
                         ),
                     ]
-                    .into(),
+                    .try_into()
+                    .expect("build backend modules"),
                 },
                 store,
                 "main.nia",
@@ -2798,7 +2821,8 @@ mod tests {
                             selected,
                         ),
                     ]
-                    .into(),
+                    .try_into()
+                    .expect("build backend modules"),
                 },
                 store,
                 "main.nia",
@@ -2865,7 +2889,9 @@ mod tests {
             });
             fixture(
                 BackendProgram {
-                    modules: vec![main, foreign].into(),
+                    modules: vec![main, foreign]
+                        .try_into()
+                        .expect("build backend modules"),
                 },
                 store,
                 "main.nia",
@@ -2888,7 +2914,9 @@ mod tests {
             .primitive(PrimitiveTy::I32);
         let fixture = fixture(
             BackendProgram {
-                modules: vec![module_with_global(module_id, "main.nia", ty, 1)].into(),
+                modules: vec![module_with_global(module_id, "main.nia", ty, 1)]
+                    .try_into()
+                    .expect("build backend modules"),
             },
             store,
             "main.nia",
