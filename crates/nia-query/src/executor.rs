@@ -23,10 +23,11 @@ impl QueryExecutionBudget {
                         | jobserver::FromEnvErrorKind::NoJobserver
                 ) =>
             {
-                jobserver::Client::new(parallelism.saturating_sub(1))
-                    .unwrap_or_else(|error| panic!("failed to create query jobserver: {error}"))
+                jobserver::Client::new(parallelism.saturating_sub(1)).unwrap_or_else(|error| {
+                    panic!("Nia ICE: failed to create query jobserver: {error}")
+                })
             }
-            Err(error) => panic!("failed to inherit query jobserver: {error}"),
+            Err(error) => panic!("Nia ICE: failed to inherit query jobserver: {error}"),
         };
         Self::from_client(client)
     }
@@ -34,7 +35,7 @@ impl QueryExecutionBudget {
     #[cfg(test)]
     pub(super) fn owned(parallelism: usize) -> Self {
         let client = jobserver::Client::new(parallelism.saturating_sub(1))
-            .unwrap_or_else(|error| panic!("failed to create query jobserver: {error}"));
+            .unwrap_or_else(|error| panic!("Nia ICE: failed to create query jobserver: {error}"));
         Self::from_client(client)
     }
 
@@ -68,7 +69,9 @@ impl QueryExecutionBudget {
                 drop(state);
                 callback_shared.ready.notify_all();
             })
-            .unwrap_or_else(|error| panic!("failed to start query jobserver helper: {error}"));
+            .unwrap_or_else(|error| {
+                panic!("Nia ICE: failed to start query jobserver helper: {error}")
+            });
         Self {
             shared,
             helper: Mutex::new(helper),
@@ -92,7 +95,7 @@ impl QueryExecutionBudget {
                     Ok(token) => token,
                     Err(error) => {
                         drop(state);
-                        panic!("failed to acquire query jobserver token: {error}");
+                        panic!("Nia ICE: failed to acquire query jobserver token: {error}");
                     }
                 };
                 state.active += 1;
@@ -216,7 +219,9 @@ impl QueryExecutor {
             let handle = std::thread::Builder::new()
                 .name(format!("nia-query-{}-{worker_index}", self.session_id.0))
                 .spawn(move || shared.worker_loop(execution_budget))
-                .unwrap_or_else(|error| panic!("failed to start query executor worker: {error}"));
+                .unwrap_or_else(|error| {
+                    panic!("Nia ICE: failed to start query executor worker: {error}")
+                });
             workers.handles.push(handle);
         }
     }

@@ -352,7 +352,7 @@ impl QueryRegistry {
                 .get(existing)
                 .expect("query registry name index must reference a descriptor");
             panic!(
-                "query name `{}` is already registered for `{}`",
+                "Nia ICE: query name `{}` is already registered for `{}`",
                 K::name(),
                 existing.key_type
             );
