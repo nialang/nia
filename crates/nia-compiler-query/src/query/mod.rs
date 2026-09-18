@@ -2618,16 +2618,14 @@ fn compiler_database_with_providers(
         Some(session) => session,
         None => nia_query::QuerySession::new()?,
     };
-    Ok(compiler_database_with_providers_in_session(
-        request, providers, session,
-    ))
+    compiler_database_with_providers_in_session(request, providers, session)
 }
 
 fn compiler_database_with_providers_in_session(
     request: CompileRequest,
     providers: CompilerQueryProviders,
     session: nia_query::QuerySession,
-) -> CompilerDatabase {
+) -> QueryResult<CompilerDatabase> {
     let timings = request.timings;
     let signature_cache = request.frontend_cache_dir.as_ref().map(|root| {
         Arc::new(crate::signature_cache::PersistentSignatureCache::new(
@@ -2636,14 +2634,13 @@ fn compiler_database_with_providers_in_session(
     });
     let verify_frontend_cache = request.verify_frontend_cache;
     let loader_facts = Arc::clone(&request.loader_facts);
-    let observed_graph = loader_facts
-        .module_graph()
-        .expect("initial compiler module graph");
-    if let Some(loader_session) = loader_facts.query_session() {
-        assert!(
-            session.ptr_eq(&loader_session),
-            "Nia ICE: compiler and loader facts must share one query session"
-        );
+    let observed_graph = loader_facts.module_graph()?;
+    if let Some(loader_session) = loader_facts.query_session()
+        && !session.ptr_eq(&loader_session)
+    {
+        return Err(QueryError::internal(
+            "compiler and loader facts must share one query session",
+        ));
     }
     let node_store = loader_facts.node_store();
     let inputs = Arc::new(RwLock::new(CompilerInputs::new(request)));
@@ -2665,10 +2662,10 @@ fn compiler_database_with_providers_in_session(
             provider_demand_rounds: std::sync::atomic::AtomicU64::new(0),
         },
         timings,
-        compiler_query_registry(),
+        compiler_query_registry()?,
         session,
     );
-    CompilerDatabase { db, inputs }
+    Ok(CompilerDatabase { db, inputs })
 }
 
 pub(crate) fn query_error_diagnostic(err: QueryError) -> Diagnostic {

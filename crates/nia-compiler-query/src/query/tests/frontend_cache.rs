@@ -25,7 +25,7 @@ pub(super) fn query_db(loaded: LoadedProgram) -> QueryDb<CompilerContext> {
             verify_frontend_cache: false,
             provider_demand_rounds: std::sync::atomic::AtomicU64::new(0),
         },
-        compiler_query_registry(),
+        compiler_query_registry().expect("create compiler query registry"),
     )
     .expect("create compiler query database")
 }
@@ -158,7 +158,7 @@ pub(super) fn query_db_with_frontend_cache(
             verify_frontend_cache: verify,
             provider_demand_rounds: std::sync::atomic::AtomicU64::new(0),
         },
-        compiler_query_registry(),
+        compiler_query_registry().expect("create compiler query registry"),
     )
     .expect("create compiler query database")
 }

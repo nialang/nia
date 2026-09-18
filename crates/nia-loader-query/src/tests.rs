@@ -228,8 +228,11 @@ fn test_loader_context(
 }
 
 fn registered_query_db(context: LoaderContext) -> QueryDb<LoaderContext> {
-    QueryDb::new_registered(context, crate::loader_query_registry())
-        .expect("create registered loader query database")
+    QueryDb::new_registered(
+        context,
+        crate::loader_query_registry().expect("create loader query registry"),
+    )
+    .expect("create registered loader query database")
 }
 
 fn query_executions(trace: &nia_query::QueryTrace, name: &str) -> usize {
