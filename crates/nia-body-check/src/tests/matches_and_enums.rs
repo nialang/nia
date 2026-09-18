@@ -1434,3 +1434,24 @@ fn main() i32 {
             .any(|diagnostic| diagnostic.summary.contains("explicit"))
     );
 }
+
+#[test]
+fn compares_enum_with_omitted_variant_on_either_side() {
+    let checked = pipeline(
+        r#"
+enum Kind {
+    Directory,
+    File,
+}
+
+fn main(kind: Kind) i32 {
+    if kind == .Directory {
+        if .File != kind { 1 } else { 0 }
+    } else {
+        0
+    }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
