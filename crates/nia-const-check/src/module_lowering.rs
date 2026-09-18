@@ -388,8 +388,14 @@ impl ConstModuleLowerer<'_> {
                 Some(*def_id)
             })
             .filter(|id| {
-                id.module_id != self.input.defs.module_id
-                    || self.input.defs.scopes.enum_members.contains_key(&id.def_id)
+                if id.module_id == self.input.defs.module_id {
+                    self.input.defs.scopes.enum_members.contains_key(&id.def_id)
+                } else {
+                    self.input
+                        .defs_for_module
+                        .and_then(|defs_for_module| defs_for_module(id.module_id))
+                        .is_some_and(|defs| defs.scopes.enum_members.contains_key(&id.def_id))
+                }
             })
     }
 
