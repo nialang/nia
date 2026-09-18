@@ -191,9 +191,11 @@ impl QueryFingerprintBuilder {
 
     /// Appends a length-prefixed byte field.
     pub fn write_bytes(&mut self, bytes: &[u8]) {
-        self.write_u64(
-            u64::try_from(bytes.len()).expect("query fingerprint byte length exceeds u64"),
-        );
+        // Nia currently targets machines whose pointer width fits in `u64`. Keep the
+        // infallible builder API for those targets while assigning a deterministic sentinel
+        // if a wider target is ever added; callers still get a valid structured fingerprint.
+        let length = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        self.write_u64(length);
         self.write_raw_bytes(bytes);
     }
 
