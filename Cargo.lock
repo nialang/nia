@@ -444,6 +444,7 @@ dependencies = [
  "nia-function-ir",
  "nia-function-lower",
  "nia-hash",
+ "nia-ice",
  "nia-ids",
  "nia-imports",
  "nia-item-signatures",

@@ -105,12 +105,12 @@ pub(super) struct ModuleLayouts {
 pub(super) fn store_module_layouts(
     context: &CompilerContext,
     mut layouts: nia_layout::Layouts,
-) -> ModuleLayouts {
+) -> QueryResult<ModuleLayouts> {
     let diagnostics = std::mem::take(&mut layouts.diagnostics);
-    ModuleLayouts {
+    Ok(ModuleLayouts {
         semantic: Arc::new(layouts),
-        diagnostics: context.diagnostic_store.bundle(diagnostics),
-    }
+        diagnostics: context.diagnostic_store.bundle(diagnostics)?,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,7 +146,7 @@ pub(super) struct ModuleDiagnosticBundle {
 pub(super) fn store_module_diagnostics(
     store: &nia_diagnostic::DiagnosticStore,
     diagnostics: Vec<(ModuleId, Diagnostic)>,
-) -> Vec<ModuleDiagnosticBundle> {
+) -> QueryResult<Vec<ModuleDiagnosticBundle>> {
     let mut diagnostics = diagnostics.into_iter().peekable();
     let mut bundles = Vec::new();
     while let Some((module_id, diagnostic)) = diagnostics.next() {
@@ -158,20 +158,16 @@ pub(super) fn store_module_diagnostics(
         }
         bundles.push(ModuleDiagnosticBundle {
             module_id,
-            diagnostics: store.bundle(module_diagnostics),
+            diagnostics: store.bundle(module_diagnostics)?,
         });
     }
-    bundles
+    Ok(bundles)
 }
 
-pub(super) fn resolve_diagnostic_bundle<'bundle>(
-    context: &CompilerContext,
-    bundle: &'bundle nia_diagnostic::DiagnosticBundle,
-) -> &'bundle [Diagnostic] {
-    context
-        .diagnostic_store
-        .diagnostics(bundle)
-        .unwrap_or_else(|| panic!("Nia ICE: diagnostic bundle has a foreign store owner"))
+pub(super) fn resolve_diagnostic_bundle(
+    bundle: &nia_diagnostic::DiagnosticBundle,
+) -> &[Diagnostic] {
+    bundle.diagnostics()
 }
 
 pub(super) fn full_module_defs_semantic(
@@ -322,7 +318,8 @@ mod tests {
                 path: first.clone(),
                 diagnostic: diagnostic("fourth"),
             },
-        ]);
+        ])
+        .expect("group program diagnostics");
 
         assert_eq!(
             bundles
@@ -344,28 +341,34 @@ mod tests {
 
     #[test]
     fn program_diagnostic_bundle_append_reuses_session_payload_handles() {
-        let store = Arc::new(DiagnosticStore::new());
+        let store = Arc::new(DiagnosticStore::new().expect("create diagnostic store"));
         let first_path = SourcePath::new("src/first.nia");
         let second_path = SourcePath::new("src/second.nia");
-        let first_bundle = store.bundle(vec![Diagnostic::user_error_at(
-            codes::NAME_RESOLUTION,
-            Span::new(0, 1),
-            "first",
-        )]);
-        let second_bundle = store.bundle(vec![Diagnostic::user_error_at(
-            codes::NAME_RESOLUTION,
-            Span::new(1, 2),
-            "second",
-        )]);
+        let first_bundle = store
+            .bundle(vec![Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                Span::new(0, 1),
+                "first",
+            )])
+            .expect("publish first diagnostic bundle");
+        let second_bundle = store
+            .bundle(vec![Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                Span::new(1, 2),
+                "second",
+            )])
+            .expect("publish second diagnostic bundle");
         let first = ProgramDiagnosticBundles::from_source_bundle(
             store.clone(),
             first_path,
             first_bundle.clone(),
-        );
+        )
+        .expect("group first source bundle");
         let second =
-            ProgramDiagnosticBundles::from_source_bundle(store, second_path, second_bundle.clone());
+            ProgramDiagnosticBundles::from_source_bundle(store, second_path, second_bundle.clone())
+                .expect("group second source bundle");
 
-        let combined = first.append(&second);
+        let combined = first.append(&second).expect("append diagnostic bundles");
 
         assert_eq!(combined.bundles[0].diagnostics.id(), first_bundle.id());
         assert_eq!(combined.bundles[1].diagnostics.id(), second_bundle.id());
@@ -380,11 +383,42 @@ mod tests {
     }
 
     #[test]
+    fn program_diagnostic_bundles_reject_foreign_store_ownership() {
+        let first_store = Arc::new(DiagnosticStore::new().expect("create first store"));
+        let second_store = Arc::new(DiagnosticStore::new().expect("create second store"));
+        let path = SourcePath::new("src/main.nia");
+        let bundle = first_store
+            .bundle(vec![Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                Span::new(0, 1),
+                "foreign",
+            )])
+            .expect("publish diagnostic bundle");
+
+        let error = ProgramDiagnosticBundles::from_source_bundle(
+            second_store.clone(),
+            path.clone(),
+            bundle,
+        )
+        .expect_err("foreign source bundle must be rejected");
+        assert!(error.message.contains("foreign store owner"));
+
+        let first = ProgramDiagnosticBundles::from_diagnostics_in(first_store, Vec::new())
+            .expect("create first program bundle");
+        let second = ProgramDiagnosticBundles::from_diagnostics_in(second_store, Vec::new())
+            .expect("create second program bundle");
+        let error = first
+            .append(&second)
+            .expect_err("different stores must not be appended");
+        assert!(error.message.contains("different stores"));
+    }
+
+    #[test]
     fn module_diagnostic_bundles_preserve_order_and_only_group_adjacent_owners() {
         let mut modules = ModuleIdAllocator::new();
         let first = modules.allocate();
         let second = modules.allocate();
-        let store = DiagnosticStore::new();
+        let store = DiagnosticStore::new().expect("create diagnostic store");
         let diagnostic =
             |summary| Diagnostic::user_error_at(codes::NAME_RESOLUTION, Span::new(0, 1), summary);
         let bundles = store_module_diagnostics(
@@ -395,7 +429,8 @@ mod tests {
                 (second, diagnostic("third")),
                 (first, diagnostic("fourth")),
             ],
-        );
+        )
+        .expect("group module diagnostics");
 
         assert_eq!(
             bundles

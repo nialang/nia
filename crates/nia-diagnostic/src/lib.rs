@@ -499,16 +499,21 @@ impl DiagnosticSink {
     }
 
     /// Validates and appends one diagnostic.
-    pub fn emit(&mut self, diagnostic: Diagnostic) {
-        self.validate_emit_contract(&diagnostic);
+    pub fn emit(&mut self, diagnostic: Diagnostic) -> nia_ice::IceResult<()> {
+        self.validate_emit_contract(&diagnostic)?;
         self.diagnostics.push(diagnostic);
+        Ok(())
     }
 
     /// Validates and appends all diagnostics from an iterator.
-    pub fn extend(&mut self, diagnostics: impl IntoIterator<Item = Diagnostic>) {
+    pub fn extend(
+        &mut self,
+        diagnostics: impl IntoIterator<Item = Diagnostic>,
+    ) -> nia_ice::IceResult<()> {
         for diagnostic in diagnostics {
-            self.emit(diagnostic);
+            self.emit(diagnostic)?;
         }
+        Ok(())
     }
 
     /// Consumes the sink and returns its diagnostics in emission order.
@@ -521,7 +526,7 @@ impl DiagnosticSink {
         &self.diagnostics
     }
 
-    fn validate_emit_contract(&self, diagnostic: &Diagnostic) {
+    fn validate_emit_contract(&self, diagnostic: &Diagnostic) -> nia_ice::IceResult<()> {
         if diagnostic.category == DiagnosticCategory::User
             && !self.config.allow_user_fallback_spans
             && diagnostic
@@ -529,8 +534,11 @@ impl DiagnosticSink {
                 .iter()
                 .any(|label| label.span_source == SpanSource::Fallback)
         {
-            panic!("Nia ICE: user diagnostic emitted with fallback span");
+            return Err(nia_ice::Ice::new(
+                "user diagnostic emitted with fallback span",
+            ));
         }
+        Ok(())
     }
 }
 
@@ -1328,20 +1336,27 @@ mod tests {
             .finish();
         let mut sink = DiagnosticSink::new(DiagnosticSinkConfig::default());
 
-        sink.emit(diagnostic);
+        sink.emit(diagnostic).expect("emit diagnostic");
 
         assert_eq!(sink.diagnostics().len(), 1);
     }
 
     #[test]
-    #[should_panic(expected = "user diagnostic emitted with fallback span")]
     fn diagnostic_sink_rejects_user_fallback_spans() {
         let diagnostic = Diagnostic::user_error(codes::PARSE, "fallback")
             .primary_fallback(Span::default(), "fallback span")
             .finish();
         let mut sink = DiagnosticSink::new(DiagnosticSinkConfig::default());
 
-        sink.emit(diagnostic);
+        let error = sink
+            .emit(diagnostic)
+            .expect_err("user fallback span must be rejected");
+
+        assert!(
+            error
+                .message
+                .contains("user diagnostic emitted with fallback span")
+        );
     }
 
     #[test]

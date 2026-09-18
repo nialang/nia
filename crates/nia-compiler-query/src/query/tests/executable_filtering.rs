@@ -451,7 +451,7 @@ pub fn main() i32 {
         })
         .expect("used global");
 
-    let diagnostics = resolve_diagnostic_bundle(db.context(), &module.body_diagnostics);
+    let diagnostics = resolve_diagnostic_bundle(&module.body_diagnostics);
     assert!(
         diagnostics.iter().any(|diagnostic| diagnostic
             .summary

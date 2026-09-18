@@ -476,9 +476,9 @@ fn backend_module_plan_slots_are_consumed_and_republished_after_invalidation() {
     let first = db.expect_get(BackendLoweringQuery);
     assert!(first.semantic.diagnostics.is_empty());
     assert!(
-        resolve_diagnostic_bundle(db.context(), &first.diagnostics).is_empty(),
+        resolve_diagnostic_bundle(&first.diagnostics).is_empty(),
         "{:?}",
-        resolve_diagnostic_bundle(db.context(), &first.diagnostics)
+        resolve_diagnostic_bundle(&first.diagnostics)
     );
     assert_eq!(
         first

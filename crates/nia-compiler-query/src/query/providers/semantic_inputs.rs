@@ -119,7 +119,7 @@ pub(super) fn provide_value_resolution(
             let diagnostics = std::mem::take(&mut resolution.diagnostics);
             Ok(ModuleValueResolution {
                 semantic: Arc::new(resolution),
-                diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+                diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
             })
         }
     })
@@ -146,7 +146,7 @@ pub(super) fn provide_local_resolution(
     let diagnostics = std::mem::take(&mut resolution.diagnostics);
     Ok(ModuleLocalResolution {
         semantic: Arc::new(resolution),
-        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
     })
 }
 

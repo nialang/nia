@@ -89,7 +89,7 @@ pub(super) fn provide_module_defs(
     let diagnostics = std::mem::take(&mut defs.diagnostics);
     Ok(ModuleDefinitions {
         semantic: Arc::new(defs),
-        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
     })
 }
 
@@ -108,7 +108,7 @@ pub(super) fn provide_full_module_defs(
     let diagnostics = std::mem::take(&mut defs.diagnostics);
     Ok(FullModuleDefinitions {
         semantic: Arc::new(defs),
-        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
     })
 }
 
@@ -208,7 +208,7 @@ pub(super) fn provide_public_surfaces(
             diagnostics: store_module_diagnostics(
                 &db.context().diagnostic_store,
                 exports.diagnostics,
-            ),
+            )?,
         })
     })
 }
@@ -242,7 +242,7 @@ pub(super) fn provide_public_using_scopes(
             diagnostics: store_module_diagnostics(
                 &db.context().diagnostic_store,
                 using_scopes.diagnostics,
-            ),
+            )?,
         })
     })
 }
@@ -311,7 +311,7 @@ pub(super) fn provide_type_resolution(
             || {
                 Ok(ModuleTypeResolution {
                     semantic: Arc::new(resolution),
-                    diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+                    diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
                 })
             },
             Err,
@@ -432,7 +432,7 @@ pub(super) fn provide_signature_type_resolution(
         {
             return Ok(SignatureTypeResolution {
                 semantic: Arc::new(cached.as_ref().clone()),
-                diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+                diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
             });
         }
         let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set))?;
@@ -493,7 +493,7 @@ pub(super) fn provide_signature_type_resolution(
         }
         Ok(SignatureTypeResolution {
             semantic: Arc::new(fresh),
-            diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+            diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
         })
     })
 }
@@ -560,7 +560,7 @@ pub(super) fn provide_type_lowering(
         || {
             Ok(ModuleTypeLowering {
                 semantic: Arc::new(lowering),
-                diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+                diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
             })
         },
         Err,
@@ -666,7 +666,7 @@ pub(super) fn provide_signature_type_lowering(
     {
         return Ok(SignatureTypeLowering {
             semantic: Arc::new(cached.as_ref().clone()),
-            diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+            diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
         });
     }
     let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set))?;
@@ -736,7 +736,7 @@ pub(super) fn provide_signature_type_lowering(
     }
     Ok(SignatureTypeLowering {
         semantic: Arc::new(lowering),
-        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
     })
 }
 
@@ -784,7 +784,7 @@ pub(super) fn provide_item_signatures(
     let diagnostics = std::mem::take(&mut signatures.diagnostics);
     Ok(ModuleItemSignatures {
         semantic: Arc::new(signatures),
-        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
     })
 }
 
@@ -864,7 +864,7 @@ pub(super) fn provide_signature_item_signatures(
     {
         return Ok(SignatureItemSignatures {
             semantic: Arc::new(cached.as_ref().clone()),
-            diagnostics: db.context().diagnostic_store.bundle(Vec::new()),
+            diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
         });
     }
     let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set))?;
@@ -880,7 +880,7 @@ pub(super) fn provide_signature_item_signatures(
         });
     let diagnostics = std::mem::take(&mut fresh.diagnostics);
     let cacheable = diagnostics.is_empty()
-        && resolve_diagnostic_bundle(db.context(), &type_lowering.diagnostics).is_empty()
+        && resolve_diagnostic_bundle(&type_lowering.diagnostics).is_empty()
         && type_lowering.semantic.const_exprs.is_empty()
         && type_lowering.semantic.const_expr_summaries.is_empty();
     if db.context().timings().enabled() {
@@ -924,7 +924,7 @@ pub(super) fn provide_signature_item_signatures(
     }
     Ok(SignatureItemSignatures {
         semantic: Arc::new(fresh),
-        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
     })
 }
 
@@ -958,7 +958,7 @@ pub(super) fn provide_type_normalization(
     let diagnostics = std::mem::take(&mut normalization.diagnostics);
     Ok(ModuleTypeNormalization {
         semantic: Arc::new(normalization),
-        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
     })
 }
 
@@ -992,7 +992,7 @@ pub(super) fn provide_signature_type_normalization(
     let diagnostics = std::mem::take(&mut normalization.diagnostics);
     Ok(SignatureTypeNormalization {
         semantic: Arc::new(normalization),
-        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
     })
 }
 

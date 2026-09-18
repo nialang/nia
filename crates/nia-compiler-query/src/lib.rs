@@ -485,7 +485,7 @@ impl LoaderFactProvider for LoadedProgram {
     fn load_diagnostics(&self) -> nia_query::QueryResult<ProgramDiagnosticBundles> {
         Ok(ProgramDiagnosticBundles::from_diagnostics(
             self.diagnostics.clone(),
-        ))
+        )?)
     }
 
     fn symbols(&self) -> SymbolTable {
@@ -677,8 +677,8 @@ struct SourceDiagnosticBundle {
 
 impl ProgramDiagnosticBundles {
     /// Groups ordered diagnostics in a fresh diagnostic store.
-    pub fn from_diagnostics(diagnostics: Vec<ProgramDiagnostic>) -> Self {
-        let store = std::sync::Arc::new(nia_diagnostic::DiagnosticStore::new());
+    pub fn from_diagnostics(diagnostics: Vec<ProgramDiagnostic>) -> nia_ice::IceResult<Self> {
+        let store = std::sync::Arc::new(nia_diagnostic::DiagnosticStore::new()?);
         Self::from_diagnostics_in(store, diagnostics)
     }
 
@@ -686,7 +686,7 @@ impl ProgramDiagnosticBundles {
     pub fn from_diagnostics_in(
         store: std::sync::Arc<nia_diagnostic::DiagnosticStore>,
         diagnostics: Vec<ProgramDiagnostic>,
-    ) -> Self {
+    ) -> nia_ice::IceResult<Self> {
         let mut diagnostics = diagnostics.into_iter().peekable();
         let mut bundles = Vec::new();
         while let Some(ProgramDiagnostic { path, diagnostic }) = diagnostics.next() {
@@ -696,13 +696,13 @@ impl ProgramDiagnosticBundles {
             }
             bundles.push(SourceDiagnosticBundle {
                 path,
-                diagnostics: store.bundle(source_diagnostics),
+                diagnostics: store.bundle(source_diagnostics)?,
             });
         }
-        Self {
+        Ok(Self {
             store,
             bundles: bundles.into(),
-        }
+        })
     }
 
     /// Wraps one already store-owned source bundle.
@@ -710,27 +710,31 @@ impl ProgramDiagnosticBundles {
         store: std::sync::Arc<nia_diagnostic::DiagnosticStore>,
         path: SourcePath,
         diagnostics: nia_diagnostic::DiagnosticBundle,
-    ) -> Self {
+    ) -> nia_ice::IceResult<Self> {
         if store.diagnostics(&diagnostics).is_none() {
-            panic!("Nia ICE: program diagnostic bundle has a foreign store owner");
+            return Err(nia_ice::Ice::new(
+                "program diagnostic bundle has a foreign store owner",
+            ));
         }
         let bundles = if diagnostics.is_empty() {
             Vec::new()
         } else {
             vec![SourceDiagnosticBundle { path, diagnostics }]
         };
-        Self {
+        Ok(Self {
             store,
             bundles: bundles.into(),
-        }
+        })
     }
 
     /// Appends bundles that share the same diagnostic store owner.
-    pub fn append(&self, other: &Self) -> Self {
+    pub fn append(&self, other: &Self) -> nia_ice::IceResult<Self> {
         if !std::sync::Arc::ptr_eq(&self.store, &other.store) {
-            panic!("Nia ICE: cannot append program diagnostics from different stores");
+            return Err(nia_ice::Ice::new(
+                "cannot append program diagnostics from different stores",
+            ));
         }
-        Self {
+        Ok(Self {
             store: self.store.clone(),
             bundles: self
                 .bundles
@@ -739,7 +743,7 @@ impl ProgramDiagnosticBundles {
                 .cloned()
                 .collect::<Vec<_>>()
                 .into(),
-        }
+        })
     }
 
     /// Materializes source-qualified diagnostics in bundle order.
@@ -747,11 +751,9 @@ impl ProgramDiagnosticBundles {
         self.bundles
             .iter()
             .flat_map(|bundle| {
-                self.store
-                    .diagnostics(&bundle.diagnostics)
-                    .unwrap_or_else(|| {
-                        panic!("Nia ICE: program diagnostic bundle has a foreign store owner")
-                    })
+                bundle
+                    .diagnostics
+                    .diagnostics()
                     .iter()
                     .cloned()
                     .map(|diagnostic| ProgramDiagnostic {

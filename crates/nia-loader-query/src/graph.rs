@@ -165,7 +165,7 @@ fn build_module_graph(
                 ProgramDiagnosticBundles::from_diagnostics_in(
                     db.context().diagnostic_store.clone(),
                     Vec::new(),
-                ),
+                )?,
                 0,
             )
         }
@@ -215,10 +215,10 @@ fn build_module_graph(
             .into_iter()
             .map(|(path, diagnostic)| ProgramDiagnostic { path, diagnostic })
             .collect(),
-    );
+    )?;
     Ok(ModuleGraphValue {
         semantic: ModuleGraphSnapshot::new(graph),
-        diagnostics: prior_diagnostics.append(&diagnostics),
+        diagnostics: prior_diagnostics.append(&diagnostics)?,
     })
 }
 

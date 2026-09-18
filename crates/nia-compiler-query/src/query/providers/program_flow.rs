@@ -102,7 +102,7 @@ pub(in crate::query) fn provide_codegen_preparation(
             || {
                 monomorphization_diagnostics(
                     &modules,
-                    resolve_diagnostic_bundle(db.context(), &monomorphization.diagnostics),
+                    resolve_diagnostic_bundle(&monomorphization.diagnostics),
                 )
             },
         ));
@@ -136,7 +136,7 @@ pub(super) fn provide_codegen_program(
                     || {
                         backend_lowering_diagnostics(
                             &preparation.modules,
-                            resolve_diagnostic_bundle(db.context(), &backend_lowering.diagnostics),
+                            resolve_diagnostic_bundle(&backend_lowering.diagnostics),
                         )
                     },
                 );

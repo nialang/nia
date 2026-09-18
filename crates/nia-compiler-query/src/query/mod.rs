@@ -2658,7 +2658,7 @@ fn compiler_database_with_providers_in_session(
             executable_fact_session,
             executable_fact_scheduler: std::sync::Mutex::new(()),
             type_store,
-            diagnostic_store: nia_diagnostic::DiagnosticStore::new(),
+            diagnostic_store: nia_diagnostic::DiagnosticStore::new()?,
             node_store,
             signature_cache,
             verify_frontend_cache,

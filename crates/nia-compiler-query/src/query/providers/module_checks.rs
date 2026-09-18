@@ -45,7 +45,7 @@ pub(super) fn provide_layouts(
             });
         match query_failure.into_inner() {
             Some(error) => Err(error),
-            None => Ok(store_module_layouts(db.context(), layouts)),
+            None => Ok(store_module_layouts(db.context(), layouts)?),
         }
     })
 }
@@ -54,10 +54,10 @@ pub(super) fn provide_signature_layouts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<ModuleLayouts> {
-    Ok(store_module_layouts(
+    store_module_layouts(
         db.context(),
         signature_layouts_for_types(db, module_id, None)?,
-    ))
+    )
 }
 
 pub(super) fn provide_abi_check(
@@ -99,7 +99,7 @@ pub(super) fn provide_abi_check(
     let diagnostics = std::mem::take(&mut abi_check.diagnostics);
     Ok(ModuleAbiCheck {
         semantic: Arc::new(abi_check),
-        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
     })
 }
 
@@ -146,7 +146,7 @@ pub(super) fn provide_static_check(
             let diagnostics = std::mem::take(&mut static_check.diagnostics);
             Ok(ModuleStaticCheck {
                 semantic: Arc::new(static_check),
-                diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+                diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
             })
         }
     }
@@ -171,6 +171,6 @@ pub(super) fn provide_flow_check(
     let diagnostics = std::mem::take(&mut flow_check.diagnostics);
     Ok(ModuleFlowCheck {
         semantic: Arc::new(flow_check),
-        diagnostics: db.context().diagnostic_store.bundle(diagnostics),
+        diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
     })
 }

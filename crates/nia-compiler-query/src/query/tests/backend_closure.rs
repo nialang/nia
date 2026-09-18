@@ -97,10 +97,10 @@ pub fn main(base: i32) i32 {
 
     let backend_inputs = db.expect_get(BackendLoweringInputsQuery);
     assert!(backend_inputs.semantic.is_some());
-    assert!(resolve_diagnostic_bundle(db.context(), &backend_inputs.diagnostics).is_empty());
+    assert!(resolve_diagnostic_bundle(&backend_inputs.diagnostics).is_empty());
 
     let backend = db.expect_get(BackendLoweringQuery);
-    assert!(resolve_diagnostic_bundle(db.context(), &backend.diagnostics).is_empty());
+    assert!(resolve_diagnostic_bundle(&backend.diagnostics).is_empty());
     let backend_module = backend
         .semantic
         .program
@@ -306,7 +306,7 @@ pub fn main() i32 {
     let db = query_db(loaded);
 
     let backend = db.expect_get(BackendLoweringQuery);
-    assert!(resolve_diagnostic_bundle(db.context(), &backend.diagnostics).is_empty());
+    assert!(resolve_diagnostic_bundle(&backend.diagnostics).is_empty());
     let module = backend
         .semantic
         .program
@@ -386,9 +386,9 @@ pub fn main(base: i32) i32 {
 
     let backend = db.expect_get(BackendLoweringQuery);
     assert!(
-        resolve_diagnostic_bundle(db.context(), &backend.diagnostics).is_empty(),
+        resolve_diagnostic_bundle(&backend.diagnostics).is_empty(),
         "{:?}",
-        resolve_diagnostic_bundle(db.context(), &backend.diagnostics)
+        resolve_diagnostic_bundle(&backend.diagnostics)
     );
     let map = backend
         .semantic
@@ -427,7 +427,7 @@ pub fn main() i32 {
     let db = query_db(loaded);
 
     let backend = db.expect_get(BackendLoweringQuery);
-    assert!(resolve_diagnostic_bundle(db.context(), &backend.diagnostics).is_empty());
+    assert!(resolve_diagnostic_bundle(&backend.diagnostics).is_empty());
     let module = backend
         .semantic
         .program
@@ -473,9 +473,9 @@ pub fn main() i32 {
         .find(|module| module.id == module_id)
         .expect("entry module should be executable-reachable");
     assert!(
-        resolve_diagnostic_bundle(db.context(), &module.layout_diagnostics).is_empty(),
+        resolve_diagnostic_bundle(&module.layout_diagnostics).is_empty(),
         "unreachable recursive aggregate should not force layout diagnostics: {:?}",
-        resolve_diagnostic_bundle(db.context(), &module.layout_diagnostics)
+        resolve_diagnostic_bundle(&module.layout_diagnostics)
     );
     let recursive_def = module
         .defs
