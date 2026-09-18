@@ -1302,10 +1302,37 @@ impl BuiltinTraitMethod {
 
     /// Returns the complete signature descriptor for this method.
     pub fn descriptor(self) -> BuiltinTraitMethodDescriptor {
-        Self::DESCRIPTORS
-            .iter()
-            .find_map(|(method, descriptor)| (*method == self).then_some(*descriptor))
-            .expect("missing builtin trait method descriptor")
+        let index = match self {
+            Self::Add => 0,
+            Self::Sub => 1,
+            Self::Mul => 2,
+            Self::Div => 3,
+            Self::Rem => 4,
+            Self::Neg => 5,
+            Self::Not => 6,
+            Self::BitNot => 7,
+            Self::BitAnd => 8,
+            Self::BitOr => 9,
+            Self::BitXor => 10,
+            Self::Shl => 11,
+            Self::Shr => 12,
+            Self::Eq => 13,
+            Self::Ne => 14,
+            Self::Lt => 15,
+            Self::Le => 16,
+            Self::Gt => 17,
+            Self::Ge => 18,
+            Self::Deref => 19,
+            Self::DerefMut => 20,
+            Self::Index => 21,
+            Self::IndexMut => 22,
+            Self::Slice => 23,
+            Self::SliceMut => 24,
+            Self::IterableIter => 25,
+            Self::IteratorNext => 26,
+            Self::IntoError => 27,
+        };
+        Self::DESCRIPTORS[index].1
     }
 
     /// Parses a canonical trait-method name.
@@ -1883,10 +1910,37 @@ impl BuiltinTrait {
 
     /// Returns the complete descriptor for this builtin trait.
     pub fn descriptor(self) -> BuiltinTraitDescriptor {
-        Self::DESCRIPTORS
-            .iter()
-            .find_map(|(trait_id, descriptor)| (*trait_id == self).then_some(*descriptor))
-            .expect("missing builtin trait descriptor")
+        let index = match self {
+            Self::Add => 0,
+            Self::Sub => 1,
+            Self::Mul => 2,
+            Self::Div => 3,
+            Self::Rem => 4,
+            Self::Neg => 5,
+            Self::Not => 6,
+            Self::BitNot => 7,
+            Self::BitAnd => 8,
+            Self::BitOr => 9,
+            Self::BitXor => 10,
+            Self::Shl => 11,
+            Self::Shr => 12,
+            Self::Eq => 13,
+            Self::Ord => 14,
+            Self::Sized => 15,
+            Self::Unsized => 16,
+            Self::Deref => 17,
+            Self::DerefMut => 18,
+            Self::Index => 19,
+            Self::IndexMut => 20,
+            Self::Slice => 21,
+            Self::SliceMut => 22,
+            Self::Iterable => 23,
+            Self::Iterator => 24,
+            Self::Simd => 25,
+            Self::SimdMask => 26,
+            Self::IntoError => 27,
+        };
+        Self::DESCRIPTORS[index].1
     }
 
     /// Parses a canonical builtin trait name.
