@@ -2492,8 +2492,10 @@ mod owner_tests {
                 trait_object_vtables: Vec::new(),
                 generic_instantiations: Vec::new(),
             };
-            let store = Arc::new(BackendModuleStore::new([module_id]));
-            store.publish(module);
+            let store = Arc::new(
+                BackendModuleStore::new([module_id]).expect("create backend module store"),
+            );
+            store.publish(module).expect("publish backend module");
             let (index, mut publisher) = ProgramIndex::new(store, Arc::new(type_store));
             publisher.publish(module_id).expect("publish module");
             validate_native_backend_program(&index, CompilerBuiltinSymbols::default())
@@ -2569,8 +2571,9 @@ mod owner_tests {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         };
-        let store = Arc::new(BackendModuleStore::new([module_id]));
-        store.publish(module);
+        let store =
+            Arc::new(BackendModuleStore::new([module_id]).expect("create backend module store"));
+        store.publish(module).expect("publish backend module");
         let (index, mut publisher) = ProgramIndex::new(store, Arc::new(TypeStore::new()));
         publisher.publish(module_id).expect("publish module");
         let unit = CodegenUnitId::SourceModule {
@@ -2661,8 +2664,9 @@ mod owner_tests {
         };
         module.const_eval.array_lengths.insert(left_expr, 4);
         module.const_eval.array_lengths.insert(right_expr, 8);
-        let store = Arc::new(BackendModuleStore::new([module_id]));
-        store.publish(module);
+        let store =
+            Arc::new(BackendModuleStore::new([module_id]).expect("create backend module store"));
+        store.publish(module).expect("publish backend module");
         let (index, mut publisher) = ProgramIndex::new(store, Arc::new(type_store));
         publisher.publish(module_id).expect("publish module");
 

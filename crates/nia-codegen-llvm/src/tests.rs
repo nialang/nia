@@ -22,7 +22,9 @@ mod void_and_empty;
 fn missing_declaration_module_is_reported_as_backend_diagnostic() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let missing = module_ids.allocate();
-    let modules = std::sync::Arc::new(nia_backend_ir::BackendModuleStore::new([]));
+    let modules = std::sync::Arc::new(
+        nia_backend_ir::BackendModuleStore::new([]).expect("create backend module store"),
+    );
     let (index, _publisher) = crate::program_index::ProgramIndex::new(
         modules,
         std::sync::Arc::new(nia_ty::TypeStore::new()),

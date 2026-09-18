@@ -11,10 +11,12 @@ use std::{
     fmt,
     ops::Index,
     sync::{
-        Arc, Condvar, Mutex, OnceLock,
+        Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
 };
+
+use parking_lot::{Condvar, Mutex};
 
 use nia_function_ir::{FunctionBody, FunctionInstanceKey};
 use nia_ids::{
@@ -39,24 +41,25 @@ pub struct BackendProgram {
 
 impl BackendProgram {
     /// Builds and synchronously publishes a program from ordered modules.
-    pub fn new(modules: Vec<BackendModule>) -> Self {
+    pub fn new(modules: Vec<BackendModule>) -> nia_ice::IceResult<Self> {
         let module_ids = modules.iter().map(|module| module.id).collect::<Vec<_>>();
-        let store = Arc::new(BackendModuleStore::new(module_ids));
+        let store = Arc::new(BackendModuleStore::new(module_ids)?);
         for module in modules {
-            store.publish(module);
+            store.publish(module)?;
         }
         Self::from_module_store(store)
     }
 
-    /// Wraps a module store after asserting every planned owner was published.
-    pub fn from_module_store(store: Arc<BackendModuleStore>) -> Self {
-        assert!(
-            store.is_complete(),
-            "Nia ICE: backend program requires a complete module store"
-        );
-        Self {
-            modules: BackendModules { store },
+    /// Wraps a module store after verifying every planned owner was published.
+    pub fn from_module_store(store: Arc<BackendModuleStore>) -> nia_ice::IceResult<Self> {
+        if !store.is_complete() {
+            return Err(nia_ice::Ice::new(
+                "backend program requires a complete module store",
+            ));
         }
+        Ok(Self {
+            modules: BackendModules { store },
+        })
     }
 
     /// Returns shared access to the immutable published module store.
@@ -127,9 +130,11 @@ impl BackendModules {
     }
 }
 
-impl From<Vec<BackendModule>> for BackendModules {
-    fn from(modules: Vec<BackendModule>) -> Self {
-        BackendProgram::new(modules).modules
+impl TryFrom<Vec<BackendModule>> for BackendModules {
+    type Error = nia_ice::Ice;
+
+    fn try_from(modules: Vec<BackendModule>) -> Result<Self, Self::Error> {
+        Ok(BackendProgram::new(modules)?.modules)
     }
 }
 
@@ -459,16 +464,17 @@ impl BackendModuleOwnerDirectory {
 
 impl BackendModuleStore {
     /// Registers the unique module owners that may later be published.
-    pub fn new(module_ids: impl IntoIterator<Item = ModuleId>) -> Self {
+    pub fn new(module_ids: impl IntoIterator<Item = ModuleId>) -> nia_ice::IceResult<Self> {
         let module_ids = module_ids.into_iter().collect::<Vec<_>>();
         let mut positions = HashMap::with_capacity(module_ids.len());
         for (position, module_id) in module_ids.iter().copied().enumerate() {
-            assert!(
-                positions.insert(module_id, position).is_none(),
-                "Nia ICE: backend module store contains duplicate module owner {module_id:?}"
-            );
+            if positions.insert(module_id, position).is_some() {
+                return Err(nia_ice::Ice::new(format!(
+                    "backend module store contains duplicate module owner {module_id:?}"
+                )));
+            }
         }
-        Self {
+        Ok(Self {
             slots: (0..module_ids.len()).map(|_| OnceLock::new()).collect(),
             module_ids,
             positions,
@@ -477,7 +483,7 @@ impl BackendModuleStore {
             }),
             readiness_changed: Condvar::new(),
             readiness_claimed: AtomicBool::new(false),
-        }
+        })
     }
 
     /// Returns registered owners in stable source order.
@@ -486,28 +492,25 @@ impl BackendModuleStore {
     }
 
     /// Publishes one registered owner exactly once and signals readiness.
-    pub fn publish(&self, module: BackendModule) -> &BackendModule {
+    pub fn publish(&self, module: BackendModule) -> nia_ice::IceResult<()> {
         let module_id = module.id;
-        let position = *self.positions.get(&module_id).unwrap_or_else(|| {
-            panic!("Nia ICE: backend module store rejected unregistered owner {module_id:?}")
-        });
-        assert!(
-            self.slots[position].set(module).is_ok(),
-            "Nia ICE: backend module store owner {module_id:?} was published twice"
-        );
-        let published = self.slots[position]
-            .get()
-            .expect("published backend module slot");
-        let mut readiness = self
-            .readiness
-            .lock()
-            .expect("backend module readiness lock poisoned");
+        let Some(position) = self.positions.get(&module_id).copied() else {
+            return Err(nia_ice::Ice::new(format!(
+                "backend module store rejected unregistered owner {module_id:?}"
+            )));
+        };
+        if self.slots[position].set(module).is_err() {
+            return Err(nia_ice::Ice::new(format!(
+                "backend module store owner {module_id:?} was published twice"
+            )));
+        }
+        let mut readiness = self.readiness.lock();
         readiness.completions.push(BackendModuleReady {
             position,
             module_id,
         });
         self.readiness_changed.notify_one();
-        published
+        Ok(())
     }
 
     /// Returns a module only after its slot has been published.
@@ -537,28 +540,27 @@ impl BackendModuleStore {
     }
 
     /// Claims the store's single readiness consumer.
-    pub fn take_readiness(self: &Arc<Self>) -> BackendModuleReadiness {
-        assert!(
-            self.readiness_claimed
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok(),
-            "Nia ICE: backend module readiness already has a consumer"
-        );
-        BackendModuleReadiness {
+    pub fn take_readiness(self: &Arc<Self>) -> nia_ice::IceResult<BackendModuleReadiness> {
+        if self
+            .readiness_claimed
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err(nia_ice::Ice::new(
+                "backend module readiness already has a consumer",
+            ));
+        }
+        Ok(BackendModuleReadiness {
             store: Arc::clone(self),
             next: 0,
-        }
+        })
     }
 }
 
 impl BackendModuleReadiness {
     /// Blocks until the next publication, or returns `None` after completion.
     pub fn wait_next(&mut self) -> Option<BackendModuleReady> {
-        let mut readiness = self
-            .store
-            .readiness
-            .lock()
-            .expect("backend module readiness lock poisoned");
+        let mut readiness = self.store.readiness.lock();
         loop {
             if let Some(completion) = readiness.completions.get(self.next).copied() {
                 self.next += 1;
@@ -567,11 +569,7 @@ impl BackendModuleReadiness {
             if readiness.completions.len() == self.store.module_ids.len() {
                 return None;
             }
-            readiness = self
-                .store
-                .readiness_changed
-                .wait(readiness)
-                .expect("backend module readiness lock poisoned");
+            self.store.readiness_changed.wait(&mut readiness);
         }
     }
 }

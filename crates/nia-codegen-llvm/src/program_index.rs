@@ -1363,7 +1363,8 @@ mod tests {
         let program = BackendProgram::new(vec![
             enum_module(first, first_ty, first_def, "first"),
             enum_module(second, second_ty, second_def, "second"),
-        ]);
+        ])
+        .expect("build backend program");
         let (index, mut publisher) =
             ProgramIndex::new(program.module_store(), Arc::new(type_store));
 
@@ -1428,7 +1429,8 @@ mod tests {
             pointer_size: 4,
             pointer_align: 4,
         };
-        let program = BackendProgram::new(vec![first_module, second_module]);
+        let program =
+            BackendProgram::new(vec![first_module, second_module]).expect("build backend program");
         let (index, _publisher) = ProgramIndex::new(program.module_store(), Arc::new(type_store));
 
         assert!(index.module(first).is_none());
@@ -1458,10 +1460,13 @@ mod tests {
         let interner = type_store.append_for_module(written);
         let ty = interner.primitive(PrimitiveTy::I32);
         drop(interner);
-        let store = Arc::new(nia_backend_ir::BackendModuleStore::new([
-            written, unwritten,
-        ]));
-        store.publish(enum_module(written, ty, global(written, 1), "written"));
+        let store = Arc::new(
+            nia_backend_ir::BackendModuleStore::new([written, unwritten])
+                .expect("create backend module store"),
+        );
+        store
+            .publish(enum_module(written, ty, global(written, 1), "written"))
+            .expect("publish backend module");
         let (index, mut publisher) = ProgramIndex::new(Arc::clone(&store), Arc::new(type_store));
 
         // Written but not yet published.
@@ -1496,8 +1501,13 @@ mod tests {
         let interner = type_store.append_for_module(first);
         let first_ty = interner.primitive(PrimitiveTy::I32);
         drop(interner);
-        let store = Arc::new(nia_backend_ir::BackendModuleStore::new([first, second]));
-        store.publish(enum_module(first, first_ty, global(first, 1), "first"));
+        let store = Arc::new(
+            nia_backend_ir::BackendModuleStore::new([first, second])
+                .expect("create backend module store"),
+        );
+        store
+            .publish(enum_module(first, first_ty, global(first, 1), "first"))
+            .expect("publish backend module");
         let (index, _publisher) = ProgramIndex::new(Arc::clone(&store), Arc::new(type_store));
 
         assert!(store.get(second).is_none());
@@ -1643,7 +1653,8 @@ mod tests {
                 trait_object_vtables: vec![vtable],
                 generic_instantiations: Vec::<BackendGenericInstantiation>::new(),
             }]
-            .into(),
+            .try_into()
+            .expect("build backend modules"),
         };
 
         let (index, mut publisher) =
@@ -1869,7 +1880,7 @@ mod tests {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         };
-        let program = BackendProgram::new(vec![module]);
+        let program = BackendProgram::new(vec![module]).expect("build backend program");
         let (index, mut publisher) =
             ProgramIndex::new(program.module_store(), Arc::new(type_store));
         publisher.publish(owner_module).expect("publish module");
@@ -1994,7 +2005,7 @@ mod tests {
                 elem,
             })
         };
-        let program = BackendProgram::new(Vec::new());
+        let program = BackendProgram::new(Vec::new()).expect("build backend program");
         let (index, _publisher) = ProgramIndex::new(program.module_store(), Arc::new(type_store));
 
         assert!(matches!(
@@ -2056,9 +2067,14 @@ mod tests {
                 "right",
             )
         };
-        let modules = BackendModuleStore::new([left_module, right_module]);
-        modules.publish(left_module_data);
-        modules.publish(right_module_data);
+        let modules = BackendModuleStore::new([left_module, right_module])
+            .expect("create backend module store");
+        modules
+            .publish(left_module_data)
+            .expect("publish backend module");
+        modules
+            .publish(right_module_data)
+            .expect("publish backend module");
         let equivalence = ProgramTypeEquivalence {
             type_store: &type_store,
             modules: &modules,

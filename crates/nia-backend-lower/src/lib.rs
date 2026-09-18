@@ -219,15 +219,18 @@ impl BackendModuleItemPlan {
 
 impl BackendModuleFinalizationCollector {
     /// Creates a collector for the exact source-module order of the plan.
-    pub fn new(finalization: BackendItemPlanFinalization, module_order: &[ModuleId]) -> Self {
+    pub fn new(
+        finalization: BackendItemPlanFinalization,
+        module_order: &[ModuleId],
+    ) -> nia_ice::IceResult<Self> {
         let module_count = module_order.len();
-        Self {
+        Ok(Self {
             finalization,
             module_order: module_order.to_vec(),
-            modules: Arc::new(BackendModuleStore::new(module_order.iter().copied())),
+            modules: Arc::new(BackendModuleStore::new(module_order.iter().copied())?),
             optimization_reports: (0..module_count).map(|_| None).collect(),
             diagnostics: (0..module_count).map(|_| None).collect(),
-        }
+        })
     }
 
     /// Returns the live store into which finalized modules are published.
@@ -243,7 +246,7 @@ impl BackendModuleFinalizationCollector {
     /// Takes the store's readiness stream for incremental codegen.
     ///
     /// The stream is unique; taking it more than once is rejected by the store.
-    pub fn take_readiness(&self) -> BackendModuleReadiness {
+    pub fn take_readiness(&self) -> nia_ice::IceResult<BackendModuleReadiness> {
         self.modules.take_readiness()
     }
 
@@ -278,7 +281,7 @@ impl BackendModuleFinalizationCollector {
         self.finalization
             .owner_directory
             .validate_finalized_module(&module_finalization.module);
-        self.modules.publish(module_finalization.module);
+        self.modules.publish(module_finalization.module)?;
         self.optimization_reports[position] = Some(module_finalization.optimization_report);
         self.diagnostics[position] = Some(module_finalization.diagnostics);
         Ok(())
@@ -317,7 +320,7 @@ impl BackendModuleFinalizationCollector {
                 .extend(report.changed_passes);
             diagnostics.extend(module_diagnostics);
         }
-        let program = BackendProgram::from_module_store(self.modules);
+        let program = BackendProgram::from_module_store(self.modules)?;
         let codegen_partitions = program.codegen_partition_plan();
         Ok(BackendLowering {
             program,
@@ -1290,7 +1293,7 @@ pub fn finalize_backend_module_item_plans_with_timings(
                 .into_iter()
                 .map(|module_plan| module_plan.module)
                 .collect(),
-        );
+        )?;
         let codegen_partitions = program.codegen_partition_plan();
         return Ok(BackendLowering {
             program,
@@ -1335,7 +1338,7 @@ pub fn finalize_backend_module_item_plans_with_timings(
         .iter()
         .map(|input| input.module_id)
         .collect::<Vec<_>>();
-    let mut collector = BackendModuleFinalizationCollector::new(finalization, &module_order);
+    let mut collector = BackendModuleFinalizationCollector::new(finalization, &module_order)?;
     for module_finalization in module_finalizations {
         let position = module_finalization.position;
         collector.push(position, module_finalization)?;

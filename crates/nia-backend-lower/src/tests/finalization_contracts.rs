@@ -21,7 +21,8 @@ fn collector_reports_missing_module_completion() {
         diagnostics: Vec::new(),
         owner_directory: Arc::new(nia_backend_ir::BackendModuleOwnerDirectory::default()),
     };
-    let collector = BackendModuleFinalizationCollector::new(finalization, &[module_id]);
+    let collector = BackendModuleFinalizationCollector::new(finalization, &[module_id])
+        .expect("create backend finalization collector");
 
     let error = collector
         .finish()
@@ -109,9 +110,12 @@ fn module_finalizations_merge_in_program_order() {
         },
     ];
 
-    let mut collector = BackendModuleFinalizationCollector::new(finalization, &[first, second]);
+    let mut collector = BackendModuleFinalizationCollector::new(finalization, &[first, second])
+        .expect("create backend finalization collector");
     let module_store = collector.module_store();
-    let mut readiness = collector.take_readiness();
+    let mut readiness = collector
+        .take_readiness()
+        .expect("claim backend readiness stream");
     for module_finalization in completed_in_reverse_order {
         let position = module_finalization.position;
         collector

@@ -92,8 +92,8 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
             nia_query::QueryResult<nia_backend_lower::BackendModuleFinalization>,
         >,
         collector: nia_backend_lower::BackendModuleFinalizationCollector,
+        readiness: nia_backend_ir::BackendModuleReadiness,
     ) -> Self {
-        let readiness = collector.take_readiness();
         Self {
             completions,
             collector,

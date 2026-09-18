@@ -242,7 +242,8 @@ fn codegen_partitions_are_definition_filtered_and_stable_key_ordered() {
         module_with_global(second_id, second_ty, "second", false),
         module_with_global(declaration_id, declaration_ty, "declaration", true),
         module_with_global(first_id, first_ty, "first", false),
-    ]);
+    ])
+    .expect("build backend program");
 
     let plan = program.codegen_partition_plan();
     let partitions = plan.partitions();
@@ -356,7 +357,8 @@ fn codegen_partition_order_does_not_depend_on_module_id_allocation() {
     let program = BackendProgram::new(vec![
         module_with_global(z_id, z_ty, "z", false),
         module_with_global(a_id, a_ty, "a", false),
-    ]);
+    ])
+    .expect("build backend program");
 
     let plan = program.codegen_partition_plan();
 
@@ -383,7 +385,7 @@ fn large_source_modules_use_stable_bounded_definition_buckets() {
             ..template.clone()
         })
         .collect();
-    let program = BackendProgram::new(vec![module]);
+    let program = BackendProgram::new(vec![module]).expect("build backend program");
 
     let plan = program.codegen_partition_plan();
 
@@ -425,7 +427,8 @@ fn codegen_partition_plan_rejects_duplicate_stable_source_keys() {
     let program = BackendProgram::new(vec![
         module_with_global(first_id, first_ty, "same", false),
         module_with_global(second_id, second_ty, "same", false),
-    ]);
+    ])
+    .expect("build backend program");
 
     let _ = program.codegen_partition_plan();
 }
@@ -459,7 +462,7 @@ fn codegen_partition_plan_rejects_duplicate_vtable_definitions() {
     first.trait_object_vtables.push(vtable.clone());
     let mut second = module_with_global(second_id, ty, "second", false);
     second.trait_object_vtables.push(vtable);
-    let program = BackendProgram::new(vec![first, second]);
+    let program = BackendProgram::new(vec![first, second]).expect("build backend program");
 
     let _ = program.codegen_partition_plan();
 }
@@ -473,11 +476,12 @@ fn codegen_partition_plan_rejects_definition_membership_mutation() {
     let ty = type_store
         .append_for_module(module_id)
         .primitive(PrimitiveTy::I32);
-    let program = BackendProgram::new(vec![module_with_global(module_id, ty, "main", false)]);
+    let program = BackendProgram::new(vec![module_with_global(module_id, ty, "main", false)])
+        .expect("build backend program");
     let plan = program.codegen_partition_plan();
     let mut changed_module = module_with_global(module_id, ty, "main", false);
     changed_module.globals.clear();
-    let program = BackendProgram::new(vec![changed_module]);
+    let program = BackendProgram::new(vec![changed_module]).expect("build changed program");
 
     plan.validate_program(&program);
 }
@@ -527,15 +531,21 @@ fn backend_module_store_publishes_concurrently_without_moving_payloads() {
     let second_ty = type_store
         .append_for_module(second_id)
         .primitive(PrimitiveTy::I32);
-    let store = std::sync::Arc::new(BackendModuleStore::new([first_id, second_id]));
+    let store = std::sync::Arc::new(
+        BackendModuleStore::new([first_id, second_id]).expect("create backend module store"),
+    );
     let first_store = std::sync::Arc::clone(&store);
     let second_store = std::sync::Arc::clone(&store);
 
     let second = std::thread::spawn(move || {
-        second_store.publish(module_with_global(second_id, second_ty, "second", false));
+        second_store
+            .publish(module_with_global(second_id, second_ty, "second", false))
+            .expect("publish second module");
     });
     let first = std::thread::spawn(move || {
-        first_store.publish(module_with_global(first_id, first_ty, "first", false));
+        first_store
+            .publish(module_with_global(first_id, first_ty, "first", false))
+            .expect("publish first module");
     });
     second.join().expect("publish second module");
     first.join().expect("publish first module");
@@ -543,7 +553,8 @@ fn backend_module_store_publishes_concurrently_without_moving_payloads() {
     assert!(store.is_complete());
     assert_eq!(store.get(first_id).expect("first module").name, "first");
     let first_ptr = store.get(first_id).expect("first module") as *const BackendModule;
-    let program = BackendProgram::from_module_store(std::sync::Arc::clone(&store));
+    let program = BackendProgram::from_module_store(std::sync::Arc::clone(&store))
+        .expect("build program from complete store");
     assert_eq!(&program.modules[0] as *const BackendModule, first_ptr);
     assert_eq!(
         program
@@ -556,16 +567,16 @@ fn backend_module_store_publishes_concurrently_without_moving_payloads() {
 }
 
 #[test]
-#[should_panic(expected = "duplicate module owner")]
 fn backend_module_store_rejects_duplicate_registered_owners() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
 
-    let _ = BackendModuleStore::new([module_id, module_id]);
+    let error = BackendModuleStore::new([module_id, module_id])
+        .expect_err("duplicate owners must be rejected");
+    assert!(error.message.contains("duplicate module owner"));
 }
 
 #[test]
-#[should_panic(expected = "was published twice")]
 fn backend_module_store_rejects_duplicate_publication() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
@@ -573,10 +584,34 @@ fn backend_module_store_rejects_duplicate_publication() {
     let ty = type_store
         .append_for_module(module_id)
         .primitive(PrimitiveTy::I32);
-    let store = BackendModuleStore::new([module_id]);
-    store.publish(module_with_global(module_id, ty, "first", false));
+    let store = BackendModuleStore::new([module_id]).expect("create backend module store");
+    store
+        .publish(module_with_global(module_id, ty, "first", false))
+        .expect("publish first module");
 
-    store.publish(module_with_global(module_id, ty, "second", false));
+    let error = store
+        .publish(module_with_global(module_id, ty, "second", false))
+        .expect_err("duplicate publication must fail");
+    assert!(error.message.contains("published twice"));
+}
+
+#[test]
+fn backend_module_store_rejects_unregistered_owner() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let registered = module_ids.allocate();
+    let unregistered = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let ty = type_store
+        .append_for_module(unregistered)
+        .primitive(PrimitiveTy::I32);
+    let store = BackendModuleStore::new([registered]).expect("create backend module store");
+
+    let error = store
+        .publish(module_with_global(unregistered, ty, "unregistered", false))
+        .expect_err("unregistered owner must be rejected");
+
+    assert!(error.message.contains("unregistered owner"));
+    assert!(!store.is_complete());
 }
 
 #[test]
@@ -591,13 +626,19 @@ fn backend_module_readiness_delivers_publish_order_and_terminal_state() {
     let second_ty = type_store
         .append_for_module(second_id)
         .primitive(PrimitiveTy::I32);
-    let store = std::sync::Arc::new(BackendModuleStore::new([first_id, second_id]));
-    let mut readiness = store.take_readiness();
+    let store = std::sync::Arc::new(
+        BackendModuleStore::new([first_id, second_id]).expect("create backend module store"),
+    );
+    let mut readiness = store.take_readiness().expect("claim readiness stream");
     let publisher = std::sync::Arc::clone(&store);
 
     let publish = std::thread::spawn(move || {
-        publisher.publish(module_with_global(second_id, second_ty, "second", false));
-        publisher.publish(module_with_global(first_id, first_ty, "first", false));
+        publisher
+            .publish(module_with_global(second_id, second_ty, "second", false))
+            .expect("publish second module");
+        publisher
+            .publish(module_with_global(first_id, first_ty, "first", false))
+            .expect("publish first module");
     });
 
     assert_eq!(
@@ -619,12 +660,16 @@ fn backend_module_readiness_delivers_publish_order_and_terminal_state() {
 }
 
 #[test]
-#[should_panic(expected = "readiness already has a consumer")]
 fn backend_module_readiness_rejects_second_consumer() {
-    let store = std::sync::Arc::new(BackendModuleStore::new([]));
-    let _readiness = store.take_readiness();
+    let store = std::sync::Arc::new(
+        BackendModuleStore::new([]).expect("create empty backend module store"),
+    );
+    let _readiness = store.take_readiness().expect("claim readiness stream");
 
-    let _second = store.take_readiness();
+    let error = store
+        .take_readiness()
+        .expect_err("second readiness consumer must fail");
+    assert!(error.message.contains("already has a consumer"));
 }
 
 fn incremental_link_input(path: &str, key: CodegenUnitKey) -> IncrementalLinkInput<String> {
