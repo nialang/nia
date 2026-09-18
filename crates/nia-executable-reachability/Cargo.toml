@@ -11,6 +11,7 @@ nia-executable-facts.workspace = true
 nia-hash.workspace = true
 nia-ids.workspace = true
 nia-item-signatures.workspace = true
+nia-ice.workspace = true
 nia-sema-ir.workspace = true
 nia-span.workspace = true
 nia-symbol.workspace = true

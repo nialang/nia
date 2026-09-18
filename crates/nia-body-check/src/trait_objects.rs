@@ -524,12 +524,18 @@ impl<'a> BodyChecker<'a> {
                 &assumptions,
                 &associated_type_assumptions,
             );
-            solver.proves(TraitGoal {
+            match solver.proves(TraitGoal {
                 self_ty,
                 trait_id,
                 trait_args: trait_args.to_vec(),
                 trait_const_args: trait_const_args.to_vec(),
-            })
+            }) {
+                Ok(proven) => proven,
+                Err(error) => {
+                    self.interner.record_internal(error);
+                    false
+                }
+            }
         };
         if !proven {
             self.record_trait_provider_demand(self_ty, trait_id, trait_args);

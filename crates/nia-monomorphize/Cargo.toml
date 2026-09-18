@@ -12,6 +12,7 @@ nia-const-check.workspace = true
 nia-defs.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true
+nia-ice.workspace = true
 nia-item-signatures.workspace = true
 nia-layout.workspace = true
 nia-mangle.workspace = true

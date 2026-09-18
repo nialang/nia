@@ -120,7 +120,7 @@ pub(crate) fn read_type_graph(
         if usize::try_from(entry.position()).ok()? != entry.get_ref().len() {
             return None;
         }
-        types.push(append.intern(kind));
+        types.push(append.intern(kind).ok()?);
     }
     Some(types)
 }

@@ -20,7 +20,7 @@ pub fn substitute_ty(
     type_arg: &impl Fn(&SymbolId) -> Option<InternedTyId>,
     const_arg: &impl Fn(&SymbolId) -> Option<ConstGenericArg>,
     self_ty: Option<InternedTyId>,
-) -> InternedTyId {
+) -> nia_ice::IceResult<InternedTyId> {
     let substitute = |ty| substitute_ty(store, append, ty, type_arg, const_arg, self_ty);
     let substitute_const_arg = |arg: &ConstGenericArg| {
         let mut substituted = match &arg.value {
@@ -30,43 +30,54 @@ pub fn substitute_ty(
             | ConstGenericValue::Bool(_)
             | ConstGenericValue::Char(_) => arg.clone(),
         };
-        substituted.ty = substitute(substituted.ty);
-        substituted
+        substituted.ty = substitute(substituted.ty)?;
+        Ok(substituted)
     };
-    let substitute_binding = |binding: &AssociatedTypeBindingTy| AssociatedTypeBindingTy {
-        trait_id: binding.trait_id,
-        trait_args: binding.trait_args.iter().copied().map(substitute).collect(),
-        trait_const_args: binding
-            .trait_const_args
-            .iter()
-            .map(substitute_const_arg)
-            .collect(),
-        name: binding.name,
-        ty: substitute(binding.ty),
+    let substitute_binding = |binding: &AssociatedTypeBindingTy| -> nia_ice::IceResult<_> {
+        Ok(AssociatedTypeBindingTy {
+            trait_id: binding.trait_id,
+            trait_args: binding
+                .trait_args
+                .iter()
+                .copied()
+                .map(substitute)
+                .collect::<nia_ice::IceResult<_>>()?,
+            trait_const_args: binding
+                .trait_const_args
+                .iter()
+                .map(substitute_const_arg)
+                .collect::<nia_ice::IceResult<_>>()?,
+            name: binding.name,
+            ty: substitute(binding.ty)?,
+        })
     };
 
     match store.get(ty) {
-        Some(TyKind::GenericParam(name)) => type_arg(name).unwrap_or(ty),
-        Some(TyKind::SelfParam) => self_ty.unwrap_or(ty),
+        Some(TyKind::GenericParam(name)) => Ok(type_arg(name).unwrap_or(ty)),
+        Some(TyKind::SelfParam) => Ok(self_ty.unwrap_or(ty)),
         Some(TyKind::Tuple(elems)) => append.intern(TyKind::Tuple(
-            elems.iter().copied().map(substitute).collect(),
+            elems
+                .iter()
+                .copied()
+                .map(substitute)
+                .collect::<nia_ice::IceResult<_>>()?,
         )),
         Some(TyKind::Pointer { is_readonly, elem }) => append.intern(TyKind::Pointer {
             is_readonly: *is_readonly,
-            elem: substitute(*elem),
+            elem: substitute(*elem)?,
         }),
         Some(TyKind::VolatilePointer { is_readonly, elem }) => {
             append.intern(TyKind::VolatilePointer {
                 is_readonly: *is_readonly,
-                elem: substitute(*elem),
+                elem: substitute(*elem)?,
             })
         }
         Some(TyKind::Slice { is_readonly, elem }) => append.intern(TyKind::Slice {
             is_readonly: *is_readonly,
-            elem: substitute(*elem),
+            elem: substitute(*elem)?,
         }),
         Some(TyKind::SlicePointee { elem }) => append.intern(TyKind::SlicePointee {
-            elem: substitute(*elem),
+            elem: substitute(*elem)?,
         }),
         Some(TyKind::Array { len, elem }) => {
             let len = match len {
@@ -76,26 +87,30 @@ pub fn substitute_ty(
                     .unwrap_or_else(|| len.clone()),
                 ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
                     builtin: *builtin,
-                    ty: substitute(*ty),
+                    ty: substitute(*ty)?,
                 },
                 _ => len.clone(),
             };
             append.intern(TyKind::Array {
                 len,
-                elem: substitute(*elem),
+                elem: substitute(*elem)?,
             })
         }
         Some(TyKind::Range { kind, bound }) => append.intern(TyKind::Range {
             kind: *kind,
-            bound: bound.map(substitute),
+            bound: bound.map(substitute).transpose()?,
         }),
         Some(TyKind::FunctionPointer {
             params,
             return_type,
             is_variadic,
         }) => append.intern(TyKind::FunctionPointer {
-            params: params.iter().copied().map(substitute).collect(),
-            return_type: substitute(*return_type),
+            params: params
+                .iter()
+                .copied()
+                .map(substitute)
+                .collect::<nia_ice::IceResult<_>>()?,
+            return_type: substitute(*return_type)?,
             is_variadic: *is_variadic,
         }),
         Some(TyKind::Callable {
@@ -104,15 +119,23 @@ pub fn substitute_ty(
             return_type,
         }) => append.intern(TyKind::Callable {
             is_readonly: *is_readonly,
-            params: params.iter().copied().map(substitute).collect(),
-            return_type: substitute(*return_type),
+            params: params
+                .iter()
+                .copied()
+                .map(substitute)
+                .collect::<nia_ice::IceResult<_>>()?,
+            return_type: substitute(*return_type)?,
         }),
         Some(TyKind::CallablePointee {
             params,
             return_type,
         }) => append.intern(TyKind::CallablePointee {
-            params: params.iter().copied().map(substitute).collect(),
-            return_type: substitute(*return_type),
+            params: params
+                .iter()
+                .copied()
+                .map(substitute)
+                .collect::<nia_ice::IceResult<_>>()?,
+            return_type: substitute(*return_type)?,
         }),
         Some(TyKind::ClosureState {
             closure_id,
@@ -121,16 +144,24 @@ pub fn substitute_ty(
             return_type,
         }) => append.intern(TyKind::ClosureState {
             closure_id: *closure_id,
-            captures: captures.iter().copied().map(substitute).collect(),
-            params: params.iter().copied().map(substitute).collect(),
-            return_type: substitute(*return_type),
+            captures: captures
+                .iter()
+                .copied()
+                .map(substitute)
+                .collect::<nia_ice::IceResult<_>>()?,
+            params: params
+                .iter()
+                .copied()
+                .map(substitute)
+                .collect::<nia_ice::IceResult<_>>()?,
+            return_type: substitute(*return_type)?,
         }),
         Some(TyKind::Optional { elem }) => append.intern(TyKind::Optional {
-            elem: substitute(*elem),
+            elem: substitute(*elem)?,
         }),
         Some(TyKind::ErrorUnion { error, value }) => append.intern(TyKind::ErrorUnion {
-            error: substitute(*error),
-            value: substitute(*value),
+            error: substitute(*error)?,
+            value: substitute(*value)?,
         }),
         Some(TyKind::Nominal {
             def_id,
@@ -138,12 +169,23 @@ pub fn substitute_ty(
             const_args,
         }) => append.intern(TyKind::Nominal {
             def_id: *def_id,
-            args: args.iter().copied().map(substitute).collect(),
-            const_args: const_args.iter().map(substitute_const_arg).collect(),
+            args: args
+                .iter()
+                .copied()
+                .map(substitute)
+                .collect::<nia_ice::IceResult<_>>()?,
+            const_args: const_args
+                .iter()
+                .map(substitute_const_arg)
+                .collect::<nia_ice::IceResult<_>>()?,
         }),
         Some(TyKind::BuiltinTrait { trait_id, args }) => append.intern(TyKind::BuiltinTrait {
             trait_id: *trait_id,
-            args: args.iter().copied().map(substitute).collect(),
+            args: args
+                .iter()
+                .copied()
+                .map(substitute)
+                .collect::<nia_ice::IceResult<_>>()?,
         }),
         Some(TyKind::TraitObject {
             is_readonly,
@@ -154,12 +196,19 @@ pub fn substitute_ty(
         }) => append.intern(TyKind::TraitObject {
             is_readonly: *is_readonly,
             trait_id: *trait_id,
-            trait_args: trait_args.iter().copied().map(substitute).collect(),
-            trait_const_args: trait_const_args.iter().map(substitute_const_arg).collect(),
+            trait_args: trait_args
+                .iter()
+                .copied()
+                .map(substitute)
+                .collect::<nia_ice::IceResult<_>>()?,
+            trait_const_args: trait_const_args
+                .iter()
+                .map(substitute_const_arg)
+                .collect::<nia_ice::IceResult<_>>()?,
             associated_type_bindings: associated_type_bindings
                 .iter()
                 .map(substitute_binding)
-                .collect(),
+                .collect::<nia_ice::IceResult<_>>()?,
         }),
         Some(TyKind::TraitObjectPointee {
             trait_id,
@@ -168,12 +217,19 @@ pub fn substitute_ty(
             associated_type_bindings,
         }) => append.intern(TyKind::TraitObjectPointee {
             trait_id: *trait_id,
-            trait_args: trait_args.iter().copied().map(substitute).collect(),
-            trait_const_args: trait_const_args.iter().map(substitute_const_arg).collect(),
+            trait_args: trait_args
+                .iter()
+                .copied()
+                .map(substitute)
+                .collect::<nia_ice::IceResult<_>>()?,
+            trait_const_args: trait_const_args
+                .iter()
+                .map(substitute_const_arg)
+                .collect::<nia_ice::IceResult<_>>()?,
             associated_type_bindings: associated_type_bindings
                 .iter()
                 .map(substitute_binding)
-                .collect(),
+                .collect::<nia_ice::IceResult<_>>()?,
         }),
         Some(TyKind::Projection {
             self_ty: projection_self_ty,
@@ -182,10 +238,17 @@ pub fn substitute_ty(
             trait_const_args,
             name,
         }) => append.intern(TyKind::Projection {
-            self_ty: substitute(*projection_self_ty),
+            self_ty: substitute(*projection_self_ty)?,
             trait_id: *trait_id,
-            trait_args: trait_args.iter().copied().map(substitute).collect(),
-            trait_const_args: trait_const_args.iter().map(substitute_const_arg).collect(),
+            trait_args: trait_args
+                .iter()
+                .copied()
+                .map(substitute)
+                .collect::<nia_ice::IceResult<_>>()?,
+            trait_const_args: trait_const_args
+                .iter()
+                .map(substitute_const_arg)
+                .collect::<nia_ice::IceResult<_>>()?,
             name: *name,
         }),
         Some(
@@ -196,7 +259,7 @@ pub fn substitute_ty(
             | TyKind::Vector { .. }
             | TyKind::BuiltinType(_),
         )
-        | None => ty,
+        | None => Ok(ty),
     }
 }
 

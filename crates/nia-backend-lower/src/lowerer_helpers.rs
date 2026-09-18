@@ -349,7 +349,7 @@ impl ModuleLowerer<'_> {
     }
 
     pub(crate) fn error_ty(&self) -> InternedTyId {
-        self.type_context.append.intern(TyKind::Error)
+        self.type_context.intern(TyKind::Error)
     }
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {

@@ -47,7 +47,7 @@ pub(super) fn primitive_ty(primitive: PrimitiveTy) -> InternedTyId {
 
 pub(super) fn lower_test_function_body(
     body: &TypedBody,
-) -> Result<FunctionBody, FunctionLoweringDiagnostic> {
+) -> Result<FunctionBody, FunctionLoweringError> {
     lower_function_body(
         test_module_id(),
         body,

@@ -200,7 +200,10 @@ where
             self.timing,
         );
         let mut module = module_plan.module;
-        lowerer.finish_module(&mut module);
+        lowerer.finish_module(&mut module)?;
+        if let Some(error) = lowerer.type_context.internal_error() {
+            return Err(error.with_context("finalizing backend module"));
+        }
         Ok(BackendModuleFinalization {
             position,
             module,

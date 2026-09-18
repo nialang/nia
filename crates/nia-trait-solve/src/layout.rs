@@ -483,7 +483,7 @@ impl TraitSolver<'_> {
                 matches!(self.kind(rhs_ty), Some(TyKind::Primitive(rhs)) if rhs.is_integer())
             }
             Some(TyKind::Vector { elem, .. }) if elem.is_integer() => {
-                self.types_equivalent(self_ty, rhs_ty)
+                self.types_equivalent_inner(self_ty, rhs_ty)
             }
             _ => false,
         }

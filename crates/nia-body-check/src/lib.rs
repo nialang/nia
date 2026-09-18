@@ -13,6 +13,8 @@ use std::{
     rc::Rc,
     sync::Arc,
 };
+use nia_ice::Ice;
+use parking_lot::Mutex;
 
 mod aggregates;
 mod bir;
@@ -115,6 +117,7 @@ pub use provider::{
 struct BodyTypeCx<'a> {
     store: &'a nia_ty::TypeStore,
     append: TypeStoreAppend,
+    internal_error: Arc<Mutex<Option<Ice>>>,
 }
 
 impl<'a> BodyTypeCx<'a> {
@@ -122,6 +125,7 @@ impl<'a> BodyTypeCx<'a> {
         Self {
             store,
             append: store.append_for_module(module_id),
+            internal_error: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -130,7 +134,27 @@ impl<'a> BodyTypeCx<'a> {
     }
 
     fn intern(&self, kind: TyKind) -> InternedTyId {
-        self.append.intern(kind)
+        match self.append.intern(kind) {
+            Ok(ty) => ty,
+            Err(error) => {
+                let mut slot = self.internal_error.lock();
+                if slot.is_none() {
+                    *slot = Some(error);
+                }
+                self.store.error()
+            }
+        }
+    }
+
+    fn record_internal(&self, error: Ice) {
+        let mut slot = self.internal_error.lock();
+        if slot.is_none() {
+            *slot = Some(error);
+        }
+    }
+
+    fn internal_error(&self) -> Option<Ice> {
+        self.internal_error.lock().clone()
     }
 
     fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {

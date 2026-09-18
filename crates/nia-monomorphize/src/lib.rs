@@ -26,6 +26,7 @@ use nia_const_check::ConstCheck;
 use nia_defs::{DefCollection, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{DefId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
+use nia_ice::{Ice, IceResult};
 use nia_item_signatures::{
     EnumSignature, ProgramEnumSignature, ProgramTraitImplIndex, ProgramTraitImplSignature,
 };
@@ -114,7 +115,7 @@ pub fn collect_monomorphizations(
     inputs: &[MonomorphizeModuleInput<'_>],
     source_identities: impl IntoIterator<Item = (ModuleId, SourceIdentity)>,
     type_store: &TypeStore,
-) -> Monomorphization {
+) -> IceResult<Monomorphization> {
     let empty_trait_impl_index = ProgramTraitImplIndex::default();
     let mut collector = MonoCollector {
         type_store,
@@ -180,13 +181,18 @@ pub fn collect_monomorphizations(
         missing_array_len_diagnostics: HashSet::new(),
         missing_source_identity_diagnostics: HashSet::new(),
         diagnostics: Vec::new(),
+        internal_error: None,
     };
     for input in inputs {
         collector.collect_module(input);
     }
-    Monomorphization {
+    let product = Monomorphization {
         instances: collector.instances,
         diagnostics: collector.diagnostics,
+    };
+    match collector.internal_error {
+        Some(error) => Err(error.with_context("collecting monomorphized instances")),
+        None => Ok(product),
     }
 }
 
@@ -220,6 +226,7 @@ struct MonoCollector<'a> {
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
     missing_source_identity_diagnostics: HashSet<ModuleId>,
     diagnostics: Vec<Diagnostic>,
+    internal_error: Option<Ice>,
 }
 
 static EMPTY_PROGRAM_ENUMS: std::sync::LazyLock<HashMap<GlobalDefId, ProgramEnumSignature>> =
@@ -1446,11 +1453,29 @@ impl MonoCollector<'_> {
             impl_is_visible: None,
         };
         let mut solver = context.solver_with_associated_type_assumptions(&[], &[]);
-        solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
+        match solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                self.record_internal_error(error);
+                None
+            }
+        }
     }
 
     fn intern_working_ty(&mut self, module_id: ModuleId, kind: TyKind) -> InternedTyId {
-        self.type_store.append_for_module(module_id).intern(kind)
+        match self.type_store.append_for_module(module_id).intern(kind) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.record_internal_error(error);
+                self.type_store.error()
+            }
+        }
+    }
+
+    fn record_internal_error(&mut self, error: Ice) {
+        if self.internal_error.is_none() {
+            self.internal_error = Some(error);
+        }
     }
 
     fn type_kind(&self, ty: InternedTyId) -> Option<TyKind> {

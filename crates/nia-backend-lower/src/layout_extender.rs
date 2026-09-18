@@ -77,7 +77,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
         &mut self,
         layouts: &mut BackendLayouts,
         module: &BackendModule,
-    ) {
+    ) -> nia_ice::IceResult<()> {
         let mut normalization_input = self.input.signatures.type_roots();
         normalization_input.extend(finalized_module_type_roots(module, self.type_store));
         normalization_input.sort_unstable();
@@ -89,7 +89,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 input_ids: &normalization_input,
                 signatures: self.input.signatures,
             },
-        );
+        )?;
         let input = self.input;
         self.remove_generic_nominal_layouts(layouts);
         let array_lengths = |id: GlobalConstExprId| {
@@ -122,7 +122,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 array_lengths: &array_lengths,
                 target: self.input.layouts.target,
                 program,
-            });
+            })?;
         append_missing_type_layouts(&mut layouts.types, computed.types);
         let mut generic_structs = self
             .input
@@ -204,7 +204,8 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             &layout_input,
             &module.struct_instances,
             &module.union_instances,
-        );
+        )?;
+        Ok(())
     }
 
     fn append_instance_layouts(
@@ -212,7 +213,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
         layout_input: &nia_layout::LayoutComputationInput<'_>,
         struct_instances: &[BackendStructInstance],
         union_instances: &[BackendUnionInstance],
-    ) {
+    ) -> nia_ice::IceResult<()> {
         let mut seen_structs = layouts
             .struct_instances
             .iter()
@@ -234,7 +235,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                     args: &instance.args,
                     const_args: &instance.const_args,
                 },
-            ) {
+            )? {
                 layouts.struct_instances.push((key, layout));
             }
         }
@@ -260,10 +261,11 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                     args: &instance.args,
                     const_args: &instance.const_args,
                 },
-            ) {
+            )? {
                 layouts.union_instances.push((key, layout));
             }
         }
+        Ok(())
     }
 }
 

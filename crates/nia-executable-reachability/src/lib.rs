@@ -109,7 +109,7 @@ pub fn compute_executable_reachability_with_seed_and_extension_index(
     seed: Option<&ExecutableReachability>,
     input: ExecutableReachabilityInput<'_>,
     extension_index: &dyn ExecutableExtensionLookup,
-) -> ExecutableReachability {
+) -> nia_ice::IceResult<ExecutableReachability> {
     let ExecutableReachabilityInput {
         parse_ok,
         entry_module,
@@ -164,7 +164,7 @@ pub fn compute_executable_reachability_with_seed_and_extension_index(
             extension_index,
             reachability.functions(),
             &mut reachable_traits,
-        );
+        )?;
         for module in current_reachable_module_inputs(&modules_by_id, &current_reachable_modules) {
             let mut pending_modules = VecDeque::new();
             extend_reachable_functions_from_bodies(
@@ -190,7 +190,7 @@ pub fn compute_executable_reachability_with_seed_and_extension_index(
             &mut reachable_traits,
             &mut reachability,
             &mut pending_modules,
-        );
+        )?;
         while let Some(module_id) = pending_modules.pop_front() {
             if !parse_ok_set.contains(&module_id) {
                 continue;
@@ -204,7 +204,7 @@ pub fn compute_executable_reachability_with_seed_and_extension_index(
 
     let stats = reachability_stats(&modules_by_id, reachability.functions());
     reachability.set_stats(stats);
-    reachability
+    Ok(reachability)
 }
 
 /// Advances persistent reachability using the currently available products.
@@ -212,7 +212,7 @@ pub fn compute_executable_reachability_incremental_with_extension_index(
     state: &mut IncrementalExecutableReachability,
     input: ExecutableReachabilityInput<'_>,
     extension_index: &dyn ExecutableExtensionLookup,
-) {
+) -> nia_ice::IceResult<()> {
     compute_executable_reachability_incremental_with_timings(
         state,
         input,
@@ -230,7 +230,7 @@ pub fn compute_executable_reachability_incremental_with_timings(
     input: ExecutableReachabilityInput<'_>,
     extension_index: &dyn ExecutableExtensionLookup,
     timings: nia_timing::TimingMode,
-) {
+) -> nia_ice::IceResult<()> {
     let ExecutableReachabilityInput {
         parse_ok,
         entry_module,
@@ -303,8 +303,8 @@ pub fn compute_executable_reachability_incremental_with_timings(
                 &current_reachable_modules,
                 program_signatures,
                 extension_index,
-            );
-        });
+            )
+        })?;
         let mut pending_modules = VecDeque::new();
         time_reachability_stage(timings, "incremental.trait_functions", None, || {
             extend_reachable_functions_from_traits_incremental(
@@ -313,8 +313,8 @@ pub fn compute_executable_reachability_incremental_with_timings(
                 extension_index,
                 &modules_by_id,
                 &mut pending_modules,
-            );
-        });
+            )
+        })?;
         while let Some(module_id) = pending_modules.pop_front() {
             if parse_ok_set.contains(&module_id) {
                 state.reachability.insert_module(module_id);
@@ -326,6 +326,7 @@ pub fn compute_executable_reachability_incremental_with_timings(
     }
 
     state.reachability.stats = reachability_stats(&modules_by_id, &state.reachability.functions);
+    Ok(())
 }
 
 /// Extends incremental reachability after one module finishes body checking.
@@ -333,14 +334,14 @@ pub fn extend_incremental_executable_reachability_from_checked_module(
     state: &mut IncrementalExecutableReachability,
     input: CheckedModuleReachabilityInput<'_>,
     extensions: ExecutableExtensionSources<'_>,
-) -> ExecutableReachability {
+) -> nia_ice::IceResult<ExecutableReachability> {
     let extension_index = ExecutableExtensionIndex::new(extensions.methods, extensions.trait_impls);
     extend_incremental_executable_reachability_from_checked_module_with_extension_index(
         state,
         input,
         &extension_index,
-    );
-    state.reachability.clone()
+    )?;
+    Ok(state.reachability.clone())
 }
 
 /// Extends incremental reachability using a caller-supplied extension lookup.
@@ -348,7 +349,7 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_exten
     state: &mut IncrementalExecutableReachability,
     input: CheckedModuleReachabilityInput<'_>,
     extension_index: &dyn ExecutableExtensionLookup,
-) {
+) -> nia_ice::IceResult<()> {
     extend_incremental_executable_reachability_from_checked_module_with_timings(
         state,
         input,
@@ -366,7 +367,7 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_timin
     input: CheckedModuleReachabilityInput<'_>,
     extension_index: &dyn ExecutableExtensionLookup,
     timings: nia_timing::TimingMode,
-) {
+) -> nia_ice::IceResult<()> {
     let CheckedModuleReachabilityInput {
         parse_ok,
         program_signatures,
@@ -422,9 +423,9 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_timin
                     &current_reachable_modules,
                     program_signatures,
                     extension_index,
-                );
+                )
             },
-        );
+        )?;
         let mut pending_modules = VecDeque::new();
         time_reachability_stage(
             timings,
@@ -437,9 +438,9 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_timin
                     extension_index,
                     modules_by_id,
                     &mut pending_modules,
-                );
+                )
             },
-        );
+        )?;
         while let Some(module_id) = pending_modules.pop_front() {
             if parse_ok_set.contains(&module_id) {
                 state.reachability.insert_module(module_id);
@@ -450,6 +451,7 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_timin
             break;
         }
     }
+    Ok(())
 }
 
 fn time_reachability_stage<T>(
@@ -606,7 +608,7 @@ pub fn extend_executable_reachability_from_checked_module(
     trait_impls: &[ProgramTraitImplSignature],
     module: ReachableModuleInput<'_>,
     checked_modules: &[ReachableModuleInput<'_>],
-) -> bool {
+) -> nia_ice::IceResult<bool> {
     let extension_index = ExecutableExtensionIndex::new(extension_methods, trait_impls);
     extend_executable_reachability_from_checked_module_with_extension_index(
         reachability,
@@ -627,7 +629,7 @@ pub fn extend_executable_reachability_from_checked_module_with_extension_index(
     extension_index: &dyn ExecutableExtensionLookup,
     module: ReachableModuleInput<'_>,
     checked_modules: &[ReachableModuleInput<'_>],
-) -> bool {
+) -> nia_ice::IceResult<bool> {
     let before = reachability.change_key();
     let mut pending_modules = VecDeque::new();
     extend_reachable_functions_from_bodies(
@@ -657,7 +659,7 @@ pub fn extend_executable_reachability_from_checked_module_with_extension_index(
         extension_index,
         &reachability.functions,
         &mut reachable_traits,
-    );
+    )?;
     collect_reachable_fact_owner_modules(
         &module,
         program_signatures,
@@ -673,6 +675,6 @@ pub fn extend_executable_reachability_from_checked_module_with_extension_index(
         &mut reachable_traits,
         reachability,
         &mut pending_modules,
-    );
-    before != reachability.change_key()
+    )?;
+    Ok(before != reachability.change_key())
 }

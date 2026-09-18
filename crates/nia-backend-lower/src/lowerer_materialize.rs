@@ -517,8 +517,8 @@ impl ModuleLowerer<'_> {
         &mut self,
         layouts: &mut BackendLayouts,
         module: &BackendModule,
-    ) {
+    ) -> nia_ice::IceResult<()> {
         layout_extender::BackendLayoutExtender::new(self.input, self.type_store)
-            .extend_for_finalized_module(layouts, module);
+            .extend_for_finalized_module(layouts, module)
     }
 }

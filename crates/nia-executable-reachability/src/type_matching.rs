@@ -206,7 +206,7 @@ pub(super) fn extend_reachable_trait_methods_from_impl_where_predicates(
     matched: &ReachableExtensionMethodMatch,
     module_id: ModuleId,
     traits: &mut ReachableTraitRefs,
-) {
+) -> nia_ice::IceResult<()> {
     let append = type_store.append_for_module(module_id);
     let types = ReachabilityTypeCx {
         store: type_store,
@@ -217,11 +217,11 @@ pub(super) fn extend_reachable_trait_methods_from_impl_where_predicates(
             &matched.substitutions.types,
             &matched.substitutions.consts,
         );
-        let Some(self_ty) = substitute_ty(types, predicate.ty, &substitutions) else {
+        let Some(self_ty) = substitute_ty(types, predicate.ty, &substitutions)? else {
             continue;
         };
         for bound in &predicate.bounds {
-            let Some(trait_ty) = substitute_ty(types, bound.trait_ty, &substitutions) else {
+            let Some(trait_ty) = substitute_ty(types, bound.trait_ty, &substitutions)? else {
                 continue;
             };
             let Some((trait_id, trait_args, trait_const_args)) =
@@ -240,9 +240,10 @@ pub(super) fn extend_reachable_trait_methods_from_impl_where_predicates(
                     trait_args: &trait_args,
                     trait_const_args: &trait_const_args,
                 },
-            );
+            )?;
         }
     }
+    Ok(())
 }
 
 fn match_type_pattern<'a>(
@@ -1546,16 +1547,19 @@ pub(super) fn substitute_ty(
     types: ReachabilityTypeCx<'_>,
     ty: InternedTyId,
     substitutions: &TypeSubstitutions<'_>,
-) -> Option<InternedTyId> {
-    types.get(ty)?;
-    Some(nia_ty::substitute_ty(
+) -> nia_ice::IceResult<Option<InternedTyId>> {
+    if types.get(ty).is_none() {
+        return Ok(None);
+    }
+    nia_ty::substitute_ty(
         types.store,
         types.append,
         ty,
         &|name| substitutions.type_arg(name),
         &|name| substitutions.const_arg(name),
         substitutions.self_ty,
-    ))
+    )
+    .map(Some)
 }
 
 /// Substitutes a standalone const argument carried by a generic-instantiation
@@ -1565,7 +1569,7 @@ pub(super) fn substitute_const_arg(
     types: ReachabilityTypeCx<'_>,
     arg: &nia_ty::ConstGenericArg,
     substitutions: &TypeSubstitutions<'_>,
-) -> Option<nia_ty::ConstGenericArg> {
+) -> nia_ice::IceResult<Option<nia_ty::ConstGenericArg>> {
     let mut substituted = match &arg.value {
         nia_ty::ConstGenericValue::GenericParam(name) => {
             substitutions.const_arg(name).unwrap_or_else(|| arg.clone())
@@ -1575,8 +1579,11 @@ pub(super) fn substitute_const_arg(
         | nia_ty::ConstGenericValue::Bool(_)
         | nia_ty::ConstGenericValue::Char(_) => arg.clone(),
     };
-    substituted.ty = substitute_ty(types, substituted.ty, substitutions)?;
-    Some(substituted)
+    let Some(ty) = substitute_ty(types, substituted.ty, substitutions)? else {
+        return Ok(None);
+    };
+    substituted.ty = ty;
+    Ok(Some(substituted))
 }
 
 #[cfg(test)]

@@ -1943,12 +1943,18 @@ impl<'a> BodyChecker<'a> {
         };
         let mut solver = context
             .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
-        let resolution = solver.resolve(TraitGoal {
+        let resolution = match solver.resolve(TraitGoal {
             self_ty: required.self_ty,
             trait_id: required.trait_id,
             trait_args: required.trait_args.clone(),
             trait_const_args: required.trait_const_args.clone(),
-        });
+        }) {
+            Ok(resolution) => resolution,
+            Err(error) => {
+                self.interner.record_internal(error);
+                return TraitResolution::Unsatisfied;
+            }
+        };
         if !matches!(
             resolution,
             TraitResolution::Intrinsic(_) | TraitResolution::User(_) | TraitResolution::Assumed(_)
@@ -1956,17 +1962,27 @@ impl<'a> BodyChecker<'a> {
             return resolution;
         }
         for binding in &required.associated_type_bindings {
-            let Some(actual_ty) = solver.resolve_associated_type(
+            let actual_ty = match solver.resolve_associated_type(
                 required.self_ty,
                 required.trait_id,
                 &required.trait_args,
                 &required.trait_const_args,
                 &binding.name,
-            ) else {
-                return TraitResolution::Unsatisfied;
+            ) {
+                Ok(Some(actual_ty)) => actual_ty,
+                Ok(None) => return TraitResolution::Unsatisfied,
+                Err(error) => {
+                    self.interner.record_internal(error);
+                    return TraitResolution::Unsatisfied;
+                }
             };
-            if !solver.types_equivalent(actual_ty, binding.ty) {
-                return TraitResolution::Unsatisfied;
+            match solver.types_equivalent(actual_ty, binding.ty) {
+                Ok(true) => {}
+                Ok(false) => return TraitResolution::Unsatisfied,
+                Err(error) => {
+                    self.interner.record_internal(error);
+                    return TraitResolution::Unsatisfied;
+                }
             }
         }
         resolution

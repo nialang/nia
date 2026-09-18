@@ -8,10 +8,12 @@ license.workspace = true
 [dependencies]
 nia-ids.workspace = true
 nia-item-signatures.workspace = true
+nia-ice.workspace = true
 nia-layout.workspace = true
 nia-symbol.workspace = true
 nia-ty.workspace = true
 nia-type-normalize.workspace = true
+parking_lot.workspace = true
 
 [dev-dependencies]
 nia-span.workspace = true

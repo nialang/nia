@@ -4,6 +4,7 @@
 //! Lowering allocates stable block/scope/local identities, extracts closure
 //! entries, and validates every produced CFG before returning it to consumers.
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use nia_ast::{BinaryOp, UnaryOp};
 use nia_body_ir::{
@@ -58,6 +59,27 @@ impl From<nia_function_ir::FunctionIrError> for FunctionLoweringDiagnostic {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// Failure produced while lowering a typed body.
+pub enum FunctionLoweringError {
+    /// Invalid typed input or malformed produced CFG.
+    Diagnostic(FunctionLoweringDiagnostic),
+    /// Compiler invariant failure while materializing lowering types.
+    Internal(nia_ice::Ice),
+}
+
+impl From<FunctionLoweringDiagnostic> for FunctionLoweringError {
+    fn from(diagnostic: FunctionLoweringDiagnostic) -> Self {
+        Self::Diagnostic(diagnostic)
+    }
+}
+
+impl From<nia_ice::Ice> for FunctionLoweringError {
+    fn from(error: nia_ice::Ice) -> Self {
+        Self::Internal(error)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 /// Validated main function body and generated closure entry bodies.
 pub struct LoweredFunctionBody {
@@ -76,6 +98,7 @@ pub struct LoweredFunctionBody {
 pub struct FunctionTypeContext<'a> {
     store: &'a TypeStore,
     append: TypeStoreAppend,
+    internal_error: Arc<parking_lot::Mutex<Option<nia_ice::Ice>>>,
 }
 
 impl<'a> FunctionTypeContext<'a> {
@@ -84,6 +107,7 @@ impl<'a> FunctionTypeContext<'a> {
         Self {
             store,
             append: store.append_for_module(module_id),
+            internal_error: Arc::new(parking_lot::Mutex::new(None)),
         }
     }
 
@@ -92,7 +116,17 @@ impl<'a> FunctionTypeContext<'a> {
     }
 
     fn intern(&self, kind: TyKind) -> InternedTyId {
-        self.append.intern(kind)
+        match self.append.intern(kind) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.internal_error.lock().get_or_insert(error);
+                self.store.error()
+            }
+        }
+    }
+
+    fn take_internal_error(&self) -> Option<nia_ice::Ice> {
+        self.internal_error.lock().take()
     }
 }
 
@@ -105,13 +139,23 @@ pub fn lower_function_body(
     module_id: ModuleId,
     body: &TypedBody,
     types: FunctionTypeContext<'_>,
-) -> Result<LoweredFunctionBody, FunctionLoweringDiagnostic> {
-    input::validate_function_lowering_input(body, &types)?;
+) -> Result<LoweredFunctionBody, FunctionLoweringError> {
+    input::validate_function_lowering_input(body, &types)
+        .map_err(FunctionLoweringError::Diagnostic)?;
     let mut lowerer = FunctionLowerer::new(module_id, types);
     let body = lowerer.lower_body(body);
-    validate_function_body(&body).map_err(FunctionLoweringDiagnostic::from)?;
+    if let Some(error) = lowerer.types.take_internal_error() {
+        return Err(FunctionLoweringError::Internal(error.with_context(
+            format!("lowering function body in module {module_id:?}"),
+        )));
+    }
+    validate_function_body(&body)
+        .map_err(FunctionLoweringDiagnostic::from)
+        .map_err(FunctionLoweringError::Diagnostic)?;
     for entry in &lowerer.closure_entries {
-        validate_function_closure_entry(entry).map_err(FunctionLoweringDiagnostic::from)?;
+        validate_function_closure_entry(entry)
+            .map_err(FunctionLoweringDiagnostic::from)
+            .map_err(FunctionLoweringError::Diagnostic)?;
     }
     Ok(LoweredFunctionBody {
         body,

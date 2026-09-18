@@ -722,9 +722,7 @@ impl Analyzer<'_> {
             .type_contexts
             .get(&target_module_id)
             .expect("type context must exist for generic inference");
-        nia_ty::substitute_ty(
-            interner.store,
-            &interner.append,
+        interner.substitute(
             ty,
             &|name| type_substitutions.get(name).copied(),
             &|name| const_substitutions.get(name).cloned(),

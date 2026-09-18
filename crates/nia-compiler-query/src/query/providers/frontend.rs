@@ -554,7 +554,7 @@ pub(super) fn provide_type_lowering(
             },
         )
         .with_symbols(&symbols),
-    );
+    )?;
     let diagnostics = std::mem::take(&mut lowering.diagnostics);
     query_failure.into_inner().map_or_else(
         || {
@@ -588,7 +588,7 @@ pub(super) fn provide_declaration_type_lowering(
             },
         )
         .with_symbols(&symbols),
-    );
+    )?;
     query_failure.into_inner().map_or(Ok(lowering), Err)
 }
 
@@ -686,7 +686,7 @@ pub(super) fn provide_signature_type_lowering(
                 },
             )
             .with_symbols(&symbols),
-        );
+        )?;
     let diagnostics = std::mem::take(&mut lowering.diagnostics);
     if db.context().timings().enabled() {
         nia_timing::emit_counter(
@@ -761,7 +761,7 @@ pub(super) fn provide_signature_const_type_lowering(
             },
         )
         .with_symbols(&symbols),
-    );
+    )?;
     query_failure.into_inner().map_or(Ok(lowering), Err)
 }
 
@@ -780,7 +780,7 @@ pub(super) fn provide_item_signatures(
             lowered: &type_lowering,
             type_store: db.context().type_store(),
             symbols: Some(&symbols),
-        });
+        })?;
     let diagnostics = std::mem::take(&mut signatures.diagnostics);
     Ok(ModuleItemSignatures {
         semantic: Arc::new(signatures),
@@ -877,7 +877,7 @@ pub(super) fn provide_signature_item_signatures(
             lowered: &type_lowering.semantic,
             type_store: db.context().type_store(),
             symbols: Some(&symbols),
-        });
+        })?;
     let diagnostics = std::mem::take(&mut fresh.diagnostics);
     let cacheable = diagnostics.is_empty()
         && resolve_diagnostic_bundle(&type_lowering.diagnostics).is_empty()
@@ -944,7 +944,7 @@ pub(super) fn provide_signature_const_item_signatures(
             type_store: db.context().type_store(),
             symbols: Some(&symbols),
         },
-    ))
+    )?)
 }
 
 pub(super) fn provide_type_normalization(
@@ -954,7 +954,7 @@ pub(super) fn provide_type_normalization(
     let type_lowering = type_lowering_semantic(db, module_id)?;
     let item_signatures = item_signatures_semantic(db, module_id)?;
     let mut normalization =
-        normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures);
+        normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)?;
     let diagnostics = std::mem::take(&mut normalization.diagnostics);
     Ok(ModuleTypeNormalization {
         semantic: Arc::new(normalization),
@@ -973,7 +973,7 @@ pub(super) fn provide_layout_type_normalization(
         module_id,
         &type_lowering,
         &item_signatures,
-    ))
+    )?)
 }
 
 pub(super) fn provide_signature_type_normalization(
@@ -988,7 +988,7 @@ pub(super) fn provide_signature_type_normalization(
         module_id,
         &type_lowering.semantic,
         &item_signatures.semantic,
-    );
+    )?;
     let diagnostics = std::mem::take(&mut normalization.diagnostics);
     Ok(SignatureTypeNormalization {
         semantic: Arc::new(normalization),
@@ -1007,7 +1007,7 @@ pub(super) fn provide_signature_const_type_normalization(
         module_id,
         &type_lowering,
         &item_signatures,
-    ))
+    )?)
 }
 
 fn normalize_types_in_session_store(
@@ -1015,7 +1015,7 @@ fn normalize_types_in_session_store(
     module_id: ModuleId,
     type_lowering: &nia_type_lower::TypeLowering,
     item_signatures: &ItemSignatures,
-) -> TypeNormalization {
+) -> nia_ice::IceResult<TypeNormalization> {
     let mut input_ids = type_lowering.explicit_type_roots();
     input_ids.extend(item_signatures.type_roots());
     input_ids.sort_unstable();

@@ -175,6 +175,7 @@ version = "0.2.0-dev"
 dependencies = [
  "nia-defs",
  "nia-diagnostic",
+ "nia-ice",
  "nia-ids",
  "nia-item-signatures",
  "nia-layout",
@@ -267,6 +268,7 @@ dependencies = [
  "nia-type-normalize",
  "nia-type-resolve",
  "nia-value-resolve",
+ "parking_lot",
 ]
 
 [[package]]
@@ -283,6 +285,7 @@ dependencies = [
  "nia-diagnostic",
  "nia-function-ir",
  "nia-hash",
+ "nia-ice",
  "nia-ids",
  "nia-item-signatures",
  "nia-item-tree",
@@ -311,6 +314,7 @@ dependencies = [
  "nia-type-normalize",
  "nia-type-resolve",
  "nia-value-resolve",
+ "parking_lot",
 ]
 
 [[package]]
@@ -489,6 +493,7 @@ dependencies = [
  "nia-const-ir",
  "nia-defs",
  "nia-diagnostic",
+ "nia-ice",
  "nia-ids",
  "nia-item-signatures",
  "nia-item-tree",
@@ -512,6 +517,7 @@ dependencies = [
  "nia-type-normalize",
  "nia-type-resolve",
  "nia-value-resolve",
+ "parking_lot",
 ]
 
 [[package]]
@@ -631,6 +637,7 @@ dependencies = [
  "nia-defs",
  "nia-executable-facts",
  "nia-hash",
+ "nia-ice",
  "nia-ids",
  "nia-item-signatures",
  "nia-sema-ir",
@@ -680,12 +687,14 @@ dependencies = [
  "nia-ast",
  "nia-body-ir",
  "nia-function-ir",
+ "nia-ice",
  "nia-ids",
  "nia-literals",
  "nia-sema-ir",
  "nia-span",
  "nia-symbol",
  "nia-ty",
+ "parking_lot",
 ]
 
 [[package]]
@@ -750,6 +759,7 @@ dependencies = [
  "nia-ast-walk",
  "nia-defs",
  "nia-diagnostic",
+ "nia-ice",
  "nia-ids",
  "nia-item-tree",
  "nia-literals",
@@ -783,6 +793,7 @@ dependencies = [
  "nia-const-check",
  "nia-defs",
  "nia-diagnostic",
+ "nia-ice",
  "nia-ids",
  "nia-item-signatures",
  "nia-item-tree",
@@ -910,6 +921,7 @@ dependencies = [
  "nia-const-check",
  "nia-defs",
  "nia-diagnostic",
+ "nia-ice",
  "nia-ids",
  "nia-item-signatures",
  "nia-layout",
@@ -971,6 +983,7 @@ version = "0.2.0-dev"
 dependencies = [
  "nia-defs",
  "nia-diagnostic",
+ "nia-ice",
  "nia-ids",
  "nia-imports",
  "nia-item-signatures",
@@ -1169,6 +1182,7 @@ dependencies = [
 name = "nia-trait-solve"
 version = "0.2.0-dev"
 dependencies = [
+ "nia-ice",
  "nia-ids",
  "nia-item-signatures",
  "nia-layout",
@@ -1176,6 +1190,7 @@ dependencies = [
  "nia-symbol",
  "nia-ty",
  "nia-type-normalize",
+ "parking_lot",
 ]
 
 [[package]]
@@ -1187,6 +1202,7 @@ dependencies = [
  "nia-ids",
  "nia-span",
  "nia-symbol",
+ "parking_lot",
 ]
 
 [[package]]
@@ -1197,6 +1213,7 @@ dependencies = [
  "nia-ast-walk",
  "nia-defs",
  "nia-diagnostic",
+ "nia-ice",
  "nia-ids",
  "nia-imports",
  "nia-item-tree",
@@ -1216,6 +1233,7 @@ version = "0.2.0-dev"
 dependencies = [
  "nia-defs",
  "nia-diagnostic",
+ "nia-ice",
  "nia-ids",
  "nia-item-signatures",
  "nia-parser",

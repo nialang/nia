@@ -491,7 +491,7 @@ fn executable_check_in_session(
     macro_rules! return_session_error {
         ($error:expr) => {
             return (
-                Err($error),
+                Err($error.into()),
                 ExecutableFactSession {
                     epoch,
                     module_versions: module_versions.clone(),
@@ -512,7 +512,7 @@ fn executable_check_in_session(
             "executable_checked_modules.inputs",
             || reachable_fact_module_inputs(&fact_by_id, &db.context().type_store),
         );
-        time_provider(
+        let reachability_result = time_provider(
             db.context().timings(),
             "executable_checked_modules.reachability_compute",
             || {
@@ -541,6 +541,9 @@ fn executable_check_in_session(
                 )
             },
         );
+        if let Err(error) = reachability_result {
+            return_session_error!(error);
+        }
         if let Some(error) = query_failure.borrow_mut().take() {
             return_session_error!(error);
         }
@@ -817,7 +820,7 @@ fn executable_check_in_session(
             || reachable_module_inputs_by_id(&checked_inputs),
         );
         for batch_item in batch_items {
-            time_module_provider(
+            let incremental_result = time_module_provider(
                 db,
                 "executable_checked_modules.incremental_extend",
                 batch_item.module_id,
@@ -849,6 +852,9 @@ fn executable_check_in_session(
                     )
                 },
             );
+            if let Err(error) = incremental_result {
+                return_session_error!(error);
+            }
             if let Some(error) = query_failure.borrow_mut().take() {
                 return_session_error!(error);
             }

@@ -220,7 +220,9 @@ impl Analyzer<'_> {
             trait_const_args,
         };
         let mut solver = context.solver(&assumptions);
-        let resolution = solver.resolve(goal.clone());
+        let Some(resolution) = self.recover_internal(solver.resolve(goal.clone())) else {
+            return TraitResolution::Unsatisfied;
+        };
         if matches!(resolution, TraitResolution::Unsatisfied)
             && goal.trait_id == TraitId::Builtin(nia_ty::BuiltinTrait::Sized)
             && self
@@ -389,7 +391,9 @@ impl Analyzer<'_> {
             impl_is_visible: Some(&impl_is_visible),
         };
         let mut solver = context.solver(&assumptions);
-        solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
+        let result =
+            solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name);
+        self.recover_internal(result).flatten()
     }
 
     pub(super) fn resolve_associated_const_projection(
@@ -481,13 +485,14 @@ impl Analyzer<'_> {
             impl_is_visible: Some(&impl_is_visible),
         };
         let mut solver = context.solver(&assumptions);
-        solver.resolve_associated_const(
+        let result = solver.resolve_associated_const(
             self_ty,
             projection.trait_id,
             &trait_args,
             &trait_const_args,
             &projection.name,
-        )
+        );
+        self.recover_internal(result).flatten()
     }
 
     pub(super) fn associated_const_projection_type(

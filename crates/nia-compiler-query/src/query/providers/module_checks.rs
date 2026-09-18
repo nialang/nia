@@ -42,7 +42,7 @@ pub(super) fn provide_layouts(
                     array_lengths: Some(&program_array_lengths),
                     ..Default::default()
                 },
-            });
+            })?;
         match query_failure.into_inner() {
             Some(error) => Err(error),
             None => Ok(store_module_layouts(db.context(), layouts)?),
@@ -95,7 +95,7 @@ pub(super) fn provide_abi_check(
             enums: &program.enums,
             type_aliases: &program.type_aliases,
         },
-    );
+    )?;
     let diagnostics = std::mem::take(&mut abi_check.diagnostics);
     Ok(ModuleAbiCheck {
         semantic: Arc::new(abi_check),

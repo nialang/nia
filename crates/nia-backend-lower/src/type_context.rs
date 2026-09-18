@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
+use nia_ice::Ice;
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 use nia_ids::InternedTyId;
 use nia_symbol::{SymbolId, SymbolMap};
@@ -13,6 +16,7 @@ pub(crate) struct BackendTypeContext<'input> {
     input: &'input BackendLowerModuleInput<'input>,
     type_store: &'input nia_ty::TypeStore,
     pub(crate) append: nia_ty::TypeStoreAppend,
+    internal_error: Arc<Mutex<Option<Ice>>>,
     type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
     self_substitutions: Vec<Option<InternedTyId>>,
     type_substitutions: Vec<SymbolMap<InternedTyId>>,
@@ -29,6 +33,7 @@ impl<'input> BackendTypeContext<'input> {
             input,
             type_store,
             append: type_store.append_for_module(input.module_id),
+            internal_error: Arc::new(Mutex::new(None)),
             type_instantiations: HashMap::new(),
             self_substitutions: Vec::new(),
             type_substitutions: Vec::new(),
@@ -39,6 +44,30 @@ impl<'input> BackendTypeContext<'input> {
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.type_store.get(ty)
+    }
+
+    pub(crate) fn intern(&self, kind: TyKind) -> InternedTyId {
+        match self.append.intern(kind) {
+            Ok(ty) => ty,
+            Err(error) => {
+                let mut slot = self.internal_error.lock();
+                if slot.is_none() {
+                    *slot = Some(error);
+                }
+                self.type_store.error()
+            }
+        }
+    }
+
+    pub(crate) fn record_internal(&self, error: Ice) {
+        let mut slot = self.internal_error.lock();
+        if slot.is_none() {
+            *slot = Some(error);
+        }
+    }
+
+    pub(crate) fn internal_error(&self) -> Option<Ice> {
+        self.internal_error.lock().clone()
     }
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {

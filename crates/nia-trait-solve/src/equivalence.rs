@@ -6,7 +6,20 @@ use super::*;
 impl TraitSolver<'_> {
     /// Compares normalized types, resolving associated projections when they
     /// have a finite, unambiguous definition.
-    pub fn types_equivalent(&mut self, left: InternedTyId, right: InternedTyId) -> bool {
+    pub fn types_equivalent(
+        &mut self,
+        left: InternedTyId,
+        right: InternedTyId,
+    ) -> nia_ice::IceResult<bool> {
+        let equivalent = self.types_equivalent_inner(left, right);
+        self.finish_operation(equivalent)
+    }
+
+    pub(crate) fn types_equivalent_inner(
+        &mut self,
+        left: InternedTyId,
+        right: InternedTyId,
+    ) -> bool {
         self.types_equivalent_resolving_projections(left, right, &mut Vec::new())
     }
 
@@ -61,7 +74,13 @@ impl TraitSolver<'_> {
         else {
             return None;
         };
-        self.resolve_associated_type(self_ty, trait_id, &trait_args, &trait_const_args, &name)
+        self.resolve_associated_type_unchecked(
+            self_ty,
+            trait_id,
+            &trait_args,
+            &trait_const_args,
+            &name,
+        )
     }
 
     pub(crate) fn structural_types_equivalent(

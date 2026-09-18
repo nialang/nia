@@ -303,7 +303,7 @@ pub fn lower_module_types_with_context(
     module: &Module,
     resolved: &TypeResolution,
     context: TypeLoweringContext<'_>,
-) -> TypeLowering {
+) -> nia_ice::IceResult<TypeLowering> {
     let item_tree = ModuleItemTree::from_module(module);
     lower_module_types_from_item_tree_with_context(module_id, &item_tree, resolved, context)
 }
@@ -314,7 +314,7 @@ pub fn lower_module_types_from_active_item_tree_with_context(
     item_tree: &ActiveModuleItemTree,
     resolved: &TypeResolution,
     context: TypeLoweringContext<'_>,
-) -> TypeLowering {
+) -> nia_ice::IceResult<TypeLowering> {
     lower_module_types_from_items(
         module_id,
         &item_tree.items,
@@ -330,7 +330,7 @@ pub fn lower_module_declaration_types_from_active_item_tree_with_context(
     item_tree: &ActiveModuleItemTree,
     resolved: &TypeResolution,
     context: TypeLoweringContext<'_>,
-) -> TypeLowering {
+) -> nia_ice::IceResult<TypeLowering> {
     lower_module_types_from_items(
         module_id,
         &item_tree.items,
@@ -346,7 +346,7 @@ pub fn lower_module_types_from_item_tree_with_context(
     item_tree: &ModuleItemTree,
     resolved: &TypeResolution,
     context: TypeLoweringContext<'_>,
-) -> TypeLowering {
+) -> nia_ice::IceResult<TypeLowering> {
     lower_module_types_from_items(
         module_id,
         &item_tree.items,
@@ -362,7 +362,7 @@ fn lower_module_types_from_items(
     resolved: &TypeResolution,
     context: TypeLoweringContext<'_>,
     mode: TypeLowerMode,
-) -> TypeLowering {
+) -> nia_ice::IceResult<TypeLowering> {
     let mut lowerer = TypeLowerer {
         module_id,
         resolved,
@@ -375,6 +375,7 @@ fn lower_module_types_from_items(
         const_exprs: HashMap::new(),
         const_expr_summaries: HashMap::new(),
         diagnostics: Vec::new(),
+        internal_error: None,
         generic_stack: Vec::new(),
         self_type_stack: Vec::new(),
         associated_type_scope_stack: Vec::new(),
@@ -384,12 +385,15 @@ fn lower_module_types_from_items(
     for item in items {
         lowerer.visit_item_tree_node(item);
     }
-    TypeLowering {
+    if let Some(error) = lowerer.internal_error {
+        return Err(error);
+    }
+    Ok(TypeLowering {
         type_uses: lowerer.type_uses,
         const_exprs: lowerer.const_exprs,
         const_expr_summaries: lowerer.const_expr_summaries,
         diagnostics: lowerer.diagnostics,
-    }
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -410,6 +414,7 @@ struct TypeLowerer<'a, 'store> {
     const_exprs: HashMap<GlobalConstExprId, Expr>,
     const_expr_summaries: HashMap<GlobalConstExprId, ConstExprSummary>,
     diagnostics: Vec<Diagnostic>,
+    internal_error: Option<nia_ice::Ice>,
     generic_stack: Vec<Vec<GenericParam>>,
     self_type_stack: Vec<InternedTyId>,
     associated_type_scope_stack: Vec<AssociatedTypeScope>,
@@ -481,13 +486,24 @@ fn layout_builtin_for_symbol(name: SymbolId) -> Option<LayoutBuiltin> {
 }
 
 impl TypeLowerer<'_, '_> {
+    fn intern(&mut self, kind: TyKind) -> InternedTyId {
+        if self.internal_error.is_some() {
+            return self.type_store.error();
+        }
+        match self.append.intern(kind) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.internal_error = Some(error);
+                self.type_store.error()
+            }
+        }
+    }
+
     fn lower_primitive_type(&mut self, primitive: PrimitiveTypeSpelling) -> InternedTyId {
         match primitive {
-            PrimitiveTypeSpelling::Scalar(primitive) => {
-                self.append.intern(TyKind::Primitive(primitive))
-            }
+            PrimitiveTypeSpelling::Scalar(primitive) => self.intern(TyKind::Primitive(primitive)),
             PrimitiveTypeSpelling::Vector { elem, lanes } => {
-                self.append.intern(TyKind::Vector { elem, lanes })
+                self.intern(TyKind::Vector { elem, lanes })
             }
         }
     }

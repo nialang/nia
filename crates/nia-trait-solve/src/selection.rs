@@ -190,7 +190,7 @@ impl TraitSolver<'_> {
                 else {
                     return false;
                 };
-                if !self.proves(TraitGoal {
+                if !self.proves_inner(TraitGoal {
                     self_ty,
                     trait_id,
                     trait_args: trait_args.clone(),
@@ -204,7 +204,7 @@ impl TraitSolver<'_> {
                         substitutions,
                         const_substitutions,
                     );
-                    let Some(actual_ty) = self.resolve_associated_type(
+                    let Some(actual_ty) = self.resolve_associated_type_unchecked(
                         self_ty,
                         trait_id,
                         &trait_args,
@@ -213,7 +213,7 @@ impl TraitSolver<'_> {
                     ) else {
                         return false;
                     };
-                    if !self.types_equivalent(actual_ty, binding_ty) {
+                    if !self.types_equivalent_inner(actual_ty, binding_ty) {
                         return false;
                     }
                 }
@@ -282,7 +282,7 @@ impl TraitSolver<'_> {
                 // The first occurrence binds the implementation parameter. Later occurrences are
                 // equality constraints and must agree with that original substitution.
                 if let Some(existing) = substitutions.get(&name).copied() {
-                    self.types_equivalent(existing, actual)
+                    self.types_equivalent_inner(existing, actual)
                 } else {
                     substitutions.insert(name, actual);
                     true
@@ -752,7 +752,7 @@ impl TraitSolver<'_> {
             Some(
                 TyKind::Error | TyKind::ConstOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
             )
-            | None => self.types_equivalent(pattern, actual),
+            | None => self.types_equivalent_inner(pattern, actual),
         }
     }
 
@@ -770,7 +770,7 @@ impl TraitSolver<'_> {
             self.substitute_ty_with_consts(pattern.ty, substitutions, const_substitutions);
         let actual_ty =
             self.substitute_ty_with_consts(actual.ty, substitutions, const_substitutions);
-        if !self.types_equivalent(pattern_ty, actual_ty) {
+        if !self.types_equivalent_inner(pattern_ty, actual_ty) {
             return false;
         }
         let actual = ConstGenericArg {

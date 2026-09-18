@@ -11,14 +11,20 @@ impl TraitSolver<'_> {
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> InternedTyId {
         let ty = self.normalize(ty);
-        nia_ty::substitute_ty(
+        match nia_ty::substitute_ty(
             self.interner.store,
             &self.interner.append,
             ty,
             &|name| substitutions.get(name).copied(),
             &|name| const_substitutions.get(name).cloned(),
             None,
-        )
+        ) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.interner.internal_error.lock().get_or_insert(error);
+                self.interner.store.error()
+            }
+        }
     }
 
     pub(crate) fn trait_id_and_args(
@@ -54,12 +60,12 @@ impl TraitSolver<'_> {
         left.trait_id == right.trait_id
             && left.trait_args.len() == right.trait_args.len()
             && left.trait_const_args.len() == right.trait_const_args.len()
-            && self.types_equivalent(left.self_ty, right.self_ty)
+            && self.types_equivalent_inner(left.self_ty, right.self_ty)
             && left
                 .trait_args
                 .iter()
                 .zip(&right.trait_args)
-                .all(|(left, right)| self.types_equivalent(*left, *right))
+                .all(|(left, right)| self.types_equivalent_inner(*left, *right))
             && left
                 .trait_const_args
                 .iter()

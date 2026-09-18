@@ -32,7 +32,9 @@ pub struct TypeNormalizationInput<'a> {
 }
 
 /// Normalizes the explicit input type set and all nested components.
-pub fn normalize_module_types(input: TypeNormalizationInput<'_>) -> TypeNormalization {
+pub fn normalize_module_types(
+    input: TypeNormalizationInput<'_>,
+) -> nia_ice::IceResult<TypeNormalization> {
     let mut normalizer = TypeNormalizer {
         module_id: input.module_id,
         type_store: input.type_store,
@@ -40,14 +42,21 @@ pub fn normalize_module_types(input: TypeNormalizationInput<'_>) -> TypeNormaliz
         aliases: &input.signatures.type_aliases,
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        internal_error: None,
     };
     for ty_id in input.input_ids.iter().copied() {
         normalizer.normalize_ty(ty_id, &mut Vec::new());
     }
-    TypeNormalization {
+    if let Some(error) = normalizer.internal_error {
+        return Err(error.with_context(format!(
+            "normalizing types for module {:?}",
+            input.module_id
+        )));
+    }
+    Ok(TypeNormalization {
         normalized: normalizer.normalized,
         diagnostics: normalizer.diagnostics,
-    }
+    })
 }
 
 struct TypeNormalizer<'a, 'store> {
@@ -57,9 +66,42 @@ struct TypeNormalizer<'a, 'store> {
     aliases: &'a HashMap<DefId, TypeAliasSignature>,
     normalized: HashMap<InternedTyId, InternedTyId>,
     diagnostics: Vec<Diagnostic>,
+    internal_error: Option<nia_ice::Ice>,
 }
 
 impl<'a> TypeNormalizer<'a, '_> {
+    fn intern(&mut self, kind: TyKind) -> InternedTyId {
+        match self.interner.intern(kind) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.internal_error.get_or_insert(error);
+                self.type_store.error()
+            }
+        }
+    }
+
+    fn substitute_alias_target(
+        &mut self,
+        target: InternedTyId,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+    ) -> InternedTyId {
+        match nia_ty::substitute_ty(
+            self.type_store,
+            &self.interner,
+            target,
+            &|name| substitutions.get(name).copied(),
+            &|name| const_substitutions.get(name).cloned(),
+            None,
+        ) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.internal_error.get_or_insert(error);
+                self.type_store.error()
+            }
+        }
+    }
+
     fn normalize_ty(&mut self, ty_id: InternedTyId, stack: &mut Vec<DefId>) -> InternedTyId {
         if let Some(normalized) = self.normalized.get(&ty_id).copied() {
             return normalized;
@@ -81,7 +123,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .map(|param| self.normalize_ty(param, stack))
                     .collect();
                 let return_type = self.normalize_ty(return_type, stack);
-                self.interner.intern(TyKind::ClosureState {
+                self.intern(TyKind::ClosureState {
                     closure_id,
                     captures,
                     params,
@@ -93,33 +135,32 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .into_iter()
                     .map(|elem| self.normalize_ty(elem, stack))
                     .collect();
-                self.interner.intern(TyKind::Tuple(elems))
+                self.intern(TyKind::Tuple(elems))
             }
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.normalize_ty(elem, stack);
-                self.interner.intern(TyKind::Pointer { is_readonly, elem })
+                self.intern(TyKind::Pointer { is_readonly, elem })
             }
             Some(TyKind::VolatilePointer { is_readonly, elem }) => {
                 let elem = self.normalize_ty(elem, stack);
-                self.interner
-                    .intern(TyKind::VolatilePointer { is_readonly, elem })
+                self.intern(TyKind::VolatilePointer { is_readonly, elem })
             }
             Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.normalize_ty(elem, stack);
-                self.interner.intern(TyKind::Slice { is_readonly, elem })
+                self.intern(TyKind::Slice { is_readonly, elem })
             }
             Some(TyKind::SlicePointee { elem }) => {
                 let elem = self.normalize_ty(elem, stack);
-                self.interner.intern(TyKind::SlicePointee { elem })
+                self.intern(TyKind::SlicePointee { elem })
             }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.normalize_ty(elem, stack);
                 let len = self.normalize_array_len(len, stack);
-                self.interner.intern(TyKind::Array { len, elem })
+                self.intern(TyKind::Array { len, elem })
             }
             Some(TyKind::Range { kind, bound }) => {
                 let bound = bound.map(|bound| self.normalize_ty(bound, stack));
-                self.interner.intern(TyKind::Range { kind, bound })
+                self.intern(TyKind::Range { kind, bound })
             }
             Some(TyKind::FunctionPointer {
                 params,
@@ -131,7 +172,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .map(|param| self.normalize_ty(param, stack))
                     .collect();
                 let return_type = self.normalize_ty(return_type, stack);
-                self.interner.intern(TyKind::FunctionPointer {
+                self.intern(TyKind::FunctionPointer {
                     params,
                     return_type,
                     is_variadic,
@@ -147,7 +188,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .map(|param| self.normalize_ty(param, stack))
                     .collect();
                 let return_type = self.normalize_ty(return_type, stack);
-                self.interner.intern(TyKind::Callable {
+                self.intern(TyKind::Callable {
                     is_readonly,
                     params,
                     return_type,
@@ -162,19 +203,19 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .map(|param| self.normalize_ty(param, stack))
                     .collect();
                 let return_type = self.normalize_ty(return_type, stack);
-                self.interner.intern(TyKind::CallablePointee {
+                self.intern(TyKind::CallablePointee {
                     params,
                     return_type,
                 })
             }
             Some(TyKind::Optional { elem }) => {
                 let elem = self.normalize_ty(elem, stack);
-                self.interner.intern(TyKind::Optional { elem })
+                self.intern(TyKind::Optional { elem })
             }
             Some(TyKind::ErrorUnion { error, value }) => {
                 let error = self.normalize_ty(error, stack);
                 let value = self.normalize_ty(value, stack);
-                self.interner.intern(TyKind::ErrorUnion { error, value })
+                self.intern(TyKind::ErrorUnion { error, value })
             }
             Some(TyKind::Nominal {
                 def_id,
@@ -196,14 +237,14 @@ impl<'a> TypeNormalizer<'a, '_> {
                     if let Some(alias) = self.aliases.get(&def_id.def_id).cloned() {
                         self.normalize_alias(def_id.def_id, &alias, &args, &const_args, stack)
                     } else {
-                        self.interner.intern(TyKind::Nominal {
+                        self.intern(TyKind::Nominal {
                             def_id,
                             args,
                             const_args,
                         })
                     }
                 } else {
-                    self.interner.intern(TyKind::Nominal {
+                    self.intern(TyKind::Nominal {
                         def_id,
                         args,
                         const_args,
@@ -215,8 +256,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .into_iter()
                     .map(|arg| self.normalize_ty(arg, stack))
                     .collect();
-                self.interner
-                    .intern(TyKind::BuiltinTrait { trait_id, args })
+                self.intern(TyKind::BuiltinTrait { trait_id, args })
             }
             Some(TyKind::TraitObject {
                 is_readonly,
@@ -257,7 +297,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                         ty: self.normalize_ty(binding.ty, stack),
                     })
                     .collect();
-                self.interner.intern(TyKind::TraitObject {
+                self.intern(TyKind::TraitObject {
                     is_readonly,
                     trait_id,
                     trait_args,
@@ -303,7 +343,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                         ty: self.normalize_ty(binding.ty, stack),
                     })
                     .collect();
-                self.interner.intern(TyKind::TraitObjectPointee {
+                self.intern(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
                     trait_const_args,
@@ -329,7 +369,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                         arg
                     })
                     .collect();
-                self.interner.intern(TyKind::Projection {
+                self.intern(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args,
@@ -360,7 +400,7 @@ impl<'a> TypeNormalizer<'a, '_> {
     ) -> InternedTyId {
         if stack.contains(&alias_id) {
             self.report_recursive_alias(alias.span, stack, alias_id);
-            return self.interner.intern(TyKind::Error);
+            return self.intern(TyKind::Error);
         }
         let Some((substitutions, const_substitutions)) =
             generic_argument_substitutions(&alias.generic_params, args, const_args)
@@ -374,19 +414,13 @@ impl<'a> TypeNormalizer<'a, '_> {
                     args.len() + const_args.len()
                 ),
             ));
-            return self.interner.intern(TyKind::Error);
+            return self.intern(TyKind::Error);
         };
         // `TyKind::Nominal` stores type and const arguments separately. Use the
         // canonical type substituter after rebuilding both maps from declaration
         // kinds, then normalize the concrete graph without re-pairing arguments.
-        let target = nia_ty::substitute_ty(
-            self.type_store,
-            &self.interner,
-            alias.target,
-            &|name| substitutions.get(name).copied(),
-            &|name| const_substitutions.get(name).cloned(),
-            None,
-        );
+        let target =
+            self.substitute_alias_target(alias.target, &substitutions, &const_substitutions);
         stack.push(alias_id);
         let normalized = self.normalize_ty_with_substitutions(target, &SymbolMap::default(), stack);
         stack.pop();
@@ -419,7 +453,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect();
                 let return_type =
                     self.normalize_ty_with_substitutions(return_type, substitutions, stack);
-                self.interner.intern(TyKind::ClosureState {
+                self.intern(TyKind::ClosureState {
                     closure_id,
                     captures,
                     params,
@@ -431,7 +465,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .into_iter()
                     .map(|elem| self.normalize_ty_with_substitutions(elem, substitutions, stack))
                     .collect();
-                self.interner.intern(TyKind::Tuple(elems))
+                self.intern(TyKind::Tuple(elems))
             }
             Some(TyKind::GenericParam(name)) => substitutions
                 .get(&name)
@@ -439,30 +473,29 @@ impl<'a> TypeNormalizer<'a, '_> {
                 .unwrap_or_else(|| self.normalize_ty(ty_id, stack)),
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
-                self.interner.intern(TyKind::Pointer { is_readonly, elem })
+                self.intern(TyKind::Pointer { is_readonly, elem })
             }
             Some(TyKind::VolatilePointer { is_readonly, elem }) => {
                 let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
-                self.interner
-                    .intern(TyKind::VolatilePointer { is_readonly, elem })
+                self.intern(TyKind::VolatilePointer { is_readonly, elem })
             }
             Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
-                self.interner.intern(TyKind::Slice { is_readonly, elem })
+                self.intern(TyKind::Slice { is_readonly, elem })
             }
             Some(TyKind::SlicePointee { elem }) => {
                 let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
-                self.interner.intern(TyKind::SlicePointee { elem })
+                self.intern(TyKind::SlicePointee { elem })
             }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
                 let len = self.normalize_array_len_with_substitutions(len, substitutions, stack);
-                self.interner.intern(TyKind::Array { len, elem })
+                self.intern(TyKind::Array { len, elem })
             }
             Some(TyKind::Range { kind, bound }) => {
                 let bound = bound
                     .map(|bound| self.normalize_ty_with_substitutions(bound, substitutions, stack));
-                self.interner.intern(TyKind::Range { kind, bound })
+                self.intern(TyKind::Range { kind, bound })
             }
             Some(TyKind::FunctionPointer {
                 params,
@@ -475,7 +508,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect();
                 let return_type =
                     self.normalize_ty_with_substitutions(return_type, substitutions, stack);
-                self.interner.intern(TyKind::FunctionPointer {
+                self.intern(TyKind::FunctionPointer {
                     params,
                     return_type,
                     is_variadic,
@@ -492,7 +525,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect();
                 let return_type =
                     self.normalize_ty_with_substitutions(return_type, substitutions, stack);
-                self.interner.intern(TyKind::Callable {
+                self.intern(TyKind::Callable {
                     is_readonly,
                     params,
                     return_type,
@@ -508,19 +541,19 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect();
                 let return_type =
                     self.normalize_ty_with_substitutions(return_type, substitutions, stack);
-                self.interner.intern(TyKind::CallablePointee {
+                self.intern(TyKind::CallablePointee {
                     params,
                     return_type,
                 })
             }
             Some(TyKind::Optional { elem }) => {
                 let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
-                self.interner.intern(TyKind::Optional { elem })
+                self.intern(TyKind::Optional { elem })
             }
             Some(TyKind::ErrorUnion { error, value }) => {
                 let error = self.normalize_ty_with_substitutions(error, substitutions, stack);
                 let value = self.normalize_ty_with_substitutions(value, substitutions, stack);
-                self.interner.intern(TyKind::ErrorUnion { error, value })
+                self.intern(TyKind::ErrorUnion { error, value })
             }
             Some(TyKind::Nominal {
                 def_id,
@@ -542,14 +575,14 @@ impl<'a> TypeNormalizer<'a, '_> {
                     if let Some(alias) = self.aliases.get(&def_id.def_id).cloned() {
                         self.normalize_alias(def_id.def_id, &alias, &args, &const_args, stack)
                     } else {
-                        self.interner.intern(TyKind::Nominal {
+                        self.intern(TyKind::Nominal {
                             def_id,
                             args,
                             const_args,
                         })
                     }
                 } else {
-                    self.interner.intern(TyKind::Nominal {
+                    self.intern(TyKind::Nominal {
                         def_id,
                         args,
                         const_args,
@@ -561,8 +594,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .into_iter()
                     .map(|arg| self.normalize_ty_with_substitutions(arg, substitutions, stack))
                     .collect();
-                self.interner
-                    .intern(TyKind::BuiltinTrait { trait_id, args })
+                self.intern(TyKind::BuiltinTrait { trait_id, args })
             }
             Some(TyKind::TraitObject {
                 is_readonly,
@@ -609,7 +641,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                         ty: self.normalize_ty_with_substitutions(binding.ty, substitutions, stack),
                     })
                     .collect();
-                self.interner.intern(TyKind::TraitObject {
+                self.intern(TyKind::TraitObject {
                     is_readonly,
                     trait_id,
                     trait_args,
@@ -661,7 +693,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                         ty: self.normalize_ty_with_substitutions(binding.ty, substitutions, stack),
                     })
                     .collect();
-                self.interner.intern(TyKind::TraitObjectPointee {
+                self.intern(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
                     trait_const_args,
@@ -687,7 +719,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                         arg
                     })
                     .collect();
-                self.interner.intern(TyKind::Projection {
+                self.intern(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args,

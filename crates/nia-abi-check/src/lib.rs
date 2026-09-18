@@ -341,7 +341,7 @@ pub fn check_module_abi(
     defs: &DefCollection,
     type_store: &TypeStore,
     signatures: &ItemSignatures,
-) -> AbiCheck {
+) -> nia_ice::IceResult<AbiCheck> {
     let empty_structs = HashMap::new();
     let empty_unions = HashMap::new();
     let empty_enums = HashMap::new();
@@ -365,7 +365,7 @@ pub fn check_module_abi_with_program_signatures(
     type_store: &TypeStore,
     signatures: &ItemSignatures,
     program_signatures: ProgramAbiSignatures<'_>,
-) -> AbiCheck {
+) -> nia_ice::IceResult<AbiCheck> {
     check_module_abi_families_with_program_signatures(
         defs,
         type_store,
@@ -387,18 +387,25 @@ pub fn check_module_abi_families_with_program_signatures(
     type_store: &TypeStore,
     signatures: ModuleAbiSignatures<'_>,
     program_signatures: ProgramAbiSignatures<'_>,
-) -> AbiCheck {
+) -> nia_ice::IceResult<AbiCheck> {
     let mut checker = AbiChecker {
         defs,
         type_store,
         signatures,
         program_signatures,
         diagnostics: Vec::new(),
+        internal_error: None,
     };
     checker.check();
-    AbiCheck {
-        diagnostics: checker.diagnostics,
+    if let Some(error) = checker.internal_error {
+        return Err(error.with_context(format!(
+            "checking ABI declarations for module {:?}",
+            defs.module_id
+        )));
     }
+    Ok(AbiCheck {
+        diagnostics: checker.diagnostics,
+    })
 }
 
 struct AbiChecker<'a> {
@@ -407,6 +414,7 @@ struct AbiChecker<'a> {
     signatures: ModuleAbiSignatures<'a>,
     program_signatures: ProgramAbiSignatures<'a>,
     diagnostics: Vec<Diagnostic>,
+    internal_error: Option<nia_ice::Ice>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -433,6 +441,29 @@ impl ExternTyContext {
 }
 
 impl AbiChecker<'_> {
+    fn substitute_ty(
+        &mut self,
+        ty: nia_ids::InternedTyId,
+        substitutions: &nia_symbol::SymbolMap<nia_ids::InternedTyId>,
+        const_substitutions: &nia_symbol::SymbolMap<nia_ty::ConstGenericArg>,
+    ) -> nia_ids::InternedTyId {
+        let append = self.type_store.append_for_module(self.defs.module_id);
+        match nia_ty::substitute_ty(
+            self.type_store,
+            &append,
+            ty,
+            &|name| substitutions.get(name).copied(),
+            &|name| const_substitutions.get(name).cloned(),
+            None,
+        ) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.internal_error.get_or_insert(error);
+                self.type_store.error()
+            }
+        }
+    }
+
     fn check(&mut self) {
         for (def_id, signature) in self.signatures.functions {
             if signature.is_extern {
@@ -717,15 +748,8 @@ impl AbiChecker<'_> {
                     // Signature ABI checks precede general normalization. Expand aliases here so
                     // an alias to `bool`, a Nia aggregate, or another forbidden representation
                     // cannot be mistaken for an ABI-safe nominal type.
-                    let append = self.type_store.append_for_module(self.defs.module_id);
-                    let target = nia_ty::substitute_ty(
-                        self.type_store,
-                        &append,
-                        alias.target,
-                        &|name| substitutions.get(name).copied(),
-                        &|name| const_substitutions.get(name).cloned(),
-                        None,
-                    );
+                    let target =
+                        self.substitute_ty(alias.target, &substitutions, &const_substitutions);
                     nominal_stack.push(*def_id);
                     self.check_extern_ty_inner(span, target, context, nominal_stack);
                     nominal_stack.pop();
@@ -748,7 +772,7 @@ impl AbiChecker<'_> {
                         format!("{context_desc} cannot use union by value"),
                     ));
                 }
-                if let Some(signature) = self.struct_signature(*def_id) {
+                if let Some(signature) = self.struct_signature(*def_id).cloned() {
                     if signature.fields.is_empty() {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::STATIC_CHECK,
@@ -783,22 +807,12 @@ impl AbiChecker<'_> {
                             ));
                             return;
                         };
-                        let append = self.type_store.append_for_module(self.defs.module_id);
-                        let fields = signature
-                            .fields
-                            .iter()
-                            .map(|field| {
-                                let ty = nia_ty::substitute_ty(
-                                    self.type_store,
-                                    &append,
-                                    field.ty,
-                                    &|name| substitutions.get(name).copied(),
-                                    &|name| const_substitutions.get(name).cloned(),
-                                    None,
-                                );
-                                (field.span, ty)
-                            })
-                            .collect::<Vec<_>>();
+                        let mut fields = Vec::with_capacity(signature.fields.len());
+                        for field in &signature.fields {
+                            let ty =
+                                self.substitute_ty(field.ty, &substitutions, &const_substitutions);
+                            fields.push((field.span, ty));
+                        }
                         nominal_stack.push(*def_id);
                         for (field_span, field_ty) in fields {
                             self.check_extern_ty_inner(

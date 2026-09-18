@@ -1014,7 +1014,7 @@ impl CompilerDatabase {
                         .collect(),
                     return_type: types[usize::try_from(*result).unwrap()],
                 }),
-            };
+            }?;
             types.push(ty);
         }
         Ok(types)
