@@ -42,6 +42,7 @@ struct MemoryBudget {
     state: Mutex<MemoryBudgetState>,
     ready: Condvar,
     peak_active: AtomicUsize,
+    failure: Mutex<Option<nia_ice::Ice>>,
 }
 
 #[derive(Default)]
@@ -60,7 +61,7 @@ pub struct ProcessMemoryPermit<'a> {
 }
 
 /// Waits for and acquires one process-wide LLVM memory permit.
-pub fn acquire_llvm_memory_permit() -> ProcessMemoryPermit<'static> {
+pub fn acquire_llvm_memory_permit() -> nia_ice::IceResult<ProcessMemoryPermit<'static>> {
     llvm_memory_budget().acquire()
 }
 
@@ -97,14 +98,25 @@ impl ProcessMemoryPermit<'_> {
 
 impl Drop for ProcessMemoryPermit<'_> {
     fn drop(&mut self) {
-        if !leave_memory_budget(self.budget.identity()) {
+        let outermost = match leave_memory_budget(self.budget.identity()) {
+            Ok(outermost) => outermost,
+            Err(ice) => {
+                self.budget.record_failure(ice);
+                return;
+            }
+        };
+        if !outermost {
             return;
         }
         let mut state = self.budget.state.lock();
-        state.active = state
-            .active
-            .checked_sub(1)
-            .expect("process memory budget active count underflow");
+        let Some(active) = state.active.checked_sub(1) else {
+            drop(state);
+            self.budget.record_failure(nia_ice::Ice::new(
+                "process memory budget active count underflow",
+            ));
+            return;
+        };
+        state.active = active;
         drop(state);
         self.budget.ready.notify_all();
     }
@@ -112,17 +124,20 @@ impl Drop for ProcessMemoryPermit<'_> {
 
 impl MemoryBudget {
     fn new(capacity: usize, minimum_available_bytes: Option<usize>) -> Self {
-        assert!(capacity > 0, "memory budget capacity must be non-zero");
         Self {
-            capacity,
+            capacity: capacity.max(1),
             minimum_available_bytes,
             state: Mutex::new(MemoryBudgetState::default()),
             ready: Condvar::new(),
             peak_active: AtomicUsize::new(0),
+            failure: Mutex::new(None),
         }
     }
 
-    fn acquire(&self) -> ProcessMemoryPermit<'_> {
+    fn acquire(&self) -> nia_ice::IceResult<ProcessMemoryPermit<'_>> {
+        if let Some(ice) = self.failure.lock().clone() {
+            return Err(ice.with_context("LLVM memory budget is no longer reusable"));
+        }
         let identity = self.identity();
         let nested = memory_budget_is_active(identity);
         let mut waited = false;
@@ -131,16 +146,27 @@ impl MemoryBudget {
             while state.active >= self.capacity || !self.memory_pressure_allows(state.active) {
                 waited = true;
                 self.ready.wait(&mut state);
+                if let Some(ice) = self.failure.lock().clone() {
+                    return Err(ice.with_context("LLVM memory budget is no longer reusable"));
+                }
             }
             state.active += 1;
             self.peak_active.fetch_max(state.active, Ordering::Relaxed);
         }
         enter_memory_budget(identity);
-        ProcessMemoryPermit {
+        Ok(ProcessMemoryPermit {
             budget: self,
             waited,
             _not_send: PhantomData,
+        })
+    }
+
+    fn record_failure(&self, ice: nia_ice::Ice) {
+        let mut failure = self.failure.lock();
+        if failure.is_none() {
+            *failure = Some(ice);
         }
+        self.ready.notify_all();
     }
 
     fn memory_pressure_allows(&self, active: usize) -> bool {
@@ -183,22 +209,27 @@ fn enter_memory_budget(identity: usize) {
     });
 }
 
-fn leave_memory_budget(identity: usize) -> bool {
+fn leave_memory_budget(identity: usize) -> Result<bool, nia_ice::Ice> {
     MEMORY_BUDGET_DEPTHS.with(|depths| {
         let mut depths = depths.borrow_mut();
-        let position = depths
+        let Some(position) = depths
             .iter()
             .position(|(budget, _depth)| *budget == identity)
-            .expect("process memory budget permit dropped without an active depth");
+        else {
+            return Err(nia_ice::Ice::new(
+                "process memory budget permit dropped without an active depth",
+            ));
+        };
         let depth = &mut depths[position].1;
-        *depth = depth
-            .checked_sub(1)
-            .expect("process memory budget depth underflow");
+        let Some(next_depth) = depth.checked_sub(1) else {
+            return Err(nia_ice::Ice::new("process memory budget depth underflow"));
+        };
+        *depth = next_depth;
         if *depth == 0 {
             depths.swap_remove(position);
-            true
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     })
 }
@@ -444,8 +475,8 @@ mod tests {
     #[test]
     fn nested_memory_tasks_reuse_the_current_permit() {
         let budget = MemoryBudget::new(1, None);
-        let outer = budget.acquire();
-        let inner = budget.acquire();
+        let outer = budget.acquire().expect("outer memory permit");
+        let inner = budget.acquire().expect("inner memory permit");
 
         assert!(!outer.waited());
         assert!(!inner.waited());

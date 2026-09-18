@@ -729,7 +729,8 @@ fn emit_llvm_ir_partition(
         options,
         fingerprint::ArtifactTarget::LlvmIr,
     )?;
-    let memory_permit = nia_query::acquire_llvm_memory_permit();
+    let memory_permit = nia_query::acquire_llvm_memory_permit()
+        .map_err(|ice| vec![nia_diagnostic::Diagnostic::from(ice)])?;
     record_memory_permit(options.timings, memory_permit.waited());
     let context =
         time_codegen_module_stage(options.timings, "context", &module.name, Context::create)
@@ -796,7 +797,8 @@ fn emit_native_object_partition(
     let ObjectReuseLookup::Miss(miss) = lookup else {
         unreachable!("object cache hit returned before codegen")
     };
-    let memory_permit = nia_query::acquire_llvm_memory_permit();
+    let memory_permit = nia_query::acquire_llvm_memory_permit()
+        .map_err(|ice| vec![nia_diagnostic::Diagnostic::from(ice)])?;
     record_memory_permit(options.timings, memory_permit.waited());
     let target = time_codegen_stage(options.timings, "llvm_codegen.native_target", || {
         TargetMachine::for_identity(
@@ -865,7 +867,8 @@ fn emit_compiler_builtins_object(
     let ObjectReuseLookup::Miss(miss) = lookup else {
         unreachable!("object cache hit returned before codegen")
     };
-    let memory_permit = nia_query::acquire_llvm_memory_permit();
+    let memory_permit =
+        nia_query::acquire_llvm_memory_permit().map_err(nia_diagnostic::Diagnostic::from)?;
     record_memory_permit(options.timings, memory_permit.waited());
     let target = time_codegen_stage(options.timings, "llvm_codegen.native_target", || {
         TargetMachine::for_identity(

@@ -74,7 +74,7 @@ impl QuerySession {
     /// Retires values tied to a replaced input scope while preserving selected
     /// stable-identity queries across the transition.
     pub fn invalidate_scope(&self, retain: impl Fn(&QueryFrame) -> bool) -> QueryResult<()> {
-        let _retirement = self.enter_retirement();
+        let _retirement = self.enter_retirement()?;
         let databases = self
             .inner
             .databases
@@ -129,56 +129,57 @@ impl QueryWaitGraph {
         from_frame: QueryFrame,
         to: QueryNodeId,
         to_frame: QueryFrame,
-    ) -> Option<Vec<QueryFrame>> {
+    ) -> QueryResult<Option<Vec<QueryFrame>>> {
         let mut path = vec![from];
         let mut current = to;
         let mut seen = FastHashSet::default();
         while seen.insert(current) {
             path.push(current);
             if current == from {
-                return Some(
-                    path.into_iter()
-                        .map(|node_id| {
-                            self.frames
-                                .get(&node_id)
-                                .cloned()
-                                .expect("active query wait node must retain its frame")
-                        })
-                        .collect(),
-                );
+                let mut frames = Vec::with_capacity(path.len());
+                for node_id in path {
+                    let frame = self.frames.get(&node_id).cloned().ok_or_else(|| {
+                        QueryError::internal("active query wait node has no retained frame")
+                    })?;
+                    frames.push(frame);
+                }
+                return Ok(Some(frames));
             }
             let Some(next) = self.edges.get(&current).copied() else {
                 break;
             };
             current = next;
         }
-        assert!(
-            !self.edges.contains_key(&from),
-            "query cannot wait on multiple slots simultaneously"
-        );
+        if self.edges.contains_key(&from) {
+            return Err(QueryError::internal(
+                "query cannot wait on multiple slots simultaneously",
+            ));
+        }
         self.frames.entry(from).or_insert(from_frame);
         self.frames.entry(to).or_insert(to_frame);
         self.edges.insert(from, to);
-        None
+        Ok(None)
     }
 
-    fn end(&mut self, from: QueryNodeId, to: QueryNodeId) {
+    fn end(&mut self, from: QueryNodeId, to: QueryNodeId) -> QueryResult<()> {
         let target = self.edges.remove(&from);
-        assert_eq!(
-            target,
-            Some(to),
-            "query wait-for edge was released out of order"
-        );
+        if target != Some(to) {
+            return Err(QueryError::internal(
+                "query wait-for edge was released out of order",
+            ));
+        }
         if !self.edges.contains_key(&from) && !self.edges.values().any(|target| *target == from) {
             self.frames.remove(&from);
         }
         if !self.edges.contains_key(&to) && !self.edges.values().any(|target| *target == to) {
             self.frames.remove(&to);
         }
+        Ok(())
     }
 }
 
 struct QueryWaitGuard {
+    session: Arc<QuerySessionInner>,
     from: QueryNodeId,
     to: QueryNodeId,
 }
