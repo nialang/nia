@@ -21,8 +21,8 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
     mutate_signatures: impl FnOnce(&mut ItemSignatures, &nia_defs::DefCollection),
     optimization: nia_opt::OptimizationPolicy,
 ) -> TestBackendLowering {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let symbols = SymbolTable::new();
     let (module, errors) = parse_module_with_symbols(source, symbols.clone());
     assert!(errors.is_empty(), "{errors:?}");

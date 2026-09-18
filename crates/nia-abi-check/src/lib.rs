@@ -939,8 +939,8 @@ extern fn bad_callable_pointee(callback: Fn(i32) i32);
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
@@ -996,8 +996,8 @@ extern fn consume(header: Header);
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
@@ -1028,8 +1028,8 @@ extern struct Header[N: usize] {
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
@@ -1060,9 +1060,9 @@ extern struct Header[N: usize] {
     fn checks_fields_of_imported_extern_structs() {
         let (module, errors) = parse_module("extern fn consume(value: Imported);");
         assert!(errors.is_empty(), "{errors:?}");
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
-        let foreign_module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
+        let foreign_module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let type_store = TypeStore::new();
         let append = type_store.append_for_module(module_id);
@@ -1198,8 +1198,8 @@ extern fn effect() Unit;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
@@ -1240,8 +1240,8 @@ extern struct Header { values: Repeat[bool, 4] }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
@@ -1295,8 +1295,8 @@ extern fn bad_return() (i32, bool);
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
@@ -1333,7 +1333,10 @@ extern fn bad_return() (i32, bool);
         use nia_ty::PrimitiveTy;
 
         let store = TypeStore::new();
-        let module = ModuleIdAllocator::new().allocate();
+        let module = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let append = store.append_for_module(module);
         let unit = append.intern(TyKind::Tuple(Vec::new()));
         let i32_ty = append.primitive(PrimitiveTy::I32);
@@ -1367,7 +1370,10 @@ extern fn bad_return() (i32, bool);
         use nia_layout::TargetDataLayout;
 
         let store = TypeStore::new();
-        let module = ModuleIdAllocator::new().allocate();
+        let module = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let append = store.append_for_module(module);
         let aggregate = append.intern(TyKind::Tuple(vec![append.primitive(PrimitiveTy::I64)]));
         let signature = classify_nia_signature(
@@ -1408,7 +1414,10 @@ extern fn bad_return() (i32, bool);
         use nia_ty::PrimitiveTy;
 
         let store = TypeStore::new();
-        let module = ModuleIdAllocator::new().allocate();
+        let module = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let append = store.append_for_module(module);
         let unit = append.intern(TyKind::Tuple(Vec::new()));
         let i32_ty = append.primitive(PrimitiveTy::I32);

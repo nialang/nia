@@ -877,8 +877,8 @@ mod tests {
 
     #[test]
     fn trait_owner_arguments_preserve_interleaved_generic_kinds() {
-        let mut module_ids = nia_ids::ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let type_store = nia_ty::TypeStore::new();
         let append = type_store.append_for_module(module_id);
         let usize_ty = append.intern(TyKind::Primitive(PrimitiveTy::Usize));

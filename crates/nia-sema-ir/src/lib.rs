@@ -1486,7 +1486,10 @@ mod tests {
 
     #[test]
     fn semantic_use_builder_keeps_local_value_uses_over_globals() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let mut builder = SemanticUseTable::builder();
         let key = key();
         builder.insert_node_local_value_use(key.clone(), LocalId(2));
@@ -1538,7 +1541,10 @@ mod tests {
 
     #[test]
     fn function_facts_freeze_and_thaw_node_maps_at_explicit_boundaries() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let type_store = nia_ty::TypeStore::new();
         let ty = type_store
             .append_for_module(module_id)
@@ -1581,7 +1587,10 @@ mod tests {
 
     #[test]
     fn semantic_facts_freeze_merge_and_rehome_all_node_maps() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let type_store = nia_ty::TypeStore::new();
         let ty = type_store
             .append_for_module(module_id)
@@ -1647,7 +1656,10 @@ mod tests {
 
     #[test]
     fn retain_module_level_facts_removes_only_function_owned_staging_entries() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let type_store = nia_ty::TypeStore::new();
         let ty = type_store
             .append_for_module(module_id)

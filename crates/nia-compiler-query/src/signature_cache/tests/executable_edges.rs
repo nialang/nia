@@ -31,9 +31,9 @@ fn executable_value_ref_edges_rehydrate_current_modules_and_retire_corruption() 
         program_sources,
     };
 
-    let mut old_ids = ModuleIdAllocator::new();
-    let old_module = old_ids.allocate();
-    let old_dependency = old_ids.allocate();
+    let old_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let old_module = old_ids.allocate().expect("allocate module ID");
+    let old_dependency = old_ids.allocate().expect("allocate module ID");
     let old_paths = HashMap::from([
         (old_module, "src/main.nia".to_string()),
         (old_dependency, "src/dep.nia".to_string()),
@@ -58,9 +58,9 @@ fn executable_value_ref_edges_rehydrate_current_modules_and_retire_corruption() 
         .publish_executable_value_ref_edges(identity, &edges, &old_paths, false)
         .expect("publish executable value-ref edges");
 
-    let mut new_ids = ModuleIdAllocator::new();
-    let new_dependency = new_ids.allocate();
-    let new_module = new_ids.allocate();
+    let new_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let new_dependency = new_ids.allocate().expect("allocate module ID");
+    let new_module = new_ids.allocate().expect("allocate module ID");
     let new_modules = HashMap::from([
         ("src/main.nia".to_string(), new_module),
         ("src/dep.nia".to_string(), new_dependency),

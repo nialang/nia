@@ -713,6 +713,9 @@ version = "0.2.0-dev"
 [[package]]
 name = "nia-ids"
 version = "0.2.0-dev"
+dependencies = [
+ "nia-ice",
+]
 
 [[package]]
 name = "nia-imports"
@@ -721,6 +724,7 @@ dependencies = [
  "nia-ast",
  "nia-diagnostic",
  "nia-hash",
+ "nia-ice",
  "nia-ids",
  "nia-item-tree",
  "nia-parser",
@@ -839,6 +843,7 @@ dependencies = [
  "nia-compiler-query",
  "nia-defs",
  "nia-diagnostic",
+ "nia-ice",
  "nia-ids",
  "nia-imports",
  "nia-item-tree",

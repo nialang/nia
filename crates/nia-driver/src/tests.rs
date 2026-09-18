@@ -127,8 +127,8 @@ fn static_archive_test_objects(first_fingerprint: [u64; 2]) -> crate::ObjectArti
     use nia_ids::ModuleIdAllocator;
     use nia_source::SourceIdentity;
 
-    let mut module_ids = ModuleIdAllocator::new();
-    let mut input = |fingerprint, source: &str, name: &str, bytes: &[u8]| IncrementalLinkInput {
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let input = |fingerprint, source: &str, name: &str, bytes: &[u8]| IncrementalLinkInput {
         key: CodegenUnitKey::SourceModule {
             source_identity: SourceIdentity::new(source),
             ordinal: 0,
@@ -136,7 +136,7 @@ fn static_archive_test_objects(first_fingerprint: [u64; 2]) -> crate::ObjectArti
         fingerprint: CodegenUnitFingerprint::from_parts(fingerprint),
         object: NativeObject {
             unit: CodegenUnitId::SourceModule {
-                module_id: module_ids.allocate(),
+                module_id: module_ids.allocate().expect("allocate module ID"),
                 ordinal: 0,
             },
             name: name.to_string(),

@@ -81,9 +81,9 @@ fn lowers_struct_pattern_bindings_through_nominal_field_projection() {
     let ty = test_ty();
     let source = LocalId(0);
     let field_local = LocalId(1);
-    let mut module_ids = ModuleIdAllocator::new();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let field_def = GlobalDefId {
-        module_id: module_ids.allocate(),
+        module_id: module_ids.allocate().expect("allocate module ID"),
         def_id: DefId(9),
     };
     let body = TypedBody {
@@ -160,8 +160,8 @@ fn lowers_struct_pattern_bindings_through_nominal_field_projection() {
 #[test]
 fn lowers_closure_state_and_direct_call_to_generated_entry() {
     let span = Span::default();
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new();
     let append = type_store.append_for_module(module_id);
     let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
@@ -489,8 +489,8 @@ fn non_terminal_ops_branch_to_tail_block() {
 #[test]
 fn lowers_try_expression_to_try_terminator_and_success_local() {
     let span = Span::default();
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new();
     let append = type_store.append_for_module(module_id);
     let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));

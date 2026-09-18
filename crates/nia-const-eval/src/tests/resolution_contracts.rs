@@ -77,7 +77,10 @@ fn resolved_function_calls_use_resolved_callee_identity() {
         }
     }
 
-    let module_id = ModuleIdAllocator::new().allocate();
+    let module_id = ModuleIdAllocator::new()
+        .expect("create module ID allocator")
+        .allocate()
+        .expect("allocate module ID");
     let expr = ResolvedConstExpr::call(
         Span::new(7, 8),
         ResolvedConstExpr::name(

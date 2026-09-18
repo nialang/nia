@@ -159,8 +159,8 @@ extern fn nul();
 
 #[test]
 fn collects_item_signatures_without_checking_bodies() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 extern fn printf(fmt: &u8, ...);
@@ -268,8 +268,8 @@ extend[T] Box[T] {
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let defs = collect_module_defs(module_id, &module);
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     let resolved = resolve_module_types(&module, &defs);
@@ -333,8 +333,8 @@ trait Child : Parent[Item = (i32, bool)] {}
 
 #[test]
 fn collects_item_signatures_from_active_item_tree_only() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 @[if false]

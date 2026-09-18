@@ -486,7 +486,10 @@ mod tests {
 
     #[test]
     fn executable_preplanning_requires_exact_reachability_membership() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let selected = GlobalDefId {
             module_id,
             def_id: DefId(1),

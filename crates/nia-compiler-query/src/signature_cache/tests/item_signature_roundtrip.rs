@@ -23,9 +23,9 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
         program_sources,
     );
 
-    let mut old_ids = ModuleIdAllocator::new();
-    let old_module = old_ids.allocate();
-    let old_dependency = old_ids.allocate();
+    let old_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let old_module = old_ids.allocate().expect("allocate module ID");
+    let old_dependency = old_ids.allocate().expect("allocate module ID");
     let old_store = TypeStore::new();
     let append = old_store.append_for_module(old_module);
     let old_symbols = SymbolTable::new();
@@ -267,9 +267,9 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
         )
         .expect("publish signatures");
 
-    let mut new_ids = ModuleIdAllocator::new();
-    let new_dependency = new_ids.allocate();
-    let new_module = new_ids.allocate();
+    let new_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let new_dependency = new_ids.allocate().expect("allocate module ID");
+    let new_module = new_ids.allocate().expect("allocate module ID");
     let new_store = TypeStore::new();
     let new_symbols = SymbolTable::new();
     let modules = HashMap::from([
@@ -358,7 +358,10 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
 fn item_signature_decoder_rejects_duplicate_field_names() {
     let symbols = SymbolTable::new();
     let store = TypeStore::new();
-    let module = ModuleIdAllocator::new().allocate();
+    let module = ModuleIdAllocator::new()
+        .expect("create module ID allocator")
+        .allocate()
+        .expect("allocate module ID");
     let ty = store
         .append_for_module(module)
         .intern(TyKind::Primitive(PrimitiveTy::I32));

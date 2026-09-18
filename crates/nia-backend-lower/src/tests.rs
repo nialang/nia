@@ -48,8 +48,8 @@ use lowering_wrappers::*;
 
 #[test]
 fn vtable_owner_payloads_match_semantic_integer_consts() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let ty = type_store
         .append_for_module(module_id)
@@ -105,8 +105,8 @@ fn vtable_owner_payloads_match_semantic_integer_consts() {
 
 #[test]
 fn vtable_owner_payloads_match_structural_array_layout_operands() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let append = type_store.append_for_module(module_id);
     let u8_ty = append.primitive(nia_ty::PrimitiveTy::U8);
@@ -182,9 +182,9 @@ fn vtable_owner_payloads_match_structural_array_layout_operands() {
 
 #[test]
 fn vtable_owner_matches_evaluated_const_expression_array_lengths() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let left_module = module_ids.allocate();
-    let right_module = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let left_module = module_ids.allocate().expect("allocate module ID");
+    let right_module = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let left_append = type_store.append_for_module(left_module);
     let right_append = type_store.append_for_module(right_module);
@@ -271,9 +271,9 @@ fn vtable_owner_matches_evaluated_const_expression_array_lengths() {
 
 #[test]
 fn vtable_owner_deduplicates_semantically_equal_rebuilt_keys() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let left_module = module_ids.allocate();
-    let right_module = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let left_module = module_ids.allocate().expect("allocate module ID");
+    let right_module = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let left_append = type_store.append_for_module(left_module);
     let right_append = type_store.append_for_module(right_module);
@@ -368,9 +368,9 @@ fn vtable_owner_deduplicates_semantically_equal_rebuilt_keys() {
 
 #[test]
 fn aggregate_owner_deduplicates_semantically_equal_instance_keys() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let left_module = module_ids.allocate();
-    let right_module = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let left_module = module_ids.allocate().expect("allocate module ID");
+    let right_module = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let left_append = type_store.append_for_module(left_module);
     let right_append = type_store.append_for_module(right_module);

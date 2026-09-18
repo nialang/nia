@@ -1576,9 +1576,9 @@ mod tests {
 
     #[test]
     fn execution_frames_stop_at_nearest_function_boundary() {
-        let mut modules = nia_ids::ModuleIdAllocator::new();
-        let outer_module = modules.allocate();
-        let inner_module = modules.allocate();
+        let modules = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        let outer_module = modules.allocate().expect("allocate module ID");
+        let inner_module = modules.allocate().expect("allocate module ID");
         let frames = vec![
             ConstCallFrame {
                 module_id: Some(outer_module),
@@ -1601,8 +1601,8 @@ mod tests {
 
     #[test]
     fn innermost_execution_substitution_wins() {
-        let mut modules = nia_ids::ModuleIdAllocator::new();
-        let module_id = modules.allocate();
+        let modules = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = modules.allocate().expect("allocate module ID");
         let store = nia_ty::TypeStore::new();
         let append = store.append_for_module(module_id);
         let outer_ty = append.primitive(PrimitiveTy::I32);

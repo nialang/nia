@@ -792,8 +792,8 @@ mod tests {
 
     #[test]
     fn generic_argument_substitutions_preserve_interleaved_parameter_order() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let append = type_store.append_for_module(module_id);
         let usize_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize));

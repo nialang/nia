@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn computes_payload_enum_tag_union_and_field_offsets() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
 enum Event: u16 {
@@ -57,8 +57,8 @@ enum Event: u16 {
 
 #[test]
 fn defaults_enum_tag_to_u8_and_keeps_fieldless_layout_scalar() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module("enum Flag { Off, On }");
     let defs = collect_module_defs(module_id, &module);
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
@@ -78,8 +78,8 @@ fn defaults_enum_tag_to_u8_and_keeps_fieldless_layout_scalar() {
 
 #[test]
 fn rejects_open_payload_enums() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module("enum Event { Data(u8), _, }");
     let defs = collect_module_defs(module_id, &module);
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);

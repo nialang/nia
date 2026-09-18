@@ -2410,7 +2410,10 @@ mod tests {
     fn missing_or_foreign_type_handles_use_error_sentinel() {
         let local_store = TypeStore::new();
         let foreign_store = TypeStore::new();
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let interner = BodyTypeCx::new(&local_store, module_id);
         let local = interner.intern(TyKind::Primitive(PrimitiveTy::I32));
         let foreign = foreign_store

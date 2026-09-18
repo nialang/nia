@@ -662,7 +662,10 @@ mod tests {
     #[test]
     fn enum_payload_equality_preserves_earlier_mismatches() {
         let variant = GlobalDefId {
-            module_id: ModuleIdAllocator::new().allocate(),
+            module_id: ModuleIdAllocator::new()
+                .expect("create module ID allocator")
+                .allocate()
+                .expect("allocate module ID"),
             def_id: DefId(2),
         };
         let tuple = |first| ConstValue::Enum {

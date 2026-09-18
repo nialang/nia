@@ -1474,9 +1474,9 @@ mod tests {
 
     #[test]
     fn layout_field_matching_requires_the_aggregate_module_owner() {
-        let mut modules = ModuleIdAllocator::new();
-        let aggregate_module = modules.allocate();
-        let foreign_module = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let aggregate_module = modules.allocate().expect("allocate module ID");
+        let foreign_module = modules.allocate().expect("allocate module ID");
         let aggregate = GlobalDefId {
             module_id: aggregate_module,
             def_id: DefId(10),
@@ -1504,13 +1504,13 @@ mod tests {
     #[test]
     fn const_argument_matching_uses_array_length_facts_when_available() {
         let ty = InternedTyId::new(TypeStoreId::fresh(), TypeStoreIndex::from_store_index(0));
-        let mut modules = ModuleIdAllocator::new();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
         let left_expr = GlobalConstExprId {
-            module_id: modules.allocate(),
+            module_id: modules.allocate().expect("allocate module ID"),
             const_expr_id: ConstExprId(1),
         };
         let right_expr = GlobalConstExprId {
-            module_id: modules.allocate(),
+            module_id: modules.allocate().expect("allocate module ID"),
             const_expr_id: ConstExprId(2),
         };
         let left = ConstGenericArg {

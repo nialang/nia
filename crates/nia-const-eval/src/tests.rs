@@ -307,9 +307,9 @@ fn sym(text: &str) -> SymbolId {
 }
 
 fn test_pointee_ty() -> nia_ids::InternedTyId {
-    let mut modules = ModuleIdAllocator::new();
+    let modules = ModuleIdAllocator::new().expect("create module ID allocator");
     TypeStore::new()
-        .append_for_module(modules.allocate())
+        .append_for_module(modules.allocate().expect("allocate module ID"))
         .primitive(PrimitiveTy::Usize)
 }
 

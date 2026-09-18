@@ -393,8 +393,8 @@ mod tests {
 
     #[test]
     fn missing_mangle_module_identity_is_deterministic_and_tracked() {
-        let mut modules = ModuleIdAllocator::new();
-        let missing = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let missing = modules.allocate().expect("allocate module ID");
         let mut diagnostics = Vec::new();
         let mut mangle_reported = HashSet::new();
         let identities = HashMap::new();

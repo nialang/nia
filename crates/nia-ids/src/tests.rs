@@ -2,20 +2,32 @@ use super::*;
 
 #[test]
 fn module_id_allocator_issues_dense_local_indices() {
-    let mut allocator = ModuleIdAllocator::new();
+    let allocator = ModuleIdAllocator::new().expect("create module ID allocator");
 
-    assert_eq!(allocator.allocate().local_index(), 0);
-    assert_eq!(allocator.allocate().local_index(), 1);
+    assert_eq!(
+        allocator
+            .allocate()
+            .expect("allocate module ID")
+            .local_index(),
+        0
+    );
+    assert_eq!(
+        allocator
+            .allocate()
+            .expect("allocate module ID")
+            .local_index(),
+        1
+    );
     assert_eq!(std::mem::size_of::<ModuleId>(), 12);
 }
 
 #[test]
 fn module_id_allocator_clones_keep_dense_slots_without_aliasing_new_generations() {
-    let mut allocator = ModuleIdAllocator::new();
-    let first = allocator.allocate();
-    let mut cloned = allocator.clone();
-    let cloned_second = cloned.allocate();
-    let original_second = allocator.allocate();
+    let allocator = ModuleIdAllocator::new().expect("create module ID allocator");
+    let first = allocator.allocate().expect("allocate module ID");
+    let cloned = allocator.clone();
+    let cloned_second = cloned.allocate().expect("allocate module ID");
+    let original_second = allocator.allocate().expect("allocate module ID");
 
     assert_eq!(first.local_index(), 0);
     assert_eq!(cloned_second.local_index(), 1);
@@ -25,10 +37,13 @@ fn module_id_allocator_clones_keep_dense_slots_without_aliasing_new_generations(
 
 #[test]
 fn independent_module_allocators_do_not_alias_handles() {
-    let mut first = ModuleIdAllocator::new();
-    let mut second = ModuleIdAllocator::new();
+    let first = ModuleIdAllocator::new().expect("create module ID allocator");
+    let second = ModuleIdAllocator::new().expect("create module ID allocator");
 
-    assert_ne!(first.allocate(), second.allocate());
+    assert_ne!(
+        first.allocate().expect("allocate module ID"),
+        second.allocate().expect("allocate module ID")
+    );
 }
 
 #[test]

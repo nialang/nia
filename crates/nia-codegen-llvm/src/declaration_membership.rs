@@ -1061,11 +1061,11 @@ mod tests {
 
     #[test]
     fn membership_waits_for_exact_actual_instance_owner() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let caller = module_ids.allocate();
-        let semantic_owner = module_ids.allocate();
-        let actual_owner = module_ids.allocate();
-        let unrelated = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let caller = module_ids.allocate().expect("allocate module ID");
+        let semantic_owner = module_ids.allocate().expect("allocate module ID");
+        let actual_owner = module_ids.allocate().expect("allocate module ID");
+        let unrelated = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new();
         let ty = types.append_for_module(caller).primitive(PrimitiveTy::I32);
         let semantic_def = GlobalDefId {
@@ -1112,9 +1112,9 @@ mod tests {
 
     #[test]
     fn membership_waits_for_const_expression_owner_in_nominal_type() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let caller = module_ids.allocate();
-        let const_owner = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let caller = module_ids.allocate().expect("allocate module ID");
+        let const_owner = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new();
         let append = types.append_for_module(caller);
         let i32_ty = append.primitive(PrimitiveTy::I32);
@@ -1199,7 +1199,10 @@ mod tests {
 
     #[test]
     fn generic_nominal_descriptor_is_not_a_runtime_declaration() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let types = TypeStore::new();
         let definition = GlobalDefId {
             module_id,
@@ -1241,10 +1244,10 @@ mod tests {
 
     #[test]
     fn membership_waits_for_const_expression_owner_in_instance_metadata() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let caller = module_ids.allocate();
-        let instance_owner = module_ids.allocate();
-        let const_owner = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let caller = module_ids.allocate().expect("allocate module ID");
+        let instance_owner = module_ids.allocate().expect("allocate module ID");
+        let const_owner = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new();
         let ty = types.append_for_module(caller).primitive(PrimitiveTy::I32);
         let semantic_def = GlobalDefId {
@@ -1301,8 +1304,8 @@ mod tests {
 
     #[test]
     fn stable_type_key_preserves_evaluated_array_lengths() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new();
         let append = types.append_for_module(module_id);
         let i32_ty = append.primitive(PrimitiveTy::I32);
@@ -1348,8 +1351,8 @@ mod tests {
 
     #[test]
     fn stable_definition_key_recovers_missing_module() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let missing_module = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let missing_module = module_ids.allocate().expect("allocate module ID");
         let program = BackendProgram::new(Vec::new()).expect("build backend program");
         let (index, _publisher) =
             ProgramIndex::new(program.module_store(), Arc::new(TypeStore::new()));
@@ -1372,10 +1375,10 @@ mod tests {
 
     #[test]
     fn referenced_vtable_waits_for_its_function_owner() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let caller = module_ids.allocate();
-        let vtable_owner = module_ids.allocate();
-        let function_owner = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let caller = module_ids.allocate().expect("allocate module ID");
+        let vtable_owner = module_ids.allocate().expect("allocate module ID");
+        let function_owner = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new();
         let append = types.append_for_module(caller);
         let ty = append.primitive(PrimitiveTy::I32);
@@ -1475,10 +1478,10 @@ mod tests {
 
     #[test]
     fn published_owner_without_payload_is_a_structural_error() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let caller = module_ids.allocate();
-        let semantic_owner = module_ids.allocate();
-        let actual_owner = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let caller = module_ids.allocate().expect("allocate module ID");
+        let semantic_owner = module_ids.allocate().expect("allocate module ID");
+        let actual_owner = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new();
         let ty = types.append_for_module(caller).primitive(PrimitiveTy::I32);
         let semantic_def = GlobalDefId {
@@ -1508,7 +1511,10 @@ mod tests {
 
     #[test]
     fn invalid_function_refs_are_a_structural_error() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let module = empty_module(module_id, "main.nia");
         let owners = BackendModuleOwnerDirectory::from_modules([&module]);
         let program = BackendProgram::new(vec![module]).expect("build backend program");
@@ -1536,7 +1542,10 @@ mod tests {
 
     #[test]
     fn missing_instance_records_are_a_structural_error_before_sorting() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let module = empty_module(module_id, "main.nia");
         let owners = BackendModuleOwnerDirectory::from_modules([&module]);
         let program = BackendProgram::new(vec![module]).expect("build backend program");

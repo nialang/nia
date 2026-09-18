@@ -4,6 +4,7 @@
 use std::{fmt, sync::Arc};
 
 use nia_diagnostic::{Diagnostic, codes};
+use nia_ice::Ice;
 use nia_ids::ModuleIdAllocator;
 pub use nia_ids::{DefId, GlobalDefId, ModuleId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
@@ -32,6 +33,27 @@ pub const COMPILER_RESERVED_MODULE_ROOTS: &[&str] = &[
     BUILTIN_MODULE_MAP_NAME,
     RUNTIME_MODULE_MAP_NAME,
 ];
+
+/// Failure produced while mutating a module graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModuleGraphError {
+    /// A source-level error that should be rendered for the user.
+    Diagnostic(Diagnostic),
+    /// A violated compiler invariant or exhausted identity space.
+    Internal(Ice),
+}
+
+impl From<Diagnostic> for ModuleGraphError {
+    fn from(diagnostic: Diagnostic) -> Self {
+        Self::Diagnostic(diagnostic)
+    }
+}
+
+impl From<Ice> for ModuleGraphError {
+    fn from(ice: Ice) -> Self {
+        Self::Internal(ice)
+    }
+}
 
 /// Reports whether text names a compiler-reserved module root.
 pub fn is_compiler_reserved_module_root(name: &str) -> bool {
@@ -379,7 +401,7 @@ impl std::ops::Deref for ModuleGraphSnapshot {
 
 impl ModuleGraph {
     /// Creates a graph with the supplied entry source and known symbols.
-    pub fn new(entry_path: SourcePath) -> Self {
+    pub fn new(entry_path: SourcePath) -> nia_ice::IceResult<Self> {
         Self::with_symbol_text(entry_path, Arc::new(KnownSymbolText))
     }
 
@@ -387,9 +409,9 @@ impl ModuleGraph {
     pub fn with_symbol_text(
         entry_path: SourcePath,
         symbols: Arc<dyn SymbolText + Send + Sync>,
-    ) -> Self {
-        let mut module_ids = ModuleIdAllocator::new();
-        let entry = module_ids.allocate();
+    ) -> nia_ice::IceResult<Self> {
+        let module_ids = ModuleIdAllocator::new()?;
+        let entry = module_ids.allocate()?;
         let entry_module_path = ModulePath::root(ENTRY_MODULE_MAP_NAME);
         let entry_stable_key = StableModuleKey::from_source_identity(entry_path.identity());
         let mut by_stable_key = nia_hash::FastHashMap::default();
@@ -398,7 +420,7 @@ impl ModuleGraph {
         by_module_path.insert(entry_module_path.clone(), entry);
         let mut package_roots = SymbolMap::default();
         package_roots.insert(known::ENTRY, entry);
-        Self {
+        Ok(Self {
             module_ids,
             entry,
             modules: vec![ModuleNode {
@@ -421,7 +443,7 @@ impl ModuleGraph {
             active_package_facades: SymbolMap::default(),
             executable_root_subtrees: Vec::new(),
             symbols,
-        }
+        })
     }
 
     /// Creates a graph with a package root and a separate entry module.
@@ -433,12 +455,12 @@ impl ModuleGraph {
         entry_path: SourcePath,
         package_root_path: SourcePath,
         symbols: Arc<dyn SymbolText + Send + Sync>,
-    ) -> Self {
-        let mut graph = Self::with_symbol_text(package_root_path, symbols);
+    ) -> nia_ice::IceResult<Self> {
+        let mut graph = Self::with_symbol_text(package_root_path, symbols)?;
         let package_root = graph.entry;
         graph
             .get_mut(package_root)
-            .expect("package root was created by graph constructor")
+            .ok_or_else(|| Ice::new("module graph lost its package root during construction"))?
             .entry_module = false;
         let entry = graph.intern_module(
             entry_path,
@@ -449,13 +471,13 @@ impl ModuleGraph {
             None,
             true,
             true,
-        );
+        )?;
         graph
             .get_mut(entry)
-            .expect("entry module was created by graph constructor")
+            .ok_or_else(|| Ice::new("module graph lost its entry module during construction"))?
             .entry_module = true;
         graph.entry = entry;
-        graph
+        Ok(graph)
     }
 
     /// Returns the entry module id.
@@ -548,12 +570,15 @@ impl ModuleGraph {
     }
 
     /// Interns and returns the standard-library package root.
-    pub fn intern_std_package_root(&mut self, path: SourcePath) -> ModuleId {
+    pub fn intern_std_package_root(&mut self, path: SourcePath) -> nia_ice::IceResult<ModuleId> {
         self.intern_package_root(&known::STD, path)
     }
 
     /// Interns the private toolchain runtime package root.
-    pub fn intern_runtime_package_root(&mut self, path: SourcePath) -> ModuleId {
+    pub fn intern_runtime_package_root(
+        &mut self,
+        path: SourcePath,
+    ) -> nia_ice::IceResult<ModuleId> {
         self.intern_package_root(&known::RUNTIME, path)
     }
 
@@ -668,20 +693,24 @@ impl ModuleGraph {
     }
 
     /// Interns a package root unless it already exists.
-    pub fn intern_package_root(&mut self, name: &SymbolId, path: SourcePath) -> ModuleId {
+    pub fn intern_package_root(
+        &mut self,
+        name: &SymbolId,
+        path: SourcePath,
+    ) -> nia_ice::IceResult<ModuleId> {
         if let Some(id) = self.package_roots.get(name).copied() {
-            return id;
+            return Ok(id);
         }
         let module_path = ModulePath {
             package: *name,
             segments: Vec::new(),
         };
-        let id = self.intern_module(path, module_path, None, false, false);
+        let id = self.intern_module(path, module_path, None, false, false)?;
         // A stable source path can be shared by package aliases. Keep every
         // requested package identity resolvable even when interning reuses the
         // existing module node.
         self.package_roots.insert(*name, id);
-        id
+        Ok(id)
     }
 
     /// Interns a declared child with default processing flags.
@@ -691,7 +720,7 @@ impl ModuleGraph {
         name: &SymbolId,
         visibility: Visibility,
         span: Span,
-    ) -> Result<ModuleId, Diagnostic> {
+    ) -> Result<ModuleId, ModuleGraphError> {
         self.intern_declared_child_with_processing(parent_id, name, visibility, span, true, true)
     }
 
@@ -704,14 +733,12 @@ impl ModuleGraph {
         span: Span,
         process_used_paths: bool,
         process_declared_children: bool,
-    ) -> Result<ModuleId, Diagnostic> {
+    ) -> Result<ModuleId, ModuleGraphError> {
         let Some(parent) = self.get(parent_id).cloned() else {
-            return Err(Diagnostic::internal_error(
-                codes::MODULE_GRAPH_LOOKUP,
-                "unknown parent module id while adding module declaration",
-            )
-            .debug("module_id", parent_id)
-            .finish());
+            return Err(Ice::new(format!(
+                "unknown parent module {parent_id:?} while adding a module declaration"
+            ))
+            .into());
         };
         let child_module_path = parent.module_path.child(*name);
         let child_path = self.declared_child_source_path(&parent, *name);
@@ -740,14 +767,12 @@ impl ModuleGraph {
         visibility: Visibility,
         span: Span,
         child_path: SourcePath,
-    ) -> Result<ModuleId, Diagnostic> {
+    ) -> Result<ModuleId, ModuleGraphError> {
         let Some(parent) = self.get(parent_id).cloned() else {
-            return Err(Diagnostic::internal_error(
-                codes::MODULE_GRAPH_LOOKUP,
-                "unknown parent module id while adding module declaration",
-            )
-            .debug("module_id", parent_id)
-            .finish());
+            return Err(Ice::new(format!(
+                "unknown parent module {parent_id:?} while adding a module declaration"
+            ))
+            .into());
         };
         let child_module_path = parent.module_path.child(*name);
         self.intern_declared_child_with_source_path_and_processing(DeclaredChildSpec {
@@ -765,7 +790,7 @@ impl ModuleGraph {
     fn intern_declared_child_with_source_path_and_processing(
         &mut self,
         child: DeclaredChildSpec,
-    ) -> Result<ModuleId, Diagnostic> {
+    ) -> Result<ModuleId, ModuleGraphError> {
         let DeclaredChildSpec {
             parent_id,
             name,
@@ -782,24 +807,19 @@ impl ModuleGraph {
             Some(parent_id),
             process_used_paths,
             process_declared_children,
-        );
+        )?;
         let parent = self.get_mut(parent_id).ok_or_else(|| {
-            Diagnostic::internal_error(
-                codes::MODULE_GRAPH_RECORDING,
-                "unknown parent module id while recording module declaration",
-            )
-            .debug("module_id", parent_id)
-            .finish()
+            Ice::new(format!(
+                "unknown parent module {parent_id:?} while recording a module declaration"
+            ))
         })?;
         if let Some(existing) = parent.children.get(&name).copied() {
             if existing != child_id {
-                return Err(Diagnostic::internal_error(
-                    codes::MODULE_GRAPH_CHILD,
-                    "module child name points at a different module id",
-                )
-                .debug("module_id", parent_id)
-                .debug("child", self.module_symbol_text(name))
-                .finish());
+                return Err(Ice::new(format!(
+                    "child `{}` of module {parent_id:?} points at inconsistent module identities",
+                    self.module_symbol_text(name)
+                ))
+                .into());
             }
             return Err(Diagnostic::user_error_at(
                 codes::LOAD,
@@ -808,7 +828,8 @@ impl ModuleGraph {
                     "duplicate module declaration `{}`",
                     self.module_symbol_text(name)
                 ),
-            ));
+            )
+            .into());
         }
         parent.children.insert(name, child_id);
         parent.declarations.push(ModuleDeclaration {
@@ -827,7 +848,7 @@ impl ModuleGraph {
         parent: Option<ModuleId>,
         process_used_paths: bool,
         process_declared_children: bool,
-    ) -> ModuleId {
+    ) -> nia_ice::IceResult<ModuleId> {
         if let Some(id) = self.by_module_path.get(&module_path).copied() {
             if process_used_paths {
                 self.mark_process_used_paths(id);
@@ -835,7 +856,7 @@ impl ModuleGraph {
             if process_declared_children {
                 self.mark_process_declared_children(id);
             }
-            return id;
+            return Ok(id);
         }
         let stable_key = StableModuleKey::from_source_identity(path.identity());
         if let Some(id) = self.by_stable_key.get(&stable_key).copied() {
@@ -846,13 +867,10 @@ impl ModuleGraph {
             if process_declared_children {
                 self.mark_process_declared_children(id);
             }
-            return id;
+            return Ok(id);
         }
-        let id = self.module_ids.allocate();
-        debug_assert_eq!(
-            usize::try_from(id.local_index()).expect("module index exceeds target index width"),
-            self.modules.len()
-        );
+        let id = self.module_ids.allocate()?;
+        debug_assert_eq!(id.local_index() as usize, self.modules.len());
         if module_path.is_package_root() {
             self.package_roots.insert(module_path.package, id);
         }
@@ -872,7 +890,7 @@ impl ModuleGraph {
             process_used_paths,
             process_declared_children,
         });
-        id
+        Ok(id)
     }
 
     /// Resolves a module symbol through the graph's symbol provider.
@@ -1166,7 +1184,7 @@ pub fn add_resolved_module_declarations(
     graph: &mut ModuleGraph,
     module_id: ModuleId,
     declarations: impl IntoIterator<Item = ResolvedModuleDeclaration>,
-) -> Result<(), Diagnostic> {
+) -> Result<(), ModuleGraphError> {
     for declaration in declarations {
         graph.intern_declared_child(
             module_id,
@@ -1347,7 +1365,8 @@ mod tests {
 
     #[test]
     fn module_graph_indexes_paths_by_source_identity() {
-        let mut graph = ModuleGraph::new(SourcePath::new("src/./main.nia"));
+        let mut graph =
+            ModuleGraph::new(SourcePath::new("src/./main.nia")).expect("create module graph");
         let entry = graph.entry();
 
         assert_eq!(graph.module_id_for_path("src/main.nia"), Some(entry));
@@ -1356,12 +1375,14 @@ mod tests {
         let package = graph.intern_package_root(
             &module_root_symbol_from_text("pkg"),
             SourcePath::new("pkg/./root.nia"),
-        );
+        )
+        .expect("intern package root");
         assert_eq!(
             graph.intern_package_root(
                 &module_root_symbol_from_text("pkg_alias"),
                 SourcePath::new("pkg/root.nia")
-            ),
+            )
+            .expect("intern package alias"),
             package
         );
         assert_eq!(graph.module_id_for_path("pkg/root.nia"), Some(package));
@@ -1381,7 +1402,8 @@ mod tests {
             SourcePath::new("src/main.nia"),
             SourcePath::new("src/pkg.nia"),
             Arc::new(KnownSymbolText),
-        );
+        )
+        .expect("create module graph");
         let entry = graph.entry();
         let package_root = graph
             .package_root(&known::ENTRY)
@@ -1423,8 +1445,9 @@ mod tests {
 
     #[test]
     fn module_graph_rejects_foreign_handles_with_matching_local_indices() {
-        let graph = ModuleGraph::new(SourcePath::new("main.nia"));
-        let foreign = ModuleGraph::new(SourcePath::new("foreign.nia"));
+        let graph = ModuleGraph::new(SourcePath::new("main.nia")).expect("create module graph");
+        let foreign =
+            ModuleGraph::new(SourcePath::new("foreign.nia")).expect("create module graph");
 
         assert_eq!(graph.entry().local_index(), foreign.entry().local_index());
         assert_ne!(graph.entry(), foreign.entry());
@@ -1433,8 +1456,10 @@ mod tests {
 
     #[test]
     fn stable_definition_keys_remap_across_graph_owners() {
-        let first = ModuleGraph::new(SourcePath::new("src/./main.nia"));
-        let second = ModuleGraph::new(SourcePath::new("src/main.nia"));
+        let first =
+            ModuleGraph::new(SourcePath::new("src/./main.nia")).expect("create module graph");
+        let second =
+            ModuleGraph::new(SourcePath::new("src/main.nia")).expect("create module graph");
         let first_local = GlobalDefId {
             module_id: first.entry(),
             def_id: DefId(42),
@@ -1463,7 +1488,7 @@ mod tests {
 
     #[test]
     fn module_graph_forks_keep_existing_handles_and_separate_new_generations() {
-        let graph = ModuleGraph::new(SourcePath::new("main.nia"));
+        let graph = ModuleGraph::new(SourcePath::new("main.nia")).expect("create module graph");
         let entry = graph.entry();
         let mut first = graph.clone();
         let mut second = graph;
@@ -1487,7 +1512,7 @@ mod tests {
 
     #[test]
     fn module_graph_snapshot_rejects_handles_added_after_the_fork() {
-        let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
+        let mut graph = ModuleGraph::new(SourcePath::new("main.nia")).expect("create module graph");
         let snapshot = ModuleGraphSnapshot::new(graph.clone());
         let entry = graph.entry();
         let child = graph
@@ -1572,13 +1597,18 @@ mod tests {
 
     #[test]
     fn package_aliases_and_root_selectors_resolve_to_reused_modules() {
-        let mut graph = ModuleGraph::new(SourcePath::new("src/main.nia"));
+        let mut graph =
+            ModuleGraph::new(SourcePath::new("src/main.nia")).expect("create module graph");
         let entry = graph.entry();
         let package = SymbolId::from_stable_hash(stable_hash("dependency"));
-        let root = graph.intern_package_root(&package, SourcePath::new("deps/root.nia"));
+        let root = graph
+            .intern_package_root(&package, SourcePath::new("deps/root.nia"))
+            .expect("intern package root");
         let alias = SymbolId::from_stable_hash(stable_hash("dependency_alias"));
         assert_eq!(
-            graph.intern_package_root(&alias, SourcePath::new("deps/./root.nia")),
+            graph
+                .intern_package_root(&alias, SourcePath::new("deps/./root.nia"))
+                .expect("intern package alias"),
             root
         );
         assert_eq!(graph.package_root(&package), Some(root));
@@ -1599,7 +1629,7 @@ mod tests {
 
     #[test]
     fn visibility_and_module_declaration_boundaries_follow_module_ancestry() {
-        let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
+        let mut graph = ModuleGraph::new(SourcePath::new("main.nia")).expect("create module graph");
         let entry = graph.entry();
         let parent_name = SymbolId::from_stable_hash(stable_hash("parent"));
         let sibling_name = SymbolId::from_stable_hash(stable_hash("sibling"));
@@ -1658,7 +1688,9 @@ mod tests {
         ));
 
         let package = SymbolId::from_stable_hash(stable_hash("other"));
-        let other_root = graph.intern_package_root(&package, SourcePath::new("other/root.nia"));
+        let other_root = graph
+            .intern_package_root(&package, SourcePath::new("other/root.nia"))
+            .expect("intern package root");
         assert!(visibility_allows(
             Visibility::Public,
             &graph,
@@ -1681,7 +1713,7 @@ mod tests {
 
     #[test]
     fn module_processing_flags_are_idempotent_and_duplicate_declarations_error() {
-        let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
+        let mut graph = ModuleGraph::new(SourcePath::new("main.nia")).expect("create module graph");
         let entry = graph.entry();
         let child_name = known::START;
         let child = graph
@@ -1712,6 +1744,9 @@ mod tests {
         let duplicate = graph
             .intern_declared_child(entry, &child_name, Visibility::Public, Span::new(1, 2))
             .expect_err("duplicate declaration");
+        let ModuleGraphError::Diagnostic(duplicate) = duplicate else {
+            panic!("duplicate declaration must remain a user diagnostic");
+        };
         assert_eq!(duplicate.summary, "duplicate module declaration `start`");
     }
 }

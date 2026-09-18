@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn computes_primitive_pointer_array_and_struct_layouts() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
 struct Pair {
@@ -67,8 +67,8 @@ fn main(p: &Pair, xs: [u16; 3]) {}
 
 #[test]
 fn computes_empty_struct_layout() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
 struct Empty {}
@@ -113,8 +113,8 @@ fn main(value: Empty) {}
 
 #[test]
 fn computes_unit_and_ordered_tuple_layouts() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
 fn main(unit: (), pair: (u8, i32), nested: (u8, (), i64)) {}
@@ -160,8 +160,8 @@ fn main(unit: (), pair: (u8, i32), nested: (u8, (), i64)) {}
 
 #[test]
 fn callable_views_are_two_words_and_callable_pointees_are_unsized() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
 type BareCallback = Fn(i32) i32;

@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn lowers_types_from_active_item_tree_only() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 @[if false]
@@ -58,8 +58,8 @@ pair.left
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let tree = ModuleItemTree::from_module(&module);
     let active = tree.active_items(&mut BoolResolver(false)).unwrap();
     let defs = collect_module_defs_from_active_item_tree(module_id, &active);
@@ -107,8 +107,8 @@ struct Buffer[N: usize] {
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let tree = ModuleItemTree::from_module(&module);
     let active = tree.active_items(&mut BoolResolver(false)).unwrap();
     let defs = collect_module_defs_from_active_item_tree(module_id, &active);

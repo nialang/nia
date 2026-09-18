@@ -2397,9 +2397,9 @@ mod owner_tests {
 
     #[test]
     fn aggregate_members_require_the_nominal_module_owner() {
-        let mut modules = ModuleIdAllocator::new();
-        let owner = modules.allocate();
-        let foreign = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let owner = modules.allocate().expect("allocate module ID");
+        let foreign = modules.allocate().expect("allocate module ID");
         let field = DefId(4);
 
         assert!(member_owner_matches(
@@ -2420,9 +2420,9 @@ mod owner_tests {
 
     #[test]
     fn ordinary_definitions_require_the_backend_module_owner() {
-        let mut modules = ModuleIdAllocator::new();
-        let owner = modules.allocate();
-        let foreign = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let owner = modules.allocate().expect("allocate module ID");
+        let foreign = modules.allocate().expect("allocate module ID");
         assert!(definition_owner_matches(
             owner,
             GlobalDefId {
@@ -2442,7 +2442,10 @@ mod owner_tests {
     #[test]
     fn native_validation_reserves_start_for_the_runtime_package() {
         fn diagnostics_for(package_identity: &str) -> Vec<nia_diagnostic::Diagnostic> {
-            let module_id = ModuleIdAllocator::new().allocate();
+            let module_id = ModuleIdAllocator::new()
+                .expect("create module ID allocator")
+                .allocate()
+                .expect("allocate module ID");
             let type_store = TypeStore::new();
             let interner = type_store.append_for_module(module_id);
             let return_type = interner.primitive(PrimitiveTy::I32);
@@ -2520,7 +2523,10 @@ mod owner_tests {
 
     #[test]
     fn stale_declaration_membership_is_an_invalid_backend_ir_diagnostic() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let def_id = GlobalDefId {
             module_id,
             def_id: DefId(7),
@@ -2542,7 +2548,10 @@ mod owner_tests {
 
     #[test]
     fn missing_instance_in_declaration_membership_is_a_diagnostic() {
-        let module_id = ModuleIdAllocator::new().allocate();
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
         let module = BackendModule {
             id: module_id,
             source_identity: SourceIdentity::new("stale-membership.nia"),
@@ -2611,8 +2620,8 @@ mod owner_tests {
 
     #[test]
     fn vtable_symbol_uses_evaluated_array_lengths() {
-        let mut modules = ModuleIdAllocator::new();
-        let module_id = modules.allocate();
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = modules.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let interner = type_store.append_for_module(module_id);
         let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);

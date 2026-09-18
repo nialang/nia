@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn resolves_params_and_local_bindings() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 static mut global = 1;
@@ -35,8 +35,8 @@ sum
 
 #[test]
 fn lexical_locals_shadow_module_values() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let source = r#"
 static mut value = 1;
 
@@ -60,8 +60,8 @@ value
 
 #[test]
 fn sequential_locals_shadow_previous_binding() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let source = r#"
 fn main() i32 {
 let value = 1;
@@ -86,9 +86,9 @@ value
 
 #[test]
 fn if_pattern_payload_locals_shadow_external_values_in_field_lhs() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
-    let external_module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
+    let external_module_id = module_ids.allocate().expect("allocate module ID");
     let source = r#"
 struct S {
 start: i32,

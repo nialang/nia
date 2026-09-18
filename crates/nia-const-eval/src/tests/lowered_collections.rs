@@ -109,7 +109,10 @@ const fn iterate() usize {
         panic!("expected function");
     };
     let lowered = nia_const_ir::lower_function_early(module.items[0].span, function).unwrap();
-    let module_id = ModuleIdAllocator::new().allocate();
+    let module_id = ModuleIdAllocator::new()
+        .expect("create module ID allocator")
+        .allocate()
+        .expect("allocate module ID");
     let error = crate::eval_early_const_function_call(
         module.items[0].span,
         module_id,
@@ -157,7 +160,10 @@ fn resolved_const_for_in_restores_item_scope_after_binding_error() {
 
 fn resolved_for_in_expr(fail_binding: bool) -> (ResolvedConstExpr, nia_ids::InternedTyId) {
     let span = Span::new(0, 1);
-    let module_id = ModuleIdAllocator::new().allocate();
+    let module_id = ModuleIdAllocator::new()
+        .expect("create module ID allocator")
+        .allocate()
+        .expect("allocate module ID");
     let type_store = TypeStore::new();
     let iterator_ty = type_store
         .append_for_module(module_id)

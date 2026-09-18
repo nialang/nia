@@ -102,7 +102,10 @@ const fn identity(value: usize) usize {
     };
     let function = nia_const_ir::lower_function_early(module.items[0].span, function).unwrap();
     let mut env = LifecycleErrorEnv::default();
-    let module_id = ModuleIdAllocator::new().allocate();
+    let module_id = ModuleIdAllocator::new()
+        .expect("create module ID allocator")
+        .allocate()
+        .expect("allocate module ID");
 
     let error = crate::eval_early_const_function_call(
         module.items[0].span,

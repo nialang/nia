@@ -58,8 +58,11 @@ fn ordered_type_substitutions_reuse_existing_ids() {
 
 fn empty_collector() -> (ModuleId, MonoCollector<'static>) {
     static FIXTURE: std::sync::LazyLock<(TypeStore, ModuleId)> = std::sync::LazyLock::new(|| {
-        let mut module_ids = ModuleIdAllocator::new();
-        (TypeStore::new(), module_ids.allocate())
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        (
+            TypeStore::new(),
+            module_ids.allocate().expect("allocate module ID"),
+        )
     });
     let (type_store, module_id) = &*FIXTURE;
     let collector = MonoCollector {

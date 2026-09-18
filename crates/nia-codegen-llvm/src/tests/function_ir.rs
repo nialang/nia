@@ -46,8 +46,8 @@ fn single_module_program(
 
 #[test]
 fn emits_function_body_from_function_ir_when_available() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -134,8 +134,8 @@ fn emits_function_body_from_function_ir_when_available() {
 
 #[test]
 fn scopes_template_local_promotions_to_function_instances() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let usize_ty = interner.primitive(PrimitiveTy::Usize);
@@ -314,8 +314,8 @@ fn scopes_template_local_promotions_to_function_instances() {
 
 #[test]
 fn rejects_conflicting_promoted_allocation_initializers() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let usize_ty = interner.primitive(PrimitiveTy::Usize);
@@ -429,8 +429,8 @@ fn rejects_conflicting_promoted_allocation_initializers() {
 
 #[test]
 fn validates_function_return_runtime_layout_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let opaque_ty = interner.intern(TyKind::Opaque);
@@ -479,8 +479,8 @@ fn validates_function_return_runtime_layout_before_llvm() {
 
 #[test]
 fn validates_variadic_function_declarations_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -585,8 +585,8 @@ fn validates_variadic_function_declarations_before_llvm() {
 
 #[test]
 fn validates_naked_function_attribute_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -637,8 +637,8 @@ fn validates_naked_function_attribute_before_llvm() {
 
 #[test]
 fn validates_external_linkage_contract_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -735,8 +735,8 @@ fn validates_external_linkage_contract_before_llvm() {
 
 #[test]
 fn validates_extern_abi_types_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -866,9 +866,9 @@ fn validates_extern_abi_types_before_llvm() {
 
 #[test]
 fn validates_function_instance_abi_metadata_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
-    let foreign_module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
+    let foreign_module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -983,8 +983,8 @@ fn validates_function_instance_abi_metadata_before_llvm() {
 
 #[test]
 fn validates_aggregate_instance_abi_metadata_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -1123,8 +1123,8 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
 
 #[test]
 fn validates_global_instance_metadata_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -1229,9 +1229,9 @@ fn validates_global_instance_metadata_before_llvm() {
 
 #[test]
 fn rejects_ordinary_definition_with_foreign_module_owner_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
-    let foreign_module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
+    let foreign_module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -1311,8 +1311,8 @@ fn rejects_ordinary_definition_with_foreign_module_owner_before_llvm() {
 
 #[test]
 fn validates_static_array_initializer_length_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let u8_ty = interner.primitive(PrimitiveTy::U8);
@@ -1367,8 +1367,8 @@ fn validates_static_array_initializer_length_before_llvm() {
 
 #[test]
 fn emits_static_arrays_of_zero_vectors() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let vector_ty = interner.intern(TyKind::Vector {
@@ -1433,8 +1433,8 @@ fn emits_static_arrays_of_zero_vectors() {
 
 #[test]
 fn rejects_malformed_static_vector_lanes_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let vector_ty = interner.intern(TyKind::Vector {
@@ -1488,8 +1488,8 @@ fn rejects_malformed_static_vector_lanes_before_llvm() {
 
 #[test]
 fn rejects_malformed_static_tuple_elements_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -1542,8 +1542,8 @@ fn rejects_malformed_static_tuple_elements_before_llvm() {
 
 #[test]
 fn validates_static_scalar_initializer_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -1676,8 +1676,8 @@ fn validates_static_scalar_initializer_contracts_before_llvm() {
 
 #[test]
 fn validates_layout_builtin_array_length_for_32_bit_target() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let u8_ty = interner.primitive(PrimitiveTy::U8);
@@ -1739,8 +1739,8 @@ fn validates_layout_builtin_array_length_for_32_bit_target() {
 
 #[test]
 fn emits_pointer_sized_integer_abi_for_32_bit_target() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let usize_ty = interner.primitive(PrimitiveTy::Usize);
@@ -1819,8 +1819,8 @@ fn emits_pointer_sized_integer_abi_for_32_bit_target() {
 
 #[test]
 fn rejects_out_of_range_builtin_usize_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let usize_ty = interner.primitive(PrimitiveTy::Usize);
@@ -1899,8 +1899,8 @@ fn rejects_out_of_range_builtin_usize_before_llvm() {
 
 #[test]
 fn rejects_invalid_target_layout_without_published_type_layouts() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let program = single_module_program(
         module_id,
@@ -1934,9 +1934,9 @@ fn rejects_invalid_target_layout_without_published_type_layouts() {
 
 #[test]
 fn rejects_mixed_target_layouts_across_backend_modules() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let lp64_id = module_ids.allocate();
-    let ilp32_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let lp64_id = module_ids.allocate().expect("allocate module ID");
+    let ilp32_id = module_ids.allocate().expect("allocate module ID");
     let empty_module = |id, name: &str, target| BackendModule {
         id,
         source_identity: nia_source::SourceIdentity::new(name),
@@ -1990,8 +1990,8 @@ fn rejects_mixed_target_layouts_across_backend_modules() {
 
 #[test]
 fn rejects_generated_llvm_symbol_collisions_before_emission() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -2093,8 +2093,8 @@ fn rejects_generated_llvm_symbol_collisions_before_emission() {
 
 #[test]
 fn rejects_external_collisions_with_compiler_owned_symbols() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -2269,8 +2269,8 @@ fn rejects_external_collisions_with_compiler_owned_symbols() {
 
 #[test]
 fn rejects_malformed_layout_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let usize_ty = interner.primitive(PrimitiveTy::Usize);
@@ -2688,8 +2688,8 @@ fn rejects_malformed_layout_contracts_before_llvm() {
 
 #[test]
 fn validates_aggregate_products_with_structurally_equal_const_args() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -2804,8 +2804,8 @@ fn validates_aggregate_products_with_structurally_equal_const_args() {
 
 #[test]
 fn emits_bitmask_with_32_bit_usize_result() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -2899,8 +2899,8 @@ fn emits_bitmask_with_32_bit_usize_result() {
 
 #[test]
 fn validates_terminator_type_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -3019,8 +3019,8 @@ fn validates_terminator_type_contracts_before_llvm() {
 
 #[test]
 fn validates_switch_case_constants_and_uniqueness_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i8_ty = interner.primitive(PrimitiveTy::I8);
@@ -3148,8 +3148,8 @@ fn validates_switch_case_constants_and_uniqueness_before_llvm() {
 
 #[test]
 fn validates_literal_payloads_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let char_ty = interner.primitive(PrimitiveTy::Char);
@@ -3262,8 +3262,8 @@ fn validates_literal_payloads_before_llvm() {
 
 #[test]
 fn validates_projection_and_field_initializer_types_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -3701,8 +3701,8 @@ fn validates_projection_and_field_initializer_types_before_llvm() {
 
 #[test]
 fn validates_atomic_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -3929,8 +3929,8 @@ fn validates_atomic_contracts_before_llvm() {
 
 #[test]
 fn validates_memory_intrinsic_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -4078,8 +4078,8 @@ fn validates_memory_intrinsic_contracts_before_llvm() {
 
 #[test]
 fn validates_low_level_builtin_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -4281,8 +4281,8 @@ fn validates_low_level_builtin_contracts_before_llvm() {
 
 #[test]
 fn validates_unary_and_binary_operator_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -4410,8 +4410,8 @@ fn validates_unary_and_binary_operator_contracts_before_llvm() {
 
 #[test]
 fn validates_cast_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -4542,8 +4542,8 @@ fn validates_cast_contracts_before_llvm() {
 
 #[test]
 fn validates_tagged_union_expression_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -4934,8 +4934,8 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
 
 #[test]
 fn validates_enum_expression_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -5357,9 +5357,9 @@ fn main() i32 {
 
 #[test]
 fn rejects_aggregate_field_with_foreign_owner_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
-    let foreign_module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
+    let foreign_module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -5496,8 +5496,8 @@ fn rejects_aggregate_field_with_foreign_owner_before_llvm() {
 
 #[test]
 fn validates_backend_ir_missing_array_length_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let span = Span::default();
@@ -5572,8 +5572,8 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
 
 #[test]
 fn validates_backend_ir_missing_runtime_layout_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -5673,8 +5673,8 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
 
 #[test]
 fn validates_backend_ir_error_type_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let error_ty = interner.error();
@@ -5751,8 +5751,8 @@ fn validates_backend_ir_error_type_before_llvm() {
 
 #[test]
 fn validates_backend_ir_propagation_contract_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -5947,9 +5947,9 @@ fn validates_backend_ir_propagation_contract_before_llvm() {
 
 #[test]
 fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
-    let foreign_module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
+    let foreign_module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -6078,8 +6078,8 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
 
 #[test]
 fn validates_indexed_function_instances_with_equivalent_type_args() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -6249,8 +6249,8 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
 
 #[test]
 fn validates_backend_ir_vtable_structure_and_function_refs_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -6361,8 +6361,8 @@ fn validates_backend_ir_vtable_structure_and_function_refs_before_llvm() {
 
 #[test]
 fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -6751,8 +6751,8 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
 
 #[test]
 fn emits_const_only_extern_method_instances_with_c_abi() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -6912,8 +6912,8 @@ fn emits_const_only_extern_method_instances_with_c_abi() {
 
 #[test]
 fn validates_backend_ir_call_signatures_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -7290,8 +7290,8 @@ fn validates_backend_ir_call_signatures_before_llvm() {
 
 #[test]
 fn validates_backend_ir_inline_asm_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -7438,8 +7438,8 @@ fn validates_backend_ir_inline_asm_contracts_before_llvm() {
 
 #[test]
 fn validates_backend_ir_static_initializer_refs_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -7517,8 +7517,8 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
 
 #[test]
 fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -7742,9 +7742,9 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
 
 #[test]
 fn rejects_enum_variant_with_foreign_owner_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
-    let foreign_module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
+    let foreign_module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -7862,8 +7862,8 @@ fn rejects_enum_variant_with_foreign_owner_before_llvm() {
 
 #[test]
 fn validates_function_ir_missing_entry_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -7953,8 +7953,8 @@ fn validates_function_ir_missing_entry_before_llvm() {
 
 #[test]
 fn validates_function_ir_missing_successor_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -8042,8 +8042,8 @@ fn validates_function_ir_missing_successor_before_llvm() {
 
 #[test]
 fn validates_function_abi_param_local_mapping_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -8150,8 +8150,8 @@ fn validates_function_abi_param_local_mapping_before_llvm() {
 
 #[test]
 fn validates_closure_abi_param_local_mapping_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -8373,8 +8373,8 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
 
 #[test]
 fn validates_closure_entry_call_and_view_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -8682,8 +8682,8 @@ fn validates_closure_entry_call_and_view_contracts_before_llvm() {
 
 #[test]
 fn validates_function_ir_local_storage_type_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -8799,8 +8799,8 @@ fn validates_function_ir_local_storage_type_contracts_before_llvm() {
 
 #[test]
 fn validates_backend_ir_static_function_address_refs_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -8864,8 +8864,8 @@ fn validates_backend_ir_static_function_address_refs_before_llvm() {
 
 #[test]
 fn validates_static_function_address_signatures_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -8971,8 +8971,8 @@ fn validates_static_function_address_signatures_before_llvm() {
 
 #[test]
 fn validates_static_function_address_instance_with_structurally_equal_args() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -9099,8 +9099,8 @@ fn validates_static_function_address_instance_with_structurally_equal_args() {
 
 #[test]
 fn validates_backend_ir_static_address_path_shape_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -9174,8 +9174,8 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
 
 #[test]
 fn validates_static_global_address_pointee_and_mutability_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -9259,8 +9259,8 @@ fn validates_static_global_address_pointee_and_mutability_before_llvm() {
 
 #[test]
 fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -9467,8 +9467,8 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
 
 #[test]
 fn validates_backend_ir_missing_local_place_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -9554,8 +9554,8 @@ fn validates_backend_ir_missing_local_place_before_llvm() {
 
 #[test]
 fn validates_backend_ir_place_type_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -9771,8 +9771,8 @@ fn validates_backend_ir_place_type_contracts_before_llvm() {
 
 #[test]
 fn validates_backend_ir_assignment_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -10010,8 +10010,8 @@ fn validates_backend_ir_assignment_contracts_before_llvm() {
 
 #[test]
 fn validates_backend_ir_trait_object_expression_contracts_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
@@ -10192,8 +10192,8 @@ fn validates_backend_ir_trait_object_expression_contracts_before_llvm() {
 
 #[test]
 fn validates_backend_ir_unresolved_trait_method_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -10297,8 +10297,8 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
 
 #[test]
 fn validates_backend_ir_unresolved_builtin_trait_method_call_before_llvm() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);

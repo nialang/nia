@@ -115,8 +115,8 @@ fn nested_enum_payload_pattern_lowers_each_enum_to_a_tag_comparison() {
     let ty = test_ty();
     let span = Span::default();
     let target_local = LocalId(0);
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let outer_variant = GlobalDefId {
         module_id,
         def_id: DefId(1),
@@ -304,8 +304,8 @@ fn statement_if_pattern_binding_stores_tagged_union_payload() {
 
 #[test]
 fn statement_match_pattern_binding_stores_tagged_union_payload() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new();
     let append = type_store.append_for_module(module_id);
     let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
@@ -410,8 +410,8 @@ fn statement_match_pattern_binding_stores_tagged_union_payload() {
 
 #[test]
 fn statement_if_error_union_pattern_binding_uses_payload_type() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new();
     let append = type_store.append_for_module(module_id);
     let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));

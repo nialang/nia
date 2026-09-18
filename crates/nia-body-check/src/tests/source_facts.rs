@@ -118,8 +118,8 @@ static callback: &fn(i32) i32 = &identity[i32, 3];
 
 #[test]
 fn records_body_facts_by_source_versioned_node_keys() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let version = SourceVersion {
         id: SourceId(7),
         revision: SourceRevision(3),
@@ -276,8 +276,8 @@ fn main() i32 {
 
 #[test]
 fn records_body_facts_by_red_child_path_origins() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let version = SourceVersion {
         id: SourceId(8),
         revision: SourceRevision(2),

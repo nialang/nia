@@ -14,7 +14,7 @@ fn defs(module_id: ModuleId, source: &str) -> DefCollection {
 }
 
 fn graph_with_public_children(children: &[&str]) -> ModuleGraph {
-    let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
+    let mut graph = ModuleGraph::new(SourcePath::new("main.nia")).expect("create module graph");
     for child in children {
         let child = name(child);
         graph

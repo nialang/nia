@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn rejects_const_value_generic_type_arguments() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 struct Box[T] {
@@ -29,8 +29,8 @@ Box[4] { value: 0 }
 
 #[test]
 fn reports_generic_type_argument_count_mismatches() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 struct Point {}
@@ -66,8 +66,8 @@ fn non_generic_arg(a: Point[i32]) {}
 
 #[test]
 fn accepts_void_value_types_but_rejects_never_value_types_and_enum_backing_types() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 enum Bad: bool {

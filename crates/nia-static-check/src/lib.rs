@@ -833,8 +833,8 @@ mod tests {
         let symbols = SymbolTable::new();
         let (module, errors) = parse_module_with_symbols(source, symbols.clone());
         assert!(errors.is_empty(), "{errors:?}");
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let defs = collect_module_defs(module_id, &module);
         let type_resolution = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let type_store = nia_ty::TypeStore::new();

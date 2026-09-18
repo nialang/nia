@@ -849,8 +849,12 @@ mod tests {
         static TYPE_STORE: std::sync::OnceLock<(nia_ty::TypeStore, nia_ids::ModuleId)> =
             std::sync::OnceLock::new();
         TYPE_STORE.get_or_init(|| {
-            let mut module_ids = nia_ids::ModuleIdAllocator::new();
-            (nia_ty::TypeStore::new(), module_ids.allocate())
+            let module_ids =
+                nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+            (
+                nia_ty::TypeStore::new(),
+                module_ids.allocate().expect("allocate module ID"),
+            )
         })
     }
 
@@ -861,8 +865,8 @@ mod tests {
     fn closure_entry() -> FunctionClosureEntry {
         let span = Span::default();
         let ty = test_ty();
-        let mut module_ids = nia_ids::ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let mut body = empty_body(vec![FunctionScope {
             id: FunctionScopeId(0),
             parent: None,
@@ -1195,8 +1199,8 @@ mod tests {
         width: usize,
         pointee_kind: FunctionExprKind,
     ) -> crate::FunctionUnionRelocation {
-        let mut module_ids = nia_ids::ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let span = Span::new(2, 4);
         crate::FunctionUnionRelocation {
             offset,

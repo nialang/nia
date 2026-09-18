@@ -3,8 +3,8 @@ use super::*;
 
 #[test]
 fn lowers_checked_program_shape() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let source = r#"
 static hello = b"hello\0";
 

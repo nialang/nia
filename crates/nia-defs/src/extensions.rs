@@ -584,9 +584,9 @@ mod tests {
 
     #[test]
     fn visible_extension_iteration_deduplicates_module_inputs() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let current = module_ids.allocate();
-        let imported = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let current = module_ids.allocate().expect("allocate module ID");
+        let imported = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let target_ty = type_store
             .append_for_module(current)

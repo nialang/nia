@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn lowers_trait_object_pointer_types() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 trait Source[T] {
@@ -47,8 +47,8 @@ fn write(source: &mut Source[i32, Item = i32]) () {}
 
 #[test]
 fn validates_trait_object_associated_type_bindings() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let symbols = SymbolTable::new();
     let (module, errors) = parse_module_with_symbols(
         r#"
@@ -102,8 +102,8 @@ fn duplicate(source: &Source[Item = i32, Item = bool]) () {}
 
 #[test]
 fn rejects_bare_trait_as_value_type() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 trait Show {}

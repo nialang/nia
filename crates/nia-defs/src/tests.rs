@@ -10,8 +10,8 @@ fn sym(text: &str) -> SymbolId {
 
 #[test]
 fn collects_top_level_defs_into_separate_namespaces() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 module math;
@@ -56,8 +56,8 @@ pub fn make() () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let mut first_ids = ModuleIdAllocator::new();
-    let first_module = first_ids.allocate();
+    let first_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let first_module = first_ids.allocate().expect("allocate module ID");
     let original = collect_module_defs(first_module, &module);
     assert!(
         original.diagnostics.is_empty(),
@@ -65,8 +65,8 @@ pub fn make() () {}
         original.diagnostics
     );
     let facts = PublicSurfaceModuleFacts::from_defs(&original);
-    let mut second_ids = ModuleIdAllocator::new();
-    let second_module = second_ids.allocate();
+    let second_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let second_module = second_ids.allocate().expect("allocate module ID");
 
     let rebased = facts.materialize_for_public_surface(second_module);
 
@@ -84,8 +84,8 @@ pub fn make() () {}
 
 #[test]
 fn reports_duplicates_per_namespace() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 struct Thing { a: i32, a: i32 }
@@ -130,8 +130,8 @@ enum E { A, A }
 
 #[test]
 fn reports_duplicate_generic_parameters() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 struct Box[T, T] { value: T }
@@ -164,8 +164,8 @@ fn get[U, U](self) T { self.value }
 
 #[test]
 fn maps_top_level_bindings_by_binding_node_key() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 static global: i32 = 1;
@@ -281,8 +281,8 @@ fn get(self) T { self.value }
 fn collect_ok(source: &str) -> DefCollection {
     let (module, errors) = parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let collection = collect_module_defs(module_id, &module);
     assert!(
         collection.diagnostics.is_empty(),

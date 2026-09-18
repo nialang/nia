@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn reports_unresolved_deferred_names() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 fn main() i32 {
@@ -28,8 +28,8 @@ missing
 
 #[test]
 fn closure_body_requires_explicit_outer_local_captures() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 fn main() i32 {
@@ -58,8 +58,8 @@ fn main() i32 {
 
 #[test]
 fn closure_capture_initializers_resolve_outside_the_body_boundary() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 fn main() i32 {
@@ -87,8 +87,8 @@ fn main() i32 {
 
 #[test]
 fn closure_body_cannot_implicitly_capture_a_method_receiver() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 struct Box { value: i32 }
@@ -117,8 +117,8 @@ extend Box {
 
 #[test]
 fn binding_initializer_cannot_reference_binding_being_defined() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 fn main() i32 {
@@ -148,8 +148,8 @@ fn main() i32 {
 
 #[test]
 fn reports_duplicates_in_same_scope() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 fn main(a: i32, a: i32) i32 {
@@ -180,8 +180,8 @@ x
 
 #[test]
 fn reports_duplicate_bindings_within_one_pattern() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 fn main() i32 {
@@ -204,8 +204,8 @@ x
 
 #[test]
 fn marks_type_prefixes_for_associated_functions_and_enum_variants() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 struct Point {
@@ -243,8 +243,8 @@ Point::origin()
 
 #[test]
 fn records_nominal_pattern_constructor_identity() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
 struct Point { x: i32 }

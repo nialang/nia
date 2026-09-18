@@ -20,8 +20,8 @@ mod void_and_empty;
 
 #[test]
 fn missing_declaration_module_is_reported_as_backend_diagnostic() {
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
-    let missing = module_ids.allocate();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+    let missing = module_ids.allocate().expect("allocate module ID");
     let modules = std::sync::Arc::new(
         nia_backend_ir::BackendModuleStore::new([]).expect("create backend module store"),
     );

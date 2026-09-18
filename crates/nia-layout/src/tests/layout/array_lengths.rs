@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn computes_layout_builtin_array_lengths() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
 struct Pair {
@@ -61,8 +61,8 @@ fn main(xs: [u8; std::builtin::size[Pair]()], ys: [u8; std::builtin::align[Pair]
 
 #[test]
 fn substitutes_const_generic_array_lengths_in_struct_layouts() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
 struct Buffer[T, N: usize] {
@@ -113,8 +113,8 @@ fn main(buf: Buffer[u8, 4]) {}
 
 #[test]
 fn public_nominal_queries_keep_const_arguments_in_the_cache_key() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
 struct Packet[N: usize] {
@@ -189,8 +189,8 @@ fn main(packet: Packet[3]) {}
 
 #[test]
 fn binds_mixed_type_and_const_aggregate_parameters_in_declaration_order() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
 struct Mixed[T, N: usize, U] {
@@ -262,7 +262,7 @@ fn main(value: Mixed[u8, 3, u32], bits: MixedBits[u16, 5, u8]) {}
         .expect("MixedBits instance layout");
     assert_eq!(mixed_bits.layout, TypeLayout { size: 10, align: 2 });
 
-    let consumer_module_id = module_ids.allocate();
+    let consumer_module_id = module_ids.allocate().expect("allocate module ID");
     let (consumer_module, _) = parse_test_module("");
     let consumer_defs = collect_module_defs(consumer_module_id, &consumer_module);
     let cached_layouts = |requested_module_id| {
@@ -327,8 +327,8 @@ fn main(value: Mixed[u8, 3, u32], bits: MixedBits[u16, 5, u8]) {}
 
 #[test]
 fn substitutes_interleaved_type_and_const_alias_parameters_in_layouts() {
-    let mut module_ids = ModuleIdAllocator::new();
-    let module_id = module_ids.allocate();
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
 type Mixed[T, N: usize, U] = ([T; N], U);

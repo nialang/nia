@@ -1879,9 +1879,9 @@ mod tests {
 
     #[test]
     fn projection_guard_matches_rebuilt_const_arguments_semantically() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let left_module = module_ids.allocate();
-        let right_module = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let left_module = module_ids.allocate().expect("allocate module ID");
+        let right_module = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let left = type_store.append_for_module(left_module);
         let right = type_store.append_for_module(right_module);
@@ -1921,8 +1921,8 @@ mod tests {
 
     #[test]
     fn projection_guard_matches_structural_array_layout_operands() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let append = type_store.append_for_module(module_id);
         let u8_ty = append.primitive(PrimitiveTy::U8);
@@ -1975,9 +1975,9 @@ mod tests {
 
     #[test]
     fn projection_guard_matches_evaluated_const_expression_array_lengths() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let left_module = module_ids.allocate();
-        let right_module = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let left_module = module_ids.allocate().expect("allocate module ID");
+        let right_module = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let left = type_store.append_for_module(left_module);
         let right = type_store.append_for_module(right_module);

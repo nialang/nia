@@ -106,9 +106,9 @@ fn additive_module_growth_discards_diagnostic_executable_facts() {
             .is_empty()
     );
     let mut grown_versions = session.module_versions.clone();
-    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
     grown_versions.insert(
-        module_ids.allocate(),
+        module_ids.allocate().expect("allocate module ID"),
         SourceVersion {
             id: SourceId(u32::MAX),
             revision: SourceRevision::INITIAL,

@@ -814,8 +814,8 @@ mod tests {
 
     #[test]
     fn expands_simple_type_aliases() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let (module, errors) = parse_module(
             r#"
 type Byte = u8;
@@ -855,8 +855,8 @@ fn id(x: Byte) u8 { x }
 
     #[test]
     fn expands_generic_type_aliases() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let (module, errors) = parse_module(
             r#"
 type RawPtr[T] = &T;
@@ -900,8 +900,8 @@ fn id(p: RawPtr[u8]) &u8 { p }
 
     #[test]
     fn expands_callable_alias_components() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let (module, errors) = parse_module(
             r#"
 type Byte = u8;
@@ -950,8 +950,8 @@ fn id(cb: Callback) Callback { cb }
 
     #[test]
     fn expands_interleaved_type_and_const_generic_aliases() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let (module, errors) = parse_module(
             r#"
 type Mixed[T, N: usize, U] = ([T; N], U);
@@ -1010,8 +1010,8 @@ fn id(value: Mixed[u8, 4, u16]) Mixed[u8, 4, u16] { value }
 
     #[test]
     fn recursively_substitutes_and_normalizes_tuple_alias_elements() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let (module, errors) = parse_module(
             r#"
 type Nested[T] = (T, ((), T));
@@ -1069,8 +1069,8 @@ fn id(value: Nested[u16]) (u16, ((), u16)) { value }
 
     #[test]
     fn normalizes_layout_builtin_array_length_operand() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let (module, errors) = parse_module(
             r#"
 type Byte = u8;
@@ -1125,8 +1125,8 @@ fn id(x: [u8; std::builtin::size[Byte]()]) [u8; std::builtin::size[u8]()] { x }
 
     #[test]
     fn substitutes_layout_builtin_array_length_operand_in_generic_alias() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let (module, errors) = parse_module(
             r#"
 type SizedBytes[T] = [u8; std::builtin::size[T]()];
@@ -1173,8 +1173,8 @@ fn id(x: SizedBytes[u16]) [u8; std::builtin::size[u16]()] { x }
 
     #[test]
     fn reports_recursive_type_aliases() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let (module, errors) = parse_module(
             r#"
 type A = B;
@@ -1208,8 +1208,8 @@ type B = A;
 
     #[test]
     fn preserves_array_length_const_expr_identity() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let (module, errors) = parse_module(
             r#"
 fn take(xs: [u8; 2 + 3]) () {}
@@ -1243,8 +1243,8 @@ fn take(xs: [u8; 2 + 3]) () {}
 
     #[test]
     fn normalizes_only_the_explicit_input_set() {
-        let mut module_ids = ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new();
         let append = type_store.append_for_module(module_id);
         let elem = append.intern(TyKind::Primitive(PrimitiveTy::U8));
