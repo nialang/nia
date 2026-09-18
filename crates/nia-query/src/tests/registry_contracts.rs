@@ -1,9 +1,44 @@
 use super::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct FingerprintedOwnedQuery;
+
+impl QueryKey<TestContext> for FingerprintedOwnedQuery {
+    type Value = usize;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+    const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
+
+    fn name() -> &'static str {
+        "invalid_policy"
+    }
+
+    fn execute_result(&self, _db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+        Ok(0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct ValidQueryWithRecoveredName;
+
+impl QueryKey<TestContext> for ValidQueryWithRecoveredName {
+    type Value = usize;
+
+    fn name() -> &'static str {
+        "invalid_policy"
+    }
+
+    fn execute_result(&self, _db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+        Ok(0)
+    }
+}
+
 #[test]
 fn declarative_registry_records_single_consumer_storage() {
     let mut registry = QueryRegistry::new();
-    registry.register::<TestContext, OwnedNonCloneValueQuery>();
+    registry
+        .register::<TestContext, OwnedNonCloneValueQuery>()
+        .expect("register owned query");
 
     let descriptors = registry.descriptors();
     assert_eq!(descriptors.len(), 1);
@@ -16,7 +51,9 @@ fn declarative_registry_records_single_consumer_storage() {
 #[test]
 fn declarative_registry_records_an_external_owned_producer() {
     let mut registry = QueryRegistry::new();
-    registry.register::<TestContext, PublishedOwnedValueQuery>();
+    registry
+        .register::<TestContext, PublishedOwnedValueQuery>()
+        .expect("register published owned query");
 
     let descriptors = registry.descriptors();
     assert_eq!(
@@ -32,7 +69,9 @@ fn declarative_registry_records_an_external_owned_producer() {
 #[test]
 fn declarative_registry_records_an_external_shared_producer() {
     let mut registry = QueryRegistry::new();
-    registry.register::<TestContext, PublishedSharedValueQuery>();
+    registry
+        .register::<TestContext, PublishedSharedValueQuery>()
+        .expect("register published shared query");
 
     let descriptor = &registry.descriptors()[0];
     assert_eq!(
@@ -45,7 +84,9 @@ fn declarative_registry_records_an_external_shared_producer() {
 #[test]
 fn declarative_registry_records_and_enforces_query_contracts() {
     let mut registry = QueryRegistry::new();
-    registry.register::<TestContext, Double>();
+    registry
+        .register::<TestContext, Double>()
+        .expect("register double query");
     let db = QueryDb::new_registered_for_test(
         TestContext {
             executions: AtomicUsize::new(0),
@@ -149,7 +190,9 @@ fn fingerprint_domains_require_a_structured_nia_identity() {
 #[test]
 fn declarative_registry_records_stable_value_fingerprints() {
     let mut registry = QueryRegistry::new();
-    registry.register::<TestContext, StableInput>();
+    registry
+        .register::<TestContext, StableInput>()
+        .expect("register stable input");
 
     assert_eq!(
         registry.descriptors()[0].fingerprint,
@@ -158,19 +201,50 @@ fn declarative_registry_records_stable_value_fingerprints() {
 }
 
 #[test]
-#[should_panic(expected = "is already registered")]
 fn declarative_registry_rejects_duplicate_key_types() {
     let mut registry = QueryRegistry::new();
-    registry.register::<TestContext, Double>();
-    registry.register::<TestContext, Double>();
+    registry
+        .register::<TestContext, Double>()
+        .expect("register double query");
+    let error = registry
+        .register::<TestContext, Double>()
+        .expect_err("reject duplicate query type");
+    assert!(error.to_string().contains("is already registered"));
 }
 
 #[test]
-#[should_panic(expected = "query name `double` is already registered")]
 fn declarative_registry_rejects_duplicate_names() {
     let mut registry = QueryRegistry::new();
-    registry.register::<TestContext, Double>();
-    registry.register::<TestContext, DuplicateDoubleName>();
+    registry
+        .register::<TestContext, Double>()
+        .expect("register double query");
+    let error = registry
+        .register::<TestContext, DuplicateDoubleName>()
+        .expect_err("reject duplicate query name");
+    assert!(
+        error
+            .to_string()
+            .contains("query name `double` is already registered")
+    );
+}
+
+#[test]
+fn failed_policy_registration_does_not_mutate_the_registry() {
+    let mut registry = QueryRegistry::new();
+    let error = registry
+        .register::<TestContext, FingerprintedOwnedQuery>()
+        .expect_err("reject fingerprinted owned query");
+
+    assert!(
+        error
+            .to_string()
+            .contains("cannot retain a value fingerprint")
+    );
+    assert!(registry.descriptors().is_empty());
+    registry
+        .register::<TestContext, ValidQueryWithRecoveredName>()
+        .expect("reuse name after failed registration");
+    assert_eq!(registry.descriptors().len(), 1);
 }
 
 #[test]

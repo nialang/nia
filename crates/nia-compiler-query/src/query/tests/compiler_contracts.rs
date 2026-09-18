@@ -4,7 +4,9 @@ use super::*;
 
 #[test]
 fn compiler_query_registry_covers_all_declared_query_contracts() {
-    let descriptors = compiler_query_registry().descriptors();
+    let descriptors = compiler_query_registry()
+        .expect("create compiler query registry")
+        .descriptors();
 
     assert_eq!(descriptors.len(), 134);
     assert!(

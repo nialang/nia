@@ -738,6 +738,12 @@ pub enum QueryError {
 }
 
 impl QueryError {
+    /// Creates a structured internal query failure at the detection site.
+    #[track_caller]
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self::Internal(nia_ice::Ice::new(message))
+    }
+
     fn with_query_context(self, query: QueryFrame) -> Self {
         match self {
             Self::Internal(ice) => {

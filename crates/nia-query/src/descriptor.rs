@@ -316,46 +316,49 @@ impl QueryRegistry {
 
     /// Registers `K` and validates its provider, storage, and fingerprint policies.
     ///
-    /// Registration panics for duplicate key types or names, for fingerprinted
-    /// single-consumer values, and for externally published values that retain
-    /// fingerprints.
-    pub fn register<C, K>(&mut self)
+    /// Registration returns an ICE for duplicate key types or names, for fingerprinted
+    /// single-consumer values, and for externally published values that retain fingerprints.
+    pub fn register<C, K>(&mut self) -> nia_ice::IceResult<()>
     where
         C: 'static,
         K: QueryKey<C>,
     {
         // Single-consumer payloads move out of storage, so there is no retained
         // value from which a stable fingerprint could later be recovered.
-        assert!(
-            K::STORAGE == QueryStoragePolicy::CacheOwnedArc
-                || K::FINGERPRINT == QueryFingerprintPolicy::None,
-            "single-consumer query `{}` cannot retain a value fingerprint",
-            K::name()
-        );
+        if K::STORAGE == QueryStoragePolicy::SingleConsumerOwned
+            && K::FINGERPRINT != QueryFingerprintPolicy::None
+        {
+            return Err(nia_ice::Ice::new(format!(
+                "single-consumer query `{}` cannot retain a value fingerprint",
+                K::name()
+            )));
+        }
         // External products are invalidated through their explicit predecessor
         // edge. They must not carry an independently computed fingerprint.
-        assert!(
-            K::PROVIDER == QueryProviderPolicy::KeyExecute
-                || K::FINGERPRINT == QueryFingerprintPolicy::None,
-            "externally published query `{}` cannot retain a value fingerprint",
-            K::name()
-        );
+        if K::PROVIDER == QueryProviderPolicy::ExternallyPublished
+            && K::FINGERPRINT != QueryFingerprintPolicy::None
+        {
+            return Err(nia_ice::Ice::new(format!(
+                "externally published query `{}` cannot retain a value fingerprint",
+                K::name()
+            )));
+        }
         let key_type_id = TypeId::of::<K>();
-        assert!(
-            !self.descriptors.contains_key(&key_type_id),
-            "query key type `{}` is already registered",
-            std::any::type_name::<K>()
-        );
+        if self.descriptors.contains_key(&key_type_id) {
+            return Err(nia_ice::Ice::new(format!(
+                "query key type `{}` is already registered",
+                std::any::type_name::<K>()
+            )));
+        }
         if let Some(existing) = self.names.get(K::name()) {
-            let existing = self
-                .descriptors
-                .get(existing)
-                .expect("query registry name index must reference a descriptor");
-            panic!(
-                "Nia ICE: query name `{}` is already registered for `{}`",
+            let existing = self.descriptors.get(existing).ok_or_else(|| {
+                nia_ice::Ice::new("query registry name index references no descriptor")
+            })?;
+            return Err(nia_ice::Ice::new(format!(
+                "query name `{}` is already registered for `{}`",
                 K::name(),
                 existing.key_type
-            );
+            )));
         }
         self.names.insert(K::name(), key_type_id);
         self.descriptors.insert(
@@ -370,6 +373,7 @@ impl QueryRegistry {
                 storage: K::STORAGE,
             },
         );
+        Ok(())
     }
 
     /// Returns registered descriptors sorted by query name.

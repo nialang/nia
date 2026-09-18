@@ -169,9 +169,15 @@ pub(super) struct TestLoaderFacts {
 impl TestLoaderFacts {
     pub(super) fn new(program: LoadedProgram, provider_facts: crate::ProviderFactSnapshot) -> Self {
         let mut registry = nia_query::QueryRegistry::new();
-        registry.register::<TestLoaderContext, TestLoadedProgramQuery>();
-        registry.register::<TestLoaderContext, TestProviderFactsQuery>();
-        registry.register::<TestLoaderContext, TestLoaderFactQuery>();
+        registry
+            .register::<TestLoaderContext, TestLoadedProgramQuery>()
+            .expect("register loaded program query");
+        registry
+            .register::<TestLoaderContext, TestProviderFactsQuery>()
+            .expect("register provider facts query");
+        registry
+            .register::<TestLoaderContext, TestLoaderFactQuery>()
+            .expect("register loader fact query");
         Self {
             db: QueryDb::new_registered(
                 TestLoaderContext {

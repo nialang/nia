@@ -81,7 +81,9 @@ fn source_input_manifest_represents_missing_recursive_sources() {
 
 #[test]
 fn loader_query_registry_covers_all_declared_query_contracts() {
-    let descriptors = crate::loader_query_registry().descriptors();
+    let descriptors = crate::loader_query_registry()
+        .expect("create loader query registry")
+        .descriptors();
 
     assert_eq!(descriptors.len(), 18);
     assert!(

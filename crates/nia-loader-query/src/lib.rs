@@ -47,11 +47,11 @@ pub(crate) fn runtime_package_root_path(runtime: &SourceRuntimeSpec) -> SourcePa
     )
 }
 
-fn loader_query_registry() -> nia_query::QueryRegistry {
+fn loader_query_registry() -> QueryResult<nia_query::QueryRegistry> {
     let mut registry = nia_query::QueryRegistry::new();
     macro_rules! register {
         ($($key:ty),+ $(,)?) => {
-            $(registry.register::<LoaderContext, $key>();)+
+            $(registry.register::<LoaderContext, $key>()?;)+
         };
     }
     register!(
@@ -74,7 +74,7 @@ fn loader_query_registry() -> nia_query::QueryRegistry {
         queries::SourceTextQuery,
         queries::SyntaxModuleQuery,
     );
-    registry
+    Ok(registry)
 }
 
 /// Loads a program from an entry path using the host target and default runtime.
@@ -207,7 +207,7 @@ impl SourceInputManifest {
 impl LoaderDatabase {
     /// Creates a loader with an isolated default query session.
     pub fn new(request: LoadRequest) -> QueryResult<Self> {
-        Ok(Self::new_in_session(request, QuerySession::new()?))
+        Self::new_in_session(request, QuerySession::new()?)
     }
 
     #[cfg(test)]
@@ -217,7 +217,7 @@ impl LoaderDatabase {
     }
 
     /// Creates a loader sharing dependency and execution state with `session`.
-    pub fn new_in_session(request: LoadRequest, session: QuerySession) -> Self {
+    pub fn new_in_session(request: LoadRequest, session: QuerySession) -> QueryResult<Self> {
         let entry_path = request.entry_path;
         let package_roots_with_used_paths = if request.package_root_used_paths {
             request.module_map.entries().map(|(name, _)| name).collect()
@@ -319,10 +319,10 @@ impl LoaderDatabase {
                 provider_demand_plan_key,
                 provider_demand_plan_candidate: Mutex::new(cached_provider_demands),
             },
-            loader_query_registry(),
+            loader_query_registry()?,
             session,
         );
-        Self { db, sources }
+        Ok(Self { db, sources })
     }
 
     /// Returns the query session governing this loader.
@@ -949,7 +949,7 @@ fn load_program_trace(
             provider_demand_plan_key: None,
             provider_demand_plan_candidate: Mutex::new(None),
         },
-        loader_query_registry(),
+        loader_query_registry().expect("create loader query registry"),
     )
     .expect("create loader query database");
     let _program = db

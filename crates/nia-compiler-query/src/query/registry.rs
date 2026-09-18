@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-pub(super) fn compiler_query_registry() -> nia_query::QueryRegistry {
+pub(super) fn compiler_query_registry() -> QueryResult<nia_query::QueryRegistry> {
     let mut registry = nia_query::QueryRegistry::new();
     macro_rules! register {
         ($($key:ty),+ $(,)?) => {
-            $(registry.register::<CompilerContext, $key>();)+
+            $(registry.register::<CompilerContext, $key>()?;)+
         };
     }
     register!(
@@ -144,5 +144,5 @@ pub(super) fn compiler_query_registry() -> nia_query::QueryRegistry {
         VisibleExtensionsQuery,
         VisibleTraitImplsQuery,
     );
-    registry
+    Ok(registry)
 }
