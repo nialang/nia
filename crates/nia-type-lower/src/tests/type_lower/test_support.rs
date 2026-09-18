@@ -21,6 +21,7 @@ fn lower_test_module(
                 defs: Some(&program_defs_by_module),
             },
         ),
-    );
+    )
+    .expect("lower test module");
     (type_store, lowered)
 }

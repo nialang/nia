@@ -337,7 +337,8 @@ mod tests {
                 .expect("allocate module ID");
             let ty = types
                 .append_for_module(module_id)
-                .primitive(PrimitiveTy::Bool);
+                .primitive(PrimitiveTy::Bool)
+                .expect("intern bool type");
             Self {
                 _types: types,
                 module_id,

@@ -28,11 +28,11 @@ let mut tmp: [i32; _] = [1, 2, 3];
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
     let append = type_store.append_for_module(module_id);
     assert!(matches!(
-        type_store.get(append.intern(TyKind::Error)),
+        type_store.get(append.intern(TyKind::Error).expect("intern error type")),
         Some(TyKind::Error)
     ));
     assert!(matches!(
-        type_store.get(append.intern(TyKind::Primitive(PrimitiveTy::I8))),
+        type_store.get(append.intern(TyKind::Primitive(PrimitiveTy::I8)).expect("intern i8 type")),
         Some(TyKind::Primitive(PrimitiveTy::I8))
     ));
     assert!(
@@ -224,7 +224,8 @@ fn consume(packet: Packet[u8, 2, u16]) () {}
                 defs: Some(&program_defs_by_module),
             },
         ),
-    );
+    )
+    .expect("lower consuming module types");
     let lowered_packet = lowered
         .ty_for_key(&packet_ty.node_key)
         .expect("lowered Packet type");

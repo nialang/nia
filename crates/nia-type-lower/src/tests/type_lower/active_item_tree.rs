@@ -35,7 +35,8 @@ fn selected(value: i32) () {}
         &active,
         &resolved,
         TypeLoweringContext::empty(&type_store),
-    );
+    )
+    .expect("lower active module types");
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
     assert!(lowered.type_uses.values().any(|ty| matches!(
         type_store.get(*ty),
@@ -81,13 +82,15 @@ pair.left
         &active,
         &resolved,
         TypeLoweringContext::empty(&store),
-    );
+    )
+    .expect("lower declaration module types");
     let full = lower_module_types_from_active_item_tree_with_context(
         module_id,
         &active,
         &resolved,
         TypeLoweringContext::empty(&store),
-    );
+    )
+    .expect("lower full module types");
 
     for ty in declarations.explicit_type_roots() {
         assert!(store.get(ty).is_some());
@@ -125,7 +128,8 @@ struct Buffer[N: usize] {
         &active,
         &resolved,
         TypeLoweringContext::empty(&type_store),
-    );
+    )
+    .expect("lower active module types");
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
 
     let ItemTreeNodeKind::Struct(item_struct) = &active.items[0].kind else {

@@ -83,7 +83,8 @@ fn duplicate(source: &Source[Item = i32, Item = bool]) () {}
             },
         )
         .with_symbols(&symbols),
-    );
+    )
+    .expect("lower trait object test types");
     assert!(
         lowered.diagnostics.iter().any(|diagnostic| diagnostic
             .summary

@@ -243,7 +243,9 @@ mod tests {
             .expect("allocate module ID");
         let type_store = TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
-        let const_ty = append.primitive(PrimitiveTy::Usize);
+        let const_ty = append
+            .primitive(PrimitiveTy::Usize)
+            .expect("intern usize type");
         let left_expr = GlobalConstExprId {
             module_id,
             const_expr_id: ConstExprId(1),
@@ -266,8 +268,8 @@ mod tests {
                 }],
             })
         };
-        let left = make(left_expr);
-        let right = make(right_expr);
+        let left = make(left_expr).expect("intern left nominal");
+        let right = make(right_expr).expect("intern right nominal");
         let summaries = HashMap::from([
             (
                 left_expr,
@@ -300,7 +302,9 @@ mod tests {
             .expect("allocate module ID");
         let type_store = TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
-        let const_ty = append.primitive(PrimitiveTy::Usize);
+        let const_ty = append
+            .primitive(PrimitiveTy::Usize)
+            .expect("intern usize type");
         let def_id = GlobalDefId {
             module_id,
             def_id: nia_ids::DefId(7),
@@ -322,6 +326,9 @@ mod tests {
             type_store: &type_store,
             const_expr_summaries: &HashMap::new(),
         };
-        assert!(!equivalence.same_type_for_equiv(make(1), make(2)));
+        assert!(!equivalence.same_type_for_equiv(
+            make(1).expect("intern first nominal"),
+            make(2).expect("intern second nominal"),
+        ));
     }
 }
