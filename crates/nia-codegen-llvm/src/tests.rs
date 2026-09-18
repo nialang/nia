@@ -86,8 +86,15 @@ pub struct Point {
         std::sync::Arc::clone(&codegen.backend_lowering.owner_directory),
     );
 
-    assert!(coordinator.publish(main_id).is_empty());
-    let ready = coordinator.publish(geom_id);
+    assert!(
+        coordinator
+            .publish(main_id)
+            .expect("publish main module")
+            .is_empty()
+    );
+    let ready = coordinator
+        .publish(geom_id)
+        .expect("publish geometry module");
     assert_eq!(ready.len(), 1);
     let crate::readiness::CodegenPartitionPreparation::Ready(prepared) = &ready[0] else {
         panic!("healthy pending unit became invalid")
@@ -100,7 +107,7 @@ pub struct Point {
         prepared.declarations.dependencies.modules(),
         &[main_id, geom_id]
     );
-    let _ = coordinator.finish();
+    let _ = coordinator.finish().expect("finish readiness coordinator");
 }
 
 #[test]

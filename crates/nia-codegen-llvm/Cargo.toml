@@ -36,6 +36,7 @@ nia-symbol.workspace = true
 nia-timing.workspace = true
 nia-toolchain.workspace = true
 nia-ty.workspace = true
+parking_lot.workspace = true
 
 [dev-dependencies]
 nia-compiler-query.workspace = true

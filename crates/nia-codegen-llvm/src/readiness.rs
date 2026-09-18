@@ -61,38 +61,44 @@ impl CodegenReadinessCoordinator {
         }
     }
 
-    pub(super) fn publish(&mut self, module_id: ModuleId) -> Vec<CodegenPartitionPreparation> {
-        self.publisher.publish(module_id);
-        let module = self
-            .index
-            .module(module_id)
-            .expect("published backend module must be visible to the codegen index");
+    pub(super) fn publish(
+        &mut self,
+        module_id: ModuleId,
+    ) -> nia_ice::IceResult<Vec<CodegenPartitionPreparation>> {
+        self.publisher.publish(module_id)?;
+        let module = self.index.module(module_id).ok_or_else(|| {
+            nia_ice::Ice::new("published backend module is missing from codegen index")
+        })?;
         let plan = CodegenPartitionPlan::for_ready_module(module);
         for partition in plan.partitions() {
-            assert!(
-                self.unit_keys.insert(partition.key.clone()),
-                "Nia ICE: incremental codegen planning produced duplicate stable unit key {:?}",
-                partition.key
-            );
+            if !self.unit_keys.insert(partition.key.clone()) {
+                return Err(nia_ice::Ice::new(
+                    "incremental codegen planning produced a duplicate stable unit key",
+                ));
+            }
         }
         self.pending.extend(plan.partitions().iter().cloned());
-        self.retry_pending()
+        Ok(self.retry_pending())
     }
 
-    pub(super) fn finish(self) -> Arc<ProgramIndex> {
-        assert!(
-            self.index
-                .module_ids()
-                .iter()
-                .all(|module_id| self.index.is_published(*module_id)),
-            "Nia ICE: codegen readiness finished before every backend module was published"
-        );
-        assert!(
-            self.pending.is_empty(),
-            "Nia ICE: codegen readiness finished with unresolved partitions"
-        );
-        self.publisher.freeze();
-        self.index
+    pub(super) fn finish(self) -> nia_ice::IceResult<Arc<ProgramIndex>> {
+        if !self
+            .index
+            .module_ids()
+            .iter()
+            .all(|module_id| self.index.is_published(*module_id))
+        {
+            return Err(nia_ice::Ice::new(
+                "codegen readiness finished before every backend module was published",
+            ));
+        }
+        if !self.pending.is_empty() {
+            return Err(nia_ice::Ice::new(
+                "codegen readiness finished with unresolved partitions",
+            ));
+        }
+        self.publisher.freeze()?;
+        Ok(self.index)
     }
 
     fn retry_pending(&mut self) -> Vec<CodegenPartitionPreparation> {
@@ -135,18 +141,30 @@ impl CodegenReadinessCoordinator {
                     ));
                 }
                 CodegenDeclarationMembershipBuild::Pending(pending) => {
-                    assert_eq!(
-                        pending.unit(),
-                        partition.id,
-                        "Nia ICE: pending membership belongs to a different codegen unit"
-                    );
-                    assert!(
-                        pending
-                            .modules()
-                            .iter()
-                            .all(|module_id| !self.index.is_published(*module_id)),
-                        "Nia ICE: pending membership named an already published module"
-                    );
+                    if pending.unit() != partition.id {
+                        ready.push(CodegenPartitionPreparation::Invalid {
+                            partition,
+                            diagnostics: vec![nia_diagnostic::Diagnostic::from(
+                                nia_ice::Ice::new(
+                                    "pending declaration membership belongs to a different codegen unit",
+                                ),
+                            )],
+                        });
+                        continue;
+                    }
+                    if pending
+                        .modules()
+                        .iter()
+                        .any(|module_id| self.index.is_published(*module_id))
+                    {
+                        ready.push(CodegenPartitionPreparation::Invalid {
+                            partition,
+                            diagnostics: vec![nia_diagnostic::Diagnostic::from(nia_ice::Ice::new(
+                                "pending declaration membership named an already published module",
+                            ))],
+                        });
+                        continue;
+                    }
                     unresolved.push(partition);
                 }
                 CodegenDeclarationMembershipBuild::Invalid { diagnostics } => {

@@ -2099,7 +2099,7 @@ mod tests {
         let (index, mut publisher) =
             ProgramIndex::new(program.module_store(), Arc::new(type_store));
         for module_id in index.module_ids().to_vec() {
-            publisher.publish(module_id);
+            publisher.publish(module_id).expect("publish module");
         }
         Fixture {
             index,

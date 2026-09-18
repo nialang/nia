@@ -410,6 +410,7 @@ dependencies = [
  "nia-timing",
  "nia-toolchain",
  "nia-ty",
+ "parking_lot",
 ]
 
 [[package]]
