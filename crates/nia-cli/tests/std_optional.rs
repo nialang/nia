@@ -24,18 +24,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let present = double(?21);
     if not present.isPresent() {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if present is ?value {
-        if value != 42 { return process::exit(2)!; }
+        if value != 42 { return process::ExitCode(2)!; }
     }
     if double(null).isNull() == false or double(null).map(&\value: i32 -> value).isPresent() {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     if double(?1).andThen(&\value: i32 -> if value == 2 { ?41 } else { null }) is ?value {
-        if value != 41 { return process::exit(4)!; }
+        if value != 41 { return process::ExitCode(4)!; }
     } else {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     !()
 }

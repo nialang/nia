@@ -16,7 +16,7 @@ using std::process;
 
 fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    process::exit(7)!
+    process::ExitCode(7)!
 }
 "#,
     )
@@ -231,7 +231,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    process::exit(9)!
+    process::ExitCode(9)!
 }
 "#,
     )
@@ -293,7 +293,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    process::exit(5)!
+    process::ExitCode(5)!
 }
 "#,
     )

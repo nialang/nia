@@ -21,23 +21,23 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     match stdout.writeAll(&b"nia\n") {
         !ok => { _ = ok; },
-        error! => { return process::exit(1)!; },
+        error! => { return process::ExitCode(1)!; },
     }
     match stdout.writeUtf8(&"lambda: λ\n") {
         !ok => { _ = ok; },
-        error! => { return process::exit(2)!; },
+        error! => { return process::ExitCode(2)!; },
     }
     let mut storage: [u8; 1] = [0];
     let mut bounded = io::FixedBufferWriter::init(&mut storage[..]);
     match bounded.writeUtf8(&"λ") {
         !ok => {
             _ = ok;
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
         io::BufferError::NoSpace! => {},
         error! => {
             _ = error;
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     }
     !()
@@ -82,11 +82,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     match stdout.print(&"A¢€😀, {}\n", &[&'λ']) {
         !ok => { _ = ok; },
-        error! => { return process::exit(1)!; },
+        error! => { return process::ExitCode(1)!; },
     }
     match stdout.flush() {
         !ok => { _ = ok; },
-        error! => { return process::exit(2)!; },
+        error! => { return process::ExitCode(2)!; },
     }
     !()
 }
@@ -129,22 +129,22 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
     let mut writer = io::FixedBufferWriter::init(&mut storage[..]);
-    writer.writeAll(&b"ni").exit().?;
+    writer.writeAll(&b"ni").?;
     match writer.print(&"nia {}", &[&7]) {
         !ok => { _ = ok; },
-        error! => { return process::exit(1)!; },
+        error! => { return process::ExitCode(1)!; },
     }
     if writer.len() != 7 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     match writer.writeAll(&b"++") {
         !ok => {
             _ = ok;
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
         error! => {
             if error != io::BufferError::NoSpace {
-                return process::exit(6)!;
+                return process::ExitCode(6)!;
             }
         },
     }
@@ -153,11 +153,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut reader = io::FixedBufferReader::init(writer.written());
     match reader.readExact(&mut copied[..]) {
         !ok => { _ = ok; },
-        error! => { return process::exit(3)!; },
+        error! => { return process::ExitCode(3)!; },
     }
     let mut expected: &[u8] = &b"ninia 7";
     if copied[0] != expected[0] or copied[1] != expected[1] or copied[2] != expected[2] or copied[3] != expected[3] or copied[4] != expected[4] or copied[5] != expected[5] or copied[6] != expected[6] {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     !()
 }
@@ -205,11 +205,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let mut allocator = mem::PageAllocator::init();
     let mut values = std::ArrayList[i32]::init();
-    defer values.deinit(&mut allocator).exit().?;
+    defer values.deinit(&mut allocator).?;
 
-    values.push(&mut allocator, 10).exit().?;
-    values.push(&mut allocator, 20).exit().?;
-    values.push(&mut allocator, 30).exit().?;
+    values.push(&mut allocator, 10).?;
+    values.push(&mut allocator, 20).?;
+    values.push(&mut allocator, 30).?;
 
     let mut total = 0;
     for &value in values.iter() {
@@ -238,8 +238,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         &byte,
         &byte,
         &neg,
-    ]).exit().?;
-    stdout.flush().exit().?;
+    ]).?;
+    stdout.flush().?;
     !()
 }
 "#,
@@ -327,8 +327,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         text_slice,
         &width,
         &precision,
-    ]).exit().?;
-    stdout.flush().exit().?;
+    ]).?;
+    stdout.flush().?;
     !()
 }
 "#,
@@ -378,8 +378,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         bytes,
         bytes,
         bytes,
-    ]).exit().?;
-    stdout.flush().exit().?;
+    ]).?;
+    stdout.flush().?;
     !()
 }
 "#,
@@ -442,49 +442,49 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let mut pointer_storage: [u8; 64] = [0; 64];
     let mut pointer_writer = io::FixedBufferWriter::init(&mut pointer_storage[..]);
-    pointer_writer.print(&"{:p}", &[&ptr]).exit().?;
+    pointer_writer.print(&"{:p}", &[&ptr]).?;
 
     let mut addr_storage: [u8; 64] = [0; 64];
     let mut addr_writer = io::FixedBufferWriter::init(&mut addr_storage[..]);
-    addr_writer.print(&"{:#x}", &[&addr]).exit().?;
+    addr_writer.print(&"{:#x}", &[&addr]).?;
 
     if not eq_bytes(pointer_writer.written(), addr_writer.written()) {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
 
     let mut display_storage: [u8; 64] = [0; 64];
     let mut display_writer = io::FixedBufferWriter::init(&mut display_storage[..]);
-    display_writer.print(&"{}", &[&ptr]).exit().?;
+    display_writer.print(&"{}", &[&ptr]).?;
     if not eq_bytes(display_writer.written(), addr_writer.written()) {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
 
     let mut mut_ptr = &mut value;
     let mut mut_storage: [u8; 64] = [0; 64];
     let mut mut_writer = io::FixedBufferWriter::init(&mut mut_storage[..]);
-    mut_writer.print(&"{:p}", &[&mut_ptr]).exit().?;
+    mut_writer.print(&"{:p}", &[&mut_ptr]).?;
     if mut_writer.len() < 3usize or mut_writer.written()[0] != b'0' or mut_writer.written()[1] != b'x' {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
 
     let mut padded_storage: [u8; 80] = [0; 80];
     let mut padded_writer = io::FixedBufferWriter::init(&mut padded_storage[..]);
-    padded_writer.print(&"{:_>20p}", &[&ptr]).exit().?;
+    padded_writer.print(&"{:_>20p}", &[&ptr]).?;
     if padded_writer.len() != 20usize {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     let written = padded_writer.written();
     let mut index = 0usize;
     while index + pointer_writer.len() < 20usize {
         if written[index] != b'_' {
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         }
         index += 1usize;
     }
     let mut pointer_index = 0usize;
     while pointer_index < pointer_writer.len() {
         if written[index + pointer_index] != pointer_writer.written()[pointer_index] {
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         }
         pointer_index += 1usize;
     }
@@ -551,104 +551,104 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let value = 7;
 
     if not expect_error(writer.print(&"{}", &[]), fmt::Error::MissingArgument) {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if not expect_error(writer.print(&"", &[&value]), fmt::Error::ExtraArgument) {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     if not expect_error(writer.print(&"{", &[]), fmt::Error::InvalidTemplate) {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     if not expect_error(writer.print(&"}", &[]), fmt::Error::InvalidTemplate) {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     match writer.print(&"{{{}}}", &[&value]) {
         !ok => { _ = ok; },
-        error! => { return process::exit(5)!; },
+        error! => { return process::ExitCode(5)!; },
     }
     if writer.len() != 3 {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
     let written = writer.written();
     if written[0] != b'{' or written[1] != b'7' or written[2] != b'}' {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
     if not expect_error(writer.print(&"{q}", &[&value]), fmt::Error::InvalidTemplate) {
-        return process::exit(8)!;
+        return process::ExitCode(8)!;
     }
     let flag = true;
     if not expect_error(writer.print(&"{x}", &[&flag]), fmt::Error::InvalidTemplate) {
-        return process::exit(9)!;
+        return process::ExitCode(9)!;
     }
     if not expect_error(writer.print(&"{x}", &[&value]), fmt::Error::InvalidTemplate) {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
     match writer.print(&"{:X}", &[&value]) {
         !ok => { _ = ok; },
-        error! => { return process::exit(11)!; },
+        error! => { return process::ExitCode(11)!; },
     }
     if not expect_error(writer.print(&"{:q}", &[&value]), fmt::Error::InvalidTemplate) {
-        return process::exit(12)!;
+        return process::ExitCode(12)!;
     }
     if not expect_error(writer.print(&"{:08", &[&value]), fmt::Error::InvalidTemplate) {
-        return process::exit(13)!;
+        return process::ExitCode(13)!;
     }
     let byte = 7u8;
     if not expect_error(writer.print(&"{:+}", &[&byte]), fmt::Error::InvalidTemplate) {
-        return process::exit(14)!;
+        return process::ExitCode(14)!;
     }
     if not expect_error(writer.print(&"{:+}", &[&flag]), fmt::Error::InvalidTemplate) {
-        return process::exit(15)!;
+        return process::ExitCode(15)!;
     }
     if not expect_error(writer.print(&"{:#}", &[&value]), fmt::Error::InvalidTemplate) {
-        return process::exit(16)!;
+        return process::ExitCode(16)!;
     }
     if not expect_error(writer.print(&"{:#}", &[&flag]), fmt::Error::InvalidTemplate) {
-        return process::exit(17)!;
+        return process::ExitCode(17)!;
     }
     if not expect_error(writer.print(&"{:.}", &[&flag]), fmt::Error::InvalidTemplate) {
-        return process::exit(18)!;
+        return process::ExitCode(18)!;
     }
     if not expect_error(writer.print(&"{:.2}", &[&value]), fmt::Error::InvalidTemplate) {
-        return process::exit(19)!;
+        return process::ExitCode(19)!;
     }
     if not expect_error(writer.print(&"{:_5}", &[&flag]), fmt::Error::InvalidTemplate) {
-        return process::exit(20)!;
+        return process::ExitCode(20)!;
     }
     let ptr = &value;
     if not expect_error(writer.print(&"{:+p}", &[&ptr]), fmt::Error::InvalidTemplate) {
-        return process::exit(21)!;
+        return process::ExitCode(21)!;
     }
     if not expect_error(writer.print(&"{:#p}", &[&ptr]), fmt::Error::InvalidTemplate) {
-        return process::exit(22)!;
+        return process::ExitCode(22)!;
     }
     if not expect_error(writer.print(&"{:.2p}", &[&ptr]), fmt::Error::InvalidTemplate) {
-        return process::exit(23)!;
+        return process::ExitCode(23)!;
     }
     if not expect_error(writer.print(&"{:<{}}", &[&value]), fmt::Error::MissingArgument) {
-        return process::exit(24)!;
+        return process::ExitCode(24)!;
     }
     let bad_width = 5u32;
     if not expect_error(writer.print(&"{:<{}}", &[&value, &bad_width]), fmt::Error::InvalidTemplate) {
-        return process::exit(25)!;
+        return process::ExitCode(25)!;
     }
     if not expect_error(writer.print(&"{:.{}}", &[&flag]), fmt::Error::MissingArgument) {
-        return process::exit(26)!;
+        return process::ExitCode(26)!;
     }
     if not expect_error(writer.print(&"{:.{}}", &[&flag, &bad_width]), fmt::Error::InvalidTemplate) {
-        return process::exit(27)!;
+        return process::ExitCode(27)!;
     }
     if not expect_error(
         writer.print(&"{:999999999999999999999999999999}", &[&value]),
         fmt::Error::InvalidTemplate,
     ) {
-        return process::exit(28)!;
+        return process::ExitCode(28)!;
     }
     if not expect_error(
         writer.print(&"{:.999999999999999999999999999999}", &[&value]),
         fmt::Error::InvalidTemplate,
     ) {
-        return process::exit(29)!;
+        return process::ExitCode(29)!;
     }
 
     let invalidRadixSpec = fmt::FormatSpec::init(
@@ -666,25 +666,25 @@ pub fn main(init: process::Init) process::ExitCode!() {
         formatter.writeUnsignedRadixSpec(7u128, 0u128, false, invalidRadixSpec),
         fmt::Error::InvalidTemplate,
     ) or radixWriter.len != 0usize {
-        return process::exit(30)!;
+        return process::ExitCode(30)!;
     }
     if not expect_error(
         formatter.writeUnsignedRadixSpec(7u128, 1u128, false, invalidRadixSpec),
         fmt::Error::InvalidTemplate,
     ) or radixWriter.len != 0usize {
-        return process::exit(31)!;
+        return process::ExitCode(31)!;
     }
     if not expect_error(
         formatter.writeUnsignedRadixSpec(7u128, 3u128, false, invalidRadixSpec),
         fmt::Error::InvalidTemplate,
     ) or radixWriter.len != 0usize {
-        return process::exit(32)!;
+        return process::ExitCode(32)!;
     }
     if not expect_error(
         formatter.writeSignedRadix(-7i128, 3u128, false),
         fmt::Error::InvalidTemplate,
     ) or radixWriter.len != 0usize {
-        return process::exit(33)!;
+        return process::ExitCode(33)!;
     }
     let invalidAlignmentSpec = fmt::FormatSpec::init(
         fmt::FormatPresentation::Display,
@@ -696,13 +696,13 @@ pub fn main(init: process::Init) process::ExitCode!() {
         false,
     );
     if not expect_error(invalidAlignmentSpec.validate(), fmt::Error::InvalidTemplate) {
-        return process::exit(34)!;
+        return process::ExitCode(34)!;
     }
     if not expect_error(
         formatter.writeUnsignedRadixSpec(7u128, 10u128, false, invalidAlignmentSpec),
         fmt::Error::InvalidTemplate,
     ) or radixWriter.len != 0usize {
-        return process::exit(35)!;
+        return process::ExitCode(35)!;
     }
     let invalidPresentationSpec = fmt::FormatSpec::init(
         17i32 as fmt::FormatPresentation,
@@ -717,7 +717,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         formatter.writePaddingBefore(1usize, invalidPresentationSpec),
         fmt::Error::InvalidTemplate,
     ) or radixWriter.len != 0usize {
-        return process::exit(36)!;
+        return process::ExitCode(36)!;
     }
     !()
 }
@@ -761,32 +761,32 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match io::debugPrint(&"{", &[]) {
         !ok => {
             _ = ok;
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
         io::DebugPrintError::Format(fmt::Error::InvalidTemplate)! => {},
         error! => {
             _ = error;
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
 
     match io::debugPrint(&"closed stderr\n", &[]) {
         !ok => {
             _ = ok;
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
         io::DebugPrintError::Flush(fs::Error::BadFd)! => {},
         error! => {
             _ = error;
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     }
 
-    if (io::DebugPrintError::Format(fmt::Error::MissingArgument).asExitCode() as i32) != 22 {
-        return process::exit(5)!;
+    if (io::DebugPrintError::Format(fmt::Error::MissingArgument).intoError().0) != 22 {
+        return process::ExitCode(5)!;
     }
-    if (io::DebugPrintError::Flush(fs::Error::BadFd).asExitCode() as i32) != 9 {
-        return process::exit(6)!;
+    if (io::DebugPrintError::Flush(fs::Error::BadFd).intoError().0) != 9 {
+        return process::ExitCode(6)!;
     }
 
     !()
@@ -886,144 +886,144 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     if not expect_i32((&"-2147483648").parse[i32](), i32::MIN) {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if not expect_i32((&"+2147483647").parse[i32](), i32::MAX) {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     match (&"340282366920938463463374607431768211455").parse[u128]() {
         !value => { if value != u128::MAX {
-                return process::exit(3)!;
+                return process::ExitCode(3)!;
             } },
-        error! => { return process::exit(4)!; },
+        error! => { return process::ExitCode(4)!; },
     }
     match (&"12345").parse[usize]() {
         !value => { if value != 12345 {
-                return process::exit(5)!;
+                return process::ExitCode(5)!;
             } },
-        error! => { return process::exit(6)!; },
+        error! => { return process::ExitCode(6)!; },
     }
     match (&"false").parse[bool]() {
         !value => { if value {
-                return process::exit(7)!;
+                return process::ExitCode(7)!;
             } },
-        error! => { return process::exit(8)!; },
+        error! => { return process::ExitCode(8)!; },
     }
 
     if not expect_error_i32((&"").parse[i32](), parse::Error::Empty) {
-        return process::exit(9)!;
+        return process::ExitCode(9)!;
     }
     if not expect_error_i32((&"-").parse[i32](), parse::Error::InvalidDigit) {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
     if not expect_error_i32((&"12x").parse[i32](), parse::Error::InvalidDigit) {
-        return process::exit(11)!;
+        return process::ExitCode(11)!;
     }
     if not expect_error_i32((&"2147483648").parse[i32](), parse::Error::Overflow) {
-        return process::exit(12)!;
+        return process::ExitCode(12)!;
     }
     if not expect_error_u8((&"-1").parse[u8](), parse::Error::InvalidSign) {
-        return process::exit(13)!;
+        return process::ExitCode(13)!;
     }
     if not expect_error_u8((&"256").parse[u8](), parse::Error::Overflow) {
-        return process::exit(14)!;
+        return process::ExitCode(14)!;
     }
     if not expect_u8((&"ff").parseRadix[u8](16), 255) {
-        return process::exit(15)!;
+        return process::ExitCode(15)!;
     }
     if not expect_u8((&"0xff").parse[u8](), 255) {
-        return process::exit(16)!;
+        return process::ExitCode(16)!;
     }
     if not expect_u8((&"10101010").parseRadix[u8](2), 170) {
-        return process::exit(17)!;
+        return process::ExitCode(17)!;
     }
     if not expect_u8((&"0b10101010").parse[u8](), 170) {
-        return process::exit(18)!;
+        return process::ExitCode(18)!;
     }
     if not expect_u8((&"0o377").parse[u8](), 255) {
-        return process::exit(19)!;
+        return process::ExitCode(19)!;
     }
     if not expect_i32((&"-7B").parseRadix[i32](16), -123) {
-        return process::exit(20)!;
+        return process::ExitCode(20)!;
     }
     if not expect_i32((&"-0x7B").parse[i32](), -123) {
-        return process::exit(21)!;
+        return process::ExitCode(21)!;
     }
     if not expect_i32((&"+0b1111011").parse[i32](), 123) {
-        return process::exit(22)!;
+        return process::ExitCode(22)!;
     }
     if not expect_error_u8((&"2").parseRadix[u8](2), parse::Error::InvalidDigit) {
-        return process::exit(23)!;
+        return process::ExitCode(23)!;
     }
     if not expect_error_u8((&"10").parseRadix[u8](1), parse::Error::InvalidRadix) {
-        return process::exit(24)!;
+        return process::ExitCode(24)!;
     }
     match (&"yes").parse[bool]() {
         !value => { _ = value;
-                return process::exit(25)!; },
+                return process::ExitCode(25)!; },
         error! => { if error != parse::Error::InvalidValue {
-                return process::exit(25)!;
+                return process::ExitCode(25)!;
             } },
     }
     match (&"high").parse[Level]() {
         !level => { if level.code != 1 {
-                return process::exit(41)!;
+                return process::ExitCode(41)!;
             } },
-        error! => { return process::exit(42)!; },
+        error! => { return process::ExitCode(42)!; },
     }
     match (&"low").parse[Level]() {
         !level => { _ = level;
-                return process::exit(43)!; },
+                return process::ExitCode(43)!; },
         error! => { if error != LevelError::Invalid {
-                return process::exit(44)!;
+                return process::ExitCode(44)!;
             } },
     }
     match (&"ffffffffffffffffffffffffffffffff").parseRadix[u128](16) {
         !value => { if value != u128::MAX {
-                return process::exit(26)!;
+                return process::ExitCode(26)!;
             } },
-        error! => { return process::exit(27)!; },
+        error! => { return process::ExitCode(27)!; },
     }
     match (&"100000000000000000000000000000000").parseRadix[u128](16) {
         !value => { _ = value;
-                return process::exit(28)!; },
+                return process::ExitCode(28)!; },
         error! => { if error != parse::Error::Overflow {
-                return process::exit(29)!;
+                return process::ExitCode(29)!;
             } },
     }
     if not expect_error_u8((&"+1").parse[u8](), parse::Error::InvalidSign) {
-        return process::exit(30)!;
+        return process::ExitCode(30)!;
     }
     if not expect_error_u8((&"0xff").parseRadix[u8](16), parse::Error::InvalidDigit) {
-        return process::exit(31)!;
+        return process::ExitCode(31)!;
     }
     if not expect_error_u8((&"0x").parse[u8](), parse::Error::InvalidDigit) {
-        return process::exit(32)!;
+        return process::ExitCode(32)!;
     }
     if not expect_error_u8((&"0b2").parse[u8](), parse::Error::InvalidDigit) {
-        return process::exit(33)!;
+        return process::ExitCode(33)!;
     }
     if not expect_u8((&b"255").parse[u8](), 255) {
-        return process::exit(34)!;
+        return process::ExitCode(34)!;
     }
     if not expect_u8((&b"0xff").parse[u8](), 255) {
-        return process::exit(35)!;
+        return process::ExitCode(35)!;
     }
     if not expect_u8((&b"ff").parseRadix[u8](16), 255) {
-        return process::exit(36)!;
+        return process::ExitCode(36)!;
     }
     match (&b"true").parse[bool]() {
         !value => { if not value {
-                return process::exit(37)!;
+                return process::ExitCode(37)!;
             } },
-        error! => { return process::exit(38)!; },
+        error! => { return process::ExitCode(38)!; },
     }
     if not expect_error_u8((&b"0xff").parseRadix[u8](16), parse::Error::InvalidDigit) {
-        return process::exit(39)!;
+        return process::ExitCode(39)!;
     }
     let invalidBytes: [u8; 1] = [255];
     if not expect_error_u8((&invalidBytes).parse[u8](), parse::Error::InvalidDigit) {
-        return process::exit(40)!;
+        return process::ExitCode(40)!;
     }
     !()
 }
@@ -1065,10 +1065,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut discard = io::DiscardingWriter::init();
     match discard.writeAll(&b"abcdef") {
         !ok => { _ = ok; },
-        error! => { return process::exit(1)!; },
+        error! => { return process::ExitCode(1)!; },
     }
     if discard.len() != 6 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
 
     let mut source = io::FixedBufferReader::init(&b"abcdef");
@@ -1080,20 +1080,20 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut n: usize;
     match limited.read(&mut copied[..]) {
         !value => { n = value; },
-        error! => { return process::exit(3)!; },
+        error! => { return process::ExitCode(3)!; },
     }
     if n != 3 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     if copied[0] != b'a' or copied[1] != b'b' or copied[2] != b'c' {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     match limited.read(&mut copied[..]) {
         !value => { n = value; },
-        error! => { return process::exit(6)!; },
+        error! => { return process::ExitCode(6)!; },
     }
     if n != 0 {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
     !()
 }
@@ -1142,34 +1142,34 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     match writer.writeAll(&b"abc") {
         !ok => { _ = ok; },
-        error! => { return process::exit(1)!; },
+        error! => { return process::ExitCode(1)!; },
     }
     if writer.len() != 3 or backing.len() != 0 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
 
     match writer.writeByte(b'd') {
         !ok => { _ = ok; },
-        error! => { return process::exit(3)!; },
+        error! => { return process::ExitCode(3)!; },
     }
     if writer.len() != 4 or backing.len() != 0 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
 
     match writer.writeAll(&b"efghij") {
         !ok => { _ = ok; },
-        error! => { return process::exit(5)!; },
+        error! => { return process::ExitCode(5)!; },
     }
     if writer.len() != 0 or backing.len() != 10 {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
 
     match writer.flush() {
         !ok => { _ = ok; },
-        error! => { return process::exit(7)!; },
+        error! => { return process::ExitCode(7)!; },
     }
     if backing.len() != 10 {
-        return process::exit(8)!;
+        return process::ExitCode(8)!;
     }
 
     let mut expected: &[u8] = &b"abcdefghij";
@@ -1177,7 +1177,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut index = 0usize;
     while index < written.len() {
         if written[index] != expected[index] {
-            return process::exit(9)!;
+            return process::ExitCode(9)!;
         }
         index += 1usize;
     }
@@ -1262,18 +1262,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     match writer.writeAll(&b"abcdef") {
         !ok => { _ = ok; },
-        error! => { return process::exit(1)!; },
+        error! => { return process::ExitCode(1)!; },
     }
     if writer.len() != 6 or backing.len() != 0 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
 
     match writer.flush() {
         !ok => { _ = ok; },
-        error! => { return process::exit(3)!; },
+        error! => { return process::ExitCode(3)!; },
     }
     if writer.len() != 0 or backing.len() != 6 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
 
     let expected: &[u8] = &b"abcdef";
@@ -1281,7 +1281,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut index = 0usize;
     while index < expected.len() {
         if written[index] != expected[index] {
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         }
         index += 1usize;
     }
@@ -1295,17 +1295,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
     match direct_writer.writeAll(&b"ghijkl") {
         !ok => { _ = ok; },
-        error! => { return process::exit(6)!; },
+        error! => { return process::ExitCode(6)!; },
     }
     if direct_writer.len() != 0 or direct_backing.len() != 6 {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
     let direct_expected: &[u8] = &b"ghijkl";
     let direct_written = direct_backing.written();
     index = 0usize;
     while index < direct_expected.len() {
         if direct_written[index] != direct_expected[index] {
-            return process::exit(8)!;
+            return process::ExitCode(8)!;
         }
         index += 1usize;
     }
@@ -1419,25 +1419,25 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
     match writer.writeAll(&b"abcdef") {
         !ok => { _ = ok; },
-        error! => { _ = error; return process::exit(1)!; },
+        error! => { _ = error; return process::ExitCode(1)!; },
     }
     match writer.flush() {
-        !ok => { _ = ok; return process::exit(2)!; },
+        !ok => { _ = ok; return process::ExitCode(2)!; },
         RetryError::Injected! => {},
-        RetryError::ShortWrite! => { return process::exit(3)!; },
+        RetryError::ShortWrite! => { return process::ExitCode(3)!; },
     }
     if writer.len() != 4usize
         or not writer.buffered().equals(&b"cdef")
         or not backing.written().equals(&b"ab")
     {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     match writer.flush() {
         !ok => { _ = ok; },
-        error! => { _ = error; return process::exit(5)!; },
+        error! => { _ = error; return process::ExitCode(5)!; },
     }
     if writer.len() != 0usize or not backing.written().equals(&b"abcdef") {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
 
     let mut zero = ZeroWriter { attempts: 0 };
@@ -1445,15 +1445,15 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut stalled = io::BufferedWriter[ZeroWriter]::init(&mut zero, &mut zeroStorage[..]);
     match stalled.writeAll(&b"xy") {
         !ok => { _ = ok; },
-        error! => { _ = error; return process::exit(7)!; },
+        error! => { _ = error; return process::ExitCode(7)!; },
     }
     match stalled.flush() {
-        !ok => { _ = ok; return process::exit(8)!; },
+        !ok => { _ = ok; return process::ExitCode(8)!; },
         RetryError::ShortWrite! => {},
-        RetryError::Injected! => { return process::exit(9)!; },
+        RetryError::Injected! => { return process::ExitCode(9)!; },
     }
     if stalled.len() != 2usize or not stalled.buffered().equals(&b"xy") or zero.attempts != 1usize {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
     !()
 }
@@ -1502,54 +1502,54 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut n: usize;
     match reader.read(&mut first[..]) {
         !value => { n = value; },
-        error! => { return process::exit(1)!; },
+        error! => { return process::ExitCode(1)!; },
     }
     if n != 2 or first[0] != b'a' or first[1] != b'b' {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     if reader.len() != 2 {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
 
     let mut second: [u8; 3] = [0; 3];
     match reader.read(&mut second[..]) {
         !value => { n = value; },
-        error! => { return process::exit(4)!; },
+        error! => { return process::ExitCode(4)!; },
     }
     if n != 2 or second[0] != b'c' or second[1] != b'd' {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     if reader.len() != 0 {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
 
     let mut third: [u8; 5] = [0; 5];
     match reader.read(&mut third[..]) {
         !value => { n = value; },
-        error! => { return process::exit(7)!; },
+        error! => { return process::ExitCode(7)!; },
     }
     if n != 5 {
-        return process::exit(8)!;
+        return process::ExitCode(8)!;
     }
     if third[0] != b'e' or third[1] != b'f' or third[2] != b'g' or third[3] != b'h' or third[4] != b'i' {
-        return process::exit(9)!;
+        return process::ExitCode(9)!;
     }
 
     let mut fourth: [u8; 2] = [0; 2];
     match reader.read(&mut fourth[..]) {
         !value => { n = value; },
-        error! => { return process::exit(10)!; },
+        error! => { return process::ExitCode(10)!; },
     }
     if n != 1 or fourth[0] != b'j' {
-        return process::exit(11)!;
+        return process::ExitCode(11)!;
     }
 
     match reader.read(&mut fourth[..]) {
         !value => { n = value; },
-        error! => { return process::exit(12)!; },
+        error! => { return process::ExitCode(12)!; },
     }
     if n != 0 {
-        return process::exit(13)!;
+        return process::ExitCode(13)!;
     }
     !()
 }
@@ -1618,13 +1618,13 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut bytes: [u8; 6] = [0; 6];
     match source.readExact(&mut bytes[..]) {
         !ok => { _ = ok; },
-        error! => { return process::exit(1)!; },
+        error! => { return process::ExitCode(1)!; },
     }
     let expected: &[u8] = &b"abcdef";
     let mut index = 0usize;
     while index < expected.len() {
         if bytes[index] != expected[index] {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         }
         index += 1usize;
     }
@@ -1633,7 +1633,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut too_many: [u8; 3] = [0; 3];
     match short.readExact(&mut too_many[..]) {
         !ok => { _ = ok;
-                return process::exit(3)!; },
+                return process::ExitCode(3)!; },
         error! => { },
     }
     !()
@@ -1724,9 +1724,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut reader = BadReader { marker: false };
     let mut destination: [u8; 2] = [0; 2];
     match reader.readExact(&mut destination[..]) {
-        !ok => { _ = ok; return process::exit(1)!; },
+        !ok => { _ = ok; return process::ExitCode(1)!; },
         TransferError::InvalidRead! => {},
-        error! => { _ = error; return process::exit(10)!; },
+        error! => { _ = error; return process::ExitCode(10)!; },
     }
 
     let mut bufferedStorage: [u8; 4] = [0; 4];
@@ -1735,12 +1735,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
         &mut bufferedStorage[..],
     );
     match bufferedReader.read(&mut destination[..]) {
-        !ok => { _ = ok; return process::exit(2)!; },
+        !ok => { _ = ok; return process::ExitCode(2)!; },
         TransferError::InvalidRead! => {},
-        error! => { _ = error; return process::exit(11)!; },
+        error! => { _ = error; return process::ExitCode(11)!; },
     }
     if bufferedReader.len() != 0 {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
 
     let mut limitedReader = io::LimitedReader[BadReader]::init(
@@ -1748,26 +1748,26 @@ pub fn main(init: process::Init) process::ExitCode!() {
         io::Limit::limited(2usize),
     );
     match limitedReader.read(&mut destination[..]) {
-        !ok => { _ = ok; return process::exit(4)!; },
+        !ok => { _ = ok; return process::ExitCode(4)!; },
         TransferError::InvalidRead! => {},
-        error! => { _ = error; return process::exit(12)!; },
+        error! => { _ = error; return process::ExitCode(12)!; },
     }
     match limitedReader.remaining() {
         ?remaining => {
             if remaining != 2usize {
-                return process::exit(5)!;
+                return process::ExitCode(5)!;
             }
         },
         null => {
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         },
     }
 
     let mut writer = BadWriter { marker: false };
     match writer.writeAll(&b"ab") {
-        !ok => { _ = ok; return process::exit(7)!; },
+        !ok => { _ = ok; return process::ExitCode(7)!; },
         TransferError::InvalidWrite! => {},
-        error! => { _ = error; return process::exit(13)!; },
+        error! => { _ = error; return process::ExitCode(13)!; },
     }
 
     let mut directBacking = BadWriter { marker: false };
@@ -1777,9 +1777,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
         &mut directBuffer[..],
     );
     match direct.write(&b"ab") {
-        !ok => { _ = ok; return process::exit(18)!; },
+        !ok => { _ = ok; return process::ExitCode(18)!; },
         TransferError::InvalidWrite! => {},
-        error! => { _ = error; return process::exit(19)!; },
+        error! => { _ = error; return process::ExitCode(19)!; },
     }
 
     let mut bufferedWriterStorage: [u8; 4] = [0; 4];
@@ -1789,15 +1789,15 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
     match bufferedWriter.writeAll(&b"ab") {
         !ok => { _ = ok; },
-        error! => { _ = error; return process::exit(15)!; },
+        error! => { _ = error; return process::ExitCode(15)!; },
     }
     match bufferedWriter.flush() {
-        !ok => { _ = ok; return process::exit(8)!; },
+        !ok => { _ = ok; return process::ExitCode(8)!; },
         TransferError::InvalidWrite! => {},
-        error! => { _ = error; return process::exit(17)!; },
+        error! => { _ = error; return process::ExitCode(17)!; },
     }
     if bufferedWriter.len() != 2usize {
-        return process::exit(9)!;
+        return process::ExitCode(9)!;
     }
     !()
 }

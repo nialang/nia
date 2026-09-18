@@ -268,7 +268,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::ExitCode(1)!;
         },
     }
     !()
@@ -302,7 +302,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::ExitCode(1)!;
         },
     }
     match stdout.flush() {
@@ -310,7 +310,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return (2 as process::ExitCode)!;
+            return process::ExitCode(2)!;
         },
     }
     !()
@@ -340,7 +340,7 @@ fn reject_file_writer(file: fs::File) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::ExitCode(1)!;
         },
     }
     !()
@@ -421,7 +421,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::ExitCode(1)!;
         },
     }
     !()
@@ -1050,35 +1050,35 @@ pub fn main(init: process::Init) process::ExitCode!() {
         !value => value,
         error! => {
             _ = error;
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     };
-    let mut text = string::String::fromUtf8View(allocator, utf8).exit().?;
-    defer text.deinit(allocator).exit().?;
+    let mut text = string::String::fromUtf8View(allocator, utf8).?;
+    defer text.deinit(allocator).?;
     let answer = 42;
     let formatArgs: [&fmt::Format; 1] = [&answer];
     match text.appendFormat(allocator, &" {}", &formatArgs) {
         !ok => { _ = ok; },
         error! => {
             _ = error;
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     }
 
-    let pathText = string::String::fromSlice(allocator, &"workflow-λ.txt").exit().?;
+    let pathText = string::String::fromSlice(allocator, &"workflow-λ.txt").?;
     let mut path = fs::Path::fromString(pathText);
-    defer path.deinit(allocator).exit().?;
+    defer path.deinit(allocator).?;
 
-    let mut file = fs::File::create(path.view(), fs::CreateOptions::init()).exit().?;
+    let mut file = fs::File::create(path.view(), fs::CreateOptions::init()).?;
     let mut fileOpen = true;
     defer if fileOpen {
-        file.close().exit().?;
+        file.close().?;
     };
     let mut fileBuffer: [u8; 16] = [0; 16];
-    let mut writer: io::FileWriter = file.writer(&mut fileBuffer[..]).exit().?;
-    writer.writeUtf8(text.text()).exit().?;
-    writer.flush().exit().?;
-    file.close().exit().?;
+    let mut writer: io::FileWriter = file.writer(&mut fileBuffer[..]).?;
+    writer.writeUtf8(text.text()).?;
+    writer.flush().?;
+    file.close().?;
     fileOpen = false;
 
     let arguments: [&[char]; 1] = [path.text()];
@@ -1086,10 +1086,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .withArguments(&arguments)
         .withStdout(process::StdIo::Ignore);
     let mut spawn = command.spawn();
-    let mut child = spawn.finish().exit().?;
-    let term = child.wait().exit().?;
+    let mut child = spawn.finish().?;
+    let term = child.wait().?;
     if not term.succeeded() {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     !()
 }
@@ -1103,7 +1103,7 @@ using std::fmt::Format;
 using std::fs::{CreateOptions, File};
 using std::io::{FileWriter, Writer};
 using std::mem::{Allocator, FixedBufferAllocator};
-using std::process::{Command, ExitCode, Init, StdIo, exit};
+using std::process::{Command, ExitCode, Init, StdIo};
 using std::unicode::Utf8View;
 
 pub fn main(init: Init) ExitCode!() {
@@ -1116,35 +1116,35 @@ pub fn main(init: Init) ExitCode!() {
         !value => value,
         error! => {
             _ = error;
-            return exit(3)!;
+            return ExitCode(3)!;
         },
     };
-    let mut text = String::fromUtf8View(allocator, utf8).exit().?;
-    defer text.deinit(allocator).exit().?;
+    let mut text = String::fromUtf8View(allocator, utf8).?;
+    defer text.deinit(allocator).?;
     let answer = 42;
     let formatArgs: [&Format; 1] = [&answer];
     match text.appendFormat(allocator, &" {}", &formatArgs) {
         !ok => { _ = ok; },
         error! => {
             _ = error;
-            return exit(1)!;
+            return ExitCode(1)!;
         },
     }
 
-    let pathText = String::fromSlice(allocator, &"workflow-λ.txt").exit().?;
+    let pathText = String::fromSlice(allocator, &"workflow-λ.txt").?;
     let mut path = Path::fromString(pathText);
-    defer path.deinit(allocator).exit().?;
+    defer path.deinit(allocator).?;
 
-    let mut file = File::create(path.view(), CreateOptions::init()).exit().?;
+    let mut file = File::create(path.view(), CreateOptions::init()).?;
     let mut fileOpen = true;
     defer if fileOpen {
-        file.close().exit().?;
+        file.close().?;
     };
     let mut fileBuffer: [u8; 16] = [0; 16];
-    let mut writer: FileWriter = file.writer(&mut fileBuffer[..]).exit().?;
-    writer.writeUtf8(text.text()).exit().?;
-    writer.flush().exit().?;
-    file.close().exit().?;
+    let mut writer: FileWriter = file.writer(&mut fileBuffer[..]).?;
+    writer.writeUtf8(text.text()).?;
+    writer.flush().?;
+    file.close().?;
     fileOpen = false;
 
     let arguments: [&[char]; 1] = [path.text()];
@@ -1152,10 +1152,10 @@ pub fn main(init: Init) ExitCode!() {
         .withArguments(&arguments)
         .withStdout(StdIo::Ignore);
     let mut spawn = command.spawn();
-    let mut child = spawn.finish().exit().?;
-    let term = child.wait().exit().?;
+    let mut child = spawn.finish().?;
+    let term = child.wait().?;
     if not term.succeeded() {
-        return exit(2)!;
+        return ExitCode(2)!;
     }
     !()
 }

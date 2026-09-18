@@ -65,7 +65,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     ];
     let first = cases[0].run();
     if not first.isPassed() {
-        return process::exit(9)!;
+        return process::ExitCode(9)!;
     }
     _ = first.name();
     let failed = cases[1].run();
@@ -73,19 +73,19 @@ pub fn main(init: process::Init) process::ExitCode!() {
         ?error => match error {
             .AssertionFailed(location) => {
                 if location.line() != 10 or location.column() != 5 {
-                    return process::exit(15)!;
+                    return process::ExitCode(15)!;
                 }
             },
-            .ValuesEqual(_) => return process::exit(16)!,
-            .ValuesNotEqual(_) => return process::exit(17)!,
+            .ValuesEqual(_) => return process::ExitCode(16)!,
+            .ValuesNotEqual(_) => return process::ExitCode(17)!,
         },
-        null => return process::exit(18)!,
+        null => return process::ExitCode(18)!,
     }
     let summary = test::Runner::init(&cases[..]).run();
     if summary.total() != 2 or summary.passed() != 1 or summary.failed() != 1
         or summary.skipped() != 0 or summary.isSuccessful()
     {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
     let mut caseRuns: usize = 0;
     let stackCaseState = \[&mut caseRuns] -> {
@@ -96,7 +96,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let stackCases: [test::Case; 1] = [.init(&"stack-backed", stackCase)];
     let stackSummary = test::Runner::init(&stackCases[..]).run();
     if stackSummary.total() != 1 or stackSummary.passed() != 1 or caseRuns != 1 {
-        return process::exit(14)!;
+        return process::ExitCode(14)!;
     }
     let failFastCases: [test::Case; 2] = [
         .init(&"failing", &failingCase),
@@ -106,11 +106,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if failFast.total() != 2 or failFast.passed() != 0 or failFast.failed() != 1
         or failFast.skipped() != 1
     {
-        return process::exit(11)!;
+        return process::ExitCode(11)!;
     }
     let reported = test::Runner::init(&cases[..]).runWith(&recordCaseResult);
     if reported.total() != 2 or reported.passed() != 1 or reported.failed() != 1 {
-        return process::exit(12)!;
+        return process::ExitCode(12)!;
     }
     let mut reportedCount: usize = 0;
     let mut reportedFailures: usize = 0;
@@ -124,7 +124,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     );
     if captured.total() != 2 or reportedCount != 2 or reportedFailures != 1 {
-        return process::exit(13)!;
+        return process::ExitCode(13)!;
     }
     !()
 }
@@ -137,7 +137,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    process::exit(7)!
+    process::ExitCode(7)!
 }
 "#,
     )
@@ -148,7 +148,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    process::exit(8)!
+    process::ExitCode(8)!
 }
 "#,
     )

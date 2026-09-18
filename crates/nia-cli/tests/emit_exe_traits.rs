@@ -82,8 +82,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut cursor = iter::Cursor[Counter]::init(Counter { value: 7 });
     match cursor.advance() {
-        ?value => if value.value != 7 { return process::exit(1)!; },
-        null => return process::exit(2)!,
+        ?value => if value.value != 7 { return process::ExitCode(1)!; },
+        null => return process::ExitCode(2)!,
     }
     !()
 }

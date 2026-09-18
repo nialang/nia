@@ -4,11 +4,11 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     let argument = match init.args().get(1) {
         ?argument => argument,
-        null => return process::exit(1)!,
+        null => return process::ExitCode(1)!,
     };
     let mut buffer: [u8; 128] = [0; 128];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
-    stdout.print(&"host={}\n", &[&argument]).exit().?;
-    stdout.flush().exit().?;
+    stdout.print(&"host={}\n", &[&argument]).?;
+    stdout.flush().?;
     !()
 }

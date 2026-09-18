@@ -117,10 +117,11 @@ fn const_tuple_structs_support_construction_and_matching() {
         r#"
 struct FooId(u64)
 const ID: FooId = FooId(42u64);
+const RAW: u64 = ID.0;
 
 fn main() u64 {
     match ID {
-        FooId(value) => value,
+        FooId(value) => value + RAW,
     }
 }
 "#,

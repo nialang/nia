@@ -409,6 +409,7 @@ impl ModuleGraph {
                 parent: None,
                 children: SymbolMap::default(),
                 declarations: Vec::new(),
+                provider_dependencies: Vec::new(),
                 entry_module: true,
                 semantic_selected: true,
                 process_used_paths: true,
@@ -641,6 +642,24 @@ impl ModuleGraph {
         }
     }
 
+    /// Records a provider module selected for semantic analysis of `module_id`.
+    pub fn add_provider_dependency(
+        &mut self,
+        module_id: ModuleId,
+        provider_module: ModuleId,
+    ) -> bool {
+        let Some(module) = self.get_mut(module_id) else {
+            return false;
+        };
+        match module.provider_dependencies.binary_search(&provider_module) {
+            Ok(_) => false,
+            Err(index) => {
+                module.provider_dependencies.insert(index, provider_module);
+                true
+            }
+        }
+    }
+
     /// Enables processing of declared child modules.
     pub fn mark_process_declared_children(&mut self, module_id: ModuleId) {
         if let Some(module) = self.get_mut(module_id) {
@@ -847,6 +866,7 @@ impl ModuleGraph {
             parent,
             children: SymbolMap::default(),
             declarations: Vec::new(),
+            provider_dependencies: Vec::new(),
             entry_module: false,
             semantic_selected: process_used_paths,
             process_used_paths,
@@ -900,6 +920,8 @@ pub struct ModuleNode {
     pub children: SymbolMap<ModuleId>,
     /// Source declarations exported by this module.
     pub declarations: Vec<ModuleDeclaration>,
+    /// Provider modules selected through this module's semantic demands.
+    pub provider_dependencies: Vec<ModuleId>,
     /// Whether semantic analysis selected this module.
     pub semantic_selected: bool,
     /// Whether `using` paths should be processed.
@@ -924,6 +946,8 @@ pub trait ModuleGraphLookup {
         module_id: ModuleId,
         name: &SymbolId,
     ) -> Option<(ModuleId, Visibility)>;
+    /// Returns provider modules selected for this module's semantic demands.
+    fn provider_dependencies(&self, module_id: ModuleId) -> Vec<ModuleId>;
 
     /// Returns the package root containing a module.
     fn current_package_root_module(&self, module_id: ModuleId) -> Option<ModuleId> {
@@ -989,6 +1013,12 @@ impl ModuleGraphLookup for ModuleGraph {
             .find(|declaration| declaration.name == *name && declaration.target == target)?;
         Some((target, declaration.visibility))
     }
+
+    fn provider_dependencies(&self, module_id: ModuleId) -> Vec<ModuleId> {
+        self.get(module_id)
+            .map(|module| module.provider_dependencies.clone())
+            .unwrap_or_default()
+    }
 }
 
 impl ModuleGraphLookup for ModuleGraphSnapshot {
@@ -1021,6 +1051,12 @@ impl ModuleGraphLookup for ModuleGraphSnapshot {
             .find(|declaration| declaration.name == *name && declaration.target == target)?;
         Some((target, declaration.visibility))
     }
+
+    fn provider_dependencies(&self, module_id: ModuleId) -> Vec<ModuleId> {
+        self.get(module_id)
+            .map(|module| module.provider_dependencies.clone())
+            .unwrap_or_default()
+    }
 }
 
 impl<T> ModuleGraphLookup for Arc<T>
@@ -1049,6 +1085,10 @@ where
         name: &SymbolId,
     ) -> Option<(ModuleId, Visibility)> {
         self.as_ref().child_declaration(module_id, name)
+    }
+
+    fn provider_dependencies(&self, module_id: ModuleId) -> Vec<ModuleId> {
+        self.as_ref().provider_dependencies(module_id)
     }
 }
 

@@ -89,6 +89,7 @@ pub(super) fn compiler_query_registry() -> nia_query::QueryRegistry {
         ModuleGraphEntryQuery,
         ModuleGraphParentQuery,
         ModuleGraphPathQuery,
+        ModuleGraphProviderDependenciesQuery,
         ModuleGraphQuery,
         ModuleItemTreeInputQuery,
         ModuleItemTreeQuery,

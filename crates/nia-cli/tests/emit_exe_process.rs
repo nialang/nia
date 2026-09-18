@@ -79,27 +79,27 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .withArguments(&arguments)
         .withStdout(process::StdIo::Pipe);
     let mut spawn = command.spawn();
-    let mut child = spawn.finish().exit().?;
+    let mut child = spawn.finish().?;
     let mut stdout = match child.takeStdout() {
         ?value => value,
-        null => return process::exit(2)!,
+        null => return process::ExitCode(2)!,
     };
     let mut bytes: [u8; 9] = [0; 9];
     match stdout.readExact(&mut bytes[..]) {
         !ok => { _ = ok; },
-        error! => return process::exit(3)!,
+        error! => return process::ExitCode(3)!,
     }
     match stdout.close() {
         !ok => { _ = ok; },
-        error! => return process::exit(4)!,
+        error! => return process::ExitCode(4)!,
     }
-    let term = child.wait().exit().?;
+    let term = child.wait().?;
     if not term.succeeded() or bytes[0] != b'c' or bytes[1] != b'o'
         or bytes[2] != b'l' or bytes[3] != b'l' or bytes[4] != b'i'
         or bytes[5] != b's' or bytes[6] != b'i' or bytes[7] != b'o'
         or bytes[8] != b'n'
     {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     !()
 }
@@ -150,34 +150,34 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     };
     let pid: process::ProcessId = child.pid();
     if pid.raw() <= 0 {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     let term = match child.wait() {
         !value => {
             value
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
     if not term.succeeded() {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     let code = match term.exitCode() {
         ?value => {
             value
         },
         null => {
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     };
     if code != 0 {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     !()
 }
@@ -221,7 +221,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     };
     let term = match child.wait() {
@@ -229,22 +229,22 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
     if term.succeeded() {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     let code = match term.exitCode() {
         ?value => {
             value
         },
         null => {
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     };
     if code != 1 {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     !()
 }
@@ -287,12 +287,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match invalidPathSpawn.finish() {
         !child => {
             _ = child;
-            return process::exit(7)!;
+            return process::ExitCode(7)!;
         },
         process::Error::Path(std::fs::PathError::ContainsNul)! => {},
         error! => {
             _ = error;
-            return process::exit(8)!;
+            return process::ExitCode(8)!;
         },
     }
 
@@ -303,12 +303,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match invalidSpawn.finish() {
         !child => {
             _ = child;
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
         process::Error::ArgumentContainsNul(1)! => {},
         error! => {
             _ = error;
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     }
 
@@ -320,12 +320,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match noMemorySpawn.finish(allocator) {
         !child => {
             _ = child;
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
         process::Error::Allocation(mem::Error::OutOfMemory)! => {},
         error! => {
             _ = error;
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         },
     }
 
@@ -333,17 +333,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments);
     let mut spawn = command.spawn();
-    let mut child = spawn.finish().exit().?;
+    let mut child = spawn.finish().?;
     let term = match child.wait() {
         !value => {
             value
         },
         error! => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     };
     if not term.succeeded() {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     !()
 }
@@ -385,32 +385,32 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut page = mem::PageAllocator::init();
     let allocator: &mut mem::Allocator = &mut page;
     let mut longPath = std::Path::init();
-    defer longPath.deinit(allocator).exit().?;
+    defer longPath.deinit(allocator).?;
     let mut index: usize = 0;
     while index < 5000usize {
-        longPath.push(allocator, 'a').exit().?;
+        longPath.push(allocator, 'a').?;
         index += 1;
     }
 
     let executable = process::Command::init(longPath.view(), init.env());
     let mut executableSpawn = executable.spawnWithAllocator(allocator);
     match executableSpawn.finish(allocator) {
-        !child => { _ = child; return process::exit(1)!; },
+        !child => { _ = child; return process::ExitCode(1)!; },
         process::Error::Spawn(
             process::SpawnError::Exec(process::SystemError::TooLong),
         )! => {},
-        error! => { _ = error; return process::exit(2)!; },
+        error! => { _ = error; return process::ExitCode(2)!; },
     }
 
     let cwd = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
         .withCwd(longPath.view());
     let mut cwdSpawn = cwd.spawnWithAllocator(allocator);
     match cwdSpawn.finish(allocator) {
-        !child => { _ = child; return process::exit(3)!; },
+        !child => { _ = child; return process::ExitCode(3)!; },
         process::Error::Spawn(
             process::SpawnError::Cwd(process::SystemError::TooLong),
         )! => {},
-        error! => { _ = error; return process::exit(4)!; },
+        error! => { _ = error; return process::ExitCode(4)!; },
     }
     !()
 }
@@ -462,42 +462,42 @@ fn expectEnvironmentError(
     match commandSpawn.finish() {
         !child => {
             _ = child;
-            return process::exit(20)!;
+            return process::ExitCode(20)!;
         },
         process::Error::Environment { index, cause }! => {
             if index != expectedIndex {
-                return process::exit(21)!;
+                return process::ExitCode(21)!;
             }
             match cause {
                 process::EnvEntryError::EmptyName => match expectedCause {
                     process::EnvEntryError::EmptyName => {},
-                    _ => return process::exit(22)!,
+                    _ => return process::ExitCode(22)!,
                 },
                 process::EnvEntryError::NameContainsEquals => match expectedCause {
                     process::EnvEntryError::NameContainsEquals => {},
-                    _ => return process::exit(23)!,
+                    _ => return process::ExitCode(23)!,
                 },
                 process::EnvEntryError::NameContainsNul => match expectedCause {
                     process::EnvEntryError::NameContainsNul => {},
-                    _ => return process::exit(24)!,
+                    _ => return process::ExitCode(24)!,
                 },
                 process::EnvEntryError::ValueContainsNul => match expectedCause {
                     process::EnvEntryError::ValueContainsNul => {},
-                    _ => return process::exit(25)!,
+                    _ => return process::ExitCode(25)!,
                 },
                 process::EnvEntryError::DuplicateName(firstIndex) => match expectedCause {
                     process::EnvEntryError::DuplicateName(expectedFirstIndex) => {
                         if firstIndex != expectedFirstIndex {
-                            return process::exit(26)!;
+                            return process::ExitCode(26)!;
                         }
                     },
-                    _ => return process::exit(27)!,
+                    _ => return process::ExitCode(27)!,
                 },
             }
         },
         error! => {
             _ = error;
-            return process::exit(28)!;
+            return process::ExitCode(28)!;
         },
     }
     !()
@@ -513,10 +513,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .withArguments(&exactArguments)
         .withEnvironment(&exactEnvironment);
     let mut exactSpawn = exact.spawn();
-    let mut exactChild = exactSpawn.finish().exit().?;
-    let exactTerm = exactChild.wait().exit().?;
+    let mut exactChild = exactSpawn.finish().?;
+    let exactTerm = exactChild.wait().?;
     if not exactTerm.succeeded() {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
 
     let emptyArguments: [&[char]; 2] = [
@@ -527,10 +527,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .withArguments(&emptyArguments)
         .withoutEnvironment();
     let mut emptySpawn = empty.spawn();
-    let mut emptyChild = emptySpawn.finish().exit().?;
-    let emptyTerm = emptyChild.wait().exit().?;
+    let mut emptyChild = emptySpawn.finish().?;
+    let emptyTerm = emptyChild.wait().?;
     if not emptyTerm.succeeded() {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
 
     let emptyName: [process::EnvEntry; 1] = [process::EnvEntry::init(&"", &"value")];
@@ -562,12 +562,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match noMemorySpawn.finish(allocator) {
         !child => {
             _ = child;
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
         process::Error::Allocation(mem::Error::OutOfMemory)! => {},
         error! => {
             _ = error;
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     }
     !()
@@ -695,10 +695,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .withArguments(&arguments)
         .withEnvironment(&environment);
     let mut denseSpawn = dense.spawn();
-    let mut denseChild = denseSpawn.finish().exit().?;
-    let term = denseChild.wait().exit().?;
+    let mut denseChild = denseSpawn.finish().?;
+    let term = denseChild.wait().?;
     if not term.succeeded() {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
 
     let mut rejecting = RejectPointerAllocator::init();
@@ -708,19 +708,19 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match noPointersSpawn.finish(allocator) {
         !child => {
             _ = child;
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
         process::Error::Allocation(mem::Error::OutOfMemory)! => {},
         error! => {
             _ = error;
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
     }
     if not rejecting.rejectedPointers() {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
     if rejecting.active() != 0usize {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
     !()
 }
@@ -812,45 +812,45 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut allocator = RejectFreeAllocator::init();
     let mut failedAttempt = failed.spawnWithAllocator(&mut allocator);
     if allocator.liveBlocks != 5usize {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     allocator.rejectNext(5usize);
     match failedAttempt.finish(&mut allocator) {
-        !child => { _ = child; return process::exit(2)!; },
+        !child => { _ = child; return process::ExitCode(2)!; },
         process::Error::Allocation(mem::Error::Invalid)! => {},
-        error! => { _ = error; return process::exit(3)!; },
+        error! => { _ = error; return process::ExitCode(3)!; },
     }
     if allocator.rejectedFrees != 0usize or allocator.liveBlocks != 5usize {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     match failedAttempt.finish(&mut allocator) {
-        !child => { _ = child; return process::exit(5)!; },
+        !child => { _ = child; return process::ExitCode(5)!; },
         process::Error::Spawn(
             process::SpawnError::Exec(process::SystemError::NotFound),
         )! => {},
-        error! => { _ = error; return process::exit(6)!; },
+        error! => { _ = error; return process::ExitCode(6)!; },
     }
     if allocator.liveBlocks != 0usize {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
 
     let succeeded = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
     let mut succeededAttempt = succeeded.spawnWithAllocator(&mut allocator);
     allocator.rejectNext(2usize);
     match succeededAttempt.finish(&mut allocator) {
-        !child => { _ = child; return process::exit(8)!; },
+        !child => { _ = child; return process::ExitCode(8)!; },
         process::Error::Allocation(mem::Error::Invalid)! => {},
-        error! => { _ = error; return process::exit(9)!; },
+        error! => { _ = error; return process::ExitCode(9)!; },
     }
     if allocator.rejectedFrees != 0usize or allocator.liveBlocks != 2usize {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
-    let mut child = succeededAttempt.finish(&mut allocator).exit().?;
+    let mut child = succeededAttempt.finish(&mut allocator).?;
     if allocator.liveBlocks != 0usize {
-        return process::exit(11)!;
+        return process::ExitCode(11)!;
     }
-    if not child.wait().exit().?.succeeded() {
-        return process::exit(12)!;
+    if not child.wait().?.succeeded() {
+        return process::ExitCode(12)!;
     }
     !()
 }
@@ -930,20 +930,20 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
     let mut attempt = command.spawn();
     let firstPid = match attempt.finish() {
-        !child => { _ = child; return process::exit(1)!; },
+        !child => { _ = child; return process::ExitCode(1)!; },
         process::Error::Spawn(process::SpawnError::Reap {
             stage: process::SpawnStage::Exec,
             primary: process::SystemError::NotFound,
             cause: process::SystemError::PermissionDenied,
             pid,
         })! => pid.raw(),
-        error! => { _ = error; return process::exit(2)!; },
+        error! => { _ = error; return process::ExitCode(2)!; },
     };
     if firstPid <= 0 {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     match attempt.finish() {
-        !child => { _ = child; return process::exit(4)!; },
+        !child => { _ = child; return process::ExitCode(4)!; },
         process::Error::Spawn(process::SpawnError::Reap {
             stage: process::SpawnStage::Exec,
             primary: process::SystemError::NotFound,
@@ -951,10 +951,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
             pid,
         })! => {
             if pid.raw() != firstPid {
-                return process::exit(5)!;
+                return process::ExitCode(5)!;
             }
         },
-        error! => { _ = error; return process::exit(6)!; },
+        error! => { _ = error; return process::ExitCode(6)!; },
     }
     !()
 }
@@ -999,22 +999,22 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .withArguments(&arguments)
         .withStdout(process::StdIo::Ignore);
     let mut spawn = command.spawn();
-    let mut child = spawn.finish().exit().?;
+    let mut child = spawn.finish().?;
     let term = match child.wait() {
         !value => {
             value
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
     if not term.succeeded() {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     let mut buffer: [u8; 64] = [0; 64];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
-    stdout.writeAll(&b"ok").exit().?;
-    stdout.flush().exit().?;
+    stdout.writeAll(&b"ok").?;
+    stdout.flush().?;
     !()
 }
 "#,
@@ -1058,22 +1058,22 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .withArguments(&arguments)
         .withStderr(process::StdIo::Ignore);
     let mut spawn = command.spawn();
-    let mut child = spawn.finish().exit().?;
+    let mut child = spawn.finish().?;
     let term = match child.wait() {
         !value => {
             value
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
     if not term.succeeded() {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     let mut buffer: [u8; 64] = [0; 64];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
-    stdout.writeAll(&b"ok").exit().?;
-    stdout.flush().exit().?;
+    stdout.writeAll(&b"ok").?;
+    stdout.flush().?;
     !()
 }
 "#,
@@ -1120,22 +1120,22 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .withStdout(process::StdIo::Ignore)
         .withStderr(process::StdIo::Ignore);
     let mut spawn = command.spawn();
-    let mut child = spawn.finish().exit().?;
+    let mut child = spawn.finish().?;
     let term = match child.wait() {
         !value => {
             value
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
     if not term.succeeded() {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     let mut buffer: [u8; 64] = [0; 64];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
-    stdout.writeAll(&b"ok").exit().?;
-    stdout.flush().exit().?;
+    stdout.writeAll(&b"ok").?;
+    stdout.flush().?;
     !()
 }
 "#,
@@ -1186,11 +1186,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
         process::Error::Spawn(process::SpawnError::Exec(process::SystemError::NotFound))! => return !(),
         error! => {
             _ = error;
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
     _ = child;
-    return process::exit(3)!;
+    return process::ExitCode(3)!;
 }
 "#,
     )
@@ -1243,12 +1243,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
                     index += 1;
                     continue;
                 } else {
-                    return process::exit(2)!;
+                    return process::ExitCode(2)!;
                 }
             },
         };
         _ = child;
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
 
     let good = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
@@ -1256,17 +1256,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .withStdout(process::StdIo::Ignore)
         .withStderr(process::StdIo::Ignore);
     let mut goodSpawn = good.spawn();
-    let mut goodChild = goodSpawn.finish().exit().?;
+    let mut goodChild = goodSpawn.finish().?;
     let term = match goodChild.wait() {
         !value => {
             value
         },
         error! => {
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
     };
     if not term.succeeded() {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
     !()
 }
@@ -1315,7 +1315,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
     let mut stdout = match child.takeStdout() {
@@ -1323,26 +1323,26 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         null => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     };
     let mut readBuffer: [u8; 16] = [0; 16];
     let mut output: [u8; 11] = [0; 11];
     {
         let mut reader = stdout.buffered(&mut readBuffer[..]);
-        reader.readExact(&mut output[..]).exit().?;
+        reader.readExact(&mut output[..]).?;
     }
-    stdout.close().exit().?;
+    stdout.close().?;
     let term = match child.wait() {
         !value => {
             value
         },
         error! => {
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     };
     if not term.succeeded() {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     let expected: [u8; 11] = [
         b'p',
@@ -1360,7 +1360,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut index = 0usize;
     while index < output.len() {
         if output[index] != expected[index] {
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         }
         index += 1usize;
     }
@@ -1411,23 +1411,23 @@ pub fn main(init: process::Init) process::ExitCode!() {
         !value => value,
         error! => {
             _ = error;
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     };
     let mut stderr = match child.takeStderr() {
         ?value => value,
-        null => return process::exit(2)!,
+        null => return process::ExitCode(2)!,
     };
     let mut output: [u8; 10] = [0; 10];
-    stderr.readExact(&mut output[..]).exit().?;
-    stderr.close().exit().?;
-    let term = child.wait().exit().?;
+    stderr.readExact(&mut output[..]).?;
+    stderr.close().?;
+    let term = child.wait().?;
     if not term.succeeded() {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     let expected: [u8; 10] = [b'p', b'i', b'p', b'e', b'-', b'e', b'r', b'r', b'o', b'r'];
     if not (&output[..]).equals(&expected[..]) {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     !()
 }
@@ -1474,7 +1474,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
     let mut stdout = match child.takeStdout() {
@@ -1482,7 +1482,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         null => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     };
     let term = match child.wait() {
@@ -1490,11 +1490,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     };
     if not term.succeeded() {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     let mut byte: [u8; 1] = [0];
     let amount = match stdout.read(&mut byte[..]) {
@@ -1502,24 +1502,24 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         },
     };
-    stdout.close().exit().?;
-    stdout.close().exit().?;
+    stdout.close().?;
+    stdout.close().?;
     match stdout.read(&mut byte[..]) {
         !value => {
             _ = value;
-            return process::exit(8)!;
+            return process::ExitCode(8)!;
         },
         io::Error::Closed! => {},
         error! => {
             _ = error;
-            return process::exit(9)!;
+            return process::ExitCode(9)!;
         },
     }
     if amount != 0usize {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
     !()
 }
@@ -1567,7 +1567,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
 
@@ -1576,46 +1576,46 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         null => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     };
     let mut writeBuffer: [u8; 16] = [0; 16];
     {
         let mut writer = stdin.buffered(&mut writeBuffer[..]);
-        writer.writeAll(&b"roundtrip").exit().?;
-        writer.flush().exit().?;
+        writer.writeAll(&b"roundtrip").?;
+        writer.flush().?;
     }
-    stdin.close().exit().?;
+    stdin.close().?;
 
     let mut stdout = match child.takeStdout() {
         ?value => {
             value
         },
         null => {
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     };
     let mut output: [u8; 9] = [0; 9];
-    stdout.readExact(&mut output[..]).exit().?;
-    stdout.close().exit().?;
+    stdout.readExact(&mut output[..]).?;
+    stdout.close().?;
 
     let term = match child.wait() {
         !value => {
             value
         },
         error! => {
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
     };
     if not term.succeeded() {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
 
     let expected: [u8; 9] = [b'r', b'o', b'u', b'n', b'd', b't', b'r', b'i', b'p'];
     let mut index = 0usize;
     while index < output.len() {
         if output[index] != expected[index] {
-            return process::exit(7)!;
+            return process::ExitCode(7)!;
         }
         index += 1usize;
     }
@@ -1664,7 +1664,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
     let term = match child.wait() {
@@ -1672,11 +1672,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     };
     if not term.succeeded() {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     !()
 }
@@ -1721,7 +1721,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
     let first = match child.wait() {
@@ -1729,7 +1729,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     };
     let second = match child.wait() {
@@ -1737,11 +1737,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     };
     if not first.succeeded() or not second.succeeded() {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     !()
 }
@@ -1786,7 +1786,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
     let mut spins = 0usize;
@@ -1796,30 +1796,30 @@ pub fn main(init: process::Init) process::ExitCode!() {
                 value
             },
             error! => {
-                return process::exit(3)!;
+                return process::ExitCode(3)!;
             },
         };
         match maybe {
             ?term => {
                 if not term.succeeded() {
-                    return process::exit(4)!;
+                    return process::ExitCode(4)!;
                 }
                 let again = match child.tryWait() {
                     !value => {
                         value
                     },
                     error! => {
-                        return process::exit(5)!;
+                        return process::ExitCode(5)!;
                     },
                 };
                 match again {
                     ?cached => {
                         if not cached.succeeded() {
-                            return process::exit(6)!;
+                            return process::ExitCode(6)!;
                         }
                     },
                     null => {
-                        return process::exit(7)!;
+                        return process::ExitCode(7)!;
                     },
                 }
                 return !();
@@ -1828,7 +1828,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         }
         spins += 1usize;
     }
-    return process::exit(8)!;
+    return process::ExitCode(8)!;
 }
 "#,
     )
@@ -1873,7 +1873,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
     let first = match child.tryWait() {
@@ -1881,27 +1881,27 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     };
     match first {
         ?term => {
             _ = term;
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
         null => {},
     }
-    child.closeStdin().exit().?;
+    child.closeStdin().?;
     let term = match child.wait() {
         !value => {
             value
         },
         error! => {
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
     };
     if not term.succeeded() {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
     !()
 }
@@ -1950,7 +1950,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
     let term = match child.kill() {
@@ -1958,7 +1958,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     };
     let signal = match term.signalCode() {
@@ -1966,18 +1966,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         null => {
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     };
     if signal != 15 {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     let cached = match child.wait() {
         !value => {
             value
         },
         error! => {
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         },
     };
     let cached_signal = match cached.signalCode() {
@@ -1985,11 +1985,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         null => {
-            return process::exit(7)!;
+            return process::ExitCode(7)!;
         },
     };
     if cached_signal != 15 {
-        return process::exit(8)!;
+        return process::ExitCode(8)!;
     }
     !()
 }
@@ -2038,18 +2038,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         },
     };
     match child.killWith(999i32 as process::Signal) {
         !value => {
             _ = value;
-            return process::exit(10)!;
+            return process::ExitCode(10)!;
         },
         process::Error::Kill(process::SystemError::Invalid)! => {},
         error! => {
             _ = error;
-            return process::exit(11)!;
+            return process::ExitCode(11)!;
         },
     }
     let term = match child.killWith(process::Signal::Kill) {
@@ -2057,7 +2057,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         error! => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     };
     let signal = match term.signalCode() {
@@ -2065,18 +2065,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
             value
         },
         null => {
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
     };
     if signal != 9 {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     let cached = match child.tryWait() {
         !value => {
             value
         },
         error! => {
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         },
     };
     match cached {
@@ -2086,15 +2086,15 @@ pub fn main(init: process::Init) process::ExitCode!() {
                     value
                 },
                 null => {
-                    return process::exit(7)!;
+                    return process::ExitCode(7)!;
                 },
             };
             if cached_signal != 9 {
-                return process::exit(8)!;
+                return process::ExitCode(8)!;
             }
         },
         null => {
-            return process::exit(9)!;
+            return process::ExitCode(9)!;
         },
     }
     !()
@@ -2142,17 +2142,17 @@ pub fn main(init: process::Init) process::ExitCode!() {{
         .withArguments(&arguments)
         .withCwd(std::PathView::init(&"{cwd_literal}"));
     let mut spawn = command.spawn();
-    let mut child = spawn.finish().exit().?;
+    let mut child = spawn.finish().?;
     let term = match child.wait() {{
         !value => {{
             value
         }},
         error! => {{
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         }},
     }};
     if not term.succeeded() {{
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }}
     !{{}}
 }}
@@ -2202,11 +2202,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
         process::Error::Spawn(process::SpawnError::Cwd(process::SystemError::NotFound))! => return !(),
         error! => {
             _ = error;
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     };
     _ = child;
-    return process::exit(4)!;
+    return process::ExitCode(4)!;
 }
 "#,
     )
@@ -2312,7 +2312,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let value = S {};
     if value.method() != 42 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     !()
 }
@@ -2414,109 +2414,109 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     if std::CStringView::fromBytes(&b"nia\0") is !value {
         if value.len() != 3 {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         }
         let bytes = value.bytes();
         if bytes[0] != b'n' or bytes[1] != b'i' or bytes[2] != b'a' {
-            return process::exit(2)!;
+            return process::ExitCode(2)!;
         }
     } else {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     match std::CStringView::fromBytes(&b"nia") {
         !invalid => {
             _ = invalid;
-            return process::exit(4)!;
+            return process::ExitCode(4)!;
         },
         std::CStringError::MissingTerminator! => {},
         error! => {
-            return process::exit(8)!;
+            return process::ExitCode(8)!;
         },
     }
     match std::CStringView::fromBytes(&b"") {
         !invalid => {
             _ = invalid;
-            return process::exit(9)!;
+            return process::ExitCode(9)!;
         },
         std::CStringError::EmptyInput! => {},
         error! => {
-            return process::exit(10)!;
+            return process::ExitCode(10)!;
         },
     }
     match std::CStringView::fromBytes(&b"n\0ia\0") {
         !invalid => {
             _ = invalid;
-            return process::exit(11)!;
+            return process::ExitCode(11)!;
         },
         std::CStringError::InteriorNul! => {},
         error! => {
-            return process::exit(12)!;
+            return process::ExitCode(12)!;
         },
     }
     if std::CStringView::fromBytes(&b"\0") is !empty {
         if not empty.isEmpty() {
-            return process::exit(13)!;
+            return process::ExitCode(13)!;
         }
     } else {
-        return process::exit(14)!;
+        return process::ExitCode(14)!;
     }
     let cstr_bytes = b"nia\0";
     let ptr = (&cstr_bytes).ptr();
     if ptr[0] != b'n' or ptr[1] != b'i' or ptr[2] != b'a' or ptr[3] != 0u8 {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
 
-    let mut ownedCstring = std::CString::fromBytes(page, &b"owned").exit().?;
-    defer ownedCstring.deinit(page).exit().?;
+    let mut ownedCstring = std::CString::fromBytes(page, &b"owned").?;
+    defer ownedCstring.deinit(page).?;
     if ownedCstring.len() != 5
         or ownedCstring.bytes()[0] != b'o'
         or ownedCstring.rawPtr()[5] != 0
         or ownedCstring.view().len() != 5
     {
-        return process::exit(51)!;
+        return process::ExitCode(51)!;
     }
-    let mut emptyCstring = std::CString::init(page).exit().?;
-    defer emptyCstring.deinit(page).exit().?;
+    let mut emptyCstring = std::CString::init(page).?;
+    defer emptyCstring.deinit(page).?;
     if not emptyCstring.isEmpty() or emptyCstring.nulTerminatedBytes().len() != 1 {
-        return process::exit(58)!;
+        return process::ExitCode(58)!;
     }
     let borrowedCstring = match std::CStringView::fromBytes(&b"copy\0") {
         !value => value,
         error! => {
             _ = error;
-            return process::exit(52)!;
+            return process::ExitCode(52)!;
         },
     };
-    let mut copiedCstring = std::CString::fromView(page, borrowedCstring).exit().?;
-    defer copiedCstring.deinit(page).exit().?;
+    let mut copiedCstring = std::CString::fromView(page, borrowedCstring).?;
+    defer copiedCstring.deinit(page).?;
     if not copiedCstring.view().bytes().equals(&b"copy") {
-        return process::exit(52)!;
+        return process::ExitCode(52)!;
     }
-    let mut unicodeCstring = std::CString::fromText(page, &"nia λ").exit().?;
-    defer unicodeCstring.deinit(page).exit().?;
+    let mut unicodeCstring = std::CString::fromText(page, &"nia λ").?;
+    defer unicodeCstring.deinit(page).?;
     if unicodeCstring.bytes().len() != 6 or unicodeCstring.rawPtr()[5] != 0xbbu8 {
-        return process::exit(53)!;
+        return process::ExitCode(53)!;
     }
     match std::CString::fromBytes(page, &b"bad\0input") {
         !value => {
             _ = value;
-            return process::exit(54)!;
+            return process::ExitCode(54)!;
         },
         std::CStringBuildError::ContainsNul! => {},
         error! => {
             _ = error;
-            return process::exit(55)!;
+            return process::ExitCode(55)!;
         },
     }
     match std::CString::fromText(page, &"bad\0input") {
         !value => {
             _ = value;
-            return process::exit(59)!;
+            return process::ExitCode(59)!;
         },
         std::CStringBuildError::ContainsNul! => {},
         error! => {
             _ = error;
-            return process::exit(60)!;
+            return process::ExitCode(60)!;
         },
     }
     let mut cstringTiny: [u8; 1] = [0];
@@ -2524,46 +2524,46 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match std::CString::fromText(&mut cstringFixed, &"out") {
         !value => {
             _ = value;
-            return process::exit(56)!;
+            return process::ExitCode(56)!;
         },
         std::CStringBuildError::Allocation(mem::Error::OutOfMemory)! => {},
         error! => {
             _ = error;
-            return process::exit(57)!;
+            return process::ExitCode(57)!;
         },
     }
 
     let utf8: [u8; 6] = [b'n', b'i', b'a', b' ', 0xceu8, 0xbbu8];
     if std::String::fromUtf8(page, &utf8) is !value {
         let mut decoded = value;
-        defer decoded.deinit(page).exit().?;
+        defer decoded.deinit(page).?;
         let expected = "nia lambda";
         let mut index = 0usize;
         for &ch in decoded.text().iter() {
             if index < 4usize {
                 if ch != expected[index] {
-                    return process::exit(15)!;
+                    return process::ExitCode(15)!;
                 }
             } else if ch.codepoint() != 0x03bbu32 {
-                return process::exit(16)!;
+                return process::ExitCode(16)!;
             }
             index += 1usize;
         }
         if index != 5usize {
-            return process::exit(17)!;
+            return process::ExitCode(17)!;
         }
     } else {
-        return process::exit(18)!;
+        return process::ExitCode(18)!;
     }
 
     if std::String::fromUtf8(page, &b"") is !empty {
         let mut emptyText = empty;
-        defer emptyText.deinit(page).exit().?;
+        defer emptyText.deinit(page).?;
         if emptyText.text().len() != 0usize {
-            return process::exit(19)!;
+            return process::ExitCode(19)!;
         }
     } else {
-        return process::exit(20)!;
+        return process::ExitCode(20)!;
     }
 
     let truncated: [u8; 2] = [0xe2u8, 0x82u8];
@@ -2571,35 +2571,35 @@ pub fn main(init: process::Init) process::ExitCode!() {
         std::String::fromUtf8(page, &truncated),
         std::unicode::Utf8DecodeError::Truncated,
     ) {
-        return process::exit(21)!;
+        return process::ExitCode(21)!;
     }
     let invalidLeading: [u8; 1] = [0xffu8];
     if not hasUtf8Error(
         std::String::fromUtf8(page, &invalidLeading),
         std::unicode::Utf8DecodeError::InvalidLeadingByte,
     ) {
-        return process::exit(22)!;
+        return process::ExitCode(22)!;
     }
     let invalidContinuation: [u8; 3] = [0xe2u8, 0x28u8, 0xa1u8];
     if not hasUtf8Error(
         std::String::fromUtf8(page, &invalidContinuation),
         std::unicode::Utf8DecodeError::InvalidContinuation,
     ) {
-        return process::exit(23)!;
+        return process::ExitCode(23)!;
     }
     let overlong: [u8; 2] = [0xc0u8, 0x80u8];
     if not hasUtf8Error(
         std::String::fromUtf8(page, &overlong),
         std::unicode::Utf8DecodeError::Overlong,
     ) {
-        return process::exit(24)!;
+        return process::ExitCode(24)!;
     }
     let invalidScalar: [u8; 3] = [0xedu8, 0xa0u8, 0x80u8];
     if not hasUtf8Error(
         std::String::fromUtf8(page, &invalidScalar),
         std::unicode::Utf8DecodeError::InvalidScalar,
     ) {
-        return process::exit(25)!;
+        return process::ExitCode(25)!;
     }
 
     let mut tiny: [u8; 1] = [0];
@@ -2607,20 +2607,20 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match std::String::fromUtf8(&mut fixed, &b"nia") {
         !value => {
             _ = value;
-            return process::exit(26)!;
+            return process::ExitCode(26)!;
         },
         std::TextError::Allocation(mem::Error::OutOfMemory)! => {},
         error! => {
             _ = error;
-            return process::exit(27)!;
+            return process::ExitCode(27)!;
         },
     }
 
-    let mut text = std::String::fromSlice(page, &"nia").exit().?;
-    defer text.deinit(page).exit().?;
-    text.append(page, &" std").exit().?;
+    let mut text = std::String::fromSlice(page, &"nia").?;
+    defer text.deinit(page).?;
+    text.append(page, &" std").?;
     if text.text().len() != 7usize {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
 
     let suffix: [u8; 3] = [b' ', 0xceu8, 0xbbu8];
@@ -2628,27 +2628,27 @@ pub fn main(init: process::Init) process::ExitCode!() {
         !ok => { _ = ok; },
         error! => {
             _ = error;
-            return process::exit(28)!;
+            return process::ExitCode(28)!;
         },
     }
     if text.text().len() != 9usize or text.text()[8].codepoint() != 0x03bbu32 {
-        return process::exit(29)!;
+        return process::ExitCode(29)!;
     }
 
     let invalidSuffix: [u8; 4] = [b'x', 0xe2u8, 0x28u8, 0xa1u8];
     match text.appendUtf8(page, &invalidSuffix) {
         !ok => {
             _ = ok;
-            return process::exit(30)!;
+            return process::ExitCode(30)!;
         },
         std::TextError::InvalidUtf8(std::unicode::Utf8DecodeError::InvalidContinuation)! => {},
         error! => {
             _ = error;
-            return process::exit(31)!;
+            return process::ExitCode(31)!;
         },
     }
     if text.text().len() != 9usize or text.text()[8].codepoint() != 0x03bbu32 {
-        return process::exit(32)!;
+        return process::ExitCode(32)!;
     }
 
     let mut appendStorage: [u8; 12] = [0; 12];
@@ -2657,26 +2657,26 @@ pub fn main(init: process::Init) process::ExitCode!() {
         !value => value,
         error! => {
             _ = error;
-            return process::exit(33)!;
+            return process::ExitCode(33)!;
         },
     };
-    defer boundedText.deinit(&mut appendAllocator).exit().?;
+    defer boundedText.deinit(&mut appendAllocator).?;
     match boundedText.appendUtf8(&mut appendAllocator, &b"!") {
         !ok => {
             _ = ok;
-            return process::exit(34)!;
+            return process::ExitCode(34)!;
         },
         std::TextError::Allocation(mem::Error::OutOfMemory)! => {},
         error! => {
             _ = error;
-            return process::exit(35)!;
+            return process::ExitCode(35)!;
         },
     }
     if boundedText.text().len() != 2usize
         or boundedText.text()[0] != 'o'
         or boundedText.text()[1] != 'k'
     {
-        return process::exit(36)!;
+        return process::ExitCode(36)!;
     }
 
     let answer = 42;
@@ -2686,7 +2686,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         !ok => { _ = ok; },
         error! => {
             _ = error;
-            return process::exit(37)!;
+            return process::ExitCode(37)!;
         },
     }
     if text.text().len() != 20usize
@@ -2695,22 +2695,22 @@ pub fn main(init: process::Init) process::ExitCode!() {
         or text.text()[17] != '2'
         or text.text()[19].codepoint() != 0x03bbu32
     {
-        return process::exit(38)!;
+        return process::ExitCode(38)!;
     }
 
     match text.appendFormat(page, &"partial {", &[]) {
         !ok => {
             _ = ok;
-            return process::exit(39)!;
+            return process::ExitCode(39)!;
         },
         std::TextFormatError::Format(fmt::Error::InvalidTemplate)! => {},
         error! => {
             _ = error;
-            return process::exit(40)!;
+            return process::ExitCode(40)!;
         },
     }
     if text.text().len() != 20usize or text.text()[19].codepoint() != 0x03bbu32 {
-        return process::exit(41)!;
+        return process::ExitCode(41)!;
     }
 
     let invalidFormattedBytes: [u8; 1] = [0xffu8];
@@ -2718,55 +2718,55 @@ pub fn main(init: process::Init) process::ExitCode!() {
     match text.appendFormat(page, &"{}", &invalidFormatArgs) {
         !ok => {
             _ = ok;
-            return process::exit(42)!;
+            return process::ExitCode(42)!;
         },
         std::TextFormatError::InvalidUtf8(std::unicode::Utf8DecodeError::InvalidLeadingByte)! => {},
         error! => {
             _ = error;
-            return process::exit(43)!;
+            return process::ExitCode(43)!;
         },
     }
     if text.text().len() != 20usize or text.text()[19].codepoint() != 0x03bbu32 {
-        return process::exit(44)!;
+        return process::ExitCode(44)!;
     }
 
     let boundedFormatArgs: [&fmt::Format; 1] = [&answer];
     match boundedText.appendFormat(&mut appendAllocator, &"{}", &boundedFormatArgs) {
         !ok => {
             _ = ok;
-            return process::exit(45)!;
+            return process::ExitCode(45)!;
         },
         std::TextFormatError::Allocation(mem::Error::OutOfMemory)! => {},
         error! => {
             _ = error;
-            return process::exit(46)!;
+            return process::ExitCode(46)!;
         },
     }
     if boundedText.text().len() != 2usize
         or boundedText.text()[0] != 'o'
         or boundedText.text()[1] != 'k'
     {
-        return process::exit(47)!;
+        return process::ExitCode(47)!;
     }
 
     let mut cleanupAllocator = FailFreeAllocator::init();
-    let mut cleanupText = std::String::initCapacity(&mut cleanupAllocator, 32usize).exit().?;
-    cleanupText.append(&mut cleanupAllocator, &"base").exit().?;
+    let mut cleanupText = std::String::initCapacity(&mut cleanupAllocator, 32usize).?;
+    cleanupText.append(&mut cleanupAllocator, &"base").?;
     cleanupAllocator.failNext();
     let cleanupFormatArgs: [&fmt::Format; 1] = [&answer];
     match cleanupText.appendFormat(&mut cleanupAllocator, &" {}", &cleanupFormatArgs) {
         !ok => {
             _ = ok;
-            return process::exit(48)!;
+            return process::ExitCode(48)!;
         },
         std::TextFormatError::Allocation(mem::Error::Invalid)! => {},
         error! => {
             _ = error;
-            return process::exit(49)!;
+            return process::ExitCode(49)!;
         },
     }
     if not cleanupText.equals(&"base") {
-        return process::exit(50)!;
+        return process::ExitCode(50)!;
     }
 
     match cleanupText.appendFormat(&mut cleanupAllocator, &" {}", &cleanupFormatArgs) {
@@ -2775,91 +2775,91 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
         error! => {
             _ = error;
-            return process::exit(52)!;
+            return process::ExitCode(52)!;
         },
     }
     if not cleanupText.equals(&"base 42") {
-        return process::exit(53)!;
+        return process::ExitCode(53)!;
     }
 
     cleanupAllocator.failNext();
     match cleanupText.appendFormat(&mut cleanupAllocator, &"{}", &invalidFormatArgs) {
         !ok => {
             _ = ok;
-            return process::exit(54)!;
+            return process::ExitCode(54)!;
         },
         std::TextFormatError::InvalidUtf8(std::unicode::Utf8DecodeError::InvalidLeadingByte)! => {},
         error! => {
             _ = error;
-            return process::exit(55)!;
+            return process::ExitCode(55)!;
         },
     }
     if not cleanupText.equals(&"base 42") {
-        return process::exit(56)!;
+        return process::ExitCode(56)!;
     }
     cleanupAllocator.failNext();
     match cleanupText.deinit(&mut cleanupAllocator) {
         !ok => {
             _ = ok;
-            return process::exit(57)!;
+            return process::ExitCode(57)!;
         },
         mem::Error::Invalid! => {},
         error! => {
             _ = error;
-            return process::exit(58)!;
+            return process::ExitCode(58)!;
         },
     }
     if cleanupAllocator.liveBlocks != 1usize {
-        return process::exit(59)!;
+        return process::ExitCode(59)!;
     }
-    cleanupText.deinit(&mut cleanupAllocator).exit().?;
+    cleanupText.deinit(&mut cleanupAllocator).?;
     if cleanupAllocator.liveBlocks != 0usize {
-        return process::exit(60)!;
+        return process::ExitCode(60)!;
     }
 
-    let mut transferText = std::String::initCapacity(&mut cleanupAllocator, 32usize).exit().?;
-    transferText.append(&mut cleanupAllocator, &"move").exit().?;
+    let mut transferText = std::String::initCapacity(&mut cleanupAllocator, 32usize).?;
+    transferText.append(&mut cleanupAllocator, &"move").?;
     cleanupAllocator.failNext();
     match transferText.appendFormat(&mut cleanupAllocator, &" {}", &cleanupFormatArgs) {
         !ok => {
             _ = ok;
-            return process::exit(161)!;
+            return process::ExitCode(161)!;
         },
         std::TextFormatError::Allocation(mem::Error::Invalid)! => {},
         error! => {
             _ = error;
-            return process::exit(162)!;
+            return process::ExitCode(162)!;
         },
     }
     cleanupAllocator.failNext();
     match transferText.intoOwnedSlice(&mut cleanupAllocator) {
         !unexpected => {
             _ = unexpected;
-            return process::exit(163)!;
+            return process::ExitCode(163)!;
         },
         mem::Error::Invalid! => {},
         error! => {
             _ = error;
-            return process::exit(164)!;
+            return process::ExitCode(164)!;
         },
     }
     if not transferText.equals(&"move") or cleanupAllocator.liveBlocks != 2usize {
-        return process::exit(165)!;
+        return process::ExitCode(165)!;
     }
-    let mut transferredText = transferText.intoOwnedSlice(&mut cleanupAllocator).exit().?;
+    let mut transferredText = transferText.intoOwnedSlice(&mut cleanupAllocator).?;
     if not transferredText.asSlice().equals(&"move") {
-        return process::exit(166)!;
+        return process::ExitCode(166)!;
     }
-    transferredText.deinit(&mut cleanupAllocator).exit().?;
+    transferredText.deinit(&mut cleanupAllocator).?;
     if cleanupAllocator.liveBlocks != 0usize {
-        return process::exit(167)!;
+        return process::ExitCode(167)!;
     }
 
-    let mut path = std::Path::fromView(page, std::PathView::init(&"root")).exit().?;
-    defer path.deinit(page).exit().?;
-    path.joinComponent(page, &"child").exit().?;
+    let mut path = std::Path::fromView(page, std::PathView::init(&"root")).?;
+    defer path.deinit(page).?;
+    path.joinComponent(page, &"child").?;
     if path.view().text().len() != 10usize {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
     _ = init;
     !()
@@ -2897,7 +2897,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    process::exit(7)!
+    process::ExitCode(7)!
 }
 "#,
     )
@@ -2948,7 +2948,7 @@ fn read(source: & Source) i32 {
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut values: [i32; 3] = [1, 2, 3];
-    process::exit(read(&values[..]))!
+    process::ExitCode(read(&values[..]))!
 }
 "#,
     )
@@ -3005,9 +3005,9 @@ using std::process;
 pub fn write(init: process::Init) process::ExitCode!() {
     let mut buffer = [0u8; 128];
     let mut stdout = io::FileWriter::stdout(&mut buffer);
-    defer stdout.flush().exit().?;
+    defer stdout.flush().?;
     let text = b"left";
-    stdout.print(&"{}\n", &[&text[..]]).exit()
+    !(stdout.print(&"{}\n", &[&text[..]]).?)
 }
 "#,
     )
@@ -3022,9 +3022,9 @@ using std::process;
 pub fn write(init: process::Init) process::ExitCode!() {
     let mut buffer = [0u8; 128];
     let mut stdout = io::FileWriter::stdout(&mut buffer);
-    defer stdout.flush().exit().?;
+    defer stdout.flush().?;
     let text = b"right";
-    stdout.print(&"{}\n", &[&text[..]]).exit()
+    !(stdout.print(&"{}\n", &[&text[..]]).?)
 }
 "#,
     )
@@ -3078,7 +3078,7 @@ fn read(source: & Source) i32 {
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut values: [i32; 3] = [1, 2, 3];
-    process::exit(read(&values[..]))!
+    process::ExitCode(read(&values[..]))!
 }
 "#,
     )
@@ -3119,10 +3119,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let q = value / by;
     let r = value % by;
     if q * by + r != value {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if r >= by {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     !()
 }
@@ -3166,39 +3166,39 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let q0 = base / divisor;
     let r0 = base % divisor;
     if q0 * divisor + r0 != base {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if r0 < 0i128 or r0 >= divisor {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
 
     let neg_base = -base;
     let q1 = neg_base / divisor;
     let r1 = neg_base % divisor;
     if q1 * divisor + r1 != neg_base {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     if r1 > 0i128 or r1 <= -divisor {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
 
     let neg_divisor = -divisor;
     let q2 = base / neg_divisor;
     let r2 = base % neg_divisor;
     if q2 * neg_divisor + r2 != base {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     if r2 < 0i128 or r2 >= divisor {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
 
     let q3 = neg_base / neg_divisor;
     let r3 = neg_base % neg_divisor;
     if q3 * neg_divisor + r3 != neg_base {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
     if r3 > 0i128 or r3 <= -divisor {
-        return process::exit(8)!;
+        return process::ExitCode(8)!;
     }
 
     !()
@@ -3226,8 +3226,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
-fn emit_exe_exit_code_is_open_enum() {
-    let root = temp_dir("emit_exe_exit_code_is_open_enum");
+fn emit_exe_exit_code_is_tuple_struct() {
+    let root = temp_dir("emit_exe_exit_code_is_tuple_struct");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
@@ -3236,13 +3236,13 @@ fn emit_exe_exit_code_is_open_enum() {
 using std::process;
 using std::fs;
 using std::mem;
-using process::{ExitCode, exit};
+using process::{ExitCode};
 
 fn pick(flag: bool) ExitCode {
     if flag {
-        11 as ExitCode
+        ExitCode(11)
     } else {
-        ExitCode::Success
+        ExitCode(0)
     }
 }
 
@@ -3257,41 +3257,41 @@ fn fail_with_no_space() fs::Error!() {
 pub fn main(init: process::Init) ExitCode!() {
     _ = init;
 
-    if (ExitCode::Success as i32) != 0 {
-        return exit(1)!;
+    if ExitCode(0).0 != 0 {
+        return ExitCode(1)!;
     }
-    if (exit(11) as i32) != 11 {
-        return exit(2)!;
+    if ExitCode(11).0 != 11 {
+        return ExitCode(2)!;
     }
-    if (fs::Error::NotFound.asExitCode() as i32) != 2 {
-        return exit(3)!;
+    if (fs::Error::NotFound.intoError().0) != 2 {
+        return ExitCode(3)!;
     }
-    if (process::Error::Allocation(mem::Error::OutOfMemory).asExitCode() as i32) != 12 {
-        return exit(5)!;
+    if (process::Error::Allocation(mem::Error::OutOfMemory).intoError().0) != 12 {
+        return ExitCode(5)!;
     }
-    if (process::Error::Path(fs::PathError::TooLong).asExitCode() as i32) != 36 {
-        return exit(6)!;
+    if (process::Error::Path(fs::PathError::TooLong).intoError().0) != 36 {
+        return ExitCode(6)!;
     }
-    if (process::Error::ArgumentContainsNul(3).asExitCode() as i32) != 22 {
-        return exit(7)!;
+    if (process::Error::ArgumentContainsNul(3).intoError().0) != 22 {
+        return ExitCode(7)!;
     }
     if (process::Error::Environment {
         index: 2,
         cause: process::EnvEntryError::EmptyName,
-    }.asExitCode() as i32) != 22 {
-        return exit(10)!;
+    }.intoError().0) != 22 {
+        return ExitCode(10)!;
     }
-    if (process::Error::Spawn(process::SpawnError::Exec(process::SystemError::NotFound)).asExitCode() as i32) != 2 {
-        return exit(8)!;
+    if (process::Error::Spawn(process::SpawnError::Exec(process::SystemError::NotFound)).intoError().0) != 2 {
+        return ExitCode(8)!;
     }
-    if (process::Error::Kill(process::SystemError::Invalid).asExitCode() as i32) != 22 {
-        return exit(9)!;
+    if (process::Error::Kill(process::SystemError::Invalid).intoError().0) != 22 {
+        return ExitCode(9)!;
     }
-    let picked = pick_result().exit().?;
-    if (picked as i32) != 11 {
-        return exit(4)!;
+    let picked = pick_result().?;
+    if picked.0 != 11 {
+        return ExitCode(4)!;
     }
-    fail_with_no_space().exit()
+    !(fail_with_no_space().?)
 }
 "#,
     )
@@ -3332,10 +3332,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut writer = io::DiscardingWriter::init();
     match writer.writeAll(&b"nia") {
         !ok => { _ = ok; },
-        error! => { return process::exit(1)!; },
+        error! => { return process::ExitCode(1)!; },
     }
     if writer.len() != 3 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     !()
 }
@@ -3376,42 +3376,42 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let max = usize::MAX;
     if 0usize.isPowerOfTwo() {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if not 4096usize.isPowerOfTwo() {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     match 10usize.checkedAdd(5usize) {
         ?value => { if value != 15usize {
-                    return process::exit(3)!;
+                    return process::ExitCode(3)!;
                 } },
-        null => { return process::exit(4)!; },
+        null => { return process::ExitCode(4)!; },
     }
     match max.checkedAdd(1usize) {
         ?value => { _ = value;
-                return process::exit(5)!; },
+                return process::ExitCode(5)!; },
         null => { },
     }
     match 12usize.checkedMul(3usize) {
         ?value => { if value != 36usize {
-                    return process::exit(6)!;
+                    return process::ExitCode(6)!;
                 } },
-        null => { return process::exit(7)!; },
+        null => { return process::ExitCode(7)!; },
     }
     match (max / 2usize + 1usize).checkedMul(4usize) {
         ?value => { _ = value;
-                return process::exit(8)!; },
+                return process::ExitCode(8)!; },
         null => { },
     }
     match 17usize.alignForward(8usize) {
         ?value => { if value != 24usize {
-                    return process::exit(9)!;
+                    return process::ExitCode(9)!;
                 } },
-        null => { return process::exit(10)!; },
+        null => { return process::ExitCode(10)!; },
     }
     match 17usize.alignForward(3usize) {
         ?value => { _ = value;
-                return process::exit(11)!; },
+                return process::ExitCode(11)!; },
         null => { },
     }
     !()
@@ -3459,100 +3459,100 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     match add_checked_same[u8](250u8, 5u8) {
-        ?value => { if value != 255u8 { return process::exit(1)!; } },
-        null => { return process::exit(2)!; },
+        ?value => { if value != 255u8 { return process::ExitCode(1)!; } },
+        null => { return process::ExitCode(2)!; },
     }
     match 255u8.checkedAdd(1u8) {
-        ?value => { _ = value; return process::exit(3)!; },
+        ?value => { _ = value; return process::ExitCode(3)!; },
         null => { },
     }
     match 10u16.checkedSub(3u16) {
-        ?value => { if value != 7u16 { return process::exit(4)!; } },
-        null => { return process::exit(5)!; },
+        ?value => { if value != 7u16 { return process::ExitCode(4)!; } },
+        null => { return process::ExitCode(5)!; },
     }
     match 0u16.checkedSub(1u16) {
-        ?value => { _ = value; return process::exit(6)!; },
+        ?value => { _ = value; return process::ExitCode(6)!; },
         null => { },
     }
     match 70000u32.checkedMul(60000u32) {
-        ?value => { if value != 4200000000u32 { return process::exit(7)!; } },
-        null => { return process::exit(8)!; },
+        ?value => { if value != 4200000000u32 { return process::ExitCode(7)!; } },
+        null => { return process::ExitCode(8)!; },
     }
     match 0xffffffffu32.checkedMul(2u32) {
-        ?value => { _ = value; return process::exit(9)!; },
+        ?value => { _ = value; return process::ExitCode(9)!; },
         null => { },
     }
     match 100u64.checkedDiv(4u64) {
-        ?value => { if value != 25u64 { return process::exit(10)!; } },
-        null => { return process::exit(11)!; },
+        ?value => { if value != 25u64 { return process::ExitCode(10)!; } },
+        null => { return process::ExitCode(11)!; },
     }
     match 100u64.checkedDiv(0u64) {
-        ?value => { _ = value; return process::exit(12)!; },
+        ?value => { _ = value; return process::ExitCode(12)!; },
         null => { },
     }
     match 100u128.checkedRem(7u128) {
-        ?value => { if value != 2u128 { return process::exit(13)!; } },
-        null => { return process::exit(14)!; },
+        ?value => { if value != 2u128 { return process::ExitCode(13)!; } },
+        null => { return process::ExitCode(14)!; },
     }
     match 100u128.checkedRem(0u128) {
-        ?value => { _ = value; return process::exit(15)!; },
+        ?value => { _ = value; return process::ExitCode(15)!; },
         null => { },
     }
     match 9usize.checkedSub(4usize) {
-        ?value => { if value != 5usize { return process::exit(16)!; } },
-        null => { return process::exit(17)!; },
+        ?value => { if value != 5usize { return process::ExitCode(16)!; } },
+        null => { return process::ExitCode(17)!; },
     }
 
     match (-5i8).checkedNeg() {
-        ?value => { if value != 5i8 { return process::exit(18)!; } },
-        null => { return process::exit(19)!; },
+        ?value => { if value != 5i8 { return process::ExitCode(18)!; } },
+        null => { return process::ExitCode(19)!; },
     }
     match i8::MIN.checkedNeg() {
-        ?value => { _ = value; return process::exit(20)!; },
+        ?value => { _ = value; return process::ExitCode(20)!; },
         null => { },
     }
     match (-123i16).checkedAbs() {
-        ?value => { if value != 123i16 { return process::exit(21)!; } },
-        null => { return process::exit(22)!; },
+        ?value => { if value != 123i16 { return process::ExitCode(21)!; } },
+        null => { return process::ExitCode(22)!; },
     }
     match i16::MIN.checkedAbs() {
-        ?value => { _ = value; return process::exit(23)!; },
+        ?value => { _ = value; return process::ExitCode(23)!; },
         null => { },
     }
     match i32::MAX.checkedAdd(1i32) {
-        ?value => { _ = value; return process::exit(24)!; },
+        ?value => { _ = value; return process::ExitCode(24)!; },
         null => { },
     }
     match (-10i32).checkedAdd(5i32) {
-        ?value => { if value != -5i32 { return process::exit(25)!; } },
-        null => { return process::exit(26)!; },
+        ?value => { if value != -5i32 { return process::ExitCode(25)!; } },
+        null => { return process::ExitCode(26)!; },
     }
     match i64::MIN.checkedSub(1i64) {
-        ?value => { _ = value; return process::exit(27)!; },
+        ?value => { _ = value; return process::ExitCode(27)!; },
         null => { },
     }
     match 10i64.checkedSub(-5i64) {
-        ?value => { if value != 15i64 { return process::exit(28)!; } },
-        null => { return process::exit(29)!; },
+        ?value => { if value != 15i64 { return process::ExitCode(28)!; } },
+        null => { return process::ExitCode(29)!; },
     }
     match i128::MIN.checkedMul(-1i128) {
-        ?value => { _ = value; return process::exit(30)!; },
+        ?value => { _ = value; return process::ExitCode(30)!; },
         null => { },
     }
     match 12i128.checkedMul(-3i128) {
-        ?value => { if value != -36i128 { return process::exit(31)!; } },
-        null => { return process::exit(32)!; },
+        ?value => { if value != -36i128 { return process::ExitCode(31)!; } },
+        null => { return process::ExitCode(32)!; },
     }
     match isize::MIN.checkedDiv(-1isize) {
-        ?value => { _ = value; return process::exit(33)!; },
+        ?value => { _ = value; return process::ExitCode(33)!; },
         null => { },
     }
     match (-9isize).checkedDiv(3isize) {
-        ?value => { if value != -3isize { return process::exit(34)!; } },
-        null => { return process::exit(35)!; },
+        ?value => { if value != -3isize { return process::ExitCode(34)!; } },
+        null => { return process::ExitCode(35)!; },
     }
     match (-9isize).checkedRem(0isize) {
-        ?value => { _ = value; return process::exit(36)!; },
+        ?value => { _ = value; return process::ExitCode(36)!; },
         null => { },
     }
 
@@ -3596,97 +3596,97 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     let mut args = init.args();
     if args.isEmpty() {
-        return process::exit(23)!;
+        return process::ExitCode(23)!;
     }
     if args.len() != 3 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     match args.program() {
         ?program => { if program.isEmpty() {
-                return process::exit(9)!;
+                return process::ExitCode(9)!;
             }
         },
-        null => { return process::exit(10)!; },
+        null => { return process::ExitCode(10)!; },
     }
     let mut iter = args.skipProgram();
     if iter.remaining() != 2 {
-        return process::exit(11)!;
+        return process::ExitCode(11)!;
     }
     let mut first_arg = match iter.next() {
         ?value => { value },
-        null => { return process::exit(2)!; },
+        null => { return process::ExitCode(2)!; },
     };
     if iter.remaining() != 1 {
-        return process::exit(12)!;
+        return process::ExitCode(12)!;
     }
     let mut second_arg = match iter.next() {
         ?value => { value },
-        null => { return process::exit(3)!; },
+        null => { return process::ExitCode(3)!; },
     };
     if iter.remaining() != 0 {
-        return process::exit(13)!;
+        return process::ExitCode(13)!;
     }
     if first_arg.isEmpty() or second_arg.isEmpty() {
-        return process::exit(26)!;
+        return process::ExitCode(26)!;
     }
     let mut for_count = 0;
     for arg in args.skipProgram() {
         if for_count == 0 {
             if arg.len() != 3 {
-                return process::exit(18)!;
+                return process::ExitCode(18)!;
             }
         } else if for_count == 1 {
             match arg.parse[u16]() {
                 !value => {
                     if value != 1234 {
-                        return process::exit(19)!;
+                        return process::ExitCode(19)!;
                     }
                 },
                 error! => {
-                    return process::exit(20)!;
+                    return process::ExitCode(20)!;
                 },
             }
         } else {
-            return process::exit(21)!;
+            return process::ExitCode(21)!;
         }
         for_count += 1;
     }
     if for_count != 2 {
-        return process::exit(22)!;
+        return process::ExitCode(22)!;
     }
     let mut first = first_arg.bytes();
     let mut second = second_arg.bytes();
     if first.len() != 3 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     if first[0] != 110u8 or first[1] != 105u8 or first[2] != 97u8 {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     if second.len() != 4 {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
     match second_arg.parse[u16]() {
         !value => { if value != 1234 {
-                return process::exit(14)!;
+                return process::ExitCode(14)!;
             } },
-        error! => { return process::exit(15)!; },
+        error! => { return process::ExitCode(15)!; },
     }
     match second_arg.parseRadix[u16](16) {
         !value => { if value != 0x1234 {
-                return process::exit(16)!;
+                return process::ExitCode(16)!;
             } },
-        error! => { return process::exit(17)!; },
+        error! => { return process::ExitCode(17)!; },
     }
     let mut storage: [u8; 16] = [0; 16];
     let mut writer = io::FixedBufferWriter::init(&mut storage[..]);
-    writer.print(&"{:_>5.2}", &[&first_arg]).exit().?;
+    writer.print(&"{:_>5.2}", &[&first_arg]).?;
     let written = writer.written();
     if written.len() != 5 or written[0] != b'_' or written[1] != b'_' or written[2] != b'_' or written[3] != b'n' or written[4] != b'i' {
-        return process::exit(8)!;
+        return process::ExitCode(8)!;
     }
     match iter.next() {
         ?value => { _ = value;
-                return process::exit(7)!; },
+                return process::ExitCode(7)!; },
         null => { },
     }
     !()
@@ -3746,12 +3746,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
     for item in env.iter() {
         if starts_with_needle(item.bytes()) {
             if item.isEmpty() {
-                return process::exit(4)!;
+                return process::ExitCode(4)!;
             }
             return !();
         }
     }
-    return process::exit(2)!;
+    return process::ExitCode(2)!;
 }
 "#,
     )
@@ -3818,8 +3818,8 @@ extend[T] ParseError!T {
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     match parse().as_app_error() {
-        !value => { return process::exit(value)!; },
-        err! => { return process::exit(err as i32)!; },
+        !value => { return process::ExitCode(value)!; },
+        err! => { return process::ExitCode(err as i32)!; },
     }
 }
 "#,
@@ -3864,10 +3864,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
     left += right;
 
     if x + y != 42 or left != 21 or right != 11 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if pair.0 != 20 or pair.1 != 22 or writable.0 != 10 or writable.1 != 11 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     !()
 }
@@ -3945,16 +3945,16 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
     if calls != 1 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if total != 7 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     if classify(next(false)) != 5 {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     if calls != 2 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     !()
 }
@@ -4013,7 +4013,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut counter = Counter::init();
     counter.add(7);
     if counter.get() != 7 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     !()
 }
@@ -4064,18 +4064,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut left_again = slot[i32]();
     let mut right_again = slot[u64]();
     if left_again.* != 11 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if right_again.* != 99u64 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
 
     left_again.* = 7;
     if slot[i32]().* != 7 {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     if slot[u64]().* != 99u64 {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     !()
 }

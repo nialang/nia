@@ -84,9 +84,23 @@ impl BodyCheckConstInputs {
             enum_values: self.enum_values.values,
             typed_enum_values: self.enum_values.typed_values,
             array_lengths: self.array_lengths.values,
+            provider_demands: self.typed_facts.provider_demands,
             diagnostics: self.typed_facts.diagnostics,
         }
     }
+}
+
+fn merge_provider_demands(
+    body: &Arc<HashSet<crate::ProviderDemand>>,
+    const_eval: &Arc<HashSet<crate::ProviderDemand>>,
+) -> Arc<HashSet<crate::ProviderDemand>> {
+    if const_eval.is_empty() {
+        return Arc::clone(body);
+    }
+    if body.is_empty() {
+        return Arc::clone(const_eval);
+    }
+    Arc::new(body.iter().chain(const_eval.iter()).cloned().collect())
 }
 
 fn filtered_const_global_initializer_for_body_check(
@@ -1729,6 +1743,10 @@ fn checked_module_with_body_and_flow_check(
     let static_check = db.get(StaticCheckQuery(module_id))?;
     let abi_check = db.get(AbiCheckQuery(module_id))?;
     let definitions = db.get(FullModuleDefsQuery(module_id))?;
+    let provider_demands = merge_provider_demands(
+        &body_check.semantic.provider_demands,
+        &const_eval.semantic.provider_demands,
+    );
     Ok(CheckedModule {
         id: module_id,
         path,
@@ -1755,7 +1773,7 @@ fn checked_module_with_body_and_flow_check(
         body_ir: Arc::clone(&body_check.semantic.ir),
         semantic_uses: db.get(SemanticUseTableQuery(module_id))?,
         semantic_facts: Arc::clone(&body_check.semantic.facts),
-        provider_demands: Arc::clone(&body_check.semantic.provider_demands),
+        provider_demands,
         executable_reachable_globals: None,
         executable_reachable_structs: None,
         executable_reachable_unions: None,
@@ -1831,6 +1849,8 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
             )
         }
     };
+    let provider_demands =
+        merge_provider_demands(&body_check.provider_demands, &const_eval.provider_demands);
     Ok(CheckedModule {
         id: module_id,
         path: db.get(ModulePathQuery(module_id))?.as_ref().clone(),
@@ -1853,7 +1873,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         body_ir: body_check.ir,
         semantic_uses: body_inputs.semantic_uses,
         semantic_facts: body_check.facts,
-        provider_demands: body_check.provider_demands,
+        provider_demands,
         executable_reachable_globals: None,
         executable_reachable_structs: None,
         executable_reachable_unions: None,
@@ -1921,12 +1941,14 @@ pub(super) fn executable_signature_checked_module(
         enum_values: enum_values.values,
         typed_enum_values: enum_values.typed_values,
         array_lengths: array_lengths.values,
+        provider_demands: enum_values.provider_demands,
         diagnostics: const_diagnostics,
     };
     let const_diagnostics = db
         .context()
         .diagnostic_store
         .bundle(std::mem::take(&mut const_eval.diagnostics));
+    let provider_demands = Arc::clone(&const_eval.provider_demands);
     Ok(CheckedModule {
         id: module_id,
         path: db.get(ModulePathQuery(module_id))?.as_ref().clone(),
@@ -1956,7 +1978,7 @@ pub(super) fn executable_signature_checked_module(
         }),
         semantic_uses: Arc::new(nia_sema_ir::SemanticUseTable::default()),
         semantic_facts: Arc::new(nia_sema_ir::SemanticFacts::default()),
-        provider_demands: Arc::new(HashSet::new()),
+        provider_demands,
         executable_reachable_globals: Some(HashSet::new()),
         executable_reachable_structs: None,
         executable_reachable_unions: None,

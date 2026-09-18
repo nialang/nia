@@ -232,90 +232,90 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let runtimeOnlyImportedGenericPointer =
         helper::passPointer[u64](helper::runtimeOnlyPointerSlot);
     if arithmetic(7) != arithmeticExpected or arithmeticExpected != 11 {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
     if castScore(9) != castExpected or castExpected != 18 {
-        return process::exit(11)!;
+        return process::ExitCode(11)!;
     }
     if arrayScore([2, 3, 5]) != arrayExpected or arrayExpected != 10 {
-        return process::exit(12)!;
+        return process::ExitCode(12)!;
     }
     if optionalScore(?Pair{left: 4, right: 6}) != optionalExpected or optionalExpected != 10 {
-        return process::exit(13)!;
+        return process::ExitCode(13)!;
     }
     if optionalScore(null) != optionalNullExpected or optionalNullExpected != -1 {
-        return process::exit(14)!;
+        return process::ExitCode(14)!;
     }
     if resultScore(!Pair{left: 5, right: 7}) != resultExpected or resultExpected != 12 {
-        return process::exit(15)!;
+        return process::ExitCode(15)!;
     }
     if resultScore(9!) != errorExpected or errorExpected != 9 {
-        return process::exit(16)!;
+        return process::ExitCode(16)!;
     }
     if switchScore(Mode::Scale(3, 4)) != switchExpected or switchExpected != 12 {
-        return process::exit(17)!;
+        return process::ExitCode(17)!;
     }
     if loopScore(5) != loopExpected or loopExpected != 10 {
-        return process::exit(18)!;
+        return process::ExitCode(18)!;
     }
     if select[i32](true, 13, 2) != genericExpected or genericExpected != 13 {
-        return process::exit(19)!;
+        return process::ExitCode(19)!;
     }
     if helper::importedScore(6) != importedExpected or importedExpected != 24 {
-        return process::exit(20)!;
+        return process::ExitCode(20)!;
     }
     if helper::onlyExpected != 12 {
-        return process::exit(21)!;
+        return process::ExitCode(21)!;
     }
     if helper::importedOptionalScore(?8) != helper::importedOptionalExpected or helper::importedOptionalExpected != 10 {
-        return process::exit(22)!;
+        return process::ExitCode(22)!;
     }
     if runtimeWidth.value != associatedExpected or associatedExpected != 14 {
-        return process::exit(23)!;
+        return process::ExitCode(23)!;
     }
     if constGenericScore[4](11) != constGenericExpected or constGenericExpected != 15 {
-        return process::exit(24)!;
+        return process::ExitCode(24)!;
     }
     if runtimeReferencedScore(12) != 25 {
-        return process::exit(25)!;
+        return process::ExitCode(25)!;
     }
     if firstPointer.pointer != samePointer.pointer or firstPointer.pointer.* != 34 {
-        return process::exit(26)!;
+        return process::ExitCode(26)!;
     }
     if firstPointer.pointer == secondPointer.pointer {
-        return process::exit(27)!;
+        return process::ExitCode(27)!;
     }
     if arrayPointer.pointer.*[0] != 2 or arrayPointer.pointer.*[2] != 8 {
-        return process::exit(28)!;
+        return process::ExitCode(28)!;
     }
     if pairPointer.pointer.*.sum() != 12 {
-        return process::exit(29)!;
+        return process::ExitCode(29)!;
     }
     if std::builtin::extract(vectorPointer.pointer.*, 0) != 4386
         or std::builtin::extract(vectorPointer.pointer.*, 1) != 13124 {
-        return process::exit(30)!;
+        return process::ExitCode(30)!;
     }
     if nestedPointer.pointer.*.pointer.* != 91 {
-        return process::exit(31)!;
+        return process::ExitCode(31)!;
     }
     if holderPointer.pointer.*.marker != 3 or holderPointer.pointer.*.slot.pointer.* != 37 {
-        return process::exit(32)!;
+        return process::ExitCode(32)!;
     }
     if nestedArrayPointer.pointer.*[0].pointer.* != 11
         or nestedArrayPointer.pointer.*[1].pointer.* != 13 {
-        return process::exit(33)!;
+        return process::ExitCode(33)!;
     }
     if byteUnionPointer.pointer.*.byte != 7 {
-        return process::exit(34)!;
+        return process::ExitCode(34)!;
     }
     if firstEmptyPointer.pointer != sameEmptyPointer.pointer
         or firstEmptyPointer.pointer == secondEmptyPointer.pointer {
-        return process::exit(35)!;
+        return process::ExitCode(35)!;
     }
     if directArrayFirst.integer != directArraySame.integer
         or directArrayFirst.integer == directArraySecond.integer
         or directArrayPointer.*[2] != 8 {
-        return process::exit(36)!;
+        return process::ExitCode(36)!;
     }
     if importedGenericPointerValue != 55
         or importedGenericConstOnlyValue != 89
@@ -332,7 +332,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             helper::secondPointerSlot,
         )
         or runtimeImportedGenericPointer.pointer == &helper::globalPointerValue {
-        return process::exit(37)!;
+        return process::ExitCode(37)!;
     }
     !()
 }

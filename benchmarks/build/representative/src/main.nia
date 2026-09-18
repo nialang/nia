@@ -4,7 +4,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     if helper::value() != 7 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     !()
 }

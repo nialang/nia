@@ -9,7 +9,7 @@ pub(pkg) module args;
 pub(pkg) module child;
 pub(pkg) module command;
 pub(pkg) module env;
-pub(pkg) module exit;
+pub(pkg) module exit_code;
 pub(pkg) module init;
 pub(pkg) module pipe;
 pub(pkg) module term;
@@ -19,12 +19,11 @@ using pkg::process::args;
 using pkg::process::child;
 using pkg::process::command;
 using pkg::process::env;
-using pkg::process::exit;
+using pkg::process::exit_code;
 using pkg::process::init;
 using pkg::process::pipe;
 using pkg::process::term;
 
-pub using exit::exit;
 pub using types::{
     Arg,
     AllocatorSpawnAttempt,

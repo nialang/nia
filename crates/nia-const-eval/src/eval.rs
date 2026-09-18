@@ -300,13 +300,12 @@ fn eval_resolved_const_expr_flow(
         }
         ResolvedConstExprKind::TupleField { lhs, index } => {
             let value = eval_resolved_value_or_return_flow!(lhs, env);
-            let ConstValue::Tuple(elems) = value else {
-                return Err(ConstError {
-                    span,
-                    message: "const tuple projection requires a tuple value".to_string(),
-                });
-            };
-            elems.get(*index).cloned().ok_or_else(|| ConstError {
+            match value {
+                ConstValue::Tuple(elems) => elems.get(*index).cloned(),
+                ConstValue::Struct(fields) => fields.get(&tuple_field_symbol(*index)).cloned(),
+                _ => None,
+            }
+            .ok_or_else(|| ConstError {
                 span,
                 message: format!("const tuple field index {index} is out of bounds"),
             })?
@@ -641,13 +640,12 @@ fn eval_const_expr_flow(
         }
         EarlyConstExprKind::TupleField { lhs, index } => {
             let value = eval_value_or_return_flow!(lhs, env);
-            let ConstValue::Tuple(elems) = value else {
-                return Err(ConstError {
-                    span: expr.span,
-                    message: "const tuple projection requires a tuple value".to_string(),
-                });
-            };
-            elems.get(*index).cloned().ok_or_else(|| ConstError {
+            match value {
+                ConstValue::Tuple(elems) => elems.get(*index).cloned(),
+                ConstValue::Struct(fields) => fields.get(&tuple_field_symbol(*index)).cloned(),
+                _ => None,
+            }
+            .ok_or_else(|| ConstError {
                 span: expr.span,
                 message: format!("const tuple field index {index} is out of bounds"),
             })?
@@ -861,6 +859,10 @@ fn eval_const_expr_flow(
         }
     };
     Ok(ConstEvalFlow::Value(value))
+}
+
+fn tuple_field_symbol(index: usize) -> nia_symbol::SymbolId {
+    nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash(&index.to_string()))
 }
 
 fn eval_const_if_expr_flow(

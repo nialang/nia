@@ -13,8 +13,8 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
     let identity = facade_cache_identity(&facade_file, &main, &module_map);
     let cache = crate::frontend_cache::PersistentFrontendCache::new(root.join("cache"));
     let symbol_texts = [
-        "Widget", "TraitA", "TraitB", "first", "second", "dep", "segment0", "segment1", "segment2",
-        "segment3", "segment4", "segment5", "segment6", "segment7",
+        "Widget", "TraitA", "TraitArg", "TraitB", "first", "second", "dep", "segment0", "segment1",
+        "segment2", "segment3", "segment4", "segment5", "segment6", "segment7",
     ];
     let symbols = symbols_for(&symbol_texts);
     let processing = [
@@ -25,6 +25,7 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
         UsedModulePathProcessing::IfProvidesTraitImpl {
             target_type_name: None,
             trait_name: sym("TraitA"),
+            trait_type_argument_names: vec![Some(sym("TraitArg")), None],
         },
         UsedModulePathProcessing::IfProvidesImplicitTraitImpl {
             trait_name: sym("TraitB"),
@@ -42,7 +43,7 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
         .into_iter()
         .enumerate()
         .map(|(index, processing)| {
-            let segments = vec![sym(symbol_texts[index + 6])];
+            let segments = vec![sym(symbol_texts[index + 7])];
             match index % 4 {
                 0 => UsedModulePath::Package {
                     package: sym("dep"),

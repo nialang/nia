@@ -1,7 +1,7 @@
 using std::io;
 using std::fmt;
 using std::process;
-using process::{Init, ExitCode, exit};
+using process::{Init, ExitCode};
 
 fn at(values: &[i32], index: usize) ?i32 {
     if values.get(index) is ?value {
@@ -33,14 +33,14 @@ pub fn main(init: Init) ExitCode!() {
     if checkedPair(&values) is !sum {
         pairSum = sum;
     } else {
-        return exit(1)!;
+        return ExitCode(1)!;
     }
     if pairSum != 42 {
-        return exit(2)!;
+        return ExitCode(2)!;
     }
     if requireAt(&values, 9) is !value {
         _ = value;
-        return exit(3)!;
+        return ExitCode(3)!;
     }
 
     io::debugPrint(&"pair_sum={} missing=error\n", &[&pairSum]).?;

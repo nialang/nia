@@ -18,8 +18,9 @@ struct FooId(u64)
 
 fn main() u64 {
     let id = FooId(41u64);
+    let projected = id.0;
     match id {
-        FooId(value) => value + 1,
+        FooId(value) => projected + value + 1,
     }
 }
 "#,

@@ -9,7 +9,7 @@ using std::process;
 using entry::api;
 using entry::config;
 using api::{Point, add as plus, Color::Green};
-using process::{Init, ExitCode, exit};
+using process::{Init, ExitCode};
 
 pub fn main(init: Init) ExitCode!() {
     _ = init;
@@ -21,7 +21,7 @@ pub fn main(init: Init) ExitCode!() {
     let diff = api::geometry::sub(10, 5);
 
     if sum + len2 + color + diff != 38 {
-        return exit(1)!;
+        return ExitCode(1)!;
     }
     io::debugPrint(&"sum={} len2={} color={} diff={}\n", &[&sum, &len2, &color, &diff]).?;
     !()

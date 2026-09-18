@@ -930,10 +930,14 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Field { lhs, name } => self
                 .lower_field_access_expr(lhs, name)
                 .unwrap_or(TypedExprKind::Error),
-            ExprKind::TupleField { lhs, index } => TypedExprKind::TupleField {
-                lhs: Box::new(self.lower_expr(lhs)),
-                index: *index,
-            },
+            ExprKind::TupleField { lhs, index } => {
+                let lhs_ty = self.expr_ty(lhs).unwrap_or_else(|| self.error());
+                let lhs = Box::new(self.lower_expr(lhs));
+                match self.tuple_struct_field_def(lhs_ty, *index) {
+                    Some(field) => TypedExprKind::Field { lhs, field },
+                    None => TypedExprKind::TupleField { lhs, index: *index },
+                }
+            }
             ExprKind::ArrayLiteral { elems } => TypedExprKind::ArrayLiteral {
                 elems: self.lower_array_elements(elems, ty),
             },
@@ -1769,6 +1773,27 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
             _ => None,
         }
+    }
+
+    pub(crate) fn tuple_struct_field_def(
+        &mut self,
+        ty: nia_ids::InternedTyId,
+        index: usize,
+    ) -> Option<nia_ids::GlobalDefId> {
+        let ty = self.normalization.normalize(ty);
+        let Some(TyKind::Nominal { def_id, .. }) = self.interner.get(ty) else {
+            return None;
+        };
+        let def_id = *def_id;
+        let resolved = self.resolved_struct_signature(def_id)?;
+        if !resolved.signature.is_tuple {
+            return None;
+        }
+        let field = resolved.signature.fields.get(index)?;
+        Some(nia_ids::GlobalDefId {
+            module_id: def_id.module_id,
+            def_id: field.def_id,
+        })
     }
 
     pub(crate) fn field_def_for_aggregate_ty(

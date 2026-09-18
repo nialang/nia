@@ -1089,21 +1089,27 @@ impl<'a> BodyChecker<'a> {
                 Err(())
             }
             nia_trait_solve::TraitResolution::Intrinsic(_) => Ok(None),
-            nia_trait_solve::TraitResolution::Unsatisfied
-                if self.has_into_error_chain(source_ty, target_ty) =>
-            {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    format!(
-                        "error propagation does not chain `IntoError` conversions from `{}` to `{}`",
-                        self.ty_name(source_ty),
-                        self.ty_name(target_ty)
-                    ),
-                ));
-                Err(())
+            nia_trait_solve::TraitResolution::Unsatisfied => {
+                self.record_trait_provider_demand(
+                    source_ty,
+                    TraitId::Builtin(BuiltinTrait::IntoError),
+                    &trait_args,
+                );
+                if self.has_into_error_chain(source_ty, target_ty) {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        span,
+                        format!(
+                            "error propagation does not chain `IntoError` conversions from `{}` to `{}`",
+                            self.ty_name(source_ty),
+                            self.ty_name(target_ty)
+                        ),
+                    ));
+                    Err(())
+                } else {
+                    Ok(None)
+                }
             }
-            nia_trait_solve::TraitResolution::Unsatisfied => Ok(None),
         }
     }
 

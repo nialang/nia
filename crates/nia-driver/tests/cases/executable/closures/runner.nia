@@ -21,16 +21,16 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let swapped = swapPointer(Pair { left: 4, right: 5 });
     let mut pageAllocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
-    defer allocator.deinit().ok().exit().?;
-    let mut owned = helper::allocateOffset(&mut allocator, 7).exit().?;
-    defer owned.deinit(&mut allocator).exit().?;
+    defer allocator.deinit().ok().?;
+    let mut owned = helper::allocateOffset(&mut allocator, 7).?;
+    defer owned.deinit(&mut allocator).?;
     let ownedResult = owned.callback()(8);
 
-    let mut noCapture = mem::allocValue(&mut allocator, \value: i32 -> { value + 2 }).exit().?;
+    let mut noCapture = mem::allocValue(&mut allocator, \value: i32 -> { value + 2 }).?;
     let mut noCaptureState = noCapture.valueMut();
     let noCaptureView: &mut Fn(i32) i32 = &mut noCaptureState.*;
     let mut noCaptureOwner = noCapture.intoCallable(noCaptureView);
-    defer noCaptureOwner.deinit(&mut allocator).exit().?;
+    defer noCaptureOwner.deinit(&mut allocator).?;
     let noCaptureResult = noCaptureOwner.callback()(3);
 
     let mut emptyStorage: [u8; 0] = [];
@@ -38,7 +38,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let failedAsExpected = match mem::allocValue(&mut emptyAllocator, \[base] value: i32 -> { base + value }) {
         mem::Error::OutOfMemory! => true,
         !mut unexpected => {
-            unexpected.deinit(&mut emptyAllocator).exit().?;
+            unexpected.deinit(&mut emptyAllocator).?;
             false
         },
         error! => {
@@ -50,7 +50,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         or swapped.left != 5 or swapped.right != 4 or ownedResult != 15
         or noCaptureResult != 5 or not failedAsExpected
     {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
     !()
 }

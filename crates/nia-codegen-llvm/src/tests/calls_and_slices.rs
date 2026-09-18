@@ -222,7 +222,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::ExitCode(1)!;
         },
     }
     !()
@@ -270,7 +270,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return (1 as process::ExitCode)!;
+            return process::ExitCode(1)!;
         },
     }
     match stdout.flush() {
@@ -278,7 +278,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
         },
         error! => {
-            return (2 as process::ExitCode)!;
+            return process::ExitCode(2)!;
         },
     }
     !()

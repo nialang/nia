@@ -1,0 +1,147 @@
+using pkg::builtin;
+using pkg::cstring;
+using pkg::fmt;
+using pkg::fs;
+using pkg::io;
+using pkg::mem;
+using pkg::process::types;
+using pkg::test;
+
+using types::{Error, ExitCode, SpawnError, SystemError};
+
+extend test::Error : builtin::IntoError[ExitCode] {
+    const fn intoError(self) ExitCode {
+        match self {
+            .AssertionFailed(_), .ValuesEqual(_), .ValuesNotEqual(_) => ExitCode(1),
+        }
+    }
+}
+
+extend io::DebugPrintError : builtin::IntoError[ExitCode] {
+    const fn intoError(self) ExitCode {
+        match self {
+            .Format(cause) => cause.intoError(),
+            .Flush(cause) => cause.intoError(),
+        }
+    }
+}
+
+extend cstring::CStringBuildError : builtin::IntoError[ExitCode] {
+    const fn intoError(self) ExitCode {
+        match self {
+            .ContainsNul => ExitCode(22),
+            .Allocation(cause) => cause.intoError(),
+        }
+    }
+}
+
+extend fs::Error : builtin::IntoError[ExitCode] {
+    const fn intoError(self) ExitCode {
+        ExitCode(self as i32)
+    }
+}
+
+extend fs::PathError : builtin::IntoError[ExitCode] {
+    const fn intoError(self) ExitCode {
+        match self {
+            .ContainsNul, .Absolute, .ParentTraversal, .MissingTerminator => ExitCode(22),
+            .TooLong => ExitCode(36),
+            _ => ExitCode(255),
+        }
+    }
+}
+
+extend fs::OperationError : builtin::IntoError[ExitCode] {
+    const fn intoError(self) ExitCode {
+        match self {
+            .Path { operation: _, cause } => cause.intoError(),
+            .System { operation: _, cause } => cause.intoError(),
+        }
+    }
+}
+
+extend io::SystemError : builtin::IntoError[ExitCode] {
+    const fn intoError(self) ExitCode {
+        ExitCode(self as i32)
+    }
+}
+
+extend SystemError : builtin::IntoError[ExitCode] {
+    const fn intoError(self) ExitCode {
+        ExitCode(self as i32)
+    }
+}
+
+extend io::Error : builtin::IntoError[ExitCode] {
+    const fn intoError(self) ExitCode {
+        match self {
+            .EndOfStream => ExitCode(5),
+            .ShortWrite => ExitCode(5),
+            .Closed => ExitCode(9),
+            .System(cause) => cause.intoError(),
+        }
+    }
+}
+
+extend Error : builtin::IntoError[ExitCode] {
+    const fn intoError(self) ExitCode {
+        match self {
+            .Allocation(cause) => cause.intoError(),
+            .Path(cause) => cause.intoError(),
+            .ArgumentContainsNul(_) => ExitCode(22),
+            .Environment { index: _, cause: _ } => ExitCode(22),
+            .SpawnSetup(cause) => cause.intoError(),
+            .Spawn(cause) => cause.intoError(),
+            .Wait(cause) => cause.intoError(),
+            .TryWait(cause) => cause.intoError(),
+            .Kill(cause) => cause.intoError(),
+            .Close { stream: _, cause } => cause.intoError(),
+        }
+    }
+}
+
+extend SpawnError : builtin::IntoError[ExitCode] {
+    const fn intoError(self) ExitCode {
+        match self {
+            .Setup(cause) => cause.intoError(),
+            .Stdio(cause) => cause.intoError(),
+            .Cwd(cause) => cause.intoError(),
+            .Exec(cause) => cause.intoError(),
+            .Reap { stage: _, primary: _, cause, pid: _ } => cause.intoError(),
+        }
+    }
+}
+
+extend fmt::Error : builtin::IntoError[ExitCode] {
+    const fn intoError(self) ExitCode {
+        match self {
+            .Write => ExitCode(5),
+            .InvalidTemplate => ExitCode(22),
+            .MissingArgument => ExitCode(22),
+            .ExtraArgument => ExitCode(22),
+            _ => ExitCode(255),
+        }
+    }
+}
+
+extend io::BufferError : builtin::IntoError[ExitCode] {
+    const fn intoError(self) ExitCode {
+        match self {
+            .NoSpace => ExitCode(2),
+            .ShortWrite => ExitCode(5),
+            .EndOfStream => ExitCode(5),
+            _ => ExitCode(255),
+        }
+    }
+}
+
+extend mem::Error : builtin::IntoError[ExitCode] {
+    const fn intoError(self) ExitCode {
+        match self {
+            .Invalid => ExitCode(22),
+            .InvalidAlignment => ExitCode(22),
+            .OutOfMemory => ExitCode(12),
+            _ => ExitCode(255),
+        }
+    }
+}

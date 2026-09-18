@@ -5,10 +5,7 @@ using pkg::io;
 using pkg::mem;
 using pkg::os;
 
-pub enum ExitCode: i32 {
-    Success = 0,
-    _,
-}
+pub struct ExitCode(i32)
 
 pub enum TermKind: i32 {
     Exited = 1,

@@ -24,73 +24,73 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let argc = init.argc();
     let runtime = 340282366920938463463374607431768211455u128;
     if DECIMAL_MAX != u128::MAX or HEX_MAX != u128::MAX or runtime != u128::MAX {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if runtime - 1u128 != 340282366920938463463374607431768211454u128 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     if SIGNED_MIN != i128::MIN or -170141183460469231731687303715884105728i128 != i128::MIN {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     if FLOAT_TO_U128 != (1u128 << 127u128) {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     let small = 123456789.0f64 + argc as f64;
     if small as u128 != 123456789u128 + argc as u128 {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
     let mixed = 1267650600228230245921633337344.0f64 + argc as f64;
     if mixed as u128 != (1u128 << 100u128) + (3u128 << 48u128) {
-        return process::exit(6)!;
+        return process::ExitCode(6)!;
     }
     let wide32 = 1267650600228229401496703205376.0f32 + argc as f32;
     if wide32 as u128 != (1u128 << 100u128) {
-        return process::exit(7)!;
+        return process::ExitCode(7)!;
     }
     let signedSmall = -123456789.0f64 as i128;
     if signedSmall != -123456789i128 {
-        return process::exit(8)!;
+        return process::ExitCode(8)!;
     }
     let signedWide = -170141183460469231731687303715884105728.0f64 as i128;
     if signedWide != i128::MIN {
-        return process::exit(9)!;
+        return process::ExitCode(9)!;
     }
     let signed32 = -12345.0f32 as i128;
     if signed32 != -12345i128 {
-        return process::exit(10)!;
+        return process::ExitCode(10)!;
     }
     let unsignedTieEven64 = ((1u128 << 53u128) + 1u128) as f64;
     if unsignedTieEven64 != 9007199254740992.0f64 {
-        return process::exit(11)!;
+        return process::ExitCode(11)!;
     }
     let unsignedRoundUp64 = ((1u128 << 53u128) + 3u128) as f64;
     if unsignedRoundUp64 != 9007199254740996.0f64 {
-        return process::exit(12)!;
+        return process::ExitCode(12)!;
     }
     let unsignedTieEven32 = ((1u128 << 24u128) + 1u128) as f32;
     if unsignedTieEven32 != 16777216.0f32 {
-        return process::exit(13)!;
+        return process::ExitCode(13)!;
     }
     let unsignedRoundUp32 = ((1u128 << 24u128) + 3u128) as f32;
     if unsignedRoundUp32 != 16777220.0f32 {
-        return process::exit(14)!;
+        return process::ExitCode(14)!;
     }
     let signedMin64 = i128::MIN as f64;
     if signedMin64 != -170141183460469231731687303715884105728.0f64 {
-        return process::exit(15)!;
+        return process::ExitCode(15)!;
     }
     let zeroUnsigned = 0u128 as f64;
     let zeroSigned = 0i128 as f32;
     if zeroUnsigned != 0.0f64 or zeroSigned != 0.0f32 {
-        return process::exit(16)!;
+        return process::ExitCode(16)!;
     }
     let maxUnsigned64 = u128::MAX as f64;
     if maxUnsigned64 != 340282366920938463463374607431768211455.0f64 {
-        return process::exit(17)!;
+        return process::ExitCode(17)!;
     }
     let signedRound32 = -16777219i128 as f32;
     if signedRound32 != -16777220.0f32 {
-        return process::exit(18)!;
+        return process::ExitCode(18)!;
     }
     !()
 }
@@ -130,12 +130,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let values: u8x16 = std::builtin::insert(std::builtin::insert(std::builtin::insert(std::builtin::splat[u8x16](0u8), 1usize, 7u8), 4usize, 7u8), 15usize, 7u8);
     let mask = std::builtin::bitmask(values == std::builtin::splat[u8x16](7u8));
     if mask != 0x8012usize {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
 
     let other = std::builtin::bitmask(values == std::builtin::splat[u8x16](0u8));
     if other != 0x7fedusize {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
 
     !()
@@ -227,7 +227,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         or compileMaskRaw != 2
         or compileMaskBits != 2
         or runtimeMaskSlot.raw != compileMaskRaw {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     !()
 }
@@ -309,19 +309,19 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let bits = std::builtin::size[usize]() * 8usize;
     if std::builtin::ctz[usize](0usize) != bits {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if std::builtin::clz[usize](0usize) != bits {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     if std::builtin::ctz[usize](0x8010usize) != 4usize {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
     if std::builtin::clz[usize](0x8010usize) != bits - 16usize {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
     if std::builtin::popcount[usize](0x8010usize) != 2usize {
-        return process::exit(5)!;
+        return process::ExitCode(5)!;
     }
 
     !()
@@ -367,11 +367,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
             ch
         },
         null => {
-            return process::exit(1)!;
+            return process::ExitCode(1)!;
         },
     };
     if ascii.codepoint() != 65 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
 
     let direct = match std::builtin::charFromU32(66) {
@@ -379,17 +379,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
             ch
         },
         null => {
-            return process::exit(10)!;
+            return process::ExitCode(10)!;
         },
     };
     if direct.codepoint() != 66 {
-        return process::exit(11)!;
+        return process::ExitCode(11)!;
     }
 
     let maxScalar: u32 = 0x10ffff;
     let surrogate: u32 = 0xd800;
     if not unicode::isValidScalarValue(maxScalar) or unicode::isValidScalarValue(surrogate) {
-        return process::exit(23)!;
+        return process::ExitCode(23)!;
     }
 
     let max = match unicode::fromScalarValue(0x10ffff) {
@@ -397,24 +397,24 @@ pub fn main(init: process::Init) process::ExitCode!() {
             ch
         },
         null => {
-            return process::exit(3)!;
+            return process::ExitCode(3)!;
         },
     };
     if max.codepoint() != 0x10ffff {
-        return process::exit(4)!;
+        return process::ExitCode(4)!;
     }
 
     match unicode::fromScalarValue(0xd800) {
         ?ch => {
             _ = ch;
-            return process::exit(5)!;
+            return process::ExitCode(5)!;
         },
         null => {},
     }
     match unicode::fromScalarValue(0x110000) {
         ?ch => {
             _ = ch;
-            return process::exit(6)!;
+            return process::ExitCode(6)!;
         },
         null => {},
     }
@@ -426,57 +426,57 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
         error! => {
             _ = error;
-            return process::exit(7)!;
+            return process::ExitCode(7)!;
         },
     };
     if euro.byteLen() != 3 or euro.scalar().codepoint() != 0x20ac {
-        return process::exit(8)!;
+        return process::ExitCode(8)!;
     }
 
     let overlong: [u8; 2] = [0xc0, 0x80];
     match unicode::decodeUtf8First(&overlong) {
-        !decoded => { _ = decoded; return process::exit(9)!; },
+        !decoded => { _ = decoded; return process::ExitCode(9)!; },
         error! => if error != unicode::Utf8DecodeError::Overlong {
-            return process::exit(12)!;
+            return process::ExitCode(12)!;
         },
     }
 
     match unicode::decodeUtf8First(&overlong[0..0]) {
-        !decoded => { _ = decoded; return process::exit(13)!; },
+        !decoded => { _ = decoded; return process::ExitCode(13)!; },
         error! => if error != unicode::Utf8DecodeError::Empty {
-            return process::exit(14)!;
+            return process::ExitCode(14)!;
         },
     }
 
     let truncated: [u8; 2] = [0xe2, 0x82];
     match unicode::decodeUtf8First(&truncated) {
-        !decoded => { _ = decoded; return process::exit(15)!; },
+        !decoded => { _ = decoded; return process::ExitCode(15)!; },
         error! => if error != unicode::Utf8DecodeError::Truncated {
-            return process::exit(16)!;
+            return process::ExitCode(16)!;
         },
     }
 
     let invalidLeading: [u8; 1] = [0x80];
     match unicode::decodeUtf8First(&invalidLeading) {
-        !decoded => { _ = decoded; return process::exit(17)!; },
+        !decoded => { _ = decoded; return process::ExitCode(17)!; },
         error! => if error != unicode::Utf8DecodeError::InvalidLeadingByte {
-            return process::exit(18)!;
+            return process::ExitCode(18)!;
         },
     }
 
     let invalidContinuation: [u8; 3] = [0xe2, 0x28, 0xa1];
     match unicode::decodeUtf8First(&invalidContinuation) {
-        !decoded => { _ = decoded; return process::exit(19)!; },
+        !decoded => { _ = decoded; return process::ExitCode(19)!; },
         error! => if error != unicode::Utf8DecodeError::InvalidContinuation {
-            return process::exit(20)!;
+            return process::ExitCode(20)!;
         },
     }
 
     let invalidScalar: [u8; 3] = [0xed, 0xa0, 0x80];
     match unicode::decodeUtf8First(&invalidScalar) {
-        !decoded => { _ = decoded; return process::exit(21)!; },
+        !decoded => { _ = decoded; return process::ExitCode(21)!; },
         error! => if error != unicode::Utf8DecodeError::InvalidScalar {
-            return process::exit(22)!;
+            return process::ExitCode(22)!;
         },
     }
 
@@ -520,14 +520,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let bytes: [u8; 10] = [99u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 100u8];
     let vec = std::builtin::loadUnaligned[u8x8](&bytes[1]);
     if std::builtin::extract(vec, 0usize) != 1u8 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     if std::builtin::extract(vec, 7usize) != 8u8 {
-        return process::exit(2)!;
+        return process::ExitCode(2)!;
     }
     let mask = std::builtin::bitmask(vec == std::builtin::splat[u8x8](4u8));
     if mask != 0x08usize {
-        return process::exit(3)!;
+        return process::ExitCode(3)!;
     }
 
     !()
@@ -773,7 +773,7 @@ fn runtimeChecks(value: usize) bool {
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     if not runtimeChecks(7) {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
     !()
 }

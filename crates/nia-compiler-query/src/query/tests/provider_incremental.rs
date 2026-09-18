@@ -414,6 +414,7 @@ fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
         request: crate::ProviderRequest::TraitImpl {
             target_type_name: Some(sym("Thing")),
             trait_name: sym("Display"),
+            trait_type_argument_names: vec![Some(sym("Context")), None],
         },
     };
     let first_provider =
@@ -425,6 +426,35 @@ fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
     assert_eq!(
         provider_fact_worklist_fingerprint(&first_provider),
         provider_fact_worklist_fingerprint(&second_provider)
+    );
+
+    let original_argument = crate::ProviderFactSnapshot::new(
+        revision,
+        revision,
+        [crate::ProviderDemand {
+            source_path: SourcePath::new("provider.nia"),
+            request: crate::ProviderRequest::TraitImpl {
+                target_type_name: Some(sym("Thing")),
+                trait_name: sym("Display"),
+                trait_type_argument_names: vec![Some(sym("Context")), None],
+            },
+        }],
+    );
+    let changed_argument = crate::ProviderFactSnapshot::new(
+        revision,
+        revision,
+        [crate::ProviderDemand {
+            source_path: SourcePath::new("provider.nia"),
+            request: crate::ProviderRequest::TraitImpl {
+                target_type_name: Some(sym("Thing")),
+                trait_name: sym("Display"),
+                trait_type_argument_names: vec![Some(sym("OtherContext")), None],
+            },
+        }],
+    );
+    assert_ne!(
+        provider_fact_worklist_fingerprint(&original_argument),
+        provider_fact_worklist_fingerprint(&changed_argument)
     );
 }
 
@@ -552,6 +582,7 @@ fn provider_worklist_accumulates_until_consumed() {
         request: crate::ProviderRequest::TraitImpl {
             target_type_name: None,
             trait_name: SymbolId::default(),
+            trait_type_argument_names: Vec::new(),
         },
     };
     let first_revision = revision.next();
@@ -602,6 +633,7 @@ fn provider_worklist_reset_watermark_survives_skipped_revisions() {
         request: crate::ProviderRequest::TraitImpl {
             target_type_name: None,
             trait_name: sym("Stale"),
+            trait_type_argument_names: Vec::new(),
         },
     };
     let current = crate::ProviderDemand {
@@ -609,6 +641,7 @@ fn provider_worklist_reset_watermark_survives_skipped_revisions() {
         request: crate::ProviderRequest::TraitImpl {
             target_type_name: None,
             trait_name: sym("Current"),
+            trait_type_argument_names: Vec::new(),
         },
     };
     let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");

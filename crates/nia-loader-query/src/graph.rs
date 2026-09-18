@@ -394,9 +394,11 @@ fn apply_provider_demands(
                 nia_compiler_query::ProviderRequest::TraitImpl {
                     target_type_name,
                     trait_name,
+                    ref trait_type_argument_names,
                 } => UsedModulePathProcessing::IfProvidesTraitImpl {
                     target_type_name,
                     trait_name,
+                    trait_type_argument_names: trait_type_argument_names.clone(),
                 },
                 nia_compiler_query::ProviderRequest::ModuleSemantic { .. } => continue,
                 nia_compiler_query::ProviderRequest::ModuleBody { .. } => continue,
@@ -568,7 +570,7 @@ pub(crate) fn add_visible_declared_module_path(
         }
     }
     if segments.is_empty() {
-        process_provider_request(db, graph, current, &processing)?;
+        process_provider_request(db, graph, accessing_module, current, &processing)?;
     }
     for (index, segment) in segments.iter().enumerate() {
         let is_terminal = index + 1 == segments.len();
@@ -603,7 +605,14 @@ pub(crate) fn add_visible_declared_module_path(
             if processing == UsedModulePathProcessing::Always && !is_terminal {
                 mark_process_used_paths_and_process(db, graph, current)?;
             }
-            process_reexport_provider_request(db, graph, reexport_facade, segment, &processing)?;
+            process_reexport_provider_request(
+                db,
+                graph,
+                accessing_module,
+                reexport_facade,
+                segment,
+                &processing,
+            )?;
             current = reexport_source;
             if matches!(
                 processing,
@@ -613,13 +622,13 @@ pub(crate) fn add_visible_declared_module_path(
                 mark_process_used_paths_and_process(db, graph, current)?;
             }
             if is_terminal {
-                process_provider_request(db, graph, current, &processing)?;
+                process_provider_request(db, graph, accessing_module, current, &processing)?;
             }
             continue;
         };
         current = next;
         if processing.is_provider_demand() {
-            process_provider_request(db, graph, current, &processing)?;
+            process_provider_request(db, graph, accessing_module, current, &processing)?;
         }
         if processing == UsedModulePathProcessing::IfSelectedItem
             && is_terminal
@@ -634,7 +643,7 @@ pub(crate) fn add_visible_declared_module_path(
             mark_process_used_paths_and_process(db, graph, current)?;
         }
         if is_terminal && !processing.is_provider_demand() {
-            process_provider_request(db, graph, current, &processing)?;
+            process_provider_request(db, graph, accessing_module, current, &processing)?;
         }
     }
     Ok(Some(current))

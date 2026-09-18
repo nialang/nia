@@ -50,7 +50,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
 Returning `!()` denotes success. The standard library's `process::ExitCode`
 type represents an exit status.
-Returning an error payload such as `process::exit(1)!` requests termination with
+Returning an error payload such as `process::ExitCode(1)!` requests termination with
 that status:
 
 ```nia
@@ -58,7 +58,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    process::exit(1)!
+    process::ExitCode(1)!
 }
 ```
 
@@ -3438,7 +3438,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut pair = Pair[i32, i32] { first: values[0], second: sum(&values) };
 
     if score(pair) != 116 {
-        return process::exit(1)!;
+        return process::ExitCode(1)!;
     }
 
     !()

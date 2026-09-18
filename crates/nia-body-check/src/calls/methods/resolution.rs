@@ -479,7 +479,12 @@ impl<'a> BodyChecker<'a> {
         });
     }
 
-    pub(crate) fn record_trait_provider_demand(&self, self_ty: InternedTyId, trait_id: TraitId) {
+    pub(crate) fn record_trait_provider_demand(
+        &self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+    ) {
         if self.provider_demand_target_is_error(self_ty) {
             return;
         }
@@ -498,6 +503,10 @@ impl<'a> BodyChecker<'a> {
             request: crate::ProviderRequest::TraitImpl {
                 target_type_name,
                 trait_name,
+                trait_type_argument_names: trait_args
+                    .iter()
+                    .map(|arg| self.provider_target_type_name(*arg))
+                    .collect(),
             },
         });
     }

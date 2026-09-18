@@ -184,6 +184,12 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
         .symbols
         .intern("CachedTrait")
         .expect("intern trait");
+    let trait_argument = cold
+        .db
+        .context()
+        .symbols
+        .intern("CachedArgument")
+        .expect("intern trait argument");
     let demands = HashSet::from([
         ProviderDemand {
             source_path: entry.clone(),
@@ -197,6 +203,7 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
             request: nia_compiler_query::ProviderRequest::TraitImpl {
                 target_type_name: Some(target),
                 trait_name,
+                trait_type_argument_names: vec![Some(trait_argument), None],
             },
         },
         ProviderDemand {

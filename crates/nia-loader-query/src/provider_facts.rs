@@ -248,6 +248,7 @@ mod tests {
             request: ProviderRequest::TraitImpl {
                 target_type_name: None,
                 trait_name: SymbolId::default(),
+                trait_type_argument_names: Vec::new(),
             },
         };
         assert_eq!(
@@ -265,6 +266,7 @@ mod tests {
                     request: ProviderRequest::TraitImpl {
                         target_type_name: None,
                         trait_name: SymbolId::default(),
+                        trait_type_argument_names: Vec::new(),
                     },
                 }])
             })

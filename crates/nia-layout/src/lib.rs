@@ -1451,7 +1451,11 @@ impl<'a> LayoutComputer<'a> {
         substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<StructLayout> {
-        self.sorted_field_layout(key, signature, substitutions, const_substitutions)
+        if signature.is_tuple {
+            self.field_order_layout(key, signature, substitutions, const_substitutions)
+        } else {
+            self.sorted_field_layout(key, signature, substitutions, const_substitutions)
+        }
     }
 
     fn c_struct_layout(

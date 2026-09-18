@@ -532,7 +532,7 @@ impl<'a> BodyChecker<'a> {
             })
         };
         if !proven {
-            self.record_trait_provider_demand(self_ty, trait_id);
+            self.record_trait_provider_demand(self_ty, trait_id, trait_args);
             return false;
         }
         associated_type_bindings.iter().all(|binding| {

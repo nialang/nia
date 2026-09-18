@@ -212,15 +212,18 @@ fn main() i32 {
     let program_signatures = EmptyBodyProgramSignatures::new();
     let const_array_lengths = nia_const_check::ConstArrayLengths {
         values: const_eval.array_lengths.clone(),
+        provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Vec::new(),
     };
     let const_values = nia_const_check::ConstValues {
         values: const_eval.values.clone(),
         typed_values: const_eval.typed_values.clone(),
+        provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Vec::new(),
     };
     let const_typed_facts = nia_const_check::ConstTypedFacts {
         typed_values: const_eval.typed_values.clone(),
+        provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Vec::new(),
     };
     let body_const = nia_body_check::BodyConst::from_phases(
@@ -389,6 +392,7 @@ fn const_enum_values_from_check(
     nia_const_check::ConstEnumValues {
         values: const_eval.enum_values.clone(),
         typed_values: const_eval.typed_enum_values.clone(),
+        provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Vec::new(),
     }
 }

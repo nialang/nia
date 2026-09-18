@@ -1,9 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Conservative summaries and indexes for extension-method providers.
 
+mod demand;
+
+pub use demand::{
+    ProviderDemand, ProviderFactRevision, ProviderFactRevisionTransition, ProviderRequest,
+};
+
 use std::collections::HashSet;
 
-use nia_ast::{GenericParam, PathSegmentKind, TypeKind, TypeRef, UsingGroupItem, UsingSelector};
+use nia_ast::{
+    GenericParam, PathSegmentKind, TypeArg, TypeKind, TypeRef, UsingGroupItem, UsingSelector,
+};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_symbol::{SymbolId, SymbolMap, SymbolSet, ToSymbolId};
 
@@ -31,6 +39,8 @@ pub struct Provider {
 pub struct ProviderTypeRef {
     /// Final path segment, when one is available.
     pub last_name: Option<SymbolId>,
+    /// Nominal identities of positional type arguments, when known.
+    pub type_argument_names: Vec<Option<SymbolId>>,
     /// Whether the target is generic or structurally shaped.
     pub is_generic_or_structural_target: bool,
     /// Whether matching must conservatively account for aliases or imports.
@@ -110,7 +120,9 @@ impl ProviderSummary {
     pub fn from_active_item_tree(item_tree: &ActiveModuleItemTree) -> Self {
         let mut local_nominal_names = local_nominal_type_names(item_tree);
         let mut local_trait_names = local_trait_names(item_tree);
-        let using_names = module_using_names(item_tree);
+        let mut argument_nominal_names = local_nominal_names.clone();
+        argument_nominal_names.extend(module_using_names(item_tree, false));
+        let using_names = module_using_names(item_tree, true);
         local_nominal_names.extend(using_names.iter().cloned());
         local_trait_names.extend(using_names.iter().cloned());
         local_trait_names.extend(
@@ -142,6 +154,7 @@ impl ProviderSummary {
                             &extend.target,
                             &generic_names,
                             &local_nominal_names,
+                            &local_nominal_names,
                         ),
                     },
                     trait_ref: extend.trait_ref.as_ref().map(|trait_ref| {
@@ -149,6 +162,7 @@ impl ProviderSummary {
                             trait_ref,
                             &generic_names,
                             &local_trait_names,
+                            &argument_nominal_names,
                         )
                     }),
                     associated_methods,
@@ -254,6 +268,7 @@ impl ProviderSummary {
         &self,
         target_type_name: Option<&SymbolId>,
         trait_name: &SymbolId,
+        trait_type_argument_names: &[Option<SymbolId>],
         associated_name: Option<&SymbolId>,
     ) -> bool {
         self.providers.iter().any(|provider| {
@@ -266,6 +281,9 @@ impl ProviderSummary {
                 .trait_ref
                 .as_ref()
                 .is_some_and(|trait_ref| trait_ref.may_match_trait_name(trait_name))
+                && provider.trait_ref.as_ref().is_some_and(|trait_ref| {
+                    trait_ref.may_match_type_arguments(trait_type_argument_names)
+                })
                 && associated_name.is_none_or(|name| provider.has_associated_item(name))
         })
     }
@@ -315,7 +333,12 @@ impl Provider {
 }
 
 impl ProviderTypeRef {
-    fn from_type_ref(ty: &TypeRef, generic_names: &SymbolSet, definite_names: &SymbolSet) -> Self {
+    fn from_type_ref(
+        ty: &TypeRef,
+        generic_names: &SymbolSet,
+        definite_names: &SymbolSet,
+        argument_definite_names: &SymbolSet,
+    ) -> Self {
         let last_name = type_ref_last_name(ty);
         let is_generic_or_structural_target =
             type_ref_is_generic_or_structural_provider_target(ty, generic_names);
@@ -323,6 +346,11 @@ impl ProviderTypeRef {
             !type_ref_is_definite_local_nominal_name(ty, generic_names, definite_names);
         Self {
             last_name,
+            type_argument_names: type_ref_argument_names(
+                ty,
+                generic_names,
+                argument_definite_names,
+            ),
             is_generic_or_structural_target,
             semantic_is_conservative,
         }
@@ -341,6 +369,19 @@ impl ProviderTypeRef {
 
     fn may_match_trait_name(&self, name: &SymbolId) -> bool {
         self.last_name.as_ref().is_none_or(|last| last == name)
+    }
+
+    fn may_match_type_arguments(&self, names: &[Option<SymbolId>]) -> bool {
+        if self.type_argument_names.len() != names.len() {
+            return true;
+        }
+        self.type_argument_names
+            .iter()
+            .zip(names)
+            .all(|(provider, demand)| match (provider, demand) {
+                (Some(provider), Some(demand)) => provider == demand,
+                _ => true,
+            })
     }
 
     fn semantic_nominal_provider_candidate(&self) -> NominalProviderCandidate {
@@ -388,13 +429,13 @@ fn local_trait_names(item_tree: &ActiveModuleItemTree) -> SymbolSet {
         .collect()
 }
 
-fn module_using_names(item_tree: &ActiveModuleItemTree) -> SymbolSet {
+fn module_using_names(item_tree: &ActiveModuleItemTree, include_aliases: bool) -> SymbolSet {
     let mut names = SymbolSet::default();
     for item in item_tree.items.iter() {
         let ItemTreeNodeKind::Using(using) = &item.kind else {
             continue;
         };
-        collect_using_selector_names(&using.host, &using.selector, &mut names);
+        collect_using_selector_names(&using.host, &using.selector, include_aliases, &mut names);
     }
     names
 }
@@ -402,6 +443,7 @@ fn module_using_names(item_tree: &ActiveModuleItemTree) -> SymbolSet {
 fn collect_using_selector_names(
     host: &[nia_ast::UsingHostSegment],
     selector: &UsingSelector,
+    include_aliases: bool,
     names: &mut SymbolSet,
 ) {
     match selector {
@@ -414,23 +456,31 @@ fn collect_using_selector_names(
         }
         UsingSelector::Wildcard { .. } => {}
         UsingSelector::Single(name) => {
-            names.insert(name.alias.unwrap_or(name.name));
+            if name.alias.is_none() || include_aliases {
+                names.insert(name.alias.unwrap_or(name.name));
+            }
         }
         UsingSelector::Group(items) => {
             for item in items {
-                collect_using_group_item_names(item, names);
+                collect_using_group_item_names(item, include_aliases, names);
             }
         }
     }
 }
 
-fn collect_using_group_item_names(item: &UsingGroupItem, names: &mut SymbolSet) {
+fn collect_using_group_item_names(
+    item: &UsingGroupItem,
+    include_aliases: bool,
+    names: &mut SymbolSet,
+) {
     match item {
         UsingGroupItem::Name(name) => {
-            names.insert(name.alias.unwrap_or(name.name));
+            if name.alias.is_none() || include_aliases {
+                names.insert(name.alias.unwrap_or(name.name));
+            }
         }
         UsingGroupItem::Nested { host, selector } => {
-            collect_using_selector_names(host, selector, names);
+            collect_using_selector_names(host, selector, include_aliases, names);
         }
     }
 }
@@ -443,6 +493,33 @@ fn type_ref_last_name(ty: &TypeRef) -> Option<SymbolId> {
         }),
         _ => None,
     }
+}
+
+fn type_ref_argument_names(
+    ty: &TypeRef,
+    generic_names: &SymbolSet,
+    definite_names: &SymbolSet,
+) -> Vec<Option<SymbolId>> {
+    let TypeKind::Path { segments } = &ty.kind else {
+        return Vec::new();
+    };
+    let Some(segment) = segments.last() else {
+        return Vec::new();
+    };
+    segment
+        .args
+        .iter()
+        .filter_map(|argument| match argument {
+            TypeArg::Type(ty) | TypeArg::TypeOrConst { ty, .. } => Some(
+                if type_ref_is_definite_local_nominal_name(ty, generic_names, definite_names) {
+                    type_ref_last_name(ty)
+                } else {
+                    None
+                },
+            ),
+            TypeArg::Const(_) | TypeArg::AssocBinding { .. } => None,
+        })
+        .collect()
 }
 
 fn type_ref_is_definite_local_nominal_name(
@@ -544,10 +621,15 @@ extend Widget : Hash {
 "#,
         );
 
-        assert!(summary.defines_trait_impl(None, &sym("Hash"), None));
-        assert!(summary.defines_trait_impl(Some(&sym("Widget")), &sym("Hash"), Some(&sym("hash"))));
-        assert!(!summary.defines_trait_impl(Some(&sym("Other")), &sym("Hash"), None));
-        assert!(!summary.defines_trait_impl(None, &sym("Hash"), Some(&sym("finish"))));
+        assert!(summary.defines_trait_impl(None, &sym("Hash"), &[], None));
+        assert!(summary.defines_trait_impl(
+            Some(&sym("Widget")),
+            &sym("Hash"),
+            &[],
+            Some(&sym("hash"))
+        ));
+        assert!(!summary.defines_trait_impl(Some(&sym("Other")), &sym("Hash"), &[], None));
+        assert!(!summary.defines_trait_impl(None, &sym("Hash"), &[], Some(&sym("finish"))));
         assert_eq!(summary.trait_impl_index_names(), vec![sym("Hash")]);
     }
 
@@ -756,8 +838,79 @@ extend SpawnError : error::IntoError {
 "#,
         );
 
-        assert!(summary.defines_trait_impl(None, &sym("IntoError"), None));
-        assert!(!summary.defines_trait_impl(None, &sym("Iterable"), None));
+        assert!(summary.defines_trait_impl(None, &sym("IntoError"), &[], None));
+        assert!(!summary.defines_trait_impl(None, &sym("Iterable"), &[], None));
+    }
+
+    #[test]
+    fn trait_impl_provider_summary_distinguishes_nominal_trait_arguments() {
+        let summary = summary_for(
+            r#"
+struct SourceError {}
+struct ExitCode {}
+trait IntoError[Target] {}
+
+extend SourceError : IntoError[ExitCode] {}
+"#,
+        );
+
+        assert_eq!(
+            summary.providers()[0]
+                .trait_ref
+                .as_ref()
+                .map(|trait_ref| trait_ref.type_argument_names.as_slice()),
+            Some([Some(sym("ExitCode"))].as_slice()),
+        );
+        assert!(summary.defines_trait_impl(
+            Some(&sym("SourceError")),
+            &sym("IntoError"),
+            &[Some(sym("ExitCode"))],
+            None,
+        ));
+        assert!(!summary.defines_trait_impl(
+            Some(&sym("SourceError")),
+            &sym("IntoError"),
+            &[Some(sym("OtherError"))],
+            None,
+        ));
+        assert!(summary.defines_trait_impl(
+            Some(&sym("SourceError")),
+            &sym("IntoError"),
+            &[None],
+            None,
+        ));
+
+        let generic = summary_for(
+            r#"
+struct SourceError {}
+trait IntoError[Target] {}
+
+extend[Target] SourceError : IntoError[Target] {}
+"#,
+        );
+        assert!(generic.defines_trait_impl(
+            Some(&sym("SourceError")),
+            &sym("IntoError"),
+            &[Some(sym("AnyConcreteError"))],
+            None,
+        ));
+
+        let aliased = summary_for(
+            r#"
+module types;
+using types::{ExitCode as Code};
+struct SourceError {}
+trait IntoError[Target] {}
+
+extend SourceError : IntoError[Code] {}
+"#,
+        );
+        assert!(aliased.defines_trait_impl(
+            Some(&sym("SourceError")),
+            &sym("IntoError"),
+            &[Some(sym("ExitCode"))],
+            None,
+        ));
     }
 
     fn summary_for(source: &str) -> ProviderSummary {

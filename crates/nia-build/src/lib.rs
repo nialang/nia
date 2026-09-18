@@ -807,7 +807,7 @@ extend[T] build::Error!T {
                         _ = reported;
                     },
                     reportError! => {
-                        return reportError.asExitCode()!;
+                        return reportError.intoError()!;
                     },
                 }
                 match stderr.flush().withBuildContext(
@@ -818,10 +818,10 @@ extend[T] build::Error!T {
                         _ = reported;
                     },
                     reportError! => {
-                        return reportError.asExitCode()!;
+                        return reportError.intoError()!;
                     },
                 }
-                error.asExitCode()!
+                error.intoError()!
             },
         }
     }
@@ -1075,7 +1075,7 @@ fn configPathArg(
 pub fn main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
-    defer allocator.deinit().ok().exit().?;
+    defer allocator.deinit().ok().?;
 
     let mut configPathStorage = fs::Path::init();
     defer configPathStorage.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
@@ -1093,7 +1093,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return build::Error::Invalid {
             operation: build::ErrorOperation::Validate,
             subject: build::ErrorSubject::RunnerConfiguration,
-        }.asExitCode()!;
+        }.intoError()!;
     }
     let configLen = configLen64 as usize;
     let mut configBytes = allocator.allocSlice[u8](configLen).withBuildContext(
@@ -1118,7 +1118,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return build::Error::Invalid {
             operation: build::ErrorOperation::Validate,
             subject: build::ErrorSubject::RunnerConfiguration,
-        }.asExitCode()!;
+        }.intoError()!;
     }
     let payloadLen = envelope.u32().reportAndExit(init).? as usize;
     let expectedChecksum = envelope.u64().reportAndExit(init).?;
@@ -1126,14 +1126,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return build::Error::Invalid {
             operation: build::ErrorOperation::Validate,
             subject: build::ErrorSubject::RunnerConfiguration,
-        }.asExitCode()!;
+        }.intoError()!;
     }
     let payload = envelope.take(payloadLen).reportAndExit(init).?;
     if expectedChecksum != runnerConfigChecksum(payload) {
         return build::Error::Invalid {
             operation: build::ErrorOperation::Validate,
             subject: build::ErrorSubject::RunnerConfiguration,
-        }.asExitCode()!;
+        }.intoError()!;
     }
     let mut config = ConfigCursor::init(payload);
 
@@ -1182,14 +1182,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
                 subject: build::ErrorSubject::RunnerConfiguration,
-            }.asExitCode()!;
+            }.intoError()!;
         },
     };
     if config.remaining() != 0 {
         return build::Error::Invalid {
             operation: build::ErrorOperation::Validate,
             subject: build::ErrorSubject::RunnerConfiguration,
-        }.asExitCode()!;
+        }.intoError()!;
     }
 
     let mut initialization = build::Build::init(
@@ -1225,10 +1225,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
                     _ = reported;
                 },
                 reportError! => {
-                    return reportError.asExitCode()!;
+                    return reportError.intoError()!;
                 },
             }
-            return error.asExitCode()!;
+            return error.intoError()!;
         },
     }
     match api.writePlanDraft(planDraft) {
@@ -1241,10 +1241,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
                     _ = reported;
                 },
                 reportError! => {
-                    return reportError.asExitCode()!;
+                    return reportError.intoError()!;
                 },
             }
-            return error.asExitCode()!;
+            return error.intoError()!;
         },
     }
     !()
@@ -1914,7 +1914,7 @@ mod tests {
         assert!(!runner.source.contains("runRequestedStep"));
         assert!(!runner.source.contains("reportActions"));
         assert!(runner.source.contains("match buildScript::build(&mut api)"));
-        assert!(runner.source.contains("return error.asExitCode()!;"));
+        assert!(runner.source.contains("return error.intoError()!;"));
         assert!(!runner.source.contains("const"));
     }
 

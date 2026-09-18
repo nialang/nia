@@ -37,6 +37,7 @@ use nia_item_signatures::{
     ProgramTraitImplSignature, WherePredicateSignature,
 };
 use nia_local_resolve::LocalResolution;
+use nia_provider_summary::{ProviderDemand, ProviderRequest};
 use nia_sema::{
     ArityCheck, ArrayLiteralLenCheck, FieldSetCheck, NamedField, check_array_literal_len,
     check_exact_arity, check_required_field_set, check_value_field_set,
@@ -44,7 +45,7 @@ use nia_sema::{
 use nia_sema_ir::{AssociatedConstProjection, BuiltinAssociatedValue, SemanticUseTable};
 use nia_source::SourcePath;
 use nia_span::Span;
-use nia_symbol::{SymbolId, SymbolMap, symbol_text_or_unresolved};
+use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, symbol_text_or_unresolved};
 use nia_target_config::TargetConfig;
 use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolverContext};
 use nia_ty::{
@@ -223,6 +224,7 @@ pub fn compute_module_const_array_lengths(input: ConstInput<'_>) -> ConstArrayLe
     analyzer.analyze_array_lengths();
     ConstArrayLengths {
         values: Arc::new(analyzer.array_lengths),
+        provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
     }
 }
@@ -243,11 +245,13 @@ pub fn compute_module_const_enum_values(
 ) -> ConstEnumValues {
     let mut analyzer = Analyzer::new(input);
     analyzer.array_lengths = Arc::unwrap_or_clone(array_lengths.values);
+    analyzer.provider_demands = Arc::unwrap_or_clone(array_lengths.provider_demands);
     analyzer.diagnostics = array_lengths.diagnostics;
     analyzer.analyze_enum_values();
     ConstEnumValues {
         values: Arc::new(analyzer.enum_values),
         typed_values: Arc::new(analyzer.typed_enum_values),
+        provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
     }
 }
@@ -278,11 +282,13 @@ pub fn compute_module_const_values(
     analyzer.array_lengths = Arc::unwrap_or_clone(array_lengths.values);
     analyzer.enum_values = Arc::unwrap_or_clone(enum_values.values);
     analyzer.typed_enum_values = Arc::unwrap_or_clone(enum_values.typed_values);
+    analyzer.provider_demands = Arc::unwrap_or_clone(enum_values.provider_demands);
     analyzer.diagnostics = enum_values.diagnostics;
     analyzer.analyze_values();
     ConstValues {
         values: Arc::new(analyzer.values),
         typed_values: Arc::new(analyzer.typed_values),
+        provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
     }
 }
@@ -300,6 +306,7 @@ pub fn check_module_const_with_all_phases(
         enum_values: enum_values.values,
         typed_enum_values: enum_values.typed_values,
         array_lengths: array_lengths.values,
+        provider_demands: typed_facts.provider_demands,
         diagnostics: typed_facts.diagnostics,
     }
 }
@@ -317,9 +324,11 @@ pub fn compute_module_const_typed_facts(
     analyzer.typed_enum_values = Arc::unwrap_or_clone(enum_values.typed_values);
     analyzer.values = Arc::unwrap_or_clone(values.values);
     analyzer.typed_values = Arc::unwrap_or_clone(values.typed_values);
+    analyzer.provider_demands = Arc::unwrap_or_clone(values.provider_demands);
     analyzer.diagnostics = values.diagnostics;
     ConstTypedFacts {
         typed_values: Arc::new(analyzer.typed_values),
+        provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
     }
 }
@@ -357,6 +366,7 @@ pub(crate) struct Analyzer<'a> {
     typed_enum_values: HashMap<DefId, TypedConstValue>,
     array_lengths: HashMap<GlobalConstExprId, u64>,
     diagnostics: Vec<Diagnostic>,
+    provider_demands: HashSet<ProviderDemand>,
     active: HashSet<ConstKey>,
     type_contexts: HashMap<ModuleId, ConstTypeCx<'a>>,
     program_type_normalizations:
@@ -432,6 +442,7 @@ impl Analyzer<'_> {
             typed_enum_values: HashMap::new(),
             array_lengths: HashMap::new(),
             diagnostics: Vec::new(),
+            provider_demands: HashSet::new(),
             active: HashSet::new(),
             type_contexts: HashMap::from([(
                 input.defs.module_id,
@@ -479,6 +490,7 @@ impl Analyzer<'_> {
             typed_enum_values: HashMap::new(),
             array_lengths: input.array_lengths.clone(),
             diagnostics: Vec::new(),
+            provider_demands: HashSet::new(),
             active: HashSet::new(),
             type_contexts: HashMap::from([(
                 input.defs.module_id,

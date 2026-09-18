@@ -99,6 +99,8 @@ const MODULE_GRAPH_PARENT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.compiler.module-graph-parent");
 const MODULE_GRAPH_CHILD_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.compiler.module-graph-child");
+const MODULE_GRAPH_PROVIDER_DEPENDENCIES_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.compiler.module-graph-provider-dependencies");
 const MODULE_PACKAGE_ROOT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.compiler.module-package-root");
 const LOADED_MODULES_DOMAIN: FingerprintDomain =
@@ -2748,6 +2750,7 @@ fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> QueryFingerpri
         crate::ProviderRequest::TraitImpl {
             target_type_name,
             trait_name,
+            trait_type_argument_names,
         } => {
             builder.write_u8(1);
             if let Some(target_type_name) = target_type_name {
@@ -2757,6 +2760,15 @@ fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> QueryFingerpri
                 builder.write_u8(0);
             }
             builder.write_u64(trait_name.raw());
+            builder.write_u64(trait_type_argument_names.len() as u64);
+            for argument in trait_type_argument_names {
+                if let Some(argument) = argument {
+                    builder.write_u8(1);
+                    builder.write_u64(argument.raw());
+                } else {
+                    builder.write_u8(0);
+                }
+            }
         }
         crate::ProviderRequest::ModuleSemantic { module_path } => {
             builder.write_u8(2);
