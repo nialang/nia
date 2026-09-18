@@ -14,6 +14,7 @@ use nia_body_ir::{
     TypedPattern, TypedPatternKind, TypedPlace, TypedStmtKind,
 };
 use nia_diagnostic::{Diagnostic, codes};
+use nia_ice::Ice;
 use nia_ids::{ClosureId, GlobalDefId, LocalId};
 use nia_span::Span;
 use nia_ty::{TyKind, TypeStore};
@@ -237,7 +238,7 @@ enum EscapeKind {
 pub fn check_closure_safety(
     functions: &[ClosureCheckFunction<'_>],
     type_store: &TypeStore,
-) -> ClosureCheck {
+) -> Result<ClosureCheck, Ice> {
     check_closure_safety_with_support(functions, &[], type_store)
 }
 
@@ -251,7 +252,7 @@ pub fn check_closure_safety_with_support(
     functions: &[ClosureCheckFunction<'_>],
     support_functions: &[ClosureCheckFunction<'_>],
     type_store: &TypeStore,
-) -> ClosureCheck {
+) -> Result<ClosureCheck, Ice> {
     // Build a cheap index of all bodies, then restrict the expensive summary
     // analysis to callables reachable from the diagnostic roots. This keeps
     // support modules available for precise interprocedural calls without
@@ -301,7 +302,7 @@ pub fn check_closure_safety_with_support(
             continue;
         };
         let (_, called) = Analyzer::new(type_store, &empty_summaries, None)
-            .summarize_with_dependencies(&callable);
+            .summarize_with_dependencies(&callable)?;
         for dependency in called {
             let Some(body) = available.get(&dependency).cloned() else {
                 continue;
@@ -346,10 +347,10 @@ pub fn check_closure_safety_with_support(
                 .iter()
                 .map(|(key, callable)| {
                     let (summary, called) = Analyzer::new(type_store, summaries_ref, None)
-                        .summarize_with_dependencies(callable);
-                    (*key, summary, called)
+                        .summarize_with_dependencies(callable)?;
+                    Ok((*key, summary, called))
                 })
-                .collect()
+                .collect::<Result<_, Ice>>()?
         } else {
             let chunk_size = initial_callables.len().div_ceil(worker_count);
             std::thread::scope(|scope| {
@@ -360,16 +361,21 @@ pub fn check_closure_safety_with_support(
                             .map(|(key, callable)| {
                                 let (summary, called) =
                                     Analyzer::new(type_store, summaries_ref, None)
-                                        .summarize_with_dependencies(callable);
-                                (*key, summary, called)
+                                        .summarize_with_dependencies(callable)?;
+                                Ok((*key, summary, called))
                             })
-                            .collect::<Vec<_>>()
+                            .collect::<Result<Vec<_>, Ice>>()
                     })
                 });
-                handles
-                    .flat_map(|handle| handle.join().expect("closure summary worker panicked"))
-                    .collect()
-            })
+                let mut results = Vec::new();
+                for handle in handles {
+                    let chunk = handle
+                        .join()
+                        .map_err(|_| Ice::new("closure summary worker panicked"))??;
+                    results.extend(chunk);
+                }
+                Ok(results)
+            })?
         };
     initial_results.sort_unstable_by_key(|(key, _, _)| *key);
     for (key, summary, called) in initial_results {
@@ -390,7 +396,7 @@ pub fn check_closure_safety_with_support(
             continue;
         };
         let (summary, called) =
-            Analyzer::new(type_store, &summaries, None).summarize_with_dependencies(callable);
+            Analyzer::new(type_store, &summaries, None).summarize_with_dependencies(callable)?;
         update_dependency_edges(key, called, &mut dependencies, &mut dependents);
         if summaries.get(&key) == Some(&summary) {
             continue;
@@ -417,9 +423,9 @@ pub fn check_closure_safety_with_support(
         if !diagnostic_root {
             continue;
         }
-        let callable = callables
-            .get(&key)
-            .expect("collected callable key must retain its body");
+        let Some(callable) = callables.get(&key) else {
+            return Err(Ice::new("closure callable index lost a collected body"));
+        };
         Analyzer::new(
             type_store,
             &summaries,
@@ -432,10 +438,10 @@ pub fn check_closure_safety_with_support(
                 reported: &mut reported,
             }),
         )
-        .summarize(callable);
+        .summarize(callable)?;
     }
 
-    ClosureCheck {
+    Ok(ClosureCheck {
         summaries: summaries
             .into_iter()
             .filter_map(|(key, summary)| match key {
@@ -476,7 +482,7 @@ pub fn check_closure_safety_with_support(
             })
             .collect(),
         diagnostics,
-    }
+    })
 }
 
 fn update_dependency_edges(
@@ -516,6 +522,7 @@ struct Analyzer<'a> {
     closure_scopes: HashMap<ClosureId, usize>,
     defer_scopes: Vec<Vec<TypedExpr>>,
     dependencies: HashSet<CallableKey>,
+    failure: Option<Ice>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -535,17 +542,19 @@ impl<'a> Analyzer<'a> {
             closure_scopes: HashMap::new(),
             defer_scopes: Vec::new(),
             dependencies: HashSet::new(),
+            failure: None,
         }
     }
 
-    fn summarize(self, callable: &CallableBody<'_>) -> CallableSummary {
-        self.summarize_with_dependencies(callable).0
+    fn summarize(self, callable: &CallableBody<'_>) -> Result<CallableSummary, Ice> {
+        self.summarize_with_dependencies(callable)
+            .map(|(summary, _)| summary)
     }
 
     fn summarize_with_dependencies(
         mut self,
         callable: &CallableBody<'_>,
-    ) -> (CallableSummary, HashSet<CallableKey>) {
+    ) -> Result<(CallableSummary, HashSet<CallableKey>), Ice> {
         // Captures and parameters enter as distinct input origins. The body
         // walk then propagates those origins through assignments, calls,
         // closures, and defers without needing a path-sensitive heap model.
@@ -576,7 +585,16 @@ impl<'a> Analyzer<'a> {
             returned_error_captured_addresses: input_provenances(&self.returned_errors, true),
             escaping_captured_addresses: input_provenances(&self.escaped, true),
         };
-        (summary, self.dependencies)
+        match self.failure {
+            Some(error) => Err(error),
+            None => Ok((summary, self.dependencies)),
+        }
+    }
+
+    fn fail(&mut self, message: &'static str) {
+        if self.failure.is_none() {
+            self.failure = Some(Ice::new(message));
+        }
     }
 
     fn analyze_body_contents(
@@ -603,11 +621,13 @@ impl<'a> Analyzer<'a> {
                 TypedStmtKind::Expr(expr) => {
                     self.analyze_expr(expr, env);
                 }
-                TypedStmtKind::Defer(expr) => self
-                    .defer_scopes
-                    .last_mut()
-                    .expect("body analysis must retain its defer scope")
-                    .push(expr.clone()),
+                TypedStmtKind::Defer(expr) => {
+                    if let Some(scope) = self.defer_scopes.last_mut() {
+                        scope.push(expr.clone());
+                    } else {
+                        self.fail("closure body analysis lost its defer scope");
+                    }
+                }
                 TypedStmtKind::Return(value) => {
                     let value = value
                         .as_ref()
@@ -641,10 +661,10 @@ impl<'a> Analyzer<'a> {
             .as_deref()
             .map(|tail| self.analyze_expr(tail, env))
             .unwrap_or_default();
-        let deferred = self
-            .defer_scopes
-            .pop()
-            .expect("body analysis must pop its defer scope");
+        let Some(deferred) = self.defer_scopes.pop() else {
+            self.fail("closure body analysis could not pop its defer scope");
+            return tail;
+        };
         for deferred in deferred.into_iter().rev() {
             self.analyze_expr(&deferred, env);
         }

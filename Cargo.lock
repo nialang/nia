@@ -372,6 +372,7 @@ dependencies = [
  "nia-ast",
  "nia-body-ir",
  "nia-diagnostic",
+ "nia-ice",
  "nia-ids",
  "nia-span",
  "nia-ty",
