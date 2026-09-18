@@ -5,8 +5,6 @@
 //! the complete compiler/toolchain contract; payloads do not carry independent
 //! hand-bumped schema counters.
 
-use std::fmt::Write;
-
 /// Version of the compiler crate set used in toolchain compatibility checks.
 pub const COMPILER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -268,9 +266,13 @@ pub mod formats {
 /// Renders the canonical installed-resource manifest for this compiler build.
 pub fn toolchain_manifest() -> String {
     let mut manifest = String::new();
-    writeln!(manifest, "# Nia toolchain resource compatibility identity.").unwrap();
-    writeln!(manifest, "compiler-version={COMPILER_VERSION}").unwrap();
-    writeln!(manifest, "release-compatibility={RELEASE_COMPATIBILITY}").unwrap();
+    manifest.push_str("# Nia toolchain resource compatibility identity.\n");
+    manifest.push_str("compiler-version=");
+    manifest.push_str(COMPILER_VERSION);
+    manifest.push('\n');
+    manifest.push_str("release-compatibility=");
+    manifest.push_str(&RELEASE_COMPATIBILITY.to_string());
+    manifest.push('\n');
     manifest
 }
 
