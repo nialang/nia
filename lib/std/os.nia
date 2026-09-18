@@ -628,15 +628,15 @@ extend ProcessId {
         .{ platform }
     }
 
-    fn platform(&self) platform::ProcessId {
+    const fn platform(&self) platform::ProcessId {
         self.platform
     }
 
-    pub(pkg) fn raw(&self) i32 {
+    pub(pkg) const fn raw(&self) i32 {
         self.platform().raw()
     }
 
-    pub(pkg) fn fromRaw(raw: i32) ProcessId {
+    pub(pkg) const fn fromRaw(raw: i32) ProcessId {
         .fromPlatform(platform::ProcessId::init(raw))
     }
 }

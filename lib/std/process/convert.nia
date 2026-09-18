@@ -1,0 +1,68 @@
+using pkg::builtin;
+using pkg::os;
+using pkg::process::types;
+
+using types::{ProcessId, SpawnError, SpawnStage, SystemError};
+
+const fn processIdFromOs(pid: os::ProcessId) ProcessId {
+    .fromRaw(pid.raw())
+}
+
+extend os::Error : builtin::IntoError[SystemError] {
+    const fn intoError(self) SystemError {
+        match self {
+            .PermissionDenied => .PermissionDenied,
+            .NotFound => .NotFound,
+            .Interrupted => .Interrupted,
+            .Io => .Io,
+            .BadFd => .BadFd,
+            .NoChild => .NoChild,
+            .Again => .Again,
+            .OutOfMemory => .OutOfMemory,
+            .Access => .Access,
+            .Fault => .Fault,
+            .Busy => .Busy,
+            .AlreadyExists => .AlreadyExists,
+            .CrossDevice => .CrossDevice,
+            .NotDir => .NotDir,
+            .IsDir => .IsDir,
+            .Invalid => .Invalid,
+            .NoSpace => .NoSpace,
+            .ReadOnly => .ReadOnly,
+            .BrokenPipe => .BrokenPipe,
+            .OutOfRange => .OutOfRange,
+            .TooLong => .TooLong,
+            .NotEmpty => .NotEmpty,
+            _ => .System,
+        }
+    }
+}
+
+extend os::SpawnError : builtin::IntoError[SpawnError] {
+    const fn intoError(self) SpawnError {
+        match self {
+            .Setup(cause) => .Setup(cause.intoError()),
+            .Stdio(cause) => .Stdio(cause.intoError()),
+            .Cwd(cause) => .Cwd(cause.intoError()),
+            .Exec(cause) => .Exec(cause.intoError()),
+            .Reap { stage, primary, cause, pid } => .Reap {
+                stage: stage.asProcessSpawnStage(),
+                primary: primary.intoError(),
+                cause: cause.intoError(),
+                pid: processIdFromOs(pid),
+            },
+        }
+    }
+}
+
+extend os::SpawnStage {
+    const fn asProcessSpawnStage(self) SpawnStage {
+        match self {
+            .Setup => .Setup,
+            .Stdio => .Stdio,
+            .Cwd => .Cwd,
+            .Exec => .Exec,
+            _ => .Setup,
+        }
+    }
+}

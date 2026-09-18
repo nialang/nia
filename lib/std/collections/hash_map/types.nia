@@ -1,5 +1,3 @@
-using pkg::os;
-
 pub enum HashMapInitError: i32 {
     PermissionDenied = 1,
     Io = 5,
@@ -13,19 +11,6 @@ pub enum HashMapInitError: i32 {
 pub trait HashMapContext[K] {
     fn hash(&self, seed: u64, key: &K) u64;
     fn eql(&self, left: &K, right: &K) bool;
-}
-
-extend HashMapInitError {
-    pub(pkg) const fn fromOs(cause: os::Error) HashMapInitError {
-        match cause {
-            .PermissionDenied => .PermissionDenied,
-            .Io => .Io,
-            .Again => .Again,
-            .Fault => .Fault,
-            .Invalid => .Invalid,
-            _ => .System,
-        }
-    }
 }
 
 pub trait HashMapLookupContext[K, Q] {

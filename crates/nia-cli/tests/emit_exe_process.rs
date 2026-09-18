@@ -3263,7 +3263,8 @@ pub fn main(init: process::Init) ExitCode!() {
     if ExitCode(11).0 != 11 {
         return ExitCode(2)!;
     }
-    if (fs::Error::NotFound.intoError().0) != 2 {
+    let notFoundCode: process::ExitCode = fs::Error::NotFound.intoError();
+    if notFoundCode.0 != 2 {
         return ExitCode(3)!;
     }
     if (process::Error::Allocation(mem::Error::OutOfMemory).intoError().0) != 12 {

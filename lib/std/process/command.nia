@@ -4,7 +4,7 @@ using pkg::error;
 using pkg::fs;
 using pkg::mem;
 using pkg::os;
-using pkg::process::child;
+using pkg::process::convert;
 using pkg::process::types;
 
 using types::{
@@ -15,11 +15,10 @@ using types::{
     EnvEntry,
     Error,
     SpawnAttempt,
-    SpawnStage,
+    SpawnError,
     SpawnOutcome,
     SpawnStorage,
     StdIo,
-    SystemError,
 };
 
 extend Command {
@@ -256,15 +255,16 @@ extend SpawnStorage {
                 },
                 .Reap { stage, primary, cause, pid }! => {
                     self.nativeSpawn = ?attempt;
-                    return .Spawn(.Reap {
-                        stage: commandSpawnStage(stage),
-                        primary: SystemError::fromOs(primary),
-                        cause: SystemError::fromOs(cause),
-                        pid: child::processIdFromOs(pid),
-                    })!;
+                    let converted: SpawnError = os::SpawnError::Reap {
+                        stage,
+                        primary,
+                        cause,
+                        pid,
+                    }.intoError();
+                    return .Spawn(converted)!;
                 },
                 cause! => {
-                    self.outcome = ?SpawnOutcome::Failure(commandSpawnError(cause));
+                    self.outcome = ?.Failure(.Spawn(cause.intoError()));
                 },
             }
         }
@@ -449,44 +449,9 @@ fn appendCStringPointers(
     !()
 }
 
-fn commandSpawnError(cause: os::SpawnError) Error {
-    match cause {
-        .Setup(system) => {
-            .Spawn(.Setup(SystemError::fromOs(system)))
-        },
-        .Stdio(system) => {
-            .Spawn(.Stdio(SystemError::fromOs(system)))
-        },
-        .Cwd(system) => {
-            .Spawn(.Cwd(SystemError::fromOs(system)))
-        },
-        .Exec(system) => {
-            .Spawn(.Exec(SystemError::fromOs(system)))
-        },
-        .Reap { stage, primary, cause, pid } => {
-            .Spawn(.Reap {
-                stage: commandSpawnStage(stage),
-                primary: SystemError::fromOs(primary),
-                cause: SystemError::fromOs(cause),
-                pid: child::processIdFromOs(pid),
-            })
-        },
-    }
-}
-
-fn commandSpawnStage(stage: os::SpawnStage) SpawnStage {
-    match stage {
-        .Setup => .Setup,
-        .Stdio => .Stdio,
-        .Cwd => .Cwd,
-        .Exec => .Exec,
-        _ => .Setup,
-    }
-}
-
 extend[T] os::Error!T {
     fn withSpawnSetupContext(self) Error!T {
-        self.mapError(&\cause: os::Error -> .SpawnSetup(SystemError::fromOs(cause)))
+        self.mapError(&\cause: os::Error -> .SpawnSetup(cause.intoError()))
     }
 }
 

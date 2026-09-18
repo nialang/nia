@@ -236,32 +236,12 @@ pub struct Init {
     env: Env,
 }
 
-extend SystemError {
-    pub(pkg) fn fromOs(cause: os::Error) SystemError {
-        match cause {
-            .PermissionDenied => .PermissionDenied,
-            .NotFound => .NotFound,
-            .Interrupted => .Interrupted,
-            .Io => .Io,
-            .BadFd => .BadFd,
-            .NoChild => .NoChild,
-            .Again => .Again,
-            .OutOfMemory => .OutOfMemory,
-            .Access => .Access,
-            .Fault => .Fault,
-            .Busy => .Busy,
-            .AlreadyExists => .AlreadyExists,
-            .CrossDevice => .CrossDevice,
-            .NotDir => .NotDir,
-            .IsDir => .IsDir,
-            .Invalid => .Invalid,
-            .NoSpace => .NoSpace,
-            .ReadOnly => .ReadOnly,
-            .BrokenPipe => .BrokenPipe,
-            .OutOfRange => .OutOfRange,
-            .TooLong => .TooLong,
-            .NotEmpty => .NotEmpty,
-            _ => .System,
-        }
+extend ProcessId {
+    pub(pkg) const fn fromRaw(raw: i32) ProcessId {
+        .{ raw }
+    }
+
+    pub const fn raw(&self) i32 {
+        self.raw
     }
 }
