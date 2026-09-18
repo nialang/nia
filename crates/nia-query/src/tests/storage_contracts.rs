@@ -1,5 +1,4 @@
 use super::*;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[test]
 fn externally_published_shared_values_support_repeated_reads() {
@@ -7,15 +6,25 @@ fn externally_published_shared_values_support_repeated_reads() {
         executions: AtomicUsize::new(0),
     });
     assert!(db.get(PublishedSharedValueQuery(3)).is_err());
-    assert!(db.can_publish_shared(PublishedSharedValueQuery(3)));
-    db.publish_shared(PublishedSharedValueQuery(3), 42, &Double(3));
+    assert!(
+        db.can_publish_shared(PublishedSharedValueQuery(3))
+            .expect("inspect shared publication")
+    );
+    db.publish_shared(PublishedSharedValueQuery(3), 42, &Double(3))
+        .expect("publish shared value");
     assert_eq!(*db.expect_get(PublishedSharedValueQuery(3)), 42);
     assert_eq!(*db.expect_get(PublishedSharedValueQuery(3)), 42);
-    assert!(!db.can_publish_shared(PublishedSharedValueQuery(3)));
+    assert!(
+        !db.can_publish_shared(PublishedSharedValueQuery(3))
+            .expect("inspect shared publication")
+    );
 
     db.invalidate(Double(3));
     assert!(db.get(PublishedSharedValueQuery(3)).is_err());
-    assert!(db.can_publish_shared(PublishedSharedValueQuery(3)));
+    assert!(
+        db.can_publish_shared(PublishedSharedValueQuery(3))
+            .expect("inspect shared publication")
+    );
 }
 
 #[test]
@@ -110,7 +119,8 @@ fn externally_published_owned_query_moves_once_and_tracks_its_predecessor() {
             drops: Arc::clone(&drops),
         },
         &predecessor,
-    );
+    )
+    .expect("publish owned value");
     let value = db.expect_get_owned(PublishedOwnedValueQuery(3));
     assert_eq!(value.value, 9);
     assert_eq!(drops.load(Ordering::SeqCst), 0);
@@ -146,7 +156,8 @@ fn invalidating_a_producer_drops_an_unconsumed_published_payload() {
             drops: Arc::clone(&drops),
         },
         &predecessor,
-    );
+    )
+    .expect("publish owned value");
 
     db.invalidate(predecessor);
     assert_eq!(drops.load(Ordering::SeqCst), 1);
@@ -159,7 +170,13 @@ fn query_storage_policy_rejects_the_wrong_access_mode() {
         executions: AtomicUsize::new(0),
     });
 
-    assert!(catch_unwind(AssertUnwindSafe(|| db.get(OwnedNonCloneValueQuery(1)))).is_err());
-    assert!(catch_unwind(AssertUnwindSafe(|| db.get_owned(Double(1)))).is_err());
+    assert!(matches!(
+        db.get(OwnedNonCloneValueQuery(1)),
+        Err(QueryError::Internal(_))
+    ));
+    assert!(matches!(
+        db.get_owned(Double(1)),
+        Err(QueryError::Internal(_))
+    ));
     assert_eq!(db.context().executions.load(Ordering::SeqCst), 0);
 }

@@ -401,7 +401,7 @@ pub(in crate::query) fn with_backend_finalization_schedule<R>(
             BackendModuleItemPlanQuery(module_id),
             module_plan,
             &BackendItemPlanQuery,
-        );
+        )?;
     }
     emit_backend_module_plan_allocation("after_publish");
     if has_diagnostics {

@@ -220,6 +220,13 @@ impl<C> QueryDb<C> {
         }
     }
 
+    fn internal_query_error<K>(key: &K, message: impl Into<String>) -> QueryError
+    where
+        K: QueryKey<C>,
+    {
+        QueryError::internal(message).with_query_context(query_frame::<C, K>(key))
+    }
+
     /// Gets a shared cached value, executing and memoizing it when necessary.
     ///
     /// `K` must use [`QueryStoragePolicy::CacheOwnedArc`]. The returned `Arc`
@@ -240,18 +247,18 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
-        assert_eq!(
-            K::STORAGE,
-            QueryStoragePolicy::SingleConsumerOwned,
-            "query `{}` does not declare single-consumer owned storage",
-            K::name()
-        );
-        assert_eq!(
-            K::FINGERPRINT,
-            QueryFingerprintPolicy::None,
-            "single-consumer query `{}` cannot retain a value fingerprint",
-            K::name()
-        );
+        if K::STORAGE != QueryStoragePolicy::SingleConsumerOwned {
+            return Err(Self::internal_query_error(
+                &key,
+                "query does not declare single-consumer owned storage",
+            ));
+        }
+        if K::FINGERPRINT != QueryFingerprintPolicy::None {
+            return Err(Self::internal_query_error(
+                &key,
+                "single-consumer query cannot retain a value fingerprint",
+            ));
+        }
         let _activity = self.inner.session.enter_activity();
         let detail_timing = self.inner.timings.detail();
         let slot = nia_timing::time_detail(detail_timing, "query.slot_for", || self.slot_for(&key));
@@ -263,10 +270,16 @@ impl<C> QueryDb<C> {
             let mut state = slot.state.lock();
             match &*state {
                 QueryState::Published { .. } => {
-                    let QueryState::Published { value } =
-                        std::mem::replace(&mut *state, QueryState::Consumed)
-                    else {
-                        unreachable!("published query state changed while locked");
+                    let previous = std::mem::replace(&mut *state, QueryState::Consumed);
+                    let value = match previous {
+                        QueryState::Published { value } => value,
+                        unexpected => {
+                            *state = unexpected;
+                            return Err(Self::internal_query_error(
+                                &key,
+                                "published query state changed while locked",
+                            ));
+                        }
                     };
                     slot.ready.notify_all();
                     record_dependency_fingerprint_on_current_stack(
@@ -355,14 +368,14 @@ impl<C> QueryDb<C> {
                     let _wait = self
                         .inner
                         .session
-                        .begin_query_wait(node_id, self.frame(node_id))?;
+                        .begin_query_wait(node_id, query_frame::<C, K>(&key))?;
                     slot.ready.wait(&mut state);
                 }
                 QueryState::Ready { .. } | QueryState::PotentiallyOutdated { .. } => {
-                    panic!(
-                        "Nia ICE: single-consumer query `{}` reached shared cache state",
-                        K::name()
-                    );
+                    return Err(Self::internal_query_error(
+                        &key,
+                        "single-consumer query reached shared cache state",
+                    ));
                 }
             }
         }
@@ -371,64 +384,65 @@ impl<C> QueryDb<C> {
     /// Returns whether an externally published owned slot can accept a new
     /// payload. A live published payload must remain untouched until its
     /// consumer takes ownership; empty and consumed slots are publishable.
-    pub fn can_publish_owned<K>(&self, key: K) -> bool
+    pub fn can_publish_owned<K>(&self, key: K) -> QueryResult<bool>
     where
         K: QueryKey<C>,
     {
-        assert_eq!(
-            K::STORAGE,
-            QueryStoragePolicy::SingleConsumerOwned,
-            "query `{}` does not declare single-consumer owned storage",
-            K::name()
-        );
-        assert_eq!(
-            K::PROVIDER,
-            QueryProviderPolicy::ExternallyPublished,
-            "query `{}` does not declare an external producer",
-            K::name()
-        );
+        if K::STORAGE != QueryStoragePolicy::SingleConsumerOwned {
+            return Err(Self::internal_query_error(
+                &key,
+                "query does not declare single-consumer owned storage",
+            ));
+        }
+        if K::PROVIDER != QueryProviderPolicy::ExternallyPublished {
+            return Err(Self::internal_query_error(
+                &key,
+                "query does not declare an external producer",
+            ));
+        }
         let slot = self.slot_for(&key);
         let state = slot.state.lock();
-        matches!(&*state, QueryState::Empty | QueryState::Consumed)
+        Ok(matches!(&*state, QueryState::Empty | QueryState::Consumed))
     }
 
     /// Publishes an already-owned payload to one externally-published query slot.
     ///
     /// The published slot depends on `predecessor`, so invalidating the producer
     /// drops an unconsumed payload and invalidates an already-consumed consumer.
-    pub fn publish_owned<K, P>(&self, key: K, value: K::Value, predecessor: &P)
+    pub fn publish_owned<K, P>(&self, key: K, value: K::Value, predecessor: &P) -> QueryResult<()>
     where
         K: QueryKey<C>,
         P: QueryKey<C>,
     {
-        assert_eq!(
-            K::STORAGE,
-            QueryStoragePolicy::SingleConsumerOwned,
-            "published query `{}` must use single-consumer owned storage",
-            K::name()
-        );
-        assert_eq!(
-            K::PROVIDER,
-            QueryProviderPolicy::ExternallyPublished,
-            "query `{}` does not declare an external producer",
-            K::name()
-        );
-        assert_eq!(
-            K::FINGERPRINT,
-            QueryFingerprintPolicy::None,
-            "published query `{}` cannot retain a value fingerprint",
-            K::name()
-        );
+        if K::STORAGE != QueryStoragePolicy::SingleConsumerOwned {
+            return Err(Self::internal_query_error(
+                &key,
+                "published query must use single-consumer owned storage",
+            ));
+        }
+        if K::PROVIDER != QueryProviderPolicy::ExternallyPublished {
+            return Err(Self::internal_query_error(
+                &key,
+                "query does not declare an external producer",
+            ));
+        }
+        if K::FINGERPRINT != QueryFingerprintPolicy::None {
+            return Err(Self::internal_query_error(
+                &key,
+                "published query cannot retain a value fingerprint",
+            ));
+        }
         let _activity = self.inner.session.enter_activity();
         let slot = self.slot_for(&key);
         let predecessor_slot = self.slot_for(predecessor);
         {
             let mut state = slot.state.lock();
-            assert!(
-                matches!(&*state, QueryState::Empty | QueryState::Consumed),
-                "published query `{}` already has a live payload or consumer",
-                K::name()
-            );
+            if !matches!(&*state, QueryState::Empty | QueryState::Consumed) {
+                return Err(Self::internal_query_error(
+                    &key,
+                    "published query already has a live payload or consumer",
+                ));
+            }
             *state = QueryState::Published { value };
             slot.ready.notify_all();
         }
@@ -436,64 +450,66 @@ impl<C> QueryDb<C> {
             slot.node_id,
             FastHashSet::from_iter([predecessor_slot.node_id]),
         );
+        Ok(())
     }
 
     /// Returns whether an externally published shared slot can accept its payload.
-    pub fn can_publish_shared<K>(&self, key: K) -> bool
+    pub fn can_publish_shared<K>(&self, key: K) -> QueryResult<bool>
     where
         K: QueryKey<C>,
     {
-        assert_eq!(
-            K::STORAGE,
-            QueryStoragePolicy::CacheOwnedArc,
-            "query `{}` does not declare shared cache storage",
-            K::name()
-        );
-        assert_eq!(
-            K::PROVIDER,
-            QueryProviderPolicy::ExternallyPublished,
-            "query `{}` does not declare an external producer",
-            K::name()
-        );
+        if K::STORAGE != QueryStoragePolicy::CacheOwnedArc {
+            return Err(Self::internal_query_error(
+                &key,
+                "query does not declare shared cache storage",
+            ));
+        }
+        if K::PROVIDER != QueryProviderPolicy::ExternallyPublished {
+            return Err(Self::internal_query_error(
+                &key,
+                "query does not declare an external producer",
+            ));
+        }
         let slot = self.slot_for(&key);
         let state = slot.state.lock();
-        matches!(&*state, QueryState::Empty)
+        Ok(matches!(&*state, QueryState::Empty))
     }
 
     /// Publishes an immutable shared payload with an explicit predecessor.
-    pub fn publish_shared<K, P>(&self, key: K, value: K::Value, predecessor: &P)
+    pub fn publish_shared<K, P>(&self, key: K, value: K::Value, predecessor: &P) -> QueryResult<()>
     where
         K: QueryKey<C>,
         P: QueryKey<C>,
     {
-        assert_eq!(
-            K::STORAGE,
-            QueryStoragePolicy::CacheOwnedArc,
-            "published query `{}` must use shared cache storage",
-            K::name()
-        );
-        assert_eq!(
-            K::PROVIDER,
-            QueryProviderPolicy::ExternallyPublished,
-            "query `{}` does not declare an external producer",
-            K::name()
-        );
-        assert_eq!(
-            K::FINGERPRINT,
-            QueryFingerprintPolicy::None,
-            "published query `{}` cannot retain a value fingerprint",
-            K::name()
-        );
+        if K::STORAGE != QueryStoragePolicy::CacheOwnedArc {
+            return Err(Self::internal_query_error(
+                &key,
+                "published query must use shared cache storage",
+            ));
+        }
+        if K::PROVIDER != QueryProviderPolicy::ExternallyPublished {
+            return Err(Self::internal_query_error(
+                &key,
+                "query does not declare an external producer",
+            ));
+        }
+        if K::FINGERPRINT != QueryFingerprintPolicy::None {
+            return Err(Self::internal_query_error(
+                &key,
+                "published query cannot retain a value fingerprint",
+            ));
+        }
         let _activity = self.inner.session.enter_activity();
         let slot = self.slot_for(&key);
         let predecessor_slot = self.slot_for(predecessor);
         {
             let mut state = slot.state.lock();
-            assert!(
-                matches!(&*state, QueryState::Empty),
-                "published query `{}` already has a live payload",
-                K::name()
-            );
+            if !matches!(&*state, QueryState::Empty) {
+                return Err(Self::internal_query_error(
+                    &key,
+                    "published query already has a live payload",
+                ));
+            }
             *state = QueryState::Ready {
                 value: Arc::new(value),
                 fingerprint: None,
@@ -505,18 +521,19 @@ impl<C> QueryDb<C> {
             slot.node_id,
             FastHashSet::from_iter([predecessor_slot.node_id]),
         );
+        Ok(())
     }
 
     fn try_get_cached<K>(&self, key: K) -> QueryResult<Arc<K::Value>>
     where
         K: QueryKey<C>,
     {
-        assert_eq!(
-            K::STORAGE,
-            QueryStoragePolicy::CacheOwnedArc,
-            "single-consumer query `{}` must be requested with get_owned",
-            K::name()
-        );
+        if K::STORAGE != QueryStoragePolicy::CacheOwnedArc {
+            return Err(Self::internal_query_error(
+                &key,
+                "single-consumer query must be requested with get_owned",
+            ));
+        }
         let _activity = self.inner.session.enter_activity();
         let detail_timing = self.inner.timings.detail();
         let slot = nia_timing::time_detail(detail_timing, "query.slot_for", || self.slot_for(&key));
@@ -529,10 +546,10 @@ impl<C> QueryDb<C> {
             let mut state = slot.state.lock();
             match &*state {
                 QueryState::Published { .. } => {
-                    panic!(
-                        "Nia ICE: shared query `{}` reached published owned state",
-                        K::name()
-                    )
+                    return Err(Self::internal_query_error(
+                        &key,
+                        "shared query reached published owned state",
+                    ));
                 }
                 QueryState::Ready {
                     value, fingerprint, ..
@@ -553,13 +570,20 @@ impl<C> QueryDb<C> {
                         &mut *state,
                         QueryState::Validating { invalidated: false },
                     );
-                    let QueryState::PotentiallyOutdated {
-                        value,
-                        fingerprint,
-                        dependency_fingerprints,
-                    } = previous
-                    else {
-                        unreachable!("query state changed while locked")
+                    let (value, fingerprint, dependency_fingerprints) = match previous {
+                        QueryState::PotentiallyOutdated {
+                            value,
+                            fingerprint,
+                            dependency_fingerprints,
+                        } => (value, fingerprint, dependency_fingerprints),
+                        unexpected => {
+                            *state = unexpected;
+                            slot.ready.notify_all();
+                            return Err(Self::internal_query_error(
+                                &key,
+                                "query state changed while locked",
+                            ));
+                        }
                     };
                     drop(state);
 
@@ -621,14 +645,14 @@ impl<C> QueryDb<C> {
                     let _wait = self
                         .inner
                         .session
-                        .begin_query_wait(node_id, self.frame(node_id))?;
+                        .begin_query_wait(node_id, query_frame::<C, K>(&key))?;
                     slot.ready.wait(&mut state);
                 }
                 QueryState::Consumed => {
-                    panic!(
-                        "Nia ICE: shared query `{}` reached single-consumer state",
-                        K::name()
-                    );
+                    return Err(Self::internal_query_error(
+                        &key,
+                        "shared query reached single-consumer state",
+                    ));
                 }
                 QueryState::Empty => {
                     if K::PROVIDER == QueryProviderPolicy::ExternallyPublished {
@@ -684,32 +708,51 @@ impl<C> QueryDb<C> {
 
                     let fingerprint = match K::FINGERPRINT {
                         QueryFingerprintPolicy::None => {
-                            assert!(
-                                key.fingerprint(&value).is_none(),
-                                "query `{}` returned a fingerprint without declaring a policy",
-                                K::name()
-                            );
-                            None
+                            if key.fingerprint(&value).is_some() {
+                                Err(Self::internal_query_error(
+                                    &key,
+                                    "query returned a fingerprint without declaring a policy",
+                                ))
+                            } else {
+                                Ok(None)
+                            }
                         }
-                        QueryFingerprintPolicy::StableValue => Some(
-                            key.fingerprint(&value)
-                                .expect("stable value query must produce a fingerprint"),
-                        ),
+                        QueryFingerprintPolicy::StableValue => {
+                            key.fingerprint(&value).map(Some).ok_or_else(|| {
+                                Self::internal_query_error(
+                                    &key,
+                                    "stable value query did not produce a fingerprint",
+                                )
+                            })
+                        }
                         QueryFingerprintPolicy::SemanticValue => {
-                            assert!(
-                                key.fingerprint(&value).is_none(),
-                                "semantic value query `{}` must use values_equal, not fingerprint",
-                                K::name()
-                            );
-                            Some(
-                                stale_value
-                                    .take()
-                                    .filter(|(old, _)| key.values_equal(old, &value))
-                                    .map_or_else(
-                                        || slot.next_semantic_fingerprint(K::name()),
-                                        |(_, fingerprint)| fingerprint,
-                                    ),
-                            )
+                            if key.fingerprint(&value).is_some() {
+                                Err(Self::internal_query_error(
+                                    &key,
+                                    "semantic value query must use values_equal, not fingerprint",
+                                ))
+                            } else {
+                                Ok(Some(
+                                    stale_value
+                                        .take()
+                                        .filter(|(old, _)| key.values_equal(old, &value))
+                                        .map_or_else(
+                                            || slot.next_semantic_fingerprint(K::name()),
+                                            |(_, fingerprint)| fingerprint,
+                                        ),
+                                ))
+                            }
+                        }
+                    };
+                    let fingerprint = match fingerprint {
+                        Ok(fingerprint) => fingerprint,
+                        Err(error) => {
+                            let mut state = slot.state.lock();
+                            *state = QueryState::Empty;
+                            guard.discard();
+                            self.clear_dependencies_from(node_id);
+                            slot.ready.notify_all();
+                            return Err(error);
                         }
                     };
                     let cached = Arc::new(value);
@@ -933,39 +976,50 @@ impl<C> QueryDb<C> {
     /// Validates a stable input fingerprint and invalidates it only when changed.
     ///
     /// This is the red/green fast path for [`QueryFingerprintPolicy::StableValue`].
-    pub fn validate_input<K>(&self, key: K, current_value: &K::Value) -> QueryInvalidation
+    pub fn validate_input<K>(
+        &self,
+        key: K,
+        current_value: &K::Value,
+    ) -> QueryResult<QueryInvalidation>
     where
         K: QueryKey<C>,
     {
         let _activity = self.inner.session.enter_activity();
-        assert_eq!(
-            K::FINGERPRINT,
-            QueryFingerprintPolicy::StableValue,
-            "query `{}` must declare a stable value fingerprint before input validation",
-            K::name()
-        );
-        let current_fingerprint = key
-            .fingerprint(current_value)
-            .expect("stable value query must produce a fingerprint");
+        if K::FINGERPRINT != QueryFingerprintPolicy::StableValue {
+            return Err(Self::internal_query_error(
+                &key,
+                "query must declare a stable value fingerprint before input validation",
+            ));
+        }
+        let current_fingerprint = key.fingerprint(current_value).ok_or_else(|| {
+            Self::internal_query_error(&key, "stable value query did not produce a fingerprint")
+        })?;
         let Some(slot) = self.cached_slot(&key) else {
-            return QueryInvalidation::default();
+            return Ok(QueryInvalidation::default());
         };
         let is_green = {
             let mut state = slot.state.lock();
             match &*state {
                 QueryState::Empty | QueryState::Consumed | QueryState::Published { .. } => {
-                    return QueryInvalidation::default();
+                    return Ok(QueryInvalidation::default());
                 }
                 QueryState::Computing { .. } | QueryState::Validating { .. } => false,
                 QueryState::PotentiallyOutdated { fingerprint, .. } => {
                     if *fingerprint == current_fingerprint {
-                        let QueryState::PotentiallyOutdated {
-                            value,
-                            fingerprint,
-                            dependency_fingerprints,
-                        } = std::mem::replace(&mut *state, QueryState::Empty)
-                        else {
-                            unreachable!()
+                        let previous = std::mem::replace(&mut *state, QueryState::Empty);
+                        let (value, fingerprint, dependency_fingerprints) = match previous {
+                            QueryState::PotentiallyOutdated {
+                                value,
+                                fingerprint,
+                                dependency_fingerprints,
+                            } => (value, fingerprint, dependency_fingerprints),
+                            unexpected => {
+                                *state = unexpected;
+                                return Err(Self::internal_query_error(
+                                    &key,
+                                    "query input state changed while locked",
+                                ));
+                            }
                         };
                         *state = QueryState::Ready {
                             value,
@@ -981,9 +1035,9 @@ impl<C> QueryDb<C> {
             }
         };
         if is_green {
-            QueryInvalidation::default()
+            Ok(QueryInvalidation::default())
         } else {
-            self.invalidate_cached_root(slot.node_id)
+            Ok(self.invalidate_cached_root(slot.node_id))
         }
     }
 

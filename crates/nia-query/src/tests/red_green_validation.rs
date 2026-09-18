@@ -8,7 +8,9 @@ fn stable_input_validation_keeps_identical_values_green() {
     let first = db.expect_get(StableInputParent);
     assert_eq!(*first, 14);
 
-    let invalidation = db.validate_input(StableInput, &7);
+    let invalidation = db
+        .validate_input(StableInput, &7)
+        .expect("validate stable input");
 
     assert!(invalidation.invalidated.is_empty());
     let second = db.expect_get(StableInputParent);
@@ -23,7 +25,9 @@ fn stable_input_validation_invalidates_changed_values_and_dependents() {
     assert_eq!(*db.expect_get(StableInputParent), 14);
     db.context().executions.store(9, Ordering::SeqCst);
 
-    let invalidation = db.validate_input(StableInput, &9);
+    let invalidation = db
+        .validate_input(StableInput, &9)
+        .expect("validate stable input");
     let invalidated = invalidation
         .invalidated
         .iter()
@@ -45,7 +49,9 @@ fn derived_red_green_validation_reuses_dependents_when_output_is_unchanged() {
     assert_eq!(*first, 11);
     db.context().input.store(9, Ordering::SeqCst);
 
-    let invalidation = db.validate_input(RedGreenInput, &9);
+    let invalidation = db
+        .validate_input(RedGreenInput, &9)
+        .expect("validate red-green input");
     assert_eq!(
         invalidation
             .invalidated

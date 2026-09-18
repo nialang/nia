@@ -9,14 +9,16 @@ fn semantic_value_validation_reuses_fingerprint_only_for_equal_outputs() {
     });
     let first = db.expect_get(SemanticParityParent);
     db.context().input.store(9, Ordering::SeqCst);
-    db.validate_input(RedGreenInput, &9);
+    db.validate_input(RedGreenInput, &9)
+        .expect("validate red-green input");
     let equal = db.expect_get(SemanticParityParent);
     assert!(Arc::ptr_eq(&first, &equal));
     assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
     assert_eq!(db.context().parent_executions.load(Ordering::SeqCst), 1);
 
     db.context().input.store(10, Ordering::SeqCst);
-    db.validate_input(RedGreenInput, &10);
+    db.validate_input(RedGreenInput, &10)
+        .expect("validate red-green input");
     let changed = db.expect_get(SemanticParityParent);
     assert!(!Arc::ptr_eq(&equal, &changed));
     assert_eq!(*changed, 10);
@@ -66,7 +68,8 @@ fn derived_red_green_validation_reexecutes_dependents_when_output_changes() {
     });
     assert_eq!(*db.expect_get(StableParityParent), 11);
     db.context().input.store(8, Ordering::SeqCst);
-    db.validate_input(RedGreenInput, &8);
+    db.validate_input(RedGreenInput, &8)
+        .expect("validate red-green input");
     assert_eq!(*db.expect_get(StableParityParent), 10);
     assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
     assert_eq!(db.context().parent_executions.load(Ordering::SeqCst), 2);

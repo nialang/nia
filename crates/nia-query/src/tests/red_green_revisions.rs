@@ -10,7 +10,8 @@ fn consecutive_input_revisions_validate_against_latest_value() {
     let first = db.expect_get(StableParityParent);
     for value in [9, 11] {
         db.context().input.store(value, Ordering::SeqCst);
-        db.validate_input(RedGreenInput, &value);
+        db.validate_input(RedGreenInput, &value)
+            .expect("validate red-green input");
     }
     let latest = db.expect_get(StableParityParent);
     assert!(Arc::ptr_eq(&first, &latest));
@@ -28,7 +29,8 @@ fn stable_get_many_records_dependency_fingerprints_for_green_validation() {
     let first = db.expect_get(StableModuloBatchParent);
     assert_eq!(*first, 2);
     db.context().input.store(13, Ordering::SeqCst);
-    db.validate_input(RedGreenInput, &13);
+    db.validate_input(RedGreenInput, &13)
+        .expect("validate red-green input");
     let latest = db.expect_get(StableModuloBatchParent);
     assert!(Arc::ptr_eq(&first, &latest));
     assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 4);
@@ -55,7 +57,8 @@ fn invalidation_during_validation_cannot_restore_stale_green_value() {
     });
     let first = db.expect_get(ValidationRaceDerived);
     db.context().input.store(9, Ordering::SeqCst);
-    db.validate_input(ValidationRaceInput, &9);
+    db.validate_input(ValidationRaceInput, &9)
+        .expect("validate race input");
     let worker_db = db.clone();
     let latest = std::thread::scope(|scope| {
         let handle = scope.spawn(move || worker_db.expect_get(ValidationRaceDerived));
@@ -66,7 +69,8 @@ fn invalidation_during_validation_cannot_restore_stale_green_value() {
         }
         drop(state);
         db.context().input.store(11, Ordering::SeqCst);
-        db.validate_input(ValidationRaceInput, &11);
+        db.validate_input(ValidationRaceInput, &11)
+            .expect("validate race input");
         let mut state = lock.lock();
         state.release = true;
         ready.notify_all();
