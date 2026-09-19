@@ -1154,6 +1154,14 @@ mod tests {
 
     const TEST_PACKAGE: &str = "test/package@0";
 
+    fn intern(append: &nia_ty::TypeStoreAppend, kind: TyKind) -> InternedTyId {
+        append.intern(kind).expect("intern test type")
+    }
+
+    fn primitive(append: &nia_ty::TypeStoreAppend, ty: PrimitiveTy) -> InternedTyId {
+        append.primitive(ty).expect("intern test primitive")
+    }
+
     #[test]
     fn canonical_symbol_round_trips_and_is_linker_safe() {
         let key = StableSymbolKey::new(
@@ -1275,8 +1283,8 @@ mod tests {
             .allocate()
             .expect("allocate module ID");
         let append = store.append_for_module(module_id);
-        let first = append.primitive(PrimitiveTy::I32);
-        let second = append.primitive(PrimitiveTy::Bool);
+        let first = primitive(&append, PrimitiveTy::I32);
+        let second = primitive(&append, PrimitiveTy::Bool);
         let symbol = mangle_instance_symbol_canonical(
             MangleInstance::new(
                 TEST_PACKAGE,
@@ -1390,7 +1398,8 @@ mod tests {
                 },
                 args: Vec::new(),
                 const_args: Vec::new(),
-            });
+            })
+            .expect("intern first nominal type");
         let second = type_store
             .append_for_module(second_module)
             .intern(TyKind::Nominal {
@@ -1400,7 +1409,8 @@ mod tests {
                 },
                 args: Vec::new(),
                 const_args: Vec::new(),
-            });
+            })
+            .expect("intern second nominal type");
 
         let first = mangle_type_with(
             &type_store,
@@ -1437,7 +1447,8 @@ mod tests {
                 },
                 args: Vec::new(),
                 const_args: Vec::new(),
-            });
+            })
+            .expect("intern nominal type");
 
         let first = mangle_type_with(
             &type_store,
@@ -1549,11 +1560,11 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
         let append = type_store.append_for_module(module_id);
-        let i32_ty = append.primitive(PrimitiveTy::I32);
-        let bool_ty = append.primitive(PrimitiveTy::Bool);
-        let unit = append.intern(TyKind::Tuple(Vec::new()));
-        let pair = append.intern(TyKind::Tuple(vec![i32_ty, bool_ty]));
-        let reversed = append.intern(TyKind::Tuple(vec![bool_ty, i32_ty]));
+        let i32_ty = primitive(&append, PrimitiveTy::I32);
+        let bool_ty = primitive(&append, PrimitiveTy::Bool);
+        let unit = intern(&append, TyKind::Tuple(Vec::new()));
+        let pair = intern(&append, TyKind::Tuple(vec![i32_ty, bool_ty]));
+        let reversed = intern(&append, TyKind::Tuple(vec![bool_ty, i32_ty]));
         let resolvers = || {
             MangleResolvers::new(
                 |_| MangleModuleId::from_normalized_source_path("main.nia"),
@@ -1584,8 +1595,8 @@ mod tests {
             .allocate()
             .expect("allocate module ID");
         let append = type_store.append_for_module(module_id);
-        let i32_ty = append.primitive(PrimitiveTy::I32);
-        let nominal = append.intern(TyKind::Nominal {
+        let i32_ty = primitive(&append, PrimitiveTy::I32);
+        let nominal = intern(&append, TyKind::Nominal {
             def_id: GlobalDefId {
                 module_id,
                 def_id: DefId(4),
@@ -1593,7 +1604,7 @@ mod tests {
             args: vec![i32_ty],
             const_args: Vec::new(),
         });
-        let builtin_trait = append.intern(TyKind::BuiltinTrait {
+        let builtin_trait = intern(&append, TyKind::BuiltinTrait {
             trait_id: BuiltinTrait::Deref,
             args: vec![i32_ty],
         });
@@ -1621,29 +1632,29 @@ mod tests {
             .allocate()
             .expect("allocate module ID");
         let append = type_store.append_for_module(module_id);
-        let i32_ty = append.primitive(PrimitiveTy::I32);
-        let bool_ty = append.primitive(PrimitiveTy::Bool);
-        let nullary_function = append.intern(TyKind::FunctionPointer {
+        let i32_ty = primitive(&append, PrimitiveTy::I32);
+        let bool_ty = primitive(&append, PrimitiveTy::Bool);
+        let nullary_function = intern(&append, TyKind::FunctionPointer {
             params: Vec::new(),
             return_type: i32_ty,
             is_variadic: false,
         });
-        let binary_function = append.intern(TyKind::FunctionPointer {
+        let binary_function = intern(&append, TyKind::FunctionPointer {
             params: vec![i32_ty, bool_ty],
             return_type: i32_ty,
             is_variadic: false,
         });
-        let readonly = append.intern(TyKind::Callable {
+        let readonly = intern(&append, TyKind::Callable {
             is_readonly: true,
             params: vec![i32_ty, bool_ty],
             return_type: i32_ty,
         });
-        let mutable = append.intern(TyKind::Callable {
+        let mutable = intern(&append, TyKind::Callable {
             is_readonly: false,
             params: vec![i32_ty, bool_ty],
             return_type: i32_ty,
         });
-        let pointee = append.intern(TyKind::CallablePointee {
+        let pointee = intern(&append, TyKind::CallablePointee {
             params: vec![bool_ty, i32_ty],
             return_type: i32_ty,
         });
