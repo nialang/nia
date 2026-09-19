@@ -843,6 +843,7 @@ mod tests {
         type_store
             .append_for_module(*module_id)
             .intern(nia_ty::TyKind::Tuple(Vec::new()))
+            .expect("intern unit type")
     }
 
     fn test_type_fixture() -> &'static (nia_ty::TypeStore, nia_ids::ModuleId) {
@@ -991,7 +992,8 @@ mod tests {
         let (type_store, module_id) = test_type_fixture();
         wrong_return.body.ty = type_store
             .append_for_module(*module_id)
-            .intern(nia_ty::TyKind::Error);
+            .intern(nia_ty::TyKind::Error)
+            .expect("intern error type");
         let error = validate_function_closure_entry(&wrong_return)
             .expect_err("closure body and ABI return types must agree");
         assert!(error.message.contains("declared return type"));
