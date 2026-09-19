@@ -312,6 +312,7 @@ fn test_pointee_ty() -> nia_ids::InternedTyId {
         .expect("create type store")
         .append_for_module(modules.allocate().expect("allocate module ID"))
         .primitive(PrimitiveTy::Usize)
+        .expect("intern pointee type")
 }
 
 #[path = "tests/lowered_collections.rs"]

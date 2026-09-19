@@ -167,7 +167,8 @@ fn resolved_for_in_expr(fail_binding: bool) -> (ResolvedConstExpr, nia_ids::Inte
     let type_store = TypeStore::new().expect("create type store");
     let iterator_ty = type_store
         .append_for_module(module_id)
-        .intern(TyKind::Primitive(PrimitiveTy::Usize));
+        .intern(TyKind::Primitive(PrimitiveTy::Usize))
+        .expect("intern iterator type");
     let integer = |value: u128| {
         ResolvedConstExpr::from_parts(span, ResolvedConstExprKind::Integer(value.to_string()))
     };
