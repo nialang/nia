@@ -1430,6 +1430,7 @@ fn main() i32 {
             .type_store
             .append_for_module(module.id)
             .primitive(nia_ty::PrimitiveTy::I32)
+            .expect("intern i32 test type")
     );
     assert_eq!(known::I32, test_symbol("i32"));
 }
