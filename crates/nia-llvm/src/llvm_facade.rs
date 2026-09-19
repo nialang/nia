@@ -32,7 +32,7 @@ pub mod module {
 
 /// Native target discovery, configuration, and object emission.
 pub mod target {
-    pub use crate::llvm_api::{TargetMachine, TargetMachineIdentity};
+    pub use crate::llvm_api::{ModuleOptimization, TargetMachine, TargetMachineIdentity};
 }
 
 /// Typed LLVM type handles and conversions.

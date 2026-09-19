@@ -232,6 +232,9 @@ impl<'a> Encoder<'a> {
             ArtifactTarget::LlvmIr => self.tag(0),
             ArtifactTarget::NativeObject(identity) => {
                 self.tag(1);
+                // Native objects include the module-local LLVM cleanup pass;
+                // changing that pipeline must invalidate old object products.
+                self.builder.write_str("module-passes:mem2reg:v1");
                 write_target_identity(&mut self.builder, identity);
             }
         }
