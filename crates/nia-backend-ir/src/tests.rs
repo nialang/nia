@@ -6,6 +6,17 @@ use nia_ty::PrimitiveTy;
 
 use super::*;
 
+trait TestTypeStoreAppend {
+    fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId;
+}
+
+impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+    fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+        self.primitive(primitive)
+            .expect("intern primitive backend IR test type")
+    }
+}
+
 fn module_with_global(
     module_id: ModuleId,
     ty: InternedTyId,
@@ -126,7 +137,7 @@ fn partitioning_defers_dangling_closure_instance_owners_to_validation() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(module_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let owner = GlobalDefId {
         module_id,
         def_id: DefId(7),
@@ -188,7 +199,7 @@ fn owner_directory_records_actual_instance_publication_module() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(semantic_owner)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let def_id = GlobalDefId {
         module_id: semantic_owner,
         def_id: DefId(7),
@@ -231,13 +242,13 @@ fn codegen_partitions_are_definition_filtered_and_stable_key_ordered() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let first_ty = type_store
         .append_for_module(first_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let declaration_ty = type_store
         .append_for_module(declaration_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let second_ty = type_store
         .append_for_module(second_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let program = BackendProgram::new(vec![
         module_with_global(second_id, second_ty, "second", false),
         module_with_global(declaration_id, declaration_ty, "declaration", true),
@@ -306,7 +317,7 @@ fn codegen_partition_membership_canonicalizes_instance_order() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(module_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let mut module = module_with_global(module_id, ty, "main", false);
     let instance = |def_id, symbol: &str| BackendFunctionInstance {
         def_id: GlobalDefId { module_id, def_id },
@@ -350,10 +361,10 @@ fn codegen_partition_order_does_not_depend_on_module_id_allocation() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let z_ty = type_store
         .append_for_module(z_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let a_ty = type_store
         .append_for_module(a_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let program = BackendProgram::new(vec![
         module_with_global(z_id, z_ty, "z", false),
         module_with_global(a_id, a_ty, "a", false),
@@ -373,7 +384,7 @@ fn large_source_modules_use_stable_bounded_definition_buckets() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(module_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let mut module = module_with_global(module_id, ty, "main", false);
     let template = module.globals[0].clone();
     module.globals = (0..8)
@@ -420,10 +431,10 @@ fn codegen_partition_plan_rejects_duplicate_stable_source_keys() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let first_ty = type_store
         .append_for_module(first_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let second_ty = type_store
         .append_for_module(second_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let program = BackendProgram::new(vec![
         module_with_global(first_id, first_ty, "same", false),
         module_with_global(second_id, second_ty, "same", false),
@@ -442,7 +453,7 @@ fn codegen_partition_plan_rejects_duplicate_vtable_definitions() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(first_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let trait_id = TraitId::Source(GlobalDefId {
         module_id: first_id,
         def_id: DefId(1),
@@ -475,7 +486,7 @@ fn codegen_partition_plan_rejects_definition_membership_mutation() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(module_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let program = BackendProgram::new(vec![module_with_global(module_id, ty, "main", false)])
         .expect("build backend program");
     let plan = program.codegen_partition_plan();
@@ -527,10 +538,10 @@ fn backend_module_store_publishes_concurrently_without_moving_payloads() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let first_ty = type_store
         .append_for_module(first_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let second_ty = type_store
         .append_for_module(second_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let store = std::sync::Arc::new(
         BackendModuleStore::new([first_id, second_id]).expect("create backend module store"),
     );
@@ -583,7 +594,7 @@ fn backend_module_store_rejects_duplicate_publication() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(module_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let store = BackendModuleStore::new([module_id]).expect("create backend module store");
     store
         .publish(module_with_global(module_id, ty, "first", false))
@@ -603,7 +614,7 @@ fn backend_module_store_rejects_unregistered_owner() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(unregistered)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let store = BackendModuleStore::new([registered]).expect("create backend module store");
 
     let error = store
@@ -622,10 +633,10 @@ fn backend_module_readiness_delivers_publish_order_and_terminal_state() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let first_ty = type_store
         .append_for_module(first_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let second_ty = type_store
         .append_for_module(second_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let store = std::sync::Arc::new(
         BackendModuleStore::new([first_id, second_id]).expect("create backend module store"),
     );
