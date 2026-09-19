@@ -139,7 +139,13 @@ pub(super) fn eval_resolved_binary_flow(
                         .map_err(|message| ConstError { span, message })?
                     {
                         ConstValue::Bool(equal) => equal,
-                        _ => unreachable!("float equality produced a non-bool const value"),
+                        _ => {
+                            return Err(ConstError {
+                                span,
+                                message: "float equality did not produce a boolean value"
+                                    .to_string(),
+                            });
+                        }
                     }
                 }
                 _ => values_equal(&lhs, &rhs).ok_or_else(|| ConstError {
@@ -231,9 +237,9 @@ fn compare_values(
     rhs: ConstValue,
 ) -> Result<ConstValue, ConstError> {
     match (lhs, rhs) {
-        (ConstValue::Int(lhs), ConstValue::Int(rhs)) => {
-            Ok(ConstValue::Bool(eval_binary_int_compare(lhs, op, rhs)))
-        }
+        (ConstValue::Int(lhs), ConstValue::Int(rhs)) => eval_binary_int_compare(lhs, op, rhs)
+            .map(ConstValue::Bool)
+            .map_err(|message| ConstError { span, message }),
         (ConstValue::Float(lhs), ConstValue::Float(rhs)) => {
             eval_binary_float(lhs, op, rhs).map_err(|message| ConstError { span, message })
         }

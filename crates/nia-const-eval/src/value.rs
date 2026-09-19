@@ -874,7 +874,7 @@ fn integer_fits(value: IntConst, bits: u32, signed: bool) -> bool {
     }
     if signed {
         if value.is_signed() {
-            let value = value.as_i128().expect("signed const integer");
+            let value = value.bits() as i128;
             if bits == 128 {
                 return true;
             }
