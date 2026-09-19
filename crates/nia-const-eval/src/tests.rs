@@ -383,23 +383,25 @@ fn const_eval_budget_limits_nested_calls_and_releases_depth() {
 }
 
 #[test]
-#[should_panic(expected = "without a matching entry")]
 fn const_eval_budget_rejects_unbalanced_call_exit() {
-    ConstEvalBudget::new(1, 1).leave_call();
+    let mut budget = ConstEvalBudget::new(1, 1);
+    budget.leave_call();
+    assert!(budget.consume_step(Span::default()).is_err());
 }
 
 #[test]
-#[should_panic(expected = "without a matching begin")]
 fn const_eval_budget_rejects_unbalanced_session_exit() {
-    ConstEvalBudget::new(1, 1).end_session();
+    let mut budget = ConstEvalBudget::new(1, 1);
+    budget.end_session();
+    assert!(budget.consume_step(Span::default()).is_err());
 }
 
 #[test]
-#[should_panic(expected = "began with active function calls")]
 fn const_eval_budget_rejects_new_session_with_leaked_call_depth() {
     let mut budget = ConstEvalBudget::new(1, 1);
     budget.enter_call(Span::default()).expect("call entry");
     budget.begin_session();
+    assert!(budget.consume_step(Span::default()).is_err());
 }
 
 #[test]

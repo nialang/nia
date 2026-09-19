@@ -386,10 +386,14 @@ fn match_range_matches(
     // explicitly: `a..b` excludes `b`, while `a..=b` includes it.
     Ok(if inclusive {
         super::eval_binary_int_compare(start, ConstBinaryOp::Le, *target)
+            .map_err(|message| ConstError { span, message })?
             && super::eval_binary_int_compare(*target, ConstBinaryOp::Le, end)
+                .map_err(|message| ConstError { span, message })?
     } else {
         super::eval_binary_int_compare(start, ConstBinaryOp::Le, *target)
+            .map_err(|message| ConstError { span, message })?
             && super::eval_binary_int_compare(*target, ConstBinaryOp::Lt, end)
+                .map_err(|message| ConstError { span, message })?
     })
 }
 
@@ -411,10 +415,14 @@ fn resolved_match_range_matches(
     let end = super::eval_resolved_const_int_expr_inner(end, env)?;
     Ok(if inclusive {
         super::eval_binary_int_compare(start, ConstBinaryOp::Le, *target)
+            .map_err(|message| ConstError { span, message })?
             && super::eval_binary_int_compare(*target, ConstBinaryOp::Le, end)
+                .map_err(|message| ConstError { span, message })?
     } else {
         super::eval_binary_int_compare(start, ConstBinaryOp::Le, *target)
+            .map_err(|message| ConstError { span, message })?
             && super::eval_binary_int_compare(*target, ConstBinaryOp::Lt, end)
+                .map_err(|message| ConstError { span, message })?
     })
 }
 

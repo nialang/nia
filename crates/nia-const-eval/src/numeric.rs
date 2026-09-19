@@ -323,14 +323,18 @@ pub(super) fn eval_numeric_binary_value(
     }
 }
 
-pub(super) fn eval_binary_int_compare(lhs: IntConst, op: ConstBinaryOp, rhs: IntConst) -> bool {
+pub(super) fn eval_binary_int_compare(
+    lhs: IntConst,
+    op: ConstBinaryOp,
+    rhs: IntConst,
+) -> Result<bool, String> {
     let ordering = compare_int_values(lhs, rhs);
     match op {
-        ConstBinaryOp::Lt => ordering == Ordering::Less,
-        ConstBinaryOp::Le => ordering != Ordering::Greater,
-        ConstBinaryOp::Gt => ordering == Ordering::Greater,
-        ConstBinaryOp::Ge => ordering != Ordering::Less,
-        _ => unreachable!("non-comparison binary operator routed to integer comparison"),
+        ConstBinaryOp::Lt => Ok(ordering == Ordering::Less),
+        ConstBinaryOp::Le => Ok(ordering != Ordering::Greater),
+        ConstBinaryOp::Gt => Ok(ordering == Ordering::Greater),
+        ConstBinaryOp::Ge => Ok(ordering != Ordering::Less),
+        _ => Err("non-comparison operator routed to integer comparison".to_string()),
     }
 }
 
@@ -636,9 +640,9 @@ mod tests {
         let signed_max = IntConst::from_i128(i128::MAX);
         let negative = IntConst::from_i128(-1);
 
-        assert!(eval_binary_int_compare(huge, ConstBinaryOp::Gt, signed_max));
-        assert!(eval_binary_int_compare(huge, ConstBinaryOp::Gt, negative));
-        assert!(eval_binary_int_compare(negative, ConstBinaryOp::Lt, huge));
+        assert!(eval_binary_int_compare(huge, ConstBinaryOp::Gt, signed_max).unwrap());
+        assert!(eval_binary_int_compare(huge, ConstBinaryOp::Gt, negative).unwrap());
+        assert!(eval_binary_int_compare(negative, ConstBinaryOp::Lt, huge).unwrap());
     }
 
     #[test]

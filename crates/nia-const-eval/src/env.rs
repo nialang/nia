@@ -60,6 +60,7 @@ pub struct ConstEvalBudget {
     call_depth_limit: usize,
     call_depth: usize,
     session_depth: usize,
+    internal_error: Option<&'static str>,
 }
 
 impl ConstEvalBudget {
@@ -71,6 +72,7 @@ impl ConstEvalBudget {
             call_depth_limit,
             call_depth: 0,
             session_depth: 0,
+            internal_error: None,
         }
     }
 
@@ -80,17 +82,19 @@ impl ConstEvalBudget {
         // at depth zero prevents a recursive const call from replenishing its
         // parent's step allowance.
         if self.session_depth == 0 {
-            assert_eq!(
-                self.call_depth, 0,
-                "const evaluation session began with active function calls"
-            );
+            if self.call_depth != 0 {
+                self.internal_error =
+                    Some("const evaluation session began with active function calls");
+                return;
+            }
             self.remaining_steps = self.step_limit;
             self.call_depth = 0;
         }
-        self.session_depth = self
-            .session_depth
-            .checked_add(1)
-            .expect("const evaluation session depth overflow");
+        let Some(depth) = self.session_depth.checked_add(1) else {
+            self.internal_error = Some("const evaluation session depth overflow");
+            return;
+        };
+        self.session_depth = depth;
     }
 
     /// Leaves the current evaluation session.
@@ -100,21 +104,24 @@ impl ConstEvalBudget {
     /// Panics when no session is active, or when the outermost session still
     /// owns function calls. Either condition is an evaluator cleanup bug.
     pub fn end_session(&mut self) {
-        assert!(
-            self.session_depth > 0,
-            "const evaluation session ended without a matching begin"
-        );
-        self.session_depth -= 1;
         if self.session_depth == 0 {
-            assert_eq!(
-                self.call_depth, 0,
-                "const evaluation session ended with active function calls"
-            );
+            self.internal_error = Some("const evaluation session ended without a matching begin");
+            return;
+        }
+        self.session_depth -= 1;
+        if self.session_depth == 0 && self.call_depth != 0 {
+            self.internal_error = Some("const evaluation session ended with active function calls");
         }
     }
 
     /// Charges one interpreter operation to the current logical session.
     pub fn consume_step(&mut self, span: Span) -> Result<(), ConstError> {
+        if let Some(message) = self.internal_error {
+            return Err(ConstError {
+                span,
+                message: message.to_string(),
+            });
+        }
         // Charge before executing the operation so a failing step cannot
         // partially mutate interpreter state and then be retried for free.
         let Some(remaining) = self.remaining_steps.checked_sub(1) else {
@@ -154,10 +161,10 @@ impl ConstEvalBudget {
     /// Panics when no call is active, which indicates unbalanced evaluator
     /// frame cleanup.
     pub fn leave_call(&mut self) {
-        assert!(
-            self.call_depth > 0,
-            "const evaluation call ended without a matching entry"
-        );
+        if self.call_depth == 0 {
+            self.internal_error = Some("const evaluation call ended without a matching entry");
+            return;
+        }
         self.call_depth -= 1;
     }
 }
