@@ -811,6 +811,47 @@ fn run(fail: bool) ?[u8; 64] {
 }
 
 #[test]
+fn reads_tagged_union_match_operands_directly_from_local_storage() {
+    let root = temp_dir("reads_tagged_union_match_operands_directly_from_local_storage");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+enum Error: i32 {
+    Failed = 1,
+    _
+}
+
+fn readOptional(value: ?[u8; 64]) u8 {
+    match value {
+        ?payload => payload[0],
+        null => 0,
+    }
+}
+
+fn readResult(value: Error![u8; 64]) u8 {
+    match value {
+        !payload => payload[0],
+        error! => error as u8,
+    }
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert!(!ir.contains("%tagged.union"), "{ir}");
+    assert!(!ir.contains("%tagged.payload.copy"), "{ir}");
+    assert!(ir.contains("%tagged.tag = getelementptr"), "{ir}");
+    assert!(ir.contains("%tagged.payload.ptr = getelementptr"), "{ir}");
+}
+
+#[test]
 fn converts_error_before_writing_indirect_try_failure_into_output_storage() {
     let root = temp_dir("converts_error_before_writing_indirect_try_failure_into_output_storage");
     let main = root.join("main.nia");

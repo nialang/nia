@@ -30,7 +30,7 @@ use nia_llvm::{
     basic_block::BasicBlock,
     builder::Builder,
     types::BasicTypeEnum,
-    values::{BasicValueEnum, FunctionValue, PointerValue},
+    values::{BasicValueEnum, FunctionValue, IntValue, PointerValue},
 };
 use nia_span::Span;
 use nia_ty::{ConstGenericArg, LayoutBuiltin, PrimitiveTy, TyKind};
@@ -60,6 +60,15 @@ struct FunctionReturnCleanup<'ctx> {
     body: Option<FunctionDeferBody>,
     next: Option<BasicBlock<'ctx>>,
     span: Span,
+}
+
+#[derive(Clone, Copy)]
+enum TaggedUnionOperand<'ctx> {
+    Value(nia_llvm::values::StructValue<'ctx>),
+    Storage {
+        ty: nia_llvm::types::BasicTypeEnum<'ctx>,
+        ptr: nia_llvm::values::PointerValue<'ctx>,
+    },
 }
 
 #[derive(Clone)]
@@ -529,10 +538,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_error_union_value(expr, FunctionErrorUnionTag::Err, inner)
             }
             FunctionExprKind::TaggedUnionTag { expr: inner } => {
-                let aggregate = self.emit_tagged_union_value(expr.span, inner)?;
-                self.builder
-                    .build_extract_value(aggregate, 0, "tagged.tag")
-                    .map_err(|_| self.error(expr.span, "failed to extract tagged union tag"))
+                let aggregate = self.emit_tagged_union_operand(expr.span, inner)?;
+                self.load_tagged_union_tag(expr.span, aggregate, "tagged.tag")
+                    .map(Into::into)
             }
             FunctionExprKind::TaggedUnionPayload { expr: inner } => {
                 self.emit_tagged_union_payload(expr.span, inner, expr.ty)
@@ -1256,8 +1264,94 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         tagged: &FunctionExpr,
         payload_ty: InternedTyId,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let tagged_value = self.emit_tagged_union_value(span, tagged)?.into();
-        self.load_tagged_union_payload_from_value(span, tagged_value, tagged.ty, payload_ty)
+        let tagged_value = self.emit_tagged_union_operand(span, tagged)?;
+        self.load_tagged_union_payload(span, tagged_value, tagged.ty, payload_ty)
+    }
+
+    fn emit_tagged_union_operand(
+        &mut self,
+        span: Span,
+        value: &FunctionExpr,
+    ) -> Result<TaggedUnionOperand<'ctx>, Diagnostic> {
+        let value_ty = self.module.llvm_basic_type(value.ty, value.span)?;
+        if let Some(ptr) = self.emit_addr_of_if_place(value)? {
+            return Ok(TaggedUnionOperand::Storage { ty: value_ty, ptr });
+        }
+        if matches!(
+            self.module.classify_function_return(value.ty),
+            crate::module_codegen::AbiReturn::IndirectOut(_)
+        ) {
+            let ptr = self
+                .builder
+                .build_alloca(value_ty, "tagged.union.tmp")
+                .map_err(|_| self.error(span, "failed to allocate tagged union value"))?;
+            if !self.emit_aggregate_literal_into(ptr, value)?
+                && !self.emit_aggregate_call_result_into(ptr, value)?
+            {
+                let emitted = self.emit_expr(value)?;
+                self.builder
+                    .build_store(ptr, emitted)
+                    .map_err(|_| self.error(span, "failed to store tagged union value"))?;
+            }
+            return Ok(TaggedUnionOperand::Storage { ty: value_ty, ptr });
+        }
+        self.emit_expr(value)?
+            .into_struct_value()
+            .map(TaggedUnionOperand::Value)
+            .map_err(|_| self.error(span, "tagged union value is not a struct"))
+    }
+
+    fn load_tagged_union_tag(
+        &mut self,
+        span: Span,
+        aggregate: TaggedUnionOperand<'ctx>,
+        name: &str,
+    ) -> Result<IntValue<'ctx>, Diagnostic> {
+        match aggregate {
+            TaggedUnionOperand::Value(value) => self
+                .builder
+                .build_extract_value(value, 0, name)
+                .map_err(|_| self.error(span, "failed to extract tagged union tag"))?
+                .into_int_value()
+                .map_err(|_| self.error(span, "tagged union tag is not an integer")),
+            TaggedUnionOperand::Storage { ty, ptr } => {
+                let tag_ptr = unsafe { self.builder.build_struct_gep(ty, ptr, 0, name) }
+                    .map_err(|_| self.error(span, "failed to address tagged union tag"))?;
+                self.builder
+                    .build_load(self.module.context.i8_type(), tag_ptr, name)
+                    .map_err(|_| self.error(span, "failed to load tagged union tag"))?
+                    .into_int_value()
+                    .map_err(|_| self.error(span, "tagged union tag is not an integer"))
+            }
+        }
+    }
+
+    fn load_tagged_union_payload(
+        &mut self,
+        span: Span,
+        aggregate: TaggedUnionOperand<'ctx>,
+        aggregate_ty: InternedTyId,
+        payload_ty: InternedTyId,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        match aggregate {
+            TaggedUnionOperand::Value(value) => self.load_tagged_union_payload_from_value(
+                span,
+                value.into(),
+                aggregate_ty,
+                payload_ty,
+            ),
+            TaggedUnionOperand::Storage { ty, ptr } => {
+                let payload_ptr = unsafe {
+                    self.builder
+                        .build_struct_gep(ty, ptr, 1, "tagged.payload.ptr")
+                }
+                .map_err(|_| self.error(span, "failed to address tagged union payload"))?;
+                let payload_ty = self.module.llvm_basic_type(payload_ty, span)?;
+                self.builder
+                    .build_load(payload_ty, payload_ptr, "tagged.payload")
+                    .map_err(|_| self.error(span, "failed to load tagged union payload"))
+            }
+        }
     }
 
     fn load_tagged_union_payload_from_value(
