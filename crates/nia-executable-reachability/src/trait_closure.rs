@@ -1314,6 +1314,17 @@ mod tests {
     use nia_symbol::stable_hash;
     use nia_ty::{ConstGenericArg, ConstGenericValue, PrimitiveTy, TypeStore};
 
+    trait TestTypeStoreAppend {
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+            self.primitive(primitive)
+                .expect("intern primitive trait-closure test type")
+        }
+    }
+
     #[test]
     fn repeated_trait_method_set_expansion_is_memoized() {
         let module_id = ModuleIdAllocator::new()
@@ -1323,7 +1334,7 @@ mod tests {
         let store = TypeStore::new().expect("create type store");
         let self_ty = store
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::I32);
+            .test_primitive(PrimitiveTy::I32);
         let no_function = |_| None;
         let no_struct = |_| None;
         let no_union = |_| None;
@@ -1349,9 +1360,11 @@ mod tests {
         };
         let mut refs = ReachableTraitRefs::default();
 
-        insert_trait_and_supertrait_methods(signatures, &store, &mut refs, input());
+        insert_trait_and_supertrait_methods(signatures, &store, &mut refs, input())
+            .expect("expand trait methods");
         let method_count = refs.methods.len();
-        insert_trait_and_supertrait_methods(signatures, &store, &mut refs, input());
+        insert_trait_and_supertrait_methods(signatures, &store, &mut refs, input())
+            .expect("repeat trait method expansion");
 
         assert_eq!(refs.expanded_method_sets.len(), 1);
         assert_eq!(refs.methods.len(), method_count);
@@ -1366,7 +1379,7 @@ mod tests {
         let store = TypeStore::new().expect("create type store");
         let bool_ty = store
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::Bool);
+            .test_primitive(PrimitiveTy::Bool);
         let trait_id = TraitId::Source(GlobalDefId {
             module_id,
             def_id: DefId(1),
@@ -1406,8 +1419,8 @@ mod tests {
             .expect("allocate module ID");
         let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
-        let receiver_a = append.primitive(PrimitiveTy::U8);
-        let receiver_b = append.primitive(PrimitiveTy::U16);
+        let receiver_a = append.test_primitive(PrimitiveTy::U8);
+        let receiver_b = append.test_primitive(PrimitiveTy::U16);
         let def_id = GlobalDefId {
             module_id,
             def_id: DefId(2),
@@ -1438,8 +1451,8 @@ mod tests {
             .expect("allocate module ID");
         let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
-        let i32_ty = append.primitive(PrimitiveTy::I32);
-        let bool_ty = append.primitive(PrimitiveTy::Bool);
+        let i32_ty = append.test_primitive(PrimitiveTy::I32);
+        let bool_ty = append.test_primitive(PrimitiveTy::Bool);
         let def_id = GlobalDefId {
             module_id,
             def_id: DefId(3),
@@ -1484,8 +1497,8 @@ mod tests {
         let right_store = TypeStore::new().expect("create type store");
         let left_append = left_store.append_for_module(module_id);
         let right_append = right_store.append_for_module(module_id);
-        let left_i32 = left_append.primitive(PrimitiveTy::I32);
-        let right_i32 = right_append.primitive(PrimitiveTy::I32);
+        let left_i32 = left_append.test_primitive(PrimitiveTy::I32);
+        let right_i32 = right_append.test_primitive(PrimitiveTy::I32);
         let trait_id = TraitId::Source(GlobalDefId {
             module_id,
             def_id: DefId(4),
@@ -1517,7 +1530,7 @@ mod tests {
             &[right_i32],
             &candidate_const_args,
         ));
-        let right_u8 = right_append.primitive(PrimitiveTy::U8);
+        let right_u8 = right_append.test_primitive(PrimitiveTy::U8);
         assert!(!active_trait_expansion_matches(
             active_types,
             &active,
