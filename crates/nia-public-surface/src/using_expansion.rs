@@ -816,7 +816,11 @@ fn resolve_public_namespace_segment(
                         "`pkg` has no package root",
                     )
                 }),
-            PathSegmentKind::Name(_) => unreachable!(),
+            PathSegmentKind::Name(_) => Err(Diagnostic::internal_error_at(
+                codes::NAME_RESOLUTION,
+                segment.span,
+                "named path segment lost its symbol during namespace resolution",
+            )),
         };
     };
     let Some(surface) = surfaces.get(module_id) else {
