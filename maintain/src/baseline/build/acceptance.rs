@@ -141,6 +141,40 @@ pub fn workload_acceptance(results: &[BuildResult]) -> MaintainResult<Acceptance
         Ok(())
     }
 
+    fn initial_products_absent(
+        checks: &mut Vec<AcceptanceCheck>,
+        state: &str,
+        result: &BuildResult,
+    ) {
+        for (name, existed) in [
+            (
+                "baseline.initial_build_directory_existed",
+                result.initial_products.build_directory_existed,
+            ),
+            (
+                "baseline.initial_cache_directory_existed",
+                result.initial_products.cache_directory_existed,
+            ),
+        ] {
+            checks.push(AcceptanceCheck {
+                state: state.to_owned(),
+                counter: name.to_owned(),
+                expected: ExpectedValue::Exact(0),
+                found: i64::from(existed),
+                passed: !existed,
+            });
+        }
+    }
+
+    for (state, result) in [
+        ("clean", clean),
+        ("source_edit_clean", source_edit_clean),
+        ("module_map_edit_clean", module_map_edit_clean),
+        ("runner_only_clean", runner_only_clean),
+    ] {
+        initial_products_absent(&mut checks, state, result);
+    }
+
     positive(&mut checks, "clean", clean, "build.action_cache_lookups")?;
     exact(
         &mut checks,
@@ -413,6 +447,55 @@ pub fn workload_acceptance(results: &[BuildResult]) -> MaintainResult<Acceptance
         "runner_only_clean",
         runner_only_clean,
         "query.executions",
+    )?;
+    exact(
+        &mut checks,
+        "runner_only_clean",
+        runner_only_clean,
+        "llvm.object_reuse_hits",
+        0,
+    )?;
+    positive(
+        &mut checks,
+        "runner_only_clean",
+        runner_only_clean,
+        "llvm.units",
+    )?;
+    let runner_units = counter(runner_only_clean, "llvm.units")?;
+    exact(
+        &mut checks,
+        "runner_only_clean",
+        runner_only_clean,
+        "llvm.object_reuse_misses",
+        runner_units,
+    )?;
+    exact(
+        &mut checks,
+        "runner_only_clean",
+        runner_only_clean,
+        "llvm.object_reuse_miss_not_found",
+        runner_units,
+    )?;
+    exact(
+        &mut checks,
+        "runner_only_clean",
+        runner_only_clean,
+        "link.result_reuse_hits",
+        0,
+    )?;
+    exact(
+        &mut checks,
+        "runner_only_clean",
+        runner_only_clean,
+        "link.result_reuse_misses",
+        1,
+    )?;
+    exact(
+        &mut checks,
+        "runner_only_clean",
+        runner_only_clean,
+        "link.result_reuse_miss_not_found",
+        1,
     )?;
     for (state, result) in [
         ("runner_only_clean", runner_only_clean),

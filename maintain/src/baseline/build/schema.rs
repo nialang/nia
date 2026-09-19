@@ -61,6 +61,15 @@ pub struct ArtifactEquivalence {
 }
 
 #[derive(Debug, Clone, Serialize)]
+/// Project-local compilation products observed before one build process starts.
+pub struct InitialProductState {
+    /// Whether `.nia-build` existed before the measured process.
+    pub build_directory_existed: bool,
+    /// Whether `.nia-cache` existed before the measured process.
+    pub cache_directory_existed: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
 /// Complete evidence captured for one ordered build workload state.
 pub struct BuildResult {
     /// Stable workload-state name.
@@ -75,6 +84,8 @@ pub struct BuildResult {
     pub wall_seconds_observed: f64,
     /// Available memory estimate immediately before execution.
     pub available_memory_bytes_before: Option<u64>,
+    /// Project-local compilation products present before process creation.
+    pub initial_products: InitialProductState,
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Number of action-cache entries deliberately corrupted in this state.
     pub corrupted_action_cache_entries: Option<usize>,
