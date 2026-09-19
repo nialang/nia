@@ -754,21 +754,29 @@ mod tests {
         }
     }
 
+    fn primitive(types: &TypeStore, module_id: ModuleId, ty: PrimitiveTy) -> InternedTyId {
+        types
+            .append_for_module(module_id)
+            .primitive(ty)
+            .expect("intern primitive type")
+    }
+
+    fn intern(types: &TypeStore, module_id: ModuleId, ty: TyKind) -> InternedTyId {
+        types
+            .append_for_module(module_id)
+            .intern(ty)
+            .expect("intern test type")
+    }
+
     #[test]
     fn traverses_nested_typed_value_references() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
         let arg_module_id = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new().expect("create type store");
-        let ty = types
-            .append_for_module(module_id)
-            .primitive(PrimitiveTy::Usize);
-        let vtable_self_ty = types
-            .append_for_module(module_id)
-            .primitive(PrimitiveTy::I32);
-        let object_ty = types
-            .append_for_module(module_id)
-            .primitive(PrimitiveTy::Bool);
+        let ty = primitive(&types, module_id, PrimitiveTy::Usize);
+        let vtable_self_ty = primitive(&types, module_id, PrimitiveTy::I32);
+        let object_ty = primitive(&types, module_id, PrimitiveTy::Bool);
         let function = global(module_id, 1);
         let nested_function = global(module_id, 2);
         let function_instance = global(module_id, 3);
@@ -993,10 +1001,9 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new().expect("create type store");
-        let append = types.append_for_module(module_id);
-        let receiver_ty = append.primitive(PrimitiveTy::U8);
-        let method_const_ty = append.primitive(PrimitiveTy::Usize);
-        let associated_const_ty = append.primitive(PrimitiveTy::Bool);
+        let receiver_ty = primitive(&types, module_id, PrimitiveTy::U8);
+        let method_const_ty = primitive(&types, module_id, PrimitiveTy::Usize);
+        let associated_const_ty = primitive(&types, module_id, PrimitiveTy::Bool);
         let trait_id = global(module_id, 1);
         let method_id = global(module_id, 2);
         let associated_id = global(module_id, 3);
@@ -1075,17 +1082,24 @@ mod tests {
             .allocate()
             .expect("allocate module ID");
         let types = TypeStore::new().expect("create type store");
-        let append = types.append_for_module(module_id);
-        let elem_ty = append.primitive(PrimitiveTy::U8);
-        let usize_ty = append.primitive(PrimitiveTy::Usize);
-        let array_ty = append.intern(TyKind::Array {
-            len: nia_ty::ArrayLenTy::ConstValue(4),
-            elem: elem_ty,
-        });
-        let slice_ty = append.intern(TyKind::Slice {
-            is_readonly: true,
-            elem: elem_ty,
-        });
+        let elem_ty = primitive(&types, module_id, PrimitiveTy::U8);
+        let usize_ty = primitive(&types, module_id, PrimitiveTy::Usize);
+        let array_ty = intern(
+            &types,
+            module_id,
+            TyKind::Array {
+                len: nia_ty::ArrayLenTy::ConstValue(4),
+                elem: elem_ty,
+            },
+        );
+        let slice_ty = intern(
+            &types,
+            module_id,
+            TyKind::Slice {
+                is_readonly: true,
+                elem: elem_ty,
+            },
+        );
         let array_global = global(module_id, 1);
         let slice_global = global(module_id, 2);
         let len_call = |self_ty, global| {
@@ -1136,9 +1150,7 @@ mod tests {
         let module_id = module_ids.allocate().expect("allocate module ID");
         let def_id = global(module_id, 1);
         let types = TypeStore::new().expect("create type store");
-        let ty = types
-            .append_for_module(module_id)
-            .primitive(PrimitiveTy::Usize);
+        let ty = primitive(&types, module_id, PrimitiveTy::Usize);
         let mut reference = FunctionInstanceRef {
             def_id,
             arg_module_id: module_id,
@@ -1158,9 +1170,7 @@ mod tests {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new().expect("create type store");
-        let ty = types
-            .append_for_module(module_id)
-            .primitive(PrimitiveTy::Usize);
+        let ty = primitive(&types, module_id, PrimitiveTy::Usize);
         let pointee_global = global(module_id, 1);
         let body = FunctionBody {
             span: Span::default(),
@@ -1212,9 +1222,7 @@ mod tests {
             .allocate()
             .expect("allocate module ID");
         let types = TypeStore::new().expect("create type store");
-        let ty = types
-            .append_for_module(module_id)
-            .primitive(PrimitiveTy::Usize);
+        let ty = primitive(&types, module_id, PrimitiveTy::Usize);
         let body = FunctionBody {
             span: Span::default(),
             locals: Vec::new(),
