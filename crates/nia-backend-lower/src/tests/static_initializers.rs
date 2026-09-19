@@ -15,7 +15,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let zeroes = lowering.program.modules[0]
+    let zeroes = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .globals
         .iter()
         .find(|global| global.name == sym("zeroes"))
@@ -52,7 +56,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let zeroes = lowering.program.modules[0]
+    let zeroes = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .globals
         .iter()
         .find(|global| global.name == sym("zeroes"))
@@ -89,7 +97,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let values = lowering.program.modules[0]
+    let values = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .globals
         .iter()
         .find(|global| global.name == sym("values"))
@@ -126,7 +138,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let values = lowering.program.modules[0]
+    let values = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .globals
         .iter()
         .find(|global| global.name == sym("values"))
@@ -169,7 +185,11 @@ fn main() u8 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let bytes = lowering.program.modules[0]
+    let bytes = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .globals
         .iter()
         .find(|global| global.name == sym("bytes"))
@@ -198,7 +218,11 @@ fn main() char {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let text = lowering.program.modules[0]
+    let text = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .globals
         .iter()
         .find(|global| global.name == sym("text"))
@@ -230,7 +254,11 @@ fn main() i32 {
     ] {
         let lowering =
             lower_source_with_body_mutation_and_optimization(source, |_| {}, level.policy());
-        let module = &lowering.program.modules[0];
+        let module = lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module");
         let zeroes = module
             .globals
             .iter()
@@ -286,7 +314,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O1.policy(),
     );
-    let zeroes = lowering.program.modules[0]
+    let zeroes = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .globals
         .iter()
         .find(|global| global.name == sym("zeroes"))
@@ -325,7 +357,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O1.policy(),
     );
-    let zeroes = lowering.program.modules[0]
+    let zeroes = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .globals
         .iter()
         .find(|global| global.name == sym("zeroes"))
@@ -361,7 +397,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O1.policy(),
     );
-    let values = lowering.program.modules[0]
+    let values = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .globals
         .iter()
         .find(|global| global.name == sym("values"))
@@ -398,7 +438,11 @@ fn main() u8 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O1.policy(),
     );
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     let bytes = module
         .globals
         .iter()
@@ -442,7 +486,11 @@ fn main() u8 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O1.policy(),
     );
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     let bytes = module
         .globals
         .iter()

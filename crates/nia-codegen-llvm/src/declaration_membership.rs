@@ -1096,7 +1096,8 @@ mod tests {
             instance_owner_module(actual_owner, semantic_def, caller, ty),
             empty_module(unrelated, "unrelated.nia"),
         ];
-        let owners = BackendModuleOwnerDirectory::from_modules(&modules);
+        let owners = BackendModuleOwnerDirectory::from_modules(&modules)
+            .expect("build backend owner directory");
         let program = BackendProgram::new(modules).expect("build backend program");
         let partition = caller_partition(&program, caller);
         let (index, mut publisher) = ProgramIndex::new(program.module_store(), Arc::new(types));
@@ -1189,7 +1190,8 @@ mod tests {
             span: Span::default(),
         });
         let modules = vec![caller_backend, empty_module(const_owner, "const-owner.nia")];
-        let owners = BackendModuleOwnerDirectory::from_modules(&modules);
+        let owners = BackendModuleOwnerDirectory::from_modules(&modules)
+            .expect("build backend owner directory");
         let program = BackendProgram::new(modules).expect("build backend program");
         let unit = CodegenUnitId::SourceModule {
             module_id: caller,
@@ -1243,7 +1245,8 @@ mod tests {
             is_extern: false,
             span: Span::default(),
         });
-        let owners = BackendModuleOwnerDirectory::from_modules([&module]);
+        let owners = BackendModuleOwnerDirectory::from_modules([&module])
+            .expect("build backend owner directory");
         let program = BackendProgram::new(vec![module]).expect("build backend program");
         let (index, mut publisher) = ProgramIndex::new(program.module_store(), Arc::new(types));
         publisher.publish(module_id).expect("publish module");
@@ -1306,7 +1309,8 @@ mod tests {
             instance_owner_module_with_const(instance_owner, semantic_def, caller, ty, const_arg),
             empty_module(const_owner, "const-owner.nia"),
         ];
-        let owners = BackendModuleOwnerDirectory::from_modules(&modules);
+        let owners = BackendModuleOwnerDirectory::from_modules(&modules)
+            .expect("build backend owner directory");
         let program = BackendProgram::new(modules).expect("build backend program");
         let partition = caller_partition(&program, caller);
         let (index, mut publisher) = ProgramIndex::new(program.module_store(), Arc::new(types));
@@ -1444,7 +1448,8 @@ mod tests {
             vtable_module,
             function_owner_module(function_owner, function_def, ty),
         ];
-        let owners = BackendModuleOwnerDirectory::from_modules(&modules);
+        let owners = BackendModuleOwnerDirectory::from_modules(&modules)
+            .expect("build backend owner directory");
         let program = BackendProgram::new(modules).expect("build backend program");
         let partition = caller_partition(&program, vtable_owner);
         let (index, mut publisher) = ProgramIndex::new(program.module_store(), Arc::new(types));
@@ -1517,7 +1522,8 @@ mod tests {
         };
         let caller_module = caller_module(caller, ty, semantic_def);
         let directory_owner = instance_owner_module(actual_owner, semantic_def, caller, ty);
-        let owners = BackendModuleOwnerDirectory::from_modules([&caller_module, &directory_owner]);
+        let owners = BackendModuleOwnerDirectory::from_modules([&caller_module, &directory_owner])
+            .expect("build backend owner directory");
         let program = BackendProgram::new(vec![
             caller_module,
             empty_module(actual_owner, "empty-owner.nia"),
@@ -1543,7 +1549,8 @@ mod tests {
             .allocate()
             .expect("allocate module ID");
         let module = empty_module(module_id, "main.nia");
-        let owners = BackendModuleOwnerDirectory::from_modules([&module]);
+        let owners = BackendModuleOwnerDirectory::from_modules([&module])
+            .expect("build backend owner directory");
         let program = BackendProgram::new(vec![module]).expect("build backend program");
         let (index, mut publisher) = ProgramIndex::new(
             program.module_store(),
@@ -1576,7 +1583,8 @@ mod tests {
             .allocate()
             .expect("allocate module ID");
         let module = empty_module(module_id, "main.nia");
-        let owners = BackendModuleOwnerDirectory::from_modules([&module]);
+        let owners = BackendModuleOwnerDirectory::from_modules([&module])
+            .expect("build backend owner directory");
         let program = BackendProgram::new(vec![module]).expect("build backend program");
         let (index, mut publisher) = ProgramIndex::new(
             program.module_store(),

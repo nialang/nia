@@ -144,7 +144,11 @@ fn module_finalizations_merge_in_program_order() {
     let lowering = collector.finish().expect("finish backend lowering");
 
     assert_eq!(
-        &lowering.program.modules[0] as *const nia_backend_ir::BackendModule,
+        lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module") as *const nia_backend_ir::BackendModule,
         first_ptr
     );
     assert_eq!(readiness.wait_next(), None);

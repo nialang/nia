@@ -540,7 +540,12 @@ fn main() i32 {
         let codegen = codegen_program_with_options(main.to_string_lossy().into_owned(), level);
         assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-        let module = &codegen.backend_lowering.program.modules[0];
+        let module = codegen
+            .backend_lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module");
         assert_eq!(module.trait_object_vtables.len(), 1, "{level:?}");
         assert_eq!(module.trait_object_vtables[0].entries.len(), 1, "{level:?}");
 
@@ -658,7 +663,10 @@ fn main() i32 {{
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let vtable_symbol = output.modules[0]
+    let vtable_symbol = output
+        .modules
+        .first()
+        .expect("backend test module")
         .ir
         .lines()
         .find(|line| {

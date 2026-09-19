@@ -356,23 +356,62 @@ fn main() i32 {
         lowering.diagnostics
     );
     assert_eq!(lowering.program.modules.len(), 1);
-    assert_eq!(lowering.program.modules[0].globals.len(), 1);
-    assert_eq!(lowering.program.modules[0].functions.len(), 2);
-    assert_eq!(lowering.program.modules[0].structs.len(), 2);
+    assert_eq!(
+        lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module")
+            .globals
+            .len(),
+        1
+    );
+    assert_eq!(
+        lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module")
+            .functions
+            .len(),
+        2
+    );
+    assert_eq!(
+        lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module")
+            .structs
+            .len(),
+        2
+    );
     assert!(
-        lowering.program.modules[0]
+        lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module")
             .structs
             .iter()
             .any(|item| item.def_id.def_id == point_id)
     );
     assert!(
-        lowering.program.modules[0]
+        lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module")
             .structs
             .iter()
             .any(|item| item.def_id.def_id == selected_id)
     );
     assert!(
-        lowering.program.modules[0]
+        lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module")
             .struct_instances
             .iter()
             .any(|item| item.name == sym("Bucket")
@@ -383,13 +422,33 @@ fn main() i32 {
                 )),
         "reachable aggregate fields must retain concrete generic instances"
     );
-    assert!(lowering.program.modules[0].unions.is_empty());
+    assert!(
+        lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module")
+            .unions
+            .is_empty()
+    );
     assert_eq!(
-        lowering.program.modules[0].functions.as_ptr(),
+        lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module")
+            .functions
+            .as_ptr(),
         planned_functions
     );
     assert_eq!(
-        lowering.program.modules[0].globals.as_ptr(),
+        lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module")
+            .globals
+            .as_ptr(),
         planned_globals
     );
 }
@@ -416,7 +475,11 @@ fn main() i32 {
 }
 "#;
     let lowering = lower_source(source);
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     assert!(module.globals.is_empty());
     let main = module
         .functions
@@ -444,7 +507,11 @@ fn main() i32 {
 }
 "#;
     let lowering = lower_source(source);
-    let main = lowering.program.modules[0]
+    let main = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -464,7 +531,11 @@ fn main() i32 {
         panic!("expected const expr repeat count, got {count:?}");
     };
     assert_eq!(
-        lowering.program.modules[0]
+        lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module")
             .const_eval
             .array_lengths
             .get(id)
@@ -484,7 +555,11 @@ fn main() i32 {
 }
 "#;
     let lowering = lower_source(source);
-    let main = lowering.program.modules[0]
+    let main = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -523,7 +598,11 @@ fn main() i32 {
 }
 "#;
     let lowering = lower_source(source);
-    let main = lowering.program.modules[0]
+    let main = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -560,7 +639,11 @@ fn main() i32 {
 }
 "#;
     let lowering = lower_source(source);
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     let interner = lowering.append(module.id);
     let instance = module
         .function_instances
@@ -592,7 +675,11 @@ fn main() usize {
 }
 "#;
     let lowering = lower_source(source);
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     let interner = lowering.append(module.id);
     let u8_ty = interner.test_primitive(nia_ty::PrimitiveTy::U8);
     let usize_ty = interner.test_primitive(nia_ty::PrimitiveTy::Usize);
@@ -644,7 +731,11 @@ fn main() i64 {
 }
 "#;
     let lowering = lower_source(source);
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     let interner = lowering.append(module.id);
     let instance = module
         .function_instances
@@ -681,7 +772,11 @@ fn main() usize {
 }
 "#;
     let lowering = lower_source(source);
-    let outer = lowering.program.modules[0]
+    let outer = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .function_instances
         .iter()
         .find(|instance| instance.name == sym("outer"))
@@ -730,7 +825,11 @@ fn main() usize {
 }
 "#;
     let lowering = lower_source(source);
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     let interner = lowering.append(module.id);
     let u8_ty = interner.test_primitive(nia_ty::PrimitiveTy::U8);
     let usize_ty = interner.test_primitive(nia_ty::PrimitiveTy::Usize);
@@ -791,7 +890,11 @@ fn main(value: Wrapper) usize {
         "{:?}",
         lowering.diagnostics
     );
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     assert!(
         module
             .struct_instances
@@ -824,7 +927,11 @@ fn main() i32 {
 }
 "#;
     let lowering = lower_source(source);
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     let interner = lowering.append(module.id);
     let i32_ty = interner.test_primitive(nia_ty::PrimitiveTy::I32);
     let u64_ty = interner.test_primitive(nia_ty::PrimitiveTy::U64);
@@ -868,7 +975,11 @@ fn main() i32 {
 }
 "#;
     let lowering = lower_source(source);
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     let interner = lowering.append(module.id);
     let i32_ty = interner.test_primitive(nia_ty::PrimitiveTy::I32);
     let i64_ty = interner.test_primitive(nia_ty::PrimitiveTy::I64);
@@ -903,7 +1014,11 @@ fn main() i32 {
 }
 "#;
     let lowering = lower_source(source);
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     let values = module
         .globals
         .iter()
@@ -934,7 +1049,11 @@ fn main() i32 {
 }
 "#;
     let lowering = lower_source(source);
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     let interner = lowering.append(module.id);
     let i32_ty = interner.test_primitive(nia_ty::PrimitiveTy::I32);
     let instance = module
@@ -1020,7 +1139,11 @@ fn main(argc: usize, argv: &&u8, envp: &&u8) usize {
 }
 "#;
     let lowering = lower_source(source);
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     let init_methods = module
         .functions
         .iter()

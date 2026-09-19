@@ -26,7 +26,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
 
     assert!(
         module
@@ -83,7 +87,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
 
     let provider = module
         .functions
@@ -153,7 +161,11 @@ fn main() i32 {
         |_, _| {},
         policy,
     );
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
 
     assert!(
         !module
@@ -246,7 +258,11 @@ fn main() i32 {
         |_, _| {},
         policy,
     );
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
 
     assert!(
         module
@@ -330,7 +346,11 @@ fn main() i32 {
         |_, _| {},
         policy,
     );
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
 
     assert!(
         module
@@ -372,7 +392,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
 
     assert!(
         module
@@ -410,7 +434,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O1.policy(),
     );
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
 
     assert!(
         !module
@@ -453,7 +481,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
 
     assert!(
         !module
@@ -494,7 +526,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
 
     assert!(
         module
@@ -521,7 +557,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     let instances = module
         .function_instances
         .iter()
@@ -554,7 +594,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
 
     assert!(
         module
@@ -590,7 +634,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
 
     assert!(
         module

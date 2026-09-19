@@ -9,7 +9,6 @@
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     fmt,
-    ops::Index,
     sync::{
         Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
@@ -154,15 +153,6 @@ impl fmt::Debug for BackendModules {
 impl PartialEq for BackendModules {
     fn eq(&self, other: &Self) -> bool {
         self.len() == other.len() && self.iter().eq(other.iter())
-    }
-}
-
-impl Index<usize> for BackendModules {
-    type Output = BackendModule;
-
-    fn index(&self, position: usize) -> &Self::Output {
-        self.get(position)
-            .unwrap_or_else(|| panic!("Nia ICE: backend module position {position} is unavailable"))
     }
 }
 

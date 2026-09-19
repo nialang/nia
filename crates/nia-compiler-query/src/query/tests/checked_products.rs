@@ -61,7 +61,13 @@ fn checked_module_reuses_cached_semantic_product_handles() {
     let abi_check = db.expect_get(AbiCheckQuery(module_id));
     let flow_check = db.expect_get(FlowCheckQuery(module_id));
 
-    assert!(Arc::ptr_eq(&checked, &checked_program.modules[0]));
+    assert!(Arc::ptr_eq(
+        &checked,
+        checked_program
+            .modules
+            .first()
+            .expect("backend test module")
+    ));
     assert!(Arc::ptr_eq(&checked.value_resolution, &values.semantic));
     assert!(Arc::ptr_eq(&checked.local_resolution, &locals.semantic));
     assert!(Arc::ptr_eq(&checked.semantic_uses, &semantic_uses));

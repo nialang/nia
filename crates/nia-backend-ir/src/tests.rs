@@ -586,7 +586,10 @@ fn backend_module_store_publishes_concurrently_without_moving_payloads() {
     let first_ptr = store.get(first_id).expect("first module") as *const BackendModule;
     let program = BackendProgram::from_module_store(std::sync::Arc::clone(&store))
         .expect("build program from complete store");
-    assert_eq!(&program.modules[0] as *const BackendModule, first_ptr);
+    assert_eq!(
+        program.modules.get(0).expect("backend test module") as *const BackendModule,
+        first_ptr
+    );
     assert_eq!(
         program
             .modules
