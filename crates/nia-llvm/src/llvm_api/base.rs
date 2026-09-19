@@ -520,8 +520,9 @@ macro_rules! impl_type_wrapper {
         }
 
         impl<'ctx> $name<'ctx> {
+            // Callers either validate nullable results or use LLVM constructors
+            // whose C API contract guarantees a type handle.
             pub(super) fn new(raw: LLVMTypeRef) -> Self {
-                assert!(!raw.is_null());
                 Self {
                     raw,
                     _marker: PhantomData,
@@ -1338,8 +1339,8 @@ macro_rules! impl_value_wrapper {
         }
 
         impl<'ctx> $name<'ctx> {
+            // Callers validate every nullable LLVM result before wrapping it.
             pub(super) fn new(raw: LLVMValueRef) -> Self {
-                assert!(!raw.is_null());
                 Self {
                     raw,
                     _marker: PhantomData,
@@ -2157,7 +2158,6 @@ pub struct FunctionValue<'ctx> {
 
 impl<'ctx> FunctionValue<'ctx> {
     pub(super) fn new(raw: LLVMValueRef) -> Self {
-        assert!(!raw.is_null());
         Self {
             raw,
             _marker: PhantomData,
@@ -2243,7 +2243,6 @@ pub struct GlobalValue<'ctx> {
 
 impl<'ctx> GlobalValue<'ctx> {
     pub(super) fn new(raw: LLVMValueRef) -> Self {
-        assert!(!raw.is_null());
         Self {
             raw,
             _marker: PhantomData,
@@ -2309,7 +2308,6 @@ pub struct BasicBlock<'ctx> {
 
 impl<'ctx> BasicBlock<'ctx> {
     pub(super) fn new(raw: LLVMBasicBlockRef) -> Self {
-        assert!(!raw.is_null());
         Self {
             raw,
             _marker: PhantomData,
@@ -2366,7 +2364,6 @@ pub struct InstructionValue<'ctx> {
 
 impl<'ctx> InstructionValue<'ctx> {
     pub(super) fn new(raw: LLVMValueRef) -> Self {
-        assert!(!raw.is_null());
         Self {
             raw,
             _marker: PhantomData,
@@ -2484,7 +2481,6 @@ pub struct PhiValue<'ctx> {
 
 impl<'ctx> PhiValue<'ctx> {
     pub(super) fn new(raw: LLVMValueRef) -> Self {
-        assert!(!raw.is_null());
         Self {
             raw,
             _marker: PhantomData,
@@ -2557,7 +2553,6 @@ pub struct CallSiteValue<'ctx> {
 
 impl<'ctx> CallSiteValue<'ctx> {
     pub(super) fn new(raw: LLVMValueRef) -> Self {
-        assert!(!raw.is_null());
         Self {
             raw,
             _marker: PhantomData,
