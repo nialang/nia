@@ -177,6 +177,24 @@ pub(crate) enum SignatureItemSignaturesLookup {
     Corrupt,
 }
 
+#[derive(Debug)]
+pub(crate) enum SignatureCacheLoadError {
+    Io,
+    Internal(nia_ice::Ice),
+}
+
+impl From<io::Error> for SignatureCacheLoadError {
+    fn from(_error: io::Error) -> Self {
+        Self::Io
+    }
+}
+
+impl From<nia_ice::Ice> for SignatureCacheLoadError {
+    fn from(error: nia_ice::Ice) -> Self {
+        Self::Internal(error)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ExtensionValidationDiagnosticsLookup {
     Hit(Vec<Diagnostic>),
