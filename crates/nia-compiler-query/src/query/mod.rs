@@ -1311,11 +1311,7 @@ impl CompilerDatabase {
                 emit_provider_demand_batch(self.db.context().timings(), rounds, &demands);
                 if let crate::ProviderGraphUpdate::Changed {
                     invalidates_resolved_body_facts,
-                } = self
-                    .db
-                    .context()
-                    .loader_facts()
-                    .update_provider_demands(demands)?
+                } = self.update_provider_demands_with_telemetry(rounds, "discovery", demands)?
                 {
                     emit_provider_graph_change(
                         self.db.context().timings(),
@@ -1327,12 +1323,11 @@ impl CompilerDatabase {
                 }
             }
             let output = compile(self)?;
-            match self
-                .db
-                .context()
-                .loader_facts()
-                .update_provider_demands(provider_demands(&output))?
-            {
+            match self.update_provider_demands_with_telemetry(
+                rounds,
+                "compile",
+                provider_demands(&output),
+            )? {
                 crate::ProviderGraphUpdate::Changed {
                     invalidates_resolved_body_facts,
                 } => {
@@ -1349,6 +1344,44 @@ impl CompilerDatabase {
                 }
             }
         }
+    }
+
+    fn update_provider_demands_with_telemetry(
+        &self,
+        round: u64,
+        phase: &'static str,
+        demands: Vec<crate::ProviderDemand>,
+    ) -> QueryResult<crate::ProviderGraphUpdate> {
+        let timings = self.db.context().timings();
+        if !timings.enabled() {
+            return self
+                .db
+                .context()
+                .loader_facts()
+                .update_provider_demands(demands);
+        }
+        let before = self.db.context().loader_facts().provider_facts()?;
+        let unique_demands = demands.iter().cloned().collect::<HashSet<_>>();
+        let known = unique_demands.intersection(before.demands()).count() as u64;
+        let update = self
+            .db
+            .context()
+            .loader_facts()
+            .update_provider_demands(demands)?;
+        let after = self.db.context().loader_facts().provider_facts()?;
+        let added = after
+            .demands()
+            .difference(before.demands())
+            .collect::<Vec<_>>();
+        emit_provider_demand_update(
+            timings,
+            round,
+            phase,
+            unique_demands.len() as u64,
+            known,
+            &added,
+        );
+        Ok(update)
     }
 
     /// Returns the number of fixed-point rounds used by the last top-level compilation.
@@ -2512,6 +2545,39 @@ fn emit_provider_demand_batch(timings: TimingMode, round: u64, demands: &[crate:
     nia_timing::emit_counter(format!("{prefix}.trait_impls"), trait_impls);
     nia_timing::emit_counter(format!("{prefix}.module_semantics"), module_semantics);
     nia_timing::emit_counter(format!("{prefix}.module_bodies"), module_bodies);
+}
+
+fn emit_provider_demand_update(
+    timings: TimingMode,
+    round: u64,
+    phase: &str,
+    unique: u64,
+    known: u64,
+    added: &[&crate::ProviderDemand],
+) {
+    if !timings.enabled() {
+        return;
+    }
+    let prefix = format!("compiler.executable_provider_demands.round_{round}.{phase}");
+    nia_timing::emit_counter(format!("{prefix}.unique"), unique);
+    nia_timing::emit_counter(format!("{prefix}.known"), known);
+    nia_timing::emit_counter(format!("{prefix}.new"), added.len() as u64);
+    let mut methods = 0_u64;
+    let mut trait_impls = 0_u64;
+    let mut module_semantics = 0_u64;
+    let mut module_bodies = 0_u64;
+    for demand in added {
+        match demand.request {
+            crate::ProviderRequest::Method { .. } => methods += 1,
+            crate::ProviderRequest::TraitImpl { .. } => trait_impls += 1,
+            crate::ProviderRequest::ModuleSemantic { .. } => module_semantics += 1,
+            crate::ProviderRequest::ModuleBody { .. } => module_bodies += 1,
+        }
+    }
+    nia_timing::emit_counter(format!("{prefix}.new_methods"), methods);
+    nia_timing::emit_counter(format!("{prefix}.new_trait_impls"), trait_impls);
+    nia_timing::emit_counter(format!("{prefix}.new_module_semantics"), module_semantics);
+    nia_timing::emit_counter(format!("{prefix}.new_module_bodies"), module_bodies);
 }
 
 fn emit_check_certificate_reuse(timings: TimingMode, hit: bool) {
