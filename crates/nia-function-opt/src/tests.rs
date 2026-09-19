@@ -77,6 +77,7 @@ fn test_other_ty() -> nia_ids::InternedTyId {
     test_type_store()
         .append_for_module(test_module_id())
         .primitive(nia_ty::PrimitiveTy::I8)
+        .expect("intern alternate test type")
 }
 
 fn test_type_store() -> &'static nia_ty::TypeStore {
