@@ -37,12 +37,29 @@ pub(super) fn test_ty() -> InternedTyId {
     test_type_store()
         .append_for_module(test_module_id())
         .intern(TyKind::Error)
+        .expect("intern test type")
 }
 
 pub(super) fn primitive_ty(primitive: PrimitiveTy) -> InternedTyId {
     test_type_store()
         .append_for_module(test_module_id())
         .intern(TyKind::Primitive(primitive))
+        .expect("intern primitive test type")
+}
+
+pub(super) fn intern_ty(append: &nia_ty::TypeStoreAppend, kind: TyKind) -> InternedTyId {
+    append
+        .intern(kind)
+        .expect("intern function-lower test type")
+}
+
+pub(super) fn lowering_diagnostic_message(error: &FunctionLoweringError) -> &str {
+    match error {
+        FunctionLoweringError::Diagnostic(diagnostic) => &diagnostic.message,
+        FunctionLoweringError::Internal(error) => {
+            panic!("expected lowering diagnostic, found internal error: {error:?}")
+        }
+    }
 }
 
 pub(super) fn lower_test_function_body(

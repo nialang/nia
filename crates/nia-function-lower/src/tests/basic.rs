@@ -164,7 +164,7 @@ fn lowers_closure_state_and_direct_call_to_generated_entry() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
+    let i32_ty = intern_ty(&append, TyKind::Primitive(PrimitiveTy::I32));
     let closure_id = ClosureId {
         owner: GlobalDefId {
             module_id,
@@ -172,12 +172,15 @@ fn lowers_closure_state_and_direct_call_to_generated_entry() {
         },
         ordinal: 0,
     };
-    let closure_ty = append.intern(TyKind::ClosureState {
-        closure_id,
-        captures: vec![i32_ty],
-        params: vec![i32_ty],
-        return_type: i32_ty,
-    });
+    let closure_ty = intern_ty(
+        &append,
+        TyKind::ClosureState {
+            closure_id,
+            captures: vec![i32_ty],
+            params: vec![i32_ty],
+            return_type: i32_ty,
+        },
+    );
     let base = LocalId(0);
     let callback = LocalId(1);
     let captured_base = LocalId(2);
@@ -346,22 +349,28 @@ fn lowers_closure_state_and_direct_call_to_generated_entry() {
             FunctionTypeContext::for_module(&type_store, module_id),
         )
         .expect_err("malformed closure contract must not lower");
-        assert!(error.message.contains(expected), "{error:?}");
+        assert!(
+            lowering_diagnostic_message(&error).contains(expected),
+            "{error:?}"
+        );
     };
 
     let mut malformed = body.clone();
     closure_value_mut(&mut malformed).ty = i32_ty;
     assert_rejected(&malformed, "does not have a closure-state type");
 
-    let other_closure_ty = append.intern(TyKind::ClosureState {
-        closure_id: ClosureId {
-            owner: closure_id.owner,
-            ordinal: 1,
+    let other_closure_ty = intern_ty(
+        &append,
+        TyKind::ClosureState {
+            closure_id: ClosureId {
+                owner: closure_id.owner,
+                ordinal: 1,
+            },
+            captures: vec![i32_ty],
+            params: vec![i32_ty],
+            return_type: i32_ty,
         },
-        captures: vec![i32_ty],
-        params: vec![i32_ty],
-        return_type: i32_ty,
-    });
+    );
     let mut malformed = body.clone();
     closure_value_mut(&mut malformed).ty = other_closure_ty;
     assert_rejected(&malformed, "identity does not match");
@@ -420,12 +429,15 @@ fn lowers_closure_state_and_direct_call_to_generated_entry() {
         panic!("expected closure initializer");
     };
     captures.push(captures[0].clone());
-    let duplicate_capture_ty = append.intern(TyKind::ClosureState {
-        closure_id,
-        captures: vec![i32_ty, i32_ty],
-        params: vec![i32_ty],
-        return_type: i32_ty,
-    });
+    let duplicate_capture_ty = intern_ty(
+        &append,
+        TyKind::ClosureState {
+            closure_id,
+            captures: vec![i32_ty, i32_ty],
+            params: vec![i32_ty],
+            return_type: i32_ty,
+        },
+    );
     closure_value_mut(&mut malformed).ty = duplicate_capture_ty;
     assert_rejected(&malformed, "capture locals must be unique");
 
@@ -493,8 +505,8 @@ fn lowers_try_expression_to_try_terminator_and_success_local() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
-    let optional_i32 = append.intern(TyKind::Optional { elem: i32_ty });
+    let i32_ty = intern_ty(&append, TyKind::Primitive(PrimitiveTy::I32));
+    let optional_i32 = intern_ty(&append, TyKind::Optional { elem: i32_ty });
     let body = TypedBody {
         span,
         locals: vec![TypedLocal {

@@ -123,8 +123,7 @@ fn rejects_error_expr_before_function_ir_is_built() {
     let error = lower_test_function_body(&body).expect_err("error expr must not lower");
 
     assert!(
-        error
-            .message
+        lowering_diagnostic_message(&error)
             .contains("error expression escaped into function lowering input"),
         "{error:?}"
     );
@@ -155,8 +154,7 @@ fn rejects_try_operand_without_propagation_type_before_function_ir_is_built() {
     let error = lower_test_function_body(&body).expect_err("invalid try operand must not lower");
 
     assert!(
-        error
-            .message
+        lowering_diagnostic_message(&error)
             .contains("try operand must have Optional or ErrorUnion type"),
         "{error:?}"
     );
@@ -195,8 +193,7 @@ fn rejects_error_expr_nested_in_for_pattern_before_function_ir_is_built() {
     let error = lower_test_function_body(&body).expect_err("error pattern must not lower");
 
     assert!(
-        error
-            .message
+        lowering_diagnostic_message(&error)
             .contains("error expression escaped into function lowering input"),
         "{error:?}"
     );
@@ -229,8 +226,7 @@ fn rejects_error_place_before_function_ir_is_built() {
     let error = lower_test_function_body(&body).expect_err("error place must not lower");
 
     assert!(
-        error
-            .message
+        lowering_diagnostic_message(&error)
             .contains("error place escaped into function lowering input"),
         "{error:?}"
     );
@@ -351,8 +347,7 @@ fn rejects_error_exprs_hidden_in_lowering_operand_containers() {
         let error = lower_test_function_body(&body)
             .expect_err("hidden error expression must not reach function IR");
         assert!(
-            error
-                .message
+            lowering_diagnostic_message(&error)
                 .contains("error expression escaped into function lowering input"),
             "{error:?}"
         );
@@ -389,8 +384,7 @@ fn rejects_memory_intrinsic_in_value_position_before_function_ir_is_built() {
     let error = lower_test_function_body(&body).expect_err("memory intrinsic must not be a value");
 
     assert!(
-        error
-            .message
+        lowering_diagnostic_message(&error)
             .contains("memory intrinsic expression used where a value is required"),
         "{error:?}"
     );
@@ -432,8 +426,7 @@ fn rejects_atomic_store_and_fence_in_value_position_before_function_ir_is_built(
             lower_test_function_body(&body).expect_err("effect-only atomic must not be a value");
 
         assert!(
-            error
-                .message
+            lowering_diagnostic_message(&error)
                 .contains("expression used where a value is required"),
             "{error:?}"
         );
