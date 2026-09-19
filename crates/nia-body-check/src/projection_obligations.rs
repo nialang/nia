@@ -1918,11 +1918,20 @@ impl<'a> BodyChecker<'a> {
                 self.collect_const_expr_values_for_trait_solver(arg, &mut const_expr_values);
             }
         }
-        for impl_signature in self.program_trait_impls {
-            if impl_signature.trait_id == required.trait_id {
+        let has_const_obligation = !required.trait_const_args.is_empty()
+            || obligations
+                .iter()
+                .any(|obligation| !obligation.trait_const_args.is_empty());
+        let mut const_expr_impl_args_scanned = 0_u64;
+        if has_const_obligation {
+            let impl_indexes = self.trait_impl_indexes_for_trait(required.trait_id);
+            for impl_index in impl_indexes {
+                let Some(impl_signature) = self.program_trait_impls.get(impl_index).cloned() else {
+                    continue;
+                };
                 for arg in &impl_signature.trait_const_args {
-                    let arg = arg.clone();
-                    self.collect_const_expr_values_for_trait_solver(&arg, &mut const_expr_values);
+                    const_expr_impl_args_scanned += 1;
+                    self.collect_const_expr_values_for_trait_solver(arg, &mut const_expr_values);
                 }
             }
         }
@@ -1955,6 +1964,23 @@ impl<'a> BodyChecker<'a> {
                 return TraitResolution::Unsatisfied;
             }
         };
+        if self.timing {
+            let stats = solver.stats();
+            nia_timing::emit_counter("body_check.trait_solver.goals", stats.goals);
+            nia_timing::emit_counter(
+                "body_check.trait_solver.candidate_indexes",
+                stats.candidate_indexes,
+            );
+            nia_timing::emit_counter(
+                "body_check.trait_solver.match_attempts",
+                stats.match_attempts,
+            );
+            nia_timing::emit_counter("body_check.trait_solver.matched_impls", stats.matched_impls);
+            nia_timing::emit_counter(
+                "body_check.trait_solver.const_impl_args_scanned",
+                const_expr_impl_args_scanned,
+            );
+        }
         if !matches!(
             resolution,
             TraitResolution::Intrinsic(_) | TraitResolution::User(_) | TraitResolution::Assumed(_)

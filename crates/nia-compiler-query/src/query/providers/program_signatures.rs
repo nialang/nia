@@ -261,7 +261,10 @@ pub(super) fn executable_program_non_function_signatures(
     let traits = collect_traits(&trait_facts);
     let trait_method_index = ProgramTraitMethodIndex::from_traits(&traits);
     let trait_impls = collect_trait_impls(&trait_facts);
-    let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
+    let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new_with_type_store(
+        &trait_impls,
+        &db.context().type_store,
+    );
     Ok(ProgramExecutableNonFunctionSignatures {
         globals: collect_globals(&value_facts),
         consts: collect_consts(&value_facts),
@@ -318,8 +321,10 @@ pub(super) fn executable_program_non_function_signatures_for_modules(
         );
     }
 
-    signatures.trait_impl_index =
-        nia_item_signatures::ProgramTraitImplIndex::new(&signatures.trait_impls);
+    signatures.trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new_with_type_store(
+        &signatures.trait_impls,
+        &db.context().type_store,
+    );
     signatures.trait_method_index =
         nia_program_signatures::ProgramTraitMethodIndex::from_traits(&signatures.traits);
     Ok(signatures)

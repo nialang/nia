@@ -338,7 +338,8 @@ pub fn visible_trait_impls_for_module(
         })
         .cloned()
         .collect::<Vec<_>>();
-    let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
+    let trait_impl_index =
+        nia_item_signatures::ProgramTraitImplIndex::new_with_type_store(&trait_impls, type_store);
     VisibleTraitImplsForModule {
         trait_impls,
         trait_impl_index,

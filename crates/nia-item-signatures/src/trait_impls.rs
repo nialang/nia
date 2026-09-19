@@ -1,6 +1,7 @@
 //! Trait implementation identity and candidate indexing.
 
 use super::*;
+use nia_ty::{ArrayLenTy, ConstGenericValue};
 
 /// Compact candidate index used by program-wide trait selection.
 ///
@@ -10,6 +11,8 @@ use super::*;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProgramTraitImplIndex {
     by_trait: HashMap<TraitId, Vec<usize>>,
+    by_trait_target: HashMap<(TraitId, InternedTyId), Vec<usize>>,
+    fallback_by_trait: HashMap<TraitId, Vec<usize>>,
 }
 
 impl ProgramTraitImplIndex {
@@ -22,7 +25,38 @@ impl ProgramTraitImplIndex {
                 .or_default()
                 .push(index);
         }
-        Self { by_trait }
+        Self {
+            by_trait,
+            by_trait_target: HashMap::new(),
+            fallback_by_trait: HashMap::new(),
+        }
+    }
+
+    /// Builds an index that also filters concrete implementation targets.
+    ///
+    /// Implementations whose target contains a type or const parameter remain
+    /// in the per-trait fallback bucket because they can match many goals.
+    pub fn new_with_type_store(
+        trait_impls: &[ProgramTraitImplSignature],
+        type_store: &TypeStore,
+    ) -> Self {
+        let mut index = Self::new(trait_impls);
+        for (impl_index, impl_signature) in trait_impls.iter().enumerate() {
+            if type_contains_pattern(type_store, impl_signature.target_ty) {
+                index
+                    .fallback_by_trait
+                    .entry(impl_signature.trait_id)
+                    .or_default()
+                    .push(impl_index);
+            } else {
+                index
+                    .by_trait_target
+                    .entry((impl_signature.trait_id, impl_signature.target_ty))
+                    .or_default()
+                    .push(impl_index);
+            }
+        }
+        index
     }
 
     /// Returns candidate indexes for one trait, preserving source order.
@@ -33,10 +67,75 @@ impl ProgramTraitImplIndex {
             .unwrap_or(&[])
     }
 
+    /// Returns concrete-target candidates plus generic fallback candidates in
+    /// the original implementation order.
+    pub fn indexes_for_trait_and_target(
+        &self,
+        trait_id: TraitId,
+        target_ty: InternedTyId,
+    ) -> Vec<usize> {
+        if self.by_trait_target.is_empty() && self.fallback_by_trait.is_empty() {
+            return self.indexes_for_trait(trait_id).to_vec();
+        }
+        let mut indexes = self
+            .fallback_by_trait
+            .get(&trait_id)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(concrete) = self.by_trait_target.get(&(trait_id, target_ty)) {
+            indexes.extend(concrete);
+        }
+        indexes.sort_unstable();
+        indexes.dedup();
+        indexes
+    }
+
     /// Reports whether no trait implementation candidates are indexed.
     pub fn is_empty(&self) -> bool {
         self.by_trait.is_empty()
     }
+}
+
+fn type_contains_pattern(type_store: &TypeStore, ty: InternedTyId) -> bool {
+    fn visit(type_store: &TypeStore, ty: InternedTyId, seen: &mut Vec<InternedTyId>) -> bool {
+        if seen.contains(&ty) {
+            return false;
+        }
+        seen.push(ty);
+        let Some(kind) = type_store.get(ty) else {
+            return true;
+        };
+        let result = match kind {
+            TyKind::GenericParam(_) | TyKind::SelfParam => true,
+            TyKind::Nominal {
+                args, const_args, ..
+            } => {
+                args.iter().any(|arg| visit(type_store, *arg, seen))
+                    || const_args.iter().any(|arg| {
+                        matches!(
+                            arg.value,
+                            ConstGenericValue::GenericParam(_) | ConstGenericValue::ConstExpr(_)
+                        ) || visit(type_store, arg.ty, seen)
+                    })
+            }
+            TyKind::Array { len, elem } => {
+                matches!(len, ArrayLenTy::GenericParam(_) | ArrayLenTy::ConstExpr(_))
+                    || matches!(len, ArrayLenTy::Builtin { ty, .. } if visit(type_store, *ty, seen))
+                    || visit(type_store, *elem, seen)
+            }
+            _ => {
+                let mut nested = false;
+                kind.visit_referenced_types(|referenced| {
+                    nested |= visit(type_store, referenced, seen);
+                });
+                nested
+            }
+        };
+        seen.pop();
+        result
+    }
+
+    visit(type_store, ty, &mut Vec::new())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

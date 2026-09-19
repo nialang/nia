@@ -7,13 +7,18 @@ impl TraitSolver<'_> {
     pub(crate) fn matching_user_impls(&mut self, goal: &TraitGoal) -> Vec<UserImpl> {
         let mut matches = Vec::new();
         if let Some(index) = self.trait_impl_index {
-            for impl_index in index.indexes_for_trait(goal.trait_id).iter().copied() {
+            for impl_index in index
+                .indexes_for_trait_and_target(goal.trait_id, goal.self_ty)
+                .into_iter()
+            {
+                self.stats.candidate_indexes += 1;
                 if let Some(user_impl) = self.match_user_impl_at(goal, impl_index) {
                     matches.push(user_impl);
                 }
             }
         } else {
             for impl_index in 0..self.trait_impls.len() {
+                self.stats.candidate_indexes += 1;
                 if let Some(user_impl) = self.match_user_impl_at(goal, impl_index) {
                     matches.push(user_impl);
                 }
@@ -27,6 +32,7 @@ impl TraitSolver<'_> {
         goal: &TraitGoal,
         impl_index: usize,
     ) -> Option<UserImpl> {
+        self.stats.match_attempts += 1;
         let impl_signature = self.trait_impls.get(impl_index)?;
         if impl_signature.builtin.is_some() {
             return None;
@@ -84,6 +90,7 @@ impl TraitSolver<'_> {
                 &const_substitutions,
             );
         (target_matches && trait_args_match && trait_const_args_match && where_holds).then(|| {
+            self.stats.matched_impls += 1;
             UserImpl {
                 goal: goal.clone(),
                 impl_index,
