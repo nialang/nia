@@ -8,6 +8,23 @@ use nia_span::Span;
 use nia_symbol::stable_hash;
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
+trait TestTypeStoreAppend {
+    fn test_intern(&self, kind: TyKind) -> InternedTyId;
+    fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId;
+}
+
+impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+    fn test_intern(&self, kind: TyKind) -> InternedTyId {
+        self.intern(kind)
+            .expect("intern program-signatures test type")
+    }
+
+    fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+        self.primitive(primitive)
+            .expect("intern primitive program-signatures test type")
+    }
+}
+
 thread_local! {
     static TEST_SYMBOLS: nia_symbol_table::SymbolTable = nia_symbol_table::SymbolTable::new();
 }
@@ -90,8 +107,8 @@ fn type_equivalence_resolves_nominal_const_expression_summaries() {
     let type_store = TypeStore::new().expect("create type store");
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);
-    let left_usize = left.intern(TyKind::Primitive(PrimitiveTy::Usize));
-    let right_usize = right.intern(TyKind::Primitive(PrimitiveTy::Usize));
+    let left_usize = left.test_intern(TyKind::Primitive(PrimitiveTy::Usize));
+    let right_usize = right.test_intern(TyKind::Primitive(PrimitiveTy::Usize));
     let def_id = GlobalDefId {
         module_id: left_module,
         def_id: nia_defs::DefId(800),
@@ -104,7 +121,7 @@ fn type_equivalence_resolves_nominal_const_expression_summaries() {
         module_id: right_module,
         const_expr_id: nia_ids::ConstExprId(2),
     };
-    let left_ty = left.intern(TyKind::Nominal {
+    let left_ty = left.test_intern(TyKind::Nominal {
         def_id,
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
@@ -112,7 +129,7 @@ fn type_equivalence_resolves_nominal_const_expression_summaries() {
             value: nia_ty::ConstGenericValue::ConstExpr(left_expr),
         }],
     });
-    let right_ty = right.intern(TyKind::Nominal {
+    let right_ty = right.test_intern(TyKind::Nominal {
         def_id,
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
@@ -142,7 +159,7 @@ fn type_equivalence_resolves_nominal_const_expression_summaries() {
         diagnostics: Vec::new(),
     };
     assert!(types_equivalent(&type_store, &lowering, left_ty, right_ty));
-    let right_int = right.intern(TyKind::Nominal {
+    let right_int = right.test_intern(TyKind::Nominal {
         def_id,
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
@@ -155,7 +172,7 @@ fn type_equivalence_resolves_nominal_const_expression_summaries() {
         module_id: right_module,
         const_expr_id: nia_ids::ConstExprId(3),
     };
-    let unresolved = right.intern(TyKind::Nominal {
+    let unresolved = right.test_intern(TyKind::Nominal {
         def_id,
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
@@ -179,8 +196,8 @@ fn trait_goal_guard_resolves_const_expression_summaries() {
     let type_store = TypeStore::new().expect("create type store");
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);
-    let left_usize = left.primitive(PrimitiveTy::Usize);
-    let right_usize = right.primitive(PrimitiveTy::Usize);
+    let left_usize = left.test_primitive(PrimitiveTy::Usize);
+    let right_usize = right.test_primitive(PrimitiveTy::Usize);
     let trait_id = TraitId::Source(GlobalDefId {
         module_id: left_module,
         def_id: nia_defs::DefId(801),
@@ -347,14 +364,14 @@ fn const_generic_supertrait_instances_require_exact_impl_arguments() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let usize_ty = append.intern(TyKind::Primitive(PrimitiveTy::Usize));
-    let target_ty = append.intern(TyKind::Primitive(PrimitiveTy::U8));
+    let usize_ty = append.test_intern(TyKind::Primitive(PrimitiveTy::Usize));
+    let target_ty = append.test_intern(TyKind::Primitive(PrimitiveTy::U8));
     let const_name = sym("N");
     let base_id = GlobalDefId {
         module_id,
         def_id: nia_defs::DefId(1),
     };
-    let symbolic_supertrait = append.intern(TyKind::Nominal {
+    let symbolic_supertrait = append.test_intern(TyKind::Nominal {
         def_id: base_id,
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
@@ -389,6 +406,7 @@ fn const_generic_supertrait_instances_require_exact_impl_arguments() {
         &[],
         std::slice::from_ref(&four),
     )
+    .expect("substitute trait bound")
     .expect("complete trait instance arguments");
     assert!(matches!(
         type_store.get(substituted),
@@ -436,8 +454,8 @@ fn projection_context_matching_uses_semantic_arguments() {
     let type_store = TypeStore::new().expect("create type store");
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);
-    let left_u32 = left.intern(TyKind::Primitive(PrimitiveTy::U32));
-    let right_u32 = right.intern(TyKind::Primitive(PrimitiveTy::U32));
+    let left_u32 = left.test_intern(TyKind::Primitive(PrimitiveTy::U32));
+    let right_u32 = right.test_intern(TyKind::Primitive(PrimitiveTy::U32));
     let left_const = nia_ty::ConstGenericArg {
         ty: left_u32,
         value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(7)),
@@ -466,9 +484,9 @@ fn substitutes_generic_type_inside_array_layout_builtin() {
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let generic = sym("T");
-    let generic_ty = append.intern(TyKind::GenericParam(generic));
-    let u32_ty = append.intern(TyKind::Primitive(PrimitiveTy::U32));
-    let array = append.intern(TyKind::Array {
+    let generic_ty = append.test_intern(TyKind::GenericParam(generic));
+    let u32_ty = append.test_intern(TyKind::Primitive(PrimitiveTy::U32));
+    let array = append.test_intern(TyKind::Array {
         len: nia_ty::ArrayLenTy::Builtin {
             builtin: nia_ty::LayoutBuiltin::Size,
             ty: generic_ty,
@@ -516,7 +534,8 @@ fn substitutes_generic_type_inside_array_layout_builtin() {
         &substitutions,
         &SymbolMap::default(),
         TypeSubstitutionTarget::default(),
-    );
+    )
+    .expect("substitute array type");
     assert!(matches!(
         type_store.get(substituted),
         Some(TyKind::Array {
@@ -534,8 +553,8 @@ fn trait_goal_assumption_identity_is_semantic_and_includes_self_type() {
     let type_store = TypeStore::new().expect("create type store");
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);
-    let usize_left = left.intern(TyKind::Primitive(PrimitiveTy::Usize));
-    let usize_right = right.intern(TyKind::Primitive(PrimitiveTy::Usize));
+    let usize_left = left.test_intern(TyKind::Primitive(PrimitiveTy::Usize));
+    let usize_right = right.test_intern(TyKind::Primitive(PrimitiveTy::Usize));
     let target = GlobalDefId {
         module_id: left_module,
         def_id: nia_defs::DefId(70),
@@ -544,7 +563,7 @@ fn trait_goal_assumption_identity_is_semantic_and_includes_self_type() {
         module_id: left_module,
         def_id: nia_defs::DefId(71),
     });
-    let signed = left.intern(TyKind::Nominal {
+    let signed = left.test_intern(TyKind::Nominal {
         def_id: target,
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
@@ -552,7 +571,7 @@ fn trait_goal_assumption_identity_is_semantic_and_includes_self_type() {
             value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(9)),
         }],
     });
-    let unsigned = right.intern(TyKind::Nominal {
+    let unsigned = right.test_intern(TyKind::Nominal {
         def_id: target,
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
@@ -583,7 +602,7 @@ fn trait_goal_assumption_identity_is_semantic_and_includes_self_type() {
         &left_goal,
         &right_goal,
     ));
-    let other = left.intern(TyKind::Nominal {
+    let other = left.test_intern(TyKind::Nominal {
         def_id: GlobalDefId {
             module_id: left_module,
             def_id: nia_defs::DefId(72),
