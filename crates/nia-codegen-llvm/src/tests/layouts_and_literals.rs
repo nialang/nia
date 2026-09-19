@@ -358,8 +358,8 @@ fn main() i32 {
 }
 
 #[test]
-fn emits_aggregate_literal_returns_without_extra_literal_temps() {
-    let root = temp_dir("emits_aggregate_literal_returns_without_extra_literal_temps");
+fn emits_aggregate_literal_returns_directly_without_defers() {
+    let root = temp_dir("emits_aggregate_literal_returns_directly_without_defers");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -398,7 +398,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("return.copy"), "{ir}");
+    assert!(!ir.contains("return.copy"), "{ir}");
     assert!(!ir.contains("call.out"), "{ir}");
     let make_pair = mangled_symbol(ir, '@', "make_pair");
     let make_array = mangled_symbol(ir, '@', "make_array");
@@ -415,6 +415,44 @@ fn main() i32 {
     );
     assert!(!ir.contains("structtmp"), "{ir}");
     assert!(!ir.contains("arraytmp"), "{ir}");
+}
+
+#[test]
+fn optimized_large_array_repeat_return_stays_compact() {
+    let root = temp_dir("optimized_large_array_repeat_return_stays_compact");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+pub fn make(value: u8) [u8; 4096] {
+    [value; 4096]
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program_with_options(
+        main.to_string_lossy().into_owned(),
+        NiaOptimizationLevel::O2,
+    );
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir_with_options(
+        &codegen.backend_lowering,
+        &codegen.type_store,
+        LlvmCodegenOptions {
+            optimization: codegen.optimization,
+            ..LlvmCodegenOptions::default()
+        },
+    );
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+
+    assert!(!ir.contains("return.copy"), "{ir}");
+    assert!(!ir.contains("insertvalue [4096 x i8]"), "{ir}");
+    assert!(
+        ir.lines().count() < 500,
+        "optimized repeat return emitted too much IR: {ir}"
+    );
 }
 
 #[test]
