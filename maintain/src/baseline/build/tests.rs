@@ -31,6 +31,16 @@ fn fixture_result(process_id: u32, name: &str, counters: Map<String, Value>) -> 
         return_code: 0,
         wall_seconds_observed: 1.0,
         available_memory_bytes_before: None,
+        initial_products: InitialProductState {
+            build_directory_existed: !matches!(
+                name,
+                "clean" | "source_edit_clean" | "module_map_edit_clean" | "runner_only_clean"
+            ),
+            cache_directory_existed: !matches!(
+                name,
+                "clean" | "source_edit_clean" | "module_map_edit_clean" | "runner_only_clean"
+            ),
+        },
         corrupted_action_cache_entries: None,
         artifact_equivalence: None,
         reports: BuildReports {
@@ -155,6 +165,13 @@ fn passing_results() -> Vec<BuildResult> {
                 ("build.runner_cache_hits", 0),
                 ("build.actions_executed", 1),
                 ("query.executions", 100),
+                ("llvm.units", 4),
+                ("llvm.object_reuse_hits", 0),
+                ("llvm.object_reuse_misses", 4),
+                ("llvm.object_reuse_miss_not_found", 4),
+                ("link.result_reuse_hits", 0),
+                ("link.result_reuse_misses", 1),
+                ("link.result_reuse_miss_not_found", 1),
             ]),
         ),
         result(
@@ -406,6 +423,62 @@ fn acceptance_requires_cold_independent_recomputation() {
 }
 
 #[test]
+fn acceptance_rejects_preexisting_runner_only_products() {
+    let mut results = passing_results();
+    results[9].initial_products.cache_directory_existed = true;
+    let acceptance = workload_acceptance(&results).unwrap();
+    assert!(!acceptance.passed);
+    assert!(acceptance.checks.iter().any(|check| {
+        check.state == "runner_only_clean"
+            && check.counter == "baseline.initial_cache_directory_existed"
+            && !check.passed
+    }));
+}
+
+#[test]
+fn acceptance_rejects_runner_only_native_reuse() {
+    let mut results = passing_results();
+    results[9]
+        .reports
+        .measurement
+        .counters
+        .insert("llvm.object_reuse_hits".to_owned(), json!(1));
+    results[9]
+        .reports
+        .measurement
+        .counters
+        .insert("llvm.object_reuse_misses".to_owned(), json!(3));
+    let acceptance = workload_acceptance(&results).unwrap();
+    assert!(!acceptance.passed);
+    assert!(acceptance.checks.iter().any(|check| {
+        check.state == "runner_only_clean"
+            && check.counter == "llvm.object_reuse_hits"
+            && !check.passed
+    }));
+}
+
+#[test]
+fn acceptance_retains_empty_runner_codegen_evidence() {
+    let mut results = passing_results();
+    for name in [
+        "llvm.units",
+        "llvm.object_reuse_misses",
+        "llvm.object_reuse_miss_not_found",
+    ] {
+        results[9]
+            .reports
+            .measurement
+            .counters
+            .insert(name.to_owned(), json!(0));
+    }
+    let acceptance = workload_acceptance(&results).unwrap();
+    assert!(!acceptance.passed);
+    assert!(acceptance.checks.iter().any(|check| {
+        check.state == "runner_only_clean" && check.counter == "llvm.units" && !check.passed
+    }));
+}
+
+#[test]
 fn rejects_boolean_counters() {
     let mut results = passing_results();
     results[0]
@@ -440,6 +513,10 @@ fn summarizes_repeated_stage_and_counter_samples() {
             return_code: 0,
             wall_seconds_observed: (index + 1) as f64,
             available_memory_bytes_before: None,
+            initial_products: InitialProductState {
+                build_directory_existed: false,
+                cache_directory_existed: false,
+            },
             corrupted_action_cache_entries: None,
             artifact_equivalence: None,
             reports,

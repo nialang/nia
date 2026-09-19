@@ -118,6 +118,23 @@ or action-cache work. The representative fixture continues to cover clean,
 warm, source-edit, module-map-edit, corruption recovery, clean-equivalent
 artifacts, and failed-action behavior.
 
+A project-cold build starts a fresh process in a copied workspace where both
+`.nia-build` and `.nia-cache` were absent before process creation. The report
+records those preconditions for every state. Runner-only clean acceptance also
+requires a runner-cache miss, zero native-object and link-result reuse hits,
+and not-found misses for every emitted LLVM unit and the link result. This
+proves that the measured runner executable was produced from source without a
+project artifact from an earlier invocation. Frontend persistence counters may
+still report reuse within that same compiler process after newly computed
+facts are published; such reuse is desirable and is not evidence of a warm
+project cache.
+
+Project-cold does not mean machine-cold. The operating system may retain source
+and executable pages between samples. A machine-cold experiment must control
+and report that state separately, and competing tools must use the same state.
+Likewise, SDK/toolchain-cold measurements are a separate claim from the normal
+project-cold baseline.
+
 The current cold-build evidence is split into two different claims. The
 runner-only clean baseline was about 36.1 seconds before native emission reuse;
 the current implementation measures about 24.5--24.8 seconds on the same

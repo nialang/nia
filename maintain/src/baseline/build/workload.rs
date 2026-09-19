@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use super::acceptance::validate_workload;
 use super::process::run_bounded;
 use super::reports::parse_build_reports;
-use super::{ArtifactComparison, ArtifactEquivalence, BuildResult};
+use super::{ArtifactComparison, ArtifactEquivalence, BuildResult, InitialProductState};
 use crate::{MaintainResult, TemporaryDirectory};
 
 /// Constructs the measured `nia build` command for one fixture state.
@@ -40,6 +40,10 @@ fn run_state(
     step: Option<&str>,
     expect_success: bool,
 ) -> MaintainResult<BuildResult> {
+    let initial_products = InitialProductState {
+        build_directory_existed: path_exists(&workspace.join(".nia-build"))?,
+        cache_directory_existed: path_exists(&workspace.join(".nia-cache"))?,
+    };
     let command = build_command(nia, resource_root, workspace, step);
     let output = run_bounded(&command, workspace, timeout_seconds)?;
     let succeeded = output.status.success();
@@ -74,10 +78,19 @@ fn run_state(
         return_code: output.status.code().unwrap_or(-1),
         wall_seconds_observed: output.elapsed,
         available_memory_bytes_before: output.available_memory,
+        initial_products,
         corrupted_action_cache_entries: None,
         artifact_equivalence: None,
         reports,
     })
+}
+
+fn path_exists(path: &Path) -> MaintainResult<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!("failed to inspect {}: {error}", path.display())),
+    }
 }
 
 const ARTIFACT_COMPARE_BUFFER_BYTES: usize = 64 * 1024;

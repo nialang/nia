@@ -12,7 +12,8 @@ pub use acceptance::workload_acceptance;
 pub use reports::parse_build_reports;
 pub use schema::{
     AcceptanceCheck, AcceptanceReport, ActionReport, ArtifactComparison, ArtifactEquivalence,
-    BuildReports, BuildResult, Distribution, ExpectedValue, Measurement, Number, StateSummary,
+    BuildReports, BuildResult, Distribution, ExpectedValue, InitialProductState, Measurement,
+    Number, StateSummary,
 };
 use schema::{AggregateAcceptance, BuildBaseline, BuildRunSample};
 pub use summary::summarize_runs;
