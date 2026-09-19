@@ -6,6 +6,61 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
+fn emit_exe_array_repeat_evaluates_each_element_once() {
+    let root = temp_dir("emit_exe_array_repeat_evaluates_each_element_once");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+static mut calls: i32 = 0;
+
+fn next() i32 {
+    calls += 1;
+    calls
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let values: [i32; 4] = [next(); 4];
+    if calls != 4 {
+        return process::ExitCode(1)!;
+    }
+    if values[0] != 1 or values[1] != 2 or values[2] != 3 or values[3] != 4 {
+        return process::ExitCode(2)!;
+    }
+
+    let empty: [i32; 0] = [next(); 0];
+    _ = empty;
+    if calls != 4 {
+        return process::ExitCode(3)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write array repeat evaluation source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit array repeat evaluation executable");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run array repeat evaluation executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_preserves_128_bit_numeric_endpoints() {
     let root = temp_dir("emit_exe_preserves_128_bit_numeric_endpoints");
     let main = root.join("main.nia");

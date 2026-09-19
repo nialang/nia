@@ -1457,7 +1457,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }))
     }
 
-    fn emit_aggregate_literal_into(
+    pub(super) fn emit_aggregate_literal_into(
         &mut self,
         ptr: nia_llvm::values::PointerValue<'ctx>,
         value: &FunctionExpr,
@@ -1519,7 +1519,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    fn emit_aggregate_call_result_into(
+    pub(super) fn emit_aggregate_call_result_into(
         &mut self,
         ptr: nia_llvm::values::PointerValue<'ctx>,
         value: &FunctionExpr,
@@ -1626,9 +1626,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             nia_function_ir::FunctionArrayElements::Repeat { value, count } => {
                 let count = self.module.array_len(count, value.span)?;
-                for _ in 0..count {
-                    self.emit_effect_expr(value)?;
-                }
+                self.emit_const_count_loop(value.span, count, "array.repeat.effect", |this, _| {
+                    this.emit_effect_expr(value)
+                })?;
             }
         }
         Ok(())
