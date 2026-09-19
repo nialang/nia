@@ -535,7 +535,7 @@ impl Driver {
 
     /// Checks every module reachable from the request's module map.
     pub fn check_all_modules(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
-        DriverOutput::catch_unexpected_panic(|| {
+        {
             let program = match self.check_all_modules_inner(request) {
                 Ok(program) => program,
                 Err(error) => {
@@ -548,7 +548,7 @@ impl Driver {
                 return DriverOutput::from_check_diagnostics(program);
             }
             DriverOutput::success(program)
-        })
+        }
     }
 
     /// Returns the final source manifest for an entry request.
@@ -556,7 +556,7 @@ impl Driver {
         &self,
         request: &CheckRequest,
     ) -> DriverOutput<SourceInputManifest> {
-        DriverOutput::catch_unexpected_panic(|| {
+        {
             let loader = match self.loader_database(request) {
                 Ok(loader) => loader,
                 Err(error) => {
@@ -576,7 +576,7 @@ impl Driver {
                     query_error_diagnostic(error),
                 )),
             }
-        })
+        }
     }
 
     fn check_all_modules_inner(
@@ -597,7 +597,7 @@ impl Driver {
 
     /// Checks the request entry and its reachable semantic program.
     pub fn check_entry(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
-        DriverOutput::catch_unexpected_panic(|| {
+        {
             let program = match self.check_entry_inner(request) {
                 Ok(program) => program,
                 Err(error) => {
@@ -610,7 +610,7 @@ impl Driver {
                 return DriverOutput::from_check_diagnostics(program);
             }
             DriverOutput::success(program)
-        })
+        }
     }
 
     /// Checks an entry and returns its exact source manifest alongside it.
@@ -618,7 +618,7 @@ impl Driver {
         &self,
         request: CheckRequest,
     ) -> DriverOutput<CheckedProgramWithSourceManifest> {
-        DriverOutput::catch_unexpected_panic(|| {
+        {
             let checked = match self.check_entry_with_source_manifest_inner(request) {
                 Ok(checked) => checked,
                 Err(error) => {
@@ -631,7 +631,7 @@ impl Driver {
                 return DriverOutput::from_check_diagnostics(checked.program);
             }
             DriverOutput::success(checked)
-        })
+        }
     }
 
     fn check_entry_inner(&self, request: CheckRequest) -> nia_query::QueryResult<CheckedProgram> {
@@ -661,7 +661,7 @@ impl Driver {
 
     /// Checks and lowers the request into a code-generation program.
     pub fn codegen(&self, request: CheckRequest) -> DriverOutput<CodegenProgram> {
-        DriverOutput::catch_unexpected_panic(|| {
+        {
             let program = match self.codegen_inner(request) {
                 Ok(program) => program,
                 Err(error) => {
@@ -674,7 +674,7 @@ impl Driver {
                 return DriverOutput::from_codegen_diagnostics(program);
             }
             DriverOutput::success(program)
-        })
+        }
     }
 
     fn codegen_inner(&self, request: CheckRequest) -> nia_query::QueryResult<CodegenProgram> {
@@ -786,7 +786,7 @@ impl Driver {
 
     /// Emits LLVM IR modules for a checked request.
     pub fn emit_llvm_ir(&self, request: EmitLlvmRequest) -> DriverOutput<LlvmIrArtifact> {
-        DriverOutput::catch_unexpected_panic(|| {
+        {
             let timings = request.check.timings;
             let database = match self.compiler_database(&request.check) {
                 Ok(database) => database,
@@ -904,7 +904,7 @@ impl Driver {
                 optimization_report,
                 diagnostics,
             })
-        })
+        }
     }
 
     /// Emits LLVM IR from an already checked codegen product.
@@ -921,7 +921,7 @@ impl Driver {
         program: &CodegenProgram,
         timings: TimingMode,
     ) -> DriverOutput<LlvmIrArtifact> {
-        DriverOutput::catch_unexpected_panic(|| {
+        {
             let session = match self.codegen_query_session() {
                 Ok(session) => session,
                 Err(error) => {
@@ -951,7 +951,7 @@ impl Driver {
                 optimization_report: program.backend_lowering.optimization_report.clone(),
                 diagnostics: program.diagnostics.clone(),
             })
-        })
+        }
     }
 
     /// Emits native object bytes for a checked request.
@@ -964,7 +964,7 @@ impl Driver {
         &self,
         request: EmitObjectRequest,
     ) -> DriverOutput<ObjectArtifactWithSourceManifest> {
-        DriverOutput::catch_unexpected_panic(|| {
+        {
             let timings = request.check.timings;
             let (database, loader) = match self
                 .compilation_databases_with_codegen_scope(&request.check, CodegenScope::Entry)
@@ -1014,7 +1014,7 @@ impl Driver {
                 artifact: emission.artifact,
                 source_manifest,
             })
-        })
+        }
     }
 
     fn emit_native_objects_for_database(
@@ -1118,7 +1118,7 @@ impl Driver {
         program: &CodegenProgram,
         timings: TimingMode,
     ) -> DriverOutput<ObjectArtifact> {
-        DriverOutput::catch_unexpected_panic(|| {
+        {
             let session = match self.codegen_query_session() {
                 Ok(session) => session,
                 Err(error) => {
@@ -1152,7 +1152,7 @@ impl Driver {
                 optimization_report: program.backend_lowering.optimization_report.clone(),
                 diagnostics: program.diagnostics.clone(),
             })
-        })
+        }
     }
 
     fn codegen_query_session(&self) -> nia_query::QueryResult<nia_query::QuerySession> {
@@ -1174,7 +1174,7 @@ impl Driver {
         &self,
         request: WriteObjectRequest,
     ) -> DriverOutput<WrittenObjectArtifact> {
-        DriverOutput::catch_unexpected_panic(|| {
+        {
             let output = self.emit_native_objects(EmitObjectRequest {
                 check: request.check,
             });
@@ -1183,7 +1183,7 @@ impl Driver {
                 Err(error) => return DriverOutput::from_error(error),
             };
             self.write_native_objects_from_artifact(&objects, request.output)
-        })
+        }
     }
 
     /// Writes an existing object artifact to disk.
@@ -1192,7 +1192,7 @@ impl Driver {
         objects: &ObjectArtifact,
         output: ObjectOutput,
     ) -> DriverOutput<WrittenObjectArtifact> {
-        DriverOutput::catch_unexpected_panic(|| {
+        {
             let written = match output {
                 ObjectOutput::Single(path) => {
                     if objects.link_inputs.len() != 1 {
@@ -1245,7 +1245,7 @@ impl Driver {
             DriverOutput::success(WrittenObjectArtifact {
                 link_inputs: nia_codegen_llvm::IncrementalLinkInputs::new(written),
             })
-        })
+        }
     }
 
     /// Links an executable from a checked request and writes it to `output`.
@@ -1262,7 +1262,7 @@ impl Driver {
         &self,
         request: LinkExecutableRequest,
     ) -> DriverOutput<LinkedExecutableWithSourceManifest> {
-        DriverOutput::catch_unexpected_panic(|| {
+        {
             let mut request = request;
             request.link_options.target =
                 LinkTarget::from_target_config(&self.config.artifact_target);
@@ -1314,7 +1314,7 @@ impl Driver {
                 }),
                 Err(error) => DriverOutput::from_error(error),
             }
-        })
+        }
     }
 
     /// Links an executable from already emitted object inputs.
@@ -1325,7 +1325,7 @@ impl Driver {
         mut link_options: LinkOptions,
         timings: TimingMode,
     ) -> DriverOutput<ExecutableArtifact> {
-        DriverOutput::catch_unexpected_panic(|| {
+        {
             link_options.target = LinkTarget::from_target_config(&self.config.artifact_target);
             let link_fingerprint = match link_options.result_fingerprint(
                 &objects.link_inputs,
@@ -1439,7 +1439,7 @@ impl Driver {
                     error,
                 }),
             }
-        })
+        }
     }
 
     /// Archives already emitted objects into a static library.
@@ -1449,7 +1449,7 @@ impl Driver {
         output: PathBuf,
         mut archive_options: ArchiveOptions,
     ) -> DriverOutput<StaticArchiveArtifact> {
-        DriverOutput::catch_unexpected_panic(|| {
+        {
             archive_options.target = LinkTarget::from_target_config(&self.config.artifact_target);
             let archive_fingerprint = match archive_options.result_fingerprint(
                 &objects.link_inputs,
@@ -1534,7 +1534,7 @@ impl Driver {
                     error,
                 }),
             }
-        })
+        }
     }
 
     /// Restores an executable artifact when its complete cache identity matches.
@@ -2224,13 +2224,6 @@ impl<T> DriverOutput<T> {
 
     fn from_codegen_diagnostics(program: CodegenProgram) -> Self {
         Self::from_error(DriverError::CodegenProgramDiagnostics(Box::new(program)))
-    }
-
-    pub(crate) fn catch_unexpected_panic(f: impl FnOnce() -> Self) -> Self {
-        match nia_ice::catch_unexpected_panic(f) {
-            Ok(output) => output,
-            Err(ice) => Self::from_error(DriverError::InternalDiagnostic(Diagnostic::from(ice))),
-        }
     }
 }
 
