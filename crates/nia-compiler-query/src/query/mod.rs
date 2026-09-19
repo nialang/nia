@@ -547,6 +547,26 @@ impl CompilerDatabase {
             .collect()
     }
 
+    fn rehydrated_type(&self, types: &[InternedTyId], index: u32) -> QueryResult<InternedTyId> {
+        types.get(index as usize).copied().ok_or_else(|| {
+            self.db.invalid_input(
+                &ModuleGraphQuery,
+                format!("stable type index {index} is outside the decoded graph"),
+            )
+        })
+    }
+
+    fn rehydrated_types(
+        &self,
+        types: &[InternedTyId],
+        indexes: &[u32],
+    ) -> QueryResult<Vec<InternedTyId>> {
+        indexes
+            .iter()
+            .map(|index| self.rehydrated_type(types, *index))
+            .collect()
+    }
+
     fn rehydrate_stable_bindings(
         &self,
         bindings: &[StableAssociatedTypeBinding],
@@ -562,15 +582,11 @@ impl CompilerDatabase {
                         .as_ref()
                         .map(|trait_id| self.rehydrate_stable_trait_id(trait_id, resolver))
                         .transpose()?,
-                    trait_args: binding
-                        .trait_arguments
-                        .iter()
-                        .map(|index| types[usize::try_from(*index).unwrap()])
-                        .collect(),
+                    trait_args: self.rehydrated_types(types, &binding.trait_arguments)?,
                     trait_const_args: self
                         .rehydrate_stable_const_args(&binding.trait_const_arguments, types)?,
                     name: SymbolId::from_stable_hash(binding.name),
-                    ty: types[usize::try_from(binding.ty).unwrap()],
+                    ty: self.rehydrated_type(types, binding.ty)?,
                 })
             })
             .collect()
@@ -750,11 +766,7 @@ impl CompilerDatabase {
         resolver: &dyn StableDefinitionResolver,
     ) -> QueryResult<Vec<InternedTyId>> {
         let types = self.rehydrate_stable_type_graph_nodes(graph, resolver)?;
-        Ok(graph
-            .roots
-            .iter()
-            .map(|root| types[usize::try_from(*root).unwrap()])
-            .collect())
+        self.rehydrated_types(&types, &graph.roots)
     }
 
     /// Rehydrates every node in a stable package graph, preserving its wire
@@ -791,10 +803,7 @@ impl CompilerDatabase {
                     const_arguments,
                 } => append.intern(nia_ty::TyKind::Nominal {
                     def_id: resolver.definition_for_identity(definition)?,
-                    args: arguments
-                        .iter()
-                        .map(|index| types[usize::try_from(*index).unwrap()])
-                        .collect(),
+                    args: self.rehydrated_types(&types, arguments)?,
                     const_args: self.rehydrate_stable_const_args(const_arguments, &types)?,
                 }),
                 StableTypeNode::Unit => append.intern(nia_ty::TyKind::Tuple(Vec::new())),
@@ -802,13 +811,10 @@ impl CompilerDatabase {
                     append.intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::Never))
                 }
                 StableTypeNode::Tuple(elements) => append.intern(nia_ty::TyKind::Tuple(
-                    elements
-                        .iter()
-                        .map(|index| types[usize::try_from(*index).unwrap()])
-                        .collect(),
+                    self.rehydrated_types(&types, elements)?,
                 )),
                 StableTypeNode::Array { element, length } => append.intern(nia_ty::TyKind::Array {
-                    elem: types[usize::try_from(*element).unwrap()],
+                    elem: self.rehydrated_type(&types, *element)?,
                     len: match length {
                         StableArrayLength::ConstValue(value) => {
                             nia_ty::ArrayLenTy::ConstValue(*value)
@@ -820,24 +826,21 @@ impl CompilerDatabase {
                 }),
                 StableTypeNode::Function { parameters, result } => {
                     append.intern(nia_ty::TyKind::FunctionPointer {
-                        params: parameters
-                            .iter()
-                            .map(|index| types[usize::try_from(*index).unwrap()])
-                            .collect(),
-                        return_type: types[usize::try_from(*result).unwrap()],
+                        params: self.rehydrated_types(&types, parameters)?,
+                        return_type: self.rehydrated_type(&types, *result)?,
                         is_variadic: false,
                     })
                 }
                 StableTypeNode::Reference { target, mutable } => {
                     append.intern(nia_ty::TyKind::Pointer {
                         is_readonly: !*mutable,
-                        elem: types[usize::try_from(*target).unwrap()],
+                        elem: self.rehydrated_type(&types, *target)?,
                     })
                 }
                 StableTypeNode::Pointer { target, readonly } => {
                     append.intern(nia_ty::TyKind::Pointer {
                         is_readonly: *readonly,
-                        elem: types[usize::try_from(*target).unwrap()],
+                        elem: self.rehydrated_type(&types, *target)?,
                     })
                 }
                 StableTypeNode::GenericParam(hash) => append.intern(nia_ty::TyKind::GenericParam(
@@ -849,18 +852,18 @@ impl CompilerDatabase {
                 StableTypeNode::VolatilePointer { target, readonly } => {
                     append.intern(nia_ty::TyKind::VolatilePointer {
                         is_readonly: *readonly,
-                        elem: types[usize::try_from(*target).unwrap()],
+                        elem: self.rehydrated_type(&types, *target)?,
                     })
                 }
                 StableTypeNode::Slice { target, readonly } => {
                     append.intern(nia_ty::TyKind::Slice {
                         is_readonly: *readonly,
-                        elem: types[usize::try_from(*target).unwrap()],
+                        elem: self.rehydrated_type(&types, *target)?,
                     })
                 }
                 StableTypeNode::SlicePointee { target } => {
                     append.intern(nia_ty::TyKind::SlicePointee {
-                        elem: types[usize::try_from(*target).unwrap()],
+                        elem: self.rehydrated_type(&types, *target)?,
                     })
                 }
                 StableTypeNode::Vector { element, lanes } => {
@@ -881,15 +884,17 @@ impl CompilerDatabase {
                             "unknown stable range kind".to_string(),
                         )
                     })?,
-                    bound: bound.map(|index| types[usize::try_from(index).unwrap()]),
+                    bound: bound
+                        .map(|index| self.rehydrated_type(&types, index))
+                        .transpose()?,
                 }),
                 StableTypeNode::Optional { element } => append.intern(nia_ty::TyKind::Optional {
-                    elem: types[usize::try_from(*element).unwrap()],
+                    elem: self.rehydrated_type(&types, *element)?,
                 }),
                 StableTypeNode::ErrorUnion { error, value } => {
                     append.intern(nia_ty::TyKind::ErrorUnion {
-                        error: types[usize::try_from(*error).unwrap()],
-                        value: types[usize::try_from(*value).unwrap()],
+                        error: self.rehydrated_type(&types, *error)?,
+                        value: self.rehydrated_type(&types, *value)?,
                     })
                 }
                 StableTypeNode::Callable {
@@ -898,19 +903,13 @@ impl CompilerDatabase {
                     readonly,
                 } => append.intern(nia_ty::TyKind::Callable {
                     is_readonly: *readonly,
-                    params: parameters
-                        .iter()
-                        .map(|index| types[usize::try_from(*index).unwrap()])
-                        .collect(),
-                    return_type: types[usize::try_from(*result).unwrap()],
+                    params: self.rehydrated_types(&types, parameters)?,
+                    return_type: self.rehydrated_type(&types, *result)?,
                 }),
                 StableTypeNode::CallablePointee { parameters, result } => {
                     append.intern(nia_ty::TyKind::CallablePointee {
-                        params: parameters
-                            .iter()
-                            .map(|index| types[usize::try_from(*index).unwrap()])
-                            .collect(),
-                        return_type: types[usize::try_from(*result).unwrap()],
+                        params: self.rehydrated_types(&types, parameters)?,
+                        return_type: self.rehydrated_type(&types, *result)?,
                     })
                 }
                 StableTypeNode::SelfParam => append.intern(nia_ty::TyKind::SelfParam),
@@ -932,10 +931,7 @@ impl CompilerDatabase {
                             "unknown stable builtin trait tag".to_string(),
                         )
                     })?,
-                    args: arguments
-                        .iter()
-                        .map(|index| types[usize::try_from(*index).unwrap()])
-                        .collect(),
+                    args: self.rehydrated_types(&types, arguments)?,
                 }),
                 StableTypeNode::TraitObject {
                     readonly,
@@ -946,10 +942,7 @@ impl CompilerDatabase {
                 } => append.intern(nia_ty::TyKind::TraitObject {
                     is_readonly: *readonly,
                     trait_id: self.rehydrate_stable_trait_id(trait_id, resolver)?,
-                    trait_args: trait_arguments
-                        .iter()
-                        .map(|index| types[usize::try_from(*index).unwrap()])
-                        .collect(),
+                    trait_args: self.rehydrated_types(&types, trait_arguments)?,
                     trait_const_args: self
                         .rehydrate_stable_const_args(trait_const_arguments, &types)?,
                     associated_type_bindings: self.rehydrate_stable_bindings(
@@ -965,10 +958,7 @@ impl CompilerDatabase {
                     associated_type_bindings,
                 } => append.intern(nia_ty::TyKind::TraitObjectPointee {
                     trait_id: self.rehydrate_stable_trait_id(trait_id, resolver)?,
-                    trait_args: trait_arguments
-                        .iter()
-                        .map(|index| types[usize::try_from(*index).unwrap()])
-                        .collect(),
+                    trait_args: self.rehydrated_types(&types, trait_arguments)?,
                     trait_const_args: self
                         .rehydrate_stable_const_args(trait_const_arguments, &types)?,
                     associated_type_bindings: self.rehydrate_stable_bindings(
@@ -984,12 +974,9 @@ impl CompilerDatabase {
                     trait_const_arguments,
                     name,
                 } => append.intern(nia_ty::TyKind::Projection {
-                    self_ty: types[usize::try_from(*self_ty).unwrap()],
+                    self_ty: self.rehydrated_type(&types, *self_ty)?,
                     trait_id: self.rehydrate_stable_trait_id(trait_id, resolver)?,
-                    trait_args: trait_arguments
-                        .iter()
-                        .map(|index| types[usize::try_from(*index).unwrap()])
-                        .collect(),
+                    trait_args: self.rehydrated_types(&types, trait_arguments)?,
                     trait_const_args: self
                         .rehydrate_stable_const_args(trait_const_arguments, &types)?,
                     name: SymbolId::from_stable_hash(*name),
@@ -1005,15 +992,9 @@ impl CompilerDatabase {
                         owner: resolver.definition_for_identity(owner)?,
                         ordinal: *ordinal,
                     },
-                    captures: captures
-                        .iter()
-                        .map(|index| types[usize::try_from(*index).unwrap()])
-                        .collect(),
-                    params: parameters
-                        .iter()
-                        .map(|index| types[usize::try_from(*index).unwrap()])
-                        .collect(),
-                    return_type: types[usize::try_from(*result).unwrap()],
+                    captures: self.rehydrated_types(&types, captures)?,
+                    params: self.rehydrated_types(&types, parameters)?,
+                    return_type: self.rehydrated_type(&types, *result)?,
                 }),
             }?;
             types.push(ty);
@@ -1238,7 +1219,7 @@ impl CompilerDatabase {
             program_sources.fingerprint,
             &graph,
             &provider_facts,
-        );
+        )?;
         Ok(Some(CheckCertificateContext {
             namespace: self.db.context().frontend_cache_namespace(),
             entry,
@@ -1667,7 +1648,7 @@ impl StableTypeGraphEncoder<'_> {
                 StableTypeNode::BuiltinType(builtin_type_tag(builtin))
             }
             nia_ty::TyKind::BuiltinTrait { trait_id, args } => StableTypeNode::BuiltinTrait {
-                trait_id: builtin_trait_tag(trait_id),
+                trait_id: builtin_trait_tag(trait_id)?,
                 arguments: args
                     .into_iter()
                     .map(|arg| self.encode(arg))
@@ -1761,7 +1742,7 @@ impl StableTypeGraphEncoder<'_> {
                         ));
                     }
                     StableTypeNode::BuiltinTrait {
-                        trait_id: builtin_trait_tag(trait_id),
+                        trait_id: builtin_trait_tag(trait_id)?,
                         arguments: args
                             .into_iter()
                             .map(|argument| self.encode(argument))
@@ -1947,7 +1928,7 @@ impl StableTypeGraphEncoder<'_> {
             }
             nia_ty::TyKind::BuiltinTrait { trait_id, args } => {
                 key.push(25);
-                key.push(builtin_trait_tag(trait_id));
+                key.push(builtin_trait_tag(trait_id)?);
                 append_len(&mut key, args.len());
                 for arg in args {
                     append_bytes(&mut key, &self.canonical_key(arg)?);
@@ -2048,7 +2029,7 @@ impl StableTypeGraphEncoder<'_> {
                         ));
                     }
                     key.push(25);
-                    key.push(builtin_trait_tag(trait_id));
+                    key.push(builtin_trait_tag(trait_id)?);
                     append_len(&mut key, args.len());
                     for argument in args {
                         append_bytes(&mut key, &self.canonical_key(argument)?);
@@ -2113,7 +2094,7 @@ impl StableTypeGraphEncoder<'_> {
             }
             nia_ty::TraitId::Builtin(builtin) => {
                 key.push(1);
-                key.push(builtin_trait_tag(builtin));
+                key.push(builtin_trait_tag(builtin)?);
             }
         }
         Ok(())
@@ -2302,12 +2283,14 @@ impl StableTypeGraphEncoder<'_> {
         Ok(match trait_id {
             nia_ty::TraitId::Source(def_id) => {
                 if let Some(builtin) = self.builtin_trait_for_definition(def_id)? {
-                    StableTraitId::Builtin(builtin_trait_tag(builtin))
+                    StableTraitId::Builtin(builtin_trait_tag(builtin)?)
                 } else {
                     StableTraitId::Source(self.definition(def_id)?)
                 }
             }
-            nia_ty::TraitId::Builtin(builtin) => StableTraitId::Builtin(builtin_trait_tag(builtin)),
+            nia_ty::TraitId::Builtin(builtin) => {
+                StableTraitId::Builtin(builtin_trait_tag(builtin)?)
+            }
         })
     }
 
@@ -2418,8 +2401,9 @@ fn builtin_type_tag(value: nia_ids::BuiltinType) -> u8 {
     }
 }
 
-fn builtin_trait_tag(value: nia_ids::BuiltinTrait) -> u8 {
-    u8::try_from(value.stable_tag()).expect("builtin trait stable tag fits in u8")
+fn builtin_trait_tag(value: nia_ids::BuiltinTrait) -> nia_ice::IceResult<u8> {
+    u8::try_from(value.stable_tag())
+        .map_err(|_| nia_ice::Ice::new("builtin trait stable tag exceeds metadata width"))
 }
 
 fn stable_builtin_type(tag: u8) -> Option<nia_ids::BuiltinType> {
@@ -2436,9 +2420,7 @@ fn stable_builtin_trait(tag: u8) -> Option<nia_ids::BuiltinTrait> {
 }
 
 fn append_len(bytes: &mut Vec<u8>, len: usize) {
-    bytes.extend_from_slice(
-        &(u64::try_from(len).expect("type graph length exceeds u64")).to_le_bytes(),
-    );
+    bytes.extend_from_slice(&(len as u64).to_le_bytes());
 }
 
 fn append_bytes(bytes: &mut Vec<u8>, value: &[u8]) {
@@ -2780,7 +2762,7 @@ fn check_certificate_input_fingerprint(
     program_sources: crate::FrontendProgramSourceFingerprint,
     graph: &nia_imports::ModuleGraphSnapshot,
     provider_facts: &crate::ProviderFactSnapshot,
-) -> FrontendCheckInputFingerprint {
+) -> nia_ice::IceResult<FrontendCheckInputFingerprint> {
     let mut builder = QueryFingerprintBuilder::new(CHECK_CERTIFICATE_INPUT_DOMAIN);
     builder.write_fingerprint(QueryFingerprint::from_parts(program_sources.parts()));
     let mut modules = graph.modules().collect::<Vec<_>>();
@@ -2800,13 +2782,12 @@ fn check_certificate_input_fingerprint(
         }
         if let Some(parent) = module.parent {
             builder.write_u8(1);
-            builder.write_str(
-                graph
-                    .stable_key(parent)
-                    .expect("module graph parent must have stable identity")
-                    .source_identity()
-                    .normalized_path(),
-            );
+            let parent = graph.stable_key(parent).ok_or_else(|| {
+                nia_ice::Ice::new(format!(
+                    "module graph parent {parent:?} has no stable identity"
+                ))
+            })?;
+            builder.write_str(parent.source_identity().normalized_path());
         } else {
             builder.write_u8(0);
         }
@@ -2815,18 +2796,19 @@ fn check_certificate_input_fingerprint(
             .declarations
             .iter()
             .map(|declaration| {
-                (
+                let target = graph.stable_key(declaration.target).ok_or_else(|| {
+                    nia_ice::Ice::new(format!(
+                        "module declaration target {:?} has no stable identity",
+                        declaration.target
+                    ))
+                })?;
+                Ok((
                     declaration.name.raw(),
                     visibility_tag(declaration.visibility),
-                    graph
-                        .stable_key(declaration.target)
-                        .expect("module declaration target must have stable identity")
-                        .source_identity()
-                        .normalized_path()
-                        .to_owned(),
-                )
+                    target.source_identity().normalized_path().to_owned(),
+                ))
             })
-            .collect::<Vec<_>>();
+            .collect::<nia_ice::IceResult<Vec<_>>>()?;
         declarations.sort_unstable();
         builder.write_u64(declarations.len() as u64);
         for (name, visibility, target) in declarations {
@@ -2845,7 +2827,9 @@ fn check_certificate_input_fingerprint(
     for demand in demands {
         builder.write_fingerprint(demand);
     }
-    FrontendCheckInputFingerprint::from_parts(builder.finish().parts())
+    Ok(FrontendCheckInputFingerprint::from_parts(
+        builder.finish().parts(),
+    ))
 }
 
 fn visibility_tag(visibility: nia_ids::Visibility) -> u8 {

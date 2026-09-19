@@ -251,12 +251,14 @@ fn check_certificate_input_covers_stable_graph_and_provider_demands() {
         program_sources,
         &public_graph.graph.clone().into(),
         &empty,
-    );
+    )
+    .expect("fingerprint public graph");
     let private = check_certificate_input_fingerprint(
         program_sources,
         &private_graph.graph.clone().into(),
         &empty,
-    );
+    )
+    .expect("fingerprint private graph");
     assert_ne!(public, private);
 
     let demanded = crate::ProviderFactSnapshot::new(
@@ -272,6 +274,7 @@ fn check_certificate_input_covers_stable_graph_and_provider_demands() {
     assert_ne!(
         public,
         check_certificate_input_fingerprint(program_sources, &public_graph.graph.into(), &demanded,)
+            .expect("fingerprint graph with demand")
     );
 }
 
