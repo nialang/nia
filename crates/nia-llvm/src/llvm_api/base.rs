@@ -24,9 +24,9 @@ use llvm_sys::core::{
     LLVMGetParam, LLVMGetParamTypes, LLVMGetPointerAddressSpace, LLVMGetReturnType,
     LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2, LLVMGetVectorSize, LLVMGlobalGetValueType,
     LLVMIsAInstruction, LLVMIsLiteralStruct, LLVMIsOpaqueStruct, LLVMIsPackedStruct,
-    LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering,
-    LLVMSetSection, LLVMSetVolatile, LLVMSetWeak, LLVMStructGetTypeAtIndex, LLVMStructSetBody,
-    LLVMTypeOf, LLVMVectorType,
+    LLVMMoveBasicBlockAfter, LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer,
+    LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMSetVolatile, LLVMSetWeak,
+    LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
 };
 use llvm_sys::debuginfo::LLVMSetSubprogram;
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
@@ -2082,6 +2082,51 @@ mod tests {
             LlvmError::Error("LLVM returned a null attribute".to_string())
         );
     }
+
+    #[test]
+    fn moves_basic_blocks_within_their_parent_function() {
+        let context = Context::create().unwrap();
+        let module = context.create_module("move-block").unwrap();
+        let function = module
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
+            .unwrap();
+        let first = context.append_basic_block(function, "first").unwrap();
+        let second = context.append_basic_block(function, "second").unwrap();
+        let third = context.append_basic_block(function, "third").unwrap();
+
+        third.move_after(first).unwrap();
+
+        assert_eq!(first.get_next_basic_block(), Some(third));
+        assert_eq!(third.get_next_basic_block(), Some(second));
+        assert_eq!(second.get_next_basic_block(), None);
+    }
+
+    #[test]
+    fn rejects_moving_basic_blocks_between_functions() {
+        let context = Context::create().unwrap();
+        let module = context.create_module("cross-function-block-move").unwrap();
+        let function_type = context.void_type().fn_type(&[], false).unwrap();
+        let first_function = module.add_function("first", function_type, None).unwrap();
+        let second_function = module.add_function("second", function_type, None).unwrap();
+        let first = context.append_basic_block(first_function, "first").unwrap();
+        let second = context
+            .append_basic_block(second_function, "second")
+            .unwrap();
+
+        let error = first
+            .move_after(second)
+            .expect_err("cross-function block move");
+
+        assert!(matches!(
+            error,
+            LlvmError::Ice(ice)
+                if ice.message.contains("another function")
+        ));
+    }
 }
 
 impl<'ctx> AsValueRef for BasicValueEnum<'ctx> {
@@ -2332,6 +2377,25 @@ impl<'ctx> BasicBlock<'ctx> {
         } else {
             Some(InstructionValue::new(value))
         }
+    }
+
+    /// Moves this block immediately after another block in the same function.
+    pub fn move_after(self, block: BasicBlock<'ctx>) -> LlvmResult<()> {
+        let Some(parent) = self.get_parent() else {
+            return Err(LlvmError::ice("basic block has no parent function"));
+        };
+        let Some(block_parent) = block.get_parent() else {
+            return Err(LlvmError::ice("move position has no parent function"));
+        };
+        if parent != block_parent {
+            return Err(LlvmError::ice(
+                "cannot move a basic block after a block in another function",
+            ));
+        }
+        if self != block {
+            unsafe { LLVMMoveBasicBlockAfter(self.raw, block.raw) };
+        }
+        Ok(())
     }
 
     /// Returns the first instruction in this block.

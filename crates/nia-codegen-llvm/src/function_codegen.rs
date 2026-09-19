@@ -20,7 +20,7 @@ use nia_ast::BinaryOp;
 use nia_backend_ir::{BackendClosureEntryOwner, BackendFunction, BackendParam};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
-    FunctionBitIntrinsicOp, FunctionBody, FunctionBuiltinValue, FunctionCallee,
+    FunctionBitIntrinsicOp, FunctionBody, FunctionBuiltinValue, FunctionCallee, FunctionDeferBody,
     FunctionErrorUnionTag, FunctionExpr, FunctionExprKind, FunctionLocal, FunctionLocalKind,
     FunctionRange, FunctionScopeId,
 };
@@ -49,13 +49,16 @@ pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     function_defer_scopes: HashMap<FunctionScopeId, usize>,
     active_function_scope: Option<FunctionScopeId>,
     function_return_storage: Option<PointerValue<'ctx>>,
-    function_return_cleanup_blocks: HashMap<Vec<(FunctionScopeId, usize)>, BasicBlock<'ctx>>,
+    function_return_cleanup_blocks:
+        HashMap<(FunctionScopeId, usize, BasicBlock<'ctx>), BasicBlock<'ctx>>,
+    function_return_cleanup_return: Option<BasicBlock<'ctx>>,
     pending_function_return_cleanups: Vec<FunctionReturnCleanup<'ctx>>,
 }
 
 struct FunctionReturnCleanup<'ctx> {
     entry: BasicBlock<'ctx>,
-    scopes: Vec<DeferScope>,
+    body: Option<FunctionDeferBody>,
+    next: Option<BasicBlock<'ctx>>,
     span: Span,
 }
 
@@ -110,6 +113,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             active_function_scope: None,
             function_return_storage: None,
             function_return_cleanup_blocks: HashMap::new(),
+            function_return_cleanup_return: None,
             pending_function_return_cleanups: Vec::new(),
         })
     }

@@ -796,6 +796,64 @@ fn run(fail: bool) Error!i32 {
 }
 
 #[test]
+fn shares_incremental_function_return_defer_cleanup_suffixes() {
+    let root = temp_dir("shares_incremental_function_return_defer_cleanup_suffixes");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+enum Error: i32 {
+    Failed = 1,
+    _
+}
+
+extern fn cleanup();
+
+fn step(fail: bool) Error!() {
+    if fail { Error::Failed! } else { !() }
+}
+
+fn run(fail: bool) Error!i32 {
+    defer cleanup();
+    step(fail).?;
+    defer cleanup();
+    step(fail).?;
+    defer cleanup();
+    step(fail).?;
+    defer cleanup();
+    step(fail).?;
+    defer cleanup();
+    step(fail).?;
+    defer cleanup();
+    step(fail).?;
+    defer cleanup();
+    step(fail).?;
+    defer cleanup();
+    step(fail).?;
+    !0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    let defer_entries = ir
+        .lines()
+        .filter(|line| {
+            line.split_whitespace()
+                .next()
+                .is_some_and(|label| label.starts_with("defer.entry") && label.ends_with(':'))
+        })
+        .count();
+    assert_eq!(defer_entries, 8, "{ir}");
+}
+
+#[test]
 fn instantiates_generic_calls_from_defer_tail_expr() {
     let root = temp_dir("instantiates_generic_calls_from_defer_tail_expr");
     let main = root.join("main.nia");
