@@ -2850,6 +2850,17 @@ mod tests {
         ArrayLenTy, ConstGenericArg, ConstGenericValue, LayoutBuiltin, PrimitiveTy, TypeStore,
     };
 
+    trait TestTypeStoreAppend {
+        fn test_primitive(&self, primitive: PrimitiveTy) -> nia_ids::InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_primitive(&self, primitive: PrimitiveTy) -> nia_ids::InternedTyId {
+            self.primitive(primitive)
+                .expect("intern primitive instantiate test type")
+        }
+    }
+
     #[test]
     fn missing_type_diagnostic_identifies_invalid_backend_ir() {
         let modules = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
@@ -2857,7 +2868,7 @@ mod tests {
         let type_store = TypeStore::new().expect("create type store");
         let valid = type_store
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::I32);
+            .test_primitive(PrimitiveTy::I32);
         let missing = InternedTyId::new(
             valid.store_id,
             nia_ids::TypeStoreIndex::from_store_index(valid.index.index() + 1),
@@ -2883,8 +2894,8 @@ mod tests {
                 .allocate()
                 .expect("allocate module ID"),
         );
-        let left_ty = append.primitive(PrimitiveTy::I32);
-        let right_ty = append.primitive(PrimitiveTy::I64);
+        let left_ty = append.test_primitive(PrimitiveTy::I32);
+        let right_ty = append.test_primitive(PrimitiveTy::I64);
         let left = ArrayLenTy::Builtin {
             builtin: LayoutBuiltin::Size,
             ty: left_ty,
@@ -2963,9 +2974,9 @@ mod tests {
         let module_id = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
-        let left_ty = append.primitive(PrimitiveTy::I32);
-        let right_ty = append.primitive(PrimitiveTy::I64);
-        let const_ty = append.primitive(PrimitiveTy::Usize);
+        let left_ty = append.test_primitive(PrimitiveTy::I32);
+        let right_ty = append.test_primitive(PrimitiveTy::I64);
+        let const_ty = append.test_primitive(PrimitiveTy::Usize);
         let trait_id = nia_ids::TraitId::Source(nia_ids::GlobalDefId {
             module_id,
             def_id: nia_ids::DefId(1),
@@ -3057,8 +3068,8 @@ mod tests {
                 .allocate()
                 .expect("allocate module ID"),
         );
-        let ty_one = append.primitive(PrimitiveTy::I32);
-        let ty_two = append.primitive(PrimitiveTy::I64);
+        let ty_one = append.test_primitive(PrimitiveTy::I32);
+        let ty_two = append.test_primitive(PrimitiveTy::I64);
         let binding = |ty| nia_ty::AssociatedTypeBindingTy {
             trait_id: None,
             trait_args: Vec::new(),

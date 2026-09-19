@@ -226,7 +226,7 @@ fn main() i32 {
             let values = global_def_id_by_name(defs, "values");
             let kept = global_def_id_by_name(defs, "kept");
             let kept_id = global_def_id_by_name(defs, "kept_id");
-            let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
+            let i32_ty = interner.test_primitive(nia_ty::PrimitiveTy::I32);
             Arc::make_mut(&mut body_check.ir).global_inits.insert(
                 values,
                 Arc::new(StaticInit::Array(vec![

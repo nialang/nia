@@ -51,14 +51,16 @@ fn main() i32 {
         &module,
         &type_resolved,
         TypeLoweringContext::empty(&type_store).with_symbols(&symbols),
-    );
+    )
+    .expect("lower backend-lower test types");
     let signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
         defs: &defs,
         lowered: &type_lowering,
         type_store: &type_store,
         symbols: None,
-    });
+    })
+    .expect("collect backend-lower test signatures");
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     let active_item_tree = active_item_tree(&module);
@@ -75,7 +77,8 @@ fn main() i32 {
         type_store: &type_store,
         input_ids: &normalization_input,
         signatures: &signatures,
-    });
+    })
+    .expect("normalize backend-lower test types");
     let target = nia_target_config::TargetConfig::host();
     let source_path = nia_source::SourcePath::new("/tmp/nia-backend-lower-test/lowering.nia");
     let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
@@ -112,7 +115,8 @@ fn main() i32 {
         source_text: source,
         program: nia_const_check::ConstProgramContext::empty(),
     };
-    let const_eval = nia_const_check::check_module_const(const_input);
+    let const_eval = nia_const_check::check_module_const(const_input)
+        .expect("check backend-lower test const module");
     let root_types = signatures.type_roots();
     let layouts =
         nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
@@ -124,7 +128,8 @@ fn main() i32 {
             array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
             target: nia_layout::TargetDataLayout::LP64,
             program: nia_layout::ProgramLayoutContext::default(),
-        });
+        })
+        .expect("compute backend-lower test layouts");
     let _abi = check_module_abi(&defs, &type_store, &signatures);
     let _flow = check_module_flow(&module, &type_store, &signatures);
     let point_id = defs
@@ -564,7 +569,7 @@ fn main() i32 {
         .function_body
         .as_ref()
         .expect("id instance function body");
-    let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(nia_ty::PrimitiveTy::I32);
 
     assert_eq!(instance.params[0].passing_ty, i32_ty);
     assert_eq!(instance.params[0].local_ty, i32_ty);
@@ -587,8 +592,8 @@ fn main() usize {
     let lowering = lower_source(source);
     let module = &lowering.program.modules[0];
     let interner = lowering.append(module.id);
-    let u8_ty = interner.primitive(nia_ty::PrimitiveTy::U8);
-    let usize_ty = interner.primitive(nia_ty::PrimitiveTy::Usize);
+    let u8_ty = interner.test_primitive(nia_ty::PrimitiveTy::U8);
+    let usize_ty = interner.test_primitive(nia_ty::PrimitiveTy::Usize);
     let mut instances = module
         .function_instances
         .iter()
@@ -644,8 +649,8 @@ fn main() i64 {
         .iter()
         .find(|instance| instance.name == sym("choose"))
         .expect("choose instance");
-    let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
-    let i64_ty = interner.primitive(nia_ty::PrimitiveTy::I64);
+    let i32_ty = interner.test_primitive(nia_ty::PrimitiveTy::I32);
+    let i64_ty = interner.test_primitive(nia_ty::PrimitiveTy::I64);
 
     assert_eq!(instance.args, vec![i32_ty, i64_ty]);
     assert_eq!(instance.const_args.len(), 1);
@@ -725,8 +730,8 @@ fn main() usize {
     let lowering = lower_source(source);
     let module = &lowering.program.modules[0];
     let interner = lowering.append(module.id);
-    let u8_ty = interner.primitive(nia_ty::PrimitiveTy::U8);
-    let usize_ty = interner.primitive(nia_ty::PrimitiveTy::Usize);
+    let u8_ty = interner.test_primitive(nia_ty::PrimitiveTy::U8);
+    let usize_ty = interner.test_primitive(nia_ty::PrimitiveTy::Usize);
     let mut instances = module
         .struct_instances
         .iter()
@@ -819,8 +824,8 @@ fn main() i32 {
     let lowering = lower_source(source);
     let module = &lowering.program.modules[0];
     let interner = lowering.append(module.id);
-    let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
-    let u64_ty = interner.primitive(nia_ty::PrimitiveTy::U64);
+    let i32_ty = interner.test_primitive(nia_ty::PrimitiveTy::I32);
+    let u64_ty = interner.test_primitive(nia_ty::PrimitiveTy::U64);
 
     assert!(
         module
@@ -863,8 +868,8 @@ fn main() i32 {
     let lowering = lower_source(source);
     let module = &lowering.program.modules[0];
     let interner = lowering.append(module.id);
-    let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
-    let i64_ty = interner.primitive(nia_ty::PrimitiveTy::I64);
+    let i32_ty = interner.test_primitive(nia_ty::PrimitiveTy::I32);
+    let i64_ty = interner.test_primitive(nia_ty::PrimitiveTy::I64);
     let item = module
         .global_instances
         .iter()
@@ -929,7 +934,7 @@ fn main() i32 {
     let lowering = lower_source(source);
     let module = &lowering.program.modules[0];
     let interner = lowering.append(module.id);
-    let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(nia_ty::PrimitiveTy::I32);
     let instance = module
         .function_instances
         .iter()

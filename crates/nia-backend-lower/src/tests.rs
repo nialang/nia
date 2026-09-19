@@ -33,6 +33,22 @@ use nia_value_resolve::resolve_module_values;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+trait TestTypeStoreAppend {
+    fn test_intern(&self, kind: nia_ty::TyKind) -> nia_ids::InternedTyId;
+    fn test_primitive(&self, primitive: nia_ty::PrimitiveTy) -> nia_ids::InternedTyId;
+}
+
+impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+    fn test_intern(&self, kind: nia_ty::TyKind) -> nia_ids::InternedTyId {
+        self.intern(kind).expect("intern backend-lower test type")
+    }
+
+    fn test_primitive(&self, primitive: nia_ty::PrimitiveTy) -> nia_ids::InternedTyId {
+        self.primitive(primitive)
+            .expect("intern primitive backend-lower test type")
+    }
+}
+
 mod test_fixture;
 use test_fixture::*;
 mod test_assertions;
@@ -53,7 +69,7 @@ fn vtable_owner_payloads_match_semantic_integer_consts() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let ty = type_store
         .append_for_module(module_id)
-        .primitive(nia_ty::PrimitiveTy::I32);
+        .test_primitive(nia_ty::PrimitiveTy::I32);
     let trait_id = nia_ids::TraitId::Source(GlobalDefId {
         module_id,
         def_id: DefId(1),
@@ -109,9 +125,9 @@ fn vtable_owner_payloads_match_structural_array_layout_operands() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let u8_ty = append.primitive(nia_ty::PrimitiveTy::U8);
-    let i32_ty = append.primitive(nia_ty::PrimitiveTy::I32);
-    let usize_ty = append.primitive(nia_ty::PrimitiveTy::Usize);
+    let u8_ty = append.test_primitive(nia_ty::PrimitiveTy::U8);
+    let i32_ty = append.test_primitive(nia_ty::PrimitiveTy::I32);
+    let usize_ty = append.test_primitive(nia_ty::PrimitiveTy::Usize);
     let nominal_def = GlobalDefId {
         module_id,
         def_id: DefId(2),
@@ -124,24 +140,24 @@ fn vtable_owner_payloads_match_structural_array_layout_operands() {
         ty: usize_ty,
         value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(7)),
     };
-    let left_operand = append.intern(nia_ty::TyKind::Nominal {
+    let left_operand = append.test_intern(nia_ty::TyKind::Nominal {
         def_id: nominal_def,
         args: vec![i32_ty],
         const_args: vec![signed_arg],
     });
-    let right_operand = append.intern(nia_ty::TyKind::Nominal {
+    let right_operand = append.test_intern(nia_ty::TyKind::Nominal {
         def_id: nominal_def,
         args: vec![i32_ty],
         const_args: vec![unsigned_arg],
     });
-    let left_array = append.intern(nia_ty::TyKind::Array {
+    let left_array = append.test_intern(nia_ty::TyKind::Array {
         len: nia_ty::ArrayLenTy::Builtin {
             builtin: nia_ty::LayoutBuiltin::Size,
             ty: left_operand,
         },
         elem: u8_ty,
     });
-    let right_array = append.intern(nia_ty::TyKind::Array {
+    let right_array = append.test_intern(nia_ty::TyKind::Array {
         len: nia_ty::ArrayLenTy::Builtin {
             builtin: nia_ty::LayoutBuiltin::Size,
             ty: right_operand,
@@ -188,8 +204,8 @@ fn vtable_owner_matches_evaluated_const_expression_array_lengths() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let left_append = type_store.append_for_module(left_module);
     let right_append = type_store.append_for_module(right_module);
-    let left_u8 = left_append.primitive(nia_ty::PrimitiveTy::U8);
-    let right_u8 = right_append.primitive(nia_ty::PrimitiveTy::U8);
+    let left_u8 = left_append.test_primitive(nia_ty::PrimitiveTy::U8);
+    let right_u8 = right_append.test_primitive(nia_ty::PrimitiveTy::U8);
     let left_expr = nia_ids::GlobalConstExprId {
         module_id: left_module,
         const_expr_id: nia_ids::ConstExprId(1),
@@ -198,11 +214,11 @@ fn vtable_owner_matches_evaluated_const_expression_array_lengths() {
         module_id: right_module,
         const_expr_id: nia_ids::ConstExprId(2),
     };
-    let left_array = left_append.intern(nia_ty::TyKind::Array {
+    let left_array = left_append.test_intern(nia_ty::TyKind::Array {
         len: nia_ty::ArrayLenTy::ConstExpr(left_expr),
         elem: left_u8,
     });
-    let right_array = right_append.intern(nia_ty::TyKind::Array {
+    let right_array = right_append.test_intern(nia_ty::TyKind::Array {
         len: nia_ty::ArrayLenTy::ConstExpr(right_expr),
         elem: right_u8,
     });
@@ -225,9 +241,9 @@ fn vtable_owner_matches_evaluated_const_expression_array_lengths() {
         module_id: left_module,
         def_id: DefId(90),
     };
-    let left_usize = left_append.primitive(nia_ty::PrimitiveTy::Usize);
-    let right_usize = right_append.primitive(nia_ty::PrimitiveTy::Usize);
-    let left_nominal = left_append.intern(nia_ty::TyKind::Nominal {
+    let left_usize = left_append.test_primitive(nia_ty::PrimitiveTy::Usize);
+    let right_usize = right_append.test_primitive(nia_ty::PrimitiveTy::Usize);
+    let left_nominal = left_append.test_intern(nia_ty::TyKind::Nominal {
         def_id: nominal_def,
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
@@ -235,7 +251,7 @@ fn vtable_owner_matches_evaluated_const_expression_array_lengths() {
             value: nia_ty::ConstGenericValue::ConstExpr(left_expr),
         }],
     });
-    let right_nominal = right_append.intern(nia_ty::TyKind::Nominal {
+    let right_nominal = right_append.test_intern(nia_ty::TyKind::Nominal {
         def_id: nominal_def,
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
@@ -253,7 +269,7 @@ fn vtable_owner_matches_evaluated_const_expression_array_lengths() {
         module_id: right_module,
         const_expr_id: nia_ids::ConstExprId(3),
     };
-    let unresolved_nominal = right_append.intern(nia_ty::TyKind::Nominal {
+    let unresolved_nominal = right_append.test_intern(nia_ty::TyKind::Nominal {
         def_id: nominal_def,
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
@@ -277,15 +293,15 @@ fn vtable_owner_deduplicates_semantically_equal_rebuilt_keys() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let left_append = type_store.append_for_module(left_module);
     let right_append = type_store.append_for_module(right_module);
-    let left_i32 = left_append.primitive(nia_ty::PrimitiveTy::I32);
-    let right_i32 = right_append.primitive(nia_ty::PrimitiveTy::I32);
-    let left_usize = left_append.primitive(nia_ty::PrimitiveTy::Usize);
-    let right_usize = right_append.primitive(nia_ty::PrimitiveTy::Usize);
+    let left_i32 = left_append.test_primitive(nia_ty::PrimitiveTy::I32);
+    let right_i32 = right_append.test_primitive(nia_ty::PrimitiveTy::I32);
+    let left_usize = left_append.test_primitive(nia_ty::PrimitiveTy::Usize);
+    let right_usize = right_append.test_primitive(nia_ty::PrimitiveTy::Usize);
     let nominal_def = GlobalDefId {
         module_id: left_module,
         def_id: DefId(91),
     };
-    let left_object = left_append.intern(nia_ty::TyKind::Nominal {
+    let left_object = left_append.test_intern(nia_ty::TyKind::Nominal {
         def_id: nominal_def,
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
@@ -293,7 +309,7 @@ fn vtable_owner_deduplicates_semantically_equal_rebuilt_keys() {
             value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(7)),
         }],
     });
-    let right_object = right_append.intern(nia_ty::TyKind::Nominal {
+    let right_object = right_append.test_intern(nia_ty::TyKind::Nominal {
         def_id: nominal_def,
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
@@ -374,15 +390,15 @@ fn aggregate_owner_deduplicates_semantically_equal_instance_keys() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let left_append = type_store.append_for_module(left_module);
     let right_append = type_store.append_for_module(right_module);
-    let left_i32 = left_append.primitive(nia_ty::PrimitiveTy::I32);
-    let right_i32 = right_append.primitive(nia_ty::PrimitiveTy::I32);
-    let left_usize = left_append.primitive(nia_ty::PrimitiveTy::Usize);
-    let right_usize = right_append.primitive(nia_ty::PrimitiveTy::Usize);
+    let left_i32 = left_append.test_primitive(nia_ty::PrimitiveTy::I32);
+    let right_i32 = right_append.test_primitive(nia_ty::PrimitiveTy::I32);
+    let left_usize = left_append.test_primitive(nia_ty::PrimitiveTy::Usize);
+    let right_usize = right_append.test_primitive(nia_ty::PrimitiveTy::Usize);
     let def_id = GlobalDefId {
         module_id: left_module,
         def_id: DefId(92),
     };
-    let left_arg = left_append.intern(nia_ty::TyKind::Nominal {
+    let left_arg = left_append.test_intern(nia_ty::TyKind::Nominal {
         def_id,
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
@@ -390,7 +406,7 @@ fn aggregate_owner_deduplicates_semantically_equal_instance_keys() {
             value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(5)),
         }],
     });
-    let right_arg = right_append.intern(nia_ty::TyKind::Nominal {
+    let right_arg = right_append.test_intern(nia_ty::TyKind::Nominal {
         def_id,
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {

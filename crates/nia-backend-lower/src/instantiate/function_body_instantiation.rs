@@ -1569,6 +1569,16 @@ fn extension_trait_candidate_arities_match(
 mod tests {
     use super::*;
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId {
+            self.intern(kind).expect("intern function-body test type")
+        }
+    }
+
     fn candidate_with_arities(
         type_arg_count: usize,
         const_arg_count: usize,
@@ -1577,7 +1587,7 @@ mod tests {
         let module_id = module_ids.allocate().expect("allocate module ID");
         let type_store = nia_ty::TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
-        let ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize));
+        let ty = append.test_intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize));
         crate::ExtensionTraitMethodCandidate {
             module_id,
             target_ty: ty,

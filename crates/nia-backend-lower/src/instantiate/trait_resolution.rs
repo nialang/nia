@@ -911,13 +911,24 @@ mod tests {
     use nia_item_signatures::{GenericParamSignature, GenericParamSignatureKind};
     use nia_ty::PrimitiveTy;
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId {
+            self.intern(kind)
+                .expect("intern trait-resolution test type")
+        }
+    }
+
     #[test]
     fn trait_owner_arguments_preserve_interleaved_generic_kinds() {
         let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
         let type_store = nia_ty::TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
-        let usize_ty = append.intern(TyKind::Primitive(PrimitiveTy::Usize));
+        let usize_ty = append.test_intern(TyKind::Primitive(PrimitiveTy::Usize));
         let first_type = nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash("T"));
         let const_name = nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash("N"));
         let second_type = nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash("U"));
