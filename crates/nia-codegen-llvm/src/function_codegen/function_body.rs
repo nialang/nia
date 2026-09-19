@@ -633,6 +633,26 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             error_conversion,
             outer_blocks,
         } = failure;
+        if let Some(out_ptr) = self.out_ptr
+            && !self.return_path_has_registered_defers(body, block, span)?
+        {
+            let return_llvm_ty = self
+                .module
+                .llvm_basic_type(self.function.return_type, span)?;
+            self.emit_try_failure_return_into(
+                span,
+                aggregate,
+                aggregate_ty,
+                kind,
+                error_conversion,
+                return_llvm_ty,
+                out_ptr,
+            )?;
+            self.builder
+                .build_return(None)
+                .map_err(|_| self.error(span, "failed to build propagation return"))?;
+            return Ok(());
+        }
         let (return_llvm_ty, return_ptr) = self.emit_try_failure_return_storage(
             span,
             aggregate,
@@ -708,19 +728,45 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .builder
             .build_alloca(return_llvm_ty, "try.return")
             .map_err(|_| self.error(span, "failed to allocate propagation return"))?;
+        self.emit_try_failure_return_into(
+            span,
+            aggregate,
+            aggregate_ty,
+            kind,
+            error_conversion,
+            return_llvm_ty,
+            return_ptr,
+        )?;
+        Ok((return_llvm_ty, return_ptr))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn emit_try_failure_return_into(
+        &mut self,
+        span: Span,
+        aggregate: nia_llvm::values::StructValue<'ctx>,
+        aggregate_ty: nia_ids::InternedTyId,
+        kind: FunctionTryKind,
+        error_conversion: Option<&FunctionExpr>,
+        return_llvm_ty: nia_llvm::types::BasicTypeEnum<'ctx>,
+        return_ptr: nia_llvm::values::PointerValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
+        let return_ty = self.function.return_type;
         match kind {
             FunctionTryKind::Optional => {
-                let expr = FunctionExpr {
-                    span,
-                    ty: return_ty,
-                    kind: FunctionExprKind::Null,
-                };
-                self.emit_tagged_union_into(
-                    &expr,
-                    FunctionOptionalTag::Null.discriminant(),
-                    None,
-                    return_ptr,
-                )?;
+                let tag_ptr = unsafe {
+                    self.builder
+                        .build_struct_gep(return_llvm_ty, return_ptr, 0, "try.failure.tag")
+                }
+                .map_err(|_| self.error(span, "failed to build propagation return tag"))?;
+                let tag = self
+                    .module
+                    .context
+                    .i8_type()
+                    .const_int(FunctionOptionalTag::Null.discriminant().into(), false)?;
+                self.builder
+                    .build_store(tag_ptr, tag)
+                    .map_err(|_| self.error(span, "failed to store propagation return tag"))?;
             }
             FunctionTryKind::ErrorUnion => {
                 let converted_payload = if let Some(conversion) = error_conversion {
@@ -735,7 +781,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 };
                 let tag_ptr = unsafe {
                     self.builder
-                        .build_struct_gep(return_llvm_ty, return_ptr, 0, "try.return.tag")
+                        .build_struct_gep(return_llvm_ty, return_ptr, 0, "try.failure.tag")
                 }
                 .map_err(|_| self.error(span, "failed to build propagation return tag"))?;
                 let tag = self
@@ -754,7 +800,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                             return_llvm_ty,
                             return_ptr,
                             1,
-                            "try.return.payload",
+                            "try.failure.payload",
                         )
                     }
                     .map_err(|_| self.error(span, "failed to build propagation return payload"))?;
@@ -775,7 +821,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }
             }
         }
-        Ok((return_llvm_ty, return_ptr))
+        Ok(())
     }
 
     fn emit_function_loop_header(

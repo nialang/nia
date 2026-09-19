@@ -738,6 +738,132 @@ fn main(fail: bool) Error!i32 {
 }
 
 #[test]
+fn writes_indirect_try_failure_directly_into_output_storage_without_defers() {
+    let root = temp_dir("writes_indirect_try_failure_directly_into_output_storage_without_defers");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+enum Error: i32 {
+    Bad = 1,
+    _
+}
+
+fn step(fail: bool) Error![u8; 64] {
+    if fail { Error::Bad! } else { ![0; 64] }
+}
+
+fn run(fail: bool) Error![u8; 64] {
+    _ = step(fail).?;
+    ![1; 64]
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert!(ir.contains("try.failure"), "{ir}");
+    assert!(!ir.contains("%try.return = alloca"), "{ir}");
+    assert!(!ir.contains("%try.return.value = load"), "{ir}");
+    assert!(ir.contains("%try.failure.tag = getelementptr"), "{ir}");
+    assert!(ir.contains("store i8 1, ptr %try.failure.tag"), "{ir}");
+}
+
+#[test]
+fn writes_indirect_optional_failure_directly_into_output_storage_without_defers() {
+    let root =
+        temp_dir("writes_indirect_optional_failure_directly_into_output_storage_without_defers");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn step(fail: bool) ?[u8; 64] {
+    if fail { null } else { ?[0; 64] }
+}
+
+fn run(fail: bool) ?[u8; 64] {
+    _ = step(fail).?;
+    ?[1; 64]
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert!(ir.contains("try.failure"), "{ir}");
+    assert!(!ir.contains("%try.return = alloca"), "{ir}");
+    assert!(!ir.contains("%try.return.value = load"), "{ir}");
+    assert!(ir.contains("store i8 0, ptr %try.failure.tag"), "{ir}");
+}
+
+#[test]
+fn converts_error_before_writing_indirect_try_failure_into_output_storage() {
+    let root = temp_dir("converts_error_before_writing_indirect_try_failure_into_output_storage");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+using std::builtin;
+
+enum SourceError: i32 {
+    Failed = 1,
+    _
+}
+
+enum TargetError: i32 {
+    Converted = 2,
+    _
+}
+
+extend SourceError : builtin::IntoError[TargetError] {
+    fn intoError(self) TargetError {
+        _ = self;
+        TargetError::Converted
+    }
+}
+
+fn step(fail: bool) SourceError![u8; 64] {
+    if fail { SourceError::Failed! } else { ![0; 64] }
+}
+
+fn run(fail: bool) TargetError![u8; 64] {
+    _ = step(fail).?;
+    ![1; 64]
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    let into_error = mangled_symbol(ir, '@', "intoError");
+    assert_substrings_in_order(
+        ir,
+        &[
+            &format!("call i32 {into_error}"),
+            "store i8 1, ptr %try.failure.tag",
+            "store i32 %calltmp, ptr %try.failure.payload",
+            "ret void",
+        ],
+    );
+    assert!(!ir.contains("%try.return = alloca"), "{ir}");
+}
+
+#[test]
 fn shares_function_return_defer_cleanup_across_propagation_sites() {
     let root = temp_dir("shares_function_return_defer_cleanup_across_propagation_sites");
     let main = root.join("main.nia");
