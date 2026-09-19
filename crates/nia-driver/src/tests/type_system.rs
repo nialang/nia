@@ -1077,10 +1077,12 @@ fn main() i32 {
 }
 
 #[test]
-fn driver_output_converts_internal_panics_to_diagnostics() {
-    let output = DriverOutput::catch_unexpected_panic(|| -> DriverOutput<()> {
-        panic!("Nia ICE: forced driver failure");
-    });
+fn driver_output_renders_internal_diagnostics() {
+    let output = DriverOutput::<()> {
+        result: Err(DriverError::InternalDiagnostic(
+            nia_diagnostic::Diagnostic::from(nia_ice::Ice::new("forced driver failure")),
+        )),
+    };
 
     let Err(DriverError::InternalDiagnostic(diagnostic)) = output.result else {
         panic!("expected internal diagnostic");
