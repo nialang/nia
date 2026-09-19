@@ -23,14 +23,16 @@ y
         &module,
         &type_names,
         TypeLoweringContext::empty(&type_store),
-    );
+    )
+    .expect("lower module types");
     let signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
         defs: &defs,
         lowered: &lowered,
         type_store: &type_store,
         symbols: None,
-    });
+    })
+    .expect("collect item signatures");
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     let removed_key = locals.node_local_defs.iter().find_map(|(key, local_id)| {

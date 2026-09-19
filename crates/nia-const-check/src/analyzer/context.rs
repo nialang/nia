@@ -1619,9 +1619,15 @@ mod tests {
         let module_id = modules.allocate().expect("allocate module ID");
         let store = nia_ty::TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
-        let outer_ty = append.primitive(PrimitiveTy::I32);
-        let function_ty = append.primitive(PrimitiveTy::U32);
-        let scope_ty = append.primitive(PrimitiveTy::Bool);
+        let outer_ty = append
+            .primitive(PrimitiveTy::I32)
+            .expect("intern outer type");
+        let function_ty = append
+            .primitive(PrimitiveTy::U32)
+            .expect("intern function type");
+        let scope_ty = append
+            .primitive(PrimitiveTy::Bool)
+            .expect("intern scope type");
         let name = SymbolId::from_stable_hash(nia_symbol::stable_hash("T"));
 
         let mut outer = ConstCallFrame {
