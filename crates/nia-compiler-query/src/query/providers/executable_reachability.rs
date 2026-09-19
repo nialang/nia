@@ -7,13 +7,11 @@ pub(in crate::query) fn provide_executable_checked_module_facts(
     time_provider(
         db.context().timings(),
         "executable_checked_module_facts",
-        || {
-            Ok(
-                match executable_check(db, ExecutableCheckProduct::Modules)? {
-                    ExecutableCheckOutput::Modules(set) => set,
-                    ExecutableCheckOutput::ProviderDemands(_) => unreachable!(),
-                },
-            )
+        || match executable_check(db, ExecutableCheckProduct::Modules)? {
+            ExecutableCheckOutput::Modules(set) => Ok(set),
+            ExecutableCheckOutput::ProviderDemands(_) => Err(QueryError::internal(
+                "module executable check returned provider demands",
+            )),
         },
     )
 }
@@ -24,13 +22,11 @@ pub(in crate::query) fn provide_executable_provider_demands(
     time_provider(
         db.context().timings(),
         "executable_provider_demands",
-        || {
-            Ok(
-                match executable_check(db, ExecutableCheckProduct::ProviderDemands)? {
-                    ExecutableCheckOutput::ProviderDemands(demands) => demands,
-                    ExecutableCheckOutput::Modules(_) => unreachable!(),
-                },
-            )
+        || match executable_check(db, ExecutableCheckProduct::ProviderDemands)? {
+            ExecutableCheckOutput::ProviderDemands(demands) => Ok(demands),
+            ExecutableCheckOutput::Modules(_) => Err(QueryError::internal(
+                "provider-demand executable check returned modules",
+            )),
         },
     )
 }
@@ -264,24 +260,11 @@ fn executable_check(
     let non_function_signatures = matches!(product, ExecutableCheckProduct::Modules)
         .then(|| executable_program_non_function_signatures(db))
         .transpose()?;
-    let _scheduler = db
-        .context()
-        .executable_fact_scheduler
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let session = std::mem::take(
-        &mut *db
-            .context()
-            .executable_fact_session
-            .lock()
-            .expect("executable fact session lock poisoned"),
-    );
+    let _scheduler = db.context().executable_fact_scheduler.lock();
+    let session = std::mem::take(&mut *db.context().executable_fact_session.lock());
     let (output, session) =
         executable_check_in_session(db, product, session, non_function_signatures);
-    *db.context()
-        .executable_fact_session
-        .lock()
-        .expect("executable fact session lock poisoned") = session;
+    *db.context().executable_fact_session.lock() = session;
     output
 }
 
@@ -820,6 +803,16 @@ fn executable_check_in_session(
             || reachable_module_inputs_by_id(&checked_inputs),
         );
         for batch_item in batch_items {
+            let Some(module_input) = checked_inputs
+                .iter()
+                .copied()
+                .find(|input| input.module_id == batch_item.module_id)
+            else {
+                return_session_error!(QueryError::internal(format!(
+                    "checked module {:?} has no reachable input",
+                    batch_item.module_id
+                )))
+            };
             let incremental_result = time_module_provider(
                 db,
                 "executable_checked_modules.incremental_extend",
@@ -839,11 +832,7 @@ fn executable_check_in_session(
                                     trait_: &trait_signature,
                                     trait_default_method: &trait_default_method,
                                 },
-                            module: checked_inputs
-                                .iter()
-                                .copied()
-                                .find(|input| input.module_id == batch_item.module_id)
-                                .expect("just-checked module must have a reachable input"),
+                            module: module_input,
                             checked_functions: &batch_item.checked_functions,
                             modules_by_id: &checked_inputs_by_id,
                         },
@@ -947,12 +936,13 @@ fn executable_check_in_session(
     let non_function_signatures = time_provider(
         db.context().timings(),
         "executable_checked_modules.final.non_function_signatures",
-        || {
-            non_function_signatures
-                .as_mut()
-                .expect("module product preloads signatures")
-        },
+        || non_function_signatures.as_mut(),
     );
+    let Some(non_function_signatures) = non_function_signatures else {
+        return_session_error!(QueryError::internal(
+            "module executable check did not preload non-function signatures",
+        ));
+    };
     let executable_program_layouts = executable_program_layouts(
         db,
         (&codegen_layout_cache, &codegen_layout_failure),
@@ -970,11 +960,16 @@ fn executable_check_in_session(
         .filter(|module_id| !reachability.modules().contains(module_id))
     {
         let layouts = match executable_program_layouts(module_id) {
-            Some(_) => codegen_layout_cache
-                .borrow()
-                .get(&module_id)
-                .cloned()
-                .expect("executable layout cache must contain the requested module"),
+            Some(_) => {
+                let layouts = codegen_layout_cache.borrow().get(&module_id).cloned();
+                let Some(layouts) = layouts else {
+                    drop(executable_program_layouts);
+                    return_session_error!(QueryError::internal(format!(
+                        "executable layout callback did not cache module {module_id:?}",
+                    )))
+                };
+                layouts
+            }
             None => {
                 match signature_layouts_for_types(db, module_id, Some(&*non_function_signatures)) {
                     Ok(layouts) => match store_module_layouts(db.context(), layouts) {

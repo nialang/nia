@@ -9,18 +9,19 @@ use nia_imports::{ModuleGraphSnapshot, StableModuleKey};
 use nia_opt::OptimizationPolicy;
 use nia_source::{SourceIdentity, SourceVersion};
 use nia_target_config::TargetConfig;
+use parking_lot::{Mutex, RwLock};
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
 pub(super) struct CompilerContext {
     pub(super) inputs: Arc<RwLock<CompilerInputs>>,
-    pub(super) observed_graph: std::sync::Mutex<ModuleGraphSnapshot>,
+    pub(super) observed_graph: Mutex<ModuleGraphSnapshot>,
     pub(super) loader_facts: Arc<dyn crate::LoaderFactProvider>,
     pub(super) providers: CompilerQueryProviders,
-    pub(super) executable_fact_session: Arc<std::sync::Mutex<ExecutableFactSession>>,
-    pub(super) executable_fact_scheduler: std::sync::Mutex<()>,
+    pub(super) executable_fact_session: Arc<Mutex<ExecutableFactSession>>,
+    pub(super) executable_fact_scheduler: Mutex<()>,
     pub(super) type_store: Arc<nia_ty::TypeStore>,
     pub(super) diagnostic_store: nia_diagnostic::DiagnosticStore,
     pub(super) node_store: nia_node_id::NodeStore,
@@ -41,11 +42,7 @@ impl CompilerContext {
     }
 
     pub(super) fn current_package(&self) -> Option<nia_package_metadata::PackageId> {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .current_package
-            .clone()
+        self.inputs.read().current_package.clone()
     }
 }
 

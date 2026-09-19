@@ -284,7 +284,9 @@ impl<'a> QueryModuleGraphLookup<'a> {
         let entry_module = db
             .context()
             .module_id_for_stable_key(&stable_key)?
-            .expect("compiler entry stable key must resolve in current module graph");
+            .ok_or_else(|| {
+                QueryError::internal("compiler entry stable key is absent from the module graph")
+            })?;
         Ok(Self {
             db,
             entry_module,

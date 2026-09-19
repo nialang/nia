@@ -11,13 +11,11 @@ pub(super) fn query_db(loaded: LoadedProgram) -> QueryDb<CompilerContext> {
     QueryDb::new_registered(
         CompilerContext {
             inputs,
-            observed_graph: std::sync::Mutex::new(observed_graph),
+            observed_graph: Mutex::new(observed_graph),
             loader_facts,
             providers: CompilerQueryProviders::default(),
-            executable_fact_session: Arc::new(std::sync::Mutex::new(
-                ExecutableFactSession::default(),
-            )),
-            executable_fact_scheduler: std::sync::Mutex::new(()),
+            executable_fact_session: Arc::new(Mutex::new(ExecutableFactSession::default())),
+            executable_fact_scheduler: Mutex::new(()),
             type_store: Arc::new(nia_ty::TypeStore::new().expect("create type store")),
             diagnostic_store: nia_diagnostic::DiagnosticStore::new()
                 .expect("create diagnostic store"),
@@ -143,13 +141,11 @@ pub(super) fn query_db_with_frontend_cache(
     QueryDb::new_registered(
         CompilerContext {
             inputs,
-            observed_graph: std::sync::Mutex::new(observed_graph),
+            observed_graph: Mutex::new(observed_graph),
             loader_facts,
             providers: CompilerQueryProviders::default(),
-            executable_fact_session: Arc::new(std::sync::Mutex::new(
-                ExecutableFactSession::default(),
-            )),
-            executable_fact_scheduler: std::sync::Mutex::new(()),
+            executable_fact_session: Arc::new(Mutex::new(ExecutableFactSession::default())),
+            executable_fact_scheduler: Mutex::new(()),
             type_store: Arc::new(nia_ty::TypeStore::new().expect("create type store")),
             diagnostic_store: nia_diagnostic::DiagnosticStore::new()
                 .expect("create diagnostic store"),

@@ -405,15 +405,14 @@ fn const_inputs_for_body_check(
         )
     };
     let module = if let Some(cache) = const_module_cache {
-        if !cache.borrow().contains_key(&module_id) {
+        let cached = cache.borrow().get(&module_id).cloned();
+        if let Some(module) = cached {
+            module
+        } else {
             let module = lower_module();
-            cache.borrow_mut().insert(module_id, module);
+            cache.borrow_mut().insert(module_id, module.clone());
+            module
         }
-        cache
-            .borrow()
-            .get(&module_id)
-            .expect("cached const module lowering must exist")
-            .clone()
     } else {
         lower_module()
     };
@@ -851,7 +850,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 )
             }
             _ => {
-                filtered_const_inputs = Some(time_module_provider(
+                let filtered = filtered_const_inputs.insert(time_module_provider(
                     db,
                     "executable_body_check.const_inputs",
                     module_id,
@@ -873,9 +872,6 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                         )
                     },
                 )?);
-                let filtered = filtered_const_inputs
-                    .as_ref()
-                    .expect("filtered const inputs must be initialized");
                 (
                     nia_body_check::BodyConst::from_phases(
                         &filtered.values,
@@ -1559,17 +1555,16 @@ pub(super) fn executable_layouts_for_reachable_items(
             }
         };
         let local_array_lengths = if let Some(array_length_cache) = array_length_cache {
-            if !array_length_cache.borrow().contains_key(&module_id) {
+            let cached = array_length_cache.borrow().get(&module_id).cloned();
+            if let Some(array_lengths) = cached {
+                array_lengths
+            } else {
                 let array_lengths = load_filtered_array_lengths(module_id)?;
                 array_length_cache
                     .borrow_mut()
-                    .insert(module_id, array_lengths);
+                    .insert(module_id, array_lengths.clone());
+                array_lengths
             }
-            array_length_cache
-                .borrow()
-                .get(&module_id)
-                .cloned()
-                .expect("local executable array lengths must be cached")
         } else {
             load_filtered_array_lengths(module_id)?
         };
@@ -1767,7 +1762,7 @@ fn checked_module_with_body_and_flow_check(
             None => Arc::clone(
                 &query_layouts
                     .as_ref()
-                    .expect("layouts query must run")
+                    .ok_or_else(|| QueryError::internal("layouts query did not run"))?
                     .semantic,
             ),
         },

@@ -45,12 +45,7 @@ fn additive_provider_graph_growth_reuses_existing_executable_facts() {
 
     let _ = database.executable_provider_demands();
     {
-        let session = database
-            .db
-            .context()
-            .executable_fact_session
-            .lock()
-            .expect("executable fact session lock poisoned");
+        let session = database.db.context().executable_fact_session.lock();
         assert!(session.modules.contains_key(&entry_id));
         assert!(
             session
@@ -68,12 +63,7 @@ fn additive_provider_graph_growth_reuses_existing_executable_facts() {
         "pub fn value() i32 { 1 }",
     );
     database.update(CompileRequest::new(fixture.program()));
-    let session = database
-        .db
-        .context()
-        .executable_fact_session
-        .lock()
-        .expect("executable fact session lock poisoned");
+    let session = database.db.context().executable_fact_session.lock();
     assert!(session.modules.contains_key(&entry_id));
     assert!(
         session
@@ -91,12 +81,7 @@ fn additive_module_growth_discards_diagnostic_executable_facts() {
     let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
     let _ = database.executable_provider_demands();
-    let mut session = database
-        .db
-        .context()
-        .executable_fact_session
-        .lock()
-        .expect("executable fact session lock poisoned");
+    let mut session = database.db.context().executable_fact_session.lock();
     assert!(
         !session
             .modules
@@ -172,12 +157,7 @@ fn provider_changes_discard_affected_executable_fact_caches() {
         },
     }];
     {
-        let mut session = database
-            .db
-            .context()
-            .executable_fact_session
-            .lock()
-            .expect("executable fact session lock poisoned");
+        let mut session = database.db.context().executable_fact_session.lock();
         let state = session
             .modules
             .get_mut(&entry_id)
@@ -202,22 +182,12 @@ fn provider_changes_discard_affected_executable_fact_caches() {
     ));
 
     {
-        let session = database
-            .db
-            .context()
-            .executable_fact_session
-            .lock()
-            .expect("executable fact session lock poisoned");
+        let session = database.db.context().executable_fact_session.lock();
         assert!(session.modules.contains_key(&entry_id));
         assert_eq!(session.applied_provider_fact_revision, Some(revision));
     }
     let worklist = database.db.expect_get(ProviderFactWorklistQuery);
-    let mut session = database
-        .db
-        .context()
-        .executable_fact_session
-        .lock()
-        .expect("executable fact session lock poisoned");
+    let mut session = database.db.context().executable_fact_session.lock();
     session.apply_provider_fact_worklist(&worklist, &database.db.context().type_store);
     assert!(!session.modules.contains_key(&entry_id));
     assert!(
@@ -343,7 +313,6 @@ fn executable_products_depend_on_incremental_worklists() {
             .context()
             .executable_fact_session
             .lock()
-            .expect("executable fact session lock poisoned")
             .applied_provider_fact_revision,
         Some(revision)
     );
@@ -393,7 +362,6 @@ fn executable_products_serialize_the_shared_fact_session() {
         db.context()
             .executable_fact_session
             .lock()
-            .expect("executable fact session lock poisoned")
             .applied_provider_fact_revision,
         Some(revision)
     );
@@ -473,12 +441,7 @@ fn executable_fact_epoch_defers_full_reset_to_query_boundary() {
         },
     };
     {
-        let mut session = database
-            .db
-            .context()
-            .executable_fact_session
-            .lock()
-            .expect("executable fact session lock poisoned");
+        let mut session = database.db.context().executable_fact_session.lock();
         assert_eq!(session.epoch.as_ref(), Some(first_epoch.as_ref()));
         session.applied_provider_changes.insert(sentinel.clone());
     }
@@ -486,24 +449,14 @@ fn executable_fact_epoch_defers_full_reset_to_query_boundary() {
     let reset = fixture.freestanding_program();
     database.update(CompileRequest::new(reset));
     {
-        let session = database
-            .db
-            .context()
-            .executable_fact_session
-            .lock()
-            .expect("executable fact session lock poisoned");
+        let session = database.db.context().executable_fact_session.lock();
         assert_eq!(session.epoch.as_ref(), Some(first_epoch.as_ref()));
         assert!(session.applied_provider_changes.contains(&sentinel));
     }
 
     let _ = database.executable_provider_demands();
     let latest_epoch = database.db.expect_get(ExecutableFactEpochQuery);
-    let session = database
-        .db
-        .context()
-        .executable_fact_session
-        .lock()
-        .expect("executable fact session lock poisoned");
+    let session = database.db.context().executable_fact_session.lock();
     assert_ne!(first_epoch.as_ref(), latest_epoch.as_ref());
     assert_eq!(session.epoch.as_ref(), Some(latest_epoch.as_ref()));
     assert!(!session.applied_provider_changes.contains(&sentinel));
@@ -723,12 +676,7 @@ fn body_activation_worklist_accumulates_until_consumed() {
     assert_eq!(worklist.modules.as_ref(), &expected);
 
     let _ = database.executable_provider_demands();
-    let session = database
-        .db
-        .context()
-        .executable_fact_session
-        .lock()
-        .expect("executable fact session lock poisoned");
+    let session = database.db.context().executable_fact_session.lock();
     assert_eq!(
         session.applied_body_activations,
         expected.keys().cloned().collect()

@@ -37,6 +37,7 @@ nia-monomorphize.workspace = true
 nia-node-id.workspace = true
 nia-package-metadata.workspace = true
 nia-opt.workspace = true
+parking_lot.workspace = true
 nia-parser.workspace = true
 nia-program-signatures.workspace = true
 nia-provider-summary.workspace = true

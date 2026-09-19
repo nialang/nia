@@ -60,10 +60,11 @@ use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
+use parking_lot::{Mutex, RwLock};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::PathBuf,
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
 /// Public compiler-facing name for the canonical metadata module identity.
@@ -1399,44 +1400,38 @@ impl CompilerDatabase {
     /// The loader session, frontend cache root, and verification policy cannot
     /// change in place because they own persisted and in-memory query identity.
     pub fn update(&self, request: CompileRequest) -> QueryResult<CompilerInvalidation> {
-        let loader_session = request.loader_facts.query_session().unwrap_or_else(|| {
-            panic!("Nia ICE: compiler updates require a tracked loader fact provider")
-        });
-        assert!(
-            self.db.session().ptr_eq(&loader_session),
-            "Nia ICE: compiler update loader facts belong to a different query session"
-        );
-        assert_eq!(
-            request.frontend_cache_dir.as_deref(),
-            self.db
+        let loader_session = request.loader_facts.query_session().ok_or_else(|| {
+            QueryError::internal("compiler updates require a tracked loader fact provider")
+        })?;
+        if !self.db.session().ptr_eq(&loader_session) {
+            return Err(QueryError::internal(
+                "compiler update loader facts belong to a different query session",
+            ));
+        }
+        if request.frontend_cache_dir.as_deref()
+            != self
+                .db
                 .context()
                 .signature_cache
                 .as_ref()
-                .map(|cache| cache.root()),
-            "Nia ICE: compiler frontend cache root cannot change within a query session"
-        );
-        assert_eq!(
-            request.verify_frontend_cache,
-            self.db.context().verify_frontend_cache,
-            "Nia ICE: compiler frontend cache verification cannot change within a query session"
-        );
+                .map(|cache| cache.root())
+        {
+            return Err(QueryError::internal(
+                "compiler frontend cache root cannot change within a query session",
+            ));
+        }
+        if request.verify_frontend_cache != self.db.context().verify_frontend_cache {
+            return Err(QueryError::internal(
+                "compiler frontend cache verification cannot change within a query session",
+            ));
+        }
         let new_graph = request.loader_facts.module_graph()?;
         let graph_changed = {
-            let observed = self
-                .db
-                .context()
-                .observed_graph
-                .lock()
-                .expect("compiler graph observation lock poisoned");
+            let observed = self.db.context().observed_graph.lock();
             *observed != new_graph
         };
         let handle_generation_changed = {
-            let observed = self
-                .db
-                .context()
-                .observed_graph
-                .lock()
-                .expect("compiler graph observation lock poisoned");
+            let observed = self.db.context().observed_graph.lock();
             observed.modules().any(|old| {
                 let Some(key) = observed.stable_key(old.id) else {
                     return false;
@@ -1449,7 +1444,7 @@ impl CompilerDatabase {
         };
         let new_inputs = CompilerInputs::new(request);
         let (optimization_changed, codegen_scope_changed, current_package_changed) = {
-            let mut inputs = self.inputs.write().expect("compiler input lock poisoned");
+            let mut inputs = self.inputs.write();
             let optimization_changed = inputs.optimization != new_inputs.optimization;
             let codegen_scope_changed = inputs.codegen_scope != new_inputs.codegen_scope;
             let current_package_changed = inputs.current_package != new_inputs.current_package;
@@ -1481,12 +1476,7 @@ impl CompilerDatabase {
                     .validate_input(LoadedModulesQuery, &loaded_modules)?,
             );
             if handle_generation_changed {
-                *self
-                    .db
-                    .context()
-                    .executable_fact_session
-                    .lock()
-                    .expect("executable fact session lock poisoned") =
+                *self.db.context().executable_fact_session.lock() =
                     ExecutableFactSession::default();
             }
         }
@@ -1499,12 +1489,7 @@ impl CompilerDatabase {
             .invalidated
             .extend(inputs_invalidation.invalidated);
         if graph_changed {
-            *self
-                .db
-                .context()
-                .observed_graph
-                .lock()
-                .expect("compiler graph observation lock poisoned") = new_graph;
+            *self.db.context().observed_graph.lock() = new_graph;
         }
         Ok(invalidation)
     }
@@ -1519,10 +1504,7 @@ impl CompilerDatabase {
     }
 
     fn current_optimization(&self) -> OptimizationPolicy {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .optimization
+        self.inputs.read().optimization
     }
 
     fn invalidate_inputs(
@@ -2552,7 +2534,7 @@ fn emit_check_certificate_reuse(timings: TimingMode, hit: bool) {
 
 impl std::fmt::Debug for CompilerDatabase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        let inputs = self.inputs.read();
         f.debug_struct("CompilerDatabase")
             .field("optimization", &inputs.optimization)
             .finish_non_exhaustive()
@@ -2647,16 +2629,16 @@ fn compiler_database_with_providers_in_session(
     }
     let node_store = loader_facts.node_store();
     let inputs = Arc::new(RwLock::new(CompilerInputs::new(request)));
-    let executable_fact_session = Arc::new(std::sync::Mutex::new(ExecutableFactSession::default()));
+    let executable_fact_session = Arc::new(Mutex::new(ExecutableFactSession::default()));
     let type_store = Arc::new(nia_ty::TypeStore::new()?);
     let db = QueryDb::new_registered_with_timings_in_session(
         CompilerContext {
             inputs: inputs.clone(),
-            observed_graph: std::sync::Mutex::new(observed_graph),
+            observed_graph: Mutex::new(observed_graph),
             loader_facts,
             providers,
             executable_fact_session,
-            executable_fact_scheduler: std::sync::Mutex::new(()),
+            executable_fact_scheduler: Mutex::new(()),
             type_store,
             diagnostic_store: nia_diagnostic::DiagnosticStore::new()?,
             node_store,
@@ -3338,24 +3320,15 @@ impl CompilerContext {
     }
 
     fn optimization(&self) -> OptimizationPolicy {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .optimization
+        self.inputs.read().optimization
     }
 
     fn codegen_scope(&self) -> crate::CodegenScope {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .codegen_scope
+        self.inputs.read().codegen_scope
     }
 
     fn timings(&self) -> TimingMode {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .timings
+        self.inputs.read().timings
     }
 }
 

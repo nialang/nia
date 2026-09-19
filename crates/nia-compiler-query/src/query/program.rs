@@ -144,7 +144,9 @@ impl QueryKey<CompilerContext> for BackendModuleItemPlanQuery {
     }
 
     fn execute_result(&self, _db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        unreachable!("backend module item plans are published by backend lowering")
+        Err(QueryError::internal(
+            "backend module item plan executed instead of being published by backend lowering",
+        ))
     }
 }
 

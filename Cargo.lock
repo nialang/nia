@@ -482,6 +482,7 @@ dependencies = [
  "nia-type-normalize",
  "nia-type-resolve",
  "nia-value-resolve",
+ "parking_lot",
 ]
 
 [[package]]
