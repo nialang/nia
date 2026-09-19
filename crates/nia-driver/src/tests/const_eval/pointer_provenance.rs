@@ -580,9 +580,15 @@ pub const fn same[T](left: PointerSlot[T], right: PointerSlot[T]) bool {
         .find(|module| module.name.ends_with("pointers.nia"))
         .expect("pointers module");
     let types = program.type_store.append_for_module(pointers_module.id);
-    let u32_ty = types.primitive(nia_ty::PrimitiveTy::U32);
-    let u64_ty = types.primitive(nia_ty::PrimitiveTy::U64);
-    let usize_ty = types.primitive(nia_ty::PrimitiveTy::Usize);
+    let u32_ty = types
+        .primitive(nia_ty::PrimitiveTy::U32)
+        .expect("intern u32 test type");
+    let u64_ty = types
+        .primitive(nia_ty::PrimitiveTy::U64)
+        .expect("intern u64 test type");
+    let usize_ty = types
+        .primitive(nia_ty::PrimitiveTy::Usize)
+        .expect("intern usize test type");
     let has_instance = |name, arg| {
         pointers_module
             .function_instances
