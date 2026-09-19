@@ -843,14 +843,16 @@ mod tests {
             &module,
             &type_resolution,
             TypeLoweringContext::empty(&type_store),
-        );
+        )
+        .expect("lower module types");
         let signatures = collect_item_signatures(ItemSignatureInput {
             source: ItemSignatureSource::Module(&module),
             defs: &defs,
             lowered: &type_lowering,
             type_store: &type_store,
             symbols: None,
-        });
+        })
+        .expect("collect item signatures");
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
         let item_tree = ModuleItemTree::from_module(&module);
@@ -870,7 +872,8 @@ mod tests {
             type_store: &type_store,
             input_ids: &normalization_input,
             signatures: &signatures,
-        });
+        })
+        .expect("normalize module types");
         let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
             type_store: &type_store,
             defs_for_module: None,
@@ -905,11 +908,14 @@ mod tests {
             source_text: "",
             program: nia_const_check::ConstProgramContext::empty(),
         };
-        let array_lengths = nia_const_check::compute_module_const_array_lengths(const_input);
+        let array_lengths = nia_const_check::compute_module_const_array_lengths(const_input)
+            .expect("compute const array lengths");
         let enum_values =
-            nia_const_check::compute_module_const_enum_values(const_input, array_lengths.clone());
+            nia_const_check::compute_module_const_enum_values(const_input, array_lengths.clone())
+                .expect("compute const enum values");
         let const_eval =
-            nia_const_check::compute_module_const_values(const_input, array_lengths, enum_values);
+            nia_const_check::compute_module_const_values(const_input, array_lengths, enum_values)
+                .expect("compute const values");
         assert!(
             const_eval.diagnostics.is_empty(),
             "{:?}",
