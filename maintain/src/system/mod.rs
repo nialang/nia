@@ -3,3 +3,5 @@
 pub mod machine;
 /// Procfs and cgroup resource parsing and probing.
 pub mod resources;
+/// Compiler source and external tool identities attached to performance evidence.
+pub mod toolchain;

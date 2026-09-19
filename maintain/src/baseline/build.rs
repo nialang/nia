@@ -15,12 +15,13 @@ pub use schema::{
     BuildReports, BuildResult, Distribution, ExpectedValue, InitialProductState, Measurement,
     Number, StateSummary,
 };
-use schema::{AggregateAcceptance, BuildBaseline, BuildRunSample};
+use schema::{AggregateAcceptance, BuildBaseline, BuildBaselineConfiguration, BuildRunSample};
 pub use summary::summarize_runs;
 use workload::run_workload;
 pub use workload::{build_command, corrupt_action_cache};
 
 use crate::system::machine::machine_metadata;
+use crate::system::toolchain::{compiler_identity, toolchain_identity};
 use crate::{MaintainResult, absolute_path};
 
 const DEFAULT_TIMEOUT_SECONDS: u64 = 420;
@@ -45,6 +46,8 @@ pub struct Options {
     pub repetitions: usize,
     /// Whether to retain generated workload directories.
     pub keep_workspace: bool,
+    /// Whether to build the repository-default compiler before measuring.
+    pub build_compiler: bool,
 }
 
 impl Options {
@@ -59,13 +62,27 @@ impl Options {
             timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
             repetitions: DEFAULT_REPETITIONS,
             keep_workspace: false,
+            build_compiler: true,
         }
     }
 }
 
-/// Runs the representative build matrix and writes its schema-v1 report.
-pub fn run(options: &Options) -> MaintainResult<()> {
-    let nia = options.nia.canonicalize().map_err(|error| {
+/// Runs the representative build matrix and writes its schema-v2 report.
+pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
+    let requested_nia = absolute_path(&options.nia)?;
+    let default_compiler = root.join("target/release/nia");
+    let compiler_built_by_baseline = options.build_compiler && requested_nia == default_compiler;
+    if compiler_built_by_baseline {
+        let status = std::process::Command::new("cargo")
+            .args(["build", "--release", "-p", "nia-cli"])
+            .current_dir(root)
+            .status()
+            .map_err(|error| format!("failed to build compiler: {error}"))?;
+        if !status.success() {
+            return Err(format!("compiler build failed with {status}"));
+        }
+    }
+    let nia = requested_nia.canonicalize().map_err(|error| {
         format!(
             "nia executable does not exist: {}: {error}",
             options.nia.display()
@@ -135,6 +152,19 @@ pub fn run(options: &Options) -> MaintainResult<()> {
         release_compatibility: nia_compat::RELEASE_COMPATIBILITY,
         kind: "nia-build-baseline",
         machine: machine_metadata(None),
+        toolchain: toolchain_identity(root)?,
+        compiler: compiler_identity(&nia)?,
+        configuration: BuildBaselineConfiguration {
+            compiler_built_by_baseline,
+            compiler_cargo_profile: compiler_built_by_baseline.then_some("release"),
+            compiler_cargo_features: Vec::new(),
+            nia_profile: "debug",
+            nia_optimization: "O0",
+            nia_compilation_mode: "normal",
+            timing_mode: "detail",
+            project_cache_state: "fresh for clean states; inherited for transition states",
+            os_page_cache_state: "uncontrolled; may be warm",
+        },
         fixture: "benchmarks/build/representative",
         runner_fixture: "benchmarks/build/runner-only",
         runs: runs
