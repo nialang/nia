@@ -295,28 +295,21 @@ pub(in crate::query) fn provide_lowered_function_body(
     let body = match checked_body.as_ref() {
         Some(body) => body,
         None => {
-            return Ok(LoweredFunctionBodyValue::Diagnostic(
-                nia_function_lower::FunctionLoweringDiagnostic {
-                    span: Span::default(),
-                    message: format!("missing executable checked function body for {def_id:?}"),
-                },
-            ));
+            return Err(nia_ice::Ice::new(format!(
+                "missing executable checked function body for {def_id:?}"
+            ))
+            .into());
         }
     };
-    match nia_function_lower::lower_function_body(
+    nia_function_lower::lower_function_body(
         def_id.module_id,
         body,
         nia_function_lower::FunctionTypeContext::for_module(
             &db.context().type_store,
             def_id.module_id,
         ),
-    ) {
-        Ok(lowered) => Ok(LoweredFunctionBodyValue::Body(lowered)),
-        Err(nia_function_lower::FunctionLoweringError::Diagnostic(diagnostic)) => {
-            Ok(LoweredFunctionBodyValue::Diagnostic(diagnostic))
-        }
-        Err(nia_function_lower::FunctionLoweringError::Internal(error)) => Err(error.into()),
-    }
+    )
+    .map_err(Into::into)
 }
 
 pub(super) fn provide_backend_lowering(
@@ -603,16 +596,6 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
             ))
         },
     )?;
-    let function_lowering_diagnostics = function_lowering_diagnostics(&function_bodies);
-    if !function_lowering_diagnostics.is_empty() {
-        return Ok(ProgramBackendLoweringInputs {
-            semantic: None,
-            diagnostics: db
-                .context()
-                .diagnostic_store
-                .bundle(function_lowering_diagnostics)?,
-        });
-    }
     let non_function_signatures = executable_program_non_function_signatures_for_modules(
         db,
         checked_modules.iter().map(|module| module.id),
@@ -937,23 +920,6 @@ pub(super) fn monomorphization_diagnostics(
                 diagnostic.primary_span().unwrap_or_default(),
             ),
             diagnostic,
-        })
-        .collect()
-}
-
-fn function_lowering_diagnostics(function_bodies: &[LoweredFunctionBodyHandle]) -> Vec<Diagnostic> {
-    function_bodies
-        .iter()
-        .flat_map(|lowered| {
-            let mut diagnostics = Vec::new();
-            if let Some(diagnostic) = lowered.value.diagnostic() {
-                diagnostics.push(Diagnostic::internal_error_at(
-                    codes::INVALID_FUNCTION_IR,
-                    diagnostic.span,
-                    diagnostic.message.clone(),
-                ));
-            }
-            diagnostics
         })
         .collect()
 }

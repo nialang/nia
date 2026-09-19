@@ -53,18 +53,11 @@ pub(super) fn intern_ty(append: &nia_ty::TypeStoreAppend, kind: TyKind) -> Inter
         .expect("intern function-lower test type")
 }
 
-pub(super) fn lowering_diagnostic_message(error: &FunctionLoweringError) -> &str {
-    match error {
-        FunctionLoweringError::Diagnostic(diagnostic) => &diagnostic.message,
-        FunctionLoweringError::Internal(error) => {
-            panic!("expected lowering diagnostic, found internal error: {error:?}")
-        }
-    }
+pub(super) fn lowering_diagnostic_message(error: &nia_ice::Ice) -> &str {
+    &error.message
 }
 
-pub(super) fn lower_test_function_body(
-    body: &TypedBody,
-) -> Result<FunctionBody, FunctionLoweringError> {
+pub(super) fn lower_test_function_body(body: &TypedBody) -> nia_ice::IceResult<FunctionBody> {
     lower_function_body(
         test_module_id(),
         body,
