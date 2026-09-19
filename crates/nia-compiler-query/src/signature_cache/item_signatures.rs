@@ -66,51 +66,70 @@ pub(crate) fn decode_item_signatures(
     symbols: &SymbolTable,
     type_store: &TypeStore,
     module_id: ModuleId,
-) -> Option<ItemSignatures> {
+) -> nia_ice::IceResult<Option<ItemSignatures>> {
     let mut cursor = Cursor::new(encoded);
-    let types = read_type_graph(
+    let Some(types) = read_type_graph(
         &mut cursor,
         encoded.len(),
         modules,
         symbols,
         type_store,
         module_id,
-    )?;
-    let functions = read_def_map(&mut cursor, |cursor| {
-        read_function_signature(cursor, &types, symbols, source_len)
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(decode_item_signatures_body(
+        &mut cursor,
+        encoded.len(),
+        source_len,
+        symbols,
+        &types,
+    ))
+}
+
+fn decode_item_signatures_body(
+    cursor: &mut Cursor<&[u8]>,
+    encoded_len: usize,
+    source_len: usize,
+    symbols: &SymbolTable,
+    types: &[InternedTyId],
+) -> Option<ItemSignatures> {
+    let functions = read_def_map(cursor, |cursor| {
+        read_function_signature(cursor, types, symbols, source_len)
     })?;
-    let structs = read_def_map(&mut cursor, |cursor| {
-        read_struct_signature(cursor, &types, symbols, source_len)
+    let structs = read_def_map(cursor, |cursor| {
+        read_struct_signature(cursor, types, symbols, source_len)
     })?;
-    let unions = read_def_map(&mut cursor, |cursor| {
-        read_union_signature(cursor, &types, symbols, source_len)
+    let unions = read_def_map(cursor, |cursor| {
+        read_union_signature(cursor, types, symbols, source_len)
     })?;
-    let traits = read_def_map(&mut cursor, |cursor| {
-        read_trait_signature(cursor, &types, symbols, source_len)
+    let traits = read_def_map(cursor, |cursor| {
+        read_trait_signature(cursor, types, symbols, source_len)
     })?;
-    let trait_impl_len = read_len(&mut cursor, MAX_SEQUENCE_LEN)?;
+    let trait_impl_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
     let mut trait_impls = Vec::with_capacity(trait_impl_len);
     let mut trait_impl_ids = HashSet::new();
     for _ in 0..trait_impl_len {
-        let signature = read_trait_impl_signature(&mut cursor, &types, symbols, source_len)?;
+        let signature = read_trait_impl_signature(cursor, types, symbols, source_len)?;
         if !trait_impl_ids.insert(signature.impl_id) {
             return None;
         }
         trait_impls.push(signature);
     }
-    let enums = read_def_map(&mut cursor, |cursor| {
-        read_enum_signature(cursor, &types, symbols, source_len)
+    let enums = read_def_map(cursor, |cursor| {
+        read_enum_signature(cursor, types, symbols, source_len)
     })?;
-    let type_aliases = read_def_map(&mut cursor, |cursor| {
-        read_type_alias_signature(cursor, &types, symbols, source_len)
+    let type_aliases = read_def_map(cursor, |cursor| {
+        read_type_alias_signature(cursor, types, symbols, source_len)
     })?;
-    let globals = read_def_map(&mut cursor, |cursor| {
-        read_global_signature(cursor, &types, source_len)
+    let globals = read_def_map(cursor, |cursor| {
+        read_global_signature(cursor, types, source_len)
     })?;
-    let consts = read_def_map(&mut cursor, |cursor| {
-        read_const_signature(cursor, &types, source_len)
+    let consts = read_def_map(cursor, |cursor| {
+        read_const_signature(cursor, types, source_len)
     })?;
-    if usize::try_from(cursor.position()).ok()? != encoded.len() {
+    if usize::try_from(cursor.position()).ok()? != encoded_len {
         return None;
     }
     Some(ItemSignatures {

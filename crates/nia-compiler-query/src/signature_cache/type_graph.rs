@@ -62,19 +62,37 @@ pub(crate) fn decode_type_lowering(
     symbols: &SymbolTable,
     type_store: &TypeStore,
     module_id: ModuleId,
-) -> Option<TypeLowering> {
+) -> nia_ice::IceResult<Option<TypeLowering>> {
     let mut cursor = Cursor::new(encoded);
-    let types = read_type_graph(
+    let Some(types) = read_type_graph(
         &mut cursor,
         encoded.len(),
         modules,
         symbols,
         type_store,
         module_id,
-    )?;
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(decode_type_lowering_body(
+        &mut cursor,
+        encoded.len(),
+        source_version,
+        source_len,
+        &types,
+    ))
+}
 
+fn decode_type_lowering_body(
+    cursor: &mut Cursor<&[u8]>,
+    encoded_len: usize,
+    source_version: SourceVersion,
+    source_len: usize,
+    types: &[InternedTyId],
+) -> Option<TypeLowering> {
     let mut type_uses = HashMap::new();
-    for entry in read_entries(&mut cursor, encoded.len())? {
+    for entry in read_entries(cursor, encoded_len)? {
         let mut entry = Cursor::new(entry);
         let site = read_node_site(&mut entry, source_version.id, source_len)?;
         let ty = *types.get(usize::try_from(read_u64(&mut entry)?).ok()?)?;
@@ -84,7 +102,7 @@ pub(crate) fn decode_type_lowering(
             return None;
         }
     }
-    if usize::try_from(cursor.position()).ok()? != encoded.len() {
+    if usize::try_from(cursor.position()).ok()? != encoded_len {
         return None;
     }
     Some(TypeLowering {
@@ -110,19 +128,26 @@ pub(crate) fn read_type_graph(
     symbols: &SymbolTable,
     type_store: &TypeStore,
     module_id: ModuleId,
-) -> Option<Vec<InternedTyId>> {
-    let node_entries = read_entries(cursor, encoded_len)?;
+) -> nia_ice::IceResult<Option<Vec<InternedTyId>>> {
+    let Some(node_entries) = read_entries(cursor, encoded_len) else {
+        return Ok(None);
+    };
     let append = type_store.append_for_module(module_id);
     let mut types = Vec::with_capacity(node_entries.len());
     for entry in node_entries {
         let mut entry = Cursor::new(entry);
-        let kind = read_ty_kind(&mut entry, &types, modules, symbols)?;
-        if usize::try_from(entry.position()).ok()? != entry.get_ref().len() {
-            return None;
+        let Some(kind) = read_ty_kind(&mut entry, &types, modules, symbols) else {
+            return Ok(None);
+        };
+        let Ok(position) = usize::try_from(entry.position()) else {
+            return Ok(None);
+        };
+        if position != entry.get_ref().len() {
+            return Ok(None);
         }
-        types.push(append.intern(kind).ok()?);
+        types.push(append.intern(kind)?);
     }
-    Some(types)
+    Ok(Some(types))
 }
 
 pub(crate) struct TypeGraphEncoder<'a> {

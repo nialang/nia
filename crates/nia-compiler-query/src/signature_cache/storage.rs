@@ -81,7 +81,7 @@ impl PersistentSignatureCache {
         modules: &HashMap<String, ModuleId>,
         symbols: &SymbolTable,
         type_store: &TypeStore,
-    ) -> io::Result<SignatureTypeLoweringLookup> {
+    ) -> Result<SignatureTypeLoweringLookup, SignatureCacheLoadError> {
         let path = self.type_lowering_path(identity.key);
         let encoded = match read_signature_cache_entry(&path)? {
             SignatureCacheEntryRead::Bytes(encoded) => encoded,
@@ -112,7 +112,8 @@ impl PersistentSignatureCache {
             symbols,
             type_store,
             module_id,
-        ) else {
+        )?
+        else {
             retire_corrupt(&path, &encoded);
             return Ok(SignatureTypeLoweringLookup::Corrupt);
         };
@@ -163,7 +164,7 @@ impl PersistentSignatureCache {
         modules: &HashMap<String, ModuleId>,
         symbols: &SymbolTable,
         type_store: &TypeStore,
-    ) -> io::Result<SignatureItemSignaturesLookup> {
+    ) -> Result<SignatureItemSignaturesLookup, SignatureCacheLoadError> {
         let path = self.item_signatures_path(identity.key);
         let encoded = match read_signature_cache_entry(&path)? {
             SignatureCacheEntryRead::Bytes(encoded) => encoded,
@@ -193,7 +194,8 @@ impl PersistentSignatureCache {
             symbols,
             type_store,
             module_id,
-        ) else {
+        )?
+        else {
             retire_corrupt(&path, &encoded);
             return Ok(SignatureItemSignaturesLookup::Corrupt);
         };

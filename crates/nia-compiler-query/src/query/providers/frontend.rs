@@ -650,12 +650,15 @@ pub(super) fn provide_signature_type_lowering(
                 }
                 Some(lookup)
             }
-            Err(_) => {
+            Err(crate::signature_cache::SignatureCacheLoadError::Io) => {
                 nia_timing::emit_counter(
                     "frontend.signature_type_lowering_reuse_miss_read_error",
                     1,
                 );
                 None
+            }
+            Err(crate::signature_cache::SignatureCacheLoadError::Internal(error)) => {
+                return Err(error.into());
             }
         }
     } else {
@@ -848,12 +851,15 @@ pub(super) fn provide_signature_item_signatures(
                 }
                 Some(lookup)
             }
-            Err(_) => {
+            Err(crate::signature_cache::SignatureCacheLoadError::Io) => {
                 nia_timing::emit_counter(
                     "frontend.signature_item_signatures_reuse_miss_read_error",
                     1,
                 );
                 None
+            }
+            Err(crate::signature_cache::SignatureCacheLoadError::Internal(error)) => {
+                return Err(error.into());
             }
         }
     } else {
