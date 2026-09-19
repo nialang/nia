@@ -1383,11 +1383,21 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         value: &FunctionExpr,
         outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
     ) -> Result<bool, Diagnostic> {
-        if self.out_ptr.is_none()
-            || self.is_never(self.function.return_type)
-            || !is_aggregate_literal(value)
-        {
+        let Some(out_ptr) = self.out_ptr else {
             return Ok(false);
+        };
+        if self.is_never(self.function.return_type) || !is_aggregate_literal(value) {
+            return Ok(false);
+        }
+        if !self.return_path_has_registered_defers(body, block, span)? {
+            self.emit_aggregate_literal_into(out_ptr, value)?;
+            if self.current_block_has_terminator() {
+                return Ok(true);
+            }
+            self.builder
+                .build_return(None)
+                .map_err(|_| self.error(span, "failed to build aggregate return"))?;
+            return Ok(true);
         }
         let ty = self.module.llvm_basic_type(value.ty, value.span)?;
         let return_copy = self
