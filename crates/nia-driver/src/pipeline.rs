@@ -814,6 +814,8 @@ impl Driver {
                 .iter()
                 .map(|module| module.body_ir.function_bodies.len())
                 .sum();
+            let checked_module_count = preparation.modules.len();
+            let monomorphized_instance_count = preparation.monomorphization.instances.len();
             let options = codegen_options(
                 preparation.optimization,
                 timings,
@@ -859,26 +861,29 @@ impl Driver {
                                     module.functions.len() + module.function_instances.len()
                                 })
                                 .sum();
+                            let backend_module_count = lowering.program.modules.len();
                             Ok((
                                 emitter.finish().map_err(|error| {
                                     DriverError::InternalDiagnostic(Diagnostic::from(error))
                                 })?,
                                 reachable_body_count,
+                                backend_module_count,
                                 lowering.optimization_report,
                             ))
                         }
                     }
                 })())
             });
-            let (output, reachable_body_count, optimization_report) = match result {
-                Ok(Ok(output)) => output,
-                Ok(Err(error)) => return DriverOutput::from_error(error),
-                Err(error) => {
-                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
-                        query_error_diagnostic(error),
-                    ));
-                }
-            };
+            let (output, reachable_body_count, backend_module_count, optimization_report) =
+                match result {
+                    Ok(Ok(output)) => output,
+                    Ok(Err(error)) => return DriverOutput::from_error(error),
+                    Err(error) => {
+                        return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                            query_error_diagnostic(error),
+                        ));
+                    }
+                };
             let loader_trace = match self.loader_query_trace() {
                 Ok(trace) => trace,
                 Err(error) => {
@@ -894,6 +899,9 @@ impl Driver {
                 &LiveCodegenCounters {
                     checked_body_count,
                     reachable_body_count,
+                    checked_module_count,
+                    monomorphized_instance_count,
+                    backend_module_count,
                 },
                 database.provider_demand_rounds(),
             ) {
@@ -1012,6 +1020,9 @@ impl Driver {
                     &LiveCodegenCounters {
                         checked_body_count: emission.checked_body_count,
                         reachable_body_count: emission.reachable_body_count,
+                        checked_module_count: emission.checked_module_count,
+                        monomorphized_instance_count: emission.monomorphized_instance_count,
+                        backend_module_count: emission.backend_module_count,
                     },
                     database.provider_demand_rounds(),
                 )
@@ -1056,6 +1067,8 @@ impl Driver {
             .iter()
             .map(|module| module.body_ir.function_bodies.len())
             .sum();
+        let checked_module_count = preparation.modules.len();
+        let monomorphized_instance_count = preparation.monomorphization.instances.len();
         let optimization = preparation.optimization;
         let diagnostics = preparation.diagnostics;
         let type_store = std::sync::Arc::clone(&preparation.type_store);
@@ -1068,7 +1081,7 @@ impl Driver {
         let cache = self.object_cache.as_ref().map(|cache| {
             cache.clone() as std::sync::Arc<dyn nia_codegen_llvm::ObjectWorkProductCache>
         });
-        let (output, reachable_body_count, optimization_report) = database
+        let (output, reachable_body_count, backend_module_count, optimization_report) = database
             .with_backend_finalization_schedule(|schedule| {
                 Ok((|| -> Result<_, DriverError> {
                     match schedule {
@@ -1126,6 +1139,7 @@ impl Driver {
                                     module.functions.len() + module.function_instances.len()
                                 })
                                 .sum();
+                            let backend_module_count = lowering.program.modules.len();
                             Ok((
                                 time_detail_stage(timings, "native_llvm_finish", || {
                                     emitter.finish()
@@ -1134,6 +1148,7 @@ impl Driver {
                                     DriverError::InternalDiagnostic(Diagnostic::from(error))
                                 })?,
                                 reachable_body_count,
+                                backend_module_count,
                                 lowering.optimization_report,
                             ))
                         }
@@ -1153,6 +1168,9 @@ impl Driver {
             },
             checked_body_count,
             reachable_body_count,
+            checked_module_count,
+            monomorphized_instance_count,
+            backend_module_count,
         })
     }
 
@@ -1775,11 +1793,26 @@ fn time_detail_stage<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) 
 trait ProviderDemandOutput {
     fn checked_body_count(&self) -> usize;
     fn reachable_body_count(&self) -> usize;
+
+    fn checked_module_count(&self) -> Option<usize> {
+        None
+    }
+
+    fn monomorphized_instance_count(&self) -> Option<usize> {
+        None
+    }
+
+    fn backend_module_count(&self) -> Option<usize> {
+        None
+    }
 }
 
 struct LiveCodegenCounters {
     checked_body_count: usize,
     reachable_body_count: usize,
+    checked_module_count: usize,
+    monomorphized_instance_count: usize,
+    backend_module_count: usize,
 }
 
 impl ProviderDemandOutput for LiveCodegenCounters {
@@ -1789,6 +1822,18 @@ impl ProviderDemandOutput for LiveCodegenCounters {
 
     fn reachable_body_count(&self) -> usize {
         self.reachable_body_count
+    }
+
+    fn checked_module_count(&self) -> Option<usize> {
+        Some(self.checked_module_count)
+    }
+
+    fn monomorphized_instance_count(&self) -> Option<usize> {
+        Some(self.monomorphized_instance_count)
+    }
+
+    fn backend_module_count(&self) -> Option<usize> {
+        Some(self.backend_module_count)
     }
 }
 
@@ -1832,6 +1877,18 @@ impl ProviderDemandOutput for CodegenProgram {
             .map(|module| module.functions.len() + module.function_instances.len())
             .sum()
     }
+
+    fn checked_module_count(&self) -> Option<usize> {
+        Some(self.modules.len())
+    }
+
+    fn monomorphized_instance_count(&self) -> Option<usize> {
+        Some(self.monomorphization.instances.len())
+    }
+
+    fn backend_module_count(&self) -> Option<usize> {
+        Some(self.backend_lowering.program.modules.len())
+    }
 }
 
 fn emit_compilation_counters(
@@ -1846,6 +1903,24 @@ fn emit_compilation_counters(
     }
     let compiler_trace = database.query_trace()?;
     let traces = [loader_trace, &compiler_trace];
+    let graph = database.module_graph()?;
+    nia_timing::emit_counter("compiler.loaded_modules", graph.modules().count() as u64);
+    nia_timing::emit_counter(
+        "compiler.semantic_selected_modules",
+        graph
+            .modules()
+            .filter(|module| module.semantic_selected)
+            .count() as u64,
+    );
+    if let Some(count) = output.checked_module_count() {
+        nia_timing::emit_counter("compiler.checked_modules", count as u64);
+    }
+    if let Some(count) = output.monomorphized_instance_count() {
+        nia_timing::emit_counter("compiler.monomorphized_instances", count as u64);
+    }
+    if let Some(count) = output.backend_module_count() {
+        nia_timing::emit_counter("compiler.backend_modules", count as u64);
+    }
     nia_timing::emit_counter(
         "query.executions",
         traces
@@ -1861,6 +1936,51 @@ fn emit_compilation_counters(
             .flat_map(|trace| trace.queries.iter())
             .map(|query| query.stats.cache_hits as u64)
             .sum(),
+    );
+    nia_timing::emit_counter(
+        "query.waits",
+        traces
+            .iter()
+            .flat_map(|trace| trace.queries.iter())
+            .map(|query| query.stats.waits as u64)
+            .sum(),
+    );
+    nia_timing::emit_counter(
+        "query.validations",
+        traces
+            .iter()
+            .flat_map(|trace| trace.queries.iter())
+            .map(|query| query.stats.validations as u64)
+            .sum(),
+    );
+    nia_timing::emit_counter(
+        "query.green_validations",
+        traces
+            .iter()
+            .flat_map(|trace| trace.queries.iter())
+            .map(|query| query.stats.green_validations as u64)
+            .sum(),
+    );
+    nia_timing::emit_counter(
+        "query.slots",
+        traces.iter().flat_map(|trace| trace.queries.iter()).count() as u64,
+    );
+    nia_timing::emit_counter(
+        "query.dependency_edges",
+        traces
+            .iter()
+            .map(|trace| trace.dependencies.len() as u64)
+            .sum(),
+    );
+    let mut dependency_fanout = std::collections::HashMap::<String, u64>::new();
+    for dependency in traces.iter().flat_map(|trace| trace.dependencies.iter()) {
+        *dependency_fanout
+            .entry(dependency.from.description.clone())
+            .or_default() += 1;
+    }
+    nia_timing::emit_counter(
+        "query.max_dependency_fanout",
+        dependency_fanout.values().copied().max().unwrap_or(0),
     );
     for (counter, query_name) in [
         ("query.executions.parsed_module", "parsed_module"),
@@ -2220,6 +2340,9 @@ struct NativeDatabaseEmission {
     artifact: ObjectArtifact,
     checked_body_count: usize,
     reachable_body_count: usize,
+    checked_module_count: usize,
+    monomorphized_instance_count: usize,
+    backend_module_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]

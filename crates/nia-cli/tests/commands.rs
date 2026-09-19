@@ -682,6 +682,18 @@ fn main() i32 {
         .find(|line| line.starts_with(&prefix))
         .expect("missing JSON timing report");
     assert!(report.contains("\"max_rss_bytes\":"), "{report}");
+    for counter in [
+        "compiler.loaded_modules",
+        "compiler.semantic_selected_modules",
+        "query.dependency_edges",
+        "query.green_validations",
+        "query.max_dependency_fanout",
+        "query.slots",
+        "query.validations",
+        "query.waits",
+    ] {
+        assert!(report.contains(&format!("\"{counter}\":")), "{report}");
+    }
     if cfg!(feature = "perf-alloc") {
         assert!(report.contains("\"allocator.alloc_calls\":"), "{report}");
         assert!(
