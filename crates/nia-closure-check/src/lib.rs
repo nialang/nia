@@ -2081,10 +2081,20 @@ fn union(mut lhs: Provenances, rhs: Provenances) -> Provenances {
 
 #[cfg(test)]
 mod tests {
-    use nia_ids::{DefId, ModuleIdAllocator};
+    use nia_ids::{DefId, InternedTyId, ModuleIdAllocator};
     use nia_ty::TyKind;
 
     use super::*;
+
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId {
+            self.intern(kind).expect("intern closure-check test type")
+        }
+    }
 
     #[test]
     fn closure_presence_probe_skips_plain_function_bodies() {
@@ -2100,7 +2110,8 @@ mod tests {
             ty: nia_ty::TypeStore::new()
                 .expect("create type store")
                 .append_for_module(module)
-                .intern(TyKind::Tuple(Vec::new())),
+                .intern(TyKind::Tuple(Vec::new()))
+                .expect("intern unit type"),
         };
         let function = ClosureCheckFunction {
             def_id: GlobalDefId {
@@ -2179,8 +2190,8 @@ mod tests {
         };
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
-        let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
-        let ty = append.intern(TyKind::Callable {
+        let unit_ty = append.test_intern(TyKind::Tuple(Vec::new()));
+        let ty = append.test_intern(TyKind::Callable {
             is_readonly: true,
             params: Vec::new(),
             return_type: unit_ty,
@@ -2257,8 +2268,8 @@ mod tests {
         let closure_id = ClosureId { owner, ordinal: 0 };
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
-        let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
-        let ty = append.intern(TyKind::Callable {
+        let unit_ty = append.test_intern(TyKind::Tuple(Vec::new()));
+        let ty = append.test_intern(TyKind::Callable {
             is_readonly: true,
             params: Vec::new(),
             return_type: unit_ty,
@@ -2369,12 +2380,12 @@ mod tests {
         let closure_id = ClosureId { owner, ordinal: 0 };
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
-        let callable_ty = append.intern(TyKind::Callable {
+        let callable_ty = append.test_intern(TyKind::Callable {
             is_readonly: true,
             params: Vec::new(),
-            return_type: append.intern(TyKind::Tuple(Vec::new())),
+            return_type: append.test_intern(TyKind::Tuple(Vec::new())),
         });
-        let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
+        let unit_ty = append.test_intern(TyKind::Tuple(Vec::new()));
         let selected = LocalId(0);
         let stack_backed = LocalId(1);
         let mut env = Environment::from([
@@ -2443,9 +2454,9 @@ mod tests {
         let closure_id = ClosureId { owner, ordinal: 0 };
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
-        let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
-        let bool_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Bool));
-        let callable_ty = append.intern(TyKind::Callable {
+        let unit_ty = append.test_intern(TyKind::Tuple(Vec::new()));
+        let bool_ty = append.test_intern(TyKind::Primitive(nia_ty::PrimitiveTy::Bool));
+        let callable_ty = append.test_intern(TyKind::Callable {
             is_readonly: true,
             params: Vec::new(),
             return_type: unit_ty,
@@ -2541,8 +2552,8 @@ mod tests {
         let closure_id = ClosureId { owner, ordinal: 0 };
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
-        let i32_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::I32));
-        let pair_ty = append.intern(TyKind::Tuple(vec![i32_ty, i32_ty]));
+        let i32_ty = append.test_intern(TyKind::Primitive(nia_ty::PrimitiveTy::I32));
+        let pair_ty = append.test_intern(TyKind::Tuple(vec![i32_ty, i32_ty]));
         let summaries = HashMap::new();
         let analyzer = Analyzer::new(&types, &summaries, None);
         let origins = Provenances::from([Provenance::CallableClosure {
@@ -2568,8 +2579,8 @@ mod tests {
         let closure_id = ClosureId { owner, ordinal: 0 };
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
-        let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
-        let callable_ty = append.intern(TyKind::Callable {
+        let unit_ty = append.test_intern(TyKind::Tuple(Vec::new()));
+        let callable_ty = append.test_intern(TyKind::Callable {
             is_readonly: true,
             params: Vec::new(),
             return_type: unit_ty,
@@ -2657,8 +2668,8 @@ mod tests {
         let closure_id = ClosureId { owner, ordinal: 0 };
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
-        let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
-        let callable_ty = append.intern(TyKind::Callable {
+        let unit_ty = append.test_intern(TyKind::Tuple(Vec::new()));
+        let callable_ty = append.test_intern(TyKind::Callable {
             is_readonly: true,
             params: Vec::new(),
             return_type: unit_ty,
@@ -2731,8 +2742,8 @@ mod tests {
         let closure_id = ClosureId { owner, ordinal: 0 };
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
-        let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
-        let callable_ty = append.intern(TyKind::Callable {
+        let unit_ty = append.test_intern(TyKind::Tuple(Vec::new()));
+        let callable_ty = append.test_intern(TyKind::Callable {
             is_readonly: true,
             params: Vec::new(),
             return_type: unit_ty,
