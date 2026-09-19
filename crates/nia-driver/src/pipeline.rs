@@ -823,44 +823,52 @@ impl Driver {
             let diagnostics = preparation.diagnostics;
             let type_store = std::sync::Arc::clone(&preparation.type_store);
             let session = database.query_session();
-            let result = database.with_backend_finalization_schedule(|schedule| match schedule {
-                Err(lowering) => Err(DriverError::CodegenDiagnostics(lowering.diagnostics)),
-                Ok(mut schedule) => {
-                    let mut emitter = nia_codegen_llvm::LlvmIrReadinessEmitter::new(
-                        schedule.module_store(),
-                        type_store,
-                        schedule.owner_directory(),
-                        options,
-                        &session,
-                    )
-                    .map_err(|error| DriverError::InternalDiagnostic(Diagnostic::from(error)))?;
-                    while let Some(ready) = schedule.wait_next().map_err(|error| {
-                        DriverError::InternalDiagnostic(query_error_diagnostic(error))
-                    })? {
-                        emitter.publish(ready).map_err(|error| {
-                            DriverError::InternalDiagnostic(Diagnostic::from(error))
-                        })?;
+            let result = database.with_backend_finalization_schedule(|schedule| {
+                Ok((|| -> Result<_, DriverError> {
+                    match schedule {
+                        Err(lowering) => Err(DriverError::CodegenDiagnostics(lowering.diagnostics)),
+                        Ok(mut schedule) => {
+                            let mut emitter = nia_codegen_llvm::LlvmIrReadinessEmitter::new(
+                                schedule.module_store(),
+                                type_store,
+                                schedule.owner_directory(),
+                                options,
+                                &session,
+                            )
+                            .map_err(|error| {
+                                DriverError::InternalDiagnostic(Diagnostic::from(error))
+                            })?;
+                            while let Some(ready) = schedule.wait_next().map_err(|error| {
+                                DriverError::InternalDiagnostic(query_error_diagnostic(error))
+                            })? {
+                                emitter.publish(ready).map_err(|error| {
+                                    DriverError::InternalDiagnostic(Diagnostic::from(error))
+                                })?;
+                            }
+                            let lowering = schedule.finish().map_err(|error| {
+                                DriverError::InternalDiagnostic(query_error_diagnostic(error))
+                            })?;
+                            if !lowering.diagnostics.is_empty() {
+                                return Err(DriverError::CodegenDiagnostics(lowering.diagnostics));
+                            }
+                            let reachable_body_count = lowering
+                                .program
+                                .modules
+                                .iter()
+                                .map(|module| {
+                                    module.functions.len() + module.function_instances.len()
+                                })
+                                .sum();
+                            Ok((
+                                emitter.finish().map_err(|error| {
+                                    DriverError::InternalDiagnostic(Diagnostic::from(error))
+                                })?,
+                                reachable_body_count,
+                                lowering.optimization_report,
+                            ))
+                        }
                     }
-                    let lowering = schedule.finish().map_err(|error| {
-                        DriverError::InternalDiagnostic(query_error_diagnostic(error))
-                    })?;
-                    if !lowering.diagnostics.is_empty() {
-                        return Err(DriverError::CodegenDiagnostics(lowering.diagnostics));
-                    }
-                    let reachable_body_count = lowering
-                        .program
-                        .modules
-                        .iter()
-                        .map(|module| module.functions.len() + module.function_instances.len())
-                        .sum();
-                    Ok((
-                        emitter.finish().map_err(|error| {
-                            DriverError::InternalDiagnostic(Diagnostic::from(error))
-                        })?,
-                        reachable_body_count,
-                        lowering.optimization_report,
-                    ))
-                }
+                })())
             });
             let (output, reachable_body_count, optimization_report) = match result {
                 Ok(Ok(output)) => output,
@@ -1048,45 +1056,54 @@ impl Driver {
             cache.clone() as std::sync::Arc<dyn nia_codegen_llvm::ObjectWorkProductCache>
         });
         let (output, reachable_body_count, optimization_report) = database
-            .with_backend_finalization_schedule(|schedule| match schedule {
-                Err(lowering) => Err(DriverError::CodegenDiagnostics(lowering.diagnostics)),
-                Ok(mut schedule) => {
-                    let mut emitter = nia_codegen_llvm::LlvmNativeObjectReadinessEmitter::new(
-                        schedule.module_store(),
-                        type_store,
-                        schedule.owner_directory(),
-                        options,
-                        cache,
-                        &session,
-                    )
-                    .map_err(|error| DriverError::InternalDiagnostic(Diagnostic::from(error)))?;
-                    while let Some(ready) = schedule.wait_next().map_err(|error| {
-                        DriverError::InternalDiagnostic(query_error_diagnostic(error))
-                    })? {
-                        emitter.publish(ready).map_err(|error| {
-                            DriverError::InternalDiagnostic(Diagnostic::from(error))
-                        })?;
+            .with_backend_finalization_schedule(|schedule| {
+                Ok((|| -> Result<_, DriverError> {
+                    match schedule {
+                        Err(lowering) => Err(DriverError::CodegenDiagnostics(lowering.diagnostics)),
+                        Ok(mut schedule) => {
+                            let mut emitter =
+                                nia_codegen_llvm::LlvmNativeObjectReadinessEmitter::new(
+                                    schedule.module_store(),
+                                    type_store,
+                                    schedule.owner_directory(),
+                                    options,
+                                    cache,
+                                    &session,
+                                )
+                                .map_err(|error| {
+                                    DriverError::InternalDiagnostic(Diagnostic::from(error))
+                                })?;
+                            while let Some(ready) = schedule.wait_next().map_err(|error| {
+                                DriverError::InternalDiagnostic(query_error_diagnostic(error))
+                            })? {
+                                emitter.publish(ready).map_err(|error| {
+                                    DriverError::InternalDiagnostic(Diagnostic::from(error))
+                                })?;
+                            }
+                            let lowering = schedule.finish().map_err(|error| {
+                                DriverError::InternalDiagnostic(query_error_diagnostic(error))
+                            })?;
+                            if !lowering.diagnostics.is_empty() {
+                                return Err(DriverError::CodegenDiagnostics(lowering.diagnostics));
+                            }
+                            let reachable_body_count = lowering
+                                .program
+                                .modules
+                                .iter()
+                                .map(|module| {
+                                    module.functions.len() + module.function_instances.len()
+                                })
+                                .sum();
+                            Ok((
+                                emitter.finish().map_err(|error| {
+                                    DriverError::InternalDiagnostic(Diagnostic::from(error))
+                                })?,
+                                reachable_body_count,
+                                lowering.optimization_report,
+                            ))
+                        }
                     }
-                    let lowering = schedule.finish().map_err(|error| {
-                        DriverError::InternalDiagnostic(query_error_diagnostic(error))
-                    })?;
-                    if !lowering.diagnostics.is_empty() {
-                        return Err(DriverError::CodegenDiagnostics(lowering.diagnostics));
-                    }
-                    let reachable_body_count = lowering
-                        .program
-                        .modules
-                        .iter()
-                        .map(|module| module.functions.len() + module.function_instances.len())
-                        .sum();
-                    Ok((
-                        emitter.finish().map_err(|error| {
-                            DriverError::InternalDiagnostic(Diagnostic::from(error))
-                        })?,
-                        reachable_body_count,
-                        lowering.optimization_report,
-                    ))
-                }
+                })())
             })
             .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))??;
         if !output.diagnostics.is_empty() {

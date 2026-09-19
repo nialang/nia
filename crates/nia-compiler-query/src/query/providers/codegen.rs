@@ -381,7 +381,7 @@ fn provide_backend_lowering_inner(
     if let Some(measurement) = finalization_allocation {
         emit_backend_module_finalization_allocation(measurement);
     }
-    lowering?
+    lowering
 }
 
 pub(in crate::query) fn with_backend_finalization_schedule<R>(
@@ -391,7 +391,7 @@ pub(in crate::query) fn with_backend_finalization_schedule<R>(
             crate::BackendFinalizationSchedule<'borrow, 'stream, 'executor>,
             nia_backend_lower::BackendLowering,
         >,
-    ) -> R,
+    ) -> QueryResult<R>,
 ) -> QueryResult<R> {
     let plan = db.get_owned(BackendItemPlanQuery)?;
     emit_backend_module_plan_allocation("before_publish");
@@ -423,7 +423,7 @@ pub(in crate::query) fn with_backend_finalization_schedule<R>(
             module_plans,
             db.context().timings(),
         )?;
-        return Ok(consume(Err(lowering)));
+        return consume(Err(lowering));
     }
     let collector =
         nia_backend_lower::BackendModuleFinalizationCollector::new(finalization, &module_ids)?;

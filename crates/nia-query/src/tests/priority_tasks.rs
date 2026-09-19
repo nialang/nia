@@ -17,7 +17,7 @@ fn bounded_priority_task_pool_preserves_submission_order_and_lanes() {
             peak_active.fetch_max(current, Ordering::SeqCst);
             barrier.wait();
             active.fetch_sub(1, Ordering::SeqCst);
-            OwnedNonCloneValue { value }
+            Ok(OwnedNonCloneValue { value })
         })
         .expect("submit priority task");
     }
@@ -81,6 +81,7 @@ fn priority_task_pool_runs_before_queued_batch_work() {
     let mut pool = session.task_pool(1).expect("create task pool");
     pool.submit(move || {
         priority_order.lock().push("priority");
+        Ok(())
     })
     .expect("submit priority task");
     release_sender.send(()).expect("release executor worker");
@@ -97,22 +98,21 @@ fn priority_task_pool_runs_before_queued_batch_work() {
 }
 
 #[test]
-fn priority_task_pool_drains_after_task_panic() {
+fn priority_task_pool_drains_after_internal_failure() {
     let session = QuerySession::with_parallelism(2);
     let completed = Arc::new(AtomicUsize::new(0));
     let mut pool = session.task_pool(2).expect("create task pool");
-    pool.submit(|| -> usize { panic!("priority task failure") })
-        .expect("submit panicking task");
+    pool.submit(|| Err(nia_ice::Ice::new("priority task failure")))
+        .expect("submit failing task");
     let task_completed = Arc::clone(&completed);
     pool.submit(move || {
         task_completed.fetch_add(1, Ordering::SeqCst);
-        7
+        Ok(7)
     })
     .expect("submit completing task");
 
-    let failure = pool.finish().expect_err("task panic must become an ICE");
+    let failure = pool.finish().expect_err("task ICE must be propagated");
 
-    assert_eq!(failure.origin, nia_ice::IceOrigin::UnexpectedPanic);
     assert_eq!(failure.message, "priority task failure");
     assert!(
         failure
@@ -121,6 +121,8 @@ fn priority_task_pool_drains_after_task_panic() {
             .is_some_and(|location| location.contains("priority_tasks.rs")),
         "{failure:?}"
     );
-    assert_eq!(completed.load(Ordering::SeqCst), 0);
-    assert!(session.run_tasks([|| 9]).is_err());
+    let completed_after_failure = completed.load(Ordering::SeqCst);
+    assert!(completed_after_failure <= 1);
+    assert!(session.run_tasks([|| Ok(9)]).is_err());
+    assert_eq!(completed.load(Ordering::SeqCst), completed_after_failure);
 }

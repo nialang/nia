@@ -96,7 +96,7 @@ struct QuerySessionInner {
     dependencies: Mutex<QueryDependencyGraph>,
     activity: Mutex<QueryActivityState>,
     activity_ready: Condvar,
-    unexpected_failure: Mutex<Option<nia_ice::Ice>>,
+    internal_failure: Mutex<Option<nia_ice::Ice>>,
 }
 
 #[derive(Default)]
@@ -301,7 +301,7 @@ struct SpawnedQueryTask<O> {
 ///
 /// Submission applies backpressure once `capacity` tasks are pending. [`finish`](Self::finish)
 /// drains every accepted task and restores submission order even when workers complete out of
-/// order or one task panics.
+/// order or one task reports an internal failure.
 pub struct QueryTaskPool<'session, O: Send + 'static> {
     session: &'session QuerySession,
     _activity: QueryActivityGuard<'session>,

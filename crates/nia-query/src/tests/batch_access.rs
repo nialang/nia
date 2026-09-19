@@ -79,7 +79,7 @@ fn typed_owned_completion_stream_moves_values_in_completion_order() {
                     completed.push((position, value));
                     db.context().phase.store(value + 1, Ordering::SeqCst);
                 }
-                completed
+                Ok(completed)
             },
         )
         .expect("completion batch");
@@ -104,7 +104,7 @@ fn typed_owned_completion_stream_reports_query_failures() {
                 while let Some((position, value)) = stream.wait_next().expect("completion stream") {
                     completed.push((position, value));
                 }
-                completed
+                Ok(completed)
             },
         )
         .expect("completion batch");

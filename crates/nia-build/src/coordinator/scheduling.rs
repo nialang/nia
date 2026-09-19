@@ -115,7 +115,7 @@ where
         Some(limit) => session.run_tasks_bounded(tasks, limit.get()),
         None => session.run_tasks(tasks),
     }?;
-    outcomes.into_iter().collect()
+    Ok(outcomes)
 }
 
 pub(super) fn action_resource_capacity(

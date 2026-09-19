@@ -148,10 +148,7 @@ impl QueryKey<CrossSessionCycleContext> for CrossSessionCycle {
         format!("cross_session_cycle::{self:?}")
     }
 
-    fn execute_result(
-        &self,
-        db: &QueryDb<CrossSessionCycleContext>,
-    ) -> QueryResult<Self::Value> {
+    fn execute_result(&self, db: &QueryDb<CrossSessionCycleContext>) -> QueryResult<Self::Value> {
         if db.context().executions.fetch_add(1, Ordering::SeqCst) == 0 {
             db.context().barrier.wait();
         }
@@ -170,19 +167,21 @@ impl QueryKey<CrossSessionCycleContext> for CrossSessionCycle {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct PanicsOnce;
+struct FailsOnce;
 
-impl QueryKey<TestContext> for PanicsOnce {
+impl QueryKey<TestContext> for FailsOnce {
     type Value = usize;
 
     fn name() -> &'static str {
-        "panics_once"
+        "fails_once"
     }
 
     fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
         let previous = db.context().executions.fetch_add(1, Ordering::SeqCst);
         if previous == 0 {
-            panic!("transient query failure");
+            return Err(QueryError::Internal(nia_ice::Ice::new(
+                "transient query failure",
+            )));
         }
         Ok(99)
     }

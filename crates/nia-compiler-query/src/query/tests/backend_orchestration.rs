@@ -65,8 +65,7 @@ fn scoped_backend_schedule_exposes_each_module_before_aggregate_finish() {
             assert!(store.get(other).is_none());
             schedule.finish()
         })
-        .expect("backend finalization schedule")
-        .expect("backend finalization queries");
+        .expect("backend finalization schedule");
 
     assert_eq!(lowering.program.modules.len(), 2);
     assert!(
@@ -164,6 +163,7 @@ y: i32,
                     .find(|module| module.id == geom)
                     .expect("finalized geom module");
                 assert!(geom_module.structs.iter().any(|item| item.def_id == point));
+                Ok(())
             })
             .expect("backend finalization schedule");
     }

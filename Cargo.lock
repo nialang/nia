@@ -362,7 +362,6 @@ dependencies = [
  "nia-build",
  "nia-compat",
  "nia-driver",
- "nia-ice",
  "nia-linker",
  "nia-loader-query",
  "nia-source",

@@ -241,14 +241,14 @@ fn distinct_sessions_detect_cross_stack_query_cycles() {
 }
 
 #[test]
-fn panicking_query_reports_internal_error_and_taints_session() {
+fn failing_query_reports_internal_error_and_taints_session() {
     let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),
     });
 
-    let first = db.get(PanicsOnce).expect_err("first query should fail");
+    let first = db.get(FailsOnce).expect_err("first query should fail");
     assert!(matches!(first, QueryError::Internal(_)));
 
-    assert!(matches!(db.get(PanicsOnce), Err(QueryError::Internal(_))));
+    assert!(matches!(db.get(FailsOnce), Err(QueryError::Internal(_))));
     assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
 }

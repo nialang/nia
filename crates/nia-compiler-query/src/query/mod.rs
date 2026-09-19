@@ -1273,7 +1273,7 @@ impl CompilerDatabase {
                 crate::BackendFinalizationSchedule<'borrow, 'stream, 'executor>,
                 nia_backend_lower::BackendLowering,
             >,
-        ) -> R,
+        ) -> QueryResult<R>,
     ) -> QueryResult<R> {
         providers::with_backend_finalization_schedule(&self.db, consume)
     }

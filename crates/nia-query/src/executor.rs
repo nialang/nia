@@ -656,7 +656,10 @@ where
     }
 
     /// Submits one task, helping/draining when the pool reaches capacity.
-    pub fn submit(&mut self, task: impl FnOnce() -> O + Send + 'static) -> nia_ice::IceResult<()> {
+    pub fn submit(
+        &mut self,
+        task: impl FnOnce() -> nia_ice::IceResult<O> + Send + 'static,
+    ) -> nia_ice::IceResult<()> {
         if self.pending.len() >= self.capacity {
             self.wait_one()?;
         }
@@ -674,7 +677,10 @@ where
                 settle: Box::new(move |failure| {
                     let outcome = match failure {
                         Some(ice) => Err(session.record_failure(ice)),
-                        None => session.capture_unexpected_panic(task),
+                        None => session
+                            .ensure_healthy()
+                            .and_then(|()| task())
+                            .map_err(|ice| session.record_failure(ice)),
                     };
                     if let Err(ice) = task_batch.complete(0, outcome) {
                         session.record_failure(ice);
