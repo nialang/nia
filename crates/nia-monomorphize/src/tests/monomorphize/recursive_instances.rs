@@ -5,7 +5,7 @@ fn recursive_generic_body_reuses_same_concrete_instance() {
     let (module, errors) = parse_module("fn recurse[T](value: T) T { recurse[T](value) }");
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
-    let defs = collect_module_defs(fixture.module_id, &module);
+    let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
     let recurse_id = GlobalDefId {
         module_id: fixture.module_id,
         def_id: value_def(&defs, "recurse"),
@@ -47,7 +47,7 @@ fn growing_recursive_generic_body_reports_type_depth_limit() {
     let (module, errors) = parse_module("fn grow[T](value: &T) i32 { grow[&T](&value) }");
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
-    let defs = collect_module_defs(fixture.module_id, &module);
+    let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
     let grow_id = GlobalDefId {
         module_id: fixture.module_id,
         def_id: value_def(&defs, "grow"),
@@ -112,7 +112,7 @@ fn const_argument_type_contributes_to_instance_depth_limit() {
     let (module, errors) = parse_module("fn use[T, N: usize](value: T) T { value }");
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
-    let defs = collect_module_defs(fixture.module_id, &module);
+    let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
     let use_id = GlobalDefId {
         module_id: fixture.module_id,
         def_id: value_def(&defs, "use"),
@@ -164,7 +164,7 @@ fn layout_builtin_array_operand_contributes_to_instance_depth_limit() {
     let (module, errors) = parse_module("fn use[T](value: T) T { value }");
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
-    let defs = collect_module_defs(fixture.module_id, &module);
+    let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
     let use_id = GlobalDefId {
         module_id: fixture.module_id,
         def_id: value_def(&defs, "use"),

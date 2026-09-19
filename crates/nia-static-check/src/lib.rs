@@ -835,7 +835,7 @@ mod tests {
         assert!(errors.is_empty(), "{errors:?}");
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let type_resolution = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let type_store = nia_ty::TypeStore::new().expect("create type store");
         let type_lowering = lower_module_types_with_context(

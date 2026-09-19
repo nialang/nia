@@ -24,7 +24,7 @@ t.xs[2].x
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
@@ -65,7 +65,7 @@ t.xs[i32].x
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);

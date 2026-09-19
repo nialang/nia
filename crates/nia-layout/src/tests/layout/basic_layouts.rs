@@ -14,7 +14,7 @@ b: i32,
 fn main(p: &Pair, xs: [u16; 3]) {}
 "#,
     );
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
@@ -78,7 +78,7 @@ struct Empty {}
 fn main(value: Empty) {}
 "#,
     );
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
@@ -123,7 +123,7 @@ fn computes_unit_and_ordered_tuple_layouts() {
 fn main(unit: (), pair: (u8, i32), nested: (u8, (), i64)) {}
 "#,
     );
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
@@ -172,7 +172,7 @@ type BareCallback = Fn(i32) i32;
 fn invoke(readonly: &Fn(i32) i32, mutable: &mut Fn(i32) i32) {}
 "#,
     );
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);

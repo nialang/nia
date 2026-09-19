@@ -278,7 +278,7 @@ pub trait LoaderFactProvider: Send + Sync {
             &tree,
             &self.node_store(),
             &symbols,
-        );
+        )?;
         Ok(Some(nia_defs::PublicSurfaceModuleFacts::from_defs(&defs)))
     }
     /// Returns syntax-node origin mappings for a module.

@@ -6,7 +6,7 @@ fn rejects_lowered_types_from_another_type_store() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module("fn id(value: i32) i32 { value }");
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types(&module, &defs);
     let lowering_store = TypeStore::new().expect("create type store");
     let lowering = lower_module_types_with_context(

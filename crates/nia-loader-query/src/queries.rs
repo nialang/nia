@@ -800,7 +800,7 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
             &item_tree,
             &db.context().node_store,
             &db.context().symbols,
-        );
+        )?;
         let fresh = nia_defs::PublicSurfaceModuleFacts::from_defs(&defs);
         let parsed = db.get(ParsedModuleQuery(self.0))?;
         if let Some(input) = cache_input

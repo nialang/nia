@@ -26,7 +26,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
     let symbols = SymbolTable::new();
     let (module, errors) = parse_module_with_symbols(source, symbols.clone());
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let program_defs =

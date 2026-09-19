@@ -19,7 +19,7 @@ x
     );
     let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
     let locals =
         resolve_module_locals_with_origins(&module, &defs, &values, Some(version), &origins);
@@ -54,7 +54,7 @@ x
     );
     let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
     let locals =
         resolve_module_locals_with_origins(&module, &defs, &values, Some(version), &origins);

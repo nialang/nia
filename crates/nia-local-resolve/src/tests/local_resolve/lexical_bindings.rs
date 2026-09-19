@@ -15,7 +15,7 @@ sum
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
@@ -46,7 +46,7 @@ value
 "#;
     let (module, errors) = parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
@@ -71,7 +71,7 @@ value
 "#;
     let (module, errors) = parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
@@ -107,7 +107,7 @@ match input {
 "#;
     let (module, errors) = parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
     let mut values = values.into_builder();
     for item in &module.items {

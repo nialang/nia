@@ -13,7 +13,7 @@ values: [T; 3],
 fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
 "#,
     );
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
@@ -88,7 +88,7 @@ value: T,
 fn main(a: Bits[i32]) {}
 "#,
     );
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);

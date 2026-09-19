@@ -13,7 +13,7 @@ c: u8,
 }
 "#,
     );
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
@@ -46,7 +46,7 @@ fn preserves_tuple_struct_field_order() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module("struct Mixed(u8, i64, u16)");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
@@ -87,7 +87,7 @@ let mut xs: [u8; _] = [1, 2];
 }
 "#,
     );
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
@@ -115,7 +115,7 @@ value: i32,
 }
 "#,
     );
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);

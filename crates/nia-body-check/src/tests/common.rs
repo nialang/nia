@@ -292,7 +292,7 @@ fn pipeline_with_options_and_trait_impls(
     let symbols = SymbolTable::new();
     let (module, parse_errors) = parse_module_with_symbols(source, symbols.clone());
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     assert!(
