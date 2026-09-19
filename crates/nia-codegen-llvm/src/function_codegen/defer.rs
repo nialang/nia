@@ -40,7 +40,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.emit_defer_scope(scope, outer_blocks)
     }
 
-    fn emit_defer_scope(
+    pub(super) fn emit_defer_scope(
         &mut self,
         scope: DeferScope,
         outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,

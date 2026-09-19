@@ -608,9 +608,8 @@ fn main(flag: bool) i32 {
         .find("%zst.local = alloca i8")
         .expect("ZST identity storage");
     let defer_entry = ir.find("defer.entry:").expect("defer entry block");
-    let defer_entry1 = ir.find("defer.entry1:").expect("second defer entry block");
-    assert!(storage < defer_entry && storage < defer_entry1, "{ir}");
-    assert_eq!(ir.matches("call void").count(), 2, "{ir}");
+    assert!(storage < defer_entry, "{ir}");
+    assert_eq!(ir.matches("call void").count(), 1, "{ir}");
 }
 
 #[test]

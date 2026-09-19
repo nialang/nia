@@ -74,6 +74,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.builder.position_at_end(physical_entry);
         self.out_ptr = self.function_out_ptr()?;
         self.caller_location = self.function_caller_location()?;
+        self.alloc_function_return_storage(body)?;
         self.alloc_function_locals(body)?;
         self.store_params()?;
         for scope in &body.scopes {
@@ -106,7 +107,34 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
         }
         self.active_function_scope = None;
+        self.emit_pending_function_return_cleanups(&llvm_blocks)?;
 
+        Ok(())
+    }
+
+    fn alloc_function_return_storage(&mut self, body: &FunctionBody) -> Result<(), Diagnostic> {
+        let has_defer = body
+            .blocks
+            .iter()
+            .flat_map(|block| &block.ops)
+            .any(|op| matches!(op, FunctionOp::Defer(_)));
+        if !has_defer
+            || matches!(
+                self.module
+                    .classify_function_return(self.function.return_type),
+                crate::module_codegen::AbiReturn::Void | crate::module_codegen::AbiReturn::Never
+            )
+        {
+            return Ok(());
+        }
+        let ty = self
+            .module
+            .llvm_basic_type(self.function.return_type, body.span)?;
+        self.function_return_storage = Some(
+            self.builder
+                .build_alloca(ty, "return.cleanup")
+                .map_err(|_| self.error(body.span, "failed to allocate cleanup return storage"))?,
+        );
         Ok(())
     }
 
@@ -612,14 +640,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             kind,
             error_conversion,
         )?;
-        self.emit_function_tail_defers(body, block, span, outer_blocks)?;
-        if self.current_block_has_terminator() {
-            return Ok(());
-        }
         let value = self
             .builder
             .build_load(return_llvm_ty, return_ptr, "try.return.value")
             .map_err(|_| self.error(span, "failed to load propagation return"))?;
+        if self.queue_function_return_cleanup(body, block, span, Some(value))? {
+            return Ok(());
+        }
+        self.emit_function_tail_defers(body, block, span, outer_blocks)?;
+        if self.current_block_has_terminator() {
+            return Ok(());
+        }
         self.emit_return_value(span, value)
     }
 
@@ -801,6 +832,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 if self.current_block_has_terminator() {
                     return Ok(());
                 }
+                if self.queue_function_return_cleanup(body, block, span, None)? {
+                    return Ok(());
+                }
                 self.emit_function_tail_defers(body, block, span, outer_blocks)?;
                 if self.current_block_has_terminator() {
                     return Ok(());
@@ -829,6 +863,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 return Ok(());
             }
             let value = self.emit_expr(value)?;
+            if self.queue_function_return_cleanup(body, block, span, Some(value))? {
+                return Ok(());
+            }
             self.emit_function_tail_defers(body, block, span, outer_blocks)?;
             if self.current_block_has_terminator() {
                 return Ok(());
@@ -841,6 +878,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_return_value(span, value)?;
             }
         } else {
+            if self.queue_function_return_cleanup(body, block, span, None)? {
+                return Ok(());
+            }
             self.emit_function_tail_defers(body, block, span, outer_blocks)?;
             if self.current_block_has_terminator() {
                 return Ok(());
@@ -868,6 +908,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<(), Diagnostic> {
         let Some(value) = value else {
             if self.is_unit(self.function.return_type) {
+                if self.queue_function_return_cleanup(body, block, span, None)? {
+                    return Ok(());
+                }
                 self.emit_function_tail_defers(body, block, span, outer_blocks)?;
                 if self.current_block_has_terminator() {
                     return Ok(());
@@ -876,6 +919,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_return(None)
                     .map_err(|_| self.error(span, "failed to build void return"))?;
             } else if self.is_never(self.function.return_type) {
+                if self.queue_function_return_cleanup(body, block, span, None)? {
+                    return Ok(());
+                }
                 self.emit_function_tail_defers(body, block, span, outer_blocks)?;
                 if self.current_block_has_terminator() {
                     return Ok(());
@@ -889,6 +935,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if self.is_zero_sized(value.ty) {
             self.emit_effect_expr(value)?;
             if self.current_block_has_terminator() {
+                return Ok(());
+            }
+            if self.queue_function_return_cleanup(body, block, span, None)? {
                 return Ok(());
             }
             self.emit_function_tail_defers(body, block, span, outer_blocks)?;
@@ -910,11 +959,125 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if self.current_block_has_terminator() {
             return Ok(());
         }
+        if self.queue_function_return_cleanup(body, block, span, Some(value))? {
+            return Ok(());
+        }
         self.emit_function_tail_defers(body, block, span, outer_blocks)?;
         if self.current_block_has_terminator() {
             return Ok(());
         }
         self.emit_return_value(span, value)
+    }
+
+    fn queue_function_return_cleanup(
+        &mut self,
+        body: &FunctionBody,
+        block: FunctionBlockId,
+        span: Span,
+        value: Option<nia_llvm::values::BasicValueEnum<'ctx>>,
+    ) -> Result<bool, Diagnostic> {
+        let Some(exited_scopes) = body.return_exited_scopes(block) else {
+            return Err(self.error(span, "invalid function return scopes"));
+        };
+        let mut key = Vec::new();
+        let mut scopes = Vec::new();
+        for scope_id in exited_scopes {
+            let Some(index) = self.function_defer_scopes.get(&scope_id).copied() else {
+                return Err(self.error(span, "missing function defer scope"));
+            };
+            let Some(scope) = self.defer_scopes.get(index) else {
+                return Err(self.error(span, "missing function defer storage"));
+            };
+            if scope.bodies.is_empty() {
+                continue;
+            }
+            key.push((scope_id, scope.bodies.len()));
+            scopes.push(scope.clone());
+        }
+        if scopes.is_empty() {
+            return Ok(false);
+        }
+
+        if let Some(value) = value {
+            let Some(storage) = self.function_return_storage else {
+                return Err(self.error(span, "missing cleanup return storage"));
+            };
+            self.builder
+                .build_store(storage, value)
+                .map_err(|_| self.error(span, "failed to store cleanup return value"))?;
+        }
+
+        let entry = if let Some(entry) = self.function_return_cleanup_blocks.get(&key).copied() {
+            entry
+        } else {
+            let entry = self
+                .module
+                .context
+                .append_basic_block(self.llvm_function, "return.cleanup")?;
+            self.function_return_cleanup_blocks.insert(key, entry);
+            self.pending_function_return_cleanups
+                .push(super::FunctionReturnCleanup {
+                    entry,
+                    scopes,
+                    span,
+                });
+            entry
+        };
+        self.builder
+            .build_unconditional_branch(entry)
+            .map_err(|_| self.error(span, "failed to branch to function return cleanup"))?;
+        Ok(true)
+    }
+
+    fn emit_pending_function_return_cleanups(
+        &mut self,
+        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
+    ) -> Result<(), Diagnostic> {
+        let cleanups = std::mem::take(&mut self.pending_function_return_cleanups);
+        for cleanup in cleanups {
+            self.builder.position_at_end(cleanup.entry);
+            for scope in cleanup.scopes {
+                self.emit_defer_scope(scope, outer_blocks)?;
+                if self.current_block_has_terminator() {
+                    break;
+                }
+            }
+            if self.current_block_has_terminator() {
+                continue;
+            }
+            match self
+                .module
+                .classify_function_return(self.function.return_type)
+            {
+                crate::module_codegen::AbiReturn::Direct(_)
+                | crate::module_codegen::AbiReturn::IndirectOut(_) => {
+                    let Some(storage) = self.function_return_storage else {
+                        return Err(self.error(cleanup.span, "missing cleanup return storage"));
+                    };
+                    let ty = self
+                        .module
+                        .llvm_basic_type(self.function.return_type, cleanup.span)?;
+                    let value = self
+                        .builder
+                        .build_load(ty, storage, "return.cleanup.value")
+                        .map_err(|_| {
+                            self.error(cleanup.span, "failed to load cleanup return value")
+                        })?;
+                    self.emit_return_value(cleanup.span, value)?;
+                }
+                crate::module_codegen::AbiReturn::Void => {
+                    self.builder
+                        .build_return(None)
+                        .map_err(|_| self.error(cleanup.span, "failed to build cleanup return"))?;
+                }
+                crate::module_codegen::AbiReturn::Never => {
+                    self.builder.build_unreachable().map_err(|_| {
+                        self.error(cleanup.span, "failed to build cleanup never return")
+                    })?;
+                }
+            }
+        }
+        Ok(())
     }
 
     fn emit_function_tail_defers(
@@ -1197,14 +1360,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_alloca(ty, "return.copy")
             .map_err(|_| self.error(span, "failed to allocate aggregate return"))?;
         self.emit_aggregate_literal_into(return_copy, value)?;
-        self.emit_function_tail_defers(body, block, span, outer_blocks)?;
-        if self.current_block_has_terminator() {
-            return Ok(true);
-        }
         let value = self
             .builder
             .build_load(ty, return_copy, "return.value")
             .map_err(|_| self.error(span, "failed to load aggregate return"))?;
+        if self.queue_function_return_cleanup(body, block, span, Some(value))? {
+            return Ok(true);
+        }
+        self.emit_function_tail_defers(body, block, span, outer_blocks)?;
+        if self.current_block_has_terminator() {
+            return Ok(true);
+        }
         self.emit_return_value(span, value)?;
         Ok(true)
     }
