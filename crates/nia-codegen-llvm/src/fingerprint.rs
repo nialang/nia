@@ -2107,7 +2107,9 @@ mod tests {
     fn fixture(program: BackendProgram, type_store: TypeStore, owner: &str) -> Fixture {
         let owners = BackendModuleOwnerDirectory::from_modules(&program.modules)
             .expect("build backend owner directory");
-        let plan = program.codegen_partition_plan();
+        let plan = program
+            .codegen_partition_plan()
+            .expect("plan backend program");
         let partition = plan
             .partitions()
             .iter()
@@ -2139,6 +2141,7 @@ mod tests {
                 &fixture.index,
                 &fixture.owners,
             )
+            .expect("build declaration membership")
         else {
             panic!("complete fingerprint fixture produced pending declaration membership")
         };

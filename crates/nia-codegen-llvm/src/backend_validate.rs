@@ -2619,7 +2619,8 @@ mod owner_tests {
             const_args: Vec::new(),
         };
         let declarations = CodegenDeclarationMembership {
-            dependencies: CodegenUnitDependencies::new(unit, [module_id]),
+            dependencies: CodegenUnitDependencies::new(unit, [module_id])
+                .expect("build codegen dependencies"),
             structs: Vec::new(),
             struct_instances: Vec::new(),
             unions: Vec::new(),

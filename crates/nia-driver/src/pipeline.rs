@@ -1259,9 +1259,15 @@ impl Driver {
                     paths
                 }
             };
-            DriverOutput::success(WrittenObjectArtifact {
-                link_inputs: nia_codegen_llvm::IncrementalLinkInputs::new(written),
-            })
+            let link_inputs = match nia_codegen_llvm::IncrementalLinkInputs::new(written) {
+                Ok(inputs) => inputs,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        Diagnostic::from(error),
+                    ));
+                }
+            };
+            DriverOutput::success(WrittenObjectArtifact { link_inputs })
         }
     }
 
@@ -1404,7 +1410,14 @@ impl Driver {
                     object: object_path,
                 });
             }
-            let link_inputs = nia_codegen_llvm::IncrementalLinkInputs::new(link_inputs);
+            let link_inputs = match nia_codegen_llvm::IncrementalLinkInputs::new(link_inputs) {
+                Ok(inputs) => inputs,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        Diagnostic::from(error),
+                    ));
+                }
+            };
             if let Some(parent) = output.parent()
                 && !parent.as_os_str().is_empty()
                 && let Err(error) = fs::create_dir_all(parent)

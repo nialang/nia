@@ -69,7 +69,7 @@ impl CodegenReadinessCoordinator {
         let module = self.index.module(module_id).ok_or_else(|| {
             nia_ice::Ice::new("published backend module is missing from codegen index")
         })?;
-        let plan = CodegenPartitionPlan::for_ready_module(module);
+        let plan = CodegenPartitionPlan::for_ready_module(module)?;
         for partition in plan.partitions() {
             if !self.unit_keys.insert(partition.key.clone()) {
                 return Err(nia_ice::Ice::new(
@@ -78,7 +78,7 @@ impl CodegenReadinessCoordinator {
             }
         }
         self.pending.extend(plan.partitions().iter().cloned());
-        Ok(self.retry_pending())
+        self.retry_pending()
     }
 
     pub(super) fn finish(self) -> nia_ice::IceResult<Arc<ProgramIndex>> {
@@ -101,7 +101,7 @@ impl CodegenReadinessCoordinator {
         Ok(self.index)
     }
 
-    fn retry_pending(&mut self) -> Vec<CodegenPartitionPreparation> {
+    fn retry_pending(&mut self) -> nia_ice::IceResult<Vec<CodegenPartitionPreparation>> {
         let mut unresolved = Vec::new();
         let mut ready = Vec::new();
         let all_modules_published = self
@@ -120,7 +120,7 @@ impl CodegenReadinessCoordinator {
                     continue;
                 }
             }
-            match CodegenDeclarationMembership::build(&partition, &self.index, &self.owners) {
+            match CodegenDeclarationMembership::build(&partition, &self.index, &self.owners)? {
                 CodegenDeclarationMembershipBuild::Ready(declarations) => {
                     if !all_modules_published {
                         let diagnostics =
@@ -176,6 +176,6 @@ impl CodegenReadinessCoordinator {
             }
         }
         self.pending = unresolved;
-        ready
+        Ok(ready)
     }
 }

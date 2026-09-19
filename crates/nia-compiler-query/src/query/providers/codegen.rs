@@ -339,7 +339,7 @@ pub(in crate::query) fn provide_backend_item_plan(
                     &db.context().type_store,
                     optimization,
                     db.context().timings(),
-                ))
+                )?)
             }
             None => Ok(nia_backend_lower::BackendItemPlan::from_diagnostics(
                 optimization,

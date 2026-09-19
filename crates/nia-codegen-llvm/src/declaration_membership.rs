@@ -45,7 +45,7 @@ impl CodegenDeclarationMembership {
         partition: &CodegenPartition,
         index: &ProgramIndex,
         owners: &BackendModuleOwnerDirectory,
-    ) -> CodegenDeclarationMembershipBuild {
+    ) -> nia_ice::IceResult<CodegenDeclarationMembershipBuild> {
         MembershipBuilder::new(index, owners).build(partition)
     }
 
@@ -123,13 +123,16 @@ impl<'a> MembershipBuilder<'a> {
         }
     }
 
-    fn build(mut self, partition: &CodegenPartition) -> CodegenDeclarationMembershipBuild {
+    fn build(
+        mut self,
+        partition: &CodegenPartition,
+    ) -> nia_ice::IceResult<CodegenDeclarationMembershipBuild> {
         let Some(owner) = self.index.module_for_partition(partition) else {
-            return CodegenDeclarationMembershipBuild::Invalid {
+            return Ok(CodegenDeclarationMembershipBuild::Invalid {
                 diagnostics: vec![invalid_membership(
                     "codegen partition has no matching published owner module",
                 )],
-            };
+            });
         };
         self.dependency_modules.insert(owner.id);
         for &index in partition.global_definitions() {
@@ -647,12 +650,15 @@ impl<'a> MembershipBuilder<'a> {
         }
     }
 
-    fn finish(mut self, unit: CodegenUnitId) -> CodegenDeclarationMembershipBuild {
+    fn finish(
+        mut self,
+        unit: CodegenUnitId,
+    ) -> nia_ice::IceResult<CodegenDeclarationMembershipBuild> {
         self.validate_instance_records();
         if !self.diagnostics.is_empty() {
-            return CodegenDeclarationMembershipBuild::Invalid {
+            return Ok(CodegenDeclarationMembershipBuild::Invalid {
                 diagnostics: self.diagnostics,
-            };
+            });
         }
         for module_id in &self.dependency_modules {
             if !self.index.is_published(*module_id) {
@@ -660,9 +666,8 @@ impl<'a> MembershipBuilder<'a> {
             }
         }
         if !self.pending_modules.is_empty() {
-            return CodegenDeclarationMembershipBuild::Pending(CodegenUnitPendingModules::new(
-                unit,
-                self.pending_modules,
+            return Ok(CodegenDeclarationMembershipBuild::Pending(
+                CodegenUnitPendingModules::new(unit, self.pending_modules)?,
             ));
         }
         let mut structs = self.structs.into_iter().collect::<Vec<_>>();
@@ -724,18 +729,20 @@ impl<'a> MembershipBuilder<'a> {
                 stable_type_key(self.index, key.object_ty),
             )
         });
-        CodegenDeclarationMembershipBuild::Ready(Box::new(CodegenDeclarationMembership {
-            dependencies: CodegenUnitDependencies::new(unit, self.dependency_modules),
-            structs,
-            struct_instances,
-            unions,
-            union_instances,
-            functions,
-            function_instances,
-            globals,
-            global_instances,
-            vtables,
-        }))
+        Ok(CodegenDeclarationMembershipBuild::Ready(Box::new(
+            CodegenDeclarationMembership {
+                dependencies: CodegenUnitDependencies::new(unit, self.dependency_modules)?,
+                structs,
+                struct_instances,
+                unions,
+                union_instances,
+                functions,
+                function_instances,
+                globals,
+                global_instances,
+                vtables,
+            },
+        )))
     }
 
     fn validate_instance_records(&mut self) {
@@ -1064,6 +1071,7 @@ mod tests {
     fn caller_partition(program: &BackendProgram, caller: ModuleId) -> CodegenPartition {
         program
             .codegen_partition_plan()
+            .expect("plan backend program")
             .partitions()
             .iter()
             .find(|partition| {
@@ -1103,7 +1111,9 @@ mod tests {
         let (index, mut publisher) = ProgramIndex::new(program.module_store(), Arc::new(types));
         publisher.publish(caller).expect("publish module");
 
-        let pending = match CodegenDeclarationMembership::build(&partition, &index, &owners) {
+        let pending = match CodegenDeclarationMembership::build(&partition, &index, &owners)
+            .expect("build declaration membership")
+        {
             CodegenDeclarationMembershipBuild::Pending(pending) => pending,
             CodegenDeclarationMembershipBuild::Ready(_) => {
                 panic!("membership became ready before its actual instance owner")
@@ -1118,7 +1128,9 @@ mod tests {
         assert!(!pending.modules().contains(&unrelated));
 
         publisher.publish(actual_owner).expect("publish module");
-        let ready = match CodegenDeclarationMembership::build(&partition, &index, &owners) {
+        let ready = match CodegenDeclarationMembership::build(&partition, &index, &owners)
+            .expect("build declaration membership")
+        {
             CodegenDeclarationMembershipBuild::Ready(ready) => ready,
             CodegenDeclarationMembershipBuild::Pending(pending) => {
                 panic!("membership remained pending for {:?}", pending.modules())
@@ -1204,7 +1216,7 @@ mod tests {
             let mut builder = MembershipBuilder::new(&index, &owners);
             builder.add_type(nominal_ty);
             builder.close_types();
-            builder.finish(unit)
+            builder.finish(unit).expect("build declaration membership")
         };
         let pending = match result {
             CodegenDeclarationMembershipBuild::Pending(pending) => pending,
@@ -1254,10 +1266,12 @@ mod tests {
             let mut builder = MembershipBuilder::new(&index, &owners);
             builder.add_type(nominal);
             builder.close_types();
-            builder.finish(CodegenUnitId::SourceModule {
-                module_id,
-                ordinal: 0,
-            })
+            builder
+                .finish(CodegenUnitId::SourceModule {
+                    module_id,
+                    ordinal: 0,
+                })
+                .expect("build declaration membership")
         };
         let CodegenDeclarationMembershipBuild::Ready(membership) = result else {
             panic!("generic descriptor did not produce ready membership")
@@ -1317,7 +1331,9 @@ mod tests {
         publisher.publish(caller).expect("publish module");
         publisher.publish(instance_owner).expect("publish module");
 
-        let pending = match CodegenDeclarationMembership::build(&partition, &index, &owners) {
+        let pending = match CodegenDeclarationMembership::build(&partition, &index, &owners)
+            .expect("build declaration membership")
+        {
             CodegenDeclarationMembershipBuild::Pending(pending) => pending,
             CodegenDeclarationMembershipBuild::Ready(_) => {
                 panic!("membership became ready before the const expression owner")
@@ -1466,7 +1482,9 @@ mod tests {
             });
             builder.add_refs(refs);
             builder.close_types();
-            builder.finish(partition.id)
+            builder
+                .finish(partition.id)
+                .expect("build declaration membership")
         };
         let pending = match build(&index) {
             CodegenDeclarationMembershipBuild::Pending(pending) => pending,
@@ -1534,7 +1552,8 @@ mod tests {
         publisher.publish(caller).expect("publish module");
         publisher.publish(actual_owner).expect("publish module");
 
-        let result = CodegenDeclarationMembership::build(&partition, &index, &owners);
+        let result = CodegenDeclarationMembership::build(&partition, &index, &owners)
+            .expect("build declaration membership");
         let CodegenDeclarationMembershipBuild::Invalid { diagnostics } = result else {
             panic!("expected invalid membership result")
         };
@@ -1564,10 +1583,12 @@ mod tests {
         };
 
         builder.add_refs(refs);
-        let result = builder.finish(CodegenUnitId::SourceModule {
-            module_id,
-            ordinal: 0,
-        });
+        let result = builder
+            .finish(CodegenUnitId::SourceModule {
+                module_id,
+                ordinal: 0,
+            })
+            .expect("build declaration membership");
 
         let CodegenDeclarationMembershipBuild::Invalid { diagnostics } = result else {
             panic!("expected invalid membership result")
@@ -1603,10 +1624,12 @@ mod tests {
             const_args: Vec::new(),
         });
 
-        let result = builder.finish(CodegenUnitId::SourceModule {
-            module_id,
-            ordinal: 0,
-        });
+        let result = builder
+            .finish(CodegenUnitId::SourceModule {
+                module_id,
+                ordinal: 0,
+            })
+            .expect("build declaration membership");
         let CodegenDeclarationMembershipBuild::Invalid { diagnostics } = result else {
             panic!("expected invalid membership result")
         };

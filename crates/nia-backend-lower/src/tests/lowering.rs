@@ -338,7 +338,8 @@ fn main() i32 {
     };
     let optimization = nia_opt::OptimizationPolicy::default();
     let inputs = [input];
-    let plan = plan_backend_program(&inputs, &type_store, optimization);
+    let plan =
+        plan_backend_program(&inputs, &type_store, optimization).expect("plan backend program");
     assert!(plan.diagnostics().is_empty(), "{:?}", plan.diagnostics());
     assert_eq!(plan.modules().len(), 1);
     assert_eq!(plan.optimization(), optimization);

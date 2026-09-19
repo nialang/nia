@@ -200,7 +200,9 @@ pub(super) fn emit_owned_llvm_ir(
     program: BackendProgram,
     type_store: nia_ty::TypeStore,
 ) -> LlvmCodegenOutput {
-    let codegen_partitions = program.codegen_partition_plan();
+    let codegen_partitions = program
+        .codegen_partition_plan()
+        .expect("plan backend program");
     let owner_directory = Arc::new(
         nia_backend_ir::BackendModuleOwnerDirectory::from_modules(&program.modules)
             .expect("build backend owner directory"),
