@@ -324,7 +324,7 @@ impl BackendModuleFinalizationCollector {
             diagnostics.extend(module_diagnostics);
         }
         let program = BackendProgram::from_module_store(self.modules)?;
-        let codegen_partitions = program.codegen_partition_plan();
+        let codegen_partitions = program.codegen_partition_plan()?;
         Ok(BackendLowering {
             program,
             owner_directory,
@@ -617,7 +617,7 @@ pub fn lower_backend_program_with_timings(
     optimization: OptimizationPolicy,
     timings: nia_timing::TimingMode,
 ) -> nia_ice::IceResult<BackendLowering> {
-    let plan = plan_backend_program_with_timings(modules, type_store, optimization, timings);
+    let plan = plan_backend_program_with_timings(modules, type_store, optimization, timings)?;
     let (finalization, module_plans) = plan.into_module_plans()?;
     finalize_backend_module_item_plans_with_timings(
         modules,
@@ -633,7 +633,7 @@ pub fn plan_backend_program(
     modules: &[BackendLowerModuleInput<'_>],
     type_store: &nia_ty::TypeStore,
     optimization: OptimizationPolicy,
-) -> BackendItemPlan {
+) -> nia_ice::IceResult<BackendItemPlan> {
     plan_backend_program_with_timings(
         modules,
         type_store,
@@ -653,7 +653,7 @@ pub fn plan_backend_program_with_timings(
     type_store: &nia_ty::TypeStore,
     optimization: OptimizationPolicy,
     timings: nia_timing::TimingMode,
-) -> BackendItemPlan {
+) -> nia_ice::IceResult<BackendItemPlan> {
     let timing = timings.detail();
     let mut diagnostics = input::validate_backend_lowering_inputs(modules);
     let mut optimization_report = BackendOptimizationReport {
@@ -663,7 +663,7 @@ pub fn plan_backend_program_with_timings(
         changed_passes: Vec::new(),
     };
     if !diagnostics.is_empty() {
-        return BackendItemPlan::from_diagnostics(optimization, diagnostics);
+        return Ok(BackendItemPlan::from_diagnostics(optimization, diagnostics));
     }
     let shared = time_backend_stage(timing, "backend_lower.shared_indexes", || {
         BackendLowerShared::new(modules)
@@ -704,11 +704,11 @@ pub fn plan_backend_program_with_timings(
         .enumerate()
         .map(|(index, module)| (module.id, index))
         .collect::<HashMap<_, _>>();
-    assert_eq!(
-        module_indices.len(),
-        lowered_modules.len(),
-        "Nia ICE: backend module plan contains duplicate module owners"
-    );
+    if module_indices.len() != lowered_modules.len() {
+        return Err(nia_ice::Ice::new(
+            "backend module plan contains duplicate module owners",
+        ));
+    }
     time_backend_stage(timing, "backend_lower.foreign_items", || {
         while !pending_foreign_items.is_empty() {
             let (plan, owner_diagnostics) =
@@ -762,11 +762,11 @@ pub fn plan_backend_program_with_timings(
         }
     });
 
-    assert_eq!(
-        lowerers.len(),
-        lowered_modules.len(),
-        "Nia ICE: backend lowerers must match materialized modules"
-    );
+    if lowerers.len() != lowered_modules.len() {
+        return Err(nia_ice::Ice::new(
+            "backend lowerers must match materialized modules",
+        ));
+    }
     time_backend_stage(timing, "backend_lower.definition_membership", || {
         for (lowerer, module) in lowerers.iter_mut().zip(&mut lowered_modules) {
             lowerer.complete_definition_membership(module);
@@ -785,7 +785,7 @@ pub fn plan_backend_program_with_timings(
         type_store,
     ));
 
-    BackendItemPlan {
+    Ok(BackendItemPlan {
         modules: lowered_modules
             .into_iter()
             .map(|module| BackendModuleItemPlan { module })
@@ -793,7 +793,7 @@ pub fn plan_backend_program_with_timings(
         optimization,
         optimization_report,
         diagnostics,
-    }
+    })
 }
 
 fn assign_unique_aggregate_instance_owners(
@@ -1299,7 +1299,7 @@ pub fn finalize_backend_module_item_plans_with_timings(
                 .map(|module_plan| module_plan.module)
                 .collect(),
         )?;
-        let codegen_partitions = program.codegen_partition_plan();
+        let codegen_partitions = program.codegen_partition_plan()?;
         return Ok(BackendLowering {
             program,
             owner_directory: finalization.owner_directory,

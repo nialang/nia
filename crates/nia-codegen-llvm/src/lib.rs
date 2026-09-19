@@ -234,7 +234,7 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
             self.reuse_counts.emit();
         }
         Ok(LlvmObjectOutput {
-            link_inputs: IncrementalLinkInputs::new(self.outputs),
+            link_inputs: IncrementalLinkInputs::new(self.outputs)?,
             diagnostics,
         })
     }
@@ -526,7 +526,7 @@ fn emit_native_objects_inner(
             Ok(value) => value,
             Err(ice) => {
                 return LlvmObjectOutput {
-                    link_inputs: IncrementalLinkInputs::new(Vec::new()),
+                    link_inputs: IncrementalLinkInputs::default(),
                     diagnostics: vec![nia_diagnostic::Diagnostic::from(ice)],
                 };
             }
@@ -535,7 +535,7 @@ fn emit_native_objects_inner(
     let program_diagnostics = validate_native_backend_program(&index, builtin_symbols);
     if !program_diagnostics.is_empty() {
         return LlvmObjectOutput {
-            link_inputs: IncrementalLinkInputs::new(Vec::new()),
+            link_inputs: IncrementalLinkInputs::default(),
             diagnostics: program_diagnostics,
         };
     }
@@ -607,9 +607,18 @@ fn emit_native_objects_inner(
         nia_timing::emit_counter("llvm.worker_lanes", worker_lanes as u64);
         reuse_counts.emit();
     }
-    LlvmObjectOutput {
-        link_inputs: IncrementalLinkInputs::new(outputs),
-        diagnostics,
+    match IncrementalLinkInputs::new(outputs) {
+        Ok(link_inputs) => LlvmObjectOutput {
+            link_inputs,
+            diagnostics,
+        },
+        Err(ice) => {
+            diagnostics.push(nia_diagnostic::Diagnostic::from(ice));
+            LlvmObjectOutput {
+                link_inputs: IncrementalLinkInputs::default(),
+                diagnostics,
+            }
+        }
     }
 }
 

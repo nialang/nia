@@ -694,7 +694,7 @@ fn empty_backend_lowering(
 ) -> QueryResult<nia_backend_lower::BackendLowering> {
     let program = nia_backend_ir::BackendProgram::new(Vec::new())?;
     Ok(nia_backend_lower::BackendLowering {
-        codegen_partitions: program.codegen_partition_plan(),
+        codegen_partitions: program.codegen_partition_plan()?,
         program,
         owner_directory: Arc::new(nia_backend_ir::BackendModuleOwnerDirectory::default()),
         optimization,

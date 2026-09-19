@@ -67,7 +67,7 @@ impl BackendProgram {
     }
 
     /// Derives the deterministic codegen partition plan.
-    pub fn codegen_partition_plan(&self) -> CodegenPartitionPlan {
+    pub fn codegen_partition_plan(&self) -> nia_ice::IceResult<CodegenPartitionPlan> {
         CodegenPartitionPlan::from_modules(&self.modules)
     }
 
@@ -662,16 +662,20 @@ pub struct CodegenUnitDependencies {
 
 impl CodegenUnitDependencies {
     /// Creates a canonical, non-empty dependency set.
-    pub fn new(unit: CodegenUnitId, modules: impl IntoIterator<Item = ModuleId>) -> Self {
+    pub fn new(
+        unit: CodegenUnitId,
+        modules: impl IntoIterator<Item = ModuleId>,
+    ) -> nia_ice::IceResult<Self> {
         let modules = modules.into_iter().collect::<BTreeSet<_>>();
-        assert!(
-            !modules.is_empty(),
-            "Nia ICE: codegen unit dependency modules must include its owner"
-        );
-        Self {
+        if modules.is_empty() {
+            return Err(nia_ice::Ice::new(
+                "codegen unit dependency modules must include its owner",
+            ));
+        }
+        Ok(Self {
             unit,
             modules: modules.into_iter().collect(),
-        }
+        })
     }
 
     /// Returns the unit whose dependencies are described.
@@ -699,16 +703,20 @@ pub struct CodegenUnitPendingModules {
 
 impl CodegenUnitPendingModules {
     /// Creates a non-empty pending set after sorting and deduplication.
-    pub fn new(unit: CodegenUnitId, modules: impl IntoIterator<Item = ModuleId>) -> Self {
+    pub fn new(
+        unit: CodegenUnitId,
+        modules: impl IntoIterator<Item = ModuleId>,
+    ) -> nia_ice::IceResult<Self> {
         let modules = modules.into_iter().collect::<BTreeSet<_>>();
-        assert!(
-            !modules.is_empty(),
-            "Nia ICE: pending codegen unit must wait for at least one module"
-        );
-        Self {
+        if modules.is_empty() {
+            return Err(nia_ice::Ice::new(
+                "pending codegen unit must wait for at least one module",
+            ));
+        }
+        Ok(Self {
             unit,
             modules: modules.into_iter().collect(),
-        }
+        })
     }
 
     /// Returns the blocked code-generation unit.
@@ -745,14 +753,15 @@ pub struct IncrementalLinkInputs<T> {
 
 impl<T> IncrementalLinkInputs<T> {
     /// Validates and stores already-sorted incremental inputs.
-    pub fn new(inputs: Vec<IncrementalLinkInput<T>>) -> Self {
+    pub fn new(inputs: Vec<IncrementalLinkInput<T>>) -> nia_ice::IceResult<Self> {
         for pair in inputs.windows(2) {
-            assert!(
-                pair[0].key < pair[1].key,
-                "Nia ICE: incremental link inputs must have unique stable keys in ascending order"
-            );
+            if pair[0].key >= pair[1].key {
+                return Err(nia_ice::Ice::new(
+                    "incremental link inputs must have unique stable keys in ascending order",
+                ));
+            }
         }
-        Self { inputs }
+        Ok(Self { inputs })
     }
 
     /// Borrows the stable input sequence.
@@ -794,25 +803,28 @@ pub struct CodegenPartitionPlan {
 }
 
 impl CodegenPartitionPlan {
-    fn from_modules(modules: &BackendModules) -> Self {
+    fn from_modules(modules: &BackendModules) -> nia_ice::IceResult<Self> {
         Self::from_module_iter(modules)
     }
 
     /// Builds a plan for one module that has just become ready.
-    pub fn for_ready_module(module: &BackendModule) -> Self {
+    pub fn for_ready_module(module: &BackendModule) -> nia_ice::IceResult<Self> {
         Self::from_module_iter([module])
     }
 
-    fn from_module_iter<'a>(modules: impl IntoIterator<Item = &'a BackendModule>) -> Self {
+    fn from_module_iter<'a>(
+        modules: impl IntoIterator<Item = &'a BackendModule>,
+    ) -> nia_ice::IceResult<Self> {
         let modules = modules.into_iter().collect::<Vec<_>>();
         let mut vtable_definitions = HashSet::new();
         for module in &modules {
             for vtable in &module.trait_object_vtables {
-                assert!(
-                    vtable_definitions.insert(vtable.key.clone()),
-                    "Nia ICE: backend program contains duplicate trait-object vtable definition {:?}",
-                    vtable.key
-                );
+                if !vtable_definitions.insert(vtable.key.clone()) {
+                    return Err(nia_ice::Ice::new(format!(
+                        "backend program contains duplicate trait-object vtable definition {:?}",
+                        vtable.key
+                    )));
+                }
             }
         }
         let mut partitions = modules
@@ -829,12 +841,13 @@ impl CodegenPartitionPlan {
             .collect::<Vec<_>>();
         partitions.sort_unstable_by(|left, right| left.key.cmp(&right.key));
         for pair in partitions.windows(2) {
-            assert_ne!(
-                pair[0].key, pair[1].key,
-                "Nia ICE: backend program contains duplicate stable codegen partition key"
-            );
+            if pair[0].key == pair[1].key {
+                return Err(nia_ice::Ice::new(
+                    "backend program contains duplicate stable codegen partition key",
+                ));
+            }
         }
-        Self { partitions }
+        Ok(Self { partitions })
     }
 
     /// Returns partitions in ascending stable-key order.
@@ -845,7 +858,7 @@ impl CodegenPartitionPlan {
     /// Asserts that this plan exactly matches the program's current modules.
     pub fn validate_program(&self, program: &BackendProgram) -> nia_ice::IceResult<()> {
         let modules = &program.modules;
-        let expected = Self::from_modules(modules);
+        let expected = Self::from_modules(modules)?;
         if self != &expected {
             return Err(nia_ice::Ice::new(
                 "codegen partition plan does not match the backend program",

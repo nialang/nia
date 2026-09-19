@@ -95,7 +95,8 @@ fn writing_native_object_preserves_incremental_link_identity() {
                 name: "nia.compiler_builtins".to_string(),
                 bytes: b"native-object".to_vec(),
             },
-        }]),
+        }])
+        .expect("build incremental link inputs"),
         optimization: crate::OptimizationPolicy::default(),
         optimization_report: crate::BackendOptimizationReport::default(),
         diagnostics: Vec::new(),
@@ -157,7 +158,8 @@ fn static_archive_test_objects(first_fingerprint: [u64; 2]) -> crate::ObjectArti
                 "backend_second_name",
                 b"second-object",
             ),
-        ]),
+        ])
+        .expect("build incremental link inputs"),
         optimization: crate::OptimizationPolicy::default(),
         optimization_report: crate::BackendOptimizationReport::default(),
         diagnostics: Vec::new(),
@@ -388,7 +390,8 @@ fn link_result_cache_skips_linker_until_typed_input_changes() {
                 name: "nia.compiler_builtins".to_string(),
                 bytes: b"object".to_vec(),
             },
-        }]),
+        }])
+        .expect("build incremental link inputs"),
         optimization: crate::OptimizationPolicy::default(),
         optimization_report: crate::BackendOptimizationReport::default(),
         diagnostics: Vec::new(),

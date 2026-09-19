@@ -181,7 +181,7 @@ fn partitioning_defers_dangling_closure_instance_owners_to_validation() {
         })
         .collect();
 
-    let plan = CodegenPartitionPlan::for_ready_module(&module);
+    let plan = CodegenPartitionPlan::for_ready_module(&module).expect("plan ready module");
     let partitioned_entries = plan
         .partitions()
         .iter()
@@ -257,7 +257,9 @@ fn codegen_partitions_are_definition_filtered_and_stable_key_ordered() {
     ])
     .expect("build backend program");
 
-    let plan = program.codegen_partition_plan();
+    let plan = program
+        .codegen_partition_plan()
+        .expect("plan backend program");
     let partitions = plan.partitions();
     assert_eq!(
         partitions
@@ -289,7 +291,9 @@ fn codegen_partitions_are_definition_filtered_and_stable_key_ordered() {
         .find(|module| module.id == first_id)
         .expect("first ready module");
     assert_eq!(
-        CodegenPartitionPlan::for_ready_module(first_module).partitions(),
+        CodegenPartitionPlan::for_ready_module(first_module)
+            .expect("plan ready module")
+            .partitions(),
         &partitions[..1]
     );
     for partition in partitions {
@@ -378,7 +382,9 @@ fn codegen_partition_order_does_not_depend_on_module_id_allocation() {
     ])
     .expect("build backend program");
 
-    let plan = program.codegen_partition_plan();
+    let plan = program
+        .codegen_partition_plan()
+        .expect("plan backend program");
 
     assert_eq!(
         program
@@ -417,7 +423,9 @@ fn large_source_modules_use_stable_bounded_definition_buckets() {
         .collect();
     let program = BackendProgram::new(vec![module]).expect("build backend program");
 
-    let plan = program.codegen_partition_plan();
+    let plan = program
+        .codegen_partition_plan()
+        .expect("plan backend program");
 
     assert_eq!(plan.partitions().len(), SOURCE_CODEGEN_BUCKETS);
     for (ordinal, partition) in plan.partitions().iter().enumerate() {
@@ -442,7 +450,6 @@ fn codegen_bucket_assignment_uses_full_stable_numeric_width() {
 }
 
 #[test]
-#[should_panic(expected = "duplicate stable codegen partition key")]
 fn codegen_partition_plan_rejects_duplicate_stable_source_keys() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let first_id = module_ids.allocate().expect("allocate module ID");
@@ -460,11 +467,17 @@ fn codegen_partition_plan_rejects_duplicate_stable_source_keys() {
     ])
     .expect("build backend program");
 
-    let _ = program.codegen_partition_plan();
+    let error = program
+        .codegen_partition_plan()
+        .expect_err("duplicate stable partition keys must be rejected");
+    assert!(
+        error
+            .message
+            .contains("duplicate stable codegen partition key")
+    );
 }
 
 #[test]
-#[should_panic(expected = "duplicate trait-object vtable definition")]
 fn codegen_partition_plan_rejects_duplicate_vtable_definitions() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let first_id = module_ids.allocate().expect("allocate module ID");
@@ -494,11 +507,17 @@ fn codegen_partition_plan_rejects_duplicate_vtable_definitions() {
     second.trait_object_vtables.push(vtable);
     let program = BackendProgram::new(vec![first, second]).expect("build backend program");
 
-    let _ = program.codegen_partition_plan();
+    let error = program
+        .codegen_partition_plan()
+        .expect_err("duplicate vtable definitions must be rejected");
+    assert!(
+        error
+            .message
+            .contains("duplicate trait-object vtable definition")
+    );
 }
 
 #[test]
-#[should_panic(expected = "codegen partition plan does not match")]
 fn codegen_partition_plan_rejects_definition_membership_mutation() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
@@ -508,13 +527,17 @@ fn codegen_partition_plan_rejects_definition_membership_mutation() {
         .test_primitive(PrimitiveTy::I32);
     let program = BackendProgram::new(vec![module_with_global(module_id, ty, "main", false)])
         .expect("build backend program");
-    let plan = program.codegen_partition_plan();
+    let plan = program
+        .codegen_partition_plan()
+        .expect("plan backend program");
     let mut changed_module = module_with_global(module_id, ty, "main", false);
     changed_module.globals.clear();
     let program = BackendProgram::new(vec![changed_module]).expect("build changed program");
 
-    plan.validate_program(&program)
-        .expect("validate matching backend program");
+    let error = plan
+        .validate_program(&program)
+        .expect_err("changed backend program must be rejected");
+    assert!(error.message.contains("does not match"));
 }
 
 #[test]
@@ -527,7 +550,8 @@ fn codegen_unit_dependencies_preserve_unit_and_canonicalize_modules() {
         ordinal: 2,
     };
 
-    let dependencies = CodegenUnitDependencies::new(unit, [second_id, first_id, second_id]);
+    let dependencies = CodegenUnitDependencies::new(unit, [second_id, first_id, second_id])
+        .expect("build codegen dependencies");
 
     assert_eq!(dependencies.unit(), unit);
     assert_eq!(dependencies.modules(), &[first_id, second_id]);
@@ -536,18 +560,19 @@ fn codegen_unit_dependencies_preserve_unit_and_canonicalize_modules() {
 }
 
 #[test]
-#[should_panic(expected = "dependency modules must include its owner")]
 fn codegen_unit_dependencies_reject_empty_module_sets() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
 
-    let _ = CodegenUnitDependencies::new(
+    let error = CodegenUnitDependencies::new(
         CodegenUnitId::SourceModule {
             module_id,
             ordinal: 0,
         },
         [],
-    );
+    )
+    .expect_err("empty dependency modules must be rejected");
+    assert!(error.message.contains("must include its owner"));
 }
 
 #[test]
@@ -725,7 +750,8 @@ fn incremental_link_inputs_accept_strict_stable_key_order() {
             },
         ),
         incremental_link_input("builtins.o", CodegenUnitKey::CompilerBuiltins),
-    ]);
+    ])
+    .expect("build incremental link inputs");
 
     assert_eq!(inputs.len(), 2);
     assert_eq!(inputs.as_slice()[0].object, "main.o");
@@ -741,18 +767,18 @@ fn empty_incremental_link_inputs_are_valid() {
 }
 
 #[test]
-#[should_panic(expected = "unique stable keys in ascending order")]
 fn incremental_link_inputs_reject_duplicate_keys() {
-    let _ = IncrementalLinkInputs::new(vec![
+    let error = IncrementalLinkInputs::new(vec![
         incremental_link_input("first.o", CodegenUnitKey::CompilerBuiltins),
         incremental_link_input("second.o", CodegenUnitKey::CompilerBuiltins),
-    ]);
+    ])
+    .expect_err("duplicate link input keys must be rejected");
+    assert!(error.message.contains("unique stable keys"));
 }
 
 #[test]
-#[should_panic(expected = "unique stable keys in ascending order")]
 fn incremental_link_inputs_reject_descending_keys() {
-    let _ = IncrementalLinkInputs::new(vec![
+    let error = IncrementalLinkInputs::new(vec![
         incremental_link_input("builtins.o", CodegenUnitKey::CompilerBuiltins),
         incremental_link_input(
             "main.o",
@@ -761,5 +787,7 @@ fn incremental_link_inputs_reject_descending_keys() {
                 ordinal: 0,
             },
         ),
-    ]);
+    ])
+    .expect_err("descending link input keys must be rejected");
+    assert!(error.message.contains("ascending order"));
 }
