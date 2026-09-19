@@ -80,6 +80,17 @@ pub fn parse_build_reports(stderr: &str, succeeded: bool) -> MaintainResult<Buil
     let counters = outer["counters"].as_object().expect("validated counters");
     let timing_entries = outer["timings"].as_array().expect("validated timings");
     let mut stages = BTreeMap::new();
+    for entry in timing_entries.iter().filter_map(Value::as_object) {
+        if entry.get("kind").and_then(Value::as_str) != Some("stage") {
+            continue;
+        }
+        let Some(name) = entry.get("name").and_then(Value::as_str) else {
+            return Err("build timing stage is missing a string name".to_owned());
+        };
+        if stages.insert(name.to_owned(), entry.clone()).is_some() {
+            return Err(format!("found duplicate {name:?} timing entries"));
+        }
+    }
     for name in BUILD_STAGE_NAMES {
         let entries = timing_entries
             .iter()
@@ -95,7 +106,6 @@ pub fn parse_build_reports(stderr: &str, succeeded: bool) -> MaintainResult<Buil
                 entries.len()
             ));
         }
-        stages.insert(name.to_owned(), entries[0].clone());
     }
     let measured_counters = counters
         .iter()
