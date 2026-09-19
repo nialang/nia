@@ -27,7 +27,7 @@ use nia_layout::{TypeLayout, array_layout, range_layout, sequential_layout, tagg
 use nia_llvm::{
     Context, LlvmError,
     module::Linkage,
-    target::TargetMachine,
+    target::{ModuleOptimization, TargetMachine},
     types::{FunctionType, StructType},
     values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue},
 };
@@ -494,6 +494,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         time_codegen_module_stage(self.timings, "emit_module", &self.source.name, || {
             self.emit_module()
         })?;
+        time_codegen_module_stage(
+            self.timings,
+            "run_module_optimization",
+            &self.source.name,
+            || {
+                target
+                    .run_module_optimization(&self.module, ModuleOptimization::Mem2Reg)
+                    .map_err(Self::diagnostic_from_llvm_error)
+            },
+        )?;
         time_codegen_module_stage(self.timings, "emit_object", &self.source.name, || {
             target
                 .emit_object(&self.module)
