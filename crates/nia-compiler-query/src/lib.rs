@@ -166,25 +166,29 @@ impl ProviderFactSnapshot {
         revision: ProviderFactRevision,
         reset_revision: ProviderFactRevision,
         demands: impl IntoIterator<Item = ProviderDemand>,
-    ) -> Self {
-        assert!(
-            matches!(
-                revision.transition_from(reset_revision),
-                ProviderFactRevisionTransition::Unchanged
-                    | ProviderFactRevisionTransition::Advanced
-            ),
-            "Nia ICE: provider fact reset revision must belong to the current lineage"
-        );
-        Self {
+    ) -> nia_ice::IceResult<Self> {
+        if !matches!(
+            revision.transition_from(reset_revision),
+            ProviderFactRevisionTransition::Unchanged | ProviderFactRevisionTransition::Advanced
+        ) {
+            return Err(nia_ice::Ice::new(
+                "provider fact reset revision must belong to the current lineage",
+            ));
+        }
+        Ok(Self {
             revision,
             reset_revision,
             demands: demands.into_iter().collect(),
-        }
+        })
     }
 
     /// Creates an empty snapshot at `revision`.
     pub fn empty(revision: ProviderFactRevision) -> Self {
-        Self::new(revision, revision, std::iter::empty())
+        Self {
+            revision,
+            reset_revision: revision,
+            demands: std::collections::HashSet::new(),
+        }
     }
 
     /// Returns the current provider-fact revision.

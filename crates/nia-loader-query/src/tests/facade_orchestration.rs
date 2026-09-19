@@ -156,8 +156,9 @@ extend types::Widget {
 "#,
     );
     let mut module_map = ModuleMap::new();
-    module_map.insert("dep", SourcePath::new(pkg_root.to_string_lossy()));
-
+    module_map
+        .insert("dep", SourcePath::new(pkg_root.to_string_lossy()))
+        .expect("insert module map entry");
     let entry_path = SourcePath::new(main.to_string_lossy());
     let database = LoaderDatabase::new_for_test(
         LoadRequest::new(main.to_string_lossy().into_owned()).with_module_map(module_map),

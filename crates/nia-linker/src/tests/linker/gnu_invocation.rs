@@ -58,7 +58,8 @@ fn invocation_preserves_typed_link_input_order() {
             fingerprint: CodegenUnitFingerprint::from_parts([5, 6]),
             object: PathBuf::from("builtins.o"),
         },
-    ]);
+    ])
+    .expect("build incremental link inputs");
     let options = LinkOptions {
         linker: ExecutableLinker::with_program("ld"),
         ..LinkOptions::default()

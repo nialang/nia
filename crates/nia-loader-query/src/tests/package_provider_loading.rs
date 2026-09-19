@@ -75,8 +75,9 @@ pub fn score(&self) i32 {
 "#,
     );
     let mut module_map = ModuleMap::new();
-    module_map.insert("dep", SourcePath::new(pkg_root.to_string_lossy()));
-
+    module_map
+        .insert("dep", SourcePath::new(pkg_root.to_string_lossy()))
+        .expect("insert module map entry");
     let source_path = SourcePath::new(main_path.to_string_lossy());
     let database = LoaderDatabase::new_for_test(
         LoadRequest::new(main_path.to_string_lossy().into_owned()).with_module_map(module_map),

@@ -711,10 +711,6 @@ fn encode_entry(identity: &GeneratedFileCacheIdentity, payload: &[u8]) -> Vec<u8
     encoded.extend_from_slice(&(payload.len() as u64).to_le_bytes());
     write_fingerprint(&mut encoded, checksum);
     encoded.extend_from_slice(payload);
-    debug_assert_eq!(
-        encoded.len(),
-        generated_file_entry_overhead(identity) + payload.len()
-    );
     encoded
 }
 

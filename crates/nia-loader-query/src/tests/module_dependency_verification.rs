@@ -9,7 +9,9 @@ fn module_dependencies_cache_keys_include_effective_module_map() {
         .set_source(main.clone(), "using dep::Thing; fn main() () {}")
         .expect("store source");
     let mut mapped = ModuleMap::new();
-    mapped.insert("dep", SourcePath::new("deps/root.nia"));
+    mapped
+        .insert("dep", SourcePath::new("deps/root.nia"))
+        .expect("insert module map entry");
     let unmapped = ModuleMap::new();
     let mapped_identity = module_dependencies_cache_identity(&file, &main, &mapped);
     let unmapped_identity = module_dependencies_cache_identity(&file, &main, &unmapped);

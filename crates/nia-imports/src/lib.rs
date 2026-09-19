@@ -140,15 +140,9 @@ impl ModuleMap {
         Self::default()
     }
 
-    /// Inserts a non-reserved root, panicking on reserved names.
-    pub fn insert(&mut self, name: impl Into<String>, path: SourcePath) {
-        let name = name.into();
-        assert!(
-            !is_compiler_reserved_module_root(&name),
-            "`{name}` is a compiler-reserved module root"
-        );
-        self.entries
-            .insert(module_root_symbol_from_text(&name), path);
+    /// Inserts a non-reserved root and reports reserved-name errors.
+    pub fn insert(&mut self, name: impl Into<String>, path: SourcePath) -> Result<(), String> {
+        self.try_insert(name, path)
     }
 
     /// Inserts a non-reserved root and reports reserved-name errors.
@@ -870,7 +864,11 @@ impl ModuleGraph {
             return Ok(id);
         }
         let id = self.module_ids.allocate()?;
-        debug_assert_eq!(id.local_index() as usize, self.modules.len());
+        if id.local_index() as usize != self.modules.len() {
+            return Err(nia_ice::Ice::new(
+                "module ID allocation order does not match the module graph",
+            ));
+        }
         if module_path.is_package_root() {
             self.package_roots.insert(module_path.package, id);
         }

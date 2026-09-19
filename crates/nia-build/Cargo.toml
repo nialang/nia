@@ -15,6 +15,7 @@ blake3.workspace = true
 libc.workspace = true
 nia-compat.workspace = true
 nia-compiler-query.workspace = true
+nia-diagnostic.workspace = true
 nia-driver = { workspace = true, default-features = false }
 nia-imports.workspace = true
 nia-ice.workspace = true

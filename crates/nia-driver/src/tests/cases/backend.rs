@@ -224,10 +224,12 @@ fn run_executable_case(driver: &crate::Driver, case_root: &Path) {
             "missing mapped module {} for {name}",
             path.display()
         );
-        module_map.insert(
-            name,
-            crate::SourcePath::new(path.to_string_lossy().into_owned()),
-        );
+        module_map
+            .insert(
+                name,
+                crate::SourcePath::new(path.to_string_lossy().into_owned()),
+            )
+            .expect("insert module map entry");
     }
 
     let output = workspace.join("out/runner");

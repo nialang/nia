@@ -1316,7 +1316,9 @@ fn driver_replaces_compiler_with_loader_query_session() {
     assert!(driver.loader_and_compiler_share_query_session());
 
     let mut module_map = nia_imports::ModuleMap::new();
-    module_map.insert("dep", nia_source::SourcePath::new("dep.nia"));
+    module_map
+        .insert("dep", nia_source::SourcePath::new("dep.nia"))
+        .expect("insert module map entry");
     let second = checked_program_from_output(
         driver.check_all_modules(CheckRequest::new("main.nia").with_module_map(module_map)),
     );

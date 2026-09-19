@@ -199,8 +199,9 @@ pub fn score(&self) i32 {
     );
     let provider_path = root.join("facade/providers.nia");
     let mut module_map = ModuleMap::new();
-    module_map.insert("dep", SourcePath::new(pkg_root.to_string_lossy()));
-
+    module_map
+        .insert("dep", SourcePath::new(pkg_root.to_string_lossy()))
+        .expect("insert module map entry");
     let program = load_program_with_map(main_path.to_string_lossy().into_owned(), module_map);
 
     assert_no_error_diagnostics(&program);
