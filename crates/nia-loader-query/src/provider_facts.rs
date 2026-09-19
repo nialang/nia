@@ -1,6 +1,6 @@
 use crate::LoaderContext;
 use nia_compiler_query::{ProviderDemand, ProviderFactRevision, ProviderFactSnapshot};
-use nia_query::{QueryDb, QueryFingerprintPolicy, QueryKey, QueryResult};
+use nia_query::{QueryDb, QueryError, QueryFingerprintPolicy, QueryKey, QueryResult};
 use parking_lot::Mutex;
 use std::{collections::HashSet, sync::Arc};
 
@@ -52,9 +52,22 @@ pub(crate) struct ProviderFactStore {
     state: Arc<Mutex<ProviderFactState>>,
 }
 
+#[cfg(test)]
 impl Default for ProviderFactStore {
     fn default() -> Self {
-        let revision = ProviderFactRevision::new_store();
+        let revision = ProviderFactRevision::new_store().expect("provider fact test store");
+        Self::from_revision(revision)
+    }
+}
+
+impl ProviderFactStore {
+    pub(crate) fn new() -> QueryResult<Self> {
+        let revision = ProviderFactRevision::new_store()
+            .ok_or_else(|| QueryError::internal("provider fact owner space exhausted"))?;
+        Ok(Self::from_revision(revision))
+    }
+
+    fn from_revision(revision: ProviderFactRevision) -> Self {
         Self {
             state: Arc::new(Mutex::new(ProviderFactState {
                 current: ProviderFacts {
@@ -84,7 +97,7 @@ impl ProviderFactStore {
     pub(crate) fn insert_new(
         &self,
         demands: impl IntoIterator<Item = ProviderDemand>,
-    ) -> HashSet<ProviderDemand> {
+    ) -> QueryResult<HashSet<ProviderDemand>> {
         let mut state = self.state.lock();
         let added = demands
             .into_iter()
@@ -92,7 +105,9 @@ impl ProviderFactStore {
             .collect::<HashSet<_>>();
         if !added.is_empty() {
             let previous = state.current.revision;
-            let revision = previous.next();
+            let revision = previous
+                .next()
+                .ok_or_else(|| QueryError::internal("provider fact revision overflow"))?;
             state.current.revision = revision;
             state.current.demands.extend(added.iter().cloned());
             state.transition = Some(ProviderFactEvent::Added {
@@ -100,21 +115,23 @@ impl ProviderFactStore {
                 demands: added.clone(),
             });
         }
-        added
+        Ok(added)
     }
 
-    pub(crate) fn clear(&self) -> Option<ProviderFactRevision> {
+    pub(crate) fn clear(&self) -> QueryResult<Option<ProviderFactRevision>> {
         let mut state = self.state.lock();
         if state.current.demands.is_empty() {
-            None
+            Ok(None)
         } else {
             let previous = state.current.revision;
-            let revision = previous.next();
+            let revision = previous
+                .next()
+                .ok_or_else(|| QueryError::internal("provider fact revision overflow"))?;
             state.current.demands.clear();
             state.current.revision = revision;
             state.current.reset_revision = revision;
             state.transition = None;
-            Some(previous)
+            Ok(Some(previous))
         }
     }
 
@@ -193,12 +210,23 @@ mod tests {
             ProviderFactStore::default().snapshot().revision()
         );
 
-        assert_eq!(store.insert_new([demand.clone()]).len(), 1);
+        assert_eq!(
+            store
+                .insert_new([demand.clone()])
+                .expect("insert test demand")
+                .len(),
+            1
+        );
         let added = store.snapshot();
         assert!(added.revision() > initial.revision());
         assert!(store.event(initial.revision()).is_none());
         assert_eq!(store.retained_transition_count(), 1);
-        assert!(store.insert_new([demand]).is_empty());
+        assert!(
+            store
+                .insert_new([demand])
+                .expect("repeat test demand")
+                .is_empty()
+        );
         assert_eq!(store.snapshot().revision(), added.revision());
 
         store.compact_transition(added.revision());
@@ -210,7 +238,10 @@ mod tests {
             })
         );
 
-        assert_eq!(store.clear(), Some(added.revision()));
+        assert_eq!(
+            store.clear().expect("clear test provider facts"),
+            Some(added.revision())
+        );
         let cleared = store.snapshot();
         assert!(cleared.revision() > added.revision());
         assert!(cleared.demands().next().is_none());
@@ -230,7 +261,9 @@ mod tests {
             },
         };
         assert_eq!(
-            store.insert_new([replacement.clone()]),
+            store
+                .insert_new([replacement.clone()])
+                .expect("insert replacement demand"),
             HashSet::from([replacement])
         );
         let replaced = store.snapshot();

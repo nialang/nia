@@ -37,24 +37,21 @@ pub enum ProviderFactRevisionTransition {
 
 impl ProviderFactRevision {
     /// Allocates the initial token for a new provider fact store.
-    pub fn new_store() -> Self {
+    pub fn new_store() -> Option<Self> {
         let owner = NEXT_PROVIDER_FACT_OWNER
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
                 owner.checked_add(1)
             })
-            .expect("provider fact owner space exhausted");
-        Self { owner, index: 0 }
+            .ok()?;
+        Some(Self { owner, index: 0 })
     }
 
     /// Advances this token within its owning store.
-    pub fn next(self) -> Self {
-        Self {
+    pub fn next(self) -> Option<Self> {
+        Some(Self {
             owner: self.owner,
-            index: self
-                .index
-                .checked_add(1)
-                .expect("provider fact revision overflow"),
-        }
+            index: self.index.checked_add(1)?,
+        })
     }
 
     /// Returns whether this token supersedes `previous`.

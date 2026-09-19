@@ -2,11 +2,19 @@
 
 use super::*;
 
+fn new_revision() -> crate::ProviderFactRevision {
+    crate::ProviderFactRevision::new_store().expect("test provider revision")
+}
+
+fn next_revision(revision: crate::ProviderFactRevision) -> crate::ProviderFactRevision {
+    revision.next().expect("test provider revision advance")
+}
+
 #[test]
 fn semantic_provider_activation_preserves_resolved_caller_facts() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
     let entry_id = fixture.entry_id();
-    let revision = crate::ProviderFactRevision::new_store();
+    let revision = new_revision();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;
     let database = CompilerDatabase::new(CompileRequest::new(program));
@@ -45,7 +53,7 @@ fn semantic_provider_activation_preserves_resolved_caller_facts() {
 
     database.update(CompileRequest::new(fixture.program()));
     database.replace_provider_facts(crate::ProviderFactSnapshot::new(
-        revision.next(),
+        next_revision(revision),
         revision,
         [provider_change],
     ));
@@ -59,7 +67,7 @@ fn semantic_provider_activation_preserves_resolved_caller_facts() {
     assert!(state.checked_functions.contains(&checked_function));
     assert_eq!(
         session.applied_provider_fact_revision,
-        Some(revision.next())
+        Some(next_revision(revision))
     );
     assert!(
         session
@@ -77,7 +85,7 @@ fn method_provider_change_removes_only_affected_function_diagnostics() {
         "struct Value {} fn helper() i32 { 1 } fn main(value: Value) i32 { value.missing() }",
     );
     let entry_id = fixture.entry_id();
-    let revision = crate::ProviderFactRevision::new_store();
+    let revision = new_revision();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;
     let database = CompilerDatabase::new(CompileRequest::new(program));
@@ -118,7 +126,7 @@ fn method_provider_change_removes_only_affected_function_diagnostics() {
     );
     database.update(CompileRequest::new(fixture.program()));
     database.replace_provider_facts(crate::ProviderFactSnapshot::new(
-        revision.next(),
+        next_revision(revision),
         revision,
         provider_changes,
     ));
