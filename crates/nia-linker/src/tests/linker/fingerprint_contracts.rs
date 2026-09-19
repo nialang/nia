@@ -8,7 +8,8 @@ fn link_result_fingerprint_depends_on_typed_identity_not_object_representation()
         key: paths.as_slice()[0].key.clone(),
         fingerprint: paths.as_slice()[0].fingerprint,
         object: b"object bytes".to_vec(),
-    }]);
+    }])
+    .expect("build incremental link inputs");
     let options = fingerprint_options(&linker);
 
     assert_eq!(
@@ -53,7 +54,8 @@ fn link_result_fingerprint_tracks_inputs_options_and_linker_binary() {
         key: inputs.as_slice()[0].key.clone(),
         fingerprint: CodegenUnitFingerprint::from_parts([9, 10]),
         object: PathBuf::from("main.o"),
-    }]);
+    }])
+    .expect("build incremental link inputs");
     let changed_object = options
         .result_fingerprint(
             &changed_inputs,

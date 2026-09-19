@@ -75,7 +75,8 @@ fn archive_result_fingerprint_tracks_typed_inputs_and_environment() {
         key: inputs.as_slice()[0].key.clone(),
         fingerprint: CodegenUnitFingerprint::from_parts([9, 10]),
         object: PathBuf::from("unrelated-representation.o"),
-    }]);
+    }])
+    .expect("build incremental link inputs");
     let input_changed = options
         .result_fingerprint(&changed_inputs, toolchain)
         .expect("changed archive input fingerprint");

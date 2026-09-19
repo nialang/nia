@@ -16,7 +16,7 @@ impl ProviderFacts {
         self.revision
     }
 
-    pub(crate) fn as_snapshot(&self) -> ProviderFactSnapshot {
+    pub(crate) fn as_snapshot(&self) -> nia_ice::IceResult<ProviderFactSnapshot> {
         ProviderFactSnapshot::new(
             self.revision,
             self.reset_revision,

@@ -39,8 +39,12 @@ impl FunctionLowerer<'_> {
                 return;
             }
         };
-        debug_assert_eq!(capture_types.len(), captures.len());
-        debug_assert_eq!(param_types.len(), params.len());
+        if capture_types.len() != captures.len() || param_types.len() != params.len() {
+            self.record_internal(nia_ice::Ice::new(
+                "closure-state type does not match its captures and parameters",
+            ));
+            return;
+        }
 
         let state_ptr_ty = self.types.intern(TyKind::Pointer {
             is_readonly: true,

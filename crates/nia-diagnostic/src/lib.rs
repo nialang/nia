@@ -620,8 +620,12 @@ impl Diagnostic {
         code: codes::DiagnosticCodeDef,
         summary: impl Into<String>,
     ) -> DiagnosticBuilder {
-        assert_eq!(code.category, DiagnosticCategory::User);
-        assert_eq!(code.severity, Severity::Error);
+        if code.category != DiagnosticCategory::User || code.severity != Severity::Error {
+            return Self::build(
+                codes::ICE,
+                format!("diagnostic code {} is not a user-facing error", code.code),
+            );
+        }
         Self::build(code, summary)
     }
 
@@ -630,8 +634,12 @@ impl Diagnostic {
         code: codes::DiagnosticCodeDef,
         summary: impl Into<String>,
     ) -> DiagnosticBuilder {
-        assert_eq!(code.category, DiagnosticCategory::User);
-        assert_eq!(code.severity, Severity::Warning);
+        if code.category != DiagnosticCategory::User || code.severity != Severity::Warning {
+            return Self::build(
+                codes::ICE,
+                format!("diagnostic code {} is not a user-facing warning", code.code),
+            );
+        }
         Self::build(code, summary)
     }
 

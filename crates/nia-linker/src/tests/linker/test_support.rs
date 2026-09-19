@@ -9,6 +9,7 @@ fn link_inputs(path: &str) -> IncrementalLinkInputs<PathBuf> {
         fingerprint: CodegenUnitFingerprint::from_parts([1, 2]),
         object: PathBuf::from(path),
     }])
+    .expect("build incremental link inputs")
 }
 
 fn fingerprint_linker(name: &str, bytes: &[u8]) -> PathBuf {

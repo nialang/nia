@@ -362,7 +362,7 @@ impl ExecutableFactModuleState {
         increment: BodyCheckWithResolutionInputs,
         checked_globals: HashSet<GlobalDefId>,
         type_store: &nia_ty::TypeStore,
-    ) {
+    ) -> nia_ice::IceResult<()> {
         let BodyCheckWithResolutionInputs {
             body_check,
             inputs: _,
@@ -392,7 +392,11 @@ impl ExecutableFactModuleState {
         self.body_ir
             .function_bodies
             .extend(ir.function_bodies.drain());
-        debug_assert!(ir.global_inits.is_empty());
+        if !ir.global_inits.is_empty() {
+            return Err(nia_ice::Ice::new(
+                "incremental executable body check unexpectedly produced global initializers",
+            ));
+        }
         self.static_init_refs.extend(static_init_refs);
         self.semantic_facts.extend(facts);
         let owned_provider_demands = provider_demands_by_function
@@ -420,6 +424,7 @@ impl ExecutableFactModuleState {
         self.checked_functions.extend(checked_functions);
         self.checked_globals.extend(checked_globals);
         self.diagnostics.extend(Arc::unwrap_or_clone(diagnostics));
+        Ok(())
     }
 }
 

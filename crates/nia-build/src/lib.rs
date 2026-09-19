@@ -1313,8 +1313,16 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
             source: runner.source.clone(),
             error: Box::new(error),
         })?;
+    let module_map =
+        build_runner_module_map(invocation).map_err(|error| BuildError::CompileRunner {
+            path: runner.path.clone(),
+            source: runner.source.clone(),
+            error: Box::new(DriverError::InternalDiagnostic(
+                nia_diagnostic::Diagnostic::from(error),
+            )),
+        })?;
     let check = CheckRequest::new(runner.path.clone())
-        .with_module_map(build_runner_module_map(invocation))
+        .with_module_map(module_map)
         .with_profile(invocation.profile)
         .with_compilation_mode(invocation.compilation_mode)
         .with_optimization(match invocation.optimization {
@@ -1372,13 +1380,15 @@ fn build_runner_driver_config(invocation: &BuildInvocation) -> DriverConfig {
     .with_artifact_target(invocation.toolchain.host_target().clone())
 }
 
-fn build_runner_module_map(invocation: &BuildInvocation) -> ModuleMap {
+fn build_runner_module_map(invocation: &BuildInvocation) -> nia_ice::IceResult<ModuleMap> {
     let mut module_map = ModuleMap::new();
-    module_map.insert(
-        "buildScript",
-        SourcePath::new(invocation.build_script.to_string_lossy().into_owned()),
-    );
     module_map
+        .insert(
+            "buildScript",
+            SourcePath::new(invocation.build_script.to_string_lossy().into_owned()),
+        )
+        .map_err(nia_ice::Ice::new)?;
+    Ok(module_map)
 }
 
 fn prepare_build_directories(invocation: &BuildInvocation) -> Result<(), BuildError> {

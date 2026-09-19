@@ -1825,7 +1825,12 @@ impl<'a> BodyChecker<'a> {
         let (Some(trait_id), Some(method)) = (op.trait_id(), op.method()) else {
             return;
         };
-        debug_assert_eq!(method.trait_id(), trait_id);
+        if method.trait_id() != trait_id {
+            self.record_internal(Ice::new(
+                "builtin operator method does not belong to its resolved trait",
+            ));
+            return;
+        }
         self.record_builtin_trait_method_ref(method, self_ty, trait_args);
     }
 

@@ -182,8 +182,9 @@ pub fn answer() i32 {
     );
     write(&root.join("dep/helper.nia"), "pub fn answer() i32 { 42 }");
     let mut module_map = ModuleMap::new();
-    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
-
+    module_map
+        .insert("dep", SourcePath::new(dep_root.to_string_lossy()))
+        .expect("insert module map entry");
     let program = check_program_with_map(
         root.join("main.nia").to_string_lossy().into_owned(),
         module_map,
@@ -221,8 +222,9 @@ pub fn answer() i32 {
 "#,
     );
     let mut module_map = ModuleMap::new();
-    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
-
+    module_map
+        .insert("dep", SourcePath::new(dep_root.to_string_lossy()))
+        .expect("insert module map entry");
     let program = check_program_with_map(
         root.join("main.nia").to_string_lossy().into_owned(),
         module_map,
@@ -2907,8 +2909,9 @@ pub fn inside() i32 {
 "#,
     );
     let mut module_map = ModuleMap::new();
-    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
-
+    module_map
+        .insert("dep", SourcePath::new(dep_root.to_string_lossy()))
+        .expect("insert module map entry");
     let program = check_program_with_map(
         root.join("main.nia").to_string_lossy().into_owned(),
         module_map,
@@ -3041,8 +3044,9 @@ pub fn inside() i32 {
 "#,
     );
     let mut module_map = ModuleMap::new();
-    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
-
+    module_map
+        .insert("dep", SourcePath::new(dep_root.to_string_lossy()))
+        .expect("insert module map entry");
     let program = check_program_with_map(
         root.join("main.nia").to_string_lossy().into_owned(),
         module_map,
@@ -3060,7 +3064,9 @@ fn main() i32 {
 "#,
     );
     let mut module_map = ModuleMap::new();
-    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
+    module_map
+        .insert("dep", SourcePath::new(dep_root.to_string_lossy()))
+        .expect("insert module map entry");
     let program = check_program_with_map(
         root.join("main.nia").to_string_lossy().into_owned(),
         module_map,
@@ -3117,8 +3123,9 @@ pub fn inside() i32 {
 "#,
     );
     let mut module_map = ModuleMap::new();
-    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
-
+    module_map
+        .insert("dep", SourcePath::new(dep_root.to_string_lossy()))
+        .expect("insert module map entry");
     let program = check_program_with_map(
         root.join("main.nia").to_string_lossy().into_owned(),
         module_map,
@@ -3137,7 +3144,9 @@ fn main() i32 {
 "#,
     );
     let mut module_map = ModuleMap::new();
-    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
+    module_map
+        .insert("dep", SourcePath::new(dep_root.to_string_lossy()))
+        .expect("insert module map entry");
     let program = check_program_with_map(
         root.join("main.nia").to_string_lossy().into_owned(),
         module_map,
@@ -3192,8 +3201,9 @@ pub fn inside() usize {
 "#,
     );
     let mut module_map = ModuleMap::new();
-    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
-
+    module_map
+        .insert("dep", SourcePath::new(dep_root.to_string_lossy()))
+        .expect("insert module map entry");
     let program = check_program_with_map(
         root.join("main.nia").to_string_lossy().into_owned(),
         module_map,
@@ -3211,7 +3221,9 @@ fn main() usize {
 "#,
     );
     let mut module_map = ModuleMap::new();
-    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
+    module_map
+        .insert("dep", SourcePath::new(dep_root.to_string_lossy()))
+        .expect("insert module map entry");
     let program = check_program_with_map(
         root.join("main.nia").to_string_lossy().into_owned(),
         module_map,

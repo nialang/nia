@@ -9,10 +9,12 @@ fn query_loader_uses_package_module_map() {
     write(&root.join("std.nia"), "pub module io;");
     write(&root.join("std/io.nia"), "pub fn value() i32 { 1 }");
     let mut module_map = ModuleMap::new();
-    module_map.insert(
-        "std",
-        SourcePath::new(root.join("std.nia").to_string_lossy()),
-    );
+    module_map
+        .insert(
+            "std",
+            SourcePath::new(root.join("std.nia").to_string_lossy()),
+        )
+        .expect("insert module map entry");
 
     let program = load_program_with_map(
         root.join("main.nia").to_string_lossy().into_owned(),
@@ -51,10 +53,12 @@ pub fn build() i32 {
 "#,
     );
     let mut module_map = ModuleMap::new();
-    module_map.insert(
-        "dep",
-        SourcePath::new(root.join("dep.nia").to_string_lossy()),
-    );
+    module_map
+        .insert(
+            "dep",
+            SourcePath::new(root.join("dep.nia").to_string_lossy()),
+        )
+        .expect("insert module map entry");
 
     let program = load_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
 
@@ -86,10 +90,12 @@ fn classify(value: i32) i32 {
     );
     write(&root.join("dep.nia"), "pub const EXPECTED: i32 = 7;");
     let mut module_map = ModuleMap::new();
-    module_map.insert(
-        "dep",
-        SourcePath::new(root.join("dep.nia").to_string_lossy()),
-    );
+    module_map
+        .insert(
+            "dep",
+            SourcePath::new(root.join("dep.nia").to_string_lossy()),
+        )
+        .expect("insert module map entry");
 
     let program = load_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
 
@@ -108,10 +114,12 @@ fn query_loader_discovers_module_map_root_in_const_generic_parameter_type() {
     write(&root.join("main.nia"), "fn inspect[N: dep::Marker]() () {}");
     write(&root.join("dep.nia"), "pub struct Marker {}");
     let mut module_map = ModuleMap::new();
-    module_map.insert(
-        "dep",
-        SourcePath::new(root.join("dep.nia").to_string_lossy()),
-    );
+    module_map
+        .insert(
+            "dep",
+            SourcePath::new(root.join("dep.nia").to_string_lossy()),
+        )
+        .expect("insert module map entry");
 
     let program = load_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
 

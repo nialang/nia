@@ -767,7 +767,7 @@ fn executable_check_in_session(
                 || -> QueryResult<()> {
                     match fact_by_id.get_mut(&module_id) {
                         Some(state) => {
-                            state.extend(body_check, module_globals, &db.context().type_store)
+                            state.extend(body_check, module_globals, &db.context().type_store)?;
                         }
                         None => {
                             fact_by_id.insert(

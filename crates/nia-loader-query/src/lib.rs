@@ -533,10 +533,11 @@ impl LoaderDatabase {
         };
         let provider_facts = self.db.get(ProviderDemandsQuery)?;
         let candidate = context.provider_demand_plan_candidate.lock().take();
-        if candidate
-            .as_ref()
-            .is_some_and(|demands| demands == provider_facts.as_snapshot().demands())
-        {
+        if candidate.as_ref().is_some_and(|demands| {
+            provider_facts
+                .as_snapshot()
+                .is_ok_and(|snapshot| demands == snapshot.demands())
+        }) {
             return Ok(());
         }
         if candidate.is_some() {
@@ -557,7 +558,7 @@ impl LoaderDatabase {
                 .map(SourcePath::identity)
                 .as_ref(),
         );
-        let snapshot = provider_facts.as_snapshot();
+        let snapshot = provider_facts.as_snapshot()?;
         let _ = cache.publish_provider_demand_plan(
             key,
             namespace,
@@ -595,7 +596,7 @@ impl LoaderFactProvider for LoaderDatabase {
     }
 
     fn provider_facts(&self) -> QueryResult<nia_compiler_query::ProviderFactSnapshot> {
-        Ok(self.db.get(ProviderDemandsQuery)?.as_snapshot())
+        Ok(self.db.get(ProviderDemandsQuery)?.as_snapshot()?)
     }
 
     fn update_provider_demands(

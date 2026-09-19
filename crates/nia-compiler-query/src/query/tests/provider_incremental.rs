@@ -9,6 +9,15 @@ fn next_revision(revision: crate::ProviderFactRevision) -> crate::ProviderFactRe
     revision.next().expect("test provider revision advance")
 }
 
+fn provider_fact_snapshot(
+    revision: crate::ProviderFactRevision,
+    reset_revision: crate::ProviderFactRevision,
+    demands: impl IntoIterator<Item = crate::ProviderDemand>,
+) -> crate::ProviderFactSnapshot {
+    crate::ProviderFactSnapshot::new(revision, reset_revision, demands)
+        .expect("build provider fact snapshot")
+}
+
 #[test]
 fn provider_graph_growth_recomputes_query_derived_executable_roots() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
@@ -135,7 +144,7 @@ fn semantic_provider_growth_preserves_reachability_state() {
         },
     };
     session.apply_provider_fact_worklist(
-        &crate::ProviderFactSnapshot::new(next_revision(revision), revision, [semantic_demand]),
+        &provider_fact_snapshot(next_revision(revision), revision, [semantic_demand]),
         &database.db.context().type_store,
     );
 
@@ -183,7 +192,7 @@ fn provider_changes_discard_affected_executable_fact_caches() {
         "pub fn value() i32 { 1 }",
     );
     database.update(CompileRequest::new(fixture.program()));
-    database.replace_provider_facts(crate::ProviderFactSnapshot::new(
+    database.replace_provider_facts(provider_fact_snapshot(
         next_revision(revision),
         revision,
         provider_changes,
@@ -221,7 +230,7 @@ fn provider_fact_snapshot_deduplicates_demands() {
             method_name: SymbolId::default(),
         },
     };
-    let facts = crate::ProviderFactSnapshot::new(revision, revision, [demand.clone(), demand]);
+    let facts = provider_fact_snapshot(revision, revision, [demand.clone(), demand]);
     assert_eq!(facts.demands().len(), 1);
 }
 
@@ -269,7 +278,7 @@ fn check_certificate_input_covers_stable_graph_and_provider_demands() {
     .expect("fingerprint private graph");
     assert_ne!(public, private);
 
-    let demanded = crate::ProviderFactSnapshot::new(
+    let demanded = provider_fact_snapshot(
         revision,
         revision,
         [crate::ProviderDemand {
@@ -397,17 +406,17 @@ fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
         },
     };
     let first_provider =
-        crate::ProviderFactSnapshot::new(revision, revision, [method.clone(), trait_impl.clone()]);
+        provider_fact_snapshot(revision, revision, [method.clone(), trait_impl.clone()]);
     let mut reversed_changes = HashSet::new();
     reversed_changes.insert(trait_impl);
     reversed_changes.insert(method);
-    let second_provider = crate::ProviderFactSnapshot::new(revision, revision, reversed_changes);
+    let second_provider = provider_fact_snapshot(revision, revision, reversed_changes);
     assert_eq!(
         provider_fact_worklist_fingerprint(&first_provider),
         provider_fact_worklist_fingerprint(&second_provider)
     );
 
-    let original_argument = crate::ProviderFactSnapshot::new(
+    let original_argument = provider_fact_snapshot(
         revision,
         revision,
         [crate::ProviderDemand {
@@ -419,7 +428,7 @@ fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
             },
         }],
     );
-    let changed_argument = crate::ProviderFactSnapshot::new(
+    let changed_argument = provider_fact_snapshot(
         revision,
         revision,
         [crate::ProviderDemand {
@@ -487,7 +496,7 @@ fn provider_revision_update_invalidates_executable_products() {
         revision
     );
 
-    let invalidation = database.replace_provider_facts(crate::ProviderFactSnapshot::new(
+    let invalidation = database.replace_provider_facts(provider_fact_snapshot(
         next_revision(revision),
         revision,
         std::iter::empty(),
@@ -553,12 +562,12 @@ fn provider_worklist_accumulates_until_consumed() {
     let first_revision = next_revision(revision);
     let second_revision = next_revision(first_revision);
 
-    database.replace_provider_facts(crate::ProviderFactSnapshot::new(
+    database.replace_provider_facts(provider_fact_snapshot(
         first_revision,
         revision,
         [first_demand.clone()],
     ));
-    database.replace_provider_facts(crate::ProviderFactSnapshot::new(
+    database.replace_provider_facts(provider_fact_snapshot(
         second_revision,
         revision,
         [first_demand.clone(), second_demand.clone()],
@@ -578,7 +587,7 @@ fn provider_worklist_accumulates_until_consumed() {
     assert_eq!(session.applied_provider_changes, expected_changes);
 
     let reset_revision = next_revision(second_revision);
-    database.replace_provider_facts(crate::ProviderFactSnapshot::new(
+    database.replace_provider_facts(provider_fact_snapshot(
         reset_revision,
         reset_revision,
         std::iter::empty(),
@@ -618,7 +627,7 @@ fn provider_worklist_reset_watermark_survives_skipped_revisions() {
     };
 
     session.apply_provider_fact_worklist(
-        &crate::ProviderFactSnapshot::new(current_revision, reset_revision, [current.clone()]),
+        &provider_fact_snapshot(current_revision, reset_revision, [current.clone()]),
         &database.db.context().type_store,
     );
 

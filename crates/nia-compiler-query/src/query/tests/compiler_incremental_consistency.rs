@@ -10,6 +10,15 @@ fn next_revision(revision: crate::ProviderFactRevision) -> crate::ProviderFactRe
     revision.next().expect("test provider revision advance")
 }
 
+fn provider_fact_snapshot(
+    revision: crate::ProviderFactRevision,
+    reset_revision: crate::ProviderFactRevision,
+    demands: impl IntoIterator<Item = crate::ProviderDemand>,
+) -> crate::ProviderFactSnapshot {
+    crate::ProviderFactSnapshot::new(revision, reset_revision, demands)
+        .expect("build provider fact snapshot")
+}
+
 #[test]
 fn semantic_provider_activation_preserves_resolved_caller_facts() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
@@ -52,7 +61,7 @@ fn semantic_provider_activation_preserves_resolved_caller_facts() {
     };
 
     database.update(CompileRequest::new(fixture.program()));
-    database.replace_provider_facts(crate::ProviderFactSnapshot::new(
+    database.replace_provider_facts(provider_fact_snapshot(
         next_revision(revision),
         revision,
         [provider_change],
@@ -125,7 +134,7 @@ fn method_provider_change_removes_only_affected_function_diagnostics() {
         "pub fn value() i32 { 1 }",
     );
     database.update(CompileRequest::new(fixture.program()));
-    database.replace_provider_facts(crate::ProviderFactSnapshot::new(
+    database.replace_provider_facts(provider_fact_snapshot(
         next_revision(revision),
         revision,
         provider_changes,

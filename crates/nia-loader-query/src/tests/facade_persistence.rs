@@ -91,7 +91,9 @@ fn facade_facts_cache_keys_include_effective_module_map() {
         .set_source(facade.clone(), "pub using dep::Widget;")
         .expect("store facade source");
     let mut mapped = ModuleMap::new();
-    mapped.insert("dep", SourcePath::new("deps/root.nia"));
+    mapped
+        .insert("dep", SourcePath::new("deps/root.nia"))
+        .expect("insert module map entry");
     let unmapped = ModuleMap::new();
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
         root.join("cache"),

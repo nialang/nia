@@ -896,16 +896,30 @@ extend Value {
     #[test]
     fn frontend_module_map_fingerprint_is_order_independent_and_path_sensitive() {
         let mut first = ModuleMap::new();
-        first.insert("beta", SourcePath::new("deps/beta.nia"));
-        first.insert("alpha", SourcePath::new("deps/alpha.nia"));
+        first
+            .insert("beta", SourcePath::new("deps/beta.nia"))
+            .expect("insert module map entry");
+        first
+            .insert("alpha", SourcePath::new("deps/alpha.nia"))
+            .expect("insert module map entry");
         let mut reordered = ModuleMap::new();
-        reordered.insert("alpha", SourcePath::new("deps/alpha.nia"));
-        reordered.insert("beta", SourcePath::new("deps/beta.nia"));
+        reordered
+            .insert("alpha", SourcePath::new("deps/alpha.nia"))
+            .expect("insert module map entry");
+        reordered
+            .insert("beta", SourcePath::new("deps/beta.nia"))
+            .expect("insert module map entry");
         let mut changed_path = reordered.clone();
-        changed_path.insert("beta", SourcePath::new("vendor/beta.nia"));
+        changed_path
+            .insert("beta", SourcePath::new("vendor/beta.nia"))
+            .expect("insert module map entry");
         let mut changed_name = ModuleMap::new();
-        changed_name.insert("alpha", SourcePath::new("deps/alpha.nia"));
-        changed_name.insert("gamma", SourcePath::new("deps/beta.nia"));
+        changed_name
+            .insert("alpha", SourcePath::new("deps/alpha.nia"))
+            .expect("insert module map entry");
+        changed_name
+            .insert("gamma", SourcePath::new("deps/beta.nia"))
+            .expect("insert module map entry");
 
         let fingerprint = frontend_module_map_fingerprint(&first);
         assert_eq!(fingerprint, frontend_module_map_fingerprint(&reordered));
@@ -972,7 +986,9 @@ extend Value {
         let entry = SourceIdentity::new("src/main.nia");
         let other_entry = SourceIdentity::new("src/tool.nia");
         let mut module_map = ModuleMap::new();
-        module_map.insert("dep", SourcePath::new("deps/dep.nia"));
+        module_map
+            .insert("dep", SourcePath::new("deps/dep.nia"))
+            .expect("insert module map entry");
         let module_map = frontend_module_map_fingerprint(&module_map);
         let key = FrontendProviderDemandPlanCacheKey::new(namespace, &entry, module_map, false);
         let package_root = SourceIdentity::new("pkg/pkg.nia");
@@ -1189,7 +1205,9 @@ extend Value {
             source_content_fingerprint(before_source),
         );
         let mut module_map = ModuleMap::new();
-        module_map.insert("dep", SourcePath::new("deps/dep.nia"));
+        module_map
+            .insert("dep", SourcePath::new("deps/dep.nia"))
+            .expect("insert module map entry");
         let module_map = frontend_module_map_fingerprint(&module_map);
         let facade_key =
             FrontendFacadeFactsCacheKey::new(namespace, &module, before_signature, module_map);
