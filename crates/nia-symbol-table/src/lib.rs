@@ -10,8 +10,10 @@
 use std::{
     collections::{HashMap, hash_map::Entry},
     fmt,
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
+
+use parking_lot::RwLock;
 
 pub use nia_symbol::{
     SymbolId, SymbolMap, SymbolSet, SymbolText, known, stable_hash, unresolved_symbol_text,
@@ -71,7 +73,7 @@ impl SymbolTable {
     pub fn intern(&self, text: &str) -> Result<SymbolId, SymbolCollision> {
         let symbol = SymbolId::from_stable_hash(stable_hash(text));
         let incoming = Arc::<str>::from(text);
-        let mut inner = self.inner.write().expect("symbol table lock poisoned");
+        let mut inner = self.inner.write();
         match inner.by_id.entry(symbol) {
             Entry::Occupied(entry) if entry.get().as_ref() != text => Err(SymbolCollision {
                 symbol,
@@ -88,12 +90,7 @@ impl SymbolTable {
 
     /// Resolves a symbol to its registered text, if present.
     pub fn resolve(&self, symbol: SymbolId) -> Option<Arc<str>> {
-        self.inner
-            .read()
-            .expect("symbol table lock poisoned")
-            .by_id
-            .get(&symbol)
-            .cloned()
+        self.inner.read().by_id.get(&symbol).cloned()
     }
 
     /// Creates a clonable resolver view backed by this table.
@@ -104,7 +101,7 @@ impl SymbolTable {
     }
 
     fn install_known_symbols(&self) {
-        let mut inner = self.inner.write().expect("symbol table lock poisoned");
+        let mut inner = self.inner.write();
         for (symbol, text) in known::WELL_KNOWN {
             inner
                 .by_id

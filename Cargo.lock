@@ -1126,6 +1126,7 @@ name = "nia-symbol-table"
 version = "0.2.0-dev"
 dependencies = [
  "nia-symbol",
+ "parking_lot",
 ]
 
 [[package]]
