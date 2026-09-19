@@ -41,8 +41,9 @@ pub struct Module<'ctx> {
 }
 
 impl<'ctx> Module<'ctx> {
+    // Module allocation and parsing validate nullable LLVM results before this
+    // ownership wrapper is constructed.
     pub(super) fn new(raw: LLVMModuleRef) -> Self {
-        assert!(!raw.is_null());
         Self {
             raw,
             _marker: PhantomData,

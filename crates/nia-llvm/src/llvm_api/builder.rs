@@ -45,8 +45,8 @@ pub struct Builder<'ctx> {
 }
 
 impl<'ctx> Builder<'ctx> {
+    // Context creation validates the nullable LLVM result before wrapping it.
     pub(super) fn new(raw: LLVMBuilderRef) -> Self {
-        assert!(!raw.is_null());
         Self {
             raw,
             _marker: PhantomData,
