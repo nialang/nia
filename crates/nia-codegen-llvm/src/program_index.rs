@@ -1707,7 +1707,7 @@ mod tests {
         );
         assert!(std::ptr::eq(
             index.module(module_id).expect("indexed module"),
-            &program.modules[0]
+            program.modules.get(0).expect("backend test module")
         ));
         assert_eq!(
             index.type_layout(i32_ty),
@@ -1726,7 +1726,11 @@ mod tests {
             index
                 .function_instance(function_def, module_id, None, &[i32_ty], &[])
                 .expect("indexed function instance"),
-            &program.modules[0].function_instances[0]
+            &program
+                .modules
+                .get(0)
+                .expect("backend test module")
+                .function_instances[0]
         ));
         assert_eq!(
             index.function_instance_owner(function_def, module_id, None, &[i32_ty], &[]),
@@ -1753,7 +1757,14 @@ mod tests {
             vec![object_ty]
         );
         assert_eq!(
-            index.trait_object_vtable_owner(&program.modules[0].trait_object_vtables[0].key),
+            index.trait_object_vtable_owner(
+                &program
+                    .modules
+                    .get(0)
+                    .expect("backend test module")
+                    .trait_object_vtables[0]
+                    .key
+            ),
             Some(module_id)
         );
         assert_eq!(

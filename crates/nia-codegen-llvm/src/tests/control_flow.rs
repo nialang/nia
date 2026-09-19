@@ -752,7 +752,12 @@ fn main() i32 {
 
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
-    let module = &codegen.backend_lowering.program.modules[0];
+    let module = codegen
+        .backend_lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     assert!(
         module
             .function_instances

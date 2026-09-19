@@ -2105,7 +2105,8 @@ mod tests {
     }
 
     fn fixture(program: BackendProgram, type_store: TypeStore, owner: &str) -> Fixture {
-        let owners = BackendModuleOwnerDirectory::from_modules(&program.modules);
+        let owners = BackendModuleOwnerDirectory::from_modules(&program.modules)
+            .expect("build backend owner directory");
         let plan = program.codegen_partition_plan();
         let partition = plan
             .partitions()

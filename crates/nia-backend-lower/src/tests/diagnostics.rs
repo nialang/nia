@@ -64,7 +64,13 @@ fn main(value: i32) i32 {
         });
 
         assert!(
-            lowering.program.modules[0].functions.is_empty(),
+            lowering
+                .program
+                .modules
+                .get(0)
+                .expect("backend test module")
+                .functions
+                .is_empty(),
             "malformed function must not enter backend IR: {:?}",
             lowering.program
         );
@@ -97,7 +103,11 @@ fn main(value: Box[[u8; N]]) () {}
         }
     });
 
-    let module = &lowering.program.modules[0];
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
     let instance = module
         .struct_instances
         .iter()

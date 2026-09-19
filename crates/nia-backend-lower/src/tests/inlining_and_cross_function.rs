@@ -17,7 +17,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O1.policy(),
     );
-    let main = lowering.program.modules[0]
+    let main = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -57,7 +61,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O0.policy(),
     );
-    let main = lowering.program.modules[0]
+    let main = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -96,7 +104,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O1.policy(),
     );
-    let main = lowering.program.modules[0]
+    let main = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -137,7 +149,11 @@ fn main() [i32; 2] {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let main = lowering.program.modules[0]
+    let main = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -177,7 +193,11 @@ fn main() [i32; 2] {
         |_| {},
         nia_opt::NiaOptimizationLevel::O1.policy(),
     );
-    let main = lowering.program.modules[0]
+    let main = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -218,7 +238,11 @@ fn main() [i32; 2] {
     ] {
         let lowering =
             lower_source_with_body_mutation_and_optimization(source, |_| {}, level.policy());
-        let main = lowering.program.modules[0]
+        let main = lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module")
             .functions
             .iter()
             .find(|function| function.name == sym("main"))
@@ -262,7 +286,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let main = lowering.program.modules[0]
+    let main = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -304,7 +332,11 @@ fn main() i32 {
     ] {
         let lowering =
             lower_source_with_body_mutation_and_optimization(source, |_| {}, level.policy());
-        let main = lowering.program.modules[0]
+        let main = lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module")
             .functions
             .iter()
             .find(|function| function.name == sym("main"))
@@ -351,7 +383,11 @@ fn main() i32 {
     ] {
         let lowering =
             lower_source_with_body_mutation_and_optimization(source, |_| {}, level.policy());
-        let module = &lowering.program.modules[0];
+        let module = lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module");
         let main = module
             .functions
             .iter()
@@ -426,7 +462,11 @@ fn main() i32 {
     ] {
         let lowering =
             lower_source_with_body_mutation_and_optimization(source, |_| {}, level.policy());
-        let main = lowering.program.modules[0]
+        let main = lowering
+            .program
+            .modules
+            .get(0)
+            .expect("backend test module")
             .functions
             .iter()
             .find(|function| function.name == sym("main"))
@@ -470,7 +510,11 @@ fn main() [i32; 5] {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let o2_main = o2.program.modules[0]
+    let o2_main = o2
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -496,7 +540,11 @@ fn main() [i32; 5] {
         |_| {},
         nia_opt::NiaOptimizationLevel::O3.policy(),
     );
-    let o3_main = o3.program.modules[0]
+    let o3_main = o3
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -538,7 +586,11 @@ fn main() [i32; 5] {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let o2_main = o2.program.modules[0]
+    let o2_main = o2
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -565,7 +617,11 @@ fn main() [i32; 5] {
         |_| {},
         nia_opt::NiaOptimizationLevel::O3.policy(),
     );
-    let o3_main = o3.program.modules[0]
+    let o3_main = o3
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -608,7 +664,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let o2_main = o2.program.modules[0]
+    let o2_main = o2
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -634,7 +694,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O3.policy(),
     );
-    let o3_main = o3.program.modules[0]
+    let o3_main = o3
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -673,7 +737,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O3.policy(),
     );
-    let main = o3.program.modules[0]
+    let main = o3
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -711,7 +779,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O3.policy(),
     );
-    let main = o3.program.modules[0]
+    let main = o3
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -749,7 +821,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O3.policy(),
     );
-    let main = o3.program.modules[0]
+    let main = o3
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -789,7 +865,11 @@ fn main() [usize; 2] {
         |_| {},
         nia_opt::NiaOptimizationLevel::O3.policy(),
     );
-    let main = lowering.program.modules[0]
+    let main = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -843,7 +923,11 @@ fn main() [i32; 5] {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let o2_main = o2.program.modules[0]
+    let o2_main = o2
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -857,7 +941,11 @@ fn main() [i32; 5] {
         |_| {},
         nia_opt::NiaOptimizationLevel::O3.policy(),
     );
-    let o3_main = o3.program.modules[0]
+    let o3_main = o3
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -1016,7 +1104,11 @@ fn main() i32 {
         |_, _| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let o2_main = o2.program.modules[0]
+    let o2_main = o2
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -1038,7 +1130,11 @@ fn main() i32 {
         |_, _| {},
         nia_opt::NiaOptimizationLevel::O3.policy(),
     );
-    let o3_main = o3.program.modules[0]
+    let o3_main = o3
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -1216,7 +1312,11 @@ fn main() i32 {
         |_, _| {},
         nia_opt::NiaOptimizationLevel::O3.policy(),
     );
-    let main = o3.program.modules[0]
+    let main = o3
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -1260,7 +1360,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let main = lowering.program.modules[0]
+    let main = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -1301,7 +1405,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O1.policy(),
     );
-    let main = lowering.program.modules[0]
+    let main = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -1340,7 +1448,11 @@ fn main() [i32; 2] {
     policy.specialize_generics = nia_opt::SpecializationPolicy::SizeAware;
 
     let lowering = lower_source_with_body_mutation_and_optimization(source, |_| {}, policy);
-    let main = lowering.program.modules[0]
+    let main = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -1380,7 +1492,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O1.policy(),
     );
-    let main = lowering.program.modules[0]
+    let main = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
@@ -1411,7 +1527,11 @@ fn main() i32 {
         |_| {},
         nia_opt::NiaOptimizationLevel::O2.policy(),
     );
-    let main = lowering.program.modules[0]
+    let main = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module")
         .functions
         .iter()
         .find(|function| function.name == sym("main"))
