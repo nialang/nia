@@ -509,7 +509,11 @@ impl Driver {
         text: impl Into<std::sync::Arc<str>>,
     ) -> Result<(), DriverError> {
         let path = path.into();
-        let loader = self.loader.lock().expect("driver loader lock poisoned");
+        let loader = self.loader.lock().map_err(|_| {
+            DriverError::InternalDiagnostic(Diagnostic::from(nia_ice::Ice::new(
+                "driver loader state lock is poisoned",
+            )))
+        })?;
         if let Some(loader) = &*loader {
             loader
                 .database
@@ -745,7 +749,9 @@ impl Driver {
         let loader = self.loader_database(request)?;
         loader.load_program()?;
         let query_session = loader.query_session();
-        let mut compiler_guard = self.compiler.lock().expect("driver compiler lock poisoned");
+        let mut compiler_guard = self.compiler.lock().map_err(|_| {
+            nia_query::QueryError::internal("driver compiler state lock is poisoned")
+        })?;
         let database = if let Some(compiler) = &*compiler_guard
             && compiler.database.query_session().ptr_eq(&query_session)
         {
@@ -916,7 +922,14 @@ impl Driver {
         timings: TimingMode,
     ) -> DriverOutput<LlvmIrArtifact> {
         DriverOutput::catch_unexpected_panic(|| {
-            let session = self.codegen_query_session();
+            let session = match self.codegen_query_session() {
+                Ok(session) => session,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
             let output = nia_codegen_llvm::emit_llvm_ir_with_options(
                 std::sync::Arc::clone(&program.backend_lowering),
                 std::sync::Arc::clone(&program.type_store),
@@ -1106,7 +1119,14 @@ impl Driver {
         timings: TimingMode,
     ) -> DriverOutput<ObjectArtifact> {
         DriverOutput::catch_unexpected_panic(|| {
-            let session = self.codegen_query_session();
+            let session = match self.codegen_query_session() {
+                Ok(session) => session,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
             let cache = self.object_cache.as_ref().map(|cache| {
                 cache.clone() as std::sync::Arc<dyn nia_codegen_llvm::ObjectWorkProductCache>
             });
@@ -1135,14 +1155,18 @@ impl Driver {
         })
     }
 
-    fn codegen_query_session(&self) -> nia_query::QuerySession {
-        self.compiler
-            .lock()
-            .expect("driver compiler lock poisoned")
+    fn codegen_query_session(&self) -> nia_query::QueryResult<nia_query::QuerySession> {
+        let compiler = self.compiler.lock().map_err(|_| {
+            nia_query::QueryError::internal("driver compiler state lock is poisoned")
+        })?;
+        compiler
             .as_ref()
-            .expect("Nia ICE: LLVM emission requires the Driver that produced the codegen program")
-            .database
-            .query_session()
+            .map(|compiler| compiler.database.query_session())
+            .ok_or_else(|| {
+                nia_query::QueryError::internal(
+                    "LLVM emission requires the Driver that produced the codegen program",
+                )
+            })
     }
 
     /// Writes emitted native objects according to the request output policy.
@@ -1635,7 +1659,10 @@ impl Driver {
             compilation_mode: request.compilation_mode,
             runtime: request.runtime.clone(),
         };
-        let mut loader_guard = self.loader.lock().expect("driver loader lock poisoned");
+        let mut loader_guard = self
+            .loader
+            .lock()
+            .map_err(|_| nia_query::QueryError::internal("driver loader state lock is poisoned"))?;
         let database = match &*loader_guard {
             Some(loader) if loader.key == key => loader.database.clone(),
             _ => {
@@ -1665,12 +1692,14 @@ impl Driver {
     }
 
     fn loader_query_trace(&self) -> nia_query::QueryResult<nia_query::QueryTrace> {
-        self.loader
+        let loader = self
+            .loader
             .lock()
-            .expect("driver loader lock poisoned")
-            .as_ref()
-            .map(|loader| loader.database.query_trace())
-            .unwrap_or_else(|| Ok(nia_query::QueryTrace::default()))
+            .map_err(|_| nia_query::QueryError::internal("driver loader state lock is poisoned"))?;
+        loader.as_ref().map_or_else(
+            || Ok(nia_query::QueryTrace::default()),
+            |loader| loader.database.query_trace(),
+        )
     }
 }
 
