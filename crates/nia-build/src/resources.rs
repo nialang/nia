@@ -12,6 +12,7 @@ use crate::ActionResourceClass;
 pub(crate) struct ActionResourceBudget {
     capacity: usize,
     available: Mutex<usize>,
+    failure: Mutex<Option<nia_ice::Ice>>,
     ready: Condvar,
 }
 
@@ -21,32 +22,48 @@ pub(crate) struct ActionResourcePermit<'a> {
 }
 
 impl ActionResourceBudget {
-    pub(crate) fn new(capacity: usize) -> Self {
-        assert!(capacity > 0, "action resource capacity must be non-zero");
-        Self {
+    pub(crate) fn new(capacity: usize) -> nia_ice::IceResult<Self> {
+        if capacity == 0 {
+            return Err(nia_ice::Ice::new(
+                "action resource capacity must be non-zero",
+            ));
+        }
+        Ok(Self {
             capacity,
             available: Mutex::new(capacity),
+            failure: Mutex::new(None),
             ready: Condvar::new(),
-        }
+        })
     }
 
-    pub(crate) fn acquire(&self, class: ActionResourceClass) -> ActionResourcePermit<'_> {
+    pub(crate) fn acquire(
+        &self,
+        class: ActionResourceClass,
+    ) -> nia_ice::IceResult<ActionResourcePermit<'_>> {
         let weight = self.weight(class);
         let mut available = self
             .available
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .map_err(|_| nia_ice::Ice::new("action resource budget lock is poisoned"))?;
         while *available < weight {
+            if let Some(failure) = self
+                .failure
+                .lock()
+                .map_err(|_| nia_ice::Ice::new("action resource failure lock is poisoned"))?
+                .clone()
+            {
+                return Err(failure);
+            }
             available = self
                 .ready
                 .wait(available)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .map_err(|_| nia_ice::Ice::new("action resource budget lock is poisoned"))?;
         }
         *available -= weight;
-        ActionResourcePermit {
+        Ok(ActionResourcePermit {
             budget: self,
             weight,
-        }
+        })
     }
 
     fn weight(&self, class: ActionResourceClass) -> usize {
@@ -59,18 +76,30 @@ impl ActionResourceBudget {
 
 impl Drop for ActionResourcePermit<'_> {
     fn drop(&mut self) {
-        let mut available = self
-            .budget
-            .available
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *available = available
-            .checked_add(self.weight)
-            .expect("action resource budget capacity overflow");
-        assert!(
-            *available <= self.budget.capacity,
-            "action resource budget over-release"
-        );
+        let Ok(mut available) = self.budget.available.lock() else {
+            if let Ok(mut failure) = self.budget.failure.lock() {
+                *failure = Some(nia_ice::Ice::new("action resource budget lock is poisoned"));
+            }
+            self.budget.ready.notify_all();
+            return;
+        };
+        let Some(next) = available.checked_add(self.weight) else {
+            if let Ok(mut failure) = self.budget.failure.lock() {
+                *failure = Some(nia_ice::Ice::new(
+                    "action resource budget capacity overflow",
+                ));
+            }
+            drop(available);
+            self.budget.ready.notify_all();
+            return;
+        };
+        if next > self.budget.capacity {
+            if let Ok(mut failure) = self.budget.failure.lock() {
+                *failure = Some(nia_ice::Ice::new("action resource budget over-release"));
+            }
+        } else {
+            *available = next;
+        }
         drop(available);
         self.budget.ready.notify_all();
     }
@@ -83,12 +112,14 @@ mod tests {
 
     #[test]
     fn conservative_class_reserves_complete_inherited_capacity() {
-        let budget = ActionResourceBudget::new(4);
+        let budget = ActionResourceBudget::new(4).expect("create action resource budget");
         assert_eq!(budget.weight(ActionResourceClass::Conservative), 4);
         assert_eq!(budget.weight(ActionResourceClass::Cpu), 1);
         assert_eq!(budget.weight(ActionResourceClass::Io), 1);
 
-        let permit = budget.acquire(ActionResourceClass::Conservative);
+        let permit = budget
+            .acquire(ActionResourceClass::Conservative)
+            .expect("acquire conservative permit");
         assert_eq!(*budget.available.lock().unwrap(), 0);
         drop(permit);
         assert_eq!(*budget.available.lock().unwrap(), 4);
@@ -96,9 +127,13 @@ mod tests {
 
     #[test]
     fn declared_classes_share_and_return_capacity() {
-        let budget = ActionResourceBudget::new(3);
-        let cpu = budget.acquire(ActionResourceClass::Cpu);
-        let io = budget.acquire(ActionResourceClass::Io);
+        let budget = ActionResourceBudget::new(3).expect("create action resource budget");
+        let cpu = budget
+            .acquire(ActionResourceClass::Cpu)
+            .expect("acquire cpu permit");
+        let io = budget
+            .acquire(ActionResourceClass::Io)
+            .expect("acquire io permit");
         assert_eq!(*budget.available.lock().unwrap(), 1);
         drop(cpu);
         assert_eq!(*budget.available.lock().unwrap(), 2);
@@ -108,14 +143,20 @@ mod tests {
 
     #[test]
     fn conservative_class_waits_for_declared_work_to_settle() {
-        let budget = std::sync::Arc::new(ActionResourceBudget::new(2));
-        let cpu = budget.acquire(ActionResourceClass::Cpu);
+        let budget = std::sync::Arc::new(
+            ActionResourceBudget::new(2).expect("create action resource budget"),
+        );
+        let cpu = budget
+            .acquire(ActionResourceClass::Cpu)
+            .expect("acquire cpu permit");
         let (attempted_tx, attempted_rx) = mpsc::channel();
         let (acquired_tx, acquired_rx) = mpsc::channel();
         let worker_budget = std::sync::Arc::clone(&budget);
         let worker = std::thread::spawn(move || {
             attempted_tx.send(()).unwrap();
-            let _permit = worker_budget.acquire(ActionResourceClass::Conservative);
+            let _permit = worker_budget
+                .acquire(ActionResourceClass::Conservative)
+                .expect("acquire conservative permit");
             acquired_tx.send(()).unwrap();
         });
 
@@ -127,8 +168,10 @@ mod tests {
     }
 
     #[test]
-    fn poisoned_budget_lock_is_recovered_without_panicking() {
-        let budget = std::sync::Arc::new(ActionResourceBudget::new(2));
+    fn poisoned_budget_lock_is_reported_as_ice() {
+        let budget = std::sync::Arc::new(
+            ActionResourceBudget::new(2).expect("create action resource budget"),
+        );
         let worker_budget = std::sync::Arc::clone(&budget);
         let worker = std::thread::spawn(move || {
             let _available = worker_budget.available.lock().unwrap();
@@ -136,9 +179,11 @@ mod tests {
         });
         assert!(worker.join().is_err());
 
-        let permit = budget.acquire(ActionResourceClass::Cpu);
-        assert_eq!(*budget.available.lock().unwrap_err().into_inner(), 1);
-        drop(permit);
+        let error = match budget.acquire(ActionResourceClass::Cpu) {
+            Ok(_) => panic!("poisoned budget must be reported"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("poisoned"));
         assert_eq!(*budget.available.lock().unwrap_err().into_inner(), 2);
     }
 }

@@ -792,7 +792,8 @@ fn scan_generated_file_entry(
         return Ok(None);
     }
 
-    let mut consumed = u64::try_from(GENERATED_FILE_ENTRY.magic.len() + 8 * 16).unwrap();
+    let mut consumed = u64::try_from(GENERATED_FILE_ENTRY.magic.len() + 8 * 16)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "cache header is too large"))?;
     let Some(action_len) = read_stream_u64(&mut file)? else {
         return Ok(None);
     };
