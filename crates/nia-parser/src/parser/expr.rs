@@ -1028,8 +1028,9 @@ impl Parser {
             .as_ref()
             .map_or(then_branch.span.end, |expr| expr.span.end);
         if clauses.len() == 1 {
-            let IfChainClause::Pattern { target, pattern } = clauses.pop()? else {
-                unreachable!()
+            let Some(IfChainClause::Pattern { target, pattern }) = clauses.pop() else {
+                self.error_here("pattern condition is missing its pattern");
+                return None;
             };
             return Some(self.make_expr(
                 Span::new(start, end),
