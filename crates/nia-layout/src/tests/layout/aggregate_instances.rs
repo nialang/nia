@@ -36,7 +36,8 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
         array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
-    });
+    })
+    .expect("compute layouts");
     assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
     let array_box_id = defs
         .module_scope
@@ -50,7 +51,8 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
             args: vec![
                 type_store
                     .append_for_module(module_id)
-                    .intern(TyKind::Primitive(PrimitiveTy::U8)),
+                    .intern(TyKind::Primitive(PrimitiveTy::U8))
+                    .expect("intern u8 type"),
             ],
             const_args: Vec::new(),
         })
@@ -62,7 +64,8 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
             args: vec![
                 type_store
                     .append_for_module(module_id)
-                    .intern(TyKind::Primitive(PrimitiveTy::I32)),
+                    .intern(TyKind::Primitive(PrimitiveTy::I32))
+                    .expect("intern i32 type"),
             ],
             const_args: Vec::new(),
         })
@@ -89,7 +92,8 @@ fn main(a: Bits[i32]) {}
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
-    let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64);
+    let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64)
+        .expect("compute layouts");
     assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
     let bits_id = defs.module_scope.types.get(&sym("Bits")).expect("Bits def");
     let bits_i32 = layouts
@@ -99,7 +103,8 @@ fn main(a: Bits[i32]) {}
             args: vec![
                 type_store
                     .append_for_module(module_id)
-                    .intern(TyKind::Primitive(PrimitiveTy::I32)),
+                    .intern(TyKind::Primitive(PrimitiveTy::I32))
+                    .expect("intern i32 type"),
             ],
             const_args: Vec::new(),
         })

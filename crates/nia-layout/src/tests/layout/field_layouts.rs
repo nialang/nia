@@ -26,7 +26,8 @@ c: u8,
     let a_id = signature.fields[0].def_id;
     let b_id = signature.fields[1].def_id;
     let c_id = signature.fields[2].def_id;
-    let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64);
+    let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64)
+        .expect("compute layouts");
     assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
     let mixed = layouts.structs.get(&mixed_id).expect("Mixed layout");
     assert_eq!(mixed.layout, TypeLayout { size: 16, align: 8 });
@@ -60,7 +61,8 @@ fn preserves_tuple_struct_field_order() {
         .iter()
         .map(|field| field.def_id)
         .collect::<Vec<_>>();
-    let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64);
+    let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64)
+        .expect("compute layouts");
     assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
     let mixed = layouts.structs.get(&mixed_id).expect("Mixed layout");
     assert_eq!(mixed.layout, TypeLayout { size: 24, align: 8 });
@@ -96,7 +98,8 @@ let mut xs: [u8; _] = [1, 2];
             ..
         })
     )));
-    let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64);
+    let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64)
+        .expect("compute layouts");
     assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
 }
 
@@ -128,7 +131,8 @@ value: i32,
             .expect("CPair signature")
             .is_extern
     );
-    let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64);
+    let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64)
+        .expect("compute layouts");
     assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
     let cpair = layouts.structs.get(&cpair_id).expect("CPair layout");
     assert_eq!(cpair.layout, TypeLayout { size: 8, align: 4 });

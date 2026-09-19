@@ -24,7 +24,8 @@ enum Event: u16 {
         "{:?}",
         signatures.diagnostics
     );
-    let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64);
+    let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64)
+        .expect("compute layouts");
     assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
 
     let event_id = defs
@@ -64,7 +65,8 @@ fn defaults_enum_tag_to_u8_and_keeps_fieldless_layout_scalar() {
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
-    let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64);
+    let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64)
+        .expect("compute layouts");
     let flag_id = defs.module_scope.types.get(&sym("Flag")).expect("Flag def");
     let signature = signatures.enums.get(&flag_id).expect("Flag signature");
     assert!(matches!(

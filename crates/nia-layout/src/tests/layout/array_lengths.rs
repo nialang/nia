@@ -37,7 +37,8 @@ fn main(xs: [u8; std::builtin::size[Pair]()], ys: [u8; std::builtin::align[Pair]
         array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
-    });
+    })
+    .expect("compute layouts");
     assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
     assert!(root_types.iter().copied().any(|ty_id| {
         matches!(
@@ -101,7 +102,8 @@ fn main(buf: Buffer[u8, 4]) {}
         array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
-    });
+    })
+    .expect("compute layouts");
     assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
     assert!(layouts.struct_instances.iter().any(|(key, layout)| {
         key.const_args
@@ -148,7 +150,8 @@ fn main(packet: Packet[3]) {}
         array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
-    });
+    })
+    .expect("compute layouts");
     let packet_id = defs
         .module_scope
         .types
@@ -235,7 +238,8 @@ fn main(value: Mixed[u8, 3, u32], bits: MixedBits[u16, 5, u8]) {}
         array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
-    });
+    })
+    .expect("compute layouts");
     assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
 
     let mixed_id = defs
@@ -307,6 +311,7 @@ fn main(value: Mixed[u8, 3, u32], bits: MixedBits[u16, 5, u8]) {}
             const_args: &mixed_key.const_args,
         },
     )
+    .expect("compute external Mixed instance detail")
     .expect("external Mixed instance detail");
     assert_eq!(external_mixed, mixed.clone());
 
@@ -321,6 +326,7 @@ fn main(value: Mixed[u8, 3, u32], bits: MixedBits[u16, 5, u8]) {}
             const_args: &mixed_bits_key.const_args,
         },
     )
+    .expect("compute external MixedBits instance detail")
     .expect("external MixedBits instance detail");
     assert_eq!(external_mixed_bits, mixed_bits.clone());
 }
@@ -364,7 +370,8 @@ fn main(value: Mixed[u8, 3, u32]) {}
         array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
-    });
+    })
+    .expect("compute layouts");
     assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
     let alias_id = defs
         .module_scope
