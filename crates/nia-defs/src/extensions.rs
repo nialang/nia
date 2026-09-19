@@ -590,7 +590,8 @@ mod tests {
         let type_store = TypeStore::new().expect("create type store");
         let target_ty = type_store
             .append_for_module(current)
-            .primitive(PrimitiveTy::I32);
+            .primitive(PrimitiveTy::I32)
+            .expect("intern extension target type");
         let current_id = GlobalDefId {
             module_id: current,
             def_id: DefId(1),
