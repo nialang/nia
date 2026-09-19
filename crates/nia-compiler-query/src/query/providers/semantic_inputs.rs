@@ -831,6 +831,22 @@ mod tests {
     use nia_symbol::SymbolId;
     use nia_ty::{ConstGenericArg, ConstGenericValue, PrimitiveTy, TypeStore};
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId;
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId {
+            self.intern(kind).expect("intern semantic-input test type")
+        }
+
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+            self.primitive(primitive)
+                .expect("intern primitive semantic-input test type")
+        }
+    }
+
     #[test]
     fn const_expression_collector_descends_trait_metadata() {
         let modules = ModuleIdAllocator::new().expect("create module ID allocator");
@@ -845,12 +861,12 @@ mod tests {
         };
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
-        let usize_ty = append.primitive(PrimitiveTy::Usize);
+        let usize_ty = append.test_primitive(PrimitiveTy::Usize);
         let const_arg = ConstGenericArg {
             ty: usize_ty,
             value: ConstGenericValue::ConstExpr(expr),
         };
-        let binding_ty = append.intern(TyKind::Primitive(PrimitiveTy::Bool));
+        let binding_ty = append.test_intern(TyKind::Primitive(PrimitiveTy::Bool));
         let binding = nia_ty::AssociatedTypeBindingTy {
             name: SymbolId::EMPTY,
             trait_id: Some(trait_id),
@@ -858,14 +874,14 @@ mod tests {
             trait_const_args: vec![const_arg.clone()],
             ty: binding_ty,
         };
-        let object = append.intern(TyKind::TraitObject {
+        let object = append.test_intern(TyKind::TraitObject {
             is_readonly: false,
             trait_id,
             trait_args: vec![binding_ty],
             trait_const_args: vec![const_arg.clone()],
             associated_type_bindings: vec![binding],
         });
-        let projection = append.intern(TyKind::Projection {
+        let projection = append.test_intern(TyKind::Projection {
             self_ty: object,
             trait_id,
             trait_args: vec![binding_ty],

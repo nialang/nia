@@ -101,6 +101,56 @@ pair.left
 }
 
 #[test]
+fn declaration_lowering_includes_local_static_types_only() {
+    let (module, errors) = parse_module(
+        r#"
+fn main() () {
+    let ignored: bool = false;
+    static retained: i32 = 0;
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let module_id = ModuleIdAllocator::new()
+        .expect("create module ID allocator")
+        .allocate()
+        .expect("allocate module ID");
+    let tree = ModuleItemTree::from_module(&module);
+    let active = tree.active_items(&mut BoolResolver(false)).unwrap();
+    let defs = collect_module_defs_from_active_item_tree(module_id, &active);
+    let resolved = resolve_module_declaration_types_from_active_item_tree(
+        &active,
+        &defs,
+        TypeResolveProgramDefsContext::empty(),
+        &nia_defs::PublicSurfaces::default(),
+        &nia_defs::ModuleUsingScope::default(),
+    );
+    let store = nia_ty::TypeStore::new().expect("create type store");
+    let lowered = lower_module_declaration_types_from_active_item_tree_with_context(
+        module_id,
+        &active,
+        &resolved,
+        TypeLoweringContext::empty(&store),
+    )
+    .expect("lower declaration types");
+
+    assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+    assert_eq!(lowered.type_uses.len(), 2);
+    assert!(
+        lowered
+            .type_uses
+            .values()
+            .any(|ty| matches!(store.get(*ty), Some(TyKind::Primitive(PrimitiveTy::I32))))
+    );
+    assert!(
+        !lowered
+            .type_uses
+            .values()
+            .any(|ty| matches!(store.get(*ty), Some(TyKind::Primitive(PrimitiveTy::Bool))))
+    );
+}
+
+#[test]
 fn versioned_type_uses_include_const_generic_parameter_types() {
     let (module, errors) = parse_module(
         r#"

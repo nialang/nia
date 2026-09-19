@@ -74,7 +74,7 @@ fn type_store_preserves_published_slots_across_database_updates() {
     let type_store = &database.db.context().type_store;
     let first_i32 = type_store
         .append_for_module(module_id)
-        .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
+        .test_intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
     assert!(
         first_lowering
             .semantic
@@ -270,10 +270,10 @@ fn type_store_isolates_compiler_database_handle_identity() {
     let second_store = &second.db.context().type_store;
     let first_i32 = first_store
         .append_for_module(first_module_id)
-        .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
+        .test_intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
     let second_i32 = second_store
         .append_for_module(second_module_id)
-        .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
+        .test_intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
 
     assert_ne!(first_store.id(), second_store.id());
     assert_ne!(first_i32, second_i32);

@@ -1038,6 +1038,23 @@ mod tests {
     use nia_symbol::SymbolId;
     use nia_ty::{ConstGenericArg, ConstGenericValue, PrimitiveTy, TyKind, TypeStore};
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId;
+        fn test_primitive(&self, primitive: PrimitiveTy) -> nia_ids::InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId {
+            self.intern(kind)
+                .expect("intern extension-provider test type")
+        }
+
+        fn test_primitive(&self, primitive: PrimitiveTy) -> nia_ids::InternedTyId {
+            self.primitive(primitive)
+                .expect("intern primitive extension-provider test type")
+        }
+    }
+
     #[test]
     fn signature_type_modules_include_const_expression_owners() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
@@ -1063,13 +1080,13 @@ mod tests {
         };
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(trait_module);
-        let usize_ty = append.primitive(PrimitiveTy::Usize);
-        let bool_ty = append.primitive(PrimitiveTy::Bool);
+        let usize_ty = append.test_primitive(PrimitiveTy::Usize);
+        let bool_ty = append.test_primitive(PrimitiveTy::Bool);
         let const_arg = ConstGenericArg {
             ty: usize_ty,
             value: ConstGenericValue::ConstExpr(const_expr),
         };
-        let object = append.intern(TyKind::TraitObject {
+        let object = append.test_intern(TyKind::TraitObject {
             is_readonly: false,
             trait_id,
             trait_args: Vec::new(),
@@ -1082,7 +1099,7 @@ mod tests {
                 ty: bool_ty,
             }],
         });
-        let array = append.intern(TyKind::Array {
+        let array = append.test_intern(TyKind::Array {
             elem: object,
             len: nia_ty::ArrayLenTy::ConstExpr(array_expr),
         });

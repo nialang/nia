@@ -1622,7 +1622,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                     reachable_functions,
                     reachable_globals,
                 )
-            });
+            })?;
             nia_layout::compute_layouts_for_roots_with_program_context(
                 nia_layout::LayoutComputationInput {
                     type_store: &db.context().type_store,
@@ -2124,7 +2124,7 @@ pub(super) fn executable_reachable_aggregate_roots(
     struct_signature: &dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,
     union_signature: &dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>,
     modules: &[CheckedModule],
-) -> ExecutableReachableAggregateRoots {
+) -> nia_ice::IceResult<ExecutableReachableAggregateRoots> {
     let mut structs = HashSet::new();
     let mut unions = HashSet::new();
     for module in modules {
@@ -2154,11 +2154,11 @@ pub(super) fn executable_reachable_aggregate_roots(
             }
             roots.add(signature.signature.return_type);
         }
-        let roots = roots.finish_global();
+        let roots = roots.finish_global()?;
         structs.extend(roots.structs);
         unions.extend(roots.unions);
     }
-    ExecutableReachableAggregateRoots { structs, unions }
+    Ok(ExecutableReachableAggregateRoots { structs, unions })
 }
 
 pub(super) struct ExecutableReachableAggregateRoots {

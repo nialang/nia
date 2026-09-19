@@ -61,6 +61,7 @@ pub(super) struct LayoutRootCollector<'a> {
     program_struct: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>>,
     program_union: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>>,
     expand_local_aggregate_fields: bool,
+    internal_error: Option<nia_ice::Ice>,
     seen: HashSet<InternedTyId>,
     types: Vec<InternedTyId>,
     seen_structs: HashSet<nia_defs::DefId>,
@@ -82,6 +83,7 @@ impl<'a> LayoutRootCollector<'a> {
             program_struct: None,
             program_union: None,
             expand_local_aggregate_fields: false,
+            internal_error: None,
             seen: HashSet::new(),
             types: Vec::new(),
             seen_structs: HashSet::new(),
@@ -246,8 +248,10 @@ impl<'a> LayoutRootCollector<'a> {
             | Some(TyKind::Error)
             | Some(TyKind::ConstOnly)
             | Some(TyKind::SelfParam)
-            | Some(TyKind::GenericParam(_))
-            | None => {}
+            | Some(TyKind::GenericParam(_)) => {}
+            None => self.record_internal(nia_ice::Ice::new(format!(
+                "layout root type {ty:?} is outside the session type store"
+            ))),
         }
     }
 
@@ -295,6 +299,9 @@ impl<'a> LayoutRootCollector<'a> {
         let Some((substitutions, const_substitutions)) =
             nia_item_signatures::generic_argument_substitutions(generic_params, args, const_args)
         else {
+            self.record_internal(nia_ice::Ice::new(
+                "aggregate layout root arguments do not match its generic parameters",
+            ));
             return;
         };
         // Root discovery must traverse the concrete field graph. Reuse the
@@ -309,7 +316,16 @@ impl<'a> LayoutRootCollector<'a> {
                 &|name| const_substitutions.get(name).cloned(),
                 None,
             );
-            self.add(field_ty.unwrap_or_else(|_| self.type_store.error()));
+            match field_ty {
+                Ok(field_ty) => self.add(field_ty),
+                Err(error) => self.record_internal(error),
+            }
+        }
+    }
+
+    fn record_internal(&mut self, error: nia_ice::Ice) {
+        if self.internal_error.is_none() {
+            self.internal_error = Some(error);
         }
     }
 
@@ -349,19 +365,25 @@ impl<'a> LayoutRootCollector<'a> {
         }
     }
 
-    pub(super) fn finish(self) -> CollectedLayoutRoots {
-        CollectedLayoutRoots {
+    pub(super) fn finish(self) -> nia_ice::IceResult<CollectedLayoutRoots> {
+        if let Some(error) = self.internal_error {
+            return Err(error);
+        }
+        Ok(CollectedLayoutRoots {
             types: self.types,
             structs: self.structs,
             unions: self.unions,
-        }
+        })
     }
 
-    pub(super) fn finish_global(self) -> CollectedGlobalLayoutRoots {
-        CollectedGlobalLayoutRoots {
+    pub(super) fn finish_global(self) -> nia_ice::IceResult<CollectedGlobalLayoutRoots> {
+        if let Some(error) = self.internal_error {
+            return Err(error);
+        }
+        Ok(CollectedGlobalLayoutRoots {
             structs: self.global_structs,
             unions: self.global_unions,
-        }
+        })
     }
 }
 
@@ -380,6 +402,16 @@ pub(super) struct CollectedGlobalLayoutRoots {
 mod tests {
     use super::*;
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId {
+            self.intern(kind).expect("intern layout-root test type")
+        }
+    }
+
     #[test]
     fn aggregate_field_roots_substitute_interleaved_const_arguments() {
         let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
@@ -394,9 +426,9 @@ mod tests {
         let consuming_types = type_store.append_for_module(consuming_module);
         let type_name = SymbolId::from_stable_hash(nia_symbol::stable_hash("T"));
         let const_name = SymbolId::from_stable_hash(nia_symbol::stable_hash("N"));
-        let usize_ty = defining_types.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize));
-        let generic_ty = defining_types.intern(TyKind::GenericParam(type_name));
-        let field_ty = defining_types.intern(TyKind::Array {
+        let usize_ty = defining_types.test_intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize));
+        let generic_ty = defining_types.test_intern(TyKind::GenericParam(type_name));
+        let field_ty = defining_types.test_intern(TyKind::Array {
             elem: generic_ty,
             len: nia_ty::ArrayLenTy::GenericParam(const_name),
         });
@@ -429,8 +461,8 @@ mod tests {
         };
         let program_struct = |requested| (requested == packet_id).then(|| signature.clone());
         let program_union = |_| None;
-        let u8_ty = consuming_types.intern(TyKind::Primitive(nia_ty::PrimitiveTy::U8));
-        let packet_ty = consuming_types.intern(TyKind::Nominal {
+        let u8_ty = consuming_types.test_intern(TyKind::Primitive(nia_ty::PrimitiveTy::U8));
+        let packet_ty = consuming_types.test_intern(TyKind::Nominal {
             def_id: packet_id,
             args: vec![u8_ty],
             const_args: vec![nia_ty::ConstGenericArg {
@@ -446,7 +478,7 @@ mod tests {
             &program_union,
         );
         roots.add(packet_ty);
-        let roots = roots.finish();
+        let roots = roots.finish().expect("collect layout roots");
 
         assert!(roots.types.iter().any(|ty| matches!(
             type_store.get(*ty),
@@ -467,7 +499,7 @@ mod tests {
             module_id,
             def_id: nia_defs::DefId(10),
         };
-        let nominal = types.intern(TyKind::Nominal {
+        let nominal = types.test_intern(TyKind::Nominal {
             def_id: nominal_id,
             args: Vec::new(),
             const_args: Vec::new(),
@@ -476,8 +508,8 @@ mod tests {
             module_id,
             def_id: nia_defs::DefId(11),
         });
-        let usize_ty = types.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize));
-        let object = types.intern(TyKind::TraitObject {
+        let usize_ty = types.test_intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize));
+        let object = types.test_intern(TyKind::TraitObject {
             is_readonly: false,
             trait_id,
             trait_args: Vec::new(),
@@ -498,8 +530,29 @@ mod tests {
         });
         let mut roots = LayoutRootCollector::new(&type_store, module_id);
         roots.add(object);
-        let roots = roots.finish();
+        let roots = roots.finish().expect("collect layout roots");
         assert!(roots.types.contains(&nominal));
         assert!(roots.types.contains(&usize_ty));
+    }
+
+    #[test]
+    fn foreign_type_roots_reject_partial_collection() {
+        let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
+        let foreign_module = module_ids.allocate().expect("allocate module ID");
+        let type_store = nia_ty::TypeStore::new().expect("create type store");
+        let foreign_store = nia_ty::TypeStore::new().expect("create foreign type store");
+        let foreign_ty = foreign_store
+            .append_for_module(foreign_module)
+            .test_intern(TyKind::Primitive(nia_ty::PrimitiveTy::I32));
+        let mut roots = LayoutRootCollector::new(&type_store, module_id);
+
+        roots.add(foreign_ty);
+        let error = match roots.finish() {
+            Ok(_) => panic!("foreign roots must prevent layout root publication"),
+            Err(error) => error,
+        };
+
+        assert!(error.message.contains("outside the session type store"));
     }
 }

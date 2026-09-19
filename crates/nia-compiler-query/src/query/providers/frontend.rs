@@ -877,6 +877,11 @@ pub(super) fn provide_signature_item_signatures(
             lowered: &type_lowering.semantic,
             type_store: db.context().type_store(),
             symbols: Some(&symbols),
+        })
+        .map_err(|error| {
+            error.with_context(format!(
+                "collecting {set:?} signature items for module {module_id:?}"
+            ))
         })?;
     let diagnostics = std::mem::take(&mut fresh.diagnostics);
     let cacheable = diagnostics.is_empty()

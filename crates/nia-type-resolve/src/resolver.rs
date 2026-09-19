@@ -273,7 +273,21 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
 
     fn visit_function(&mut self, function: &'ast FunctionItem) {
         self.with_generics(&function.generics, |resolver| {
-            walk_function(resolver, function);
+            resolver.visit_function_declaration(function);
+            if resolver.mode == TypeResolveMode::All
+                && let Some(body) = &function.body
+            {
+                resolver.visit_block(body);
+            } else if let Some(body) = &function.body {
+                nia_ast_walk::walk_static_bindings(body, &mut |stmt| {
+                    let nia_ast::StmtKind::Static(binding) = &stmt.kind else {
+                        return;
+                    };
+                    if let Some(ty) = &binding.ty {
+                        resolver.visit_type(ty);
+                    }
+                });
+            }
         });
     }
 
@@ -506,21 +520,34 @@ impl TypeResolver<'_> {
 
     fn visit_function(&mut self, function: &FunctionItem) {
         self.with_generics(&function.generics, |resolver| {
-            resolver.visit_where_clause(&function.where_clause);
-            for param in &function.params {
-                if let Some(ty) = &param.ty {
-                    resolver.visit_type(ty);
-                }
-            }
-            if let Some(return_type) = &function.return_type {
-                resolver.visit_type(return_type);
-            }
+            resolver.visit_function_declaration(function);
             if resolver.mode == TypeResolveMode::All
                 && let Some(body) = &function.body
             {
                 resolver.visit_block(body);
+            } else if let Some(body) = &function.body {
+                nia_ast_walk::walk_static_bindings(body, &mut |stmt| {
+                    let nia_ast::StmtKind::Static(binding) = &stmt.kind else {
+                        return;
+                    };
+                    if let Some(ty) = &binding.ty {
+                        resolver.visit_type(ty);
+                    }
+                });
             }
         });
+    }
+
+    fn visit_function_declaration(&mut self, function: &FunctionItem) {
+        self.visit_where_clause(&function.where_clause);
+        for param in &function.params {
+            if let Some(ty) = &param.ty {
+                self.visit_type(ty);
+            }
+        }
+        if let Some(return_type) = &function.return_type {
+            self.visit_type(return_type);
+        }
     }
 }
 

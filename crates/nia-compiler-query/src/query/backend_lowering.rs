@@ -409,6 +409,17 @@ mod tests {
     use nia_span::Span;
     use nia_ty::{PrimitiveTy, TyKind, TypeStore};
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId {
+            self.intern(kind)
+                .expect("intern backend-lowering test type")
+        }
+    }
+
     #[test]
     fn program_ir_indexes_borrow_query_owned_payloads() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
@@ -416,7 +427,7 @@ mod tests {
         let type_store = TypeStore::new().expect("create type store");
         let ty = type_store
             .append_for_module(module_id)
-            .intern(TyKind::Primitive(PrimitiveTy::I32));
+            .test_intern(TyKind::Primitive(PrimitiveTy::I32));
         let def_id = GlobalDefId {
             module_id,
             def_id: DefId(1),

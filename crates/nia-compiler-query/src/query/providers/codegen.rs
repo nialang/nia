@@ -533,6 +533,16 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                     checked_modules
                         .iter()
                         .map(|checked_module| {
+                            if checked_module.executable_type_only {
+                                return Ok(db
+                                    .get(SignatureItemSignaturesQuery(
+                                        checked_module.id,
+                                        nia_item_tree::SignatureItemSet::Types,
+                                    ))?
+                                    .semantic
+                                    .as_ref()
+                                    .clone());
+                            }
                             body_local_item_signatures(
                                 db,
                                 checked_module.id,

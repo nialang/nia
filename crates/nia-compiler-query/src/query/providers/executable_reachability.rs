@@ -1067,7 +1067,7 @@ fn executable_check_in_session(
         drop(executable_program_layouts);
         return_session_error!(error);
     }
-    let aggregate_roots = time_provider(
+    let aggregate_roots = match time_provider(
         db.context().timings(),
         "executable_checked_modules.final.aggregate_roots",
         || {
@@ -1079,7 +1079,13 @@ fn executable_check_in_session(
                 &codegen_modules,
             )
         },
-    );
+    ) {
+        Ok(roots) => roots,
+        Err(error) => {
+            drop(executable_program_layouts);
+            return_session_error!(QueryError::Internal(error))
+        }
+    };
     if let Some(error) = query_failure.borrow_mut().take() {
         drop(executable_program_layouts);
         return_session_error!(error);
