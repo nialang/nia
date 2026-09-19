@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+fn new_revision() -> crate::ProviderFactRevision {
+    crate::ProviderFactRevision::new_store().expect("test provider revision")
+}
+
+fn next_revision(revision: crate::ProviderFactRevision) -> crate::ProviderFactRevision {
+    revision.next().expect("test provider revision advance")
+}
+
 #[test]
 fn provider_graph_growth_recomputes_query_derived_executable_roots() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
@@ -109,7 +117,7 @@ fn additive_module_growth_discards_diagnostic_executable_facts() {
 fn semantic_provider_growth_preserves_reachability_state() {
     let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let database = fixture.database();
-    let revision = crate::ProviderFactRevision::new_store();
+    let revision = new_revision();
     let retained_function = nia_ids::GlobalDefId {
         module_id: fixture.entry_id(),
         def_id: nia_ids::DefId(0),
@@ -127,7 +135,7 @@ fn semantic_provider_growth_preserves_reachability_state() {
         },
     };
     session.apply_provider_fact_worklist(
-        &crate::ProviderFactSnapshot::new(revision.next(), revision, [semantic_demand]),
+        &crate::ProviderFactSnapshot::new(next_revision(revision), revision, [semantic_demand]),
         &database.db.context().type_store,
     );
 
@@ -144,7 +152,7 @@ fn semantic_provider_growth_preserves_reachability_state() {
 fn provider_changes_discard_affected_executable_fact_caches() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let entry_id = fixture.entry_id();
-    let revision = crate::ProviderFactRevision::new_store();
+    let revision = new_revision();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;
     let database = CompilerDatabase::new(CompileRequest::new(program));
@@ -176,7 +184,7 @@ fn provider_changes_discard_affected_executable_fact_caches() {
     );
     database.update(CompileRequest::new(fixture.program()));
     database.replace_provider_facts(crate::ProviderFactSnapshot::new(
-        revision.next(),
+        next_revision(revision),
         revision,
         provider_changes,
     ));
@@ -199,13 +207,13 @@ fn provider_changes_discard_affected_executable_fact_caches() {
     );
     assert_eq!(
         session.applied_provider_fact_revision,
-        Some(revision.next())
+        Some(next_revision(revision))
     );
 }
 
 #[test]
 fn provider_fact_snapshot_deduplicates_demands() {
-    let revision = crate::ProviderFactRevision::new_store();
+    let revision = new_revision();
     let demand = crate::ProviderDemand {
         source_path: SourcePath::new("main.nia"),
         request: crate::ProviderRequest::Method {
@@ -245,7 +253,7 @@ fn check_certificate_input_covers_stable_graph_and_provider_demands() {
                 17,
             )
         }));
-    let revision = crate::ProviderFactRevision::new_store();
+    let revision = new_revision();
     let empty = crate::ProviderFactSnapshot::empty(revision);
     let public = check_certificate_input_fingerprint(
         program_sources,
@@ -282,7 +290,7 @@ fn check_certificate_input_covers_stable_graph_and_provider_demands() {
 fn compiler_inputs_preserve_provider_fact_revision() {
     let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let mut program = fixture.program();
-    let revision = crate::ProviderFactRevision::new_store().next();
+    let revision = next_revision(new_revision());
     program.provider_fact_revision = revision;
     let database = CompilerDatabase::new(CompileRequest::new(program));
 
@@ -295,7 +303,7 @@ fn compiler_inputs_preserve_provider_fact_revision() {
 #[test]
 fn executable_products_depend_on_incremental_worklists() {
     let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
-    let revision = crate::ProviderFactRevision::new_store();
+    let revision = new_revision();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;
     let database = CompilerDatabase::new(CompileRequest::new(program));
@@ -372,7 +380,7 @@ fn executable_products_serialize_the_shared_fact_session() {
 
 #[test]
 fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
-    let revision = crate::ProviderFactRevision::new_store().next();
+    let revision = next_revision(new_revision());
     let method = crate::ProviderDemand {
         source_path: SourcePath::new("main.nia"),
         request: crate::ProviderRequest::Method {
@@ -468,7 +476,7 @@ fn executable_fact_epoch_defers_full_reset_to_query_boundary() {
 #[test]
 fn provider_revision_update_invalidates_executable_products() {
     let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
-    let revision = crate::ProviderFactRevision::new_store();
+    let revision = new_revision();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;
     let database = CompilerDatabase::new(CompileRequest::new(program));
@@ -480,7 +488,7 @@ fn provider_revision_update_invalidates_executable_products() {
     );
 
     let invalidation = database.replace_provider_facts(crate::ProviderFactSnapshot::new(
-        revision.next(),
+        next_revision(revision),
         revision,
         std::iter::empty(),
     ));
@@ -504,7 +512,7 @@ fn provider_revision_update_invalidates_executable_products() {
     );
     assert_eq!(
         database.provider_fact_revision().expect("updated revision"),
-        revision.next()
+        next_revision(revision)
     );
     let revision_query = database
         .query_trace()
@@ -523,7 +531,7 @@ fn provider_revision_update_invalidates_executable_products() {
 #[test]
 fn provider_worklist_accumulates_until_consumed() {
     let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
-    let revision = crate::ProviderFactRevision::new_store();
+    let revision = new_revision();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;
     let database = CompilerDatabase::new(CompileRequest::new(program));
@@ -542,8 +550,8 @@ fn provider_worklist_accumulates_until_consumed() {
             trait_type_argument_names: Vec::new(),
         },
     };
-    let first_revision = revision.next();
-    let second_revision = first_revision.next();
+    let first_revision = next_revision(revision);
+    let second_revision = next_revision(first_revision);
 
     database.replace_provider_facts(crate::ProviderFactSnapshot::new(
         first_revision,
@@ -569,7 +577,7 @@ fn provider_worklist_accumulates_until_consumed() {
     );
     assert_eq!(session.applied_provider_changes, expected_changes);
 
-    let reset_revision = second_revision.next();
+    let reset_revision = next_revision(second_revision);
     database.replace_provider_facts(crate::ProviderFactSnapshot::new(
         reset_revision,
         reset_revision,
@@ -582,9 +590,9 @@ fn provider_worklist_accumulates_until_consumed() {
 
 #[test]
 fn provider_worklist_reset_watermark_survives_skipped_revisions() {
-    let initial_revision = crate::ProviderFactRevision::new_store();
-    let reset_revision = initial_revision.next();
-    let current_revision = reset_revision.next();
+    let initial_revision = new_revision();
+    let reset_revision = next_revision(initial_revision);
+    let current_revision = next_revision(reset_revision);
     let stale = crate::ProviderDemand {
         source_path: SourcePath::new("stale.nia"),
         request: crate::ProviderRequest::TraitImpl {
@@ -689,7 +697,7 @@ fn body_activation_worklist_accumulates_until_consumed() {
 #[test]
 fn content_identical_input_replacement_keeps_executable_facts_green() {
     let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
-    let revision = crate::ProviderFactRevision::new_store();
+    let revision = new_revision();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;
     let database = CompilerDatabase::new(CompileRequest::new(program));

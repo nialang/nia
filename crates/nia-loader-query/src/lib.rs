@@ -293,7 +293,7 @@ impl LoaderDatabase {
                     | Err(_) => None,
                 }
             });
-        let provider_facts = ProviderFactStore::default();
+        let provider_facts = ProviderFactStore::new()?;
         let db = QueryDb::new_registered_in_session(
             LoaderContext {
                 entry_path,
@@ -455,7 +455,7 @@ impl LoaderDatabase {
         }
         let previous_revision = self.db.get(ProviderDemandsQuery)?.revision();
         let previous_graph = self.db.get(graph::ModuleGraphQuery)?;
-        let added = self.db.context().provider_facts.insert_new(demands);
+        let added = self.db.context().provider_facts.insert_new(demands)?;
         if added.is_empty() {
             return Ok(nia_compiler_query::ProviderGraphUpdate::Stable);
         }
@@ -519,7 +519,7 @@ impl LoaderDatabase {
             cache.remove_provider_demand_plan(key);
             *self.db.context().provider_demand_plan_candidate.lock() = None;
         }
-        self.db.context().provider_facts.clear();
+        self.db.context().provider_facts.clear()?;
         Ok(())
     }
 
