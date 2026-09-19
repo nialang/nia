@@ -534,20 +534,25 @@ impl NodeRevisionSet {
 pub struct NodeMap<V> {
     store: NodeStore,
     revisions: NodeRevisionSet,
-    nodes: FastHashMap<NodeId, V>,
+    nodes: FastHashMap<NodeId, NodeMapEntry<V>>,
+}
+
+#[derive(Debug, Clone)]
+struct NodeMapEntry<V> {
+    locator: VersionedNodeKey,
+    value: V,
 }
 
 #[derive(Debug)]
 /// Mutable builder for a locator-keyed [`NodeMap`].
 pub struct NodeMapBuilder<V> {
     append: NodeStoreAppend,
-    nodes: FastHashMap<NodeId, V>,
+    nodes: FastHashMap<NodeId, NodeMapEntry<V>>,
 }
 
 /// Iterator yielding stable locators and borrowed node-map values.
 pub struct NodeMapIter<'a, V> {
-    revisions: &'a NodeRevisionSet,
-    entries: hash_map::Iter<'a, NodeId, V>,
+    entries: hash_map::Values<'a, NodeId, NodeMapEntry<V>>,
 }
 
 impl<V> Default for NodeMap<V> {
@@ -559,20 +564,16 @@ impl<V> Default for NodeMap<V> {
 impl<V: PartialEq> PartialEq for NodeMap<V> {
     fn eq(&self, other: &Self) -> bool {
         self.nodes.len() == other.nodes.len()
-            && self.nodes.iter().all(|(node_id, value)| {
-                self.revisions
-                    .locator(node_id.index)
-                    .is_some_and(|locator| {
-                        other
-                            .revisions
-                            .id_for_locator(&locator)
-                            .map(|index| NodeId {
-                                store_id: other.store.id,
-                                index,
-                            })
-                            .and_then(|other_id| other.nodes.get(&other_id))
-                            == Some(value)
+            && self.nodes.values().all(|entry| {
+                other
+                    .revisions
+                    .id_for_locator(&entry.locator)
+                    .map(|index| NodeId {
+                        store_id: other.store.id,
+                        index,
                     })
+                    .and_then(|other_id| other.nodes.get(&other_id))
+                    .is_some_and(|other| other.value == entry.value)
             })
     }
 }
@@ -601,6 +602,7 @@ impl<V> NodeMap<V> {
     pub fn get(&self, locator: &VersionedNodeKey) -> Option<&V> {
         self.node_id(locator)
             .and_then(|node_id| self.nodes.get(&node_id))
+            .map(|entry| &entry.value)
     }
 
     /// Reports whether a locator has a value in this map.
@@ -610,7 +612,7 @@ impl<V> NodeMap<V> {
 
     /// Looks up a value by a compact handle owned by this map's store.
     pub fn get_by_id(&self, node_id: NodeId) -> Option<&V> {
-        self.nodes.get(&node_id)
+        self.nodes.get(&node_id).map(|entry| &entry.value)
     }
 
     /// Returns this map's compact handle for a locator.
@@ -637,25 +639,30 @@ impl<V> NodeMap<V> {
     /// Iterates stable locators and borrowed values.
     pub fn iter(&self) -> NodeMapIter<'_, V> {
         NodeMapIter {
-            revisions: &self.revisions,
-            entries: self.nodes.iter(),
+            entries: self.nodes.values(),
         }
     }
 
     /// Iterates values in unspecified order.
-    pub fn values(&self) -> hash_map::Values<'_, NodeId, V> {
-        self.nodes.values()
+    pub fn values(&self) -> impl Iterator<Item = &V> {
+        self.nodes.values().map(|entry| &entry.value)
     }
 
     /// Projects stored values while preserving this map's node identities.
     pub fn filter_map_values<U>(&self, mut project: impl FnMut(&V) -> Option<U>) -> NodeMap<U> {
         let mut nodes =
             FastHashMap::with_capacity_and_hasher(self.nodes.len(), FastBuildHasher::default());
-        nodes.extend(
-            self.nodes
-                .iter()
-                .filter_map(|(node_id, value)| project(value).map(|value| (*node_id, value))),
-        );
+        nodes.extend(self.nodes.iter().filter_map(|(node_id, entry)| {
+            project(&entry.value).map(|value| {
+                (
+                    *node_id,
+                    NodeMapEntry {
+                        locator: entry.locator.clone(),
+                        value,
+                    },
+                )
+            })
+        }));
         NodeMap {
             store: self.store.clone(),
             revisions: self.revisions.clone(),
@@ -665,21 +672,14 @@ impl<V> NodeMap<V> {
 
     /// Iterates stable locators in unspecified order.
     pub fn keys(&self) -> impl Iterator<Item = VersionedNodeKey> + '_ {
-        self.nodes
-            .keys()
-            .filter_map(|node_id| self.revisions.locator(node_id.index))
+        self.nodes.values().map(|entry| entry.locator.clone())
     }
 
     /// Consumes the map into stable locator/value entries.
     pub fn into_entries(self) -> impl Iterator<Item = (VersionedNodeKey, V)> {
-        let Self {
-            revisions, nodes, ..
-        } = self;
-        nodes.into_iter().filter_map(move |(node_id, value)| {
-            revisions
-                .locator(node_id.index)
-                .map(|locator| (locator, value))
-        })
+        self.nodes
+            .into_values()
+            .map(|entry| (entry.locator, entry.value))
     }
 
     /// Converts this immutable product back into a mutable builder.
@@ -707,14 +707,18 @@ impl<V> NodeMap<V> {
 impl<V> NodeMapBuilder<V> {
     /// Inserts or replaces a value, returning the previous value.
     pub fn insert(&mut self, locator: VersionedNodeKey, value: V) -> Option<V> {
-        self.nodes.insert(self.append.intern(locator), value)
+        let node_id = self.append.intern(locator.clone());
+        self.nodes
+            .insert(node_id, NodeMapEntry { locator, value })
+            .map(|entry| entry.value)
     }
 
     /// Inserts a value only when the locator is absent.
     pub fn insert_if_absent(&mut self, locator: VersionedNodeKey, value: V) {
+        let node_id = self.append.intern(locator.clone());
         self.nodes
-            .entry(self.append.intern(locator))
-            .or_insert(value);
+            .entry(node_id)
+            .or_insert(NodeMapEntry { locator, value });
     }
 
     /// Removes and returns a value by locator.
@@ -722,6 +726,7 @@ impl<V> NodeMapBuilder<V> {
         self.append
             .id_for_locator(locator)
             .and_then(|node_id| self.nodes.remove(&node_id))
+            .map(|entry| entry.value)
     }
 
     /// Inserts entries in iteration order, with later duplicates winning.
@@ -741,10 +746,9 @@ impl<V> NodeMapBuilder<V> {
             // Select the target's generation before interning source entries,
             // so a logical locator occurs once and source values still win.
             self.append.revisions.extend(revisions.clone());
-            for (node_id, value) in nodes {
-                if let Some(locator) = revisions.locator(node_id.index) {
-                    self.nodes.insert(self.append.intern(locator), value);
-                }
+            for entry in nodes.into_values() {
+                let node_id = self.append.intern(entry.locator.clone());
+                self.nodes.insert(node_id, entry);
             }
         } else {
             self.extend(nodes.into_entries());
@@ -766,11 +770,9 @@ impl<'a, V> Iterator for NodeMapIter<'a, V> {
     type Item = (VersionedNodeKey, &'a V);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.entries.next().and_then(|(node_id, value)| {
-            self.revisions
-                .locator(node_id.index)
-                .map(|locator| (locator, value))
-        })
+        self.entries
+            .next()
+            .map(|entry| (entry.locator.clone(), &entry.value))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
