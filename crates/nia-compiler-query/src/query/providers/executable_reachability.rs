@@ -490,6 +490,7 @@ fn executable_check_in_session(
     }
     let extension_lookup = QueryExecutableExtensionLookup::new(db);
     loop {
+        emit_executable_check_counter(db, product, "iterations", 1);
         let reachable_inputs = time_provider(
             db.context().timings(),
             "executable_checked_modules.inputs",
@@ -530,7 +531,7 @@ fn executable_check_in_session(
         if let Some(error) = query_failure.borrow_mut().take() {
             return_session_error!(error);
         }
-        let value_edges_changed = match time_provider(
+        let (value_edges_changed, value_ref_stats) = match time_provider(
             db.context().timings(),
             "executable_checked_modules.value_ref_edges",
             || {
@@ -549,10 +550,12 @@ fn executable_check_in_session(
             Ok(changed) => changed,
             Err(error) => return_session_error!(error),
         };
+        emit_value_ref_scan_counters(db, product, &value_ref_stats);
         if let Some(error) = query_failure.borrow_mut().take() {
             return_session_error!(error);
         }
         if value_edges_changed {
+            emit_executable_check_counter(db, product, "value_edge_restarts", 1);
             continue;
         }
         let reachability_by_module = reachability_state.reachability().by_module();
@@ -575,6 +578,7 @@ fn executable_check_in_session(
         if stale.is_empty() {
             break;
         }
+        emit_executable_check_counter(db, product, "stale_modules", stale.len() as u64);
         let round_reachable_body_modules =
             match executable_reachable_body_modules(db, &reachability_by_module) {
                 Ok(modules) => modules,
@@ -1157,6 +1161,99 @@ fn executable_check_in_session(
     )
 }
 
+fn emit_executable_check_counter(
+    db: &QueryDb<CompilerContext>,
+    product: ExecutableCheckProduct,
+    name: &str,
+    value: u64,
+) {
+    if !db.context().timings().enabled() {
+        return;
+    }
+    let product = match product {
+        ExecutableCheckProduct::ProviderDemands => "provider_demands",
+        ExecutableCheckProduct::Modules => "modules",
+    };
+    nia_timing::emit_counter(
+        format!("compiler.executable_checked_modules.{product}.{name}"),
+        value,
+    );
+}
+
+#[derive(Default)]
+struct ValueRefScanStats {
+    candidate_functions: usize,
+    candidate_globals: usize,
+    work_modules: usize,
+    scanned_functions: usize,
+    scanned_globals: usize,
+    discovered_function_edges: usize,
+    discovered_global_edges: usize,
+    new_function_edges: usize,
+    new_global_edges: usize,
+}
+
+fn emit_value_ref_scan_counters(
+    db: &QueryDb<CompilerContext>,
+    product: ExecutableCheckProduct,
+    stats: &ValueRefScanStats,
+) {
+    emit_executable_check_counter(
+        db,
+        product,
+        "value_ref_candidate_functions",
+        stats.candidate_functions as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "value_ref_candidate_globals",
+        stats.candidate_globals as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "value_ref_work_modules",
+        stats.work_modules as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "value_ref_scanned_functions",
+        stats.scanned_functions as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "value_ref_scanned_globals",
+        stats.scanned_globals as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "value_ref_discovered_function_edges",
+        stats.discovered_function_edges as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "value_ref_discovered_global_edges",
+        stats.discovered_global_edges as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "value_ref_new_function_edges",
+        stats.new_function_edges as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "value_ref_new_global_edges",
+        stats.new_global_edges as u64,
+    );
+}
+
 fn executable_module_body_demands(
     db: &QueryDb<CompilerContext>,
     reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
@@ -1474,7 +1571,7 @@ fn extend_reachability_from_value_ref_edges(
     fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
     scanned_functions: &mut HashSet<GlobalDefId>,
     scanned_globals: &mut HashSet<GlobalDefId>,
-) -> QueryResult<bool> {
+) -> QueryResult<(bool, ValueRefScanStats)> {
     let mut work_by_module =
         HashMap::<ModuleId, (HashSet<GlobalDefId>, HashSet<GlobalDefId>)>::new();
     for def_id in reachability.functions().iter().copied() {
@@ -1513,6 +1610,12 @@ fn extend_reachability_from_value_ref_edges(
         .into_iter()
         .map(|(module_id, (functions, globals))| (module_id, functions, globals))
         .collect::<Vec<_>>();
+    let mut stats = ValueRefScanStats {
+        candidate_functions: work.iter().map(|(_, functions, _)| functions.len()).sum(),
+        candidate_globals: work.iter().map(|(_, _, globals)| globals.len()).sum(),
+        work_modules: work.len(),
+        ..ValueRefScanStats::default()
+    };
     work.sort_unstable_by_key(|(module_id, _, _)| *module_id);
     let tasks = work
         .into_iter()
@@ -1534,17 +1637,25 @@ fn extend_reachability_from_value_ref_edges(
     let mut changed = false;
     for result in results {
         let (_, module_globals, closure_functions, edges) = result?;
+        stats.scanned_functions += closure_functions.len();
+        stats.scanned_globals += module_globals.len();
+        stats.discovered_function_edges += edges.functions.len();
+        stats.discovered_global_edges += edges.globals.len();
         scanned_functions.extend(closure_functions);
         scanned_globals.extend(module_globals);
         for def_id in edges.functions {
             if (function_signature)(def_id).is_none() {
                 continue;
             }
-            changed |= reachability.insert_function(def_id);
+            let inserted = reachability.insert_function(def_id);
+            changed |= inserted;
+            stats.new_function_edges += usize::from(inserted);
         }
         for def_id in edges.globals {
-            changed |= reachability.insert_global(def_id);
+            let inserted = reachability.insert_global(def_id);
+            changed |= inserted;
+            stats.new_global_edges += usize::from(inserted);
         }
     }
-    Ok(changed)
+    Ok((changed, stats))
 }
