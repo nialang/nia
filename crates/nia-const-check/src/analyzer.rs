@@ -420,7 +420,6 @@ pub(crate) struct Analyzer<'a> {
     diagnostics: Vec<Diagnostic>,
     provider_demands: HashSet<ProviderDemand>,
     active: HashSet<ConstKey>,
-    type_contexts: HashMap<ModuleId, ConstTypeCx<'a>>,
     program_type_normalizations:
         RefCell<HashMap<ModuleId, Arc<nia_type_normalize::TypeNormalization>>>,
     program_trait_impls: RefCell<HashMap<ModuleId, Vec<ProgramTraitImplSignature>>>,
@@ -498,14 +497,6 @@ impl Analyzer<'_> {
             diagnostics: Vec::new(),
             provider_demands: HashSet::new(),
             active: HashSet::new(),
-            type_contexts: HashMap::from([(
-                input.defs.module_id,
-                ConstTypeCx::new(
-                    input.type_store,
-                    input.defs.module_id,
-                    Arc::clone(&internal_error),
-                ),
-            )]),
             program_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
@@ -552,14 +543,6 @@ impl Analyzer<'_> {
             diagnostics: Vec::new(),
             provider_demands: HashSet::new(),
             active: HashSet::new(),
-            type_contexts: HashMap::from([(
-                input.defs.module_id,
-                ConstTypeCx::new(
-                    input.type_store,
-                    input.defs.module_id,
-                    Arc::clone(&internal_error),
-                ),
-            )]),
             program_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
@@ -589,6 +572,10 @@ impl Analyzer<'_> {
                 None
             }
         }
+    }
+
+    fn record_internal_error(&self, error: nia_ice::Ice) {
+        self.internal_error.lock().get_or_insert(error);
     }
 
     fn intern_type_for_module(&self, module_id: ModuleId, kind: TyKind) -> InternedTyId {

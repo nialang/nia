@@ -715,13 +715,7 @@ impl Analyzer<'_> {
         type_substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> InternedTyId {
-        if self.ensure_type_context(target_module_id).is_none() {
-            return ty;
-        }
-        let interner = self
-            .type_contexts
-            .get(&target_module_id)
-            .expect("type context must exist for generic inference");
+        let interner = self.type_context(target_module_id);
         interner.substitute(
             ty,
             &|name| type_substitutions.get(name).copied(),
@@ -2047,37 +2041,22 @@ impl Analyzer<'_> {
         &mut self,
         span: Span,
         ty: InternedTyId,
-        target_module_id: ModuleId,
+        _target_module_id: ModuleId,
     ) -> Result<InternedTyId, ConstError> {
-        validate_type_for_module(
-            span,
-            self.type_contexts.contains_key(&target_module_id),
-            self.input.type_store.get(ty).is_some(),
-        )?;
+        validate_type_for_module(span, self.input.type_store.get(ty).is_some())?;
         Ok(ty)
     }
 
     pub(super) fn type_for_module_or_none(
         &mut self,
         ty: InternedTyId,
-        target_module_id: ModuleId,
+        _target_module_id: ModuleId,
     ) -> Option<InternedTyId> {
-        self.type_contexts.get(&target_module_id)?;
         self.input.type_store.get(ty).map(|_| ty)
     }
 }
 
-fn validate_type_for_module(
-    span: Span,
-    has_type_context: bool,
-    belongs_to_store: bool,
-) -> Result<(), ConstError> {
-    if !has_type_context {
-        return Err(ConstError {
-            span,
-            message: "const type context is unavailable for target module".to_string(),
-        });
-    }
+fn validate_type_for_module(span: Span, belongs_to_store: bool) -> Result<(), ConstError> {
     if !belongs_to_store {
         return Err(ConstError {
             span,
@@ -2092,16 +2071,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn type_for_module_validation_recovers_missing_context_or_store() {
+    fn type_for_module_validation_rejects_foreign_store() {
         let span = Span::new(4, 9);
-        let missing_context = validate_type_for_module(span, false, true).unwrap_err();
-        assert_eq!(missing_context.span, span);
-        assert_eq!(
-            missing_context.message,
-            "const type context is unavailable for target module"
-        );
-
-        let foreign_type = validate_type_for_module(span, true, false).unwrap_err();
+        let foreign_type = validate_type_for_module(span, false).unwrap_err();
         assert_eq!(foreign_type.span, span);
         assert_eq!(
             foreign_type.message,

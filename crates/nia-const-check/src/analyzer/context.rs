@@ -432,9 +432,7 @@ impl Analyzer<'_> {
                         target_ty
                     }
                     ResolvedConstAssociatedTarget::Nominal { def_id, args } => {
-                        if self.ensure_type_context(module_id).is_none() {
-                            return ResolvedConstCalleeSelection::NoMatch;
-                        }
+                        self.type_context(module_id);
                         let Some(args) = args
                             .iter()
                             .map(|arg| self.type_for_module_or_none(arg.ty(), module_id))
@@ -442,10 +440,7 @@ impl Analyzer<'_> {
                         else {
                             return ResolvedConstCalleeSelection::NoMatch;
                         };
-                        let Some(context) = self.type_contexts.get(&module_id) else {
-                            return ResolvedConstCalleeSelection::NoMatch;
-                        };
-                        context.intern(TyKind::Nominal {
+                        self.type_context(module_id).intern(TyKind::Nominal {
                             def_id: *def_id,
                             args,
                             const_args: Vec::new(),
@@ -483,7 +478,7 @@ impl Analyzer<'_> {
             .into_iter()
             .filter_map(|(candidate_target_ty, method)| {
                 let function_id = method.def_id;
-                self.ensure_type_context(function_id.module_id)?;
+                self.type_context(function_id.module_id);
                 self.function_signatures_for_module(function_id.module_id)
                     .and_then(|signatures| {
                         signatures
@@ -606,8 +601,8 @@ impl Analyzer<'_> {
 
     fn const_method_target_tys(&self, receiver_ty: InternedTyId) -> Vec<InternedTyId> {
         let mut targets = vec![receiver_ty];
+        let mut current = receiver_ty;
         loop {
-            let current = *targets.last().expect("receiver target list is non-empty");
             let next = match self.ty_kind(current) {
                 Some(TyKind::Pointer { elem, .. }) => elem,
                 Some(TyKind::Slice { elem, .. }) => self.intern_type_for_module(
@@ -620,6 +615,7 @@ impl Analyzer<'_> {
                 break;
             }
             targets.push(next);
+            current = next;
         }
         targets
     }
@@ -645,7 +641,7 @@ impl Analyzer<'_> {
             })
             .filter_map(|(candidate_target_ty, method)| {
                 let function_id = method.def_id;
-                self.ensure_type_context(function_id.module_id)?;
+                self.type_context(function_id.module_id);
                 self.function_signatures_for_module(function_id.module_id)
                     .and_then(|signatures| {
                         signatures
@@ -706,15 +702,12 @@ impl Analyzer<'_> {
             return ResolvedConstCalleeSelection::NoMatch;
         };
         let trait_id = TraitId::Builtin(nia_ty::BuiltinTrait::IntoError);
-        let resolution = self.resolve_trait_obligation(source_ty, trait_id, vec![target_ty]);
-        let TraitResolution::User(user_impl) = resolution else {
-            return match resolution {
-                TraitResolution::Ambiguous => ResolvedConstCalleeSelection::Ambiguous,
-                TraitResolution::Intrinsic(_)
-                | TraitResolution::Assumed(_)
-                | TraitResolution::Unsatisfied => ResolvedConstCalleeSelection::NoMatch,
-                TraitResolution::User(_) => unreachable!(),
-            };
+        let user_impl = match self.resolve_trait_obligation(source_ty, trait_id, vec![target_ty]) {
+            TraitResolution::User(user_impl) => user_impl,
+            TraitResolution::Ambiguous => return ResolvedConstCalleeSelection::Ambiguous,
+            TraitResolution::Intrinsic(_)
+            | TraitResolution::Assumed(_)
+            | TraitResolution::Unsatisfied => return ResolvedConstCalleeSelection::NoMatch,
         };
         let Some(solver_module_id) = self.ensure_trait_solver_module(source_ty, &[target_ty])
         else {
@@ -950,19 +943,12 @@ impl Analyzer<'_> {
         type_kind_or_error(self.input.type_store, ty)
     }
 
-    pub(super) fn ensure_type_context(&mut self, module_id: ModuleId) -> Option<()> {
-        if self.type_contexts.contains_key(&module_id) {
-            return Some(());
-        }
-        self.type_contexts.insert(
+    pub(super) fn type_context(&self, module_id: ModuleId) -> super::ConstTypeCx<'_> {
+        super::ConstTypeCx::new(
+            self.input.type_store,
             module_id,
-            super::ConstTypeCx::new(
-                self.input.type_store,
-                module_id,
-                std::sync::Arc::clone(&self.internal_error),
-            ),
-        );
-        Some(())
+            std::sync::Arc::clone(&self.internal_error),
+        )
     }
 
     pub(super) fn signatures_for_module(
@@ -1086,12 +1072,7 @@ impl Analyzer<'_> {
     ) -> Result<ConstValue, ConstError> {
         let module_id = self.current_execution_module_id();
         let layout_array_lengths = self.program_array_lengths_for_layout(ty);
-        if self.ensure_type_context(module_id).is_none() {
-            return Err(ConstError {
-                span,
-                message: "cannot compute layout without module type interner".to_string(),
-            });
-        }
+        self.type_context(module_id);
         let defs = if module_id == self.input.defs.module_id {
             ModuleDefs::Borrowed(self.input.defs)
         } else if let Some(defs) = self.input.program.defs.and_then(|defs| defs(module_id)) {
@@ -1193,12 +1174,7 @@ impl Analyzer<'_> {
     ) -> Result<ConstValue, ConstError> {
         let module_id = self.current_execution_module_id();
         let layout_array_lengths = self.program_array_lengths_for_layout(ty);
-        if self.ensure_type_context(module_id).is_none() {
-            return Err(ConstError {
-                span,
-                message: "cannot compute field offset without module type interner".to_string(),
-            });
-        }
+        self.type_context(module_id);
         let defs = if module_id == self.input.defs.module_id {
             ModuleDefs::Borrowed(self.input.defs)
         } else if let Some(defs) = self.input.program.defs.and_then(|defs| defs(module_id)) {

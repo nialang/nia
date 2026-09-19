@@ -190,9 +190,6 @@ impl Analyzer<'_> {
                         visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
                     })
         };
-        if !self.type_contexts.contains_key(&module_id) {
-            return TraitResolution::Unsatisfied;
-        }
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let layout_module_id = match self.ty_kind(self_ty) {
             Some(TyKind::Nominal { def_id, .. }) => def_id.module_id,
@@ -376,7 +373,6 @@ impl Analyzer<'_> {
                         visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
                     })
         };
-        self.type_contexts.contains_key(&module_id).then_some(())?;
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
@@ -470,7 +466,6 @@ impl Analyzer<'_> {
                         visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
                     })
         };
-        self.type_contexts.contains_key(&module_id).then_some(())?;
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
@@ -532,7 +527,7 @@ impl Analyzer<'_> {
         _trait_args: &[InternedTyId],
     ) -> Option<ModuleId> {
         let module_id = self.current_execution_module_id();
-        self.ensure_type_context(module_id)?;
+        self.type_context(module_id);
         Some(module_id)
     }
 
@@ -690,14 +685,8 @@ impl Analyzer<'_> {
         substitutions: &SymbolMap<InternedTyId>,
     ) -> InternedTyId {
         let module_id = self.current_execution_module_id();
-        if self.ensure_type_context(module_id).is_none() {
-            return ty;
-        }
-        let interner = self
-            .type_contexts
-            .get_mut(&module_id)
-            .expect("type context must exist");
-        substitute_ty_generics(interner, ty, &|name| substitutions.get(name).copied())
+        let interner = self.type_context(module_id);
+        substitute_ty_generics(&interner, ty, &|name| substitutions.get(name).copied())
     }
 
     pub(super) fn substitute_ty_generics_and_consts_from_maps(
@@ -707,15 +696,9 @@ impl Analyzer<'_> {
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> InternedTyId {
         let module_id = self.current_execution_module_id();
-        if self.ensure_type_context(module_id).is_none() {
-            return ty;
-        }
-        let interner = self
-            .type_contexts
-            .get(&module_id)
-            .expect("type context must exist");
+        let interner = self.type_context(module_id);
         substitute_ty_generics_and_consts(
-            interner,
+            &interner,
             ty,
             &|name| type_substitutions.get(name).copied(),
             &|name| const_substitutions.get(name).cloned(),

@@ -208,8 +208,7 @@ impl Analyzer<'_> {
             None => None,
         };
         let ty = self
-            .type_contexts
-            .get_mut(&module_id)?
+            .type_context(module_id)
             .intern(TyKind::Range { kind, bound });
         Some(ConstValueType::Runtime(ty))
     }
@@ -398,10 +397,7 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn current_runtime_tuple_type(&self, elems: Vec<InternedTyId>) -> InternedTyId {
-        self.type_contexts
-            .get(&self.current_execution_module_id())
-            .expect("active const execution module has a type context")
-            .intern(TyKind::Tuple(elems))
+        self.intern_type_for_module(self.current_execution_module_id(), TyKind::Tuple(elems))
     }
 
     pub(super) fn const_string_literal_type(
@@ -611,9 +607,8 @@ impl Analyzer<'_> {
         type_substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<InternedTyId> {
-        self.ensure_type_context(source_module_id)?;
         let substituted = {
-            let types = self.type_contexts.get(&source_module_id)?;
+            let types = self.type_context(source_module_id);
             types.substitute(
                 ty,
                 &|generic| type_substitutions.get(generic).copied(),
@@ -641,9 +636,7 @@ impl Analyzer<'_> {
         target_module_id: ModuleId,
     ) -> Option<InternedTyId> {
         let elem = self.type_for_module_or_none(elem, target_module_id)?;
-        self.type_contexts
-            .get(&target_module_id)
-            .map(|types| types.intern(kind(elem)))
+        Some(self.type_context(target_module_id).intern(kind(elem)))
     }
 
     pub(super) fn const_error_union_type(
@@ -654,9 +647,10 @@ impl Analyzer<'_> {
         let target_module_id = self.current_execution_module_id();
         let error = self.type_for_module_or_none(error, target_module_id)?;
         let value = self.type_for_module_or_none(value, target_module_id)?;
-        self.type_contexts
-            .get(&target_module_id)
-            .map(|types| types.intern(TyKind::ErrorUnion { error, value }))
+        Some(
+            self.type_context(target_module_id)
+                .intern(TyKind::ErrorUnion { error, value }),
+        )
     }
 
     pub(super) fn call_local_type(&self, local_id: LocalId) -> Option<ConstValueType> {

@@ -276,7 +276,7 @@ impl Analyzer<'_> {
         let end = match explicit_end {
             Some(ConstSliceLenCheck::Known(end)) => Some(end),
             Some(ConstSliceLenCheck::Unknown) => None,
-            Some(ConstSliceLenCheck::Invalid) => unreachable!(),
+            Some(ConstSliceLenCheck::Invalid) => return ConstSliceLenCheck::Invalid,
             None => source_len.or_else(|| expected_len.and_then(|len| start.checked_add(len))),
         };
         let Some(mut end) = end else {
