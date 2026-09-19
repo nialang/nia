@@ -10,6 +10,7 @@ hashbrown.workspace = true
 nia-hash.workspace = true
 nia-source.workspace = true
 nia-span.workspace = true
+parking_lot.workspace = true
 
 [lib]
 path = "src/lib.rs"

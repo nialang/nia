@@ -946,6 +946,7 @@ dependencies = [
  "nia-hash",
  "nia-source",
  "nia-span",
+ "parking_lot",
 ]
 
 [[package]]

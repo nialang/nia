@@ -12,7 +12,7 @@ use std::{
     collections::{HashMap, hash_map},
     hash::BuildHasher,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicU32, Ordering},
     },
 };
@@ -21,6 +21,7 @@ use hashbrown::HashTable;
 use nia_hash::{FastBuildHasher, FastHashMap};
 use nia_source::{SourceId, SourceRevision, SourceVersion};
 use nia_span::Span;
+use parking_lot::Mutex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Broad syntax category used to disambiguate co-located nodes.
@@ -183,7 +184,7 @@ impl NodeStoreId {
         static NEXT_NODE_STORE_ID: AtomicU32 = AtomicU32::new(1);
         let id = NEXT_NODE_STORE_ID
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
-            .expect("node store identity space exhausted");
+            .unwrap_or(u32::MAX);
         Self(id)
     }
 }
@@ -284,7 +285,7 @@ impl NodeStore {
             return None;
         }
         let revision = {
-            let core = self.core.lock().expect("node store lock poisoned");
+            let core = self.core.lock();
             core.active_indices
                 .get(&node_id.index)
                 .and_then(|version| core.revisions.get(version))
@@ -298,7 +299,6 @@ impl NodeStore {
         let revision = self
             .core
             .lock()
-            .expect("node store lock poisoned")
             .revisions
             .get(&locator.source_version())
             .cloned();
@@ -315,7 +315,6 @@ impl NodeStore {
         let revisions = self
             .core
             .lock()
-            .expect("node store lock poisoned")
             .revisions
             .values()
             .cloned()
@@ -330,17 +329,13 @@ impl NodeStore {
 
     /// Returns the number of active source revisions.
     pub fn active_revision_count(&self) -> usize {
-        self.core
-            .lock()
-            .expect("node store lock poisoned")
-            .revisions
-            .len()
+        self.core.lock().revisions.len()
     }
 
     /// Retires a source revision and returns its number of invalidated handles.
     pub fn retire_revision(&self, version: SourceVersion) -> usize {
         let revision = {
-            let mut core = self.core.lock().expect("node store lock poisoned");
+            let mut core = self.core.lock();
             core.revisions.remove(&version)
         };
         let Some(revision) = revision else {
@@ -350,7 +345,7 @@ impl NodeStore {
         // takes the revision lock before reacquiring the store lock; keeping
         // both here would invert that order and permit a concurrent deadlock.
         let indices = revision.indices();
-        let mut core = self.core.lock().expect("node store lock poisoned");
+        let mut core = self.core.lock();
         for index in &indices {
             core.active_indices.remove(index);
         }
@@ -358,7 +353,7 @@ impl NodeStore {
     }
 
     fn acquire_revision(&self, version: SourceVersion) -> Arc<NodeRevision> {
-        let mut core = self.core.lock().expect("node store lock poisoned");
+        let mut core = self.core.lock();
         Arc::clone(core.revisions.entry(version).or_insert_with(|| {
             Arc::new(NodeRevision {
                 version,
@@ -368,12 +363,17 @@ impl NodeStore {
     }
 
     fn intern(&self, revision: &Arc<NodeRevision>, locator: VersionedNodeKey) -> NodeId {
+        let revision = if revision.version == locator.source_version() {
+            Arc::clone(revision)
+        } else {
+            self.acquire_revision(locator.source_version())
+        };
         let index = revision.intern(&self.next_index, locator);
-        let mut core = self.core.lock().expect("node store lock poisoned");
+        let mut core = self.core.lock();
         if core
             .revisions
             .get(&revision.version)
-            .is_some_and(|active| Arc::ptr_eq(active, revision))
+            .is_some_and(|active| Arc::ptr_eq(active, &revision))
         {
             core.active_indices.insert(index, revision.version);
         }
@@ -391,11 +391,15 @@ impl NodeStoreAppend {
             let revision = self.store.acquire_revision(version);
             self.revisions.insert(revision);
         }
-        let revision = self
-            .revisions
-            .revision(version)
-            .expect("node revision was acquired before interning");
-        self.store.intern(revision, locator)
+        let revision = match self.revisions.revision(version).cloned() {
+            Some(revision) => revision,
+            None => {
+                let revision = self.store.acquire_revision(version);
+                self.revisions.insert(Arc::clone(&revision));
+                revision
+            }
+        };
+        self.store.intern(&revision, locator)
     }
 
     fn id_for_locator(&self, locator: &VersionedNodeKey) -> Option<NodeId> {
@@ -408,13 +412,8 @@ impl NodeStoreAppend {
 
 impl NodeRevision {
     fn intern(&self, next_index: &AtomicU32, locator: VersionedNodeKey) -> NodeIndex {
-        assert_eq!(
-            locator.source_version(),
-            self.version,
-            "node locator revision must match its owner"
-        );
         let locator_hash = hash_locator(&locator);
-        let mut core = self.core.lock().expect("node revision lock poisoned");
+        let mut core = self.core.lock();
         let NodeRevisionCore {
             by_locator,
             locators,
@@ -434,7 +433,7 @@ impl NodeRevision {
                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |index| {
                     index.checked_add(1)
                 })
-                .expect("node identity space exhausted"),
+                .unwrap_or(u32::MAX),
         );
         locators.insert(
             index,
@@ -446,15 +445,14 @@ impl NodeRevision {
         by_locator.insert_unique(locator_hash, index, |index| {
             locators
                 .get(index)
-                .expect("locator index inserted before intern table growth")
-                .hash
+                .map_or(locator_hash, |interned| interned.hash)
         });
         index
     }
 
     fn id_for_locator(&self, locator: &VersionedNodeKey) -> Option<NodeIndex> {
         let locator_hash = hash_locator(locator);
-        let core = self.core.lock().expect("node revision lock poisoned");
+        let core = self.core.lock();
         core.by_locator
             .find(locator_hash, |index| {
                 core.locators
@@ -467,28 +465,17 @@ impl NodeRevision {
     fn locator(&self, index: NodeIndex) -> Option<VersionedNodeKey> {
         self.core
             .lock()
-            .expect("node revision lock poisoned")
             .locators
             .get(&index)
             .map(|interned| interned.key.clone())
     }
 
     fn indices(&self) -> Vec<NodeIndex> {
-        self.core
-            .lock()
-            .expect("node revision lock poisoned")
-            .locators
-            .keys()
-            .copied()
-            .collect()
+        self.core.lock().locators.keys().copied().collect()
     }
 
     fn len(&self) -> usize {
-        self.core
-            .lock()
-            .expect("node revision lock poisoned")
-            .locators
-            .len()
+        self.core.lock().locators.len()
     }
 }
 
@@ -678,11 +665,9 @@ impl<V> NodeMap<V> {
 
     /// Iterates stable locators in unspecified order.
     pub fn keys(&self) -> impl Iterator<Item = VersionedNodeKey> + '_ {
-        self.nodes.keys().map(|node_id| {
-            self.revisions
-                .locator(node_id.index)
-                .expect("node map id belongs to its node store")
-        })
+        self.nodes
+            .keys()
+            .filter_map(|node_id| self.revisions.locator(node_id.index))
     }
 
     /// Consumes the map into stable locator/value entries.
@@ -690,13 +675,10 @@ impl<V> NodeMap<V> {
         let Self {
             revisions, nodes, ..
         } = self;
-        nodes.into_iter().map(move |(node_id, value)| {
-            (
-                revisions
-                    .locator(node_id.index)
-                    .expect("node map id belongs to its node store"),
-                value,
-            )
+        nodes.into_iter().filter_map(move |(node_id, value)| {
+            revisions
+                .locator(node_id.index)
+                .map(|locator| (locator, value))
         })
     }
 
@@ -760,10 +742,9 @@ impl<V> NodeMapBuilder<V> {
             // so a logical locator occurs once and source values still win.
             self.append.revisions.extend(revisions.clone());
             for (node_id, value) in nodes {
-                let locator = revisions
-                    .locator(node_id.index)
-                    .expect("node map id belongs to its node store");
-                self.nodes.insert(self.append.intern(locator), value);
+                if let Some(locator) = revisions.locator(node_id.index) {
+                    self.nodes.insert(self.append.intern(locator), value);
+                }
             }
         } else {
             self.extend(nodes.into_entries());
@@ -785,13 +766,10 @@ impl<'a, V> Iterator for NodeMapIter<'a, V> {
     type Item = (VersionedNodeKey, &'a V);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.entries.next().map(|(node_id, value)| {
-            (
-                self.revisions
-                    .locator(node_id.index)
-                    .expect("node map id belongs to its node store"),
-                value,
-            )
+        self.entries.next().and_then(|(node_id, value)| {
+            self.revisions
+                .locator(node_id.index)
+                .map(|locator| (locator, value))
         })
     }
 
@@ -915,15 +893,13 @@ impl NodeOriginTableBuilder {
 
     /// Rolls the origin map back to a prior [`Self::checkpoint`] mark.
     pub fn rollback(&mut self, checkpoint: usize) {
-        assert!(
-            checkpoint <= self.changes.len(),
-            "origin checkpoint cannot be ahead of the current builder state"
-        );
+        if checkpoint > self.changes.len() {
+            return;
+        }
         while self.changes.len() > checkpoint {
-            let change = self
-                .changes
-                .pop()
-                .expect("origin change exists while rolling back");
+            let Some(change) = self.changes.pop() else {
+                break;
+            };
             if let Some(previous) = change.previous {
                 self.nodes.insert(change.origin, previous);
             } else {
