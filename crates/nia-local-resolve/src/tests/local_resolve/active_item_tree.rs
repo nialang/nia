@@ -38,7 +38,8 @@ value
         &values,
         None,
         &nia_node_id::NodeOriginTable::default(),
-    );
+    )
+    .expect("resolve locals");
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
     assert!(
         locals
@@ -85,7 +86,8 @@ y
         &values,
         None,
         &nia_node_id::NodeOriginTable::default(),
-    );
+    )
+    .expect("resolve locals");
 
     let mut filtered = full.clone();
     for item in Arc::make_mut(&mut filtered.items) {
@@ -109,7 +111,8 @@ y
         &filtered_values,
         None,
         &nia_node_id::NodeOriginTable::default(),
-    );
+    )
+    .expect("resolve locals");
     assert!(
         filtered_locals.diagnostics.is_empty(),
         "{:?}",
@@ -130,6 +133,43 @@ y
         "{:?}",
         filtered_locals.node_uses
     );
+}
+
+#[test]
+fn filtered_tree_with_unallocated_local_identity_returns_internal_error() {
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
+    let (module, errors) = parse_module("fn used(value: i32) i32 { value }");
+    assert!(errors.is_empty(), "{errors:?}");
+    let tree = ModuleItemTree::from_module(&module);
+    let full = tree.active_items(&mut BoolResolver(true)).unwrap();
+    let defs =
+        collect_module_defs_from_active_item_tree(module_id, &full).expect("collect definitions");
+    let values = resolve_module_values_from_active_item_tree(
+        &full,
+        &defs,
+        ValueProgramDefsContext::empty(),
+        &nia_defs::PublicSurfaces::default(),
+        &nia_defs::ModuleUsingScope::default(),
+    );
+    let mut filtered = full.clone();
+    let item = &mut Arc::make_mut(&mut filtered.items)[0];
+    let ItemTreeNodeKind::Function(function) = &mut item.kind else {
+        panic!("expected function item");
+    };
+    function.params[0].node_key.revision = SourceRevision(99);
+
+    let error = resolve_module_locals_from_filtered_active_item_tree_with_origins(
+        &filtered,
+        &full,
+        &defs,
+        &values,
+        None,
+        &nia_node_id::NodeOriginTable::default(),
+    )
+    .expect_err("unallocated filtered local must fail");
+
+    assert!(error.message.contains("no preallocated ID"));
 }
 
 fn local_id_by_name(locals: &LocalResolution, name: &str) -> LocalId {

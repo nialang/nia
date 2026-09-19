@@ -149,7 +149,7 @@ fn main() i32 {
     )
     .expect("lower module types");
     let values = nia_value_resolve::resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
     let active_item_tree = active_item_tree(&module);
     let semantic_uses = semantic_use_table(
         module_id,
@@ -339,7 +339,8 @@ fn main() i32 {
         &values,
         Some(version),
         &origins,
-    );
+    )
+    .expect("resolve locals");
     let active_item_tree = active_item_tree(&module);
     let semantic_uses = semantic_use_table(
         module_id,

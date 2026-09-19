@@ -319,7 +319,11 @@ fn duplicate_definition_identity_is_a_structured_internal_error() {
         .push(entry.identity, entry.def)
         .expect_err("duplicate definition identity must fail");
 
-    assert!(error.message.contains("duplicate stable definition identity"));
+    assert!(
+        error
+            .message
+            .contains("duplicate stable definition identity")
+    );
 }
 
 #[test]

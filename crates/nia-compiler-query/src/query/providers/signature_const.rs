@@ -27,7 +27,7 @@ fn with_signature_const_input<T>(
         &defs,
         &values,
         &symbols,
-    );
+    )?;
     let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id))?;
     let type_normalization = db.get(SignatureConstTypeNormalizationQuery(module_id))?;
     let semantic_uses = signature_semantic_use_table_from_resolution_inputs(SemanticUseInputs {
@@ -207,7 +207,7 @@ pub(super) fn provide_signature_const_module(
         &defs,
         &values,
         &symbols,
-    );
+    )?;
     let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id))?;
     let semantic_uses = signature_semantic_use_table_from_resolution_inputs(SemanticUseInputs {
         node_store: db.context().node_store(),
@@ -394,7 +394,7 @@ fn signature_const_local_resolution(
     defs: &DefCollection,
     values: &ValueResolution,
     symbols: &dyn nia_symbol::SymbolText,
-) -> LocalResolution {
+) -> nia_ice::IceResult<LocalResolution> {
     let origins = nia_node_id::NodeOriginTable::with_store(node_store);
     nia_local_resolve::resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
         active_item_tree,

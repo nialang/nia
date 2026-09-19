@@ -52,7 +52,7 @@ pub(super) fn check_source_for_target(
     })
     .expect("collect item signatures");
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
     let public_surfaces = PublicSurfaces::new();
     let using_scope = ModuleUsingScope::default();
     let const_expr_values = resolve_module_values_from_exprs_with_associated_values_and_symbols(

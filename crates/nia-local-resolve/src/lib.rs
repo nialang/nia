@@ -101,23 +101,25 @@ impl LocalResolutionBuilder {
 #[derive(Debug, Clone, PartialEq, Default)]
 /// Stable local table for a resolved module.
 pub struct LocalMap {
-    locals: Vec<Local>,
+    locals: Vec<LocalEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct LocalEntry {
+    id: LocalId,
+    local: Local,
 }
 
 impl LocalMap {
     /// Returns a local by its allocated id.
     pub fn get(&self, id: LocalId) -> Option<&Local> {
-        self.locals.get(usize::try_from(id.0).ok()?)
+        let entry = self.locals.get(usize::try_from(id.0).ok()?)?;
+        (entry.id == id).then_some(&entry.local)
     }
 
     /// Iterates locals in allocation order.
     pub fn iter(&self) -> impl Iterator<Item = (LocalId, &Local)> {
-        self.locals.iter().enumerate().map(|(index, local)| {
-            (
-                LocalId(u32::try_from(index).expect("local index exceeds local identity capacity")),
-                local,
-            )
-        })
+        self.locals.iter().map(|entry| (entry.id, &entry.local))
     }
 
     /// Returns the number of allocated locals.
@@ -130,12 +132,12 @@ impl LocalMap {
         self.locals.is_empty()
     }
 
-    fn push(&mut self, local: Local) -> LocalId {
-        let id = LocalId(
-            u32::try_from(self.locals.len()).expect("local index exceeds local identity capacity"),
-        );
-        self.locals.push(local);
-        id
+    fn push(&mut self, local: Local) -> nia_ice::IceResult<LocalId> {
+        let index = u32::try_from(self.locals.len())
+            .map_err(|_| nia_ice::Ice::new("local identity space exhausted"))?;
+        let id = LocalId(index);
+        self.locals.push(LocalEntry { id, local });
+        Ok(id)
     }
 }
 
@@ -214,7 +216,7 @@ pub fn resolve_module_locals(
     module: &Module,
     defs: &DefCollection,
     values: &ValueResolution,
-) -> LocalResolution {
+) -> nia_ice::IceResult<LocalResolution> {
     let item_tree = ModuleItemTree::from_module(module);
     resolve_module_locals_from_item_tree(&item_tree, defs, values)
 }
@@ -225,7 +227,7 @@ pub fn resolve_module_locals_with_source(
     defs: &DefCollection,
     values: &ValueResolution,
     _source_version: Option<nia_source::SourceVersion>,
-) -> LocalResolution {
+) -> nia_ice::IceResult<LocalResolution> {
     let item_tree = ModuleItemTree::from_module(module);
     let node_store = NodeStore::new();
     resolve_module_locals_from_items(&item_tree.items, defs, values, &node_store)
@@ -238,7 +240,7 @@ pub fn resolve_module_locals_with_origins(
     values: &ValueResolution,
     _source_version: Option<nia_source::SourceVersion>,
     origins: &nia_node_id::NodeOriginTable,
-) -> LocalResolution {
+) -> nia_ice::IceResult<LocalResolution> {
     let item_tree = ModuleItemTree::from_module(module);
     resolve_module_locals_from_items(&item_tree.items, defs, values, origins.node_store())
 }
@@ -248,7 +250,7 @@ pub fn resolve_module_locals_from_item_tree(
     item_tree: &ModuleItemTree,
     defs: &DefCollection,
     values: &ValueResolution,
-) -> LocalResolution {
+) -> nia_ice::IceResult<LocalResolution> {
     let node_store = NodeStore::new();
     resolve_module_locals_from_items(&item_tree.items, defs, values, &node_store)
 }
@@ -260,7 +262,7 @@ pub fn resolve_module_locals_from_active_item_tree_with_origins(
     values: &ValueResolution,
     _source_version: Option<nia_source::SourceVersion>,
     origins: &nia_node_id::NodeOriginTable,
-) -> LocalResolution {
+) -> nia_ice::IceResult<LocalResolution> {
     resolve_module_locals_from_items(&item_tree.items, defs, values, origins.node_store())
 }
 
@@ -272,7 +274,7 @@ pub fn resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
     _source_version: Option<nia_source::SourceVersion>,
     origins: &nia_node_id::NodeOriginTable,
     symbols: &dyn SymbolText,
-) -> LocalResolution {
+) -> nia_ice::IceResult<LocalResolution> {
     resolve_module_locals_from_items_with_symbols(
         &item_tree.items,
         defs,
@@ -290,7 +292,7 @@ pub fn resolve_module_locals_from_filtered_active_item_tree_with_origins(
     values: &ValueResolution,
     _source_version: Option<nia_source::SourceVersion>,
     origins: &nia_node_id::NodeOriginTable,
-) -> LocalResolution {
+) -> nia_ice::IceResult<LocalResolution> {
     resolve_module_locals_from_filtered_items(
         &filtered_item_tree.items,
         &full_item_tree.items,
@@ -310,7 +312,7 @@ pub fn resolve_module_locals_from_filtered_active_item_tree_with_origins_and_sym
     _source_version: Option<nia_source::SourceVersion>,
     origins: &nia_node_id::NodeOriginTable,
     symbols: &dyn SymbolText,
-) -> LocalResolution {
+) -> nia_ice::IceResult<LocalResolution> {
     resolve_module_locals_from_filtered_items(
         &filtered_item_tree.items,
         &full_item_tree.items,
@@ -328,7 +330,7 @@ pub fn resolve_module_locals_from_item_tree_with_origins(
     values: &ValueResolution,
     _source_version: Option<nia_source::SourceVersion>,
     _origins: (),
-) -> LocalResolution {
+) -> nia_ice::IceResult<LocalResolution> {
     let node_store = NodeStore::new();
     resolve_module_locals_from_items(&item_tree.items, defs, values, &node_store)
 }

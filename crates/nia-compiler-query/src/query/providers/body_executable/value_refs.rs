@@ -291,7 +291,7 @@ fn executable_value_ref_index_for_active_item_tree_with_lookups(
                 &symbols,
             )
         },
-    );
+    )?;
     let mut index = ExecutableValueRefIndex::default();
     time_module_provider(db, "executable_value_refs.collect_edges", module_id, || {
         collect_executable_value_ref_index_for_items(

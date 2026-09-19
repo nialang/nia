@@ -12,7 +12,7 @@ fn compute_test_const(
     lowered: &nia_type_lower::TypeLowering,
 ) -> ConstCheck {
     let values = resolve_module_values(module, defs);
-    let locals = resolve_module_locals(module, defs, &values);
+    let locals = resolve_module_locals(module, defs, &values).expect("resolve locals");
     let item_tree = ModuleItemTree::from_module(module);
     let active_item_tree = item_tree.all_items_active();
     let semantic_uses =

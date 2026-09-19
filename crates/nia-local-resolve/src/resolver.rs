@@ -11,8 +11,8 @@ pub(super) fn resolve_module_locals_from_filtered_items(
     values: &ValueResolution,
     symbols: Option<&dyn SymbolText>,
     node_store: &NodeStore,
-) -> LocalResolution {
-    let allocated = LocalDefinitionAllocator::allocate_items(full_items);
+) -> nia_ice::IceResult<LocalResolution> {
+    let allocated = LocalDefinitionAllocator::allocate_items(full_items)?;
     let mut resolver = LocalResolver {
         defs,
         values,
@@ -21,6 +21,7 @@ pub(super) fn resolve_module_locals_from_filtered_items(
         node_uses: HashMap::new(),
         node_type_prefixes: HashMap::new(),
         diagnostics: Vec::new(),
+        internal_error: None,
         symbols,
         scopes: Vec::new(),
         closure_scope_starts: Vec::new(),
@@ -37,7 +38,7 @@ pub(super) fn resolve_module_locals_from_items(
     defs: &DefCollection,
     values: &ValueResolution,
     node_store: &NodeStore,
-) -> LocalResolution {
+) -> nia_ice::IceResult<LocalResolution> {
     resolve_module_locals_from_items_with_symbols(items, defs, values, None, node_store)
 }
 
@@ -47,7 +48,7 @@ pub(super) fn resolve_module_locals_from_items_with_symbols(
     values: &ValueResolution,
     symbols: Option<&dyn SymbolText>,
     node_store: &NodeStore,
-) -> LocalResolution {
+) -> nia_ice::IceResult<LocalResolution> {
     let mut resolver = LocalResolver {
         defs,
         values,
@@ -56,6 +57,7 @@ pub(super) fn resolve_module_locals_from_items_with_symbols(
         node_uses: HashMap::new(),
         node_type_prefixes: HashMap::new(),
         diagnostics: Vec::new(),
+        internal_error: None,
         symbols,
         scopes: Vec::new(),
         closure_scope_starts: Vec::new(),
@@ -67,20 +69,26 @@ pub(super) fn resolve_module_locals_from_items_with_symbols(
     finish_local_resolution(resolver, node_store)
 }
 
-fn finish_local_resolution(resolver: LocalResolver<'_>, node_store: &NodeStore) -> LocalResolution {
+fn finish_local_resolution(
+    resolver: LocalResolver<'_>,
+    node_store: &NodeStore,
+) -> nia_ice::IceResult<LocalResolution> {
+    if let Some(error) = resolver.internal_error {
+        return Err(error);
+    }
     let mut node_local_defs = NodeMap::builder(node_store);
     node_local_defs.extend(resolver.node_local_defs);
     let mut node_uses = NodeMap::builder(node_store);
     node_uses.extend(resolver.node_uses);
     let mut node_type_prefixes = NodeMap::builder(node_store);
     node_type_prefixes.extend(resolver.node_type_prefixes);
-    LocalResolution {
+    Ok(LocalResolution {
         locals: resolver.locals,
         node_local_defs: node_local_defs.finish(),
         node_uses: node_uses.finish(),
         node_type_prefixes: node_type_prefixes.finish(),
         diagnostics: resolver.diagnostics,
-    }
+    })
 }
 
 struct LocalResolver<'a> {
@@ -91,6 +99,7 @@ struct LocalResolver<'a> {
     node_uses: HashMap<VersionedNodeKey, LocalUse>,
     node_type_prefixes: HashMap<VersionedNodeKey, nia_ids::GlobalDefId>,
     diagnostics: Vec<Diagnostic>,
+    internal_error: Option<nia_ice::Ice>,
     symbols: Option<&'a dyn SymbolText>,
     scopes: Vec<Scope>,
     /// First scope visible to ordinary local lookup in each nested closure.
@@ -314,19 +323,10 @@ impl<'a> LocalResolver<'a> {
                 .get(*def_id)
                 .is_some_and(|def| def.kind == nia_defs::DefKind::Global)
         }) else {
-            self.diagnostics.push(
-                Diagnostic::internal_error(
-                    codes::LOCAL_RESOLVER_SCOPE,
-                    "local static definition has no global definition id",
-                )
-                .primary(
-                    span,
-                    "local static was not registered by definition collection",
-                )
-                .debug("name", binding.name)
-                .debug("node_key", binding.node_key.clone())
-                .finish(),
-            );
+            self.record_internal(nia_ice::Ice::new(format!(
+                "local static definition has no global definition ID at {span:?}: name {:?}, node {:?}",
+                binding.name, binding.node_key
+            )));
             return;
         };
         self.define_static(
@@ -896,20 +896,9 @@ impl<'a> LocalResolver<'a> {
         self.node_local_defs.insert(node_key, id);
         let display_name = self.symbol_name(*name);
         let Some(scope) = self.scopes.last_mut() else {
-            self.diagnostics.push(
-                Diagnostic::internal_error(
-                    codes::LOCAL_RESOLVER_SCOPE,
-                    "local resolver has no active scope",
-                )
-                .primary(
-                    span,
-                    "local definition reached resolver without an active scope",
-                )
-                .debug("name", name)
-                .debug("kind", kind)
-                .debug("node_key", debug_node_key)
-                .finish(),
-            );
+            self.record_internal(nia_ice::Ice::new(format!(
+                "local definition reached resolver without an active scope at {span:?}: name {name:?}, kind {kind:?}, node {debug_node_key:?}"
+            )));
             return None;
         };
         if let Some(names) = self.pattern_names.last_mut()
@@ -960,25 +949,20 @@ impl<'a> LocalResolver<'a> {
     ) -> Option<LocalId> {
         if let Some(definition_ids) = &self.definition_ids {
             let Some(id) = definition_ids.get(node_key).copied() else {
-                self.diagnostics.push(
-                    Diagnostic::internal_error(
-                        codes::LOCAL_RESOLVER_SCOPE,
-                        "local resolver filtered definition has no preallocated id",
-                    )
-                    .primary(
-                        span,
-                        "local definition was not present in preallocated local ids",
-                    )
-                    .debug("name", name)
-                    .debug("kind", kind)
-                    .debug("node_key", node_key.clone())
-                    .finish(),
-                );
+                self.record_internal(nia_ice::Ice::new(format!(
+                    "filtered local definition has no preallocated ID at {span:?}: name {name:?}, kind {kind:?}, node {node_key:?}"
+                )));
                 return None;
             };
             Some(id)
         } else {
-            Some(self.locals.push(Local { name, kind, span }))
+            match self.locals.push(Local { name, kind, span }) {
+                Ok(id) => Some(id),
+                Err(error) => {
+                    self.record_internal(error);
+                    None
+                }
+            }
         }
     }
 
@@ -991,11 +975,9 @@ impl<'a> LocalResolver<'a> {
     ) {
         let display_name = self.symbol_name(*name);
         let Some(scope) = self.scopes.last_mut() else {
-            self.diagnostics.push(Diagnostic::internal_error_at(
-                codes::LOCAL_RESOLVER_SCOPE,
-                span,
-                "local static definition reached resolver without an active scope",
-            ));
+            self.record_internal(nia_ice::Ice::new(format!(
+                "local static definition reached resolver without an active scope at {span:?}: name {name:?}, definition {id:?}"
+            )));
             return;
         };
         if let Some(existing) = scope.locals.get(name) {
@@ -1021,6 +1003,12 @@ impl<'a> LocalResolver<'a> {
 
     fn record_use(&mut self, node_key: VersionedNodeKey, use_kind: LocalUse) {
         self.node_uses.insert(node_key, use_kind);
+    }
+
+    fn record_internal(&mut self, error: nia_ice::Ice) {
+        if self.internal_error.is_none() {
+            self.internal_error = Some(error);
+        }
     }
 
     fn lookup_local(&self, name: &SymbolId) -> Option<ScopedLocal> {

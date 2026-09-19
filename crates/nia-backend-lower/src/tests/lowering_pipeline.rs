@@ -53,7 +53,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
     })
     .expect("collect backend-lower pipeline test signatures");
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
     let active_item_tree = active_item_tree(&module);
     let semantic_uses = semantic_use_table(
         module_id,

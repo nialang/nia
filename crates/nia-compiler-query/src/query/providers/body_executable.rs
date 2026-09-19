@@ -230,7 +230,7 @@ fn filtered_const_global_initializer_for_body_check(
                     &symbols,
                 )
             },
-        );
+        )?;
         let semantic_uses = time_module_provider(
             db,
             "executable_body_check.const_eval.global_initializer.semantic_uses",
@@ -273,7 +273,7 @@ fn filtered_const_global_initializer_for_body_check(
                 })
             },
         );
-        lowered
+        Ok::<_, nia_ice::Ice>(lowered
             .module
             .global_initializers()
             .get(&global_id)
@@ -283,7 +283,7 @@ fn filtered_const_global_initializer_for_body_check(
                     .deferred_global_initializers()
                     .get(&global_id)
             })
-            .cloned()
+            .cloned())
     };
     let values = time_module_provider(
         db,
@@ -322,7 +322,7 @@ fn filtered_const_global_initializer_for_body_check(
             values
         },
     );
-    let initializer = lower_with_values(values);
+    let initializer = lower_with_values(values)?;
     match query_failure.into_inner() {
         Some(error) => Err(error),
         None => Ok(initializer),

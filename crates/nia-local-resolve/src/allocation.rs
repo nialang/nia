@@ -11,15 +11,19 @@ use super::*;
 pub(super) struct LocalDefinitionAllocator {
     pub(super) locals: LocalMap,
     pub(super) node_local_defs: HashMap<VersionedNodeKey, LocalId>,
+    failure: Option<nia_ice::Ice>,
 }
 
 impl LocalDefinitionAllocator {
-    pub(super) fn allocate_items(items: &[ItemTreeNode]) -> Self {
+    pub(super) fn allocate_items(items: &[ItemTreeNode]) -> nia_ice::IceResult<Self> {
         let mut allocator = Self::default();
         for item in items {
             allocator.allocate_item_tree_node(item);
         }
-        allocator
+        match allocator.failure {
+            Some(error) => Err(error),
+            None => Ok(allocator),
+        }
     }
 
     fn allocate_item_tree_node(&mut self, item: &ItemTreeNode) {
@@ -417,7 +421,14 @@ impl LocalDefinitionAllocator {
         span: Span,
         node_key: VersionedNodeKey,
     ) {
-        let id = self.locals.push(Local { name, kind, span });
-        self.node_local_defs.insert(node_key, id);
+        if self.failure.is_some() {
+            return;
+        }
+        match self.locals.push(Local { name, kind, span }) {
+            Ok(id) => {
+                self.node_local_defs.insert(node_key, id);
+            }
+            Err(error) => self.failure = Some(error),
+        }
     }
 }

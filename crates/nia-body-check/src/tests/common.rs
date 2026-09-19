@@ -322,7 +322,7 @@ fn pipeline_with_options_and_trait_impls(
     adjust_values(&module, &defs, &mut values);
     let values = values.finish();
     assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
     let active_item_tree = active_item_tree(&module);
     let semantic_uses = semantic_use_table(
