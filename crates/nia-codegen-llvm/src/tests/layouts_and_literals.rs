@@ -399,8 +399,10 @@ fn main() i32 {
         ir,
         &[
             "call i32 @log(i32 1)",
+            &format!("store {pair} %return.value, ptr %return.cleanup"),
             &format!("{cleanup}(i32 2)"),
-            &format!("store {pair} %return.value"),
+            &format!("%return.cleanup.value = load {pair}"),
+            &format!("store {pair} %return.cleanup.value, ptr %0"),
         ],
     );
 }
@@ -509,8 +511,10 @@ fn main() i32 {
         &[
             &format!("define void {forward_pair}(ptr %0)"),
             &format!("call void {make_pair}(ptr %call.out, i32 10, i32 20)"),
+            &format!("store {pair} %call.result, ptr %return.cleanup"),
             &format!("{cleanup}(i32 1)"),
-            &format!("store {pair} %call.result, ptr %0"),
+            &format!("%return.cleanup.value = load {pair}"),
+            &format!("store {pair} %return.cleanup.value, ptr %0"),
         ],
     );
 }

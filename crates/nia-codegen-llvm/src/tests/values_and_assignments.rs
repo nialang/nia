@@ -136,7 +136,7 @@ fn main(flag: bool) i32 {
     assert!(ir.contains("call void @log(i32 1)"));
     assert!(ir.contains("call void @log(i32 2)"));
     assert!(ir.contains("call void @log(i32 3)"));
-    assert!(ir.contains("ret i32 0"));
+    assert!(ir.contains("ret i32 %return.cleanup.value"));
 }
 
 #[test]

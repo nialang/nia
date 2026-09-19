@@ -526,7 +526,8 @@ fn main() i32 {
     let ir = &output.modules[0].ir;
     assert_substrings_in_order(ir, &["call void @log(i32 11)", "call void @log(i32 10)"]);
     assert!(ir.contains("call void @log(i32 12)") || ir.contains("call void @log(i32 12,"));
-    assert!(ir.contains("ret i32 1"));
+    assert!(ir.contains("store i32 1, ptr %return.cleanup"));
+    assert!(ir.contains("ret i32 %return.cleanup.value"));
 }
 
 #[test]
@@ -570,7 +571,8 @@ fn run(argv: & & u8) i32 {
     assert!(ir.contains("call ptr @fopen"));
     assert!(ir.contains("call i32 @fclose"));
     assert!(ir.contains("ret i32 1"));
-    assert!(ir.contains("ret i32 0"));
+    assert!(ir.contains("store i32 0, ptr %return.cleanup"));
+    assert!(ir.contains("ret i32 %return.cleanup.value"));
 }
 
 #[test]
@@ -599,7 +601,15 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     let cleanup = mangled_symbol(ir, '@', "cleanup");
-    assert_substrings_in_order(ir, &[&format!("call void {cleanup}()"), "ret i32 0"]);
+    assert_substrings_in_order(
+        ir,
+        &[
+            "store i32 0, ptr %return.cleanup",
+            &format!("call void {cleanup}()"),
+            "%return.cleanup.value = load i32",
+            "ret i32 %return.cleanup.value",
+        ],
+    );
 }
 
 #[test]
@@ -728,6 +738,64 @@ fn main(fail: bool) Error!i32 {
 }
 
 #[test]
+fn shares_function_return_defer_cleanup_across_propagation_sites() {
+    let root = temp_dir("shares_function_return_defer_cleanup_across_propagation_sites");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+enum Error: i32 {
+    Failed = 1,
+    _
+}
+
+extern fn cleanup();
+
+fn step(fail: bool) Error!() {
+    if fail { Error::Failed! } else { !() }
+}
+
+fn run(fail: bool) Error!i32 {
+    defer cleanup();
+    defer cleanup();
+    defer cleanup();
+    defer cleanup();
+    defer cleanup();
+    defer cleanup();
+    defer cleanup();
+    defer cleanup();
+    step(fail).?;
+    step(fail).?;
+    step(fail).?;
+    step(fail).?;
+    step(fail).?;
+    step(fail).?;
+    step(fail).?;
+    step(fail).?;
+    !0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    let defer_entries = ir
+        .lines()
+        .filter(|line| {
+            line.split_whitespace()
+                .next()
+                .is_some_and(|label| label.starts_with("defer.entry") && label.ends_with(':'))
+        })
+        .count();
+    assert_eq!(defer_entries, 8, "{ir}");
+}
+
+#[test]
 fn instantiates_generic_calls_from_defer_tail_expr() {
     let root = temp_dir("instantiates_generic_calls_from_defer_tail_expr");
     let main = root.join("main.nia");
@@ -777,7 +845,7 @@ fn main() i32 {
     );
     assert!(ir.contains(&format!("call i32 {id}(i32 7)")), "{ir}");
     assert!(ir.contains("call void @log(i32 %calltmp)"), "{ir}");
-    assert!(ir.contains("ret i32 0"), "{ir}");
+    assert!(ir.contains("ret i32 %return.cleanup.value"), "{ir}");
 }
 
 #[test]

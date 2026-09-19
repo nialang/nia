@@ -27,6 +27,7 @@ use nia_function_ir::{
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
     IntPredicate,
+    basic_block::BasicBlock,
     builder::Builder,
     types::BasicTypeEnum,
     values::{BasicValueEnum, FunctionValue, PointerValue},
@@ -47,6 +48,15 @@ pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     defer_scopes: Vec<DeferScope>,
     function_defer_scopes: HashMap<FunctionScopeId, usize>,
     active_function_scope: Option<FunctionScopeId>,
+    function_return_storage: Option<PointerValue<'ctx>>,
+    function_return_cleanup_blocks: HashMap<Vec<(FunctionScopeId, usize)>, BasicBlock<'ctx>>,
+    pending_function_return_cleanups: Vec<FunctionReturnCleanup<'ctx>>,
+}
+
+struct FunctionReturnCleanup<'ctx> {
+    entry: BasicBlock<'ctx>,
+    scopes: Vec<DeferScope>,
+    span: Span,
 }
 
 #[derive(Clone)]
@@ -98,6 +108,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             defer_scopes: Vec::new(),
             function_defer_scopes: HashMap::new(),
             active_function_scope: None,
+            function_return_storage: None,
+            function_return_cleanup_blocks: HashMap::new(),
+            pending_function_return_cleanups: Vec::new(),
         })
     }
 
