@@ -274,8 +274,14 @@ fn codegen_partitions_are_definition_filtered_and_stable_key_ordered() {
             },
         ]
     );
-    assert_eq!(program.module_for_partition(&partitions[0]).name, "first");
-    assert_eq!(program.module_for_partition(&partitions[1]).name, "second");
+    assert_eq!(
+        program.module_for_partition(&partitions[0]).unwrap().name,
+        "first"
+    );
+    assert_eq!(
+        program.module_for_partition(&partitions[1]).unwrap().name,
+        "second"
+    );
     let first_module = program
         .modules
         .iter()
@@ -373,8 +379,20 @@ fn codegen_partition_order_does_not_depend_on_module_id_allocation() {
 
     let plan = program.codegen_partition_plan();
 
-    assert_eq!(program.module_for_partition(&plan.partitions()[0]).id, a_id);
-    assert_eq!(program.module_for_partition(&plan.partitions()[1]).id, z_id);
+    assert_eq!(
+        program
+            .module_for_partition(&plan.partitions()[0])
+            .unwrap()
+            .id,
+        a_id
+    );
+    assert_eq!(
+        program
+            .module_for_partition(&plan.partitions()[1])
+            .unwrap()
+            .id,
+        z_id
+    );
 }
 
 #[test]
@@ -494,7 +512,8 @@ fn codegen_partition_plan_rejects_definition_membership_mutation() {
     changed_module.globals.clear();
     let program = BackendProgram::new(vec![changed_module]).expect("build changed program");
 
-    plan.validate_program(&program);
+    plan.validate_program(&program)
+        .expect("validate matching backend program");
 }
 
 #[test]
