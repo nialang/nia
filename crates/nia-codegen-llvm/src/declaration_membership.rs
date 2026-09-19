@@ -905,6 +905,23 @@ mod tests {
     use super::*;
     use crate::program_index::ProgramIndex;
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId;
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId {
+            self.intern(kind)
+                .expect("intern declaration membership test type")
+        }
+
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+            self.primitive(primitive)
+                .expect("intern primitive declaration membership test type")
+        }
+    }
+
     fn empty_module(module_id: ModuleId, name: &str) -> BackendModule {
         BackendModule {
             id: module_id,
@@ -1067,7 +1084,9 @@ mod tests {
         let actual_owner = module_ids.allocate().expect("allocate module ID");
         let unrelated = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new().expect("create type store");
-        let ty = types.append_for_module(caller).primitive(PrimitiveTy::I32);
+        let ty = types
+            .append_for_module(caller)
+            .test_primitive(PrimitiveTy::I32);
         let semantic_def = GlobalDefId {
             module_id: semantic_owner,
             def_id: DefId(7),
@@ -1117,12 +1136,12 @@ mod tests {
         let const_owner = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(caller);
-        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let i32_ty = append.test_primitive(PrimitiveTy::I32);
         let nominal_def = GlobalDefId {
             module_id: caller,
             def_id: DefId(9),
         };
-        let nominal_ty = append.intern(TyKind::Nominal {
+        let nominal_ty = append.test_intern(TyKind::Nominal {
             def_id: nominal_def,
             args: Vec::new(),
             const_args: vec![ConstGenericArg {
@@ -1208,11 +1227,13 @@ mod tests {
             module_id,
             def_id: DefId(9),
         };
-        let nominal = types.append_for_module(module_id).intern(TyKind::Nominal {
-            def_id: definition,
-            args: Vec::new(),
-            const_args: Vec::new(),
-        });
+        let nominal = types
+            .append_for_module(module_id)
+            .test_intern(TyKind::Nominal {
+                def_id: definition,
+                args: Vec::new(),
+                const_args: Vec::new(),
+            });
         let mut module = empty_module(module_id, "generic.nia");
         module.structs.push(BackendStruct {
             def_id: definition,
@@ -1249,7 +1270,9 @@ mod tests {
         let instance_owner = module_ids.allocate().expect("allocate module ID");
         let const_owner = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new().expect("create type store");
-        let ty = types.append_for_module(caller).primitive(PrimitiveTy::I32);
+        let ty = types
+            .append_for_module(caller)
+            .test_primitive(PrimitiveTy::I32);
         let semantic_def = GlobalDefId {
             module_id: caller,
             def_id: DefId(9),
@@ -1308,15 +1331,15 @@ mod tests {
         let module_id = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
-        let i32_ty = append.primitive(PrimitiveTy::I32);
-        let left = append.intern(TyKind::Array {
+        let i32_ty = append.test_primitive(PrimitiveTy::I32);
+        let left = append.test_intern(TyKind::Array {
             len: nia_ty::ArrayLenTy::ConstExpr(GlobalConstExprId {
                 module_id,
                 const_expr_id: ConstExprId(0),
             }),
             elem: i32_ty,
         });
-        let right = append.intern(TyKind::Array {
+        let right = append.test_intern(TyKind::Array {
             len: nia_ty::ArrayLenTy::ConstExpr(GlobalConstExprId {
                 module_id,
                 const_expr_id: ConstExprId(1),
@@ -1383,8 +1406,8 @@ mod tests {
         let function_owner = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(caller);
-        let ty = append.primitive(PrimitiveTy::I32);
-        let upcast_object_ty = append.primitive(PrimitiveTy::Bool);
+        let ty = append.test_primitive(PrimitiveTy::I32);
+        let upcast_object_ty = append.test_primitive(PrimitiveTy::Bool);
         let trait_def = GlobalDefId {
             module_id: vtable_owner,
             def_id: DefId(3),
@@ -1485,7 +1508,9 @@ mod tests {
         let semantic_owner = module_ids.allocate().expect("allocate module ID");
         let actual_owner = module_ids.allocate().expect("allocate module ID");
         let types = TypeStore::new().expect("create type store");
-        let ty = types.append_for_module(caller).primitive(PrimitiveTy::I32);
+        let ty = types
+            .append_for_module(caller)
+            .test_primitive(PrimitiveTy::I32);
         let semantic_def = GlobalDefId {
             module_id: semantic_owner,
             def_id: DefId(7),

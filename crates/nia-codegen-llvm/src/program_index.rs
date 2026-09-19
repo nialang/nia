@@ -1303,6 +1303,22 @@ mod tests {
     use nia_symbol::{SymbolId, stable_hash};
     use nia_ty::{PrimitiveTy, TyKind, TypeStore};
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId;
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId {
+            self.intern(kind).expect("intern program index test type")
+        }
+
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+            self.primitive(primitive)
+                .expect("intern primitive program index test type")
+        }
+    }
+
     fn sym(text: &str) -> SymbolId {
         SymbolId::from_stable_hash(stable_hash(text))
     }
@@ -1358,8 +1374,8 @@ mod tests {
         let second_def = global(second, 1);
         let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(first);
-        let first_ty = interner.primitive(PrimitiveTy::I32);
-        let second_ty = interner.primitive(PrimitiveTy::U32);
+        let first_ty = interner.test_primitive(PrimitiveTy::I32);
+        let second_ty = interner.test_primitive(PrimitiveTy::U32);
         let program = BackendProgram::new(vec![
             enum_module(first, first_ty, first_def, "first"),
             enum_module(second, second_ty, second_def, "second"),
@@ -1421,8 +1437,8 @@ mod tests {
         let second = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(first);
-        let first_ty = interner.primitive(PrimitiveTy::I32);
-        let second_ty = interner.primitive(PrimitiveTy::U32);
+        let first_ty = interner.test_primitive(PrimitiveTy::I32);
+        let second_ty = interner.test_primitive(PrimitiveTy::U32);
         let first_module = enum_module(first, first_ty, global(first, 1), "first");
         let mut second_module = enum_module(second, second_ty, global(second, 1), "second");
         second_module.layouts.target = nia_layout::TargetDataLayout {
@@ -1458,7 +1474,7 @@ mod tests {
         let foreign = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(written);
-        let ty = interner.primitive(PrimitiveTy::I32);
+        let ty = interner.test_primitive(PrimitiveTy::I32);
         drop(interner);
         let store = Arc::new(
             nia_backend_ir::BackendModuleStore::new([written, unwritten])
@@ -1499,7 +1515,7 @@ mod tests {
         let second = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(first);
-        let first_ty = interner.primitive(PrimitiveTy::I32);
+        let first_ty = interner.test_primitive(PrimitiveTy::I32);
         drop(interner);
         let store = Arc::new(
             nia_backend_ir::BackendModuleStore::new([first, second])
@@ -1524,23 +1540,23 @@ mod tests {
         let module_id = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(module_id);
-        let i32_ty = interner.primitive(PrimitiveTy::I32);
+        let i32_ty = interner.test_primitive(PrimitiveTy::I32);
         let rebuilt_interner = type_store.append_for_module(semantic_module_id);
-        let rebuilt_i32_ty = rebuilt_interner.primitive(PrimitiveTy::I32);
+        let rebuilt_i32_ty = rebuilt_interner.test_primitive(PrimitiveTy::I32);
         let function_def = global(semantic_module_id, 1);
         let struct_def = global(semantic_module_id, 2);
         let enum_def = global(semantic_module_id, 3);
         let first_variant = global(semantic_module_id, 4);
         let second_variant = global(semantic_module_id, 5);
         let trait_def = global(semantic_module_id, 6);
-        let object_ty = interner.intern(TyKind::TraitObject {
+        let object_ty = interner.test_intern(TyKind::TraitObject {
             is_readonly: true,
             trait_id: TraitId::Source(trait_def),
             trait_args: vec![i32_ty],
             trait_const_args: Vec::new(),
             associated_type_bindings: Vec::new(),
         });
-        let rebuilt_object_ty = rebuilt_interner.intern(TyKind::TraitObject {
+        let rebuilt_object_ty = rebuilt_interner.test_intern(TyKind::TraitObject {
             is_readonly: true,
             trait_id: TraitId::Source(trait_def),
             trait_args: vec![rebuilt_i32_ty],
@@ -1771,10 +1787,10 @@ mod tests {
         let type_store = TypeStore::new().expect("create type store");
         let owner_append = type_store.append_for_module(owner_module);
         let argument_append = type_store.append_for_module(argument_module);
-        let owner_i32 = owner_append.primitive(PrimitiveTy::I32);
-        let argument_i32 = argument_append.primitive(PrimitiveTy::I32);
-        let owner_usize = owner_append.primitive(PrimitiveTy::Usize);
-        let argument_usize = argument_append.primitive(PrimitiveTy::Usize);
+        let owner_i32 = owner_append.test_primitive(PrimitiveTy::I32);
+        let argument_i32 = argument_append.test_primitive(PrimitiveTy::I32);
+        let owner_usize = owner_append.test_primitive(PrimitiveTy::Usize);
+        let argument_usize = argument_append.test_primitive(PrimitiveTy::Usize);
         let def_id = global(owner_module, 77);
         let function_def = global(owner_module, 78);
         let struct_def = global(owner_module, 79);
@@ -1999,8 +2015,8 @@ mod tests {
         let type_store = TypeStore::new().expect("create type store");
         let ty = {
             let interner = type_store.append_for_module(module_id);
-            let elem = interner.primitive(PrimitiveTy::U32);
-            interner.intern(TyKind::Pointer {
+            let elem = interner.test_primitive(PrimitiveTy::U32);
+            interner.test_intern(TyKind::Pointer {
                 is_readonly: true,
                 elem,
             })
@@ -2043,7 +2059,7 @@ mod tests {
                 left_module,
                 {
                     let interner = type_store.append_for_module(left_module);
-                    interner.primitive(PrimitiveTy::U8)
+                    interner.test_primitive(PrimitiveTy::U8)
                 },
                 global(left_module, 1),
                 "left",
@@ -2061,7 +2077,7 @@ mod tests {
                 right_module,
                 {
                     let interner = type_store.append_for_module(right_module);
-                    interner.primitive(PrimitiveTy::U8)
+                    interner.test_primitive(PrimitiveTy::U8)
                 },
                 global(right_module, 1),
                 "right",
@@ -2095,10 +2111,10 @@ mod tests {
 
         let left_usize = type_store
             .append_for_module(left_module)
-            .primitive(PrimitiveTy::Usize);
+            .test_primitive(PrimitiveTy::Usize);
         let right_usize = type_store
             .append_for_module(right_module)
-            .primitive(PrimitiveTy::Usize);
+            .test_primitive(PrimitiveTy::Usize);
         let left_const_args = [ConstGenericArg {
             ty: left_usize,
             value: ConstGenericValue::ConstExpr(left_expr),

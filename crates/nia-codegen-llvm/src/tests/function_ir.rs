@@ -50,7 +50,7 @@ fn emits_function_body_from_function_ir_when_available() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let program = BackendProgram {
         modules: vec![BackendModule {
@@ -138,12 +138,12 @@ fn scopes_template_local_promotions_to_function_instances() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let usize_ty = interner.primitive(PrimitiveTy::Usize);
-    let array_ty = interner.intern(TyKind::Array {
+    let usize_ty = interner.test_primitive(PrimitiveTy::Usize);
+    let array_ty = interner.test_intern(TyKind::Array {
         len: nia_ty::ArrayLenTy::ConstValue(1),
         elem: usize_ty,
     });
-    let pointer_ty = interner.intern(TyKind::Pointer {
+    let pointer_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: array_ty,
     });
@@ -318,16 +318,16 @@ fn rejects_conflicting_promoted_allocation_initializers() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let usize_ty = interner.primitive(PrimitiveTy::Usize);
-    let array_ty = interner.intern(TyKind::Array {
+    let usize_ty = interner.test_primitive(PrimitiveTy::Usize);
+    let array_ty = interner.test_intern(TyKind::Array {
         len: nia_ty::ArrayLenTy::ConstValue(1),
         elem: usize_ty,
     });
-    let pointer_ty = interner.intern(TyKind::Pointer {
+    let pointer_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: array_ty,
     });
-    let result_ty = interner.intern(TyKind::Array {
+    let result_ty = interner.test_intern(TyKind::Array {
         len: nia_ty::ArrayLenTy::ConstValue(2),
         elem: pointer_ty,
     });
@@ -433,7 +433,7 @@ fn validates_function_return_runtime_layout_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let opaque_ty = interner.intern(TyKind::Opaque);
+    let opaque_ty = interner.test_intern(TyKind::Opaque);
     let function = BackendFunction {
         def_id: GlobalDefId {
             module_id,
@@ -483,7 +483,7 @@ fn validates_variadic_function_declarations_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let body = FunctionBody {
         span,
@@ -589,7 +589,7 @@ fn validates_naked_function_attribute_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let function = BackendFunction {
         def_id: GlobalDefId {
@@ -641,7 +641,7 @@ fn validates_external_linkage_contract_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let function = |def_id, name, linkage, generics| BackendFunction {
         def_id: GlobalDefId { module_id, def_id },
@@ -739,16 +739,16 @@ fn validates_extern_abi_types_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let char_ty = interner.primitive(PrimitiveTy::Char);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let tuple_ty = interner.intern(TyKind::Tuple(vec![i32_ty]));
-    let optional_ty = interner.intern(TyKind::Optional { elem: i32_ty });
-    let generic_array_ty = interner.intern(TyKind::Array {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let char_ty = interner.test_primitive(PrimitiveTy::Char);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let tuple_ty = interner.test_intern(TyKind::Tuple(vec![i32_ty]));
+    let optional_ty = interner.test_intern(TyKind::Optional { elem: i32_ty });
+    let generic_array_ty = interner.test_intern(TyKind::Array {
         len: nia_ty::ArrayLenTy::GenericParam(sym("N")),
         elem: i32_ty,
     });
-    let variadic_function_ty = interner.intern(TyKind::FunctionPointer {
+    let variadic_function_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![bool_ty],
         return_type: i32_ty,
         is_variadic: true,
@@ -871,7 +871,7 @@ fn validates_function_instance_abi_metadata_before_llvm() {
     let foreign_module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let def_id = GlobalDefId {
         module_id,
@@ -987,10 +987,10 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let foreign_type_store = nia_ty::TypeStore::new().expect("create type store");
     let foreign_interner = foreign_type_store.append_for_module(module_id);
-    let foreign_i32_ty = foreign_interner.primitive(PrimitiveTy::I32);
+    let foreign_i32_ty = foreign_interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let struct_id = GlobalDefId {
         module_id,
@@ -1127,10 +1127,10 @@ fn validates_global_instance_metadata_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let foreign_type_store = nia_ty::TypeStore::new().expect("create type store");
     let foreign_interner = foreign_type_store.append_for_module(module_id);
-    let foreign_i32_ty = foreign_interner.primitive(PrimitiveTy::I32);
+    let foreign_i32_ty = foreign_interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let def_id = GlobalDefId {
         module_id,
@@ -1234,7 +1234,7 @@ fn rejects_ordinary_definition_with_foreign_module_owner_before_llvm() {
     let foreign_module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let function = BackendFunction {
         def_id: GlobalDefId {
@@ -1315,8 +1315,8 @@ fn validates_static_array_initializer_length_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let u8_ty = interner.primitive(PrimitiveTy::U8);
-    let array_ty = interner.intern(TyKind::Array {
+    let u8_ty = interner.test_primitive(PrimitiveTy::U8);
+    let array_ty = interner.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstValue(2),
         elem: u8_ty,
     });
@@ -1371,11 +1371,11 @@ fn emits_static_arrays_of_zero_vectors() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let vector_ty = interner.intern(TyKind::Vector {
+    let vector_ty = interner.test_intern(TyKind::Vector {
         elem: PrimitiveTy::I32,
         lanes: 4,
     });
-    let array_ty = interner.intern(TyKind::Array {
+    let array_ty = interner.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstValue(2),
         elem: vector_ty,
     });
@@ -1437,7 +1437,7 @@ fn rejects_malformed_static_vector_lanes_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let vector_ty = interner.intern(TyKind::Vector {
+    let vector_ty = interner.test_intern(TyKind::Vector {
         elem: PrimitiveTy::U8,
         lanes: 2,
     });
@@ -1492,9 +1492,9 @@ fn rejects_malformed_static_tuple_elements_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let tuple_ty = interner.intern(TyKind::Tuple(vec![i32_ty, bool_ty]));
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let tuple_ty = interner.test_intern(TyKind::Tuple(vec![i32_ty, bool_ty]));
     let global = BackendGlobal {
         def_id: GlobalDefId {
             module_id,
@@ -1546,20 +1546,20 @@ fn validates_static_scalar_initializer_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let char_ty = interner.primitive(PrimitiveTy::Char);
-    let f32_ty = interner.primitive(PrimitiveTy::F32);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let u8_ty = interner.primitive(PrimitiveTy::U8);
-    let vector_i32_ty = interner.intern(TyKind::Vector {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let char_ty = interner.test_primitive(PrimitiveTy::Char);
+    let f32_ty = interner.test_primitive(PrimitiveTy::F32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let u8_ty = interner.test_primitive(PrimitiveTy::U8);
+    let vector_i32_ty = interner.test_intern(TyKind::Vector {
         elem: PrimitiveTy::I32,
         lanes: 4,
     });
-    let pointer_ty = interner.intern(TyKind::Pointer {
+    let pointer_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: i32_ty,
     });
-    let char_array_ty = interner.intern(TyKind::Array {
+    let char_array_ty = interner.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstValue(1),
         elem: char_ty,
     });
@@ -1680,12 +1680,12 @@ fn validates_layout_builtin_array_length_for_32_bit_target() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let u8_ty = interner.primitive(PrimitiveTy::U8);
-    let pointer_ty = interner.intern(TyKind::Pointer {
+    let u8_ty = interner.test_primitive(PrimitiveTy::U8);
+    let pointer_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: u8_ty,
     });
-    let array_ty = interner.intern(TyKind::Array {
+    let array_ty = interner.test_intern(TyKind::Array {
         len: ArrayLenTy::Builtin {
             builtin: nia_ty::LayoutBuiltin::Size,
             ty: pointer_ty,
@@ -1743,7 +1743,7 @@ fn emits_pointer_sized_integer_abi_for_32_bit_target() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let usize_ty = interner.primitive(PrimitiveTy::Usize);
+    let usize_ty = interner.test_primitive(PrimitiveTy::Usize);
     let span = Span::default();
     let function = BackendFunction {
         def_id: GlobalDefId {
@@ -1823,7 +1823,7 @@ fn rejects_out_of_range_builtin_usize_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let usize_ty = interner.primitive(PrimitiveTy::Usize);
+    let usize_ty = interner.test_primitive(PrimitiveTy::Usize);
     let span = Span::default();
     let function = BackendFunction {
         def_id: GlobalDefId {
@@ -1997,7 +1997,7 @@ fn rejects_generated_llvm_symbol_collisions_before_emission() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let def_id = |index| GlobalDefId {
         module_id,
@@ -2100,7 +2100,7 @@ fn rejects_external_collisions_with_compiler_owned_symbols() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let def_id = |index| GlobalDefId {
         module_id,
@@ -2276,20 +2276,20 @@ fn rejects_malformed_layout_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let usize_ty = interner.primitive(PrimitiveTy::Usize);
-    let u8_ty = interner.primitive(PrimitiveTy::U8);
-    let i16_ty = interner.primitive(PrimitiveTy::I16);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let tuple_ty = interner.intern(TyKind::Tuple(vec![i16_ty, i32_ty]));
-    let builtin_trait_ty = interner.intern(TyKind::BuiltinTrait {
+    let usize_ty = interner.test_primitive(PrimitiveTy::Usize);
+    let u8_ty = interner.test_primitive(PrimitiveTy::U8);
+    let i16_ty = interner.test_primitive(PrimitiveTy::I16);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let tuple_ty = interner.test_intern(TyKind::Tuple(vec![i16_ty, i32_ty]));
+    let builtin_trait_ty = interner.test_intern(TyKind::BuiltinTrait {
         trait_id: BuiltinTrait::Sized,
         args: Vec::new(),
     });
-    let unpublished_builtin_trait_ty = interner.intern(TyKind::BuiltinTrait {
+    let unpublished_builtin_trait_ty = interner.test_intern(TyKind::BuiltinTrait {
         trait_id: BuiltinTrait::Iterator,
         args: Vec::new(),
     });
-    let generic_ty = interner.intern(TyKind::GenericParam(sym("T")));
+    let generic_ty = interner.test_intern(TyKind::GenericParam(sym("T")));
     let span = Span::default();
     let enum_id = GlobalDefId {
         module_id,
@@ -2303,12 +2303,12 @@ fn rejects_malformed_layout_contracts_before_llvm() {
         module_id,
         def_id: DefId(20),
     };
-    let struct_ty = interner.intern(TyKind::Nominal {
+    let struct_ty = interner.test_intern(TyKind::Nominal {
         def_id: struct_id,
         args: Vec::new(),
         const_args: Vec::new(),
     });
-    let generic_struct_ty = interner.intern(TyKind::Nominal {
+    let generic_struct_ty = interner.test_intern(TyKind::Nominal {
         def_id: generic_struct_id,
         args: vec![i16_ty],
         const_args: Vec::new(),
@@ -2695,7 +2695,7 @@ fn validates_aggregate_products_with_structurally_equal_const_args() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let def_id = GlobalDefId {
         module_id,
         def_id: DefId(40),
@@ -2712,7 +2712,7 @@ fn validates_aggregate_products_with_structurally_equal_const_args() {
         ty: i32_ty,
         value: ConstGenericValue::Int(IntConst::unsigned(7)),
     };
-    let nominal_ty = interner.intern(TyKind::Nominal {
+    let nominal_ty = interner.test_intern(TyKind::Nominal {
         def_id,
         args: Vec::new(),
         const_args: vec![signed_arg.clone()],
@@ -2811,9 +2811,9 @@ fn emits_bitmask_with_32_bit_usize_result() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let usize_ty = interner.primitive(PrimitiveTy::Usize);
-    let boolx16_ty = interner.intern(TyKind::Vector {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let usize_ty = interner.test_primitive(PrimitiveTy::Usize);
+    let boolx16_ty = interner.test_intern(TyKind::Vector {
         elem: PrimitiveTy::Bool,
         lanes: 16,
     });
@@ -2906,8 +2906,8 @@ fn validates_terminator_type_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
     let span = Span::default();
     let int_expr = |ty| FunctionExpr {
         span,
@@ -3026,8 +3026,8 @@ fn validates_switch_case_constants_and_uniqueness_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i8_ty = interner.primitive(PrimitiveTy::I8);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i8_ty = interner.test_primitive(PrimitiveTy::I8);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let case = |kind| FunctionExpr {
         span,
@@ -3155,12 +3155,12 @@ fn validates_literal_payloads_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let char_ty = interner.primitive(PrimitiveTy::Char);
-    let f32_ty = interner.primitive(PrimitiveTy::F32);
-    let i8_ty = interner.primitive(PrimitiveTy::I8);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let u8_ty = interner.primitive(PrimitiveTy::U8);
-    let char_array_ty = interner.intern(TyKind::Array {
+    let char_ty = interner.test_primitive(PrimitiveTy::Char);
+    let f32_ty = interner.test_primitive(PrimitiveTy::F32);
+    let i8_ty = interner.test_primitive(PrimitiveTy::I8);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let u8_ty = interner.test_primitive(PrimitiveTy::U8);
+    let char_array_ty = interner.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstValue(1),
         elem: char_ty,
     });
@@ -3269,24 +3269,24 @@ fn validates_projection_and_field_initializer_types_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let f32_ty = interner.primitive(PrimitiveTy::F32);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let usize_ty = interner.primitive(PrimitiveTy::Usize);
-    let tuple_ty = interner.intern(TyKind::Tuple(vec![i32_ty]));
-    let array_ty = interner.intern(TyKind::Array {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let f32_ty = interner.test_primitive(PrimitiveTy::F32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let usize_ty = interner.test_primitive(PrimitiveTy::Usize);
+    let tuple_ty = interner.test_intern(TyKind::Tuple(vec![i32_ty]));
+    let array_ty = interner.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstValue(1),
         elem: i32_ty,
     });
-    let slice_i32_ty = interner.intern(TyKind::Slice {
+    let slice_i32_ty = interner.test_intern(TyKind::Slice {
         is_readonly: false,
         elem: i32_ty,
     });
-    let readonly_slice_i32_ty = interner.intern(TyKind::Slice {
+    let readonly_slice_i32_ty = interner.test_intern(TyKind::Slice {
         is_readonly: true,
         elem: i32_ty,
     });
-    let readonly_i32_ptr_ty = interner.intern(TyKind::Pointer {
+    let readonly_i32_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: i32_ty,
     });
@@ -3298,7 +3298,7 @@ fn validates_projection_and_field_initializer_types_before_llvm() {
         module_id,
         def_id: DefId(1),
     };
-    let struct_ty = interner.intern(TyKind::Nominal {
+    let struct_ty = interner.test_intern(TyKind::Nominal {
         def_id: struct_id,
         args: Vec::new(),
         const_args: Vec::new(),
@@ -3428,13 +3428,13 @@ fn validates_projection_and_field_initializer_types_before_llvm() {
         function(
             11,
             "bad_slice_element",
-            interner.intern(TyKind::Slice {
+            interner.test_intern(TyKind::Slice {
                 is_readonly: false,
                 elem: bool_ty,
             }),
             FunctionExpr {
                 span,
-                ty: interner.intern(TyKind::Slice {
+                ty: interner.test_intern(TyKind::Slice {
                     is_readonly: false,
                     elem: bool_ty,
                 }),
@@ -3708,28 +3708,28 @@ fn validates_atomic_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let f32_ty = interner.primitive(PrimitiveTy::F32);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let unit_ty = interner.intern(TyKind::Tuple(Vec::new()));
-    let optional_i32_ty = interner.intern(TyKind::Optional { elem: i32_ty });
-    let readonly_i32_ptr_ty = interner.intern(TyKind::Pointer {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let f32_ty = interner.test_primitive(PrimitiveTy::F32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let unit_ty = interner.test_intern(TyKind::Tuple(Vec::new()));
+    let optional_i32_ty = interner.test_intern(TyKind::Optional { elem: i32_ty });
+    let readonly_i32_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: i32_ty,
     });
-    let mutable_i32_ptr_ty = interner.intern(TyKind::Pointer {
+    let mutable_i32_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: false,
         elem: i32_ty,
     });
-    let mutable_bool_ptr_ty = interner.intern(TyKind::Pointer {
+    let mutable_bool_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: false,
         elem: bool_ty,
     });
-    let mutable_ptr_ptr_ty = interner.intern(TyKind::Pointer {
+    let mutable_ptr_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: false,
         elem: mutable_i32_ptr_ty,
     });
-    let readonly_f32_ptr_ty = interner.intern(TyKind::Pointer {
+    let readonly_f32_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: f32_ty,
     });
@@ -3936,18 +3936,18 @@ fn validates_memory_intrinsic_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let u8_ty = interner.primitive(PrimitiveTy::U8);
-    let mutable_i32_slice_ty = interner.intern(TyKind::Slice {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let u8_ty = interner.test_primitive(PrimitiveTy::U8);
+    let mutable_i32_slice_ty = interner.test_intern(TyKind::Slice {
         is_readonly: false,
         elem: i32_ty,
     });
-    let readonly_i32_slice_ty = interner.intern(TyKind::Slice {
+    let readonly_i32_slice_ty = interner.test_intern(TyKind::Slice {
         is_readonly: true,
         elem: i32_ty,
     });
-    let readonly_bool_slice_ty = interner.intern(TyKind::Slice {
+    let readonly_bool_slice_ty = interner.test_intern(TyKind::Slice {
         is_readonly: true,
         elem: bool_ty,
     });
@@ -4085,31 +4085,31 @@ fn validates_low_level_builtin_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let char_ty = interner.primitive(PrimitiveTy::Char);
-    let f32_ty = interner.primitive(PrimitiveTy::F32);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let u8_ty = interner.primitive(PrimitiveTy::U8);
-    let u32_ty = interner.primitive(PrimitiveTy::U32);
-    let usize_ty = interner.primitive(PrimitiveTy::Usize);
-    let optional_char_ty = interner.intern(TyKind::Optional { elem: char_ty });
-    let byte_ptr_ty = interner.intern(TyKind::Pointer {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let char_ty = interner.test_primitive(PrimitiveTy::Char);
+    let f32_ty = interner.test_primitive(PrimitiveTy::F32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let u8_ty = interner.test_primitive(PrimitiveTy::U8);
+    let u32_ty = interner.test_primitive(PrimitiveTy::U32);
+    let usize_ty = interner.test_primitive(PrimitiveTy::Usize);
+    let optional_char_ty = interner.test_intern(TyKind::Optional { elem: char_ty });
+    let byte_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: u8_ty,
     });
-    let i32_ptr_ty = interner.intern(TyKind::Pointer {
+    let i32_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: i32_ty,
     });
-    let i32x4_ty = interner.intern(TyKind::Vector {
+    let i32x4_ty = interner.test_intern(TyKind::Vector {
         elem: PrimitiveTy::I32,
         lanes: 4,
     });
-    let boolx4_ty = interner.intern(TyKind::Vector {
+    let boolx4_ty = interner.test_intern(TyKind::Vector {
         elem: PrimitiveTy::Bool,
         lanes: 4,
     });
-    let boolx65_ty = interner.intern(TyKind::Vector {
+    let boolx65_ty = interner.test_intern(TyKind::Vector {
         elem: PrimitiveTy::Bool,
         lanes: 65,
     });
@@ -4288,14 +4288,14 @@ fn validates_unary_and_binary_operator_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let f32_ty = interner.primitive(PrimitiveTy::F32);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let vector_i32_ty = interner.intern(TyKind::Vector {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let f32_ty = interner.test_primitive(PrimitiveTy::F32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let vector_i32_ty = interner.test_intern(TyKind::Vector {
         elem: PrimitiveTy::I32,
         lanes: 4,
     });
-    let pointer_i32_ty = interner.intern(TyKind::Pointer {
+    let pointer_i32_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: false,
         elem: i32_ty,
     });
@@ -4417,33 +4417,33 @@ fn validates_cast_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let char_ty = interner.primitive(PrimitiveTy::Char);
-    let f32_ty = interner.primitive(PrimitiveTy::F32);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let i64_ty = interner.primitive(PrimitiveTy::I64);
-    let u32_ty = interner.primitive(PrimitiveTy::U32);
-    let vector_i32x4_ty = interner.intern(TyKind::Vector {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let char_ty = interner.test_primitive(PrimitiveTy::Char);
+    let f32_ty = interner.test_primitive(PrimitiveTy::F32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let i64_ty = interner.test_primitive(PrimitiveTy::I64);
+    let u32_ty = interner.test_primitive(PrimitiveTy::U32);
+    let vector_i32x4_ty = interner.test_intern(TyKind::Vector {
         elem: PrimitiveTy::I32,
         lanes: 4,
     });
-    let vector_i32x8_ty = interner.intern(TyKind::Vector {
+    let vector_i32x8_ty = interner.test_intern(TyKind::Vector {
         elem: PrimitiveTy::I32,
         lanes: 8,
     });
-    let vector_i64x4_ty = interner.intern(TyKind::Vector {
+    let vector_i64x4_ty = interner.test_intern(TyKind::Vector {
         elem: PrimitiveTy::I64,
         lanes: 4,
     });
-    let vector_i64x8_ty = interner.intern(TyKind::Vector {
+    let vector_i64x8_ty = interner.test_intern(TyKind::Vector {
         elem: PrimitiveTy::I64,
         lanes: 8,
     });
-    let pointer_i32_ty = interner.intern(TyKind::Pointer {
+    let pointer_i32_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: false,
         elem: i32_ty,
     });
-    let volatile_pointer_i32_ty = interner.intern(TyKind::VolatilePointer {
+    let volatile_pointer_i32_ty = interner.test_intern(TyKind::VolatilePointer {
         is_readonly: false,
         elem: i32_ty,
     });
@@ -4549,46 +4549,46 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let char_ty = interner.primitive(PrimitiveTy::Char);
-    let f32_ty = interner.primitive(PrimitiveTy::F32);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let usize_ty = interner.primitive(PrimitiveTy::Usize);
-    let u8_ty = interner.primitive(PrimitiveTy::U8);
-    let bool_array_ty = interner.intern(TyKind::Array {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let char_ty = interner.test_primitive(PrimitiveTy::Char);
+    let f32_ty = interner.test_primitive(PrimitiveTy::F32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let usize_ty = interner.test_primitive(PrimitiveTy::Usize);
+    let u8_ty = interner.test_primitive(PrimitiveTy::U8);
+    let bool_array_ty = interner.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstValue(1),
         elem: bool_ty,
     });
-    let char_array_ty = interner.intern(TyKind::Array {
+    let char_array_ty = interner.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstValue(1),
         elem: char_ty,
     });
-    let readonly_bool_array_ptr_ty = interner.intern(TyKind::Pointer {
+    let readonly_bool_array_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: bool_array_ty,
     });
-    let readonly_bool_ptr_ty = interner.intern(TyKind::Pointer {
+    let readonly_bool_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: bool_ty,
     });
-    let mutable_bool_array_ptr_ty = interner.intern(TyKind::Pointer {
+    let mutable_bool_array_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: false,
         elem: bool_array_ty,
     });
-    let range_exclusive_ty = interner.intern(TyKind::Range {
+    let range_exclusive_ty = interner.test_intern(TyKind::Range {
         kind: nia_ty::RangeTyKind::Exclusive,
         bound: Some(usize_ty),
     });
-    let range_from_ty = interner.intern(TyKind::Range {
+    let range_from_ty = interner.test_intern(TyKind::Range {
         kind: nia_ty::RangeTyKind::From,
         bound: Some(usize_ty),
     });
-    let range_full_ty = interner.intern(TyKind::Range {
+    let range_full_ty = interner.test_intern(TyKind::Range {
         kind: nia_ty::RangeTyKind::Full,
         bound: None,
     });
-    let optional_i32_ty = interner.intern(TyKind::Optional { elem: i32_ty });
-    let error_union_ty = interner.intern(TyKind::ErrorUnion {
+    let optional_i32_ty = interner.test_intern(TyKind::Optional { elem: i32_ty });
+    let error_union_ty = interner.test_intern(TyKind::ErrorUnion {
         error: bool_ty,
         value: i32_ty,
     });
@@ -4941,8 +4941,8 @@ fn validates_enum_expression_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let enum_id = GlobalDefId {
         module_id,
         def_id: DefId(0),
@@ -4955,22 +4955,22 @@ fn validates_enum_expression_contracts_before_llvm() {
         module_id,
         def_id: DefId(2),
     };
-    let enum_ty = interner.intern(TyKind::Nominal {
+    let enum_ty = interner.test_intern(TyKind::Nominal {
         def_id: enum_id,
         args: Vec::new(),
         const_args: Vec::new(),
     });
-    let unit_constructor_ty = interner.intern(TyKind::FunctionPointer {
+    let unit_constructor_ty = interner.test_intern(TyKind::FunctionPointer {
         params: Vec::new(),
         return_type: enum_ty,
         is_variadic: false,
     });
-    let wrong_param_constructor_ty = interner.intern(TyKind::FunctionPointer {
+    let wrong_param_constructor_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![bool_ty],
         return_type: enum_ty,
         is_variadic: false,
     });
-    let wrong_return_constructor_ty = interner.intern(TyKind::FunctionPointer {
+    let wrong_return_constructor_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![i32_ty],
         return_type: bool_ty,
         is_variadic: false,
@@ -5365,7 +5365,7 @@ fn rejects_aggregate_field_with_foreign_owner_before_llvm() {
     let foreign_module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let point_id = GlobalDefId {
         module_id,
         def_id: DefId(0),
@@ -5378,7 +5378,7 @@ fn rejects_aggregate_field_with_foreign_owner_before_llvm() {
         module_id: foreign_module_id,
         def_id: layout_field.def_id,
     };
-    let point_ty = interner.intern(TyKind::Nominal {
+    let point_ty = interner.test_intern(TyKind::Nominal {
         def_id: point_id,
         args: Vec::new(),
         const_args: Vec::new(),
@@ -5508,8 +5508,8 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
         module_id,
         const_expr_id: ConstExprId(0),
     };
-    let elem = interner.primitive(PrimitiveTy::U8);
-    let array_ty = interner.intern(TyKind::Array {
+    let elem = interner.test_primitive(PrimitiveTy::U8);
+    let array_ty = interner.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstExpr(len_id),
         elem,
     });
@@ -5579,12 +5579,12 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let box_id = GlobalDefId {
         module_id,
         def_id: DefId(0),
     };
-    let box_ty = interner.intern(TyKind::Nominal {
+    let box_ty = interner.test_intern(TyKind::Nominal {
         def_id: box_id,
         args: Vec::new(),
         const_args: Vec::new(),
@@ -5681,7 +5681,7 @@ fn validates_backend_ir_error_type_before_llvm() {
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
     let error_ty = interner.error();
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let program = BackendProgram {
         modules: vec![BackendModule {
@@ -5758,14 +5758,14 @@ fn validates_backend_ir_propagation_contract_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let optional_i32_ty = interner.intern(TyKind::Optional { elem: i32_ty });
-    let source_result_ty = interner.intern(TyKind::ErrorUnion {
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let optional_i32_ty = interner.test_intern(TyKind::Optional { elem: i32_ty });
+    let source_result_ty = interner.test_intern(TyKind::ErrorUnion {
         error: i32_ty,
         value: i32_ty,
     });
-    let target_result_ty = interner.intern(TyKind::ErrorUnion {
+    let target_result_ty = interner.test_intern(TyKind::ErrorUnion {
         error: bool_ty,
         value: i32_ty,
     });
@@ -5955,11 +5955,11 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
     let foreign_module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let foreign_store = nia_ty::TypeStore::new().expect("create type store");
     let foreign_ty = foreign_store
         .append_for_module(module_id)
-        .primitive(PrimitiveTy::I32);
+        .test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let callee_id = GlobalDefId {
         module_id,
@@ -6085,17 +6085,17 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let struct_id = GlobalDefId {
         module_id,
         def_id: DefId(10),
     };
-    let canonical_struct_ty = interner.intern(TyKind::Nominal {
+    let canonical_struct_ty = interner.test_intern(TyKind::Nominal {
         def_id: struct_id,
         args: Vec::new(),
         const_args: Vec::new(),
     });
-    let equivalent_struct_ty = interner.intern(TyKind::Nominal {
+    let equivalent_struct_ty = interner.test_intern(TyKind::Nominal {
         def_id: struct_id,
         args: Vec::new(),
         const_args: Vec::new(),
@@ -6256,8 +6256,8 @@ fn validates_backend_ir_vtable_structure_and_function_refs_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let object_ty = interner.intern(TyKind::TraitObject {
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let object_ty = interner.test_intern(TyKind::TraitObject {
         is_readonly: true,
         trait_id: TraitId::Source(GlobalDefId {
             module_id,
@@ -6368,13 +6368,13 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let i32_ptr_ty = interner.intern(TyKind::Pointer {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let i32_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: i32_ty,
     });
-    let bool_ptr_ty = interner.intern(TyKind::Pointer {
+    let bool_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: bool_ty,
     });
@@ -6398,14 +6398,14 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
         module_id,
         def_id: DefId(7),
     };
-    let object_ty = interner.intern(TyKind::TraitObject {
+    let object_ty = interner.test_intern(TyKind::TraitObject {
         is_readonly: true,
         trait_id: TraitId::Source(trait_def),
         trait_args: Vec::new(),
         trait_const_args: Vec::new(),
         associated_type_bindings: Vec::new(),
     });
-    let child_object_ty = interner.intern(TyKind::TraitObject {
+    let child_object_ty = interner.test_intern(TyKind::TraitObject {
         is_readonly: true,
         trait_id: TraitId::Source(child_trait_def),
         trait_args: Vec::new(),
@@ -6758,9 +6758,9 @@ fn emits_const_only_extern_method_instances_with_c_abi() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let usize_ty = interner.primitive(PrimitiveTy::Usize);
-    let receiver_ty = interner.intern(TyKind::Pointer {
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let usize_ty = interner.test_primitive(PrimitiveTy::Usize);
+    let receiver_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: i32_ty,
     });
@@ -6919,33 +6919,33 @@ fn validates_backend_ir_call_signatures_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let i32_ptr_ty = interner.intern(TyKind::Pointer {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let i32_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: i32_ty,
     });
-    let function_pointer_ty = interner.intern(TyKind::FunctionPointer {
+    let function_pointer_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![i32_ty],
         return_type: i32_ty,
         is_variadic: false,
     });
-    let wrong_function_params_ty = interner.intern(TyKind::FunctionPointer {
+    let wrong_function_params_ty = interner.test_intern(TyKind::FunctionPointer {
         params: Vec::new(),
         return_type: i32_ty,
         is_variadic: false,
     });
-    let wrong_function_return_ty = interner.intern(TyKind::FunctionPointer {
+    let wrong_function_return_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![i32_ty],
         return_type: bool_ty,
         is_variadic: false,
     });
-    let wrong_function_variadic_ty = interner.intern(TyKind::FunctionPointer {
+    let wrong_function_variadic_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![i32_ty],
         return_type: i32_ty,
         is_variadic: true,
     });
-    let callable_ty = interner.intern(TyKind::Callable {
+    let callable_ty = interner.test_intern(TyKind::Callable {
         is_readonly: true,
         params: vec![i32_ty],
         return_type: i32_ty,
@@ -7297,10 +7297,10 @@ fn validates_backend_ir_inline_asm_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let unit_ty = interner.intern(TyKind::Tuple(Vec::new()));
-    let tuple_ty = interner.intern(TyKind::Tuple(vec![i32_ty]));
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let unit_ty = interner.test_intern(TyKind::Tuple(Vec::new()));
+    let tuple_ty = interner.test_intern(TyKind::Tuple(vec![i32_ty]));
     let span = Span::default();
     let scalar_local = LocalId(0);
     let aggregate_local = LocalId(1);
@@ -7445,8 +7445,8 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let ptr_ty = interner.intern(TyKind::Pointer {
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: i32_ty,
     });
@@ -7524,7 +7524,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let struct_id = GlobalDefId {
         module_id,
         def_id: DefId(0),
@@ -7537,7 +7537,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
         module_id,
         def_id: DefId(2),
     };
-    let struct_ty = interner.intern(TyKind::Nominal {
+    let struct_ty = interner.test_intern(TyKind::Nominal {
         def_id: struct_id,
         args: Vec::new(),
         const_args: Vec::new(),
@@ -7554,7 +7554,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
         module_id,
         def_id: DefId(12),
     };
-    let union_ty = interner.intern(TyKind::Nominal {
+    let union_ty = interner.test_intern(TyKind::Nominal {
         def_id: union_id,
         args: Vec::new(),
         const_args: Vec::new(),
@@ -7750,7 +7750,7 @@ fn rejects_enum_variant_with_foreign_owner_before_llvm() {
     let foreign_module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let foreign_variant = GlobalDefId {
         module_id: foreign_module_id,
         def_id: DefId(1),
@@ -7869,7 +7869,7 @@ fn validates_function_ir_missing_entry_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let program = BackendProgram {
         modules: vec![BackendModule {
@@ -7960,7 +7960,7 @@ fn validates_function_ir_missing_successor_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let program = BackendProgram {
         modules: vec![BackendModule {
@@ -8049,7 +8049,7 @@ fn validates_function_abi_param_local_mapping_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let function = BackendFunction {
         def_id: GlobalDefId {
@@ -8157,7 +8157,7 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let module_mangle = nia_mangle::MangleModuleId::from_normalized_source_path("main");
     let closure_id = nia_ids::ClosureId {
@@ -8167,17 +8167,17 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
         },
         ordinal: 0,
     };
-    let state_ty = interner.intern(TyKind::ClosureState {
+    let state_ty = interner.test_intern(TyKind::ClosureState {
         closure_id,
         captures: Vec::new(),
         params: vec![i32_ty, i32_ty],
         return_type: i32_ty,
     });
-    let state_pointer_ty = interner.intern(TyKind::Pointer {
+    let state_pointer_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: state_ty,
     });
-    let malformed_state_pointer_ty = interner.intern(TyKind::Pointer {
+    let malformed_state_pointer_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: i32_ty,
     });
@@ -8380,8 +8380,8 @@ fn validates_closure_entry_call_and_view_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let main_id = GlobalDefId {
         module_id,
@@ -8391,37 +8391,37 @@ fn validates_closure_entry_call_and_view_contracts_before_llvm() {
         owner: main_id,
         ordinal: 0,
     };
-    let state_ty = interner.intern(TyKind::ClosureState {
+    let state_ty = interner.test_intern(TyKind::ClosureState {
         closure_id,
         captures: Vec::new(),
         params: vec![i32_ty],
         return_type: i32_ty,
     });
-    let state_pointer_ty = interner.intern(TyKind::Pointer {
+    let state_pointer_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: state_ty,
     });
-    let callable_ty = interner.intern(TyKind::Callable {
+    let callable_ty = interner.test_intern(TyKind::Callable {
         is_readonly: true,
         params: vec![i32_ty],
         return_type: i32_ty,
     });
-    let mutable_callable_ty = interner.intern(TyKind::Callable {
+    let mutable_callable_ty = interner.test_intern(TyKind::Callable {
         is_readonly: false,
         params: vec![i32_ty],
         return_type: i32_ty,
     });
-    let wrong_callable_ty = interner.intern(TyKind::Callable {
+    let wrong_callable_ty = interner.test_intern(TyKind::Callable {
         is_readonly: true,
         params: vec![bool_ty],
         return_type: i32_ty,
     });
-    let closure_fn_ty = interner.intern(TyKind::FunctionPointer {
+    let closure_fn_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![i32_ty],
         return_type: i32_ty,
         is_variadic: false,
     });
-    let variadic_closure_fn_ty = interner.intern(TyKind::FunctionPointer {
+    let variadic_closure_fn_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![i32_ty],
         return_type: i32_ty,
         is_variadic: true,
@@ -8689,8 +8689,8 @@ fn validates_function_ir_local_storage_type_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
     let span = Span::default();
     let bool_expr = || FunctionExpr {
         span,
@@ -8806,8 +8806,8 @@ fn validates_backend_ir_static_function_address_refs_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let fn_ptr_ty = interner.intern(TyKind::FunctionPointer {
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let fn_ptr_ty = interner.test_intern(TyKind::FunctionPointer {
         params: Vec::new(),
         return_type: i32_ty,
         is_variadic: false,
@@ -8871,14 +8871,14 @@ fn validates_static_function_address_signatures_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let wrong_params_ty = interner.intern(TyKind::FunctionPointer {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let wrong_params_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![bool_ty],
         return_type: i32_ty,
         is_variadic: false,
     });
-    let wrong_variadic_ty = interner.intern(TyKind::FunctionPointer {
+    let wrong_variadic_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![i32_ty],
         return_type: bool_ty,
         is_variadic: true,
@@ -8978,9 +8978,9 @@ fn validates_static_function_address_instance_with_structurally_equal_args() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let usize_ty = interner.primitive(PrimitiveTy::Usize);
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let usize_ty = interner.test_primitive(PrimitiveTy::Usize);
     let nominal_def = GlobalDefId {
         module_id,
         def_id: DefId(10),
@@ -8993,12 +8993,12 @@ fn validates_static_function_address_instance_with_structurally_equal_args() {
         ty: usize_ty,
         value: ConstGenericValue::Int(IntConst::unsigned(7)),
     };
-    let declared_arg_ty = interner.intern(TyKind::Nominal {
+    let declared_arg_ty = interner.test_intern(TyKind::Nominal {
         def_id: nominal_def,
         args: Vec::new(),
         const_args: vec![signed_arg],
     });
-    let referenced_arg_ty = interner.intern(TyKind::Nominal {
+    let referenced_arg_ty = interner.test_intern(TyKind::Nominal {
         def_id: nominal_def,
         args: Vec::new(),
         const_args: vec![unsigned_arg],
@@ -9007,7 +9007,7 @@ fn validates_static_function_address_instance_with_structurally_equal_args() {
         module_id,
         def_id: DefId(0),
     };
-    let pointer_ty = interner.intern(TyKind::FunctionPointer {
+    let pointer_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![bool_ty],
         return_type: i32_ty,
         is_variadic: false,
@@ -9106,8 +9106,8 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let ptr_ty = interner.intern(TyKind::Pointer {
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: i32_ty,
     });
@@ -9181,13 +9181,13 @@ fn validates_static_global_address_pointee_and_mutability_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let readonly_bool_ptr_ty = interner.intern(TyKind::Pointer {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let readonly_bool_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: bool_ty,
     });
-    let mutable_i32_ptr_ty = interner.intern(TyKind::Pointer {
+    let mutable_i32_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: false,
         elem: i32_ty,
     });
@@ -9266,7 +9266,7 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let struct_id = GlobalDefId {
         module_id,
         def_id: DefId(0),
@@ -9279,7 +9279,7 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
         module_id,
         def_id: DefId(9),
     };
-    let struct_ty = interner.intern(TyKind::Nominal {
+    let struct_ty = interner.test_intern(TyKind::Nominal {
         def_id: struct_id,
         args: Vec::new(),
         const_args: Vec::new(),
@@ -9474,7 +9474,7 @@ fn validates_backend_ir_missing_local_place_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let function = BackendFunction {
         def_id: GlobalDefId {
@@ -9561,22 +9561,22 @@ fn validates_backend_ir_place_type_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let f32_ty = interner.primitive(PrimitiveTy::F32);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let i32_array_ty = interner.intern(TyKind::Array {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let f32_ty = interner.test_primitive(PrimitiveTy::F32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let i32_array_ty = interner.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstValue(1),
         elem: i32_ty,
     });
-    let bool_ptr_ty = interner.intern(TyKind::Pointer {
+    let bool_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: false,
         elem: bool_ty,
     });
-    let i32_ptr_ty = interner.intern(TyKind::Pointer {
+    let i32_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: false,
         elem: i32_ty,
     });
-    let readonly_i32_ptr_ty = interner.intern(TyKind::Pointer {
+    let readonly_i32_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: i32_ty,
     });
@@ -9778,16 +9778,16 @@ fn validates_backend_ir_assignment_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let f32_ty = interner.primitive(PrimitiveTy::F32);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let u8_ty = interner.primitive(PrimitiveTy::U8);
-    let unit_ty = interner.intern(TyKind::Tuple(Vec::new()));
-    let mutable_i32_ptr_ty = interner.intern(TyKind::Pointer {
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let f32_ty = interner.test_primitive(PrimitiveTy::F32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+    let u8_ty = interner.test_primitive(PrimitiveTy::U8);
+    let unit_ty = interner.test_intern(TyKind::Tuple(Vec::new()));
+    let mutable_i32_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: false,
         elem: i32_ty,
     });
-    let readonly_i32_ptr_ty = interner.intern(TyKind::Pointer {
+    let readonly_i32_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: i32_ty,
     });
@@ -10017,8 +10017,8 @@ fn validates_backend_ir_trait_object_expression_contracts_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let bool_ty = interner.primitive(PrimitiveTy::Bool);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let source_trait = GlobalDefId {
         module_id,
         def_id: DefId(10),
@@ -10028,7 +10028,7 @@ fn validates_backend_ir_trait_object_expression_contracts_before_llvm() {
         def_id: DefId(11),
     };
     let object = |trait_id, is_readonly| {
-        interner.intern(TyKind::TraitObject {
+        interner.test_intern(TyKind::TraitObject {
             is_readonly,
             trait_id: TraitId::Source(trait_id),
             trait_args: Vec::new(),
@@ -10039,7 +10039,7 @@ fn validates_backend_ir_trait_object_expression_contracts_before_llvm() {
     let source_object_ty = object(source_trait, true);
     let target_object_ty = object(target_trait, true);
     let mutable_target_object_ty = object(target_trait, false);
-    let readonly_i32_ptr_ty = interner.intern(TyKind::Pointer {
+    let readonly_i32_ptr_ty = interner.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: i32_ty,
     });
@@ -10199,7 +10199,7 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let trait_id = GlobalDefId {
         module_id,
@@ -10304,7 +10304,7 @@ fn validates_backend_ir_unresolved_builtin_trait_method_call_before_llvm() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ty = interner.test_primitive(PrimitiveTy::I32);
     let span = Span::default();
     let function = BackendFunction {
         def_id: GlobalDefId {
