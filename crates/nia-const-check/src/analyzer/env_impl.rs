@@ -228,7 +228,14 @@ impl ConstCommonEnv for Analyzer<'_> {
         }
         let allocation = self.next_const_allocation_id(span)?;
         let Some(frame) = self.call_locals.last_mut() else {
-            unreachable!("nonempty const frame stack lost its last frame")
+            self.record_internal_error(nia_ice::Ice::new(
+                "const execution frame stack became empty while allocating a temporary",
+            ));
+            return Err(ConstError {
+                span,
+                message: "cannot allocate const temporary after an internal compiler error"
+                    .to_string(),
+            });
         };
         frame.temporary_allocations.insert(allocation, value);
         Ok(ConstValue::Pointer(ConstPointerValue::Place {
@@ -685,11 +692,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
         mut fields: BTreeMap<SymbolId, ConstValue>,
     ) -> Result<ConstValue, ConstError> {
         let module_id = self.current_execution_module_id();
-        self.ensure_type_context(module_id)
-            .ok_or_else(|| ConstError {
-                span,
-                message: "const aggregate execution module type context is unavailable".to_string(),
-            })?;
+        self.type_context(module_id);
         let ty = self.substitute_ty_generics(ty);
         let Some((def_id, args, const_args)) = self.expected_nominal_parts(ty) else {
             return Ok(ConstValue::Struct(fields));
@@ -753,7 +756,12 @@ impl ResolvedConstEnv for Analyzer<'_> {
                         .to_string(),
                 }
             })?;
-        let (initial_field, value) = fields.pop_first().expect("one const union field");
+        let Some((initial_field, value)) = fields.pop_first() else {
+            return Err(ConstError {
+                span,
+                message: "const union literal requires exactly one field, got 0".to_string(),
+            });
+        };
         let storage_size = usize::try_from(layout.size).map_err(|_| ConstError {
             span,
             message: "const union storage size is not representable".to_string(),
@@ -901,11 +909,10 @@ impl ResolvedConstEnv for Analyzer<'_> {
         type_arg: &ResolvedConstTypeArg,
     ) -> Result<ConstValue, ConstError> {
         let module_id = self.current_execution_module_id();
-        let ty_id = (|| {
-            self.ensure_type_context(module_id)?;
-            self.type_for_module_or_none(type_arg.ty(), module_id)
-        })()
-        .map(|ty| self.substitute_ty_generics(ty));
+        self.type_context(module_id);
+        let ty_id = self
+            .type_for_module_or_none(type_arg.ty(), module_id)
+            .map(|ty| self.substitute_ty_generics(ty));
         let Some(ty_id) = ty_id else {
             return Err(ConstError {
                 span,
@@ -925,11 +932,10 @@ impl ResolvedConstEnv for Analyzer<'_> {
         field: &SymbolId,
     ) -> Result<ConstValue, ConstError> {
         let module_id = self.current_execution_module_id();
-        let ty_id = (|| {
-            self.ensure_type_context(module_id)?;
-            self.type_for_module_or_none(type_arg.ty(), module_id)
-        })()
-        .map(|ty| self.substitute_ty_generics(ty));
+        self.type_context(module_id);
+        let ty_id = self
+            .type_for_module_or_none(type_arg.ty(), module_id)
+            .map(|ty| self.substitute_ty_generics(ty));
         let Some(ty_id) = ty_id else {
             return Err(ConstError {
                 span,
@@ -1585,14 +1591,7 @@ impl Analyzer<'_> {
                 message: "associated const value has no initializer".to_string(),
             });
         };
-        self.ensure_type_context(user.impl_module_id);
-        if !self.type_contexts.contains_key(&user.impl_module_id) {
-            self.active.remove(&key);
-            return Err(ConstError {
-                span,
-                message: "failed to prepare associated const evaluation".to_string(),
-            });
-        }
+        self.type_context(user.impl_module_id);
         let type_substitutions = user.substitutions.into_iter().collect::<SymbolMap<_>>();
         let const_substitutions = user
             .const_substitutions
@@ -1723,7 +1722,7 @@ impl Analyzer<'_> {
                 };
                 self.resolve_embed(span, &path).map(Some)
             }
-            BuiltinFunction::SizeOf | BuiltinFunction::AlignOf => {
+            BuiltinFunction::SizeOf => {
                 if !args.is_empty() || type_args.len() != 1 {
                     return Err(ConstError {
                         span,
@@ -1733,12 +1732,20 @@ impl Analyzer<'_> {
                         ),
                     });
                 }
-                let layout_builtin = match builtin {
-                    BuiltinFunction::SizeOf => LayoutBuiltin::Size,
-                    BuiltinFunction::AlignOf => LayoutBuiltin::Align,
-                    _ => unreachable!(),
-                };
-                self.resolve_resolved_layout_builtin(span, layout_builtin, type_args[0])
+                self.resolve_resolved_layout_builtin(span, LayoutBuiltin::Size, type_args[0])
+                    .map(Some)
+            }
+            BuiltinFunction::AlignOf => {
+                if !args.is_empty() || type_args.len() != 1 {
+                    return Err(ConstError {
+                        span,
+                        message: format!(
+                            "builtin `{}` expects exactly one type argument and no value arguments",
+                            builtin.name()
+                        ),
+                    });
+                }
+                self.resolve_resolved_layout_builtin(span, LayoutBuiltin::Align, type_args[0])
                     .map(Some)
             }
             BuiltinFunction::Offset => {
@@ -1888,6 +1895,16 @@ impl Analyzer<'_> {
                 ))))
             }
             BuiltinFunction::Ctz | BuiltinFunction::Clz | BuiltinFunction::Popcount => {
+                let Some(bit_intrinsic) = BitIntrinsic::from_builtin(builtin) else {
+                    self.record_internal_error(nia_ice::Ice::new(
+                        "non-bit builtin reached const bit intrinsic evaluation",
+                    ));
+                    return Err(ConstError {
+                        span,
+                        message: "cannot evaluate bit intrinsic after an internal compiler error"
+                            .to_string(),
+                    });
+                };
                 let TyKind::Primitive(primitive) = self.active_ty_kind(return_ty) else {
                     return Err(ConstError {
                         span,
@@ -1899,7 +1916,7 @@ impl Analyzer<'_> {
                 };
                 eval_bit_intrinsic_const(
                     span,
-                    builtin,
+                    bit_intrinsic,
                     primitive,
                     type_args.as_slice(),
                     args,
@@ -2025,9 +2042,35 @@ impl Analyzer<'_> {
     }
 }
 
+#[derive(Clone, Copy)]
+enum BitIntrinsic {
+    Ctz,
+    Clz,
+    Popcount,
+}
+
+impl BitIntrinsic {
+    fn from_builtin(builtin: BuiltinFunction) -> Option<Self> {
+        match builtin {
+            BuiltinFunction::Ctz => Some(Self::Ctz),
+            BuiltinFunction::Clz => Some(Self::Clz),
+            BuiltinFunction::Popcount => Some(Self::Popcount),
+            _ => None,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Ctz => BuiltinFunction::Ctz.name(),
+            Self::Clz => BuiltinFunction::Clz.name(),
+            Self::Popcount => BuiltinFunction::Popcount.name(),
+        }
+    }
+}
+
 fn eval_bit_intrinsic_const(
     span: Span,
-    builtin: BuiltinFunction,
+    builtin: BitIntrinsic,
     primitive: PrimitiveTy,
     type_args: &[&ResolvedConstTypeArg],
     args: &[ConstValue],
@@ -2081,12 +2124,11 @@ fn eval_bit_intrinsic_const(
     };
     let raw = value.bits() & mask;
     let count = match builtin {
-        BuiltinFunction::Ctz if raw == 0 => bits,
-        BuiltinFunction::Ctz => raw.trailing_zeros(),
-        BuiltinFunction::Clz if raw == 0 => bits,
-        BuiltinFunction::Clz => bits - (u128::BITS - raw.leading_zeros()),
-        BuiltinFunction::Popcount => raw.count_ones(),
-        _ => unreachable!("bit intrinsic evaluator called for non-bit builtin"),
+        BitIntrinsic::Ctz if raw == 0 => bits,
+        BitIntrinsic::Ctz => raw.trailing_zeros(),
+        BitIntrinsic::Clz if raw == 0 => bits,
+        BitIntrinsic::Clz => bits - (u128::BITS - raw.leading_zeros()),
+        BitIntrinsic::Popcount => raw.count_ones(),
     };
     let count = i128::from(count);
     Ok(ConstValue::Int(if signed {

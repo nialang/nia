@@ -13,13 +13,8 @@ impl Analyzer<'_> {
         // necessarily touch that module's type interner. Substitution owns
         // this prerequisite because every caller needs the destination
         // interner, even when only a nested const generic changes.
-        self.ensure_type_context(module_id)
-            .expect("current execution module must have a type context");
         let (type_substitutions, const_substitutions) = self.current_execution_substitutions();
-        let interner = self
-            .type_contexts
-            .get(&module_id)
-            .expect("type context must exist for current execution module");
+        let interner = self.type_context(module_id);
         interner.substitute(
             ty,
             &|name| type_substitutions.get(name).copied(),
@@ -41,13 +36,7 @@ impl Analyzer<'_> {
             expected_return,
             initial,
         } = input;
-        if self.ensure_type_context(signature_module_id).is_none() {
-            return Err(ConstError {
-                span,
-                message: "cannot instantiate const function without module type interner"
-                    .to_string(),
-            });
-        }
+        self.type_context(signature_module_id);
         if !generic_args.is_empty()
             && let ArityCheck::Mismatch { actual, .. } =
                 check_exact_arity(signature.generic_params.len(), generic_args.len())
@@ -389,11 +378,7 @@ impl Analyzer<'_> {
         module_id: ModuleId,
     ) -> Result<nia_ty::ConstGenericValue, ConstError> {
         let expected_ty = self.type_for_module(expr.span(), expected_ty, module_id)?;
-        let expected = self
-            .type_contexts
-            .get(&module_id)
-            .and_then(|interner| interner.get(expected_ty))
-            .cloned();
+        let expected = self.type_context(module_id).get(expected_ty).cloned();
         let value = nia_const_eval::eval_resolved_const_expr(expr, self)?;
         match (expected, value) {
             (Some(TyKind::Primitive(PrimitiveTy::Bool)), ConstValue::Bool(value)) => {
@@ -446,8 +431,7 @@ impl Analyzer<'_> {
         type_substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<InternedTyId> {
-        self.ensure_type_context(module_id)?;
-        let types = self.type_contexts.get(&module_id)?;
+        let types = self.type_context(module_id);
         let substituted = types.substitute(
             ty,
             &|generic| type_substitutions.get(generic).copied(),
@@ -1406,14 +1390,11 @@ impl Analyzer<'_> {
             valid &= self.const_function_types_match(expected_ty, actual_ty);
         }
         valid.then(|| {
-            self.type_contexts
-                .get(&current_module)
-                .expect("current execution module must have a type context")
-                .intern(TyKind::Nominal {
-                    def_id,
-                    args,
-                    const_args,
-                })
+            self.type_context(current_module).intern(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            })
         })
     }
 
@@ -2534,9 +2515,6 @@ impl Analyzer<'_> {
 
     pub(super) fn intern_current_ty(&mut self, kind: TyKind) -> Option<InternedTyId> {
         let module_id = self.current_execution_module_id();
-        self.ensure_type_context(module_id)?;
-        self.type_contexts
-            .get(&module_id)
-            .map(|types| types.intern(kind))
+        Some(self.type_context(module_id).intern(kind))
     }
 }
