@@ -126,7 +126,8 @@ xs[0]
     let usize_ty = fixture
         .type_store
         .append_for_module(fixture.module_id)
-        .intern(TyKind::Primitive(PrimitiveTy::Usize));
+        .intern(TyKind::Primitive(PrimitiveTy::Usize))
+        .expect("intern usize type");
     let width_def = fixture
         .defs
         .module_scope
@@ -168,7 +169,8 @@ const exponent = 1e3f32;
     let f32_ty = fixture
         .type_store
         .append_for_module(fixture.module_id)
-        .intern(TyKind::Primitive(PrimitiveTy::F32));
+        .intern(TyKind::Primitive(PrimitiveTy::F32))
+        .expect("intern f32 type");
     for name in ["fraction", "exponent"] {
         let def_id = fixture
             .defs
@@ -359,7 +361,8 @@ fail = 2,
     let u8_ty = fixture
         .type_store
         .append_for_module(fixture.module_id)
-        .intern(TyKind::Primitive(PrimitiveTy::U8));
+        .intern(TyKind::Primitive(PrimitiveTy::U8))
+        .expect("intern u8 type");
     let variants = fixture
         .defs
         .defs

@@ -41,14 +41,16 @@ pub(super) fn check_source_for_target(
                 defs: Some(&program_defs),
             },
         ),
-    );
+    )
+    .expect("lower module types");
     let signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
         defs: &defs,
         lowered: &lowered,
         type_store: &type_store,
         symbols: None,
-    });
+    })
+    .expect("collect item signatures");
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     let public_surfaces = PublicSurfaces::new();
@@ -104,7 +106,7 @@ pub(super) fn check_source_for_target(
         source_text: source,
         program: ConstProgramContext::empty(),
     };
-    let checked = check_module_const(input);
+    let checked = check_module_const(input).expect("check module const expressions");
     CheckedFixture {
         module_id,
         type_store,
