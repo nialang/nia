@@ -30,6 +30,10 @@ use nia_timing::{TimingFormat, TimingOptions};
 
 const RUNNER_OUTPUT_TAIL_BYTES: usize = 64 * 1024;
 
+fn stream_chunk_len(remaining: u64, buffer_len: usize) -> usize {
+    usize::try_from(remaining).map_or(buffer_len, |remaining| remaining.min(buffer_len))
+}
+
 mod action_cache;
 mod coordinator;
 mod lock;

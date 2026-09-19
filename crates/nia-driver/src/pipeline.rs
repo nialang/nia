@@ -2319,7 +2319,7 @@ fn install_streamed_output(source: &Path, output: &Path) -> io::Result<()> {
         let mut buffer = [0; DRIVER_FILE_STREAM_BYTES];
         let mut remaining = length;
         while remaining != 0 {
-            let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+            let chunk_len = crate::stream_chunk_len(remaining, buffer.len());
             source_file.read_exact(&mut buffer[..chunk_len])?;
             staged_file.write_all(&buffer[..chunk_len])?;
             remaining -= chunk_len as u64;

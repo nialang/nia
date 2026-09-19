@@ -939,7 +939,7 @@ fn stream_bytes(
     let mut matches =
         expected.is_none_or(|expected| u64::try_from(expected.len()).unwrap_or(u64::MAX) == length);
     while remaining != 0 {
-        let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        let chunk_len = crate::stream_chunk_len(remaining, buffer.len());
         let chunk = &mut buffer[..chunk_len];
         if !read_exact_or_corrupt(reader, chunk)? {
             return Ok(None);

@@ -369,7 +369,7 @@ fn stream_external_identity_file(
     }
     let mut remaining = expected_len;
     while remaining != 0 {
-        let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        let chunk_len = crate::stream_chunk_len(remaining, buffer.len());
         file.read_exact(&mut buffer[..chunk_len])?;
         writer.write_chunk(&buffer[..chunk_len])?;
         remaining -= chunk_len as u64;

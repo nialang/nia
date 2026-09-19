@@ -5,6 +5,11 @@
 //! meaning remains in query and analysis crates; the driver carries source
 //! manifests through checking, code generation, linking, and publication so a
 //! result cannot be associated with a different source closure.
+
+fn stream_chunk_len(remaining: u64, buffer_len: usize) -> usize {
+    usize::try_from(remaining).map_or(buffer_len, |remaining| remaining.min(buffer_len))
+}
+
 mod archive_cache;
 mod executable_cache;
 mod inspect;
