@@ -796,9 +796,15 @@ mod tests {
         let module_id = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
-        let usize_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize));
-        let u8_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::U8));
-        let u16_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::U16));
+        let usize_ty = append
+            .intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize))
+            .expect("intern usize type");
+        let u8_ty = append
+            .intern(TyKind::Primitive(nia_ty::PrimitiveTy::U8))
+            .expect("intern u8 type");
+        let u16_ty = append
+            .intern(TyKind::Primitive(nia_ty::PrimitiveTy::U16))
+            .expect("intern u16 type");
         let type_name = sym("T");
         let const_name = sym("N");
         let trailing_type_name = sym("U");

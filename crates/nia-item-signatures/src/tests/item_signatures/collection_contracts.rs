@@ -204,7 +204,8 @@ a + b
         &module,
         &resolved,
         TypeLoweringContext::empty(&type_store),
-    );
+    )
+    .expect("lower module types");
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
     let signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
@@ -212,7 +213,8 @@ a + b
         lowered: &lowered,
         type_store: &type_store,
         symbols: None,
-    });
+    })
+    .expect("collect item signatures");
     assert!(
         signatures.diagnostics.is_empty(),
         "{:?}",
@@ -284,7 +286,8 @@ extend[T] Box[T] {
         &module,
         &resolved,
         TypeLoweringContext::empty(&type_store),
-    );
+    )
+    .expect("lower module types");
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
     let signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
@@ -292,7 +295,8 @@ extend[T] Box[T] {
         lowered: &lowered,
         type_store: &type_store,
         symbols: None,
-    });
+    })
+    .expect("collect item signatures");
     let shadow_diagnostics = signatures
         .diagnostics
         .iter()
@@ -361,7 +365,8 @@ fn selected() i32 { 1 }
         &active_module,
         &resolved,
         TypeLoweringContext::empty(&type_store),
-    );
+    )
+    .expect("lower module types");
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
 
     let signatures = collect_item_signatures(ItemSignatureInput {
@@ -370,7 +375,8 @@ fn selected() i32 { 1 }
         lowered: &lowered,
         type_store: &type_store,
         symbols: None,
-    });
+    })
+    .expect("collect item signatures");
     assert!(
         signatures.diagnostics.is_empty(),
         "{:?}",

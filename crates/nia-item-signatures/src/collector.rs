@@ -583,14 +583,10 @@ impl<'a> SignatureCollector<'a> {
             return self.ty_for_type(ty);
         }
         let Some(builtin) = self.builtin_type_attribute(&item.attributes) else {
-            self.diagnostics.push(
-                Diagnostic::internal_error(
-                    codes::ITEM_SIGNATURE_LOWERED_TYPE,
-                    "bodyless type alias without valid builtin attribute reached item signatures",
-                )
-                .primary(item.span, "this type alias has no target type")
-                .finish(),
-            );
+            self.record_internal(nia_ice::Ice::new(format!(
+                "bodyless type alias without valid builtin attribute reached item signatures at {:?}",
+                item.span
+            )));
             return self.error();
         };
         match builtin {
@@ -1334,45 +1330,23 @@ impl<'a> SignatureCollector<'a> {
         expected: DefKind,
     ) -> Option<DefId> {
         let Some(def_id) = self.defs.def_nodes.get(node_key) else {
-            self.diagnostics.push(
-                Diagnostic::internal_error(
-                    codes::ITEM_SIGNATURE_DEF_NODE,
-                    "missing definition id while collecting item signature",
-                )
-                .primary(diagnostic_span, "this syntax node has no definition id")
-                .debug("node_key", node_key)
-                .debug("expected_def_kind", expected)
-                .finish(),
-            );
+            self.record_internal(nia_ice::Ice::new(format!(
+                "missing definition ID while collecting item signature at {diagnostic_span:?}: node {node_key:?}, expected {expected:?}"
+            )));
             return None;
         };
         let Some(def) = self.defs.defs.get(def_id) else {
-            self.diagnostics.push(
-                Diagnostic::internal_error(
-                    codes::ITEM_SIGNATURE_DEF_MAP,
-                    "definition id does not exist in definition map",
-                )
-                .primary(diagnostic_span, "definition map lookup failed here")
-                .debug("node_key", node_key)
-                .debug("def_id", def_id)
-                .debug("expected_def_kind", expected)
-                .finish(),
-            );
+            self.record_internal(nia_ice::Ice::new(format!(
+                "definition ID {def_id:?} does not exist while collecting item signature at {diagnostic_span:?}: node {node_key:?}, expected {expected:?}"
+            )));
             return None;
         };
         if def.kind != expected {
-            self.diagnostics.push(
-                Diagnostic::internal_error(
-                    codes::ITEM_SIGNATURE_DEF_KIND,
-                    "definition kind mismatch while collecting item signature",
-                )
-                .primary(def.span, "definition has an unexpected kind")
-                .debug("node_key", node_key)
-                .debug("def_id", def_id)
-                .debug("expected_def_kind", expected)
-                .debug("actual_def_kind", def.kind)
-                .finish(),
-            );
+            let actual = def.kind;
+            let span = def.span;
+            self.record_internal(nia_ice::Ice::new(format!(
+                "definition kind mismatch while collecting item signature at {span:?}: node {node_key:?}, definition {def_id:?}, expected {expected:?}, found {actual:?}"
+            )));
             return None;
         }
         Some(def_id)
@@ -1383,29 +1357,24 @@ impl<'a> SignatureCollector<'a> {
             if self.type_store.get(ty).is_some() {
                 ty
             } else {
-                self.diagnostics.push(
-                    Diagnostic::internal_error(
-                        codes::ITEM_SIGNATURE_LOWERED_TYPE,
-                        "lowered type is outside the session type store",
-                    )
-                    .primary(ty_ref.span, "this type belongs to a different type store")
-                    .debug("node_key", &ty_ref.node_key)
-                    .debug("ty", ty)
-                    .finish(),
-                );
+                self.record_internal(nia_ice::Ice::new(format!(
+                    "lowered type {ty:?} is outside the session type store at {:?}: node {:?}",
+                    ty_ref.span, ty_ref.node_key
+                )));
                 self.error()
             }
         } else {
-            self.diagnostics.push(
-                Diagnostic::internal_error(
-                    codes::ITEM_SIGNATURE_LOWERED_TYPE,
-                    "missing lowered type while collecting item signature",
-                )
-                .primary(ty_ref.span, "this type reference was not lowered")
-                .debug("node_key", &ty_ref.node_key)
-                .finish(),
-            );
+            self.record_internal(nia_ice::Ice::new(format!(
+                "missing lowered type while collecting item signature at {:?}: node {:?}",
+                ty_ref.span, ty_ref.node_key
+            )));
             self.error()
+        }
+    }
+
+    fn record_internal(&mut self, error: nia_ice::Ice) {
+        if self.internal_error.is_none() {
+            self.internal_error = Some(error);
         }
     }
 
@@ -1416,7 +1385,7 @@ impl<'a> SignatureCollector<'a> {
         match self.append.intern(kind) {
             Ok(ty) => ty,
             Err(error) => {
-                self.internal_error = Some(error);
+                self.record_internal(error);
                 self.type_store.error()
             }
         }

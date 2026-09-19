@@ -38,7 +38,8 @@ fn signatures(source: &str) -> ItemSignatures {
                 defs: Some(&defs_by_module),
             },
         ),
-    );
+    )
+    .expect("lower module types");
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
     collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
@@ -47,6 +48,7 @@ fn signatures(source: &str) -> ItemSignatures {
         type_store: &type_store,
         symbols: None,
     })
+    .expect("collect item signatures")
 }
 
 struct BoolResolver(bool);
