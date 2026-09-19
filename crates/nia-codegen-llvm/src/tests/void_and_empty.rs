@@ -533,7 +533,15 @@ fn main() i32 {
             "{ir}"
         );
     }
-    assert_eq!(ir.matches(&format!("call void {effect}(i32 5)")).count(), 2);
+    assert_eq!(ir.matches(&format!("call void {effect}(i32 5)")).count(), 1);
+    assert!(ir.contains("array.repeat.effect.body"), "{ir}");
+    assert!(
+        ir.contains(&format!(
+            "icmp ult {} %array.repeat.effect.index, 2",
+            native_llvm_int()
+        )),
+        "{ir}"
+    );
     assert!(ir.contains(&format!("call void {take}()")), "{ir}");
     assert!(ir.contains(&format!("call void {take_array}()")), "{ir}");
 }

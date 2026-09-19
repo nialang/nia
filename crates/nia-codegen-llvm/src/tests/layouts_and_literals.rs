@@ -239,6 +239,70 @@ fn main() i32 {
 }
 
 #[test]
+fn lowers_large_runtime_array_repeats_to_constant_size_loops() {
+    let root = temp_dir("lowers_large_runtime_array_repeats_to_constant_size_loops");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Pair {
+    first: i32,
+    second: i32,
+}
+
+fn byte_array(value: u8) [u8; 4096] {
+    [value; 4096]
+}
+
+fn int_array(value: i64) [i64; 256] {
+    [value; 256]
+}
+
+fn pair_array(value: i32) [Pair; 64] {
+    [Pair { first: value, second: value + 1 }; 64]
+}
+
+fn store_array(value: i32) i32 {
+    let mut pairs: [Pair; 64] = [Pair { first: value, second: value + 1 }; 64];
+    pairs[63].second
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert_eq!(ir.matches("\narray.repeat.body:").count(), 4, "{ir}");
+    assert_eq!(
+        ir.matches("%array.repeat.elem = getelementptr").count(),
+        4,
+        "{ir}"
+    );
+    let usize_ir = native_llvm_int();
+    assert!(
+        ir.contains(&format!("icmp ult {usize_ir} %array.repeat.index, 4096")),
+        "{ir}"
+    );
+    assert!(
+        ir.contains(&format!("icmp ult {usize_ir} %array.repeat.index, 256")),
+        "{ir}"
+    );
+    assert!(
+        ir.contains(&format!("icmp ult {usize_ir} %array.repeat.index, 64")),
+        "{ir}"
+    );
+    assert!(!ir.contains("%structtmp = alloca"), "{ir}");
+    assert!(
+        ir.lines().count() < 250,
+        "large repeats emitted too much IR: {ir}"
+    );
+}
+
+#[test]
 fn emits_aggregate_call_results_directly_into_local_stores() {
     let root = temp_dir("emits_aggregate_call_results_directly_into_local_stores");
     let main = root.join("main.nia");

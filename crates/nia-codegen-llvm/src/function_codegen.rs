@@ -1458,6 +1458,90 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .is_some_and(|block| block.get_terminator().is_some())
     }
 
+    fn emit_const_count_loop(
+        &mut self,
+        span: Span,
+        count: u64,
+        name: &str,
+        mut emit_body: impl FnMut(&mut Self, nia_llvm::values::IntValue<'ctx>) -> Result<(), Diagnostic>,
+    ) -> Result<(), Diagnostic> {
+        if count == 0 {
+            return Ok(());
+        }
+        let preheader = self
+            .builder
+            .get_insert_block()
+            .ok_or_else(|| self.error(span, "missing current block for counted loop"))?;
+        let header = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, &format!("{name}.loop"))
+            .map_err(|_| self.error(span, "failed to create counted loop header"))?;
+        let body = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, &format!("{name}.body"))
+            .map_err(|_| self.error(span, "failed to create counted loop body"))?;
+        let after = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, &format!("{name}.end"))
+            .map_err(|_| self.error(span, "failed to create counted loop end"))?;
+        let usize_ty = self.module.usize_llvm_type(span)?;
+        let zero = usize_ty.const_int(0, false)?;
+        let one = usize_ty.const_int(1, false)?;
+        let count = usize_ty.const_int(count, false)?;
+        self.builder
+            .build_unconditional_branch(header)
+            .map_err(|_| self.error(span, "failed to enter counted loop"))?;
+
+        self.builder.position_at_end(header);
+        let index = self
+            .builder
+            .build_phi(usize_ty, &format!("{name}.index"))
+            .map_err(|_| self.error(span, "failed to build counted loop index"))?;
+        index
+            .add_incoming(&[(&zero, preheader)])
+            .map_err(|_| self.error(span, "failed to initialize counted loop index"))?;
+        let index_value = index
+            .as_basic_value()
+            .and_then(|value| value.into_int_value())
+            .map_err(|_| self.error(span, "failed to read counted loop index"))?;
+        let keep_going = self
+            .builder
+            .build_int_compare(
+                IntPredicate::ULT,
+                index_value,
+                count,
+                &format!("{name}.more"),
+            )
+            .map_err(|_| self.error(span, "failed to compare counted loop index"))?;
+        self.builder
+            .build_conditional_branch(keep_going, body, after)
+            .map_err(|_| self.error(span, "failed to branch counted loop"))?;
+
+        self.builder.position_at_end(body);
+        emit_body(self, index_value)?;
+        if !self.current_block_has_terminator() {
+            let body_end = self
+                .builder
+                .get_insert_block()
+                .ok_or_else(|| self.error(span, "missing counted loop body block"))?;
+            let next = self
+                .builder
+                .build_int_add(index_value, one, &format!("{name}.next"))
+                .map_err(|_| self.error(span, "failed to increment counted loop index"))?;
+            self.builder
+                .build_unconditional_branch(header)
+                .map_err(|_| self.error(span, "failed to continue counted loop"))?;
+            index
+                .add_incoming(&[(&next, body_end)])
+                .map_err(|_| self.error(span, "failed to extend counted loop index"))?;
+        }
+        self.builder.position_at_end(after);
+        Ok(())
+    }
+
     fn emit_trap(&mut self, span: Span) -> Result<(), Diagnostic> {
         if self.current_block_has_terminator() {
             return Ok(());

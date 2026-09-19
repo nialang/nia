@@ -113,13 +113,20 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             FunctionArrayElements::Repeat { value, count } => {
                 let count = self.module.array_len(count, expr.span)?;
-                for index in 0..count {
-                    let elem_ptr = self.emit_const_index_addr(expr.span, expr.ty, ptr, index)?;
-                    let value = self.emit_expr(value)?;
-                    self.builder.build_store(elem_ptr, value).map_err(|_| {
-                        self.error(expr.span, "failed to store repeated array element")
+                self.emit_const_count_loop(expr.span, count, "array.repeat", |this, index| {
+                    let elem_ptr =
+                        this.emit_array_repeat_index_addr(expr.span, expr.ty, ptr, index)?;
+                    if this.emit_aggregate_literal_into(elem_ptr, value)?
+                        || this.emit_aggregate_call_result_into(elem_ptr, value)?
+                    {
+                        return Ok(());
+                    }
+                    let value = this.emit_expr(value)?;
+                    this.builder.build_store(elem_ptr, value).map_err(|_| {
+                        this.error(expr.span, "failed to store repeated array element")
                     })?;
-                }
+                    Ok(())
+                })?;
             }
         }
         Ok(())
@@ -1004,6 +1011,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             self.builder
                 .build_gep(array_ty, base_ptr, &[zero, index], "elemptr")
                 .map_err(|_| self.error(span, "failed to build array element address"))
+        }
+    }
+
+    fn emit_array_repeat_index_addr(
+        &self,
+        span: Span,
+        array_ty: InternedTyId,
+        base_ptr: PointerValue<'ctx>,
+        index: nia_llvm::values::IntValue<'ctx>,
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
+        let array_ty = self.module.llvm_basic_type(array_ty, span)?;
+        let zero = self.module.context.i64_type().const_int(0, false)?;
+        unsafe {
+            self.builder
+                .build_gep(array_ty, base_ptr, &[zero, index], "array.repeat.elem")
+                .map_err(|_| self.error(span, "failed to build repeated array element address"))
         }
     }
 }
