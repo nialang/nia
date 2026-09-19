@@ -2395,6 +2395,22 @@ mod owner_tests {
     use nia_source::SourceIdentity;
     use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind, TypeStore};
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId;
+        fn test_primitive(&self, primitive: PrimitiveTy) -> nia_ids::InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId {
+            self.intern(kind).expect("intern validator test type")
+        }
+
+        fn test_primitive(&self, primitive: PrimitiveTy) -> nia_ids::InternedTyId {
+            self.primitive(primitive)
+                .expect("intern primitive validator test type")
+        }
+    }
+
     #[test]
     fn aggregate_members_require_the_nominal_module_owner() {
         let modules = ModuleIdAllocator::new().expect("create module ID allocator");
@@ -2448,7 +2464,7 @@ mod owner_tests {
                 .expect("allocate module ID");
             let type_store = TypeStore::new().expect("create type store");
             let interner = type_store.append_for_module(module_id);
-            let return_type = interner.primitive(PrimitiveTy::I32);
+            let return_type = interner.test_primitive(PrimitiveTy::I32);
             drop(interner);
             let module = BackendModule {
                 id: module_id,
@@ -2627,7 +2643,7 @@ mod owner_tests {
         let module_id = modules.allocate().expect("allocate module ID");
         let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(module_id);
-        let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
+        let i32_ty = interner.test_primitive(nia_ty::PrimitiveTy::I32);
         let left_expr = GlobalConstExprId {
             module_id,
             const_expr_id: ConstExprId(0),
@@ -2636,11 +2652,11 @@ mod owner_tests {
             module_id,
             const_expr_id: ConstExprId(1),
         };
-        let left = interner.intern(TyKind::Array {
+        let left = interner.test_intern(TyKind::Array {
             len: ArrayLenTy::ConstExpr(left_expr),
             elem: i32_ty,
         });
-        let right = interner.intern(TyKind::Array {
+        let right = interner.test_intern(TyKind::Array {
             len: ArrayLenTy::ConstExpr(right_expr),
             elem: i32_ty,
         });

@@ -1546,6 +1546,17 @@ mod tests {
     use nia_ids::ModuleIdAllocator;
     use nia_ty::{ConstGenericValue, IntConst, TypeStore};
 
+    trait TestTypeStoreAppend {
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+            self.primitive(primitive)
+                .expect("intern primitive function codegen test type")
+        }
+    }
+
     #[test]
     fn const_generic_method_calls_require_instance_metadata() {
         let module_id = ModuleIdAllocator::new()
@@ -1555,7 +1566,7 @@ mod tests {
         let types = TypeStore::new().expect("create type store");
         let usize_ty = types
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::Usize);
+            .test_primitive(PrimitiveTy::Usize);
         let const_arg = ConstGenericArg {
             ty: usize_ty,
             value: ConstGenericValue::Int(IntConst::unsigned(4)),

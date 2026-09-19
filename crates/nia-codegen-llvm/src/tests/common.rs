@@ -32,6 +32,22 @@ use std::sync::{Arc, OnceLock};
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+pub(super) trait TestTypeStoreAppend {
+    fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId;
+    fn test_primitive(&self, primitive: PrimitiveTy) -> nia_ids::InternedTyId;
+}
+
+impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+    fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId {
+        self.intern(kind).expect("intern LLVM test type")
+    }
+
+    fn test_primitive(&self, primitive: PrimitiveTy) -> nia_ids::InternedTyId {
+        self.primitive(primitive)
+            .expect("intern primitive LLVM test type")
+    }
+}
+
 pub(super) fn sym(text: &str) -> SymbolId {
     SymbolId::from_stable_hash(stable_hash(text))
 }

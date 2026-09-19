@@ -1982,6 +1982,22 @@ mod tests {
 
     use super::*;
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId;
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId {
+            self.intern(kind).expect("intern fingerprint test type")
+        }
+
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+            self.primitive(primitive)
+                .expect("intern primitive fingerprint test type")
+        }
+    }
+
     struct Fixture {
         index: Arc<ProgramIndex>,
         partition: CodegenPartition,
@@ -2152,7 +2168,7 @@ mod tests {
         let store = TypeStore::new().expect("create type store");
         let ty = store
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::I32);
+            .test_primitive(PrimitiveTy::I32);
         let fixture = fixture(
             BackendProgram {
                 modules: vec![module_with_global(module_id, "main.nia", ty, 0)]
@@ -2208,7 +2224,7 @@ mod tests {
         let store = TypeStore::new().expect("create type store");
         let ty = store
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::I32);
+            .test_primitive(PrimitiveTy::I32);
         let fixture = fixture(
             BackendProgram {
                 modules: vec![module_with_global(module_id, "stale.nia", ty, 0)]
@@ -2285,7 +2301,7 @@ mod tests {
         let store = TypeStore::new().expect("create type store");
         let ty = store
             .append_for_module(main_id)
-            .primitive(PrimitiveTy::Usize);
+            .test_primitive(PrimitiveTy::Usize);
         let fixture = fixture(
             BackendProgram {
                 modules: vec![
@@ -2364,7 +2380,9 @@ mod tests {
         let foreign_id = ids.allocate().expect("allocate module ID");
         let unrelated_id = ids.allocate().expect("allocate module ID");
         let store = TypeStore::new().expect("create type store");
-        let ty = store.append_for_module(main_id).primitive(PrimitiveTy::I32);
+        let ty = store
+            .append_for_module(main_id)
+            .test_primitive(PrimitiveTy::I32);
         let foreign_def = GlobalDefId {
             module_id: foreign_id,
             def_id: DefId(0),
@@ -2407,7 +2425,9 @@ mod tests {
         let main_id = ids.allocate().expect("allocate module ID");
         let unrelated_id = ids.allocate().expect("allocate module ID");
         let store = TypeStore::new().expect("create type store");
-        let ty = store.append_for_module(main_id).primitive(PrimitiveTy::I32);
+        let ty = store
+            .append_for_module(main_id)
+            .test_primitive(PrimitiveTy::I32);
         let fixture = fixture(
             BackendProgram {
                 modules: vec![
@@ -2434,7 +2454,7 @@ mod tests {
         let first_store = TypeStore::new().expect("create type store");
         let first_ty = first_store
             .append_for_module(first_id)
-            .primitive(PrimitiveTy::I32);
+            .test_primitive(PrimitiveTy::I32);
         let first = fixture(
             BackendProgram {
                 modules: vec![module_with_global(first_id, "main.nia", first_ty, 1)]
@@ -2451,10 +2471,10 @@ mod tests {
         let second_store = TypeStore::new().expect("create type store");
         let _unrelated_ty = second_store
             .append_for_module(second_id)
-            .primitive(PrimitiveTy::U8);
+            .test_primitive(PrimitiveTy::U8);
         let second_ty = second_store
             .append_for_module(second_id)
-            .primitive(PrimitiveTy::I32);
+            .test_primitive(PrimitiveTy::I32);
         let second = fixture(
             BackendProgram {
                 modules: vec![module_with_global(second_id, "main.nia", second_ty, 1)]
@@ -2477,7 +2497,9 @@ mod tests {
         let main_id = ids.allocate().expect("allocate module ID");
         let helper_id = ids.allocate().expect("allocate module ID");
         let store = TypeStore::new().expect("create type store");
-        let ty = store.append_for_module(main_id).primitive(PrimitiveTy::I32);
+        let ty = store
+            .append_for_module(main_id)
+            .test_primitive(PrimitiveTy::I32);
         let main = module_with_global(main_id, "main.nia", ty, 1);
         let helper = module_with_global(helper_id, "helper.nia", ty, 2);
         let first = fixture(
@@ -2494,7 +2516,9 @@ mod tests {
         let main_id = ids.allocate().expect("allocate module ID");
         let helper_id = ids.allocate().expect("allocate module ID");
         let store = TypeStore::new().expect("create type store");
-        let ty = store.append_for_module(main_id).primitive(PrimitiveTy::I32);
+        let ty = store
+            .append_for_module(main_id)
+            .test_primitive(PrimitiveTy::I32);
         let second = fixture(
             BackendProgram {
                 modules: vec![
@@ -2521,7 +2545,7 @@ mod tests {
         let store = TypeStore::new().expect("create type store");
         let ty = store
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::I32);
+            .test_primitive(PrimitiveTy::I32);
         let baseline = fixture(
             BackendProgram {
                 modules: vec![module_with_global(module_id, "main.nia", ty, 1)]
@@ -2537,7 +2561,7 @@ mod tests {
         let store = TypeStore::new().expect("create type store");
         let ty = store
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::I32);
+            .test_primitive(PrimitiveTy::I32);
         let mut span_only_module = module_with_global(module_id, "main.nia", ty, 1);
         span_only_module.globals[0].span = Span::new(100, 200);
         let span_only = fixture(
@@ -2555,7 +2579,7 @@ mod tests {
         let store = TypeStore::new().expect("create type store");
         let ty = store
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::I32);
+            .test_primitive(PrimitiveTy::I32);
         let changed = fixture(
             BackendProgram {
                 modules: vec![module_with_global(module_id, "main.nia", ty, 2)]
@@ -2594,8 +2618,8 @@ mod tests {
                 .expect("allocate module ID");
             let store = TypeStore::new().expect("create type store");
             let append = store.append_for_module(module_id);
-            let i32_ty = append.primitive(PrimitiveTy::I32);
-            let state_ty = append.intern(TyKind::ClosureState {
+            let i32_ty = append.test_primitive(PrimitiveTy::I32);
+            let state_ty = append.test_intern(TyKind::ClosureState {
                 closure_id: ClosureId {
                     owner: GlobalDefId {
                         module_id,
@@ -2607,7 +2631,7 @@ mod tests {
                 params: Vec::new(),
                 return_type: i32_ty,
             });
-            let state_pointer_ty = append.intern(TyKind::Pointer {
+            let state_pointer_ty = append.test_intern(TyKind::Pointer {
                 is_readonly: true,
                 elem: state_ty,
             });
@@ -2724,8 +2748,8 @@ mod tests {
             let foreign_id = ids.allocate().expect("allocate module ID");
             let store = TypeStore::new().expect("create type store");
             let append = store.append_for_module(main_id);
-            let i32_ty = append.primitive(PrimitiveTy::I32);
-            let i64_ty = append.primitive(PrimitiveTy::I64);
+            let i32_ty = append.test_primitive(PrimitiveTy::I32);
+            let i64_ty = append.test_primitive(PrimitiveTy::I64);
             let selected = match return_ty {
                 PrimitiveTy::I32 => i32_ty,
                 PrimitiveTy::I64 => i64_ty,
@@ -2803,8 +2827,8 @@ mod tests {
             let foreign_id = ids.allocate().expect("allocate module ID");
             let store = TypeStore::new().expect("create type store");
             let append = store.append_for_module(main_id);
-            let i32_ty = append.primitive(PrimitiveTy::I32);
-            let i64_ty = append.primitive(PrimitiveTy::I64);
+            let i32_ty = append.test_primitive(PrimitiveTy::I32);
+            let i64_ty = append.test_primitive(PrimitiveTy::I64);
             let selected = match return_ty {
                 PrimitiveTy::I32 => i32_ty,
                 PrimitiveTy::I64 => i64_ty,
@@ -2866,8 +2890,8 @@ mod tests {
             let foreign_id = ids.allocate().expect("allocate module ID");
             let store = TypeStore::new().expect("create type store");
             let append = store.append_for_module(main_id);
-            let i32_ty = append.primitive(PrimitiveTy::I32);
-            let i64_ty = append.primitive(PrimitiveTy::I64);
+            let i32_ty = append.test_primitive(PrimitiveTy::I32);
+            let i64_ty = append.test_primitive(PrimitiveTy::I64);
             let selected = match local_ty {
                 PrimitiveTy::I32 => i32_ty,
                 PrimitiveTy::I64 => i64_ty,
@@ -2924,7 +2948,7 @@ mod tests {
         let store = TypeStore::new().expect("create type store");
         let ty = store
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::I32);
+            .test_primitive(PrimitiveTy::I32);
         let fixture = fixture(
             BackendProgram {
                 modules: vec![module_with_global(module_id, "main.nia", ty, 1)]

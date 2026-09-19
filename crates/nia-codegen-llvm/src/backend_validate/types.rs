@@ -757,6 +757,22 @@ mod tests {
 
     use super::BackendValidator;
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId;
+        fn test_primitive(&self, primitive: PrimitiveTy) -> nia_ids::InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId {
+            self.intern(kind).expect("intern validator test type")
+        }
+
+        fn test_primitive(&self, primitive: PrimitiveTy) -> nia_ids::InternedTyId {
+            self.primitive(primitive)
+                .expect("intern primitive validator test type")
+        }
+    }
+
     fn test_module(module_id: nia_ids::ModuleId, ty: nia_ids::InternedTyId) -> BackendModule {
         BackendModule {
             id: module_id,
@@ -794,8 +810,8 @@ mod tests {
         let owner = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(owner);
-        let ty = interner.primitive(PrimitiveTy::I32);
-        let nominal = interner.intern(TyKind::Nominal {
+        let ty = interner.test_primitive(PrimitiveTy::I32);
+        let nominal = interner.test_intern(TyKind::Nominal {
             def_id: GlobalDefId {
                 module_id: owner,
                 def_id: nia_ids::DefId(1),
@@ -827,7 +843,7 @@ mod tests {
         let owner = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(owner);
-        let nominal = interner.intern(TyKind::Nominal {
+        let nominal = interner.test_intern(TyKind::Nominal {
             def_id: GlobalDefId {
                 module_id: owner,
                 def_id: nia_ids::DefId(1),
@@ -857,10 +873,10 @@ mod tests {
         let foreign = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(owner);
-        let ty = interner.primitive(PrimitiveTy::I32);
+        let ty = interner.test_primitive(PrimitiveTy::I32);
         drop(interner);
         let interner = type_store.append_for_module(foreign);
-        let nominal = interner.intern(TyKind::Nominal {
+        let nominal = interner.test_intern(TyKind::Nominal {
             def_id: GlobalDefId {
                 module_id: foreign,
                 def_id: nia_ids::DefId(1),
@@ -922,7 +938,7 @@ mod tests {
         };
         let mut module = test_module(owner, {
             let interner = type_store.append_for_module(owner);
-            let ty = interner.primitive(PrimitiveTy::I32);
+            let ty = interner.test_primitive(PrimitiveTy::I32);
             drop(interner);
             ty
         });
@@ -945,11 +961,11 @@ mod tests {
         let type_store = TypeStore::new().expect("create type store");
         let left_ty = {
             let interner = type_store.append_for_module(left_module);
-            interner.primitive(PrimitiveTy::I32)
+            interner.test_primitive(PrimitiveTy::I32)
         };
         let right_ty = {
             let interner = type_store.append_for_module(right_module);
-            interner.primitive(PrimitiveTy::I32)
+            interner.test_primitive(PrimitiveTy::I32)
         };
         let left_expr = GlobalConstExprId {
             module_id: left_module,
@@ -1039,7 +1055,7 @@ mod tests {
         let owner = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new().expect("create type store");
         let interner = type_store.append_for_module(owner);
-        let ty = interner.primitive(PrimitiveTy::I32);
+        let ty = interner.test_primitive(PrimitiveTy::I32);
         drop(interner);
 
         let store =
