@@ -608,6 +608,14 @@ impl CompilerDatabase {
         self.db.session()
     }
 
+    /// Returns the current loader-owned module graph snapshot.
+    ///
+    /// This is intentionally a read-only observability boundary. The loader
+    /// remains the sole owner of graph mutation and provider-demand updates.
+    pub fn module_graph(&self) -> QueryResult<ModuleGraphSnapshot> {
+        self.current_graph()
+    }
+
     /// Builds the session remap table for all loaded definitions. Package
     /// ownership is supplied by the caller; it must not be inferred from
     /// source paths or declaration names.

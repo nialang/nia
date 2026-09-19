@@ -230,6 +230,23 @@ fn assert_configured_build_success(
             .any(|line| line.contains("\"llvm.units\"")),
         "{stderr}"
     );
+    for counter in [
+        "compiler.backend_modules",
+        "compiler.checked_modules",
+        "compiler.loaded_modules",
+        "compiler.monomorphized_instances",
+        "compiler.semantic_selected_modules",
+        "query.dependency_edges",
+        "query.max_dependency_fanout",
+        "query.waits",
+    ] {
+        assert!(
+            json_lines
+                .iter()
+                .any(|line| line.contains(&format!("\"{counter}\""))),
+            "missing {counter} in {stderr}"
+        );
+    }
     assert!(
         json_lines
             .iter()
