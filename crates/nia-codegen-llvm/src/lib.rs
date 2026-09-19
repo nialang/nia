@@ -164,18 +164,30 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
     /// published. Invalid units are omitted from `link_inputs` and represented
     /// in the returned diagnostics.
     pub fn finish(mut self) -> nia_ice::IceResult<LlvmObjectOutput> {
-        let index = self.coordinator.finish()?;
-        let builtin_symbols = compiler_builtins::required_symbols(&index);
-        let program_diagnostics = validate_native_backend_program(&index, builtin_symbols);
+        let index = time_codegen_stage(self.options.timings, "llvm_finish.coordinator", || {
+            self.coordinator.finish()
+        })?;
+        let builtin_symbols =
+            time_codegen_stage(self.options.timings, "llvm_finish.builtin_symbols", || {
+                compiler_builtins::required_symbols(&index)
+            });
+        let program_diagnostics = time_codegen_stage(
+            self.options.timings,
+            "llvm_finish.program_validation",
+            || validate_native_backend_program(&index, builtin_symbols),
+        );
         let worker_lanes = self.partition_count.min(self.tasks.capacity());
-        let task_outcomes = match self.tasks.finish() {
-            Ok(outcomes) => outcomes,
-            Err(ice) => {
-                self.internal_diagnostics
-                    .push(nia_diagnostic::Diagnostic::from(ice));
-                Vec::new()
-            }
-        };
+        let task_outcomes =
+            match time_codegen_stage(self.options.timings, "llvm_finish.task_collection", || {
+                self.tasks.finish()
+            }) {
+                Ok(outcomes) => outcomes,
+                Err(ice) => {
+                    self.internal_diagnostics
+                        .push(nia_diagnostic::Diagnostic::from(ice));
+                    Vec::new()
+                }
+            };
         for (key, outcome) in task_outcomes {
             match outcome {
                 Ok((output, reuse)) => {
@@ -188,18 +200,31 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
         let has_partitions = self.partition_count != 0;
         let mut declaration_diagnostics = Vec::new();
         if !has_partitions && program_diagnostics.is_empty() {
-            for module_id in index.module_ids() {
-                if let Err(diagnostics) = validate_declaration_module(*module_id, &index) {
-                    declaration_diagnostics.extend(diagnostics);
-                }
-            }
+            time_codegen_stage(
+                self.options.timings,
+                "llvm_finish.declaration_validation",
+                || {
+                    for module_id in index.module_ids() {
+                        if let Err(diagnostics) = validate_declaration_module(*module_id, &index) {
+                            declaration_diagnostics.extend(diagnostics);
+                        }
+                    }
+                },
+            );
         }
         if program_diagnostics.is_empty() && builtin_symbols.any() {
-            match emit_compiler_builtins_object(
-                builtin_symbols,
-                self.options,
-                self.cache.as_deref(),
-            ) {
+            let builtin_result = time_codegen_stage(
+                self.options.timings,
+                "llvm_finish.compiler_builtins",
+                || {
+                    emit_compiler_builtins_object(
+                        builtin_symbols,
+                        self.options,
+                        self.cache.as_deref(),
+                    )
+                },
+            );
+            match builtin_result {
                 Ok((output, reuse)) => {
                     self.reuse_counts.record(reuse);
                     self.outputs.push(output);
@@ -212,15 +237,22 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
         if !program_diagnostics.is_empty() {
             self.outputs.clear();
         }
-        self.outputs
-            .sort_unstable_by(|left, right| left.key.cmp(&right.key));
-        self.partition_diagnostics
-            .sort_unstable_by(|left, right| left.0.cmp(&right.0));
-        let mut diagnostics = self
-            .partition_diagnostics
-            .into_iter()
-            .flat_map(|(_, diagnostics)| diagnostics)
-            .collect::<Vec<_>>();
+        time_codegen_stage(self.options.timings, "llvm_finish.sort_outputs", || {
+            self.outputs
+                .sort_unstable_by(|left, right| left.key.cmp(&right.key));
+            self.partition_diagnostics
+                .sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        });
+        let mut diagnostics = time_codegen_stage(
+            self.options.timings,
+            "llvm_finish.collect_diagnostics",
+            || {
+                self.partition_diagnostics
+                    .into_iter()
+                    .flat_map(|(_, diagnostics)| diagnostics)
+                    .collect::<Vec<_>>()
+            },
+        );
         diagnostics.extend(declaration_diagnostics);
         diagnostics.extend(program_diagnostics);
         diagnostics.extend(self.internal_diagnostics);
