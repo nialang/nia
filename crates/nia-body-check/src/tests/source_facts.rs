@@ -146,7 +146,8 @@ fn main() i32 {
         &item_tree,
         &type_resolved,
         TypeLoweringContext::empty(&type_store),
-    );
+    )
+    .expect("lower module types");
     let values = nia_value_resolve::resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     let active_item_tree = active_item_tree(&module);
@@ -164,7 +165,8 @@ fn main() i32 {
         lowered: &lowered,
         type_store: &type_store,
         symbols: None,
-    });
+    })
+    .expect("collect item signatures");
     let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-body-check-test/source-facts.nia");
     let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
@@ -204,20 +206,24 @@ fn main() i32 {
         source_text: "",
         program: nia_const_check::ConstProgramContext::empty(),
     };
-    let const_array_lengths = nia_const_check::compute_module_const_array_lengths(const_input);
+    let const_array_lengths = nia_const_check::compute_module_const_array_lengths(const_input)
+        .expect("compute const array lengths");
     let const_enum_values =
-        nia_const_check::compute_module_const_enum_values(const_input, const_array_lengths.clone());
+        nia_const_check::compute_module_const_enum_values(const_input, const_array_lengths.clone())
+            .expect("compute const enum values");
     let const_values = nia_const_check::compute_module_const_values(
         const_input,
         const_array_lengths.clone(),
         const_enum_values.clone(),
-    );
+    )
+    .expect("compute const values");
     let const_typed_facts = nia_const_check::compute_module_const_typed_facts(
         const_input,
         const_array_lengths.clone(),
         const_enum_values,
         const_values.clone(),
-    );
+    )
+    .expect("compute typed const facts");
     let const_eval =
         crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
     let normalization = TypeNormalization {
@@ -229,7 +235,8 @@ fn main() i32 {
         &defs,
         &signatures,
         nia_layout::TargetDataLayout::LP64,
-    );
+    )
+    .expect("compute layouts");
     let program_signatures = EmptyBodyProgramSignatures::new();
     let body_input = BodyCheckInput {
         type_store: &type_store,
@@ -323,7 +330,8 @@ fn main() i32 {
         &item_tree,
         &type_resolved,
         TypeLoweringContext::empty(&type_store),
-    );
+    )
+    .expect("lower module types");
     let values = nia_value_resolve::resolve_module_values(&module, &defs);
     let locals = nia_local_resolve::resolve_module_locals_with_origins(
         &module,
@@ -347,7 +355,8 @@ fn main() i32 {
         lowered: &lowered,
         type_store: &type_store,
         symbols: None,
-    });
+    })
+    .expect("collect item signatures");
     let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-body-check-test/source-facts-red.nia");
     let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
@@ -387,20 +396,24 @@ fn main() i32 {
         source_text: "",
         program: nia_const_check::ConstProgramContext::empty(),
     };
-    let const_array_lengths = nia_const_check::compute_module_const_array_lengths(const_input);
+    let const_array_lengths = nia_const_check::compute_module_const_array_lengths(const_input)
+        .expect("compute const array lengths");
     let const_enum_values =
-        nia_const_check::compute_module_const_enum_values(const_input, const_array_lengths.clone());
+        nia_const_check::compute_module_const_enum_values(const_input, const_array_lengths.clone())
+            .expect("compute const enum values");
     let const_values = nia_const_check::compute_module_const_values(
         const_input,
         const_array_lengths.clone(),
         const_enum_values.clone(),
-    );
+    )
+    .expect("compute const values");
     let const_typed_facts = nia_const_check::compute_module_const_typed_facts(
         const_input,
         const_array_lengths.clone(),
         const_enum_values,
         const_values.clone(),
-    );
+    )
+    .expect("compute typed const facts");
     let const_eval =
         crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
     let normalization = TypeNormalization {
@@ -420,7 +433,8 @@ fn main() i32 {
         &defs,
         &signatures,
         nia_layout::TargetDataLayout::LP64,
-    );
+    )
+    .expect("compute layouts");
     let program_signatures = EmptyBodyProgramSignatures::new();
     let body_input = BodyCheckInput {
         type_store: &type_store,

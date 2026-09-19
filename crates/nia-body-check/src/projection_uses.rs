@@ -104,7 +104,8 @@ const result: usize = {
         let ty = TypeStore::new()
             .expect("create type store")
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::Usize);
+            .primitive(PrimitiveTy::Usize)
+            .expect("intern usize type");
         let projection = AssociatedConstProjection {
             self_ty: ty,
             trait_id: TraitId::Source(GlobalDefId {

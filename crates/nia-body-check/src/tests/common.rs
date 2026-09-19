@@ -314,7 +314,8 @@ fn pipeline_with_options_and_trait_impls(
                 defs: Some(&defs_by_module),
             },
         ),
-    );
+    )
+    .expect("lower module types");
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
     let values = nia_value_resolve::resolve_module_values(&module, &defs);
     let mut values = values.into_builder();
@@ -338,7 +339,8 @@ fn pipeline_with_options_and_trait_impls(
         lowered: &lowered,
         type_store: &type_store,
         symbols: None,
-    });
+    })
+    .expect("collect item signatures");
     assert!(
         signatures.diagnostics.is_empty(),
         "{:?}",
@@ -383,20 +385,24 @@ fn pipeline_with_options_and_trait_impls(
         source_text: source,
         program: nia_const_check::ConstProgramContext::empty(),
     };
-    let const_array_lengths = nia_const_check::compute_module_const_array_lengths(const_input);
+    let const_array_lengths = nia_const_check::compute_module_const_array_lengths(const_input)
+        .expect("compute const array lengths");
     let const_enum_values =
-        nia_const_check::compute_module_const_enum_values(const_input, const_array_lengths.clone());
+        nia_const_check::compute_module_const_enum_values(const_input, const_array_lengths.clone())
+            .expect("compute const enum values");
     let const_values = nia_const_check::compute_module_const_values(
         const_input,
         const_array_lengths.clone(),
         const_enum_values.clone(),
-    );
+    )
+    .expect("compute const values");
     let const_typed_facts = nia_const_check::compute_module_const_typed_facts(
         const_input,
         const_array_lengths.clone(),
         const_enum_values,
         const_values.clone(),
-    );
+    )
+    .expect("compute typed const facts");
     let const_eval =
         crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
     if require_valid_const_declarations {
@@ -413,7 +419,8 @@ fn pipeline_with_options_and_trait_impls(
             type_store: &type_store,
             input_ids: &normalization_input,
             signatures: &signatures,
-        });
+        })
+        .expect("normalize module types");
     assert!(
         normalization.diagnostics.is_empty(),
         "{:?}",
@@ -436,7 +443,8 @@ fn pipeline_with_options_and_trait_impls(
         &defs,
         &signatures,
         nia_layout::TargetDataLayout::LP64,
-    );
+    )
+    .expect("compute layouts");
     let mut program_signatures = EmptyBodyProgramSignatures::new();
     program_signatures.trait_impls = single_module_trait_impls(module_id, &signatures, &type_store);
     adjust_trait_impls(&mut program_signatures.trait_impls);
