@@ -18,7 +18,9 @@ struct TestFixture {
 
 impl TestTypes {
     fn intern(&self, kind: TyKind) -> InternedTyId {
-        self.append.intern(kind)
+        self.append
+            .intern(kind)
+            .expect("intern monomorphization test type")
     }
 
     fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
@@ -79,6 +81,7 @@ fn collect_test_monomorphizations(
             .map(|input| (input.module_id, input.source_identity.clone())),
         type_store,
     )
+    .expect("collect monomorphizations")
 }
 
 fn mono_input<'a>(

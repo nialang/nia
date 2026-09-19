@@ -1889,6 +1889,23 @@ mod tests {
     use nia_ty::{ArrayLenTy, ConstGenericValue, IntConst, PrimitiveTy};
     use std::sync::Arc;
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId;
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId {
+            self.intern(kind)
+                .expect("intern monomorphization test type")
+        }
+
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+            self.primitive(primitive)
+                .expect("intern primitive monomorphization test type")
+        }
+    }
+
     include!("tests/monomorphize/test_support.rs");
 
     #[path = "monomorphize/instance_expansion.rs"]
@@ -1911,8 +1928,8 @@ mod tests {
         let type_store = TypeStore::new().expect("create type store");
         let left = type_store.append_for_module(left_module);
         let right = type_store.append_for_module(right_module);
-        let left_ty = left.primitive(PrimitiveTy::U32);
-        let right_ty = right.primitive(PrimitiveTy::U32);
+        let left_ty = left.test_primitive(PrimitiveTy::U32);
+        let right_ty = right.test_primitive(PrimitiveTy::U32);
         let trait_id = nia_ty::TraitId::Source(GlobalDefId {
             module_id: left_module,
             def_id: DefId(1),
@@ -1951,15 +1968,15 @@ mod tests {
         let module_id = module_ids.allocate().expect("allocate module ID");
         let type_store = TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
-        let u8_ty = append.primitive(PrimitiveTy::U8);
-        let i32_ty = append.primitive(PrimitiveTy::I32);
-        let usize_ty = append.primitive(PrimitiveTy::Usize);
+        let u8_ty = append.test_primitive(PrimitiveTy::U8);
+        let i32_ty = append.test_primitive(PrimitiveTy::I32);
+        let usize_ty = append.test_primitive(PrimitiveTy::Usize);
         let nominal_def = GlobalDefId {
             module_id,
             def_id: DefId(2),
         };
         let nominal = |value| {
-            append.intern(TyKind::Nominal {
+            append.test_intern(TyKind::Nominal {
                 def_id: nominal_def,
                 args: vec![i32_ty],
                 const_args: vec![ConstGenericArg {
@@ -1969,7 +1986,7 @@ mod tests {
             })
         };
         let array = |operand| {
-            append.intern(TyKind::Array {
+            append.test_intern(TyKind::Array {
                 len: ArrayLenTy::Builtin {
                     builtin: nia_ty::LayoutBuiltin::Size,
                     ty: operand,
@@ -2007,8 +2024,8 @@ mod tests {
         let type_store = TypeStore::new().expect("create type store");
         let left = type_store.append_for_module(left_module);
         let right = type_store.append_for_module(right_module);
-        let left_u8 = left.primitive(PrimitiveTy::U8);
-        let right_u8 = right.primitive(PrimitiveTy::U8);
+        let left_u8 = left.test_primitive(PrimitiveTy::U8);
+        let right_u8 = right.test_primitive(PrimitiveTy::U8);
         let left_expr = GlobalConstExprId {
             module_id: left_module,
             const_expr_id: nia_ids::ConstExprId(1),
@@ -2017,11 +2034,11 @@ mod tests {
             module_id: right_module,
             const_expr_id: nia_ids::ConstExprId(2),
         };
-        let left_array = left.intern(TyKind::Array {
+        let left_array = left.test_intern(TyKind::Array {
             len: ArrayLenTy::ConstExpr(left_expr),
             elem: left_u8,
         });
-        let right_array = right.intern(TyKind::Array {
+        let right_array = right.test_intern(TyKind::Array {
             len: ArrayLenTy::ConstExpr(right_expr),
             elem: right_u8,
         });

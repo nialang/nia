@@ -86,7 +86,8 @@ fn missing_source_identity_in_symbols_is_diagnostic_not_panic() {
         )],
         std::iter::empty(),
         &fixture.type_store,
-    );
+    )
+    .expect("collect monomorphizations");
 
     assert_eq!(mono.instances.len(), 1);
     assert!(nia_mangle::demangle_stable_symbol(&mono.instances[0].symbol).is_some());

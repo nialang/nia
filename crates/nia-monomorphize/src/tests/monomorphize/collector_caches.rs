@@ -26,8 +26,12 @@ fn effective_generics_cache_uses_recorded_generics_by_reference() {
 fn ordered_type_substitutions_reuse_existing_ids() {
     let (module_id, mut collector) = empty_collector();
     let append = collector.type_store.append_for_module(module_id);
-    let i32_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::I32));
-    let bool_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Bool));
+    let i32_ty = append
+        .intern(TyKind::Primitive(nia_ty::PrimitiveTy::I32))
+        .expect("intern i32 type");
+    let bool_ty = append
+        .intern(TyKind::Primitive(nia_ty::PrimitiveTy::Bool))
+        .expect("intern bool type");
 
     let first = collector.intern_ordered_substitutions(
         None,
@@ -97,6 +101,7 @@ fn empty_collector() -> (ModuleId, MonoCollector<'static>) {
         missing_array_len_diagnostics: HashSet::new(),
         missing_source_identity_diagnostics: HashSet::new(),
         diagnostics: Vec::new(),
+        internal_error: None,
     };
     (*module_id, collector)
 }
