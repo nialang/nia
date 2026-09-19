@@ -147,18 +147,20 @@ impl<'a> BodyChecker<'a> {
     fn check_asm_operand_type(&mut self, span: Span, ty: InternedTyId, context: &str) {
         let ty = self.normalization.normalize(ty);
         match self.interner.get(ty) {
-            Some(kind)
-                if kind.is_unit()
-                    || matches!(kind, TyKind::Primitive(PrimitiveTy::Never) | TyKind::Opaque) =>
-            {
+            Some(TyKind::Primitive(PrimitiveTy::Never) | TyKind::Opaque) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
                     format!("{context} cannot have an incomplete or uninhabited type"),
                 ));
             }
-            // Covered by the guarded arm above; kept explicit for match exhaustiveness.
-            Some(TyKind::Opaque) => unreachable!(),
+            Some(kind) if kind.is_unit() => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    format!("{context} cannot have an incomplete or uninhabited type"),
+                ));
+            }
             Some(
                 TyKind::Tuple(_)
                 | TyKind::Array { .. }

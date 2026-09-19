@@ -6,7 +6,7 @@
 //! callers select a product/filter explicitly so reachability and cache reuse
 //! cannot silently alter which semantic work is performed.
 
-use nia_ice::Ice;
+use nia_ice::{Ice, IceResult};
 use parking_lot::Mutex;
 use std::cell::RefCell;
 use std::fmt;
@@ -114,18 +114,42 @@ pub use provider::{
     ProviderDemand, ProviderFactRevision, ProviderFactRevisionTransition, ProviderRequest,
 };
 
-struct BodyTypeCx<'a> {
-    store: &'a nia_ty::TypeStore,
-    append: TypeStoreAppend,
+#[derive(Clone)]
+struct BodyFailure {
     internal_error: Arc<Mutex<Option<Ice>>>,
 }
 
+impl BodyFailure {
+    fn new() -> Self {
+        Self {
+            internal_error: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn record(&self, error: Ice) {
+        let mut slot = self.internal_error.lock();
+        if slot.is_none() {
+            *slot = Some(error);
+        }
+    }
+
+    fn internal_error(&self) -> Option<Ice> {
+        self.internal_error.lock().clone()
+    }
+}
+
+struct BodyTypeCx<'a> {
+    store: &'a nia_ty::TypeStore,
+    append: TypeStoreAppend,
+    failure: BodyFailure,
+}
+
 impl<'a> BodyTypeCx<'a> {
-    fn new(store: &'a nia_ty::TypeStore, module_id: ModuleId) -> Self {
+    fn new(store: &'a nia_ty::TypeStore, module_id: ModuleId, failure: BodyFailure) -> Self {
         Self {
             store,
             append: store.append_for_module(module_id),
-            internal_error: Arc::new(Mutex::new(None)),
+            failure,
         }
     }
 
@@ -137,24 +161,10 @@ impl<'a> BodyTypeCx<'a> {
         match self.append.intern(kind) {
             Ok(ty) => ty,
             Err(error) => {
-                let mut slot = self.internal_error.lock();
-                if slot.is_none() {
-                    *slot = Some(error);
-                }
+                self.failure.record(error);
                 self.store.error()
             }
         }
-    }
-
-    fn record_internal(&self, error: Ice) {
-        let mut slot = self.internal_error.lock();
-        if slot.is_none() {
-            *slot = Some(error);
-        }
-    }
-
-    fn internal_error(&self) -> Option<Ice> {
-        self.internal_error.lock().clone()
     }
 
     fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
@@ -167,6 +177,7 @@ impl<'a> BodyTypeCx<'a> {
 }
 
 struct BodyChecker<'a> {
+    failure: BodyFailure,
     type_store: &'a nia_ty::TypeStore,
     active_item_tree: &'a ActiveModuleItemTree,
     defs: &'a DefCollection,
@@ -245,6 +256,12 @@ struct BodyChecker<'a> {
     checked_functions: HashSet<GlobalDefId>,
     pending_functions: VecDeque<GlobalDefId>,
     profile: nia_timing::TimingAccumulator,
+}
+
+impl BodyChecker<'_> {
+    fn record_internal(&self, error: Ice) {
+        self.failure.record(error);
+    }
 }
 
 struct CheckedStaticInitVisitor<'checker, 'context> {
