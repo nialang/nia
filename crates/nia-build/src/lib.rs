@@ -1286,15 +1286,24 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildError> {
-    fs::create_dir_all(&invocation.runner_dir).map_err(|error| {
-        BuildError::CreateRunnerDirectory {
-            path: invocation.runner_dir.clone(),
-            error,
-        }
+    time_build_stage(invocation.timings, "build_runner_prepare_directory", || {
+        fs::create_dir_all(&invocation.runner_dir).map_err(|error| {
+            BuildError::CreateRunnerDirectory {
+                path: invocation.runner_dir.clone(),
+                error,
+            }
+        })
     })?;
-    let runner = build_runner_source(invocation)?;
-    let cache_key = runner_cache::cache_key(invocation, &runner)?;
-    if runner_cache::restore_executable(invocation, &cache_key).unwrap_or(false) {
+    let runner = time_build_stage(invocation.timings, "build_runner_generate_source", || {
+        build_runner_source(invocation)
+    })?;
+    let cache_key = time_build_stage(invocation.timings, "build_runner_compute_cache_key", || {
+        runner_cache::cache_key(invocation, &runner)
+    })?;
+    let restored = time_build_stage(invocation.timings, "build_runner_restore_cache", || {
+        runner_cache::restore_executable(invocation, &cache_key).unwrap_or(false)
+    });
+    if restored {
         nia_timing::emit_counter("build.runner_cache_hits", 1);
         return Ok(invocation.runner_executable.clone());
     }
@@ -1305,22 +1314,27 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
             error,
         })?;
     }
-    let driver = Driver::with_config(build_runner_driver_config(invocation));
-    driver
-        .set_source(runner.path.clone(), runner.source.clone())
-        .map_err(|error| BuildError::CompileRunner {
-            path: runner.path.clone(),
-            source: runner.source.clone(),
-            error: Box::new(error),
-        })?;
-    let module_map =
+    let driver = time_build_stage(invocation.timings, "build_runner_create_driver", || {
+        Driver::with_config(build_runner_driver_config(invocation))
+    });
+    time_build_stage(invocation.timings, "build_runner_set_source", || {
+        driver
+            .set_source(runner.path.clone(), runner.source.clone())
+            .map_err(|error| BuildError::CompileRunner {
+                path: runner.path.clone(),
+                source: runner.source.clone(),
+                error: Box::new(error),
+            })
+    })?;
+    let module_map = time_build_stage(invocation.timings, "build_runner_build_module_map", || {
         build_runner_module_map(invocation).map_err(|error| BuildError::CompileRunner {
             path: runner.path.clone(),
             source: runner.source.clone(),
             error: Box::new(DriverError::InternalDiagnostic(
                 nia_diagnostic::Diagnostic::from(error),
             )),
-        })?;
+        })
+    })?;
     let check = CheckRequest::new(runner.path.clone())
         .with_module_map(module_map)
         .with_profile(invocation.profile)
@@ -1346,27 +1360,36 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
     let check = check
         .with_runtime(runtime)
         .with_current_package(runner_cache::package_id(&cache_key));
-    let objects = driver.emit_native_objects(EmitObjectRequest::new(check));
+    let objects = time_build_stage(
+        invocation.timings,
+        "build_runner_emit_native_objects",
+        || driver.emit_native_objects(EmitObjectRequest::new(check)),
+    );
     let objects = objects.result.map_err(|error| BuildError::CompileRunner {
         path: runner.path.clone(),
         source: runner.source.clone(),
         error: Box::new(error),
     })?;
-    let output = driver.link_executable_from_objects(
-        &objects,
-        invocation.runner_executable.clone(),
-        nia_linker::LinkOptions {
-            entry: Some("_start".to_string()),
-            ..nia_linker::LinkOptions::default()
-        },
-        invocation.timings,
-    );
+    let output = time_build_stage(invocation.timings, "build_runner_link_executable", || {
+        driver.link_executable_from_objects(
+            &objects,
+            invocation.runner_executable.clone(),
+            nia_linker::LinkOptions {
+                entry: Some("_start".to_string()),
+                ..nia_linker::LinkOptions::default()
+            },
+            invocation.timings,
+        )
+    });
     output.result.map_err(|error| BuildError::CompileRunner {
         path: runner.path.clone(),
         source: runner.source.clone(),
         error: Box::new(error),
     })?;
-    if runner_cache::publish_executable(invocation, &cache_key).is_err() {
+    let publish_result = time_build_stage(invocation.timings, "build_runner_publish_cache", || {
+        runner_cache::publish_executable(invocation, &cache_key)
+    });
+    if publish_result.is_err() {
         nia_timing::emit_counter("build.runner_cache_publish_failures", 1);
     }
     Ok(invocation.runner_executable.clone())
@@ -1418,7 +1441,11 @@ fn run_build_runner(
             });
         }
     }
-    prepare_runner_configuration(invocation)?;
+    time_build_stage(
+        invocation.timings,
+        "build_runner_prepare_configuration",
+        || prepare_runner_configuration(invocation),
+    )?;
     let mut command = Command::new(runner_executable);
     command
         .current_dir(&invocation.package_root)
@@ -1427,19 +1454,30 @@ fn run_build_runner(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     prepare_process_group(&mut command);
-    let result = match execute_runner_process(&mut command) {
-        Ok(output) if output.status.success() => match read_build_plan(&invocation.plan_draft) {
-            Ok(plan) => publish_build_plan(&invocation.plan_path, &plan)
-                .map(|()| plan)
-                .map_err(|error| BuildError::PublishBuildPlan {
-                    path: invocation.plan_path.clone(),
+    let result = match time_build_stage(invocation.timings, "build_runner_execute_process", || {
+        execute_runner_process(&mut command)
+    }) {
+        Ok(output) if output.status.success() => {
+            let plan = time_build_stage(invocation.timings, "build_runner_read_plan", || {
+                read_build_plan(&invocation.plan_draft)
+            });
+            match plan {
+                Ok(plan) => {
+                    time_build_stage(invocation.timings, "build_runner_publish_plan", || {
+                        publish_build_plan(&invocation.plan_path, &plan)
+                            .map(|()| plan)
+                            .map_err(|error| BuildError::PublishBuildPlan {
+                                path: invocation.plan_path.clone(),
+                                error,
+                            })
+                    })
+                }
+                Err(error) => Err(BuildError::ReadPlanDraft {
+                    path: invocation.plan_draft.clone(),
                     error,
                 }),
-            Err(error) => Err(BuildError::ReadPlanDraft {
-                path: invocation.plan_draft.clone(),
-                error,
-            }),
-        },
+            }
+        }
         Ok(output) => Err(BuildError::RunnerFailed {
             path: runner_executable.to_path_buf(),
             status: output.status,
@@ -1632,6 +1670,10 @@ fn find_package_root(start: &Path) -> Result<PathBuf, BuildError> {
 
 fn time_summary_stage<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
     nia_timing::time_stage(timings, nia_timing::TimingLevel::Summary, name, f)
+}
+
+fn time_build_stage<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
+    nia_timing::time_stage(timings, nia_timing::TimingLevel::Detail, name, f)
 }
 
 #[cfg(test)]

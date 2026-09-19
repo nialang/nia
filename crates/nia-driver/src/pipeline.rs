@@ -974,21 +974,29 @@ impl Driver {
     ) -> DriverOutput<ObjectArtifactWithSourceManifest> {
         {
             let timings = request.check.timings;
-            let (database, loader) = match self
-                .compilation_databases_with_codegen_scope(&request.check, CodegenScope::Entry)
-            {
-                Ok(databases) => databases,
-                Err(error) => {
-                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
-                        query_error_diagnostic(error),
-                    ));
-                }
-            };
-            let emission = match self.emit_native_objects_for_database(&database, timings) {
+            let (database, loader) =
+                match time_detail_stage(timings, "native_prepare_compilation_database", || {
+                    self.compilation_databases_with_codegen_scope(
+                        &request.check,
+                        CodegenScope::Entry,
+                    )
+                }) {
+                    Ok(databases) => databases,
+                    Err(error) => {
+                        return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                            query_error_diagnostic(error),
+                        ));
+                    }
+                };
+            let emission = match time_detail_stage(timings, "native_emit_objects", || {
+                self.emit_native_objects_for_database(&database, timings)
+            }) {
                 Ok(emission) => emission,
                 Err(error) => return DriverOutput::from_error(error),
             };
-            let loader_trace = match self.loader_query_trace() {
+            let loader_trace = match time_detail_stage(timings, "native_loader_query_trace", || {
+                self.loader_query_trace()
+            }) {
                 Ok(trace) => trace,
                 Err(error) => {
                     return DriverOutput::from_error(DriverError::InternalDiagnostic(
@@ -996,21 +1004,25 @@ impl Driver {
                     ));
                 }
             };
-            if let Err(error) = emit_compilation_counters(
-                timings,
-                &database,
-                &loader_trace,
-                &LiveCodegenCounters {
-                    checked_body_count: emission.checked_body_count,
-                    reachable_body_count: emission.reachable_body_count,
-                },
-                database.provider_demand_rounds(),
-            ) {
+            if let Err(error) = time_detail_stage(timings, "native_emit_counters", || {
+                emit_compilation_counters(
+                    timings,
+                    &database,
+                    &loader_trace,
+                    &LiveCodegenCounters {
+                        checked_body_count: emission.checked_body_count,
+                        reachable_body_count: emission.reachable_body_count,
+                    },
+                    database.provider_demand_rounds(),
+                )
+            }) {
                 return DriverOutput::from_error(DriverError::InternalDiagnostic(
                     query_error_diagnostic(error),
                 ));
             }
-            let source_manifest = match loader.source_input_manifest() {
+            let source_manifest = match time_detail_stage(timings, "native_source_manifest", || {
+                loader.source_input_manifest()
+            }) {
                 Ok(manifest) => manifest,
                 Err(error) => {
                     return DriverOutput::from_error(DriverError::InternalDiagnostic(
@@ -1030,9 +1042,10 @@ impl Driver {
         database: &CompilerDatabase,
         timings: TimingMode,
     ) -> Result<NativeDatabaseEmission, DriverError> {
-        let preparation = database
-            .codegen_preparation()
-            .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?;
+        let preparation = time_detail_stage(timings, "native_codegen_preparation", || {
+            database.codegen_preparation()
+        })
+        .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?;
         if has_error_diagnostics(&preparation.diagnostics) {
             return Err(DriverError::CodegenPreparationDiagnostics(
                 preparation.diagnostics,
@@ -1062,27 +1075,46 @@ impl Driver {
                         Err(lowering) => Err(DriverError::CodegenDiagnostics(lowering.diagnostics)),
                         Ok(mut schedule) => {
                             let mut emitter =
-                                nia_codegen_llvm::LlvmNativeObjectReadinessEmitter::new(
-                                    schedule.module_store(),
-                                    type_store,
-                                    schedule.owner_directory(),
-                                    options,
-                                    cache,
-                                    &session,
-                                )
+                                time_detail_stage(timings, "native_llvm_emitter_create", || {
+                                    nia_codegen_llvm::LlvmNativeObjectReadinessEmitter::new(
+                                        schedule.module_store(),
+                                        type_store,
+                                        schedule.owner_directory(),
+                                        options,
+                                        cache,
+                                        &session,
+                                    )
+                                })
                                 .map_err(|error| {
                                     DriverError::InternalDiagnostic(Diagnostic::from(error))
                                 })?;
-                            while let Some(ready) = schedule.wait_next().map_err(|error| {
-                                DriverError::InternalDiagnostic(query_error_diagnostic(error))
-                            })? {
-                                emitter.publish(ready).map_err(|error| {
+                            loop {
+                                let ready =
+                                    time_detail_stage(timings, "native_backend_wait_ready", || {
+                                        schedule.wait_next()
+                                    })
+                                    .map_err(|error| {
+                                        DriverError::InternalDiagnostic(query_error_diagnostic(
+                                            error,
+                                        ))
+                                    })?;
+                                let Some(ready) = ready else {
+                                    break;
+                                };
+                                time_detail_stage(timings, "native_llvm_publish_ready", || {
+                                    emitter.publish(ready)
+                                })
+                                .map_err(|error| {
                                     DriverError::InternalDiagnostic(Diagnostic::from(error))
                                 })?;
                             }
-                            let lowering = schedule.finish().map_err(|error| {
-                                DriverError::InternalDiagnostic(query_error_diagnostic(error))
-                            })?;
+                            let lowering =
+                                time_detail_stage(timings, "native_backend_finish", || {
+                                    schedule.finish()
+                                })
+                                .map_err(|error| {
+                                    DriverError::InternalDiagnostic(query_error_diagnostic(error))
+                                })?;
                             if !lowering.diagnostics.is_empty() {
                                 return Err(DriverError::CodegenDiagnostics(lowering.diagnostics));
                             }
@@ -1095,7 +1127,10 @@ impl Driver {
                                 })
                                 .sum();
                             Ok((
-                                emitter.finish().map_err(|error| {
+                                time_detail_stage(timings, "native_llvm_finish", || {
+                                    emitter.finish()
+                                })
+                                .map_err(|error| {
                                     DriverError::InternalDiagnostic(Diagnostic::from(error))
                                 })?,
                                 reachable_body_count,
@@ -1731,6 +1766,10 @@ impl Driver {
             |loader| loader.database.query_trace(),
         )
     }
+}
+
+fn time_detail_stage<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
+    nia_timing::time_stage(timings, nia_timing::TimingLevel::Detail, name, f)
 }
 
 trait ProviderDemandOutput {

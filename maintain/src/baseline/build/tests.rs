@@ -216,7 +216,7 @@ fn passing_results() -> Vec<BuildResult> {
 
 #[test]
 fn extracts_outer_build_measurement() {
-    let outer = timing_report(
+    let mut outer = timing_report(
         0.4,
         20,
         json!({
@@ -225,6 +225,13 @@ fn extracts_outer_build_measurement() {
             "llvm.object_reuse_misses": 0,
         }),
     );
+    outer["timings"].as_array_mut().unwrap().push(json!({
+        "kind": "stage",
+        "name": "build_runner_emit_native_objects",
+        "count": 1,
+        "total_seconds": 1.9,
+        "max_seconds": 1.9,
+    }));
     let parsed = parse_build_reports(
         &format!("diagnostic\n{}", serde_json::to_string(&outer).unwrap()),
         true,
@@ -234,6 +241,10 @@ fn extracts_outer_build_measurement() {
     assert_eq!(
         parsed.measurement.stages["build_compile_runner"]["total_seconds"],
         json!(2.1)
+    );
+    assert_eq!(
+        parsed.measurement.stages["build_runner_emit_native_objects"]["total_seconds"],
+        json!(1.9)
     );
     assert_eq!(
         parsed.measurement.counters["llvm.object_reuse_misses"],
