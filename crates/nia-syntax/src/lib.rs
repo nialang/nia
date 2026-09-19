@@ -447,10 +447,7 @@ impl<'a> SyntaxNode<'a> {
             .filter_map(|(index, child)| match child {
                 GreenElement::Node(node) => {
                     let mut path = self.path.clone();
-                    path.push(
-                        u32::try_from(index)
-                            .expect("syntax child index exceeds node path capacity"),
-                    );
+                    path.push(u32::try_from(index).ok()?);
                     Some(SyntaxNode {
                         tree: self.tree,
                         path,
@@ -472,7 +469,10 @@ impl<'a> SyntaxNode<'a> {
     fn push_tokens(&self, tokens: &mut Vec<SyntaxToken>) {
         for (index, child) in self.node.children.iter().enumerate() {
             let mut path = self.path.clone();
-            path.push(u32::try_from(index).expect("syntax child index exceeds node path capacity"));
+            let Some(index) = u32::try_from(index).ok() else {
+                continue;
+            };
+            path.push(index);
             match child {
                 GreenElement::Node(node) => SyntaxNode {
                     tree: self.tree,
@@ -506,34 +506,27 @@ fn syntax_kind(kind: LosslessTokenKind) -> SyntaxKind {
 
 fn build_green_root(source: &str, tokens: Vec<LosslessToken>) -> GreenNode {
     let end = tokens.last().map(|token| token.span.end).unwrap_or(0);
-    // The root builder stays at stack[0] for the whole construction. The
-    // remaining stack entries are open delimiter nodes; this invariant is why
-    // the stack unwraps below are structural assertions rather than parser
-    // diagnostics.
-    let mut stack = vec![NodeBuilder::new(SyntaxKind::SourceFile, Span::new(0, end))];
+    let mut root = NodeBuilder::new(SyntaxKind::SourceFile, Span::new(0, end));
+    let mut stack = Vec::new();
     for token in tokens {
         let kind = syntax_kind(token.kind);
         let green_token = green_token(source, kind, token.span);
         match delimiter_open(green_token.kind()) {
             Some(open) => {
                 let span = green_token.span();
-                stack.push(NodeBuilder::new(
-                    SyntaxKind::Delimited { open, close: None },
-                    span,
-                ));
-                stack
-                    .last_mut()
-                    .expect("delimiter node")
-                    .children
-                    .push(GreenElement::Token(green_token));
+                let mut node = NodeBuilder::new(SyntaxKind::Delimited { open, close: None }, span);
+                node.children.push(GreenElement::Token(green_token));
+                stack.push(node);
             }
             None if let Some(close) = delimiter_close(green_token.kind())
-                && stack.len() > 1
+                && !stack.is_empty()
                 && stack
                     .last()
                     .is_some_and(|node| delimiter_matches(&node.kind, &close)) =>
             {
-                let mut node = stack.pop().expect("delimiter node");
+                let Some(mut node) = stack.pop() else {
+                    continue;
+                };
                 if let SyntaxKind::Delimited {
                     close: node_close, ..
                 } = &mut node.kind
@@ -542,31 +535,31 @@ fn build_green_root(source: &str, tokens: Vec<LosslessToken>) -> GreenNode {
                 }
                 node.span.end = green_token.span().end;
                 node.children.push(GreenElement::Token(green_token));
-                stack
-                    .last_mut()
-                    .expect("parent node")
-                    .children
-                    .push(GreenElement::Node(node.finish()));
+                let element = GreenElement::Node(node.finish());
+                if let Some(parent) = stack.last_mut() {
+                    parent.children.push(element);
+                } else {
+                    root.children.push(element);
+                }
             }
-            None => stack
-                .last_mut()
-                .expect("current node")
-                .children
-                .push(GreenElement::Token(green_token)),
+            None => {
+                if let Some(node) = stack.last_mut() {
+                    node.children.push(GreenElement::Token(green_token));
+                } else {
+                    root.children.push(GreenElement::Token(green_token));
+                }
+            }
         }
     }
-    // The root builder is never popped inside the token loop. Any remaining
-    // builders are unmatched delimiter nodes and are attached back under root
-    // so parsing can recover while preserving the original text.
-    while stack.len() > 1 {
-        let node = stack.pop().expect("unclosed delimiter node").finish();
-        stack
-            .last_mut()
-            .expect("parent node")
-            .children
-            .push(GreenElement::Node(node));
+    while let Some(node) = stack.pop() {
+        let element = GreenElement::Node(node.finish());
+        if let Some(parent) = stack.last_mut() {
+            parent.children.push(element);
+        } else {
+            root.children.push(element);
+        }
     }
-    stack.pop().expect("root node").finish()
+    root.finish()
 }
 
 #[derive(Debug)]
@@ -768,10 +761,10 @@ fn rewrite_after_single_token_edit(
     } else {
         // All green nodes originate from token spans. Partial reparse only
         // rewrites an existing token, so non-root nodes remain non-empty.
-        element_span(
-            children.first().expect("green nodes always contain tokens"),
-            children.last().expect("green nodes always contain tokens"),
-        )
+        match children.first().zip(children.last()) {
+            Some((first, last)) => element_span(first, last),
+            None => node.span(),
+        }
     };
 
     GreenNode {
