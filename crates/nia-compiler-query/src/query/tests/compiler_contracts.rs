@@ -707,11 +707,14 @@ fn compiler_update_rejects_untracked_snapshot_provider() {
     let database =
         crate::query::CompilerDatabase::new_for_test(CompileRequest::new(fixture.program()));
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = database.update(CompileRequest::new(fixture.program()));
-    }));
+    let error = database
+        .update(CompileRequest::new(fixture.program()))
+        .expect_err("untracked snapshot provider must be rejected");
 
-    assert!(result.is_err());
+    let QueryError::Internal(ice) = error else {
+        panic!("expected structured ICE");
+    };
+    assert!(ice.message.contains("tracked loader fact provider"));
 }
 
 #[test]

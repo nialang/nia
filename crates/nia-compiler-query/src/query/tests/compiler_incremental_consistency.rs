@@ -24,12 +24,7 @@ fn semantic_provider_activation_preserves_resolved_caller_facts() {
         },
     };
     let checked_function = {
-        let mut session = database
-            .db
-            .context()
-            .executable_fact_session
-            .lock()
-            .expect("executable fact session lock poisoned");
+        let mut session = database.db.context().executable_fact_session.lock();
         let state = session
             .modules
             .get_mut(&entry_id)
@@ -56,12 +51,7 @@ fn semantic_provider_activation_preserves_resolved_caller_facts() {
     ));
     let _ = database.executable_provider_demands();
 
-    let session = database
-        .db
-        .context()
-        .executable_fact_session
-        .lock()
-        .expect("executable fact session lock poisoned");
+    let session = database.db.context().executable_fact_session.lock();
     let state = session
         .modules
         .get(&entry_id)
@@ -99,12 +89,7 @@ fn method_provider_change_removes_only_affected_function_diagnostics() {
         .collect::<Vec<_>>();
     assert!(!provider_changes.is_empty());
     let (affected_function, unaffected_function) = {
-        let session = database
-            .db
-            .context()
-            .executable_fact_session
-            .lock()
-            .expect("executable fact session lock poisoned");
+        let session = database.db.context().executable_fact_session.lock();
         let state = session.modules.get(&entry_id).expect("entry facts");
         assert!(!state.diagnostics.is_empty());
         let affected = *state
@@ -139,12 +124,7 @@ fn method_provider_change_removes_only_affected_function_diagnostics() {
     ));
     let worklist = database.db.expect_get(ProviderFactWorklistQuery);
 
-    let mut session = database
-        .db
-        .context()
-        .executable_fact_session
-        .lock()
-        .expect("executable fact session lock poisoned");
+    let mut session = database.db.context().executable_fact_session.lock();
     session.apply_provider_fact_worklist(&worklist, &database.db.context().type_store);
     let state = session
         .modules

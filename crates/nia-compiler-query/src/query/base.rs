@@ -107,10 +107,10 @@ impl QueryKey<CompilerContext> for ModuleGraphEntryQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         let graph = db.get(ModuleGraphQuery)?;
-        Ok(graph
+        graph
             .stable_key(graph.entry())
             .cloned()
-            .expect("compiler entry must have a stable module key"))
+            .ok_or_else(|| QueryError::internal("compiler entry has no stable module key"))
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -436,15 +436,18 @@ impl QueryKey<CompilerContext> for BodyActivationWorklistQuery {
             .modules()
             .filter(|module| module.process_used_paths)
             .map(|module| {
-                let stable_key = graph.stable_key(module.id).unwrap_or_else(|| {
-                    panic!(
-                        "Nia ICE: missing stable key for activated module {:?}",
-                        module.id
-                    )
-                });
-                (stable_key.clone(), module.id)
+                graph
+                    .stable_key(module.id)
+                    .cloned()
+                    .map(|stable_key| (stable_key, module.id))
+                    .ok_or_else(|| {
+                        QueryError::internal(format!(
+                            "activated module {:?} has no stable key",
+                            module.id
+                        ))
+                    })
             })
-            .collect();
+            .collect::<QueryResult<_>>()?;
         Ok(BodyActivationWorklist {
             modules: Arc::new(modules),
         })

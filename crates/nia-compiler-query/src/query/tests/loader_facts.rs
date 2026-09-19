@@ -19,12 +19,7 @@ impl QueryKey<TestLoaderContext> for TestLoadedProgramQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<TestLoaderContext>) -> QueryResult<Self::Value> {
-        Ok(db
-            .context()
-            .program
-            .read()
-            .expect("test loader program lock poisoned")
-            .clone())
+        Ok(db.context().program.read().clone())
     }
 
     fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
@@ -45,12 +40,7 @@ impl QueryKey<TestLoaderContext> for TestProviderFactsQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<TestLoaderContext>) -> QueryResult<Self::Value> {
-        Ok(db
-            .context()
-            .provider_facts
-            .read()
-            .expect("test provider facts lock poisoned")
-            .clone())
+        Ok(db.context().provider_facts.read().clone())
     }
 
     fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
@@ -199,12 +189,7 @@ impl TestLoaderFacts {
     }
 
     pub(super) fn replace_program(&self, program: LoadedProgram) -> nia_query::QueryInvalidation {
-        let mut current = self
-            .db
-            .context()
-            .program
-            .write()
-            .expect("test loader program lock poisoned");
+        let mut current = self.db.context().program.write();
         if *current == program {
             return nia_query::QueryInvalidation::default();
         }
@@ -219,12 +204,7 @@ impl TestLoaderFacts {
         &self,
         provider_facts: crate::ProviderFactSnapshot,
     ) -> nia_query::QueryInvalidation {
-        let mut current = self
-            .db
-            .context()
-            .provider_facts
-            .write()
-            .expect("test provider facts lock poisoned");
+        let mut current = self.db.context().provider_facts.write();
         if *current == provider_facts {
             return nia_query::QueryInvalidation::default();
         }

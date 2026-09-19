@@ -44,6 +44,12 @@ pub(in crate::query) fn provide_executable_function_body(
         semantic_uses: Arc::clone(&module.semantic_uses),
         resolution_diagnostics: module.resolution_diagnostics.clone(),
     };
+    let const_module = facts.const_modules.get(&def_id.module_id).ok_or_else(|| {
+        QueryError::internal(format!(
+            "executable function module {:?} has no retained const lowering",
+            def_id.module_id
+        ))
+    })?;
     let checked = body_check_with_filter_and_layouts_with_inputs(
         db,
         ExecutableBodyCheckInput {
@@ -63,14 +69,7 @@ pub(in crate::query) fn provide_executable_function_body(
             seed: None,
             global_initializer_cache: None,
             const_module_cache: None,
-            const_inputs: Some((
-                &module.const_eval,
-                facts
-                    .const_modules
-                    .get(&def_id.module_id)
-                    .expect("executable function module must retain const lowering")
-                    .as_ref(),
-            )),
+            const_inputs: Some((&module.const_eval, const_module.as_ref())),
             program_function_signature_cache: None,
             product: nia_body_check::BodyCheckProduct::BodyOnly,
             prechecked: Some(nia_body_check::PrecheckedBodyCheck {
