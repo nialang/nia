@@ -931,6 +931,22 @@ mod tests {
     };
     use nia_type_resolve::resolve_module_types;
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId;
+        fn test_primitive(&self, primitive: PrimitiveTy) -> nia_ids::InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> nia_ids::InternedTyId {
+            self.intern(kind).expect("intern ABI test type")
+        }
+
+        fn test_primitive(&self, primitive: PrimitiveTy) -> nia_ids::InternedTyId {
+            self.primitive(primitive)
+                .expect("intern primitive ABI test type")
+        }
+    }
+
     #[test]
     fn rejects_undefined_extern_abi_types() {
         let (module, errors) = parse_module(
@@ -963,15 +979,17 @@ extern fn bad_callable_pointee(callback: Fn(i32) i32);
             &module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
-        );
+        )
+        .expect("lower module types");
         let signatures = collect_item_signatures(ItemSignatureInput {
             source: ItemSignatureSource::Module(&module),
             defs: &defs,
             lowered: &lowered,
             type_store: &type_store,
             symbols: None,
-        });
-        let checked = check_module_abi(&defs, &type_store, &signatures);
+        })
+        .expect("collect item signatures");
+        let checked = check_module_abi(&defs, &type_store, &signatures).expect("check module ABI");
         for expected in [
             "`bool`",
             "`char`",
@@ -1020,15 +1038,17 @@ extern fn consume(header: Header);
             &module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
-        );
+        )
+        .expect("lower module types");
         let signatures = collect_item_signatures(ItemSignatureInput {
             source: ItemSignatureSource::Module(&module),
             defs: &defs,
             lowered: &lowered,
             type_store: &type_store,
             symbols: None,
-        });
-        let checked = check_module_abi(&defs, &type_store, &signatures);
+        })
+        .expect("collect item signatures");
+        let checked = check_module_abi(&defs, &type_store, &signatures).expect("check module ABI");
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
 
@@ -1052,15 +1072,17 @@ extern struct Header[N: usize] {
             &module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
-        );
+        )
+        .expect("lower module types");
         let signatures = collect_item_signatures(ItemSignatureInput {
             source: ItemSignatureSource::Module(&module),
             defs: &defs,
             lowered: &lowered,
             type_store: &type_store,
             symbols: None,
-        });
-        let checked = check_module_abi(&defs, &type_store, &signatures);
+        })
+        .expect("collect item signatures");
+        let checked = check_module_abi(&defs, &type_store, &signatures).expect("check module ABI");
         assert!(
             checked
                 .diagnostics
@@ -1082,13 +1104,13 @@ extern struct Header[N: usize] {
         let append = type_store.append_for_module(module_id);
         let type_name = SymbolId::from_stable_hash(stable_hash("T"));
         let const_name = SymbolId::from_stable_hash(stable_hash("N"));
-        let usize_ty = append.primitive(PrimitiveTy::Usize);
-        let imported_ty = append.intern(TyKind::Nominal {
+        let usize_ty = append.test_primitive(PrimitiveTy::Usize);
+        let imported_ty = append.test_intern(TyKind::Nominal {
             def_id: GlobalDefId {
                 module_id: foreign_module_id,
                 def_id: DefId(0),
             },
-            args: vec![append.primitive(PrimitiveTy::Bool)],
+            args: vec![append.test_primitive(PrimitiveTy::Bool)],
             const_args: vec![nia_ty::ConstGenericArg {
                 ty: usize_ty,
                 value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(4)),
@@ -1119,7 +1141,7 @@ extern struct Header[N: usize] {
                     ty: imported_ty,
                     span: Span::default(),
                 }],
-                return_type: append.intern(TyKind::Tuple(Vec::new())),
+                return_type: append.test_intern(TyKind::Tuple(Vec::new())),
                 is_extern: true,
                 external_name: None,
                 is_const: false,
@@ -1153,8 +1175,8 @@ extern struct Header[N: usize] {
                 fields: vec![FieldSignature {
                     def_id: DefId(0),
                     name: SymbolId::from_stable_hash(stable_hash("flag")),
-                    ty: append.intern(TyKind::Array {
-                        elem: append.intern(TyKind::GenericParam(type_name)),
+                    ty: append.test_intern(TyKind::Array {
+                        elem: append.test_intern(TyKind::GenericParam(type_name)),
                         len: ArrayLenTy::GenericParam(const_name),
                     }),
                     span: Span::default(),
@@ -1184,7 +1206,8 @@ extern struct Header[N: usize] {
                 enums: &empty_enums,
                 type_aliases: &empty_aliases,
             },
-        );
+        )
+        .expect("check module ABI families");
         assert!(
             checked
                 .diagnostics
@@ -1222,15 +1245,17 @@ extern fn effect() Unit;
             &module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
-        );
+        )
+        .expect("lower module types");
         let signatures = collect_item_signatures(ItemSignatureInput {
             source: ItemSignatureSource::Module(&module),
             defs: &defs,
             lowered: &lowered,
             type_store: &type_store,
             symbols: None,
-        });
-        let checked = check_module_abi(&defs, &type_store, &signatures);
+        })
+        .expect("collect item signatures");
+        let checked = check_module_abi(&defs, &type_store, &signatures).expect("check module ABI");
 
         assert_eq!(
             checked
@@ -1271,15 +1296,17 @@ extern struct Header { values: Repeat[bool, 4] }
                     defs: Some(&program_defs),
                 },
             ),
-        );
+        )
+        .expect("lower module types");
         let signatures = collect_item_signatures(ItemSignatureInput {
             source: ItemSignatureSource::Module(&module),
             defs: &defs,
             lowered: &lowered,
             type_store: &type_store,
             symbols: None,
-        });
-        let checked = check_module_abi(&defs, &type_store, &signatures);
+        })
+        .expect("collect item signatures");
+        let checked = check_module_abi(&defs, &type_store, &signatures).expect("check module ABI");
 
         assert!(
             checked
@@ -1319,15 +1346,17 @@ extern fn bad_return() (i32, bool);
             &module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
-        );
+        )
+        .expect("lower module types");
         let signatures = collect_item_signatures(ItemSignatureInput {
             source: ItemSignatureSource::Module(&module),
             defs: &defs,
             lowered: &lowered,
             type_store: &type_store,
             symbols: None,
-        });
-        let checked = check_module_abi(&defs, &type_store, &signatures);
+        })
+        .expect("collect item signatures");
+        let checked = check_module_abi(&defs, &type_store, &signatures).expect("check module ABI");
         assert_eq!(
             checked
                 .diagnostics
@@ -1352,8 +1381,8 @@ extern fn bad_return() (i32, bool);
             .allocate()
             .expect("allocate module ID");
         let append = store.append_for_module(module);
-        let unit = append.intern(TyKind::Tuple(Vec::new()));
-        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let unit = append.test_intern(TyKind::Tuple(Vec::new()));
+        let i32_ty = append.test_primitive(PrimitiveTy::I32);
         let signature = classify_nia_signature(
             &store,
             TargetDataLayout::LP64,
@@ -1389,7 +1418,8 @@ extern fn bad_return() (i32, bool);
             .allocate()
             .expect("allocate module ID");
         let append = store.append_for_module(module);
-        let aggregate = append.intern(TyKind::Tuple(vec![append.primitive(PrimitiveTy::I64)]));
+        let aggregate =
+            append.test_intern(TyKind::Tuple(vec![append.test_primitive(PrimitiveTy::I64)]));
         let signature = classify_nia_signature(
             &store,
             TargetDataLayout::LP64,
@@ -1433,8 +1463,8 @@ extern fn bad_return() (i32, bool);
             .allocate()
             .expect("allocate module ID");
         let append = store.append_for_module(module);
-        let unit = append.intern(TyKind::Tuple(Vec::new()));
-        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let unit = append.test_intern(TyKind::Tuple(Vec::new()));
+        let i32_ty = append.test_primitive(PrimitiveTy::I32);
         let signature = classify_c_signature(TargetDataLayout::LP64, [i32_ty, unit], unit, &store);
         assert_eq!(signature.domain, AbiDomain::C);
         assert!(matches!(signature.parameters[0], AbiParam::Direct { ty } if ty == i32_ty));
