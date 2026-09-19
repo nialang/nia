@@ -1317,6 +1317,14 @@ fn vector_type_spelling(name: &str) -> Option<PrimitiveTypeSpelling> {
 mod tests {
     use super::*;
 
+    fn intern(append: &TypeStoreAppend, kind: TyKind) -> InternedTyId {
+        append.intern(kind).expect("intern test type")
+    }
+
+    fn primitive(append: &TypeStoreAppend, ty: PrimitiveTy) -> InternedTyId {
+        append.primitive(ty).expect("intern test primitive")
+    }
+
     #[test]
     fn integer_representability_covers_signed_and_unsigned_endpoints() {
         assert!(IntConst::unsigned(u128::MAX).fits_primitive_int(PrimitiveTy::U128, 64));
@@ -1356,7 +1364,9 @@ mod tests {
         let populated = [0, 255, 256, 65_535, 65_536, u32::MAX];
 
         for index in populated {
-            arena.insert(index, Arc::new(TyKind::Error));
+            arena
+                .insert(index, Arc::new(TyKind::Error))
+                .expect("populate test arena slot");
         }
 
         for index in populated {
@@ -1375,8 +1385,8 @@ mod tests {
             .allocate()
             .expect("allocate module ID");
         let append = store.append_for_module(module_id);
-        let first = append.primitive(PrimitiveTy::I32);
-        let second = append.primitive(PrimitiveTy::I32);
+        let first = primitive(&append, PrimitiveTy::I32);
+        let second = primitive(&append, PrimitiveTy::I32);
 
         assert_eq!(first, second);
         assert_eq!(store.get(first), Some(&TyKind::Primitive(PrimitiveTy::I32)));
@@ -1392,8 +1402,8 @@ mod tests {
             .expect("allocate module ID");
         let left_append = left.append_for_module(module_id);
         let right_append = right.append_for_module(module_id);
-        let left_i32 = left_append.primitive(PrimitiveTy::I32);
-        let right_i32 = right_append.primitive(PrimitiveTy::I32);
+        let left_i32 = primitive(&left_append, PrimitiveTy::I32);
+        let right_i32 = primitive(&right_append, PrimitiveTy::I32);
         let closure_id = nia_ids::ClosureId {
             owner: nia_ids::GlobalDefId {
                 module_id,
@@ -1402,12 +1412,12 @@ mod tests {
             ordinal: 2,
         };
         let left_types = [
-            left_append.intern(TyKind::ConstOnly),
-            left_append.intern(TyKind::Vector {
+            intern(&left_append, TyKind::ConstOnly),
+            intern(&left_append, TyKind::Vector {
                 elem: PrimitiveTy::I32,
                 lanes: 4,
             }),
-            left_append.intern(TyKind::ClosureState {
+            intern(&left_append, TyKind::ClosureState {
                 closure_id,
                 captures: vec![left_i32],
                 params: vec![left_i32],
@@ -1415,12 +1425,12 @@ mod tests {
             }),
         ];
         let right_types = [
-            right_append.intern(TyKind::ConstOnly),
-            right_append.intern(TyKind::Vector {
+            intern(&right_append, TyKind::ConstOnly),
+            intern(&right_append, TyKind::Vector {
                 elem: PrimitiveTy::I32,
                 lanes: 4,
             }),
-            right_append.intern(TyKind::ClosureState {
+            intern(&right_append, TyKind::ClosureState {
                 closure_id,
                 captures: vec![right_i32],
                 params: vec![right_i32],
@@ -1447,13 +1457,13 @@ mod tests {
             .expect("allocate module ID");
         let left_append = left.append_for_module(module_id);
         let right_append = right.append_for_module(module_id);
-        let left_usize = left_append.primitive(PrimitiveTy::Usize);
-        let right_usize = right_append.primitive(PrimitiveTy::Usize);
+        let left_usize = primitive(&left_append, PrimitiveTy::Usize);
+        let right_usize = primitive(&right_append, PrimitiveTy::Usize);
         let def_id = nia_ids::GlobalDefId {
             module_id,
             def_id: nia_ids::DefId(9),
         };
-        let left_ty = left_append.intern(TyKind::Nominal {
+        let left_ty = intern(&left_append, TyKind::Nominal {
             def_id,
             args: Vec::new(),
             const_args: vec![ConstGenericArg {
@@ -1461,7 +1471,7 @@ mod tests {
                 value: ConstGenericValue::Int(IntConst::signed(11)),
             }],
         });
-        let right_ty = right_append.intern(TyKind::Nominal {
+        let right_ty = intern(&right_append, TyKind::Nominal {
             def_id,
             args: Vec::new(),
             const_args: vec![ConstGenericArg {
@@ -1487,10 +1497,10 @@ mod tests {
             .expect("allocate module ID");
         let left_append = left.append_for_module(module_id);
         let right_append = right.append_for_module(module_id);
-        let left_i32 = left_append.primitive(PrimitiveTy::I32);
-        let left_bool = left_append.primitive(PrimitiveTy::Bool);
-        let right_i32 = right_append.primitive(PrimitiveTy::I32);
-        let right_bool = right_append.primitive(PrimitiveTy::Bool);
+        let left_i32 = primitive(&left_append, PrimitiveTy::I32);
+        let left_bool = primitive(&left_append, PrimitiveTy::Bool);
+        let right_i32 = primitive(&right_append, PrimitiveTy::I32);
+        let right_bool = primitive(&right_append, PrimitiveTy::Bool);
         let trait_id = TraitId::Source(nia_ids::GlobalDefId {
             module_id,
             def_id: nia_ids::DefId(8),
@@ -1503,14 +1513,14 @@ mod tests {
             trait_const_args: Vec::new(),
             ty,
         };
-        let left_ty = left_append.intern(TyKind::TraitObject {
+        let left_ty = intern(&left_append, TyKind::TraitObject {
             is_readonly: false,
             trait_id,
             trait_args: Vec::new(),
             trait_const_args: Vec::new(),
             associated_type_bindings: vec![binding(left_i32), binding(left_bool)],
         });
-        let right_ty = right_append.intern(TyKind::TraitObject {
+        let right_ty = intern(&right_append, TyKind::TraitObject {
             is_readonly: false,
             trait_id,
             trait_args: Vec::new(),
@@ -1523,7 +1533,7 @@ mod tests {
         };
 
         assert!(equivalence.same_type_for_equiv(left_ty, right_ty));
-        let right_mismatch = right_append.intern(TyKind::TraitObject {
+        let right_mismatch = intern(&right_append, TyKind::TraitObject {
             is_readonly: false,
             trait_id,
             trait_args: Vec::new(),
@@ -1541,12 +1551,12 @@ mod tests {
             .allocate()
             .expect("allocate module ID");
         let append = store.append_for_module(module_id);
-        let i32_ty = append.primitive(PrimitiveTy::I32);
-        let bool_ty = append.primitive(PrimitiveTy::Bool);
-        let unit = append.intern(TyKind::Tuple(Vec::new()));
-        let singleton = append.intern(TyKind::Tuple(vec![i32_ty]));
-        let pair = append.intern(TyKind::Tuple(vec![i32_ty, bool_ty]));
-        let reversed = append.intern(TyKind::Tuple(vec![bool_ty, i32_ty]));
+        let i32_ty = primitive(&append, PrimitiveTy::I32);
+        let bool_ty = primitive(&append, PrimitiveTy::Bool);
+        let unit = intern(&append, TyKind::Tuple(Vec::new()));
+        let singleton = intern(&append, TyKind::Tuple(vec![i32_ty]));
+        let pair = intern(&append, TyKind::Tuple(vec![i32_ty, bool_ty]));
+        let reversed = intern(&append, TyKind::Tuple(vec![bool_ty, i32_ty]));
 
         assert!(store.get(unit).is_some_and(TyKind::is_unit));
         assert_ne!(singleton, i32_ty);
@@ -1563,9 +1573,9 @@ mod tests {
             .expect("allocate module ID");
         let append = store.append_for_module(module_id);
 
-        for primitive in PrimitiveTy::ALL {
-            let id = append.primitive(primitive);
-            assert_eq!(store.get(id), Some(&TyKind::Primitive(primitive)));
+        for primitive_ty in PrimitiveTy::ALL {
+            let id = primitive(&append, primitive_ty);
+            assert_eq!(store.get(id), Some(&TyKind::Primitive(primitive_ty)));
         }
     }
 
@@ -1579,10 +1589,12 @@ mod tests {
             .expect("allocate module ID");
         let first_i32 = first
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::I32);
+            .primitive(PrimitiveTy::I32)
+            .expect("intern first i32 type");
         let second_i32 = second
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::I32);
+            .primitive(PrimitiveTy::I32)
+            .expect("intern second i32 type");
 
         assert_ne!(first.id(), second.id());
         assert_ne!(first_i32, second_i32);
@@ -1604,13 +1616,13 @@ mod tests {
         let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let first = store.append_for_module(module_ids.allocate().expect("allocate module ID"));
         let second = store.append_for_module(module_ids.allocate().expect("allocate module ID"));
-        let first_elem = first.primitive(PrimitiveTy::U32);
-        let second_elem = second.primitive(PrimitiveTy::U32);
-        let first_pointer = first.intern(TyKind::Pointer {
+        let first_elem = primitive(&first, PrimitiveTy::U32);
+        let second_elem = primitive(&second, PrimitiveTy::U32);
+        let first_pointer = intern(&first, TyKind::Pointer {
             is_readonly: true,
             elem: first_elem,
         });
-        let second_pointer = second.intern(TyKind::Pointer {
+        let second_pointer = intern(&second, TyKind::Pointer {
             is_readonly: true,
             elem: second_elem,
         });
@@ -1627,12 +1639,12 @@ mod tests {
             .allocate()
             .expect("allocate module ID");
         let append = store.append_for_module(module_id);
-        let i32_ty = append.primitive(PrimitiveTy::I32);
-        let pointee = append.intern(TyKind::CallablePointee {
+        let i32_ty = primitive(&append, PrimitiveTy::I32);
+        let pointee = intern(&append, TyKind::CallablePointee {
             params: vec![i32_ty],
             return_type: i32_ty,
         });
-        let view = append.intern(TyKind::Pointer {
+        let view = intern(&append, TyKind::Pointer {
             is_readonly: true,
             elem: pointee,
         });
@@ -1656,7 +1668,8 @@ mod tests {
             .expect("allocate module ID");
         let usize_ty = store
             .append_for_module(module_id)
-            .primitive(PrimitiveTy::Usize);
+            .primitive(PrimitiveTy::Usize)
+            .expect("intern usize type");
         let argument = |value| ConstGenericArg {
             ty: usize_ty,
             value,
@@ -1683,21 +1696,23 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "outside its session type store")]
     fn interning_rejects_foreign_session_type_dependencies() {
         let local = TypeStore::new().expect("create type store");
         let foreign = TypeStore::new().expect("create type store");
         let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let foreign_ty = foreign
             .append_for_module(module_ids.allocate().expect("allocate module ID"))
-            .primitive(PrimitiveTy::U32);
+            .primitive(PrimitiveTy::U32)
+            .expect("intern foreign type");
 
-        local
+        let error = local
             .append_for_module(module_ids.allocate().expect("allocate module ID"))
             .intern(TyKind::Pointer {
                 is_readonly: true,
                 elem: foreign_ty,
-            });
+            })
+            .expect_err("foreign session dependency must be rejected");
+        assert!(error.message.contains("outside its session type store"));
     }
 
     #[test]
@@ -1715,13 +1730,15 @@ mod tests {
                 },
                 args: Vec::new(),
                 const_args: Vec::new(),
-            });
+            })
+            .expect("intern foreign-module nominal type");
         let pointer = store
             .append_for_module(local_module_id)
             .intern(TyKind::Pointer {
                 is_readonly: true,
                 elem: foreign,
-            });
+            })
+            .expect("intern pointer to same-session type");
 
         assert_eq!(
             store.get(pointer),
