@@ -979,8 +979,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let Some(exited_scopes) = body.return_exited_scopes(block) else {
             return Err(self.error(span, "invalid function return scopes"));
         };
-        let mut key = Vec::new();
-        let mut scopes = Vec::new();
+        let mut cleanup_bodies = Vec::new();
         for scope_id in exited_scopes {
             let Some(index) = self.function_defer_scopes.get(&scope_id).copied() else {
                 return Err(self.error(span, "missing function defer scope"));
@@ -988,13 +987,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             let Some(scope) = self.defer_scopes.get(index) else {
                 return Err(self.error(span, "missing function defer storage"));
             };
-            if scope.bodies.is_empty() {
-                continue;
+            for (body_index, defer_body) in scope.bodies.iter().enumerate().rev() {
+                cleanup_bodies.push(((scope_id, body_index), defer_body.clone()));
             }
-            key.push((scope_id, scope.bodies.len()));
-            scopes.push(scope.clone());
         }
-        if scopes.is_empty() {
+        if cleanup_bodies.is_empty() {
             return Ok(false);
         }
 
@@ -1007,9 +1004,30 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .map_err(|_| self.error(span, "failed to store cleanup return value"))?;
         }
 
-        let entry = if let Some(entry) = self.function_return_cleanup_blocks.get(&key).copied() {
+        let mut next = if let Some(entry) = self.function_return_cleanup_return {
             entry
         } else {
+            let entry = self
+                .module
+                .context
+                .append_basic_block(self.llvm_function, "return.cleanup")?;
+            self.function_return_cleanup_return = Some(entry);
+            self.pending_function_return_cleanups
+                .push(super::FunctionReturnCleanup {
+                    entry,
+                    body: None,
+                    next: None,
+                    span,
+                });
+            entry
+        };
+
+        for ((scope_id, body_index), defer_body) in cleanup_bodies.into_iter().rev() {
+            let key = (scope_id, body_index, next);
+            if let Some(entry) = self.function_return_cleanup_blocks.get(&key).copied() {
+                next = entry;
+                continue;
+            }
             let entry = self
                 .module
                 .context
@@ -1018,13 +1036,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             self.pending_function_return_cleanups
                 .push(super::FunctionReturnCleanup {
                     entry,
-                    scopes,
+                    body: Some(defer_body),
+                    next: Some(next),
                     span,
                 });
-            entry
-        };
+            next = entry;
+        }
         self.builder
-            .build_unconditional_branch(entry)
+            .build_unconditional_branch(next)
             .map_err(|_| self.error(span, "failed to branch to function return cleanup"))?;
         Ok(true)
     }
@@ -1034,47 +1053,63 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
     ) -> Result<(), Diagnostic> {
         let cleanups = std::mem::take(&mut self.pending_function_return_cleanups);
-        for cleanup in cleanups {
+        for cleanup in cleanups.into_iter().rev() {
             self.builder.position_at_end(cleanup.entry);
-            for scope in cleanup.scopes {
-                self.emit_defer_scope(scope, outer_blocks)?;
+            if let Some(body) = cleanup.body {
+                self.emit_defer_function_body(&body, outer_blocks)?;
                 if self.current_block_has_terminator() {
-                    break;
+                    continue;
                 }
-            }
-            if self.current_block_has_terminator() {
+                let Some(next) = cleanup.next else {
+                    return Err(self.error(cleanup.span, "missing cleanup successor"));
+                };
+                self.builder.build_unconditional_branch(next).map_err(|_| {
+                    self.error(cleanup.span, "failed to branch to next function cleanup")
+                })?;
                 continue;
             }
-            match self
-                .module
-                .classify_function_return(self.function.return_type)
-            {
-                crate::module_codegen::AbiReturn::Direct(_)
-                | crate::module_codegen::AbiReturn::IndirectOut(_) => {
-                    let Some(storage) = self.function_return_storage else {
-                        return Err(self.error(cleanup.span, "missing cleanup return storage"));
-                    };
-                    let ty = self
-                        .module
-                        .llvm_basic_type(self.function.return_type, cleanup.span)?;
-                    let value = self
-                        .builder
-                        .build_load(ty, storage, "return.cleanup.value")
-                        .map_err(|_| {
-                            self.error(cleanup.span, "failed to load cleanup return value")
-                        })?;
-                    self.emit_return_value(cleanup.span, value)?;
-                }
-                crate::module_codegen::AbiReturn::Void => {
-                    self.builder
-                        .build_return(None)
-                        .map_err(|_| self.error(cleanup.span, "failed to build cleanup return"))?;
-                }
-                crate::module_codegen::AbiReturn::Never => {
-                    self.builder.build_unreachable().map_err(|_| {
-                        self.error(cleanup.span, "failed to build cleanup never return")
-                    })?;
-                }
+            let mut last_block = cleanup.entry;
+            while let Some(next) = last_block.get_next_basic_block() {
+                last_block = next;
+            }
+            cleanup
+                .entry
+                .move_after(last_block)
+                .map_err(super::ModuleCodegen::diagnostic_from_llvm_error)?;
+            self.builder.position_at_end(cleanup.entry);
+            self.emit_stored_function_return(cleanup.span)?;
+        }
+        Ok(())
+    }
+
+    fn emit_stored_function_return(&mut self, span: Span) -> Result<(), Diagnostic> {
+        match self
+            .module
+            .classify_function_return(self.function.return_type)
+        {
+            crate::module_codegen::AbiReturn::Direct(_)
+            | crate::module_codegen::AbiReturn::IndirectOut(_) => {
+                let Some(storage) = self.function_return_storage else {
+                    return Err(self.error(span, "missing cleanup return storage"));
+                };
+                let ty = self
+                    .module
+                    .llvm_basic_type(self.function.return_type, span)?;
+                let value = self
+                    .builder
+                    .build_load(ty, storage, "return.cleanup.value")
+                    .map_err(|_| self.error(span, "failed to load cleanup return value"))?;
+                self.emit_return_value(span, value)?;
+            }
+            crate::module_codegen::AbiReturn::Void => {
+                self.builder
+                    .build_return(None)
+                    .map_err(|_| self.error(span, "failed to build cleanup return"))?;
+            }
+            crate::module_codegen::AbiReturn::Never => {
+                self.builder
+                    .build_unreachable()
+                    .map_err(|_| self.error(span, "failed to build cleanup never return"))?;
             }
         }
         Ok(())
