@@ -1,6 +1,22 @@
 use super::*;
 use nia_ids::ModuleIdAllocator;
 
+trait TestTypeStoreAppend {
+    fn test_intern(&self, kind: TyKind) -> InternedTyId;
+    fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId;
+}
+
+impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+    fn test_intern(&self, kind: TyKind) -> InternedTyId {
+        self.intern(kind).expect("intern trait-solve test type")
+    }
+
+    fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+        self.primitive(primitive)
+            .expect("intern primitive trait-solve test type")
+    }
+}
+
 fn const_arg(ty: InternedTyId, value: u128) -> ConstGenericArg {
     ConstGenericArg {
         ty,
@@ -23,8 +39,8 @@ fn structural_equivalence_resolves_const_expression_array_lengths() {
     let type_store = TypeStore::new().expect("create type store");
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);
-    let left_u8 = left.primitive(PrimitiveTy::U8);
-    let right_u8 = right.primitive(PrimitiveTy::U8);
+    let left_u8 = left.test_primitive(PrimitiveTy::U8);
+    let right_u8 = right.test_primitive(PrimitiveTy::U8);
     let left_expr = GlobalConstExprId {
         module_id: left_module,
         const_expr_id: nia_ids::ConstExprId(1),
@@ -33,11 +49,11 @@ fn structural_equivalence_resolves_const_expression_array_lengths() {
         module_id: right_module,
         const_expr_id: nia_ids::ConstExprId(2),
     };
-    let left_array = left.intern(TyKind::Array {
+    let left_array = left.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstExpr(left_expr),
         elem: left_u8,
     });
-    let right_array = right.intern(TyKind::Array {
+    let right_array = right.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstExpr(right_expr),
         elem: right_u8,
     });
@@ -69,6 +85,7 @@ fn structural_equivalence_resolves_const_expression_array_lengths() {
         context
             .solver(&[])
             .types_equivalent(left_array, right_array)
+            .expect("compare array types")
     );
 
     let unresolved_context = TraitSolverContext {
@@ -79,6 +96,7 @@ fn structural_equivalence_resolves_const_expression_array_lengths() {
         !unresolved_context
             .solver(&[])
             .types_equivalent(left_array, right_array)
+            .expect("compare unresolved array types")
     );
 }
 
@@ -90,8 +108,8 @@ fn sized_lookup_matches_layout_array_const_expressions_semantically() {
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let layout_append = type_store.append_for_module(layout_module_id);
-    let u8_ty = append.primitive(PrimitiveTy::U8);
-    let layout_u8_ty = layout_append.primitive(PrimitiveTy::U8);
+    let u8_ty = append.test_primitive(PrimitiveTy::U8);
+    let layout_u8_ty = layout_append.test_primitive(PrimitiveTy::U8);
     let left_expr = GlobalConstExprId {
         module_id,
         const_expr_id: nia_ids::ConstExprId(10),
@@ -100,11 +118,11 @@ fn sized_lookup_matches_layout_array_const_expressions_semantically() {
         module_id: layout_module_id,
         const_expr_id: nia_ids::ConstExprId(11),
     };
-    let actual = append.intern(TyKind::Array {
+    let actual = append.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstExpr(left_expr),
         elem: u8_ty,
     });
-    let layout_key = layout_append.intern(TyKind::Array {
+    let layout_key = layout_append.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstExpr(right_expr),
         elem: layout_u8_ty,
     });
@@ -144,7 +162,12 @@ fn sized_lookup_matches_layout_array_const_expressions_semantically() {
     };
 
     assert_ne!(actual, layout_key);
-    assert!(context.solver(&[]).types_equivalent(actual, layout_key));
+    assert!(
+        context
+            .solver(&[])
+            .types_equivalent(actual, layout_key)
+            .expect("compare layout array types")
+    );
     assert!(context.solver(&[]).layout_of(actual));
 
     let unresolved_context = TraitSolverContext {
@@ -155,6 +178,7 @@ fn sized_lookup_matches_layout_array_const_expressions_semantically() {
         !unresolved_context
             .solver(&[])
             .types_equivalent(actual, layout_key)
+            .expect("compare unresolved layout array types")
     );
     assert!(!unresolved_context.solver(&[]).layout_of(actual));
 }
@@ -167,8 +191,8 @@ fn sized_lookup_matches_layout_nominal_const_expressions_semantically() {
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let layout_append = type_store.append_for_module(layout_module_id);
-    let usize_ty = append.primitive(PrimitiveTy::Usize);
-    let layout_usize_ty = layout_append.primitive(PrimitiveTy::Usize);
+    let usize_ty = append.test_primitive(PrimitiveTy::Usize);
+    let layout_usize_ty = layout_append.test_primitive(PrimitiveTy::Usize);
     let def_id = GlobalDefId {
         module_id,
         def_id: DefId(93),
@@ -181,7 +205,7 @@ fn sized_lookup_matches_layout_nominal_const_expressions_semantically() {
         module_id: layout_module_id,
         const_expr_id: nia_ids::ConstExprId(13),
     };
-    let actual = append.intern(TyKind::Nominal {
+    let actual = append.test_intern(TyKind::Nominal {
         def_id,
         args: Vec::new(),
         const_args: vec![ConstGenericArg {
@@ -189,7 +213,7 @@ fn sized_lookup_matches_layout_nominal_const_expressions_semantically() {
             value: ConstGenericValue::ConstExpr(left_expr),
         }],
     });
-    let layout_key = layout_append.intern(TyKind::Nominal {
+    let layout_key = layout_append.test_intern(TyKind::Nominal {
         def_id,
         args: Vec::new(),
         const_args: vec![ConstGenericArg {
@@ -253,7 +277,7 @@ fn enum_classification_reads_new_types_from_canonical_store() {
     };
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let ty = append.intern(TyKind::Nominal {
+    let ty = append.test_intern(TyKind::Nominal {
         def_id: local_enum,
         args: Vec::new(),
         const_args: Vec::new(),
@@ -266,7 +290,7 @@ fn enum_classification_reads_new_types_from_canonical_store() {
     local_enums.insert(
         local_enum_id,
         EnumSignature {
-            backing_type: append.intern(TyKind::Primitive(PrimitiveTy::I32)),
+            backing_type: append.test_intern(TyKind::Primitive(PrimitiveTy::I32)),
             is_open: false,
             variants: Vec::new(),
             span: nia_span::Span::default(),
@@ -296,14 +320,14 @@ fn user_impl_infers_const_generic_from_layout_builtin_array_length() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let usize_ty = append.intern(TyKind::Primitive(PrimitiveTy::Usize));
-    let u8_ty = append.intern(TyKind::Primitive(PrimitiveTy::U8));
+    let usize_ty = append.test_intern(TyKind::Primitive(PrimitiveTy::Usize));
+    let u8_ty = append.test_intern(TyKind::Primitive(PrimitiveTy::U8));
     let const_name = SymbolId::from_stable_hash(1);
     let trait_id = TraitId::Source(GlobalDefId {
         module_id,
         def_id: DefId(1),
     });
-    let layout_ty = append.intern(TyKind::Nominal {
+    let layout_ty = append.test_intern(TyKind::Nominal {
         def_id: GlobalDefId {
             module_id,
             def_id: DefId(2),
@@ -311,11 +335,11 @@ fn user_impl_infers_const_generic_from_layout_builtin_array_length() {
         args: Vec::new(),
         const_args: Vec::new(),
     });
-    let impl_ty = append.intern(TyKind::Array {
+    let impl_ty = append.test_intern(TyKind::Array {
         len: ArrayLenTy::GenericParam(const_name),
         elem: u8_ty,
     });
-    let actual_ty = append.intern(TyKind::Array {
+    let actual_ty = append.test_intern(TyKind::Array {
         len: ArrayLenTy::Builtin {
             builtin: nia_ty::LayoutBuiltin::Size,
             ty: layout_ty,
@@ -370,12 +394,15 @@ fn user_impl_infers_const_generic_from_layout_builtin_array_length() {
     };
     let mut solver = context.solver(&[]);
 
-    let TraitSelection::User(selection) = solver.select_user_impl(TraitGoal {
-        self_ty: actual_ty,
-        trait_id,
-        trait_args: Vec::new(),
-        trait_const_args: Vec::new(),
-    }) else {
+    let TraitSelection::User(selection) = solver
+        .select_user_impl(TraitGoal {
+            self_ty: actual_ty,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+        })
+        .expect("select array layout impl")
+    else {
         panic!("layout builtin array length should select the user impl");
     };
     assert_eq!(
@@ -393,22 +420,22 @@ fn user_impl_infers_type_generic_from_layout_builtin_array_operand() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let u8_ty = append.intern(TyKind::Primitive(PrimitiveTy::U8));
-    let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
+    let u8_ty = append.test_intern(TyKind::Primitive(PrimitiveTy::U8));
+    let i32_ty = append.test_intern(TyKind::Primitive(PrimitiveTy::I32));
     let generic_name = SymbolId::from_stable_hash(2);
     let trait_id = TraitId::Source(GlobalDefId {
         module_id,
         def_id: DefId(3),
     });
-    let generic_ty = append.intern(TyKind::GenericParam(generic_name));
-    let impl_ty = append.intern(TyKind::Array {
+    let generic_ty = append.test_intern(TyKind::GenericParam(generic_name));
+    let impl_ty = append.test_intern(TyKind::Array {
         len: ArrayLenTy::Builtin {
             builtin: nia_ty::LayoutBuiltin::Size,
             ty: generic_ty,
         },
         elem: u8_ty,
     });
-    let actual_ty = append.intern(TyKind::Array {
+    let actual_ty = append.test_intern(TyKind::Array {
         len: ArrayLenTy::Builtin {
             builtin: nia_ty::LayoutBuiltin::Size,
             ty: i32_ty,
@@ -451,12 +478,15 @@ fn user_impl_infers_type_generic_from_layout_builtin_array_operand() {
         impl_is_visible: None,
     };
     let mut solver = context.solver(&[]);
-    let TraitSelection::User(selection) = solver.select_user_impl(TraitGoal {
-        self_ty: actual_ty,
-        trait_id,
-        trait_args: Vec::new(),
-        trait_const_args: Vec::new(),
-    }) else {
+    let TraitSelection::User(selection) = solver
+        .select_user_impl(TraitGoal {
+            self_ty: actual_ty,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+        })
+        .expect("select array operand impl")
+    else {
         panic!("layout builtin array operand should select the user impl");
     };
     assert_eq!(selection.substitutions.get(&generic_name), Some(&i32_ty));
@@ -470,13 +500,13 @@ fn sized_lookup_matches_layout_nominal_const_arguments_semantically() {
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
     let layout_append = type_store.append_for_module(layout_module_id);
-    let usize_ty = append.primitive(PrimitiveTy::Usize);
-    let layout_usize_ty = layout_append.primitive(PrimitiveTy::Usize);
+    let usize_ty = append.test_primitive(PrimitiveTy::Usize);
+    let layout_usize_ty = layout_append.test_primitive(PrimitiveTy::Usize);
     let def_id = GlobalDefId {
         module_id,
         def_id: DefId(91),
     };
-    let actual = append.intern(TyKind::Nominal {
+    let actual = append.test_intern(TyKind::Nominal {
         def_id,
         args: Vec::new(),
         const_args: vec![ConstGenericArg {
@@ -484,7 +514,7 @@ fn sized_lookup_matches_layout_nominal_const_arguments_semantically() {
             value: ConstGenericValue::Int(nia_ty::IntConst::signed(3)),
         }],
     });
-    let layout_key = layout_append.intern(TyKind::Nominal {
+    let layout_key = layout_append.test_intern(TyKind::Nominal {
         def_id,
         args: Vec::new(),
         const_args: vec![ConstGenericArg {
@@ -532,13 +562,13 @@ fn sized_lookup_matches_layout_tuple_elements_structurally() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let usize_ty = append.primitive(PrimitiveTy::Usize);
+    let usize_ty = append.test_primitive(PrimitiveTy::Usize);
     let def_id = GlobalDefId {
         module_id,
         def_id: DefId(92),
     };
     let nominal = |value| {
-        append.intern(TyKind::Nominal {
+        append.test_intern(TyKind::Nominal {
             def_id,
             args: Vec::new(),
             const_args: vec![ConstGenericArg {
@@ -547,8 +577,9 @@ fn sized_lookup_matches_layout_tuple_elements_structurally() {
             }],
         })
     };
-    let actual = append.intern(TyKind::Tuple(vec![nominal(nia_ty::IntConst::signed(4))]));
-    let layout_key = append.intern(TyKind::Tuple(vec![nominal(nia_ty::IntConst::unsigned(4))]));
+    let actual = append.test_intern(TyKind::Tuple(vec![nominal(nia_ty::IntConst::signed(4))]));
+    let layout_key =
+        append.test_intern(TyKind::Tuple(vec![nominal(nia_ty::IntConst::unsigned(4))]));
     let layouts = nia_layout::Layouts {
         module_id,
         target: nia_layout::TargetDataLayout::LP64,
@@ -590,18 +621,18 @@ fn failed_array_element_match_does_not_publish_const_length_inference() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let u8_ty = append.primitive(PrimitiveTy::U8);
-    let bool_ty = append.primitive(PrimitiveTy::Bool);
+    let u8_ty = append.test_primitive(PrimitiveTy::U8);
+    let bool_ty = append.test_primitive(PrimitiveTy::Bool);
     let length_name = SymbolId::from_stable_hash(11);
     let element_name = SymbolId::from_stable_hash(12);
-    let element_generic_ty = append.intern(TyKind::GenericParam(element_name));
-    let pattern = append.intern(TyKind::Array {
+    let element_generic_ty = append.test_intern(TyKind::GenericParam(element_name));
+    let pattern = append.test_intern(TyKind::Array {
         len: ArrayLenTy::GenericParam(length_name),
-        elem: append.intern(TyKind::Tuple(vec![element_generic_ty, u8_ty])),
+        elem: append.test_intern(TyKind::Tuple(vec![element_generic_ty, u8_ty])),
     });
-    let actual = append.intern(TyKind::Array {
+    let actual = append.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstValue(3),
-        elem: append.intern(TyKind::Tuple(vec![bool_ty, bool_ty])),
+        elem: append.test_intern(TyKind::Tuple(vec![bool_ty, bool_ty])),
     });
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
@@ -644,12 +675,12 @@ fn failed_tuple_match_does_not_publish_earlier_type_inference() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let bool_ty = append.primitive(PrimitiveTy::Bool);
-    let u8_ty = append.primitive(PrimitiveTy::U8);
+    let bool_ty = append.test_primitive(PrimitiveTy::Bool);
+    let u8_ty = append.test_primitive(PrimitiveTy::U8);
     let generic_name = SymbolId::from_stable_hash(13);
-    let generic_ty = append.intern(TyKind::GenericParam(generic_name));
-    let pattern = append.intern(TyKind::Tuple(vec![generic_ty, u8_ty]));
-    let actual = append.intern(TyKind::Tuple(vec![bool_ty, bool_ty]));
+    let generic_ty = append.test_intern(TyKind::GenericParam(generic_name));
+    let pattern = append.test_intern(TyKind::Tuple(vec![generic_ty, u8_ty]));
+    let actual = append.test_intern(TyKind::Tuple(vec![bool_ty, bool_ty]));
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
@@ -688,10 +719,10 @@ fn trait_object_impl_matching_backtracks_without_reusing_bindings() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let i32_ty = append.primitive(PrimitiveTy::I32);
-    let bool_ty = append.primitive(PrimitiveTy::Bool);
+    let i32_ty = append.test_primitive(PrimitiveTy::I32);
+    let bool_ty = append.test_primitive(PrimitiveTy::Bool);
     let generic_name = SymbolId::from_stable_hash(19);
-    let generic_ty = append.intern(TyKind::GenericParam(generic_name));
+    let generic_ty = append.test_intern(TyKind::GenericParam(generic_name));
     let object_trait = TraitId::Source(GlobalDefId {
         module_id,
         def_id: DefId(1),
@@ -708,21 +739,21 @@ fn trait_object_impl_matching_backtracks_without_reusing_bindings() {
         trait_const_args: Vec::new(),
         ty,
     };
-    let pattern_ty = append.intern(TyKind::TraitObject {
+    let pattern_ty = append.test_intern(TyKind::TraitObject {
         is_readonly: false,
         trait_id: object_trait,
         trait_args: Vec::new(),
         trait_const_args: Vec::new(),
         associated_type_bindings: vec![binding(generic_ty), binding(i32_ty)],
     });
-    let actual_ty = append.intern(TyKind::TraitObject {
+    let actual_ty = append.test_intern(TyKind::TraitObject {
         is_readonly: false,
         trait_id: object_trait,
         trait_args: Vec::new(),
         trait_const_args: Vec::new(),
         associated_type_bindings: vec![binding(i32_ty), binding(bool_ty)],
     });
-    let duplicate_pattern_ty = append.intern(TyKind::TraitObject {
+    let duplicate_pattern_ty = append.test_intern(TyKind::TraitObject {
         is_readonly: false,
         trait_id: object_trait,
         trait_args: Vec::new(),
@@ -806,12 +837,12 @@ fn callable_pointees_are_unsized_while_callable_views_are_sized() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let i32_ty = append.primitive(PrimitiveTy::I32);
-    let pointee = append.intern(TyKind::CallablePointee {
+    let i32_ty = append.test_primitive(PrimitiveTy::I32);
+    let pointee = append.test_intern(TyKind::CallablePointee {
         params: vec![i32_ty],
         return_type: i32_ty,
     });
-    let view = append.intern(TyKind::Callable {
+    let view = append.test_intern(TyKind::Callable {
         is_readonly: true,
         params: vec![i32_ty],
         return_type: i32_ty,
@@ -842,9 +873,21 @@ fn callable_pointees_are_unsized_while_callable_views_are_sized() {
         trait_const_args: Vec::new(),
     };
 
-    assert!(solver.proves(goal(view, BuiltinTrait::Sized)));
-    assert!(!solver.proves(goal(pointee, BuiltinTrait::Sized)));
-    assert!(solver.proves(goal(pointee, BuiltinTrait::Unsized)));
+    assert!(
+        solver
+            .proves(goal(view, BuiltinTrait::Sized))
+            .expect("prove sized view")
+    );
+    assert!(
+        !solver
+            .proves(goal(pointee, BuiltinTrait::Sized))
+            .expect("test sized pointee")
+    );
+    assert!(
+        solver
+            .proves(goal(pointee, BuiltinTrait::Unsized))
+            .expect("prove unsized pointee")
+    );
 }
 
 #[test]
@@ -853,11 +896,11 @@ fn builtin_traits_reject_const_arguments() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let vector = append.intern(TyKind::Vector {
+    let vector = append.test_intern(TyKind::Vector {
         elem: PrimitiveTy::I32,
         lanes: 4,
     });
-    let usize_ty = append.primitive(PrimitiveTy::Usize);
+    let usize_ty = append.test_primitive(PrimitiveTy::Usize);
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
@@ -885,7 +928,9 @@ fn builtin_traits_reject_const_arguments() {
     };
 
     assert_eq!(
-        solver.resolve(malformed_goal.clone()),
+        solver
+            .resolve(malformed_goal.clone())
+            .expect("resolve malformed builtin goal"),
         TraitResolution::Unsatisfied
     );
     assert!(
@@ -897,6 +942,7 @@ fn builtin_traits_reject_const_arguments() {
                 &malformed_goal.trait_const_args,
                 &known::LANES,
             )
+            .expect("resolve builtin associated const")
             .is_none()
     );
 }
@@ -907,8 +953,8 @@ fn concrete_closure_states_are_sized_when_their_captures_are_sized() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let i32_ty = append.primitive(PrimitiveTy::I32);
-    let closure = append.intern(TyKind::ClosureState {
+    let i32_ty = append.test_primitive(PrimitiveTy::I32);
+    let closure = append.test_intern(TyKind::ClosureState {
         closure_id: nia_ids::ClosureId {
             owner: GlobalDefId {
                 module_id,
@@ -940,12 +986,16 @@ fn concrete_closure_states_are_sized_when_their_captures_are_sized() {
     };
     let mut solver = context.solver(&[]);
 
-    assert!(solver.proves(TraitGoal {
-        self_ty: closure,
-        trait_id: TraitId::Builtin(BuiltinTrait::Sized),
-        trait_args: Vec::new(),
-        trait_const_args: Vec::new(),
-    }));
+    assert!(
+        solver
+            .proves(TraitGoal {
+                self_ty: closure,
+                trait_id: TraitId::Builtin(BuiltinTrait::Sized),
+                trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
+            })
+            .expect("prove closure is sized")
+    );
 }
 
 #[test]
@@ -954,11 +1004,11 @@ fn user_impl_substitutes_const_argument_types_before_matching() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let u8_ty = append.primitive(PrimitiveTy::U8);
-    let u16_ty = append.primitive(PrimitiveTy::U16);
+    let u8_ty = append.test_primitive(PrimitiveTy::U8);
+    let u16_ty = append.test_primitive(PrimitiveTy::U16);
     let type_name = SymbolId::from_stable_hash(2);
     let const_name = SymbolId::from_stable_hash(3);
-    let generic_ty = append.intern(TyKind::GenericParam(type_name));
+    let generic_ty = append.test_intern(TyKind::GenericParam(type_name));
     let container = GlobalDefId {
         module_id,
         def_id: DefId(3),
@@ -967,17 +1017,17 @@ fn user_impl_substitutes_const_argument_types_before_matching() {
         module_id,
         def_id: DefId(4),
     });
-    let pattern_ty = append.intern(TyKind::Nominal {
+    let pattern_ty = append.test_intern(TyKind::Nominal {
         def_id: container,
         args: vec![generic_ty],
         const_args: vec![const_param(generic_ty, const_name)],
     });
-    let actual_ty = append.intern(TyKind::Nominal {
+    let actual_ty = append.test_intern(TyKind::Nominal {
         def_id: container,
         args: vec![u8_ty],
         const_args: vec![const_arg(u8_ty, 3)],
     });
-    let mismatched_ty = append.intern(TyKind::Nominal {
+    let mismatched_ty = append.test_intern(TyKind::Nominal {
         def_id: container,
         args: vec![u8_ty],
         const_args: vec![const_arg(u16_ty, 3)],
@@ -1023,18 +1073,28 @@ fn user_impl_substitutes_const_argument_types_before_matching() {
         impl_is_visible: None,
     };
 
-    assert!(context.solver(&[]).proves(TraitGoal {
-        self_ty: actual_ty,
-        trait_id,
-        trait_args: Vec::new(),
-        trait_const_args: Vec::new(),
-    }));
-    assert!(!context.solver(&[]).proves(TraitGoal {
-        self_ty: mismatched_ty,
-        trait_id,
-        trait_args: Vec::new(),
-        trait_const_args: Vec::new(),
-    }));
+    assert!(
+        context
+            .solver(&[])
+            .proves(TraitGoal {
+                self_ty: actual_ty,
+                trait_id,
+                trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
+            })
+            .expect("prove matching const argument goal")
+    );
+    assert!(
+        !context
+            .solver(&[])
+            .proves(TraitGoal {
+                self_ty: mismatched_ty,
+                trait_id,
+                trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
+            })
+            .expect("test mismatched const argument goal")
+    );
 }
 
 #[test]
@@ -1043,8 +1103,8 @@ fn associated_type_substitutes_const_arguments_inferred_from_impl_target() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let usize_ty = append.primitive(PrimitiveTy::Usize);
-    let u8_ty = append.primitive(PrimitiveTy::U8);
+    let usize_ty = append.test_primitive(PrimitiveTy::Usize);
+    let u8_ty = append.test_primitive(PrimitiveTy::U8);
     let n = SymbolId::from_stable_hash(10);
     let item = SymbolId::from_stable_hash(11);
     let container = GlobalDefId {
@@ -1055,17 +1115,17 @@ fn associated_type_substitutes_const_arguments_inferred_from_impl_target() {
         module_id,
         def_id: DefId(11),
     });
-    let pattern_ty = append.intern(TyKind::Nominal {
+    let pattern_ty = append.test_intern(TyKind::Nominal {
         def_id: container,
         args: Vec::new(),
         const_args: vec![const_param(usize_ty, n)],
     });
-    let actual_ty = append.intern(TyKind::Nominal {
+    let actual_ty = append.test_intern(TyKind::Nominal {
         def_id: container,
         args: Vec::new(),
         const_args: vec![const_arg(usize_ty, 3)],
     });
-    let associated_ty = append.intern(TyKind::Array {
+    let associated_ty = append.test_intern(TyKind::Array {
         len: ArrayLenTy::GenericParam(n),
         elem: u8_ty,
     });
@@ -1129,7 +1189,8 @@ fn associated_type_substitutes_const_arguments_inferred_from_impl_target() {
 
     let resolved = solver
         .resolve_associated_type(actual_ty, trait_id, &[], &[], &item)
-        .expect("associated type should resolve");
+        .expect("resolve associated type")
+        .expect("associated type should exist");
     assert!(matches!(
         type_store.get(resolved),
         Some(TyKind::Array {
@@ -1145,7 +1206,7 @@ fn impl_where_predicate_substitutes_const_arguments_from_target() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let usize_ty = append.primitive(PrimitiveTy::Usize);
+    let usize_ty = append.test_primitive(PrimitiveTy::Usize);
     let n = SymbolId::from_stable_hash(20);
     let marker = GlobalDefId {
         module_id,
@@ -1163,27 +1224,27 @@ fn impl_where_predicate_substitutes_const_arguments_from_target() {
         module_id,
         def_id: DefId(23),
     });
-    let marker_three = append.intern(TyKind::Nominal {
+    let marker_three = append.test_intern(TyKind::Nominal {
         def_id: marker,
         args: Vec::new(),
         const_args: vec![const_arg(usize_ty, 3)],
     });
-    let marker_n = append.intern(TyKind::Nominal {
+    let marker_n = append.test_intern(TyKind::Nominal {
         def_id: marker,
         args: Vec::new(),
         const_args: vec![const_param(usize_ty, n)],
     });
-    let container_n = append.intern(TyKind::Nominal {
+    let container_n = append.test_intern(TyKind::Nominal {
         def_id: container,
         args: Vec::new(),
         const_args: vec![const_param(usize_ty, n)],
     });
-    let container_three = append.intern(TyKind::Nominal {
+    let container_three = append.test_intern(TyKind::Nominal {
         def_id: container,
         args: Vec::new(),
         const_args: vec![const_arg(usize_ty, 3)],
     });
-    let prerequisite_ty = append.intern(TyKind::Nominal {
+    let prerequisite_ty = append.test_intern(TyKind::Nominal {
         def_id: match prerequisite {
             TraitId::Source(def_id) => def_id,
             TraitId::Builtin(_) => unreachable!(),
@@ -1252,12 +1313,14 @@ fn impl_where_predicate_substitutes_const_arguments_from_target() {
     let mut solver = context.solver(&[]);
 
     assert!(matches!(
-        solver.select_user_impl(TraitGoal {
-            self_ty: container_three,
-            trait_id: outer,
-            trait_args: Vec::new(),
-            trait_const_args: Vec::new(),
-        }),
+        solver
+            .select_user_impl(TraitGoal {
+                self_ty: container_three,
+                trait_id: outer,
+                trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
+            })
+            .expect("select nested const impl"),
         TraitSelection::User(UserImpl { impl_index: 1, .. })
     ));
 }
@@ -1268,9 +1331,9 @@ fn concrete_trait_const_argument_is_more_specific_than_a_parameter() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let usize_ty = append.primitive(PrimitiveTy::Usize);
+    let usize_ty = append.test_primitive(PrimitiveTy::Usize);
     let n = SymbolId::from_stable_hash(30);
-    let target = append.intern(TyKind::Nominal {
+    let target = append.test_intern(TyKind::Nominal {
         def_id: GlobalDefId {
             module_id,
             def_id: DefId(30),
@@ -1334,12 +1397,14 @@ fn concrete_trait_const_argument_is_more_specific_than_a_parameter() {
     let mut solver = context.solver(&[]);
 
     assert!(matches!(
-        solver.select_user_impl(TraitGoal {
-            self_ty: target,
-            trait_id,
-            trait_args: Vec::new(),
-            trait_const_args: vec![const_arg(usize_ty, 3)],
-        }),
+        solver
+            .select_user_impl(TraitGoal {
+                self_ty: target,
+                trait_id,
+                trait_args: Vec::new(),
+                trait_const_args: vec![const_arg(usize_ty, 3)],
+            })
+            .expect("select concrete const impl"),
         TraitSelection::User(UserImpl { impl_index: 1, .. })
     ));
 }
@@ -1350,13 +1415,13 @@ fn repeated_type_parameter_across_impl_header_is_more_specific() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let i32_ty = append.primitive(PrimitiveTy::I32);
+    let i32_ty = append.test_primitive(PrimitiveTy::I32);
     let a = SymbolId::from_stable_hash(32);
     let b = SymbolId::from_stable_hash(33);
     let t = SymbolId::from_stable_hash(34);
-    let a_ty = append.intern(TyKind::GenericParam(a));
-    let b_ty = append.intern(TyKind::GenericParam(b));
-    let t_ty = append.intern(TyKind::GenericParam(t));
+    let a_ty = append.test_intern(TyKind::GenericParam(a));
+    let b_ty = append.test_intern(TyKind::GenericParam(b));
+    let t_ty = append.test_intern(TyKind::GenericParam(t));
     let trait_id = TraitId::Source(GlobalDefId {
         module_id,
         def_id: DefId(32),
@@ -1404,12 +1469,14 @@ fn repeated_type_parameter_across_impl_header_is_more_specific() {
     let mut solver = context.solver(&[]);
 
     assert!(matches!(
-        solver.select_user_impl(TraitGoal {
-            self_ty: i32_ty,
-            trait_id,
-            trait_args: vec![i32_ty],
-            trait_const_args: Vec::new(),
-        }),
+        solver
+            .select_user_impl(TraitGoal {
+                self_ty: i32_ty,
+                trait_id,
+                trait_args: vec![i32_ty],
+                trait_const_args: Vec::new(),
+            })
+            .expect("select repeated type impl"),
         TraitSelection::User(UserImpl { impl_index: 1, .. })
     ));
 }
@@ -1420,7 +1487,7 @@ fn repeated_const_parameter_across_impl_header_is_more_specific() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let usize_ty = append.primitive(PrimitiveTy::Usize);
+    let usize_ty = append.test_primitive(PrimitiveTy::Usize);
     let a = SymbolId::from_stable_hash(35);
     let b = SymbolId::from_stable_hash(36);
     let n = SymbolId::from_stable_hash(37);
@@ -1433,7 +1500,7 @@ fn repeated_const_parameter_across_impl_header_is_more_specific() {
         def_id: DefId(36),
     });
     let container_with = |arg| {
-        append.intern(TyKind::Nominal {
+        append.test_intern(TyKind::Nominal {
             def_id: container,
             args: Vec::new(),
             const_args: vec![arg],
@@ -1496,12 +1563,14 @@ fn repeated_const_parameter_across_impl_header_is_more_specific() {
     let mut solver = context.solver(&[]);
 
     assert!(matches!(
-        solver.select_user_impl(TraitGoal {
-            self_ty: container_with(const_arg(usize_ty, 3)),
-            trait_id,
-            trait_args: Vec::new(),
-            trait_const_args: vec![const_arg(usize_ty, 3)],
-        }),
+        solver
+            .select_user_impl(TraitGoal {
+                self_ty: container_with(const_arg(usize_ty, 3)),
+                trait_id,
+                trait_args: Vec::new(),
+                trait_const_args: vec![const_arg(usize_ty, 3)],
+            })
+            .expect("select repeated const impl"),
         TraitSelection::User(UserImpl { impl_index: 1, .. })
     ));
 }
@@ -1512,7 +1581,7 @@ fn cyclic_impl_where_predicates_do_not_prove_each_other() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let target = append.intern(TyKind::Nominal {
+    let target = append.test_intern(TyKind::Nominal {
         def_id: GlobalDefId {
             module_id,
             def_id: DefId(40),
@@ -1530,12 +1599,12 @@ fn cyclic_impl_where_predicates_do_not_prove_each_other() {
     };
     let trait_a = TraitId::Source(trait_a_def);
     let trait_b = TraitId::Source(trait_b_def);
-    let trait_a_ty = append.intern(TyKind::Nominal {
+    let trait_a_ty = append.test_intern(TyKind::Nominal {
         def_id: trait_a_def,
         args: Vec::new(),
         const_args: Vec::new(),
     });
-    let trait_b_ty = append.intern(TyKind::Nominal {
+    let trait_b_ty = append.test_intern(TyKind::Nominal {
         def_id: trait_b_def,
         args: Vec::new(),
         const_args: Vec::new(),
@@ -1587,12 +1656,14 @@ fn cyclic_impl_where_predicates_do_not_prove_each_other() {
     let mut solver = context.solver(&[]);
 
     assert_eq!(
-        solver.resolve(TraitGoal {
-            self_ty: target,
-            trait_id: trait_a,
-            trait_args: Vec::new(),
-            trait_const_args: Vec::new(),
-        }),
+        solver
+            .resolve(TraitGoal {
+                self_ty: target,
+                trait_id: trait_a,
+                trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
+            })
+            .expect("resolve cyclic where goal"),
         TraitResolution::Unsatisfied
     );
 }
@@ -1603,7 +1674,7 @@ fn cyclic_where_goal_guard_uses_semantic_const_identity() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let usize_ty = append.primitive(PrimitiveTy::Usize);
+    let usize_ty = append.test_primitive(PrimitiveTy::Usize);
     let target_def = GlobalDefId {
         module_id,
         def_id: DefId(50),
@@ -1613,7 +1684,7 @@ fn cyclic_where_goal_guard_uses_semantic_const_identity() {
         def_id: DefId(51),
     };
     let trait_id = TraitId::Source(trait_def);
-    let target_signed = append.intern(TyKind::Nominal {
+    let target_signed = append.test_intern(TyKind::Nominal {
         def_id: target_def,
         args: Vec::new(),
         const_args: vec![ConstGenericArg {
@@ -1621,12 +1692,12 @@ fn cyclic_where_goal_guard_uses_semantic_const_identity() {
             value: ConstGenericValue::Int(nia_ty::IntConst::signed(3)),
         }],
     });
-    let target_unsigned = append.intern(TyKind::Nominal {
+    let target_unsigned = append.test_intern(TyKind::Nominal {
         def_id: target_def,
         args: Vec::new(),
         const_args: vec![const_arg(usize_ty, 3)],
     });
-    let trait_ty = append.intern(TyKind::Nominal {
+    let trait_ty = append.test_intern(TyKind::Nominal {
         def_id: trait_def,
         args: Vec::new(),
         const_args: Vec::new(),
@@ -1674,12 +1745,14 @@ fn cyclic_where_goal_guard_uses_semantic_const_identity() {
     let mut solver = context.solver(&[]);
 
     assert_eq!(
-        solver.resolve(TraitGoal {
-            self_ty: target_signed,
-            trait_id,
-            trait_args: Vec::new(),
-            trait_const_args: Vec::new(),
-        }),
+        solver
+            .resolve(TraitGoal {
+                self_ty: target_signed,
+                trait_id,
+                trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
+            })
+            .expect("resolve semantic cyclic where goal"),
         TraitResolution::Unsatisfied
     );
 }
@@ -1690,7 +1763,7 @@ fn associated_projection_guard_uses_semantic_goal_identity() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let usize_ty = append.primitive(PrimitiveTy::Usize);
+    let usize_ty = append.test_primitive(PrimitiveTy::Usize);
     let target_def = GlobalDefId {
         module_id,
         def_id: DefId(60),
@@ -1700,7 +1773,7 @@ fn associated_projection_guard_uses_semantic_goal_identity() {
         def_id: DefId(61),
     };
     let trait_id = TraitId::Source(trait_def);
-    let target_signed = append.intern(TyKind::Nominal {
+    let target_signed = append.test_intern(TyKind::Nominal {
         def_id: target_def,
         args: Vec::new(),
         const_args: vec![ConstGenericArg {
@@ -1708,7 +1781,7 @@ fn associated_projection_guard_uses_semantic_goal_identity() {
             value: ConstGenericValue::Int(nia_ty::IntConst::signed(5)),
         }],
     });
-    let target_unsigned = append.intern(TyKind::Nominal {
+    let target_unsigned = append.test_intern(TyKind::Nominal {
         def_id: target_def,
         args: Vec::new(),
         const_args: vec![const_arg(usize_ty, 5)],
@@ -1763,14 +1836,14 @@ fn projection_equivalence_guard_uses_semantic_pair_identity() {
     let type_store = TypeStore::new().expect("create type store");
     let left = type_store.append_for_module(left_module);
     let right = type_store.append_for_module(right_module);
-    let left_usize = left.primitive(PrimitiveTy::Usize);
-    let right_usize = right.primitive(PrimitiveTy::Usize);
+    let left_usize = left.test_primitive(PrimitiveTy::Usize);
+    let right_usize = right.test_primitive(PrimitiveTy::Usize);
     let def_id = GlobalDefId {
         module_id: left_module,
         def_id: DefId(63),
     };
     let make = |append: &nia_ty::TypeStoreAppend, usize_ty, value| {
-        append.intern(TyKind::Nominal {
+        append.test_intern(TyKind::Nominal {
             def_id,
             args: Vec::new(),
             const_args: vec![ConstGenericArg {
@@ -1818,14 +1891,14 @@ fn array_layout_builtin_equivalence_recurses_through_operand_types() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let usize_ty = append.primitive(PrimitiveTy::Usize);
-    let u8_ty = append.primitive(PrimitiveTy::U8);
+    let usize_ty = append.test_primitive(PrimitiveTy::Usize);
+    let u8_ty = append.test_primitive(PrimitiveTy::U8);
     let nominal_def = GlobalDefId {
         module_id,
         def_id: DefId(64),
     };
     let nominal = |value| {
-        append.intern(TyKind::Nominal {
+        append.test_intern(TyKind::Nominal {
             def_id: nominal_def,
             args: Vec::new(),
             const_args: vec![ConstGenericArg {
@@ -1836,14 +1909,14 @@ fn array_layout_builtin_equivalence_recurses_through_operand_types() {
     };
     let left_operand = nominal(nia_ty::IntConst::signed(7));
     let right_operand = nominal(nia_ty::IntConst::unsigned(7));
-    let left = append.intern(TyKind::Array {
+    let left = append.test_intern(TyKind::Array {
         len: ArrayLenTy::Builtin {
             builtin: nia_ty::LayoutBuiltin::Size,
             ty: left_operand,
         },
         elem: u8_ty,
     });
-    let right = append.intern(TyKind::Array {
+    let right = append.test_intern(TyKind::Array {
         len: ArrayLenTy::Builtin {
             builtin: nia_ty::LayoutBuiltin::Size,
             ty: right_operand,
@@ -1870,16 +1943,24 @@ fn array_layout_builtin_equivalence_recurses_through_operand_types() {
     };
     let mut solver = context.solver(&[]);
 
-    assert!(solver.types_equivalent(left, right));
+    assert!(
+        solver
+            .types_equivalent(left, right)
+            .expect("compare builtin projection operands")
+    );
 
-    let align = append.intern(TyKind::Array {
+    let align = append.test_intern(TyKind::Array {
         len: ArrayLenTy::Builtin {
             builtin: nia_ty::LayoutBuiltin::Align,
             ty: right_operand,
         },
         elem: u8_ty,
     });
-    assert!(!solver.types_equivalent(left, align));
+    assert!(
+        !solver
+            .types_equivalent(left, align)
+            .expect("compare distinct layout builtins")
+    );
 }
 
 #[test]
@@ -1888,7 +1969,7 @@ fn projection_equivalence_recurses_through_tuple_elements() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let usize_ty = append.primitive(PrimitiveTy::Usize);
+    let usize_ty = append.test_primitive(PrimitiveTy::Usize);
     let trait_id = TraitId::Source(GlobalDefId {
         module_id,
         def_id: DefId(65),
@@ -1898,7 +1979,7 @@ fn projection_equivalence_recurses_through_tuple_elements() {
         def_id: DefId(66),
     };
     let make_target = |value| {
-        append.intern(TyKind::Nominal {
+        append.test_intern(TyKind::Nominal {
             def_id: target_def,
             args: Vec::new(),
             const_args: vec![ConstGenericArg {
@@ -1907,22 +1988,22 @@ fn projection_equivalence_recurses_through_tuple_elements() {
             }],
         })
     };
-    let left_projection = append.intern(TyKind::Projection {
+    let left_projection = append.test_intern(TyKind::Projection {
         self_ty: make_target(nia_ty::IntConst::signed(9)),
         trait_id,
         trait_args: Vec::new(),
         trait_const_args: Vec::new(),
         name: SymbolId::from_stable_hash(67),
     });
-    let right_projection = append.intern(TyKind::Projection {
+    let right_projection = append.test_intern(TyKind::Projection {
         self_ty: make_target(nia_ty::IntConst::unsigned(9)),
         trait_id,
         trait_args: Vec::new(),
         trait_const_args: Vec::new(),
         name: SymbolId::from_stable_hash(67),
     });
-    let left = append.intern(TyKind::Tuple(vec![left_projection]));
-    let right = append.intern(TyKind::Tuple(vec![right_projection]));
+    let left = append.test_intern(TyKind::Tuple(vec![left_projection]));
+    let right = append.test_intern(TyKind::Tuple(vec![right_projection]));
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
@@ -1943,5 +2024,9 @@ fn projection_equivalence_recurses_through_tuple_elements() {
     };
     let mut solver = context.solver(&[]);
 
-    assert!(solver.types_equivalent(left, right));
+    assert!(
+        solver
+            .types_equivalent(left, right)
+            .expect("compare tuple projections")
+    );
 }
