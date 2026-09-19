@@ -882,6 +882,7 @@ dependencies = [
  "nia-ast",
  "nia-defs",
  "nia-diagnostic",
+ "nia-ice",
  "nia-ids",
  "nia-imports",
  "nia-item-tree",

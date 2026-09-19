@@ -1720,10 +1720,7 @@ impl<'a> Collector<'a> {
         self.defs.push(identity, def)
     }
 
-    fn disambiguate_identity(
-        &mut self,
-        identity: DefIdentity,
-    ) -> nia_ice::IceResult<DefIdentity> {
+    fn disambiguate_identity(&mut self, identity: DefIdentity) -> nia_ice::IceResult<DefIdentity> {
         let ordinal = self
             .duplicate_identities
             .entry(identity.clone())

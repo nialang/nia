@@ -14,7 +14,7 @@ missing
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
     assert!(
         locals
@@ -42,7 +42,7 @@ fn main() i32 {
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
 
     let missing_captures = locals
         .diagnostics
@@ -72,7 +72,7 @@ fn main() i32 {
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
 
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
     assert!(
@@ -104,7 +104,7 @@ extend Box {
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
 
     assert!(
         locals.diagnostics.iter().any(|diagnostic| diagnostic
@@ -130,7 +130,7 @@ fn main() i32 {
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
 
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
     assert!(
@@ -162,7 +162,7 @@ x
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
     assert_eq!(locals.diagnostics.len(), 1);
     assert!(
         locals
@@ -193,7 +193,7 @@ x
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
     assert_eq!(locals.diagnostics.len(), 1);
     assert!(
         locals.diagnostics[0]
@@ -231,7 +231,7 @@ Point::origin()
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
     assert!(
         locals
@@ -266,7 +266,7 @@ fn read(point: Point) i32 {
             .expect("Point definition"),
     };
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
     assert!(locals.node_type_prefixes.values().any(|id| *id == point));
 }

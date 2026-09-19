@@ -142,7 +142,7 @@ pub(super) fn provide_local_resolution(
             None,
             &origins,
             &symbols,
-        );
+        )?;
     let diagnostics = std::mem::take(&mut resolution.diagnostics);
     Ok(ModuleLocalResolution {
         semantic: Arc::new(resolution),

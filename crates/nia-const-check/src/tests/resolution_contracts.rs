@@ -34,7 +34,7 @@ y
     })
     .expect("collect item signatures");
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
     let removed_key = locals.node_local_defs.iter().find_map(|(key, local_id)| {
         let local = locals.locals.get(*local_id)?;
         (local.name.symbol() == Some(sym("y"))).then_some(key.clone())

@@ -17,7 +17,7 @@ sum
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
     assert!(
         locals
@@ -48,7 +48,7 @@ value
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
     assert!(
         locals
@@ -73,7 +73,7 @@ value
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
     assert_eq!(locals.node_local_defs.len(), 2);
     assert!(
@@ -132,7 +132,7 @@ match input {
         }
     }
     let values = values.finish();
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
     let range_id = locals
         .locals

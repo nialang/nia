@@ -255,7 +255,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                         &symbols,
                     )
                 },
-            );
+            )?;
             let filtered_semantic_uses = time_module_provider(
                 db,
                 "executable_body_check.semantic_uses",

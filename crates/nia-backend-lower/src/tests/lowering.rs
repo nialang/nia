@@ -62,7 +62,7 @@ fn main() i32 {
     })
     .expect("collect backend-lower test signatures");
     let values = resolve_module_values(&module, &defs);
-    let locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values).expect("resolve locals");
     let active_item_tree = active_item_tree(&module);
     let semantic_uses = semantic_use_table(
         module_id,

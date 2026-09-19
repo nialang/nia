@@ -22,7 +22,8 @@ x
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
     let locals =
-        resolve_module_locals_with_origins(&module, &defs, &values, Some(version), &origins);
+        resolve_module_locals_with_origins(&module, &defs, &values, Some(version), &origins)
+            .expect("resolve locals");
 
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
     assert!(!locals.node_local_defs.is_empty());
@@ -57,7 +58,8 @@ x
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
     let locals =
-        resolve_module_locals_with_origins(&module, &defs, &values, Some(version), &origins);
+        resolve_module_locals_with_origins(&module, &defs, &values, Some(version), &origins)
+            .expect("resolve locals");
 
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
     assert!(locals.node_uses.iter().any(|(key, use_kind)| {
