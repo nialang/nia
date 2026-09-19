@@ -386,9 +386,15 @@ fn emit_llvm_ir_with_options_inner(
     options: LlvmCodegenOptions,
 ) -> LlvmCodegenOutput {
     let timings = options.timings;
-    lowering
+    if let Err(ice) = lowering
         .codegen_partitions
-        .validate_program(&lowering.program);
+        .validate_program(&lowering.program)
+    {
+        return LlvmCodegenOutput {
+            modules: Vec::new(),
+            diagnostics: vec![nia_diagnostic::Diagnostic::from(ice)],
+        };
+    }
     let module_store = lowering.program.module_store();
     let owners = Arc::clone(&lowering.owner_directory);
     let (index, preparations) =
@@ -498,9 +504,15 @@ fn emit_native_objects_inner(
     cache: Option<Arc<dyn ObjectWorkProductCache>>,
 ) -> LlvmObjectOutput {
     let timings = options.timings;
-    lowering
+    if let Err(ice) = lowering
         .codegen_partitions
-        .validate_program(&lowering.program);
+        .validate_program(&lowering.program)
+    {
+        return LlvmObjectOutput {
+            link_inputs: IncrementalLinkInputs::default(),
+            diagnostics: vec![nia_diagnostic::Diagnostic::from(ice)],
+        };
+    }
     let module_store = lowering.program.module_store();
     let owners = Arc::clone(&lowering.owner_directory);
     let (index, preparations) =

@@ -73,29 +73,36 @@ impl BackendProgram {
     }
 
     /// Resolves and validates the source module owning `partition`.
-    pub fn module_for_partition(&self, partition: &CodegenPartition) -> &BackendModule {
+    pub fn module_for_partition(
+        &self,
+        partition: &CodegenPartition,
+    ) -> nia_ice::IceResult<&BackendModule> {
         let module_id = match partition.id {
             CodegenUnitId::SourceModule { module_id, .. } => module_id,
             CodegenUnitId::CompilerBuiltins => {
-                panic!("Nia ICE: compiler builtins partition has no backend module")
+                return Err(nia_ice::Ice::new(
+                    "compiler builtins partition has no backend module",
+                ));
             }
         };
-        let module = self.modules.store.get(module_id).unwrap_or_else(|| {
-            panic!(
-                "Nia ICE: codegen partition {:?} references missing backend module {module_id:?}",
+        let module = self.modules.store.get(module_id).ok_or_else(|| {
+            nia_ice::Ice::new(format!(
+                "codegen partition {:?} references missing backend module {module_id:?}",
                 partition.id
-            )
-        });
-        assert_eq!(
-            partition.id,
-            CodegenUnitId::source_module(module.id, partition.ordinal())
-        );
-        assert_eq!(
-            partition.key,
-            CodegenUnitKey::source_module(module.source_identity.clone(), partition.ordinal()),
-            "Nia ICE: codegen partition stable key does not match its backend module"
-        );
-        module
+            ))
+        })?;
+        let ordinal = partition.ordinal()?;
+        if partition.id != CodegenUnitId::source_module(module.id, ordinal) {
+            return Err(nia_ice::Ice::new(
+                "codegen partition identity does not match its backend module",
+            ));
+        }
+        if partition.key != CodegenUnitKey::source_module(module.source_identity.clone(), ordinal) {
+            return Err(nia_ice::Ice::new(
+                "codegen partition stable key does not match its backend module",
+            ));
+        }
+        Ok(module)
     }
 }
 
@@ -835,13 +842,15 @@ impl CodegenPartitionPlan {
     }
 
     /// Asserts that this plan exactly matches the program's current modules.
-    pub fn validate_program(&self, program: &BackendProgram) {
+    pub fn validate_program(&self, program: &BackendProgram) -> nia_ice::IceResult<()> {
         let modules = &program.modules;
         let expected = Self::from_modules(modules);
-        assert_eq!(
-            self, &expected,
-            "Nia ICE: codegen partition plan does not match the backend program"
-        );
+        if self != &expected {
+            return Err(nia_ice::Ice::new(
+                "codegen partition plan does not match the backend program",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -860,7 +869,7 @@ pub struct CodegenPartition {
 }
 
 impl CodegenPartition {
-    fn ordinal(&self) -> u32 {
+    fn ordinal(&self) -> nia_ice::IceResult<u32> {
         match (self.id, &self.key) {
             (
                 CodegenUnitId::SourceModule { ordinal, .. },
@@ -868,8 +877,10 @@ impl CodegenPartition {
                     ordinal: key_ordinal,
                     ..
                 },
-            ) if ordinal == *key_ordinal => ordinal,
-            _ => panic!("Nia ICE: source codegen partition has inconsistent identities"),
+            ) if ordinal == *key_ordinal => Ok(ordinal),
+            _ => Err(nia_ice::Ice::new(
+                "source codegen partition has inconsistent identities",
+            )),
         }
     }
 
