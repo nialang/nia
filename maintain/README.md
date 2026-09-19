@@ -12,6 +12,7 @@ Commands are grouped by purpose:
 cargo maintain audit compatibility
 cargo maintain audit std-build-host
 cargo maintain report crate-boundaries
+cargo maintain report llvm-ir target/nia-perf/runner.ll --limit 20
 cargo maintain baseline compiler
 cargo maintain baseline compare <baseline.json> <candidate.json>
 cargo maintain baseline build
@@ -24,6 +25,13 @@ the repository. `baseline` commands own repeatable measurements and their
 machine-readable schemas. `check` runs every fast repository audit; Cargo owns
 compilation, Clippy, and tests, and the command does not run compiler or build
 baselines.
+
+`report llvm-ir` reads a saved `nia emit --llvm` artifact without invoking the
+compiler. It uses each module's `source_filename`, ranks modules and defined
+functions by instruction count and memory/aggregate operations, and demangles
+canonical `_N...` symbols when possible. Use `--json` for machine-readable
+attribution; the default text report is limited to the top 20 entries unless a
+different `--limit` is supplied.
 
 Compiler workload definitions, baseline comparison rules, and managed CI trend
 artifacts are documented in [`performance.md`](performance.md).
