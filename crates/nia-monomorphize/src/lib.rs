@@ -657,7 +657,9 @@ impl MonoCollector<'_> {
             self.report_instance_type_depth_limit(span, &key);
             return;
         }
-        let symbol = self.instance_symbol(&key);
+        let Some(symbol) = self.instance_symbol(&key) else {
+            return;
+        };
         self.instances.push(MonoInstance {
             def_id: key.def_id,
             arg_module_id: key.arg_module_id,
@@ -1510,7 +1512,7 @@ impl MonoCollector<'_> {
         id
     }
 
-    fn instance_symbol(&mut self, key: &MonoInstanceKey) -> String {
+    fn instance_symbol(&mut self, key: &MonoInstanceKey) -> Option<String> {
         let mut args = Vec::new();
         if let Some(self_arg) = key.self_arg {
             args.push(self.type_symbol(key.arg_module_id, self_arg));
@@ -1533,16 +1535,21 @@ impl MonoCollector<'_> {
         let package = self
             .symbol_package_identities
             .get(&key.def_id.module_id)
-            .expect("Nia ICE: monomorphized definition is missing package symbol identity")
-            .clone();
-        mangle_stable_symbol(&StableSymbolKey::new(
+            .cloned()
+            .or_else(|| {
+                self.record_internal_error(Ice::new(
+                    "monomorphized definition is missing package symbol identity",
+                ));
+                None
+            })?;
+        Some(mangle_stable_symbol(&StableSymbolKey::new(
             package,
             self.module_mangle_id(key.def_id.module_id),
             stable_definition_key(key.def_id),
             name,
             MangleSymbolKind::Function,
             args,
-        ))
+        )))
     }
 
     fn const_arg_symbol(&mut self, module_id: ModuleId, arg: &ConstGenericArg) -> String {
@@ -1842,12 +1849,9 @@ fn collect_source_instantiation_edges(
     let mut edges = Vec::new();
     for input in inputs {
         for instantiation in input.instantiations {
-            if instantiation.source_def_id.is_none() {
+            let Some(source_def_id) = instantiation.source_def_id else {
                 continue;
-            }
-            let source_def_id = instantiation
-                .source_def_id
-                .expect("source instantiation edge source checked above");
+            };
             edges.push(SourceInstantiationEdge {
                 source_module_id: source_def_id.module_id,
                 def_id: instantiation.def_id,
