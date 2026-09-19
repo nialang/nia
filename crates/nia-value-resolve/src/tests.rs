@@ -33,7 +33,7 @@ local
     assert!(errors.is_empty(), "{errors:?}");
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     let resolved = resolve_module_values(&module, &defs);
     assert!(
@@ -71,7 +71,7 @@ a + b + d
     assert!(errors.is_empty(), "{errors:?}");
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_values(&module, &defs);
     assert!(
         resolved.diagnostics.is_empty(),
@@ -99,7 +99,8 @@ std::builtin::size[usize]()
     let active = tree.active_items(&mut BoolResolver(false)).unwrap();
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let defs = collect_module_defs_from_active_item_tree(module_id, &active);
+    let defs =
+        collect_module_defs_from_active_item_tree(module_id, &active).expect("collect definitions");
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     let resolved = resolve_module_values_from_active_item_tree(
         &active,
@@ -132,7 +133,7 @@ fn isExpected(value: i32) bool {
     assert!(errors.is_empty(), "{errors:?}");
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_values(&module, &defs);
     assert!(
         resolved.diagnostics.is_empty(),
@@ -173,7 +174,7 @@ fn main() i32 {
     assert!(errors.is_empty(), "{errors:?}");
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
 
     let resolved = resolve_module_values(&module, &defs);
@@ -206,7 +207,7 @@ fn main() i32 {
     assert!(errors.is_empty(), "{errors:?}");
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     let type_id = GlobalDefId {
         module_id,
@@ -270,7 +271,7 @@ fn main() Color {
     assert!(errors.is_empty(), "{errors:?}");
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     let enum_def_id = defs
         .module_scope
@@ -332,7 +333,7 @@ fn main() i32 {
     assert!(errors.is_empty(), "{errors:?}");
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     let nia_ast::ItemKind::Function(function) = &module.items[1].kind else {
         panic!("expected function");
@@ -384,8 +385,8 @@ fn main() i32 {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let consumer_id = module_ids.allocate().expect("allocate module ID");
     let provider_id = module_ids.allocate().expect("allocate module ID");
-    let consumer_defs = collect_module_defs(consumer_id, &consumer);
-    let provider_defs = collect_module_defs(provider_id, &provider);
+    let consumer_defs = collect_module_defs(consumer_id, &consumer).expect("collect definitions");
+    let provider_defs = collect_module_defs(provider_id, &provider).expect("collect definitions");
     assert!(
         consumer_defs.diagnostics.is_empty(),
         "{:?}",

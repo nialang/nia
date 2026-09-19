@@ -15,7 +15,8 @@ fn selected(value: i32) () {}
     assert!(errors.is_empty(), "{errors:?}");
     let tree = ModuleItemTree::from_module(&module);
     let active = tree.active_items(&mut BoolResolver(false)).unwrap();
-    let defs = collect_module_defs_from_active_item_tree(module_id, &active);
+    let defs =
+        collect_module_defs_from_active_item_tree(module_id, &active).expect("collect definitions");
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     let resolved = resolve_module_types_from_active_item_tree(
         &active,
@@ -63,7 +64,8 @@ pair.left
     let module_id = module_ids.allocate().expect("allocate module ID");
     let tree = ModuleItemTree::from_module(&module);
     let active = tree.active_items(&mut BoolResolver(false)).unwrap();
-    let defs = collect_module_defs_from_active_item_tree(module_id, &active);
+    let defs =
+        collect_module_defs_from_active_item_tree(module_id, &active).expect("collect definitions");
     let resolved = resolve_module_types_from_active_item_tree(
         &active,
         &defs,
@@ -117,7 +119,8 @@ fn main() () {
         .expect("allocate module ID");
     let tree = ModuleItemTree::from_module(&module);
     let active = tree.active_items(&mut BoolResolver(false)).unwrap();
-    let defs = collect_module_defs_from_active_item_tree(module_id, &active);
+    let defs =
+        collect_module_defs_from_active_item_tree(module_id, &active).expect("collect definitions");
     let resolved = resolve_module_declaration_types_from_active_item_tree(
         &active,
         &defs,
@@ -164,7 +167,8 @@ struct Buffer[N: usize] {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let tree = ModuleItemTree::from_module(&module);
     let active = tree.active_items(&mut BoolResolver(false)).unwrap();
-    let defs = collect_module_defs_from_active_item_tree(module_id, &active);
+    let defs =
+        collect_module_defs_from_active_item_tree(module_id, &active).expect("collect definitions");
     let resolved = resolve_module_types_from_active_item_tree(
         &active,
         &defs,

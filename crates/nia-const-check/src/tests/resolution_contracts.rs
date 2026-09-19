@@ -15,7 +15,7 @@ y
         symbols.clone(),
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let type_names = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let type_store = TypeStore::new().expect("create type store");
     let lowered = lower_module_types_with_context(

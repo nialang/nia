@@ -137,7 +137,7 @@ fn main() i32 {
     let (module, parse_errors, origins) =
         nia_parser::parse_module_syntax_with_origins_and_symbols(&syntax, symbols.clone());
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let item_tree = ModuleItemTree::from_module(&module);
     let type_store = TypeStore::new().expect("create type store");
@@ -321,7 +321,7 @@ fn main() i32 {
     let (module, parse_errors, origins) =
         nia_parser::parse_module_syntax_with_origins_and_symbols(&syntax, symbols.clone());
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let item_tree = ModuleItemTree::from_module(&module);
     let type_store = TypeStore::new().expect("create type store");

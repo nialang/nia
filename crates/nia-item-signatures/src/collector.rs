@@ -114,6 +114,7 @@ fn collect_item_signatures_from_items(
         diagnostics: Vec::new(),
         internal_error: None,
         duplicate_impl_identities: HashMap::new(),
+        impl_identities_by_id: HashMap::new(),
     };
     let mut signatures = ItemSignatures {
         functions: HashMap::new(),
@@ -146,6 +147,7 @@ struct SignatureCollector<'a> {
     diagnostics: Vec<Diagnostic>,
     internal_error: Option<nia_ice::Ice>,
     duplicate_impl_identities: HashMap<TraitImplIdentity, u32>,
+    impl_identities_by_id: HashMap<TraitImplId, TraitImplIdentity>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -305,7 +307,9 @@ impl<'a> SignatureCollector<'a> {
                     })
             })
             .collect();
-        let impl_id = self.trait_impl_id(extend);
+        let Some(impl_id) = self.trait_impl_id(extend) else {
+            return;
+        };
         signatures.trait_impls.push(TraitImplSignature {
             impl_id,
             builtin: self.builtin_extend_attribute(&item.attributes),
@@ -333,19 +337,40 @@ impl<'a> SignatureCollector<'a> {
         });
     }
 
-    fn trait_impl_id(&mut self, extend: &ExtendItem) -> TraitImplId {
+    fn trait_impl_id(&mut self, extend: &ExtendItem) -> Option<TraitImplId> {
         let identity = TraitImplIdentity::from_extend(extend);
-        let ordinal = self
-            .duplicate_impl_identities
-            .entry(identity.clone())
-            .or_default();
-        let resolved = if *ordinal == 0 {
+        let ordinal = {
+            let next = self
+                .duplicate_impl_identities
+                .entry(identity.clone())
+                .or_default();
+            let ordinal = *next;
+            let Some(updated) = ordinal.checked_add(1) else {
+                self.record_internal(nia_ice::Ice::new(format!(
+                    "trait implementation duplicate ordinal exhausted for `{}`",
+                    identity.display()
+                )));
+                return None;
+            };
+            *next = updated;
+            ordinal
+        };
+        let resolved = if ordinal == 0 {
             identity
         } else {
-            identity.duplicate(*ordinal)
+            identity.duplicate(ordinal)
         };
-        *ordinal += 1;
-        TraitImplId(stable_trait_impl_id(&resolved))
+        let impl_id = TraitImplId(stable_trait_impl_id(&resolved));
+        if let Some(existing) = self.impl_identities_by_id.get(&impl_id) {
+            self.record_internal(nia_ice::Ice::new(format!(
+                "stable trait implementation ID collision between `{}` and `{}`",
+                existing.display(),
+                resolved.display()
+            )));
+            return None;
+        }
+        self.impl_identities_by_id.insert(impl_id, resolved);
+        Some(impl_id)
     }
 
     fn collect_trait(

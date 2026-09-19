@@ -21,7 +21,8 @@ value
     assert!(errors.is_empty(), "{errors:?}");
     let tree = ModuleItemTree::from_module(&module);
     let active = tree.active_items(&mut BoolResolver(false)).unwrap();
-    let defs = collect_module_defs_from_active_item_tree(module_id, &active);
+    let defs =
+        collect_module_defs_from_active_item_tree(module_id, &active).expect("collect definitions");
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     let values = resolve_module_values_from_active_item_tree(
         &active,
@@ -67,7 +68,8 @@ y
     assert!(errors.is_empty(), "{errors:?}");
     let tree = ModuleItemTree::from_module(&module);
     let full = tree.active_items(&mut BoolResolver(true)).unwrap();
-    let defs = collect_module_defs_from_active_item_tree(module_id, &full);
+    let defs =
+        collect_module_defs_from_active_item_tree(module_id, &full).expect("collect definitions");
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     let values = resolve_module_values_from_active_item_tree(
         &full,

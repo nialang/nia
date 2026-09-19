@@ -5,7 +5,7 @@ fn unresolved_array_lengths_in_symbols_are_diagnostic_not_panic() {
     let (module, errors) = parse_module("fn take[T](value: T) T { value }");
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
-    let defs = collect_module_defs(fixture.module_id, &module);
+    let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
     let take_id = GlobalDefId {
         module_id: fixture.module_id,
         def_id: value_def(&defs, "take"),
@@ -65,7 +65,7 @@ fn missing_source_identity_in_symbols_is_diagnostic_not_panic() {
     let (module, errors) = parse_module("fn take[T](value: T) T { value }");
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
-    let defs = collect_module_defs(fixture.module_id, &module);
+    let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
     let take_id = GlobalDefId {
         module_id: fixture.module_id,
         def_id: value_def(&defs, "take"),
@@ -109,7 +109,7 @@ fn wrap[T](value: T) T { value }
     );
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
-    let defs = collect_module_defs(fixture.module_id, &module);
+    let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
     let take_id = GlobalDefId {
         module_id: fixture.module_id,
         def_id: value_def(&defs, "take"),

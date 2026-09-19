@@ -62,7 +62,7 @@ fn defs_from_source(module_id: nia_ids::ModuleId, source: &str) -> DefCollection
     );
     let (module, parse_errors, _) = nia_parser::parse_module_syntax_with_origins(&syntax);
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
-    nia_defs::collect_module_defs(module_id, &module)
+    nia_defs::collect_module_defs(module_id, &module).expect("collect definitions")
 }
 
 fn global_type_def_id(defs: &DefCollection, name: &str) -> GlobalDefId {

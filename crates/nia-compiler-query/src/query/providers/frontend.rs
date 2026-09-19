@@ -85,7 +85,7 @@ pub(super) fn provide_module_defs(
         &item_tree,
         db.context().node_store(),
         &symbols,
-    );
+    )?;
     let diagnostics = std::mem::take(&mut defs.diagnostics);
     Ok(ModuleDefinitions {
         semantic: Arc::new(defs),
@@ -104,7 +104,7 @@ pub(super) fn provide_full_module_defs(
         &item_tree,
         db.context().node_store(),
         &symbols,
-    );
+    )?;
     let diagnostics = std::mem::take(&mut defs.diagnostics);
     Ok(FullModuleDefinitions {
         semantic: Arc::new(defs),

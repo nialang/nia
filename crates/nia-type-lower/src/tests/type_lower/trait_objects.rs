@@ -15,7 +15,7 @@ fn write(source: &mut Source[i32, Item = i32]) () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types(&module, &defs);
     assert!(
         resolved.diagnostics.is_empty(),
@@ -62,7 +62,7 @@ fn duplicate(source: &Source[Item = i32, Item = bool]) () {}
         symbols.clone(),
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types(&module, &defs);
     assert!(
         resolved.diagnostics.is_empty(),
@@ -113,7 +113,7 @@ fn bad(value: Show) () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types(&module, &defs);
     assert!(
         resolved.diagnostics.is_empty(),

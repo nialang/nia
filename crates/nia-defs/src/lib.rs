@@ -360,7 +360,10 @@ impl UsingName {
 }
 
 /// Collects declarations from an AST module using a fresh node store.
-pub fn collect_module_defs(module_id: ModuleId, module: &Module) -> DefCollection {
+pub fn collect_module_defs(
+    module_id: ModuleId,
+    module: &Module,
+) -> nia_ice::IceResult<DefCollection> {
     let item_tree = ModuleItemTree::from_module(module);
     collect_module_defs_from_item_tree(module_id, &item_tree)
 }
@@ -369,7 +372,7 @@ pub fn collect_module_defs(module_id: ModuleId, module: &Module) -> DefCollectio
 pub fn collect_module_defs_from_item_tree(
     module_id: ModuleId,
     item_tree: &ModuleItemTree,
-) -> DefCollection {
+) -> nia_ice::IceResult<DefCollection> {
     Collector::new(module_id).collect(&item_tree.items)
 }
 
@@ -378,7 +381,7 @@ pub fn collect_module_defs_from_item_tree_with_symbols(
     module_id: ModuleId,
     item_tree: &ModuleItemTree,
     symbols: &dyn SymbolText,
-) -> DefCollection {
+) -> nia_ice::IceResult<DefCollection> {
     Collector::new_with_symbols(module_id, Some(symbols)).collect(&item_tree.items)
 }
 
@@ -388,7 +391,7 @@ pub fn collect_module_defs_from_item_tree_with_node_store_and_symbols(
     item_tree: &ModuleItemTree,
     node_store: &NodeStore,
     symbols: &dyn SymbolText,
-) -> DefCollection {
+) -> nia_ice::IceResult<DefCollection> {
     Collector::new_with_node_store_and_symbols(module_id, node_store, Some(symbols))
         .collect(&item_tree.items)
 }
@@ -397,7 +400,7 @@ pub fn collect_module_defs_from_item_tree_with_node_store_and_symbols(
 pub fn collect_module_defs_from_active_item_tree(
     module_id: ModuleId,
     item_tree: &ActiveModuleItemTree,
-) -> DefCollection {
+) -> nia_ice::IceResult<DefCollection> {
     Collector::new(module_id).collect(&item_tree.items)
 }
 
@@ -406,7 +409,7 @@ pub fn collect_module_defs_from_active_item_tree_with_symbols(
     module_id: ModuleId,
     item_tree: &ActiveModuleItemTree,
     symbols: &dyn SymbolText,
-) -> DefCollection {
+) -> nia_ice::IceResult<DefCollection> {
     Collector::new_with_symbols(module_id, Some(symbols)).collect(&item_tree.items)
 }
 
@@ -416,7 +419,7 @@ pub fn collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
     item_tree: &ActiveModuleItemTree,
     node_store: &NodeStore,
     symbols: &dyn SymbolText,
-) -> DefCollection {
+) -> nia_ice::IceResult<DefCollection> {
     Collector::new_with_node_store_and_symbols(module_id, node_store, Some(symbols))
         .collect(&item_tree.items)
 }
@@ -464,35 +467,35 @@ impl DefMap {
             .map(|entry| entry.identity.display())
     }
 
-    fn push(&mut self, identity: DefIdentity, def: Def) -> DefId {
+    fn push(&mut self, identity: DefIdentity, def: Def) -> nia_ice::IceResult<DefId> {
         let id = DefId(stable_def_id(&identity));
         if let Some(index) = self.by_id.get(&id).copied() {
             let existing_identity = &self.defs[index].identity;
             if existing_identity != &identity {
-                panic!(
-                    "Nia ICE: stable definition id collision between `{}` and `{}`",
+                return Err(nia_ice::Ice::new(format!(
+                    "stable definition id collision between `{}` and `{}`",
                     existing_identity.display(),
                     identity.display()
-                );
+                )));
             }
-            panic!(
-                "Nia ICE: duplicate stable definition identity `{}` reached DefMap insertion",
+            return Err(nia_ice::Ice::new(format!(
+                "duplicate stable definition identity `{}` reached DefMap insertion",
                 identity.display()
-            );
+            )));
         }
         if let Some(existing) = self.by_identity.get(&identity).copied() {
-            panic!(
-                "Nia ICE: duplicate definition identity `{}` reached DefMap insertion as {:?}",
+            return Err(nia_ice::Ice::new(format!(
+                "duplicate definition identity `{}` reached DefMap insertion as {:?}",
                 identity.display(),
                 existing
-            );
+            )));
         }
         let index = self.defs.len();
         self.defs.push(DefEntry { id, identity, def });
         self.by_identity
             .insert(self.defs[index].identity.clone(), id);
         self.by_id.insert(id, index);
-        id
+        Ok(id)
     }
 }
 
@@ -549,10 +552,7 @@ impl StableDefHasher {
                 self.string(target);
                 self.optional_string(trait_ref.as_deref());
                 self.string_slice(generics);
-                self.u64(
-                    u64::try_from(where_clause.len())
-                        .expect("definition where-clause length exceeds u64"),
-                );
+                self.u64(where_clause.len() as u64);
                 for (ty, bounds) in where_clause {
                     self.string(ty);
                     self.string_slice(bounds);
@@ -596,7 +596,7 @@ impl StableDefHasher {
     }
 
     fn string_slice(&mut self, values: &[String]) {
-        self.u64(u64::try_from(values.len()).expect("definition identity list length exceeds u64"));
+        self.u64(values.len() as u64);
         for value in values {
             self.string(value);
         }
@@ -613,7 +613,7 @@ impl StableDefHasher {
     }
 
     fn string(&mut self, value: &str) {
-        self.u64(u64::try_from(value.len()).expect("definition identity text length exceeds u64"));
+        self.u64(value.len() as u64);
         self.bytes(value.as_bytes());
     }
 
@@ -822,7 +822,7 @@ pub enum DefKind {
 /// while the in-session definition map uses [`DefId`].  Keeping this
 /// conversion here ensures artifact-backed facts and source collection use
 /// exactly the same identity algorithm.
-pub fn stable_top_level_def_id(kind: DefKind, name: SymbolId) -> DefId {
+pub fn stable_top_level_def_id(kind: DefKind, name: SymbolId) -> nia_ice::IceResult<DefId> {
     let namespace = match kind {
         DefKind::Module => DefNamespace::Module,
         DefKind::Function | DefKind::Global | DefKind::Const => DefNamespace::Value,
@@ -830,10 +830,14 @@ pub fn stable_top_level_def_id(kind: DefKind, name: SymbolId) -> DefId {
             DefNamespace::Type
         }
         _ => {
-            panic!("Nia ICE: top-level definition kind cannot be represented: {kind:?}");
+            return Err(nia_ice::Ice::new(format!(
+                "top-level definition kind cannot be represented: {kind:?}"
+            )));
         }
     };
-    DefId(stable_def_id(&DefIdentity::top(namespace, kind, &name)))
+    Ok(DefId(stable_def_id(&DefIdentity::top(
+        namespace, kind, &name,
+    ))))
 }
 
 /// Top-level names partitioned by language namespace.
@@ -1043,11 +1047,11 @@ impl<'a> Collector<'a> {
         symbol_text_from_optional_resolver(self.symbols, symbol)
     }
 
-    fn collect(mut self, items: &[ItemTreeNode]) -> DefCollection {
+    fn collect(mut self, items: &[ItemTreeNode]) -> nia_ice::IceResult<DefCollection> {
         for item in items {
-            self.collect_item(item);
+            self.collect_item(item)?;
         }
-        DefCollection {
+        Ok(DefCollection {
             module_id: self.module_id,
             defs: self.defs,
             module_scope: self.module_scope,
@@ -1059,10 +1063,10 @@ impl<'a> Collector<'a> {
             def_nodes: self.def_nodes.finish(),
             module_usings: self.module_usings,
             diagnostics: self.diagnostics,
-        }
+        })
     }
 
-    fn collect_item(&mut self, item: &ItemTreeNode) {
+    fn collect_item(&mut self, item: &ItemTreeNode) -> nia_ice::IceResult<()> {
         match &item.kind {
             ItemTreeNodeKind::Module(module) => {
                 self.add_module_def(
@@ -1071,17 +1075,17 @@ impl<'a> Collector<'a> {
                     item.visibility,
                     item.span,
                     item.node_key.clone(),
-                );
+                )?;
             }
             ItemTreeNodeKind::Using(using) => {
                 self.collect_using(item, using);
             }
-            ItemTreeNodeKind::Struct(item_struct) => self.collect_struct(item, item_struct),
-            ItemTreeNodeKind::Union(item_union) => self.collect_union(item, item_union),
-            ItemTreeNodeKind::Trait(item_trait) => self.collect_trait(item, item_trait),
-            ItemTreeNodeKind::Extend(extend) => self.collect_extend(item, extend),
-            ItemTreeNodeKind::Enum(item_enum) => self.collect_enum(item, item_enum),
-            ItemTreeNodeKind::TypeAlias(alias) => self.collect_type_alias(item, alias),
+            ItemTreeNodeKind::Struct(item_struct) => self.collect_struct(item, item_struct)?,
+            ItemTreeNodeKind::Union(item_union) => self.collect_union(item, item_union)?,
+            ItemTreeNodeKind::Trait(item_trait) => self.collect_trait(item, item_trait)?,
+            ItemTreeNodeKind::Extend(extend) => self.collect_extend(item, extend)?,
+            ItemTreeNodeKind::Enum(item_enum) => self.collect_enum(item, item_enum)?,
+            ItemTreeNodeKind::TypeAlias(alias) => self.collect_type_alias(item, alias)?,
             ItemTreeNodeKind::Function(function) => {
                 self.check_duplicate_generics(&function.generics, item.span);
                 let function_id = self.add_value_def(
@@ -1091,7 +1095,7 @@ impl<'a> Collector<'a> {
                     item.span,
                     function.node_key.clone(),
                     function.generics.clone(),
-                );
+                )?;
                 let function_identity =
                     DefIdentity::top(DefNamespace::Value, DefKind::Function, &function.name);
                 self.collect_function_local_static_bindings(
@@ -1099,7 +1103,7 @@ impl<'a> Collector<'a> {
                     function_id,
                     function,
                     item.visibility,
-                );
+                )?;
             }
             ItemTreeNodeKind::Binding(binding) => {
                 self.add_value_def(
@@ -1113,9 +1117,10 @@ impl<'a> Collector<'a> {
                     item.span,
                     binding.node_key.clone(),
                     Vec::new(),
-                );
+                )?;
             }
         }
+        Ok(())
     }
 
     fn collect_using(&mut self, item: &ItemTreeNode, using: &UsingItem) {
@@ -1127,7 +1132,11 @@ impl<'a> Collector<'a> {
         });
     }
 
-    fn collect_struct(&mut self, item: &ItemTreeNode, item_struct: &StructItem) {
+    fn collect_struct(
+        &mut self,
+        item: &ItemTreeNode,
+        item_struct: &StructItem,
+    ) -> nia_ice::IceResult<()> {
         self.check_duplicate_generics(&item_struct.generics, item.span);
         let identity = DefIdentity::top(DefNamespace::Type, DefKind::Struct, &item_struct.name);
         let struct_id = self.add_type_def(
@@ -1137,7 +1146,7 @@ impl<'a> Collector<'a> {
             item.span,
             item.node_key.clone(),
             item_struct.generics.clone(),
-        );
+        )?;
         let mut members = MemberScope::default();
         for field in &item_struct.fields {
             let field_id = self.push_member_def(
@@ -1147,7 +1156,7 @@ impl<'a> Collector<'a> {
                 DefKind::StructField,
                 Visibility::Private,
                 field.span,
-            );
+            )?;
             self.def_nodes.insert(field.node_key.clone(), field_id);
             self.insert_member(
                 &mut members.fields,
@@ -1158,9 +1167,14 @@ impl<'a> Collector<'a> {
             );
         }
         self.struct_members.insert(struct_id, members);
+        Ok(())
     }
 
-    fn collect_union(&mut self, item: &ItemTreeNode, item_union: &UnionItem) {
+    fn collect_union(
+        &mut self,
+        item: &ItemTreeNode,
+        item_union: &UnionItem,
+    ) -> nia_ice::IceResult<()> {
         self.check_duplicate_generics(&item_union.generics, item.span);
         let identity = DefIdentity::top(DefNamespace::Type, DefKind::Union, &item_union.name);
         let union_id = self.add_type_def(
@@ -1170,7 +1184,7 @@ impl<'a> Collector<'a> {
             item.span,
             item.node_key.clone(),
             item_union.generics.clone(),
-        );
+        )?;
         let mut members = MemberScope::default();
         for field in &item_union.fields {
             let field_id = self.push_member_def(
@@ -1180,7 +1194,7 @@ impl<'a> Collector<'a> {
                 DefKind::UnionField,
                 Visibility::Private,
                 field.span,
-            );
+            )?;
             self.def_nodes.insert(field.node_key.clone(), field_id);
             self.insert_member(
                 &mut members.fields,
@@ -1191,24 +1205,34 @@ impl<'a> Collector<'a> {
             );
         }
         self.union_members.insert(union_id, members);
+        Ok(())
     }
 
-    fn collect_extend(&mut self, _item: &ItemTreeNode, extend: &ExtendItem) {
+    fn collect_extend(
+        &mut self,
+        _item: &ItemTreeNode,
+        extend: &ExtendItem,
+    ) -> nia_ice::IceResult<()> {
         self.check_duplicate_generics(&extend.generics, extend.target.span);
         let identity = DefIdentity::extension(extend);
         let mut members = MemberScope::default();
         for associated_type in &extend.associated_types {
-            self.collect_extend_associated_type(&identity, None, &mut members, associated_type);
+            self.collect_extend_associated_type(&identity, None, &mut members, associated_type)?;
         }
         for associated_value in &extend.associated_values {
-            self.collect_extend_associated_value(&identity, None, &mut members, associated_value);
+            self.collect_extend_associated_value(&identity, None, &mut members, associated_value)?;
         }
         for method in &extend.methods {
-            self.collect_method(&identity, None, &mut members, &method.function, method.vis);
+            self.collect_method(&identity, None, &mut members, &method.function, method.vis)?;
         }
+        Ok(())
     }
 
-    fn collect_trait(&mut self, item: &ItemTreeNode, item_trait: &nia_ast::TraitItem) {
+    fn collect_trait(
+        &mut self,
+        item: &ItemTreeNode,
+        item_trait: &nia_ast::TraitItem,
+    ) -> nia_ice::IceResult<()> {
         self.check_duplicate_generics(&item_trait.generics, item.span);
         let identity = DefIdentity::top(DefNamespace::Type, DefKind::Trait, &item_trait.name);
         let trait_id = self.add_type_def(
@@ -1218,7 +1242,7 @@ impl<'a> Collector<'a> {
             item.span,
             item.node_key.clone(),
             item_trait.generics.clone(),
-        );
+        )?;
         let mut members = MemberScope::default();
         for associated_type in &item_trait.associated_types {
             self.collect_trait_associated_type(
@@ -1226,7 +1250,7 @@ impl<'a> Collector<'a> {
                 Some(trait_id),
                 &mut members,
                 associated_type,
-            );
+            )?;
         }
         for associated_value in &item_trait.associated_values {
             self.collect_trait_associated_value(
@@ -1234,12 +1258,13 @@ impl<'a> Collector<'a> {
                 Some(trait_id),
                 &mut members,
                 associated_value,
-            );
+            )?;
         }
         for method in &item_trait.methods {
-            self.collect_trait_method(&identity, Some(trait_id), &mut members, &method.function);
+            self.collect_trait_method(&identity, Some(trait_id), &mut members, &method.function)?;
         }
         self.struct_members.insert(trait_id, members);
+        Ok(())
     }
 
     fn collect_trait_associated_type(
@@ -1248,7 +1273,7 @@ impl<'a> Collector<'a> {
         parent: Option<DefId>,
         members: &mut MemberScope,
         associated_type: &TraitAssociatedType,
-    ) {
+    ) -> nia_ice::IceResult<()> {
         let associated_type_id = self.push_member_def(
             owner_identity.child(DefKind::TraitAssociatedType, &associated_type.name),
             parent,
@@ -1256,7 +1281,7 @@ impl<'a> Collector<'a> {
             DefKind::TraitAssociatedType,
             Visibility::Public,
             associated_type.span,
-        );
+        )?;
         self.def_nodes
             .insert(associated_type.node_key.clone(), associated_type_id);
         self.insert_member(
@@ -1266,6 +1291,7 @@ impl<'a> Collector<'a> {
             associated_type.span,
             "duplicate trait associated type",
         );
+        Ok(())
     }
 
     fn collect_trait_associated_value(
@@ -1274,7 +1300,7 @@ impl<'a> Collector<'a> {
         parent: Option<DefId>,
         members: &mut MemberScope,
         associated_value: &TraitAssociatedValue,
-    ) {
+    ) -> nia_ice::IceResult<()> {
         let value_id = self.push_member_def(
             owner_identity.child(DefKind::Const, &associated_value.name),
             parent,
@@ -1282,7 +1308,7 @@ impl<'a> Collector<'a> {
             DefKind::Const,
             Visibility::Public,
             associated_value.span,
-        );
+        )?;
         self.def_nodes
             .insert(associated_value.node_key.clone(), value_id);
         self.insert_member(
@@ -1292,6 +1318,7 @@ impl<'a> Collector<'a> {
             associated_value.span,
             "duplicate trait associated const",
         );
+        Ok(())
     }
 
     fn collect_extend_associated_type(
@@ -1300,7 +1327,7 @@ impl<'a> Collector<'a> {
         parent: Option<DefId>,
         members: &mut MemberScope,
         associated_type: &ExtendAssociatedType,
-    ) {
+    ) -> nia_ice::IceResult<()> {
         let associated_type_id = self.push_member_def(
             owner_identity.child(DefKind::TraitAssociatedType, &associated_type.name),
             parent,
@@ -1308,7 +1335,7 @@ impl<'a> Collector<'a> {
             DefKind::TraitAssociatedType,
             Visibility::Private,
             associated_type.span,
-        );
+        )?;
         self.def_nodes
             .insert(associated_type.node_key.clone(), associated_type_id);
         self.insert_member(
@@ -1318,6 +1345,7 @@ impl<'a> Collector<'a> {
             associated_type.span,
             "duplicate associated type definition",
         );
+        Ok(())
     }
 
     fn collect_extend_associated_value(
@@ -1326,7 +1354,7 @@ impl<'a> Collector<'a> {
         parent: Option<DefId>,
         members: &mut MemberScope,
         associated_value: &ExtendAssociatedValue,
-    ) {
+    ) -> nia_ice::IceResult<()> {
         let binding = &associated_value.binding;
         let value_id = self.push_associated_value_def(
             owner_identity.child(DefKind::Const, &binding.name),
@@ -1334,7 +1362,7 @@ impl<'a> Collector<'a> {
             binding,
             associated_value.vis,
             associated_value.span,
-        );
+        )?;
         self.def_nodes.insert(binding.node_key.clone(), value_id);
         self.insert_member(
             &mut members.values,
@@ -1343,6 +1371,7 @@ impl<'a> Collector<'a> {
             associated_value.span,
             "duplicate associated value definition",
         );
+        Ok(())
     }
 
     fn collect_trait_method(
@@ -1351,7 +1380,7 @@ impl<'a> Collector<'a> {
         parent: Option<DefId>,
         members: &mut MemberScope,
         method: &FunctionItem,
-    ) {
+    ) -> nia_ice::IceResult<()> {
         self.check_duplicate_generics(&method.generics, method.span);
         let method_id = self.push_member_def_with_generics(MemberDefInput {
             identity: owner_identity.child(DefKind::TraitMethod, &method.name),
@@ -1361,7 +1390,7 @@ impl<'a> Collector<'a> {
             visibility: Visibility::Public,
             span: method.span,
             generics: method.generics.clone(),
-        });
+        })?;
         self.def_nodes.insert(method.node_key.clone(), method_id);
         self.insert_member(
             &mut members.methods,
@@ -1375,7 +1404,7 @@ impl<'a> Collector<'a> {
             method_id,
             method,
             Visibility::Private,
-        );
+        )
     }
 
     fn collect_method(
@@ -1385,7 +1414,7 @@ impl<'a> Collector<'a> {
         members: &mut MemberScope,
         method: &FunctionItem,
         visibility: Visibility,
-    ) {
+    ) -> nia_ice::IceResult<()> {
         self.check_duplicate_generics(&method.generics, method.span);
         let method_id = self.push_member_def_with_generics(MemberDefInput {
             identity: owner_identity.child(DefKind::Method, &method.name),
@@ -1395,7 +1424,7 @@ impl<'a> Collector<'a> {
             visibility,
             span: method.span,
             generics: method.generics.clone(),
-        });
+        })?;
         self.def_nodes.insert(method.node_key.clone(), method_id);
         self.insert_member(
             &mut members.methods,
@@ -1409,7 +1438,7 @@ impl<'a> Collector<'a> {
             method_id,
             method,
             Visibility::Private,
-        );
+        )
     }
 
     fn collect_function_local_static_bindings(
@@ -1418,11 +1447,11 @@ impl<'a> Collector<'a> {
         parent: DefId,
         function: &FunctionItem,
         visibility: Visibility,
-    ) {
+    ) -> nia_ice::IceResult<()> {
         let Some(body) = &function.body else {
-            return;
+            return Ok(());
         };
-        self.collect_block_static_bindings(owner_identity, parent, body, visibility);
+        self.collect_block_static_bindings(owner_identity, parent, body, visibility)
     }
 
     fn collect_block_static_bindings(
@@ -1431,21 +1460,32 @@ impl<'a> Collector<'a> {
         parent: DefId,
         block: &Block,
         visibility: Visibility,
-    ) {
+    ) -> nia_ice::IceResult<()> {
+        let mut failure = None;
         nia_ast_walk::walk_static_bindings(block, &mut |stmt| {
+            if failure.is_some() {
+                return;
+            }
             let StmtKind::Static(binding) = &stmt.kind else {
                 return;
             };
-            let def_id = self.push_member_def(
+            let def_id = match self.push_member_def(
                 owner_identity.child(DefKind::Global, &binding.name),
                 Some(parent),
                 binding.name,
                 DefKind::Global,
                 visibility,
                 stmt.span,
-            );
+            ) {
+                Ok(def_id) => def_id,
+                Err(error) => {
+                    failure = Some(error);
+                    return;
+                }
+            };
             self.def_nodes.insert(binding.node_key.clone(), def_id);
         });
+        failure.map_or(Ok(()), Err)
     }
 
     fn push_associated_value_def(
@@ -1455,7 +1495,7 @@ impl<'a> Collector<'a> {
         binding: &BindingItem,
         visibility: Visibility,
         span: Span,
-    ) -> DefId {
+    ) -> nia_ice::IceResult<DefId> {
         self.push_member_def(
             identity,
             parent,
@@ -1466,7 +1506,11 @@ impl<'a> Collector<'a> {
         )
     }
 
-    fn collect_enum(&mut self, item: &ItemTreeNode, item_enum: &EnumItem) {
+    fn collect_enum(
+        &mut self,
+        item: &ItemTreeNode,
+        item_enum: &EnumItem,
+    ) -> nia_ice::IceResult<()> {
         let identity = DefIdentity::top(DefNamespace::Type, DefKind::Enum, &item_enum.name);
         let enum_id = self.add_type_def(
             item_enum.name,
@@ -1475,7 +1519,7 @@ impl<'a> Collector<'a> {
             item.span,
             item.node_key.clone(),
             Vec::new(),
-        );
+        )?;
         let mut members = EnumScope::default();
         for variant in &item_enum.variants {
             let variant_identity = identity.child(DefKind::EnumVariant, &variant.name);
@@ -1486,7 +1530,7 @@ impl<'a> Collector<'a> {
                 DefKind::EnumVariant,
                 Visibility::Public,
                 variant.span,
-            );
+            )?;
             self.def_nodes.insert(variant.node_key.clone(), variant_id);
             self.insert_member(
                 &mut members.variants,
@@ -1505,7 +1549,7 @@ impl<'a> Collector<'a> {
                         DefKind::EnumVariantField,
                         Visibility::Private,
                         field.span,
-                    );
+                    )?;
                     self.def_nodes.insert(field.node_key.clone(), field_id);
                     self.insert_member(
                         &mut field_names,
@@ -1518,9 +1562,14 @@ impl<'a> Collector<'a> {
             }
         }
         self.enum_members.insert(enum_id, members);
+        Ok(())
     }
 
-    fn collect_type_alias(&mut self, item: &ItemTreeNode, alias: &TypeAliasItem) {
+    fn collect_type_alias(
+        &mut self,
+        item: &ItemTreeNode,
+        alias: &TypeAliasItem,
+    ) -> nia_ice::IceResult<()> {
         self.check_duplicate_generics(&alias.generics, item.span);
         self.add_type_def(
             alias.name,
@@ -1529,7 +1578,8 @@ impl<'a> Collector<'a> {
             item.span,
             item.node_key.clone(),
             alias.generics.clone(),
-        );
+        )?;
+        Ok(())
     }
 
     fn add_module_def(
@@ -1539,7 +1589,7 @@ impl<'a> Collector<'a> {
         visibility: Visibility,
         span: Span,
         node_key: VersionedNodeKey,
-    ) -> DefId {
+    ) -> nia_ice::IceResult<DefId> {
         let def_id = self.push_top_def(
             DefIdentity::top(DefNamespace::Module, kind, &name),
             name,
@@ -1547,10 +1597,10 @@ impl<'a> Collector<'a> {
             visibility,
             span,
             Vec::new(),
-        );
+        )?;
         self.def_nodes.insert(node_key, def_id);
         self.insert_top_module(name, def_id, span, "duplicate module name");
-        def_id
+        Ok(def_id)
     }
 
     fn add_type_def(
@@ -1561,12 +1611,12 @@ impl<'a> Collector<'a> {
         span: Span,
         node_key: VersionedNodeKey,
         generics: Vec<GenericParam>,
-    ) -> DefId {
+    ) -> nia_ice::IceResult<DefId> {
         let identity = DefIdentity::top(DefNamespace::Type, kind, &name);
-        let def_id = self.push_top_def(identity, name, kind, visibility, span, generics);
+        let def_id = self.push_top_def(identity, name, kind, visibility, span, generics)?;
         self.def_nodes.insert(node_key, def_id);
         self.insert_top_type(name, def_id, span, "duplicate type definition");
-        def_id
+        Ok(def_id)
     }
 
     fn add_value_def(
@@ -1577,7 +1627,7 @@ impl<'a> Collector<'a> {
         span: Span,
         node_key: VersionedNodeKey,
         generics: Vec<GenericParam>,
-    ) -> DefId {
+    ) -> nia_ice::IceResult<DefId> {
         let def_id = self.push_top_def(
             DefIdentity::top(DefNamespace::Value, kind, &name),
             name,
@@ -1585,10 +1635,10 @@ impl<'a> Collector<'a> {
             visibility,
             span,
             generics,
-        );
+        )?;
         self.def_nodes.insert(node_key, def_id);
         self.insert_top_value(name, def_id, span, "duplicate value definition");
-        def_id
+        Ok(def_id)
     }
 
     fn push_top_def(
@@ -1599,7 +1649,7 @@ impl<'a> Collector<'a> {
         visibility: Visibility,
         span: Span,
         generics: Vec<GenericParam>,
-    ) -> DefId {
+    ) -> nia_ice::IceResult<DefId> {
         let generic_names = nia_ast::generic_param_names(&generics);
         self.push_def(
             identity,
@@ -1624,7 +1674,7 @@ impl<'a> Collector<'a> {
         kind: DefKind,
         visibility: Visibility,
         span: Span,
-    ) -> DefId {
+    ) -> nia_ice::IceResult<DefId> {
         self.push_member_def_with_generics(MemberDefInput {
             identity,
             parent,
@@ -1636,7 +1686,10 @@ impl<'a> Collector<'a> {
         })
     }
 
-    fn push_member_def_with_generics(&mut self, input: MemberDefInput) -> DefId {
+    fn push_member_def_with_generics(
+        &mut self,
+        input: MemberDefInput,
+    ) -> nia_ice::IceResult<DefId> {
         let MemberDefInput {
             identity,
             parent,
@@ -1662,12 +1715,15 @@ impl<'a> Collector<'a> {
         )
     }
 
-    fn push_def(&mut self, identity: DefIdentity, def: Def) -> DefId {
-        let identity = self.disambiguate_identity(identity);
+    fn push_def(&mut self, identity: DefIdentity, def: Def) -> nia_ice::IceResult<DefId> {
+        let identity = self.disambiguate_identity(identity)?;
         self.defs.push(identity, def)
     }
 
-    fn disambiguate_identity(&mut self, identity: DefIdentity) -> DefIdentity {
+    fn disambiguate_identity(
+        &mut self,
+        identity: DefIdentity,
+    ) -> nia_ice::IceResult<DefIdentity> {
         let ordinal = self
             .duplicate_identities
             .entry(identity.clone())
@@ -1677,8 +1733,13 @@ impl<'a> Collector<'a> {
         } else {
             identity.duplicate(*ordinal)
         };
-        *ordinal += 1;
-        resolved
+        *ordinal = ordinal.checked_add(1).ok_or_else(|| {
+            nia_ice::Ice::new(format!(
+                "definition duplicate ordinal exhausted for `{}`",
+                resolved.display()
+            ))
+        })?;
+        Ok(resolved)
     }
 
     fn insert_top_type(

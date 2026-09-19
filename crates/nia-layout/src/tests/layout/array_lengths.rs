@@ -14,7 +14,7 @@ b: i32,
 fn main(xs: [u8; std::builtin::size[Pair]()], ys: [u8; std::builtin::align[Pair]()]) {}
 "#,
     );
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
@@ -73,7 +73,7 @@ data: [T; N],
 fn main(buf: Buffer[u8, 4]) {}
 "#,
     );
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     assert!(
         resolved.diagnostics.is_empty(),
@@ -127,7 +127,7 @@ struct Packet[N: usize] {
 fn main(packet: Packet[3]) {}
 "#,
     );
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
@@ -209,7 +209,7 @@ tail: U,
 fn main(value: Mixed[u8, 3, u32], bits: MixedBits[u16, 5, u8]) {}
 "#,
     );
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     assert!(
         resolved.diagnostics.is_empty(),
@@ -268,7 +268,8 @@ fn main(value: Mixed[u8, 3, u32], bits: MixedBits[u16, 5, u8]) {}
 
     let consumer_module_id = module_ids.allocate().expect("allocate module ID");
     let (consumer_module, _) = parse_test_module("");
-    let consumer_defs = collect_module_defs(consumer_module_id, &consumer_module);
+    let consumer_defs =
+        collect_module_defs(consumer_module_id, &consumer_module).expect("collect definitions");
     let cached_layouts = |requested_module_id| {
         (requested_module_id == module_id).then(|| std::sync::Arc::new(layouts.clone()))
     };
@@ -341,7 +342,7 @@ type Mixed[T, N: usize, U] = ([T; N], U);
 fn main(value: Mixed[u8, 3, u32]) {}
 "#,
     );
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     assert!(
         resolved.diagnostics.is_empty(),

@@ -5,7 +5,7 @@ fn deduplicates_generic_instances() {
     let (module, errors) = parse_module("fn id[T](value: T) T { value }");
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
-    let defs = collect_module_defs(fixture.module_id, &module);
+    let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
     let def_id = value_def(&defs, "id");
     let i32_ty = fixture.types.primitive(PrimitiveTy::I32);
     let instantiations = vec![
@@ -58,7 +58,7 @@ fn main() i32 { outer(1) }
     );
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
-    let defs = collect_module_defs(fixture.module_id, &module);
+    let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
     let inner_id = GlobalDefId {
         module_id: fixture.module_id,
         def_id: value_def(&defs, "inner"),
@@ -119,7 +119,7 @@ fn main() i32 { 0 }
     );
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
-    let defs = collect_module_defs(fixture.module_id, &module);
+    let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
     let inner_id = GlobalDefId {
         module_id: fixture.module_id,
         def_id: value_def(&defs, "inner"),
@@ -195,7 +195,7 @@ fn outer[N: usize]() () {}
     );
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
-    let defs = collect_module_defs(fixture.module_id, &module);
+    let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
     let typed_id = GlobalDefId {
         module_id: fixture.module_id,
         def_id: value_def(&defs, "typed"),

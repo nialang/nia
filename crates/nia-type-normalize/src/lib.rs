@@ -865,7 +865,7 @@ fn id(x: Byte) u8 { x }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
@@ -906,7 +906,7 @@ fn id(p: RawPtr[u8]) &u8 { p }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
@@ -952,7 +952,7 @@ fn id(cb: Callback) Callback { cb }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
@@ -1001,7 +1001,7 @@ fn id(value: Mixed[u8, 4, u16]) Mixed[u8, 4, u16] { value }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new().expect("create type store");
         let program_defs =
@@ -1061,7 +1061,7 @@ fn id(value: Nested[u16]) (u16, ((), u16)) { value }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
@@ -1120,7 +1120,7 @@ fn id(x: [u8; std::builtin::size[Byte]()]) [u8; std::builtin::size[u8]()] { x }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
@@ -1176,7 +1176,7 @@ fn id(x: SizedBytes[u16]) [u8; std::builtin::size[u16]()] { x }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
@@ -1224,7 +1224,7 @@ type B = A;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
@@ -1258,7 +1258,7 @@ fn take(xs: [u8; 2 + 3]) () {}
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(

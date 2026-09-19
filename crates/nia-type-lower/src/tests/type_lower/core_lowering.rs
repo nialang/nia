@@ -17,7 +17,7 @@ let mut tmp: [i32; _] = [1, 2, 3];
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types(&module, &defs);
     assert!(
         resolved.diagnostics.is_empty(),
@@ -73,7 +73,7 @@ fn use_buffer(buf: Buffer[u8, 4]) () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     let resolved = resolve_module_types(&module, &defs);
     assert!(
@@ -130,7 +130,7 @@ fn consume(value: Mixed[u8, 4, u16]) () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types(&module, &defs);
     assert!(
         resolved.diagnostics.is_empty(),
@@ -182,7 +182,8 @@ pub struct Packet[T, N: usize, U] {
 "#,
     );
     assert!(defining_errors.is_empty(), "{defining_errors:?}");
-    let defining_defs = collect_module_defs(defining_module_id, &defining_module);
+    let defining_defs =
+        collect_module_defs(defining_module_id, &defining_module).expect("collect definitions");
     let packet_id = defining_defs
         .module_scope
         .types
@@ -195,7 +196,8 @@ fn consume(packet: Packet[u8, 2, u16]) () {}
 "#,
     );
     assert!(consuming_errors.is_empty(), "{consuming_errors:?}");
-    let consuming_defs = collect_module_defs(consuming_module_id, &consuming_module);
+    let consuming_defs =
+        collect_module_defs(consuming_module_id, &consuming_module).expect("collect definitions");
     let mut resolved = resolve_module_types(&consuming_module, &consuming_defs);
     let ItemKind::Function(function) = &consuming_module.items[0].kind else {
         panic!("expected function");
@@ -275,7 +277,7 @@ fn write(& self) Error!() {
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types(&module, &defs);
     assert!(
         resolved.diagnostics.is_empty(),
@@ -311,7 +313,7 @@ fn len2(& self) usize {
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types(&module, &defs);
     assert!(
         resolved.diagnostics.is_empty(),
@@ -345,7 +347,7 @@ type CallbackMut = &mut Fn(i32, bool) i32;
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types(&module, &defs);
     assert!(
         resolved.diagnostics.is_empty(),
@@ -394,7 +396,7 @@ fn rejects_bare_callable_interfaces_in_value_positions() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module("fn invoke(callback: Fn(i32) i32) {}");
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types(&module, &defs);
     let (type_store, lowered) = lower_test_module(&module, &defs, &resolved);
     assert!(lowered.diagnostics.iter().any(|diagnostic| {

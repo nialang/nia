@@ -16,7 +16,7 @@ fn resolve_source(source: &str) -> TypeResolution {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module_with_symbols(source, symbols.clone());
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     resolve_module_types_with_symbols(&module, &defs, &symbols)
 }
@@ -222,7 +222,8 @@ fn selected(value: i32) () {}
     let active = tree.active_items(&mut BoolResolver(false)).unwrap();
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let defs = collect_module_defs_from_active_item_tree(module_id, &active);
+    let defs =
+        collect_module_defs_from_active_item_tree(module_id, &active).expect("collect definitions");
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     let resolved = resolve_module_types_from_active_item_tree_with_symbols(
         &active,
@@ -264,7 +265,8 @@ fn main() () {
         .expect("create module ID allocator")
         .allocate()
         .expect("allocate module ID");
-    let defs = collect_module_defs_from_active_item_tree(module_id, &active);
+    let defs =
+        collect_module_defs_from_active_item_tree(module_id, &active).expect("collect definitions");
     let resolved = resolve_module_declaration_types_from_active_item_tree_with_symbols(
         &active,
         &defs,

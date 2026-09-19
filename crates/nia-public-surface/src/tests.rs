@@ -10,7 +10,7 @@ fn name(text: &str) -> SymbolId {
 fn defs(module_id: ModuleId, source: &str) -> DefCollection {
     let (module, errors) = nia_parser::parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
-    nia_defs::collect_module_defs(module_id, &module)
+    nia_defs::collect_module_defs(module_id, &module).expect("collect definitions")
 }
 
 fn graph_with_public_children(children: &[&str]) -> ModuleGraph {

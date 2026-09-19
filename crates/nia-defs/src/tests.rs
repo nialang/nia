@@ -24,7 +24,7 @@ static mut counter = 0;
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let collection = collect_module_defs(module_id, &module);
+    let collection = collect_module_defs(module_id, &module).expect("collect definitions");
     assert!(
         collection.diagnostics.is_empty(),
         "{:?}",
@@ -58,7 +58,7 @@ pub fn make() () {}
     assert!(errors.is_empty(), "{errors:?}");
     let first_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let first_module = first_ids.allocate().expect("allocate module ID");
-    let original = collect_module_defs(first_module, &module);
+    let original = collect_module_defs(first_module, &module).expect("collect definitions");
     assert!(
         original.diagnostics.is_empty(),
         "{:?}",
@@ -96,7 +96,7 @@ enum E { A, A }
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let collection = collect_module_defs(module_id, &module);
+    let collection = collect_module_defs(module_id, &module).expect("collect definitions");
     assert_eq!(collection.diagnostics.len(), 4);
     assert!(collection.diagnostics.iter().any(|diagnostic| {
         diagnostic.code.as_str() == "E0101"
@@ -147,7 +147,7 @@ fn get[U, U](self) T { self.value }
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let collection = collect_module_defs(module_id, &module);
+    let collection = collect_module_defs(module_id, &module).expect("collect definitions");
     let duplicate_count = collection
         .diagnostics
         .iter()
@@ -173,7 +173,7 @@ const answer: i32 = 42;
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let collection = collect_module_defs(module_id, &module);
+    let collection = collect_module_defs(module_id, &module).expect("collect definitions");
     assert!(
         collection.diagnostics.is_empty(),
         "{:?}",
@@ -283,7 +283,7 @@ fn collect_ok(source: &str) -> DefCollection {
     assert!(errors.is_empty(), "{errors:?}");
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let collection = collect_module_defs(module_id, &module);
+    let collection = collect_module_defs(module_id, &module).expect("collect definitions");
     assert!(
         collection.diagnostics.is_empty(),
         "{:?}",
@@ -300,11 +300,34 @@ fn stable_top_level_definition_id_matches_source_collection() {
     assert_eq!(
         answer,
         stable_top_level_def_id(DefKind::Function, sym("answer"))
+            .expect("derive top-level definition ID")
     );
     assert_eq!(
         point,
         stable_top_level_def_id(DefKind::Struct, sym("Point"))
+            .expect("derive top-level definition ID")
     );
+}
+
+#[test]
+fn duplicate_definition_identity_is_a_structured_internal_error() {
+    let mut collection = collect_ok("fn answer() i32 { 0 }\n");
+    let entry = collection.defs.defs[0].clone();
+
+    let error = collection
+        .defs
+        .push(entry.identity, entry.def)
+        .expect_err("duplicate definition identity must fail");
+
+    assert!(error.message.contains("duplicate stable definition identity"));
+}
+
+#[test]
+fn member_kind_cannot_be_derived_as_a_top_level_definition() {
+    let error = stable_top_level_def_id(DefKind::StructField, sym("field"))
+        .expect_err("member kind must not have a top-level identity");
+
+    assert!(error.message.contains("cannot be represented"));
 }
 
 fn top_type_id(defs: &DefCollection, name: &str) -> DefId {

@@ -16,7 +16,7 @@ Box[4] { value: 0 }
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types(&module, &defs);
     let (_type_store, lowered) = lower_test_module(&module, &defs, &resolved);
     assert!(
@@ -43,7 +43,7 @@ fn non_generic_arg(a: Point[i32]) {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     let resolved = resolve_module_types(&module, &defs);
     assert!(
@@ -89,7 +89,7 @@ static mut global_void: ();
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types(&module, &defs);
     let (_type_store, lowered) = lower_test_module(&module, &defs, &resolved);
     assert!(

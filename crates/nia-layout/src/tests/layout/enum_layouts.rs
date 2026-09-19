@@ -14,7 +14,7 @@ enum Event: u16 {
 }
 "#,
     );
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
@@ -61,7 +61,7 @@ fn defaults_enum_tag_to_u8_and_keeps_fieldless_layout_scalar() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module("enum Flag { Off, On }");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
@@ -83,7 +83,7 @@ fn rejects_open_payload_enums() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module("enum Event { Data(u8), _, }");
-    let defs = collect_module_defs(module_id, &module);
+    let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
     let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);

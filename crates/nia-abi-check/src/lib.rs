@@ -971,7 +971,7 @@ extern fn bad_callable_pointee(callback: Fn(i32) i32);
         assert!(errors.is_empty(), "{errors:?}");
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
@@ -1030,7 +1030,7 @@ extern fn consume(header: Header);
         assert!(errors.is_empty(), "{errors:?}");
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
@@ -1064,7 +1064,7 @@ extern struct Header[N: usize] {
         assert!(errors.is_empty(), "{errors:?}");
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
@@ -1099,7 +1099,7 @@ extern struct Header[N: usize] {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
         let foreign_module_id = module_ids.allocate().expect("allocate module ID");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let type_store = TypeStore::new().expect("create type store");
         let append = type_store.append_for_module(module_id);
         let type_name = SymbolId::from_stable_hash(stable_hash("T"));
@@ -1237,7 +1237,7 @@ extern fn effect() Unit;
         assert!(errors.is_empty(), "{errors:?}");
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
@@ -1281,7 +1281,7 @@ extern struct Header { values: Repeat[bool, 4] }
         assert!(errors.is_empty(), "{errors:?}");
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new().expect("create type store");
         let program_defs =
@@ -1338,7 +1338,7 @@ extern fn bad_return() (i32, bool);
         assert!(errors.is_empty(), "{errors:?}");
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let defs = collect_module_defs(module_id, &module);
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new().expect("create type store");
         let lowered = lower_module_types_with_context(
