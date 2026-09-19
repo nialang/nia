@@ -3044,12 +3044,16 @@ impl CompilerContext {
         let graph = self.loader_facts.module_graph()?;
         let mut identities = Vec::new();
         for module_id in module_ids {
-            graph
-                .get(module_id)
-                .unwrap_or_else(|| panic!("Nia ICE: module {module_id:?} is not loaded"));
-            let key = graph
-                .stable_key(module_id)
-                .unwrap_or_else(|| panic!("Nia ICE: module {module_id:?} has no stable key"));
+            if graph.get(module_id).is_none() {
+                return Err(QueryError::internal(format!(
+                    "module {module_id:?} is missing from loaded module graph"
+                )));
+            }
+            let Some(key) = graph.stable_key(module_id) else {
+                return Err(QueryError::internal(format!(
+                    "loaded module {module_id:?} has no stable key"
+                )));
+            };
             identities.push(key.source_identity().clone());
         }
         Ok(StableModuleSequence::from_source_identities(identities))
@@ -3081,12 +3085,13 @@ impl CompilerContext {
                     break;
                 }
             }
-            module_ids.push(current.unwrap_or_else(|| {
-                panic!(
-                    "Nia ICE: stable loaded module `{}` is missing from current loader facts",
+            let Some(module_id) = current else {
+                return Err(QueryError::internal(format!(
+                    "stable loaded module `{}` is missing from current loader facts",
                     key.source_identity().normalized_path()
-                )
-            }));
+                )));
+            };
+            module_ids.push(module_id);
         }
         Ok(module_ids)
     }
