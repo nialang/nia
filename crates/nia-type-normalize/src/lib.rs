@@ -799,9 +799,7 @@ mod tests {
     use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
     use nia_parser::parse_module;
     use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyKind, TypeStore};
-    use nia_type_lower::{
-        ProgramDefsContext, TypeLowering, TypeLoweringContext,
-    };
+    use nia_type_lower::{ProgramDefsContext, TypeLowering, TypeLoweringContext};
     use nia_type_resolve::resolve_module_types;
 
     fn normalize_lowered(
@@ -1296,15 +1294,15 @@ fn take(xs: [u8; 2 + 3]) () {}
             .expect("intern element type");
         let pointer = append
             .intern(TyKind::Pointer {
-            is_readonly: true,
-            elem,
-        })
+                is_readonly: true,
+                elem,
+            })
             .expect("intern pointer type");
         let slice = append
             .intern(TyKind::Slice {
-            is_readonly: true,
-            elem,
-        })
+                is_readonly: true,
+                elem,
+            })
             .expect("intern slice type");
 
         let signatures = ItemSignatures {

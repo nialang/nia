@@ -32,7 +32,11 @@ let mut tmp: [i32; _] = [1, 2, 3];
         Some(TyKind::Error)
     ));
     assert!(matches!(
-        type_store.get(append.intern(TyKind::Primitive(PrimitiveTy::I8)).expect("intern i8 type")),
+        type_store.get(
+            append
+                .intern(TyKind::Primitive(PrimitiveTy::I8))
+                .expect("intern i8 type")
+        ),
         Some(TyKind::Primitive(PrimitiveTy::I8))
     ));
     assert!(

@@ -407,13 +407,14 @@ impl<'a> ModuleLowerer<'a> {
                         .then(|| (*trait_id, signature.signature.generic_params.clone()))
                 })?
         };
-        let (trait_args, trait_const_args) = match trait_owner_generic_arguments(&self.type_context.append, &generic_params) {
-            Ok(arguments) => arguments,
-            Err(error) => {
-                self.type_context.record_internal(error);
-                return None;
-            }
-        };
+        let (trait_args, trait_const_args) =
+            match trait_owner_generic_arguments(&self.type_context.append, &generic_params) {
+                Ok(arguments) => arguments,
+                Err(error) => {
+                    self.type_context.record_internal(error);
+                    return None;
+                }
+            };
         Some(TraitGoal {
             self_ty: self.type_context.intern(TyKind::SelfParam),
             trait_id: TraitId::Source(trait_def_id),
@@ -935,7 +936,8 @@ mod tests {
             },
         ];
 
-        let (type_args, const_args) = trait_owner_generic_arguments(&append, &params).expect("trait owner arguments");
+        let (type_args, const_args) =
+            trait_owner_generic_arguments(&append, &params).expect("trait owner arguments");
 
         assert_eq!(type_args.len(), 2);
         assert!(matches!(

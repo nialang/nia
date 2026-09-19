@@ -25,8 +25,8 @@ use nia_ast::GenericParamKind;
 use nia_const_check::ConstCheck;
 use nia_defs::{DefCollection, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{DefId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_ice::{Ice, IceResult};
+use nia_ids::{DefId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{
     EnumSignature, ProgramEnumSignature, ProgramTraitImplIndex, ProgramTraitImplSignature,
 };
@@ -1453,7 +1453,8 @@ impl MonoCollector<'_> {
             impl_is_visible: None,
         };
         let mut solver = context.solver_with_associated_type_assumptions(&[], &[]);
-        match solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name) {
+        match solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
+        {
             Ok(resolved) => resolved,
             Err(error) => {
                 self.record_internal_error(error);

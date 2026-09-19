@@ -99,7 +99,8 @@ pub fn check_module_bodies_with_program_signatures(
     let Some(target_layout) = target_data_layout(input.target) else {
         return body_check_target_layout_error(input.target);
     };
-    let layouts = match nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
+    let layouts =
+        match nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
             type_store: input.type_store,
             defs: input.defs,
             signatures: input.signatures,
@@ -109,9 +110,9 @@ pub fn check_module_bodies_with_program_signatures(
             target: target_layout,
             program: nia_layout::ProgramLayoutContext::default(),
         }) {
-        Ok(layouts) => layouts,
-        Err(error) => return body_check_internal_error(error),
-    };
+            Ok(layouts) => layouts,
+            Err(error) => return body_check_internal_error(error),
+        };
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         type_store: input.type_store,
         source_version: input.source_version,
