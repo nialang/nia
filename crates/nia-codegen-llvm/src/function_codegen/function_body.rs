@@ -27,11 +27,20 @@ struct TryFailureReturn<'b, 'ctx> {
     body: &'b FunctionBody,
     block: FunctionBlockId,
     span: Span,
-    aggregate: nia_llvm::values::StructValue<'ctx>,
+    aggregate: TryTaggedUnion<'ctx>,
     aggregate_ty: nia_ids::InternedTyId,
     kind: FunctionTryKind,
     error_conversion: Option<&'b FunctionExpr>,
     outer_blocks: &'b std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
+}
+
+#[derive(Clone, Copy)]
+enum TryTaggedUnion<'ctx> {
+    Value(nia_llvm::values::StructValue<'ctx>),
+    Storage {
+        ty: nia_llvm::types::BasicTypeEnum<'ctx>,
+        ptr: nia_llvm::values::PointerValue<'ctx>,
+    },
 }
 
 struct DeferTryTerminatorInput<'b, 'ctx> {
@@ -473,12 +482,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             llvm_blocks,
             outer_blocks,
         } = input;
-        let aggregate = self.emit_tagged_union_value(span, value)?;
-        let tag = self
-            .builder
-            .build_extract_value(aggregate, 0, "defer.try.tag")
-            .map_err(|_| self.error(span, "failed to extract deferred propagation tag"))?
-            .into_int_value()?;
+        let aggregate = self.emit_try_tagged_union(span, value)?;
+        let tag = self.load_try_tagged_union_tag(span, aggregate, "defer.try.tag")?;
         let failure_tag = match kind {
             FunctionTryKind::Optional => FunctionOptionalTag::Null.discriminant(),
             FunctionTryKind::ErrorUnion => FunctionErrorUnionTag::Err.discriminant(),
@@ -529,12 +534,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             let Some(payload_ty) = self.local_tys.get(&success_local).copied() else {
                 return Err(self.error(span, "missing deferred propagation success local type"));
             };
-            let payload = self.load_tagged_union_payload_from_value(
-                span,
-                aggregate.into(),
-                value.ty,
-                payload_ty,
-            )?;
+            let payload =
+                self.load_try_tagged_union_payload(span, aggregate, value.ty, payload_ty)?;
             self.builder
                 .build_store(ptr, payload)
                 .map_err(|_| self.error(span, "failed to store deferred propagation payload"))?;
@@ -557,12 +558,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             success_target,
             llvm_blocks,
         } = input;
-        let aggregate = self.emit_tagged_union_value(span, value)?;
-        let tag = self
-            .builder
-            .build_extract_value(aggregate, 0, "try.tag")
-            .map_err(|_| self.error(span, "failed to extract propagation tag"))?
-            .into_int_value()?;
+        let aggregate = self.emit_try_tagged_union(span, value)?;
+        let tag = self.load_try_tagged_union_tag(span, aggregate, "try.tag")?;
         let failure_tag = match kind {
             FunctionTryKind::Optional => FunctionOptionalTag::Null.discriminant(),
             FunctionTryKind::ErrorUnion => FunctionErrorUnionTag::Err.discriminant(),
@@ -606,12 +603,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             let Some(payload_ty) = self.local_tys.get(&success_local).copied() else {
                 return Err(self.error(span, "missing propagation success local type"));
             };
-            let payload = self.load_tagged_union_payload_from_value(
-                span,
-                aggregate.into(),
-                value.ty,
-                payload_ty,
-            )?;
+            let payload =
+                self.load_try_tagged_union_payload(span, aggregate, value.ty, payload_ty)?;
             self.builder
                 .build_store(ptr, payload)
                 .map_err(|_| self.error(span, "failed to store propagation payload"))?;
@@ -708,10 +701,92 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(span, "tagged union value is not a struct"))
     }
 
+    fn emit_try_tagged_union(
+        &mut self,
+        span: Span,
+        value: &FunctionExpr,
+    ) -> Result<TryTaggedUnion<'ctx>, Diagnostic> {
+        if !matches!(
+            self.module.classify_function_return(value.ty),
+            crate::module_codegen::AbiReturn::IndirectOut(_)
+        ) {
+            return self
+                .emit_tagged_union_value(span, value)
+                .map(TryTaggedUnion::Value);
+        }
+        let ty = self.module.llvm_basic_type(value.ty, value.span)?;
+        let ptr = self
+            .builder
+            .build_alloca(ty, "tagged.union.tmp")
+            .map_err(|_| self.error(span, "failed to allocate tagged union value"))?;
+        if !self.emit_aggregate_literal_into(ptr, value)?
+            && !self.emit_aggregate_call_result_into(ptr, value)?
+        {
+            let emitted = self.emit_expr(value)?;
+            self.builder
+                .build_store(ptr, emitted)
+                .map_err(|_| self.error(span, "failed to store tagged union value"))?;
+        }
+        Ok(TryTaggedUnion::Storage { ty, ptr })
+    }
+
+    fn load_try_tagged_union_tag(
+        &mut self,
+        span: Span,
+        aggregate: TryTaggedUnion<'ctx>,
+        name: &str,
+    ) -> Result<nia_llvm::values::IntValue<'ctx>, Diagnostic> {
+        match aggregate {
+            TryTaggedUnion::Value(value) => self
+                .builder
+                .build_extract_value(value, 0, name)
+                .map_err(|_| self.error(span, "failed to extract propagation tag"))?
+                .into_int_value()
+                .map_err(|_| self.error(span, "propagation tag is not an integer")),
+            TryTaggedUnion::Storage { ty, ptr } => {
+                let tag_ptr = unsafe { self.builder.build_struct_gep(ty, ptr, 0, name) }
+                    .map_err(|_| self.error(span, "failed to address propagation tag"))?;
+                self.builder
+                    .build_load(self.module.context.i8_type(), tag_ptr, name)
+                    .map_err(|_| self.error(span, "failed to load propagation tag"))?
+                    .into_int_value()
+                    .map_err(|_| self.error(span, "propagation tag is not an integer"))
+            }
+        }
+    }
+
+    fn load_try_tagged_union_payload(
+        &mut self,
+        span: Span,
+        aggregate: TryTaggedUnion<'ctx>,
+        aggregate_ty: nia_ids::InternedTyId,
+        payload_ty: nia_ids::InternedTyId,
+    ) -> Result<nia_llvm::values::BasicValueEnum<'ctx>, Diagnostic> {
+        match aggregate {
+            TryTaggedUnion::Value(value) => self.load_tagged_union_payload_from_value(
+                span,
+                value.into(),
+                aggregate_ty,
+                payload_ty,
+            ),
+            TryTaggedUnion::Storage { ty, ptr } => {
+                let payload_ptr = unsafe {
+                    self.builder
+                        .build_struct_gep(ty, ptr, 1, "tagged.payload.ptr")
+                }
+                .map_err(|_| self.error(span, "failed to address propagation payload"))?;
+                let payload_ty = self.module.llvm_basic_type(payload_ty, span)?;
+                self.builder
+                    .build_load(payload_ty, payload_ptr, "tagged.payload")
+                    .map_err(|_| self.error(span, "failed to load propagation payload"))
+            }
+        }
+    }
+
     fn emit_try_failure_return_storage(
         &mut self,
         span: Span,
-        aggregate: nia_llvm::values::StructValue<'ctx>,
+        aggregate: TryTaggedUnion<'ctx>,
         aggregate_ty: nia_ids::InternedTyId,
         kind: FunctionTryKind,
         error_conversion: Option<&FunctionExpr>,
@@ -744,7 +819,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn emit_try_failure_return_into(
         &mut self,
         span: Span,
-        aggregate: nia_llvm::values::StructValue<'ctx>,
+        aggregate: TryTaggedUnion<'ctx>,
         aggregate_ty: nia_ids::InternedTyId,
         kind: FunctionTryKind,
         error_conversion: Option<&FunctionExpr>,
@@ -806,9 +881,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .map_err(|_| self.error(span, "failed to build propagation return payload"))?;
                     let payload = match converted_payload {
                         Some(payload) => payload,
-                        None => self.load_tagged_union_payload_from_value(
+                        None => self.load_try_tagged_union_payload(
                             span,
-                            aggregate.into(),
+                            aggregate,
                             aggregate_ty,
                             payload_ty,
                         )?,

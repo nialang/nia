@@ -313,6 +313,28 @@ where Source: builtin::IntoError[Target]
     !(value.? + 1)
 }
 
+fn largeSource(succeed: bool) SourceError![u8; 64] {
+    if succeed {
+        ![7; 64]
+    } else {
+        SourceError::Failed!
+    }
+}
+
+fn propagateLarge(succeed: bool) TargetError![u8; 64] {
+    let value = largeSource(succeed).?;
+    !value
+}
+
+fn largeOptional(succeed: bool) ?[u8; 64] {
+    if succeed { ?[9; 64] } else { null }
+}
+
+fn propagateLargeOptional(succeed: bool) ?[u8; 64] {
+    let value = largeOptional(succeed).?;
+    ?value
+}
+
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     match propagate[SourceError, TargetError](source(true)) {
@@ -374,6 +396,50 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
     if conversionCount != 1 {
         return process::ExitCode(11)!;
+    }
+    conversionCount = 0;
+    match propagateLarge(true) {
+        !value => {
+            if value[0] != 7 or value[63] != 7 {
+                return process::ExitCode(14)!;
+            }
+        },
+        error! => {
+            _ = error;
+            return process::ExitCode(15)!;
+        },
+    }
+    if conversionCount != 0 {
+        return process::ExitCode(16)!;
+    }
+    match propagateLarge(false) {
+        !value => {
+            _ = value;
+            return process::ExitCode(17)!;
+        },
+        TargetError::Converted! => {},
+        error! => {
+            _ = error;
+            return process::ExitCode(18)!;
+        },
+    }
+    if conversionCount != 1 {
+        return process::ExitCode(19)!;
+    }
+    match propagateLargeOptional(true) {
+        ?value => {
+            if value[0] != 9 or value[63] != 9 {
+                return process::ExitCode(20)!;
+            }
+        },
+        null => return process::ExitCode(21)!,
+    }
+    match propagateLargeOptional(false) {
+        ?value => {
+            _ = value;
+            return process::ExitCode(22)!;
+        },
+        null => {},
     }
     !()
 }

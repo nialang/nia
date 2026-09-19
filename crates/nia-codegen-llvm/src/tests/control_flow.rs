@@ -770,6 +770,8 @@ fn run(fail: bool) Error![u8; 64] {
     assert!(ir.contains("try.failure"), "{ir}");
     assert!(!ir.contains("%try.return = alloca"), "{ir}");
     assert!(!ir.contains("%try.return.value = load"), "{ir}");
+    assert!(!ir.contains("%tagged.union = load"), "{ir}");
+    assert!(!ir.contains("%tagged.payload.copy"), "{ir}");
     assert!(ir.contains("%try.failure.tag = getelementptr"), "{ir}");
     assert!(ir.contains("store i8 1, ptr %try.failure.tag"), "{ir}");
 }
@@ -803,6 +805,8 @@ fn run(fail: bool) ?[u8; 64] {
     assert!(ir.contains("try.failure"), "{ir}");
     assert!(!ir.contains("%try.return = alloca"), "{ir}");
     assert!(!ir.contains("%try.return.value = load"), "{ir}");
+    assert!(!ir.contains("%tagged.union = load"), "{ir}");
+    assert!(!ir.contains("%tagged.payload.copy"), "{ir}");
     assert!(ir.contains("store i8 0, ptr %try.failure.tag"), "{ir}");
 }
 
