@@ -31,6 +31,7 @@ impl TraitSolver<'_> {
     }
 
     pub(crate) fn resolve_inner(&mut self, goal: TraitGoal) -> TraitResolution {
+        self.stats.goals += 1;
         let goal = self.normalize_goal(goal);
         // Explicit assumptions describe the current generic environment and therefore outrank
         // global implementations. Visible user implementations outrank compiler-provided

@@ -96,6 +96,19 @@ pub enum TraitResolution {
     Ambiguous,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Counters collected by one trait-solver session.
+pub struct TraitSolverStats {
+    /// Number of normalized goals passed through resolution.
+    pub goals: u64,
+    /// Number of indexed implementation positions considered.
+    pub candidate_indexes: u64,
+    /// Number of implementation headers structurally matched.
+    pub match_attempts: u64,
+    /// Number of implementation headers that satisfied all constraints.
+    pub matched_impls: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Result of considering source impls without assumptions or intrinsics.
 pub enum TraitSelection {
@@ -169,6 +182,14 @@ pub struct TraitSolver<'a> {
     local_enums: &'a HashMap<DefId, EnumSignature>,
     program_is_enum: Option<&'a dyn Fn(GlobalDefId) -> bool>,
     impl_is_visible: &'a dyn Fn(ModuleId, TraitImplId) -> bool,
+    stats: TraitSolverStats,
+}
+
+impl TraitSolver<'_> {
+    /// Returns the current session counters without changing solver state.
+    pub fn stats(&self) -> TraitSolverStats {
+        self.stats
+    }
 }
 
 /// Immutable program facts from which solver sessions are created.
@@ -267,6 +288,7 @@ impl<'a> TraitSolverContext<'a> {
             impl_is_visible: self
                 .impl_is_visible
                 .unwrap_or(&trait_impl_visible_by_default),
+            stats: TraitSolverStats::default(),
         }
     }
 
@@ -296,6 +318,7 @@ impl<'a> TraitSolverContext<'a> {
             impl_is_visible: self
                 .impl_is_visible
                 .unwrap_or(&trait_impl_visible_by_default),
+            stats: TraitSolverStats::default(),
         }
     }
 }
