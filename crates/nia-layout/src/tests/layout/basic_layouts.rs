@@ -37,7 +37,8 @@ fn main(p: &Pair, xs: [u16; 3]) {}
         array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
-    });
+    })
+    .expect("compute layouts");
     assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
     assert_eq!(
         layouts
@@ -45,7 +46,8 @@ fn main(p: &Pair, xs: [u16; 3]) {}
             .get(
                 &type_store
                     .append_for_module(module_id)
-                    .intern(TyKind::Primitive(PrimitiveTy::U8)),
+                    .intern(TyKind::Primitive(PrimitiveTy::U8))
+                    .expect("intern u8 type"),
             )
             .expect("u8 layout"),
         &TypeLayout { size: 1, align: 1 }
@@ -99,7 +101,8 @@ fn main(value: Empty) {}
         array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
-    });
+    })
+    .expect("compute layouts");
     assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
     let empty_id = defs
         .module_scope
@@ -143,7 +146,8 @@ fn main(unit: (), pair: (u8, i32), nested: (u8, (), i64)) {}
         array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
-    });
+    })
+    .expect("compute layouts");
     assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
 
     let tuple_layouts = root_types
@@ -191,7 +195,8 @@ fn invoke(readonly: &Fn(i32) i32, mutable: &mut Fn(i32) i32) {}
         array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
-    });
+    })
+    .expect("compute layouts");
     assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
 
     let callable_views = root_types

@@ -56,7 +56,7 @@ fn compute_test_const(
         source_text: "",
         program: ConstProgramContext::empty(),
     };
-    check_module_const(input)
+    check_module_const(input).expect("check module const expressions")
 }
 
 fn lower_test_module(
@@ -79,7 +79,8 @@ fn lower_test_module(
                 defs: Some(&program_defs_by_module),
             },
         ),
-    );
+    )
+    .expect("lower module types");
     (type_store, lowered)
 }
 
@@ -96,6 +97,7 @@ fn collect_test_signatures(
         type_store,
         symbols: None,
     })
+    .expect("collect item signatures")
 }
 
 fn semantic_use_table(
