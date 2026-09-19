@@ -169,7 +169,8 @@ fn scopes_template_local_promotions_to_function_instances() {
                 &[],
                 std::slice::from_ref(arg),
                 MangleSymbolKind::Function,
-            ),
+            )
+            .expect("build mangle instance"),
             &type_store,
             nia_mangle::MangleResolvers::new(
                 |_| module_mangle,
@@ -178,6 +179,7 @@ fn scopes_template_local_promotions_to_function_instances() {
             ),
             Some(module_mangle),
         )
+        .expect("mangle instance symbol")
     };
     let body = |value: u128| FunctionBody {
         span: function_span,
@@ -2115,14 +2117,16 @@ fn rejects_external_collisions_with_compiler_owned_symbols() {
         module_mangle,
         nia_mangle::mangle_symbol_id(owned_global_name),
         MangleSymbolKind::Global,
-    );
+    )
+    .expect("mangle owned global symbol");
     let owned_function_symbol = nia_mangle::mangle_definition_symbol_canonical(
         "test/package@0",
         def_id(1),
         module_mangle,
         nia_mangle::mangle_symbol_id(owned_function_name),
         MangleSymbolKind::Function,
-    );
+    )
+    .expect("mangle owned function symbol");
     let extern_function = |index, name: &str, external_symbol: &str| BackendFunction {
         def_id: def_id(index),
         name: sym(name),
@@ -8204,7 +8208,8 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
             "wrong_closure_owner",
             MangleSymbolKind::Function,
             std::iter::empty(),
-        ),
+        )
+        .expect("mangle malformed closure owner"),
         abi: nia_backend_ir::BackendClosureEntryAbi {
             state_type: i32_ty,
             state_pointer_type: malformed_state_pointer_ty,
@@ -8569,7 +8574,8 @@ fn validates_closure_entry_call_and_view_contracts_before_llvm() {
             "closure_fixture",
             MangleSymbolKind::ClosureEntry,
             ["ordinal:0".to_string()],
-        ),
+        )
+        .expect("mangle closure fixture"),
         abi: nia_backend_ir::BackendClosureEntryAbi {
             state_type: state_ty,
             state_pointer_type: state_pointer_ty,

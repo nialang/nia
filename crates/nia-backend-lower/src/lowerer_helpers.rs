@@ -136,20 +136,27 @@ impl ModuleLowerer<'_> {
         if let Some(self_arg) = self_arg {
             args.insert(0, self_arg);
         }
-        let symbol = nia_mangle::mangle_instance_symbol_canonical_with_context(
-            nia_mangle::MangleInstance::new(
-                package,
-                mangle_module_id_or_diagnose(
-                    source_identities,
-                    def_id.module_id,
-                    &mut missing_source_identities,
-                ),
-                nia_mangle::stable_definition_key(def_id),
-                mangle_symbol_id(name),
-                &args,
-                const_args,
-                kind,
+        let instance = match nia_mangle::MangleInstance::new(
+            package,
+            mangle_module_id_or_diagnose(
+                source_identities,
+                def_id.module_id,
+                &mut missing_source_identities,
             ),
+            nia_mangle::stable_definition_key(def_id),
+            mangle_symbol_id(name),
+            &args,
+            const_args,
+            kind,
+        ) {
+            Ok(instance) => instance,
+            Err(error) => {
+                self.diagnostics.push(Diagnostic::from(error));
+                return None;
+            }
+        };
+        let symbol = nia_mangle::mangle_instance_symbol_canonical_with_context(
+            instance,
             self.type_store,
             MangleResolvers::new(
                 |module_id| {
@@ -197,7 +204,13 @@ impl ModuleLowerer<'_> {
                 &mut self.missing_source_identity_diagnostics,
             );
         }
-        Some(symbol)
+        match symbol {
+            Ok(symbol) => Some(symbol),
+            Err(error) => {
+                self.diagnostics.push(Diagnostic::from(error));
+                None
+            }
+        }
     }
 
     pub(crate) fn mangle_function_instance_symbol(

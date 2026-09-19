@@ -2706,7 +2706,8 @@ mod tests {
                     "closure_fixture",
                     nia_mangle::MangleSymbolKind::ClosureEntry,
                     ["ordinal:0".to_string()],
-                ),
+                )
+                .expect("mangle closure fixture"),
                 abi: BackendClosureEntryAbi {
                     state_type: state_ty,
                     state_pointer_type: state_pointer_ty,

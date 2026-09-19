@@ -51,7 +51,14 @@ impl ModuleLowerer<'_> {
                 &mut self.diagnostics,
             )?);
         }
-        let symbol = nia_mangle::mangle_closure_entry_symbol(owner_symbol, entry.closure_id)?;
+        let symbol = match nia_mangle::mangle_closure_entry_symbol(owner_symbol, entry.closure_id) {
+            Ok(Some(symbol)) => symbol,
+            Ok(None) => return None,
+            Err(error) => {
+                self.diagnostics.push(Diagnostic::from(error));
+                return None;
+            }
+        };
         Some(BackendClosureEntry {
             key: BackendClosureEntryKey {
                 closure_id: entry.closure_id,

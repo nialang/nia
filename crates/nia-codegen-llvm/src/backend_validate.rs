@@ -195,7 +195,7 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
             if function.linkage.is_extern() || !function.generics.is_empty() {
                 continue;
             }
-            record_generated_symbol(
+            record_mangled_symbol(
                 &mut values,
                 diagnostics,
                 mangle_definition_symbol_canonical(
@@ -211,7 +211,7 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
         }
         for global in &module.globals {
             if !global.linkage.is_extern() {
-                record_generated_symbol(
+                record_mangled_symbol(
                     &mut values,
                     diagnostics,
                     mangle_definition_symbol_canonical(
@@ -252,7 +252,7 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
         let mut types = HashMap::<String, &'static str>::new();
         for item in &module.structs {
             if item.generics.is_empty() {
-                record_generated_symbol(
+                record_mangled_symbol(
                     &mut types,
                     diagnostics,
                     mangle_definition_symbol_canonical(
@@ -269,7 +269,7 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
         }
         for item in &module.unions {
             if item.generics.is_empty() {
-                record_generated_symbol(
+                record_mangled_symbol(
                     &mut types,
                     diagnostics,
                     mangle_definition_symbol_canonical(
@@ -415,7 +415,7 @@ fn record_external_symbol(
 fn expected_trait_object_vtable_symbol(
     index: &ProgramIndex,
     key: &nia_backend_ir::BackendTraitObjectVtableKey,
-) -> Option<String> {
+) -> nia_ice::IceResult<Option<String>> {
     let missing = Cell::new(false);
     let mangle_ty = |ty: InternedTyId| {
         if index.type_store().get(ty).is_none() {
@@ -470,7 +470,9 @@ fn expected_trait_object_vtable_symbol(
     };
     let self_part = mangle_ty(key.self_ty);
     let object_part = mangle_ty(key.object_ty);
-    (!missing.get()).then(|| {
+    if missing.get() {
+        Ok(None)
+    } else {
         nia_mangle::mangle_derived_symbol_canonical(
             nia_mangle::COMPILER_GENERATED_PACKAGE_IDENTITY,
             MangleModuleId::from_normalized_source_path("nia:vtable"),
@@ -479,7 +481,8 @@ fn expected_trait_object_vtable_symbol(
             MangleSymbolKind::Vtable,
             [self_part, object_part],
         )
-    })
+        .map(Some)
+    }
 }
 
 /// Reserves compiler-generated trait-object vtable symbols in the program value
@@ -501,8 +504,13 @@ fn record_vtable_symbols(
             continue;
         };
         for vtable in &module.trait_object_vtables {
-            let Some(symbol) = expected_trait_object_vtable_symbol(index, &vtable.key) else {
-                continue;
+            let symbol = match expected_trait_object_vtable_symbol(index, &vtable.key) {
+                Ok(Some(symbol)) => symbol,
+                Ok(None) => continue,
+                Err(error) => {
+                    diagnostics.push(Diagnostic::from(error));
+                    continue;
+                }
             };
             if let Some(previous) = owners.get(&symbol) {
                 if *previous != vtable.key {
@@ -547,6 +555,19 @@ fn record_generated_symbol(
                 "backend IR generated symbol collision: {kind} reuses `{symbol}` already used by {previous_kind}"
             ),
         ));
+    }
+}
+
+fn record_mangled_symbol(
+    symbols: &mut HashMap<String, &'static str>,
+    diagnostics: &mut Vec<Diagnostic>,
+    symbol: nia_ice::IceResult<String>,
+    kind: &'static str,
+    span: nia_span::Span,
+) {
+    match symbol {
+        Ok(symbol) => record_generated_symbol(symbols, diagnostics, symbol, kind, span),
+        Err(error) => diagnostics.push(Diagnostic::from(error)),
     }
 }
 
@@ -1124,7 +1145,7 @@ impl BackendValidator<'_> {
                 .index
                 .function(*owner)
                 .zip(self.index.module(owner.module_id))
-                .map(|(function, module)| {
+                .and_then(|(function, module)| {
                     mangle_definition_symbol_canonical(
                         &module.symbol_package_identity,
                         *owner,
@@ -1134,6 +1155,8 @@ impl BackendValidator<'_> {
                         mangle_symbol_id(function.name),
                         MangleSymbolKind::Function,
                     )
+                    .map_err(|error| self.diagnostics.push(Diagnostic::from(error)))
+                    .ok()
                 }),
             BackendClosureEntryOwner::FunctionInstance(owner) => self
                 .index
@@ -1146,12 +1169,13 @@ impl BackendValidator<'_> {
                 )
                 .map(|instance| instance.symbol.clone()),
         };
-        if owner_symbol
-            .as_deref()
-            .and_then(|symbol| mangle_closure_entry_symbol(symbol, entry.key.closure_id))
-            .map(|symbol| symbol != entry.symbol)
-            == Some(true)
-        {
+        let expected_symbol = owner_symbol.as_deref().and_then(|symbol| {
+            mangle_closure_entry_symbol(symbol, entry.key.closure_id)
+                .map_err(|error| self.diagnostics.push(Diagnostic::from(error)))
+                .ok()
+                .flatten()
+        });
+        if expected_symbol.is_some_and(|symbol| symbol != entry.symbol) {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 entry.span,
@@ -1768,15 +1792,20 @@ impl BackendValidator<'_> {
         const_args: &[ConstGenericArg],
         span: nia_span::Span,
     ) {
-        let Some(expected) = self.expected_instance_symbol(
+        let expected = match self.expected_instance_symbol(
             def_id,
             arg_module_id,
             self_arg,
             args,
             const_args,
             symbol_kind,
-        ) else {
-            return;
+        ) {
+            Ok(Some(expected)) => expected,
+            Ok(None) => return,
+            Err(error) => {
+                self.diagnostics.push(Diagnostic::from(error));
+                return;
+            }
         };
         if symbol != expected {
             self.diagnostics.push(Diagnostic::internal_error_at(
@@ -1795,16 +1824,18 @@ impl BackendValidator<'_> {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
         kind: MangleSymbolKind,
-    ) -> Option<String> {
+    ) -> nia_ice::IceResult<Option<String>> {
         if self_arg
             .into_iter()
             .chain(args.iter().copied())
             .chain(const_args.iter().map(|arg| arg.ty))
             .any(|ty| self.index.type_store().get(ty).is_none())
         {
-            return None;
+            return Ok(None);
         }
-        let name = backend_definition_name(self.index, def_id)?;
+        let Some(name) = backend_definition_name(self.index, def_id) else {
+            return Ok(None);
+        };
         let missing_module = Cell::new(false);
         let mut mangled_args = args.to_vec();
         if let Some(self_arg) = self_arg {
@@ -1817,19 +1848,22 @@ impl BackendValidator<'_> {
                 )
             })
         });
-        let definition_module = self.index.module(def_id.module_id)?;
-        let symbol = mangle_instance_symbol_canonical_with_context(
-            nia_mangle::MangleInstance::new(
-                &definition_module.symbol_package_identity,
-                MangleModuleId::from_normalized_source_path(
-                    definition_module.source_identity.normalized_path(),
-                ),
-                nia_mangle::stable_definition_key(def_id),
-                mangle_symbol_id(name),
-                &mangled_args,
-                const_args,
-                kind,
+        let Some(definition_module) = self.index.module(def_id.module_id) else {
+            return Ok(None);
+        };
+        let instance = nia_mangle::MangleInstance::new(
+            &definition_module.symbol_package_identity,
+            MangleModuleId::from_normalized_source_path(
+                definition_module.source_identity.normalized_path(),
             ),
+            nia_mangle::stable_definition_key(def_id),
+            mangle_symbol_id(name),
+            &mangled_args,
+            const_args,
+            kind,
+        )?;
+        let symbol = mangle_instance_symbol_canonical_with_context(
+            instance,
             self.index.type_store(),
             MangleResolvers::new(
                 |module_id| {
@@ -1860,8 +1894,8 @@ impl BackendValidator<'_> {
                 },
             ),
             context,
-        );
-        (!missing_module.get()).then_some(symbol)
+        )?;
+        Ok((!missing_module.get()).then_some(symbol))
     }
 
     fn validate_global_instance(&mut self, global: &BackendGlobalInstance, init: bool) {
@@ -2705,14 +2739,16 @@ mod owner_tests {
                 self_ty: left,
                 object_ty: i32_ty,
             },
-        );
+        )
+        .expect("mangle left vtable symbol");
         let right_symbol = expected_trait_object_vtable_symbol(
             &index,
             &nia_backend_ir::BackendTraitObjectVtableKey {
                 self_ty: right,
                 object_ty: i32_ty,
             },
-        );
+        )
+        .expect("mangle right vtable symbol");
         assert_ne!(left_symbol, right_symbol);
     }
 }
