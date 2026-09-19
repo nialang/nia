@@ -1542,14 +1542,21 @@ impl MonoCollector<'_> {
                 ));
                 None
             })?;
-        Some(mangle_stable_symbol(&StableSymbolKey::new(
+        let symbol_key = match StableSymbolKey::new(
             package,
             self.module_mangle_id(key.def_id.module_id),
             stable_definition_key(key.def_id),
             name,
             MangleSymbolKind::Function,
             args,
-        )))
+        ) {
+            Ok(key) => key,
+            Err(error) => {
+                self.record_internal_error(error);
+                return None;
+            }
+        };
+        Some(mangle_stable_symbol(&symbol_key))
     }
 
     fn const_arg_symbol(&mut self, module_id: ModuleId, arg: &ConstGenericArg) -> String {

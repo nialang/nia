@@ -93,7 +93,7 @@ fn source_global_symbol(
     name: &str,
     domain: FingerprintDomain,
     write: impl FnOnce(&mut QueryFingerprintBuilder),
-) -> String {
+) -> nia_ice::IceResult<String> {
     let mut fingerprint = QueryFingerprintBuilder::new(domain);
     write(&mut fingerprint);
     let [first, second] = fingerprint.finish().parts();
@@ -237,7 +237,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 let symbol =
                     source_global_symbol("source_file", SOURCE_FILE_GLOBAL_DOMAIN, |fingerprint| {
                         fingerprint.write_str(&location.file)
-                    });
+                    })
+                    .map_err(Diagnostic::from)?;
                 let global = self
                     .module
                     .add_global(file_ty, None, &symbol)
@@ -286,7 +287,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 fingerprint.write_u64(u64::from(location.line));
                 fingerprint.write_u64(u64::from(location.column));
             },
-        );
+        )
+        .map_err(Diagnostic::from)?;
         let global = self
             .module
             .add_global(location_ty.into(), None, &symbol)
@@ -477,14 +479,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     ) -> Result<String, Diagnostic> {
         let module = self.mangle_module_id(allocation.module_id());
         let span = allocation.span();
-        Ok(mangle_derived_symbol_canonical(
+        mangle_derived_symbol_canonical(
             self.symbol_package_identity(allocation.module_id(), span)?,
             module,
             format!("promoted:{}:{}", span.start, span.end),
             "promoted_allocation",
             MangleSymbolKind::Global,
             instance_symbol.into_iter().map(ToOwned::to_owned),
-        ))
+        )
+        .map_err(Diagnostic::from)
     }
 
     pub(super) fn emit_object(&mut self, target: &TargetMachine) -> Result<Vec<u8>, Diagnostic> {
@@ -853,13 +856,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         name: SymbolId,
         kind: MangleSymbolKind,
     ) -> Result<String, Diagnostic> {
-        Ok(mangle_definition_symbol_canonical(
+        mangle_definition_symbol_canonical(
             self.symbol_package_identity(def_id.module_id, Span::default())?,
             def_id,
             self.mangle_module_id(def_id.module_id),
             mangle_symbol_id(name),
             kind,
-        ))
+        )
+        .map_err(Diagnostic::from)
     }
 
     fn mangle_module_id(&self, module_id: ModuleId) -> MangleModuleId {
@@ -908,7 +912,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         self_ty: InternedTyId,
         object_ty: InternedTyId,
-    ) -> String {
+    ) -> Result<String, Diagnostic> {
         let self_part = self.mangle_ty(self_ty);
         let object_part = self.mangle_ty(object_ty);
         mangle_derived_symbol_canonical(
@@ -919,6 +923,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             nia_mangle::MangleSymbolKind::Vtable,
             [self_part, object_part],
         )
+        .map_err(Diagnostic::from)
     }
 
     pub(super) fn add_internal_helper_function(

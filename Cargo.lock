@@ -910,6 +910,7 @@ dependencies = [
 name = "nia-mangle"
 version = "0.2.0-dev"
 dependencies = [
+ "nia-ice",
  "nia-ids",
  "nia-symbol",
  "nia-ty",

@@ -118,11 +118,13 @@ pub fn main(base: i32) i32 {
         nia_mangle::MangleModuleId::from_normalized_source_path("main.nia"),
         nia_mangle::mangle_symbol_id(sym("main")),
         nia_mangle::MangleSymbolKind::Function,
-    );
+    )
+    .expect("mangle owner symbol");
     assert_eq!(
         backend_entry.symbol,
         nia_mangle::mangle_closure_entry_symbol(&owner_symbol, entry.closure_id)
             .expect("canonical closure owner")
+            .expect("decode canonical closure owner")
     );
     assert_eq!(backend_entry.abi.state_type, entry.state_ty);
     assert_eq!(backend_entry.abi.params.len(), 1);
@@ -333,6 +335,7 @@ pub fn main() i32 {
         entry.symbol,
         nia_mangle::mangle_closure_entry_symbol(&apply_instance.symbol, entry.key.closure_id)
             .expect("canonical closure owner")
+            .expect("decode canonical closure owner")
     );
     let Some(nia_ty::TyKind::ClosureState {
         captures,

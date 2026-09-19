@@ -124,7 +124,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 "owner:{}",
                 nia_mangle::stable_definition_key(owner_id)
             )],
-        );
+        )
+        .map_err(Diagnostic::from)?;
         let function = self.add_internal_helper_function(&name, function_ty)?;
         let builder = self
             .context
@@ -841,7 +842,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .add_global(
                     array_ty.into(),
                     None,
-                    &self.trait_object_vtable_symbol(vtable.key.self_ty, vtable.key.object_ty),
+                    &self.trait_object_vtable_symbol(vtable.key.self_ty, vtable.key.object_ty)?,
                 )
                 .map_err(Self::diagnostic_from_llvm_error)?;
             let is_definition = self
@@ -1002,7 +1003,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 self.mangle_ty(self_ty),
                 format!("ordinal:{}", self.trait_object_adapters.borrow().len()),
             ],
-        );
+        )
+        .map_err(Diagnostic::from)?;
         let adapter = self.add_internal_helper_function(&name, function_ty)?;
         let builder = self
             .context
