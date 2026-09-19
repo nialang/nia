@@ -30,6 +30,15 @@ cargo maintain baseline compiler --repeat 3 \
 `--runner-class` is a trust assertion about a managed runner image and resource
 class, not a way to rename a developer machine. Local runs should omit it.
 
+Every compiler and build report records the full Git revision and dirty state;
+resolved paths and version output for Rust, Cargo, `llvm-config`, and the linker
+selected by `NIA_LINKER` or the native default; the measured Nia executable
+identity where applicable; and the compiler/workload profile, feature,
+optimization, project-cache, and operating-system page-cache policy. The build
+baseline builds the repository-default release compiler before measurement;
+`--no-build` is an explicit escape hatch for an externally prepared compiler,
+and the report marks that distinction.
+
 The suite currently fixes eleven compiler paths: minimal check, standard-library
 Hello World check and executable emission, strings and slices, ArrayList,
 trait-heavy code, const-eval-heavy code, multi-module backend lowering, small

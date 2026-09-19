@@ -201,11 +201,12 @@ fn build_baseline_command(arguments: &[String]) -> MaintainResult<()> {
                 options.repetitions = parse_usize(&value, option)?;
             }
             "--keep-workspace" => options.keep_workspace = true,
+            "--no-build" => options.build_compiler = false,
             _ => return Err(format!("unknown build baseline option: {option}")),
         }
         index += 1;
     }
-    build::run(&options)
+    build::run(&root, &options)
 }
 
 fn check(arguments: &[String]) -> MaintainResult<()> {

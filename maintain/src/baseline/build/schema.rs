@@ -4,6 +4,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::system::machine::MachineMetadata;
+use crate::system::toolchain::{ToolIdentity, ToolchainIdentity};
 
 #[derive(Debug, Clone, Serialize)]
 /// Action-execution outcome emitted by the build coordinator.
@@ -201,6 +202,29 @@ pub(super) struct AggregateAcceptance {
 }
 
 #[derive(Debug, Serialize)]
+/// Compiler build and Nia workload settings fixed by the build baseline.
+pub(super) struct BuildBaselineConfiguration {
+    /// Whether this invocation built the default compiler immediately before measurement.
+    pub(super) compiler_built_by_baseline: bool,
+    /// Cargo profile used for the default compiler build.
+    pub(super) compiler_cargo_profile: Option<&'static str>,
+    /// Explicit Cargo features used for the default compiler build.
+    pub(super) compiler_cargo_features: Vec<&'static str>,
+    /// Nia source-selection profile used by the measured build.
+    pub(super) nia_profile: &'static str,
+    /// Nia optimization level used by the measured build.
+    pub(super) nia_optimization: &'static str,
+    /// Nia compilation mode used by the measured build.
+    pub(super) nia_compilation_mode: &'static str,
+    /// Timing detail level requested from Nia.
+    pub(super) timing_mode: &'static str,
+    /// Project artifact state required for cold samples.
+    pub(super) project_cache_state: &'static str,
+    /// Operating-system page-cache policy for normal samples.
+    pub(super) os_page_cache_state: &'static str,
+}
+
+#[derive(Debug, Serialize)]
 /// Schema-v2 representative and runner-only build baseline report.
 pub(super) struct BuildBaseline<'a> {
     /// Nia release compatibility recorded by the baseline.
@@ -209,6 +233,12 @@ pub(super) struct BuildBaseline<'a> {
     pub(super) kind: &'static str,
     /// Machine and resource identity for the run.
     pub(super) machine: MachineMetadata,
+    /// Source, Rust, LLVM, and linker identities used for this report.
+    pub(super) toolchain: ToolchainIdentity,
+    /// Measured Nia executable identity.
+    pub(super) compiler: ToolIdentity,
+    /// Fixed build and cache-state policy.
+    pub(super) configuration: BuildBaselineConfiguration,
     /// Repository-relative fixture identity.
     pub(super) fixture: &'static str,
     /// Repository-relative runner-only fixture identity.

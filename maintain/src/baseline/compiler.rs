@@ -6,6 +6,7 @@ use std::process::{Command, Stdio};
 use serde_json::{Map, Value, json};
 
 use crate::system::machine::machine_metadata;
+use crate::system::toolchain::toolchain_identity;
 use crate::{MaintainResult, TemporaryDirectory, absolute_path};
 
 #[derive(Debug, Clone)]
@@ -476,6 +477,7 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
         }
     }
 
+    let compiler_built_by_baseline = options.build_compiler && compiler == default_compiler;
     let git = Path::new("git");
     let revision = command_output(root, git, &["rev-parse", "HEAD"]);
     let dirty = command_output(root, git, &["status", "--porcelain"]).is_some();
@@ -490,6 +492,16 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
             "dirty": dirty,
         },
         "machine": machine_metadata(runner_class),
+        "toolchain": toolchain_identity(root)?,
+        "configuration": {
+            "compiler_built_by_baseline": compiler_built_by_baseline,
+            "compiler_cargo_profile": compiler_built_by_baseline.then_some("release"),
+            "compiler_cargo_features": compiler_built_by_baseline.then_some(["perf-alloc"]),
+            "nia_profile": "debug",
+            "nia_optimization": "O0",
+            "project_cache_state": "disabled unless a workload explicitly supplies --cache-dir",
+            "os_page_cache_state": "uncontrolled; may be warm",
+        },
         "repeat": options.repeat,
         "results": results,
     });
