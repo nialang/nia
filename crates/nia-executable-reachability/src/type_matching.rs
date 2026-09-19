@@ -1593,6 +1593,22 @@ mod tests {
     use nia_symbol::stable_hash;
     use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue, PrimitiveTy};
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId;
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId {
+            self.intern(kind).expect("intern type-matching test type")
+        }
+
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+            self.primitive(primitive)
+                .expect("intern primitive type-matching test type")
+        }
+    }
+
     fn symbol(name: &str) -> SymbolId {
         SymbolId::from_stable_hash(stable_hash(name))
     }
@@ -1609,16 +1625,16 @@ mod tests {
         let module_id = module();
         let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
-        let usize_ty = append.primitive(PrimitiveTy::Usize);
-        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let usize_ty = append.test_primitive(PrimitiveTy::Usize);
+        let i32_ty = append.test_primitive(PrimitiveTy::I32);
         let type_name = symbol("T");
         let const_name = symbol("N");
-        let type_param = append.intern(TyKind::GenericParam(type_name));
+        let type_param = append.test_intern(TyKind::GenericParam(type_name));
         let def_id = GlobalDefId {
             module_id,
             def_id: DefId(1),
         };
-        let pattern = append.intern(TyKind::Nominal {
+        let pattern = append.test_intern(TyKind::Nominal {
             def_id,
             args: vec![type_param],
             const_args: vec![ConstGenericArg {
@@ -1630,7 +1646,7 @@ mod tests {
             ty: usize_ty,
             value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(3)),
         };
-        let actual = append.intern(TyKind::Nominal {
+        let actual = append.test_intern(TyKind::Nominal {
             def_id,
             args: vec![i32_ty],
             const_args: vec![actual_const.clone()],
@@ -1675,7 +1691,7 @@ mod tests {
         let module_id = module();
         let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
-        let usize_ty = append.primitive(PrimitiveTy::Usize);
+        let usize_ty = append.test_primitive(PrimitiveTy::Usize);
         let const_name = symbol("N");
         let def_id = GlobalDefId {
             module_id,
@@ -1689,12 +1705,12 @@ mod tests {
             ty: usize_ty,
             value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(bits)),
         };
-        let pattern = append.intern(TyKind::Nominal {
+        let pattern = append.test_intern(TyKind::Nominal {
             def_id,
             args: Vec::new(),
             const_args: vec![param(), param()],
         });
-        let actual = append.intern(TyKind::Nominal {
+        let actual = append.test_intern(TyKind::Nominal {
             def_id,
             args: Vec::new(),
             const_args: vec![value(2), value(3)],
@@ -1729,7 +1745,7 @@ mod tests {
         let module_id = module();
         let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
-        let usize_ty = append.primitive(PrimitiveTy::Usize);
+        let usize_ty = append.test_primitive(PrimitiveTy::Usize);
         let const_name = symbol("N");
         let def_id = GlobalDefId {
             module_id,
@@ -1739,12 +1755,12 @@ mod tests {
             ty: usize_ty,
             value: ConstGenericValue::GenericParam(const_name),
         };
-        let pattern = append.intern(TyKind::Nominal {
+        let pattern = append.test_intern(TyKind::Nominal {
             def_id,
             args: Vec::new(),
             const_args: vec![param(), param()],
         });
-        let actual = append.intern(TyKind::Nominal {
+        let actual = append.test_intern(TyKind::Nominal {
             def_id,
             args: Vec::new(),
             const_args: vec![
@@ -1794,10 +1810,10 @@ mod tests {
         let module_id = module();
         let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
-        let usize_ty = append.primitive(PrimitiveTy::Usize);
-        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let usize_ty = append.test_primitive(PrimitiveTy::Usize);
+        let i32_ty = append.test_primitive(PrimitiveTy::I32);
         let const_name = symbol("N");
-        let pattern = append.intern(TyKind::Array {
+        let pattern = append.test_intern(TyKind::Array {
             len: ArrayLenTy::GenericParam(const_name),
             elem: i32_ty,
         });
@@ -1805,7 +1821,7 @@ mod tests {
             builtin: nia_ids::LayoutBuiltin::Size,
             ty: i32_ty,
         };
-        let actual = append.intern(TyKind::Array {
+        let actual = append.test_intern(TyKind::Array {
             len: builtin_len.clone(),
             elem: i32_ty,
         });
@@ -1840,17 +1856,17 @@ mod tests {
         let module_id = module();
         let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
-        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let i32_ty = append.test_primitive(PrimitiveTy::I32);
         let generic_name = symbol("T");
-        let generic_ty = append.intern(TyKind::GenericParam(generic_name));
-        let pattern = append.intern(TyKind::Array {
+        let generic_ty = append.test_intern(TyKind::GenericParam(generic_name));
+        let pattern = append.test_intern(TyKind::Array {
             len: ArrayLenTy::Builtin {
                 builtin: nia_ids::LayoutBuiltin::Size,
                 ty: generic_ty,
             },
             elem: i32_ty,
         });
-        let actual = append.intern(TyKind::Array {
+        let actual = append.test_intern(TyKind::Array {
             len: ArrayLenTy::Builtin {
                 builtin: nia_ids::LayoutBuiltin::Size,
                 ty: i32_ty,
@@ -1889,8 +1905,8 @@ mod tests {
         let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
         let error = append.error();
-        let const_only = append.intern(TyKind::ConstOnly);
-        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let const_only = append.test_intern(TyKind::ConstOnly);
+        let i32_ty = append.test_primitive(PrimitiveTy::I32);
 
         for recovery in [error, const_only] {
             let mut substitutions = PatternSubstitutions::default();
@@ -1924,13 +1940,13 @@ mod tests {
         let module_id = module();
         let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
-        let i32_ty = append.primitive(PrimitiveTy::I32);
-        let i64_ty = append.primitive(PrimitiveTy::I64);
-        let bool_ty = append.primitive(PrimitiveTy::Bool);
+        let i32_ty = append.test_primitive(PrimitiveTy::I32);
+        let i64_ty = append.test_primitive(PrimitiveTy::I64);
+        let bool_ty = append.test_primitive(PrimitiveTy::Bool);
         let name = symbol("T");
-        let generic = append.intern(TyKind::GenericParam(name));
-        let pattern = append.intern(TyKind::Tuple(vec![generic, i32_ty]));
-        let actual = append.intern(TyKind::Tuple(vec![i64_ty, bool_ty]));
+        let generic = append.test_intern(TyKind::GenericParam(name));
+        let pattern = append.test_intern(TyKind::Tuple(vec![generic, i32_ty]));
+        let actual = append.test_intern(TyKind::Tuple(vec![i64_ty, bool_ty]));
         let mut substitutions = PatternSubstitutions::default();
 
         assert!(!match_type_pattern(
@@ -1954,16 +1970,16 @@ mod tests {
         let module_id = module();
         let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
-        let usize_ty = append.primitive(PrimitiveTy::Usize);
-        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let usize_ty = append.test_primitive(PrimitiveTy::Usize);
+        let i32_ty = append.test_primitive(PrimitiveTy::I32);
         let type_name = symbol("T");
         let const_name = symbol("N");
-        let type_param = append.intern(TyKind::GenericParam(type_name));
-        let array = append.intern(TyKind::Array {
+        let type_param = append.test_intern(TyKind::GenericParam(type_name));
+        let array = append.test_intern(TyKind::Array {
             len: ArrayLenTy::GenericParam(const_name),
             elem: type_param,
         });
-        let closure = append.intern(TyKind::ClosureState {
+        let closure = append.test_intern(TyKind::ClosureState {
             closure_id: ClosureId {
                 owner: GlobalDefId {
                     module_id,
@@ -1993,6 +2009,7 @@ mod tests {
             closure,
             &substitutions,
         )
+        .expect("substitute closure type")
         .expect("closure type belongs to the reachability store");
 
         let Some(TyKind::ClosureState {
@@ -2022,10 +2039,10 @@ mod tests {
         let right = TypeStore::new().expect("create type store");
         let left_append = left.append_for_module(module_id);
         let right_append = right.append_for_module(module_id);
-        let left_i32 = left_append.primitive(PrimitiveTy::I32);
-        let left_bool = left_append.primitive(PrimitiveTy::Bool);
-        let right_i32 = right_append.primitive(PrimitiveTy::I32);
-        let right_bool = right_append.primitive(PrimitiveTy::Bool);
+        let left_i32 = left_append.test_primitive(PrimitiveTy::I32);
+        let left_bool = left_append.test_primitive(PrimitiveTy::Bool);
+        let right_i32 = right_append.test_primitive(PrimitiveTy::I32);
+        let right_bool = right_append.test_primitive(PrimitiveTy::Bool);
         let trait_id = TraitId::Source(GlobalDefId {
             module_id,
             def_id: DefId(9),
@@ -2038,14 +2055,14 @@ mod tests {
             trait_const_args: Vec::new(),
             ty,
         };
-        let left_ty = left_append.intern(TyKind::TraitObject {
+        let left_ty = left_append.test_intern(TyKind::TraitObject {
             is_readonly: false,
             trait_id,
             trait_args: Vec::new(),
             trait_const_args: Vec::new(),
             associated_type_bindings: vec![binding(left_i32), binding(left_bool)],
         });
-        let right_ty = right_append.intern(TyKind::TraitObject {
+        let right_ty = right_append.test_intern(TyKind::TraitObject {
             is_readonly: false,
             trait_id,
             trait_args: Vec::new(),
@@ -2063,7 +2080,7 @@ mod tests {
                 ty: right_ty,
             },
         ));
-        let right_mismatch = right_append.intern(TyKind::TraitObject {
+        let right_mismatch = right_append.test_intern(TyKind::TraitObject {
             is_readonly: false,
             trait_id,
             trait_args: Vec::new(),
@@ -2089,13 +2106,13 @@ mod tests {
         let right = TypeStore::new().expect("create type store");
         let left_append = left.append_for_module(module_id);
         let right_append = right.append_for_module(module_id);
-        let left_usize = left_append.primitive(PrimitiveTy::Usize);
-        let right_usize = right_append.primitive(PrimitiveTy::Usize);
+        let left_usize = left_append.test_primitive(PrimitiveTy::Usize);
+        let right_usize = right_append.test_primitive(PrimitiveTy::Usize);
         let def_id = GlobalDefId {
             module_id,
             def_id: DefId(10),
         };
-        let left_nominal = left_append.intern(TyKind::Nominal {
+        let left_nominal = left_append.test_intern(TyKind::Nominal {
             def_id,
             args: Vec::new(),
             const_args: vec![ConstGenericArg {
@@ -2103,7 +2120,7 @@ mod tests {
                 value: ConstGenericValue::Int(nia_ty::IntConst::signed(6)),
             }],
         });
-        let right_nominal = right_append.intern(TyKind::Nominal {
+        let right_nominal = right_append.test_intern(TyKind::Nominal {
             def_id,
             args: Vec::new(),
             const_args: vec![ConstGenericArg {
@@ -2111,8 +2128,8 @@ mod tests {
                 value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(6)),
             }],
         });
-        let left_tuple = left_append.intern(TyKind::Tuple(vec![left_nominal]));
-        let right_tuple = right_append.intern(TyKind::Tuple(vec![right_nominal]));
+        let left_tuple = left_append.test_intern(TyKind::Tuple(vec![left_nominal]));
+        let right_tuple = right_append.test_intern(TyKind::Tuple(vec![right_nominal]));
 
         assert!(typed_refs_equivalent(
             TypedTyRef {

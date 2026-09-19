@@ -682,6 +682,22 @@ mod tests {
     use nia_ids::{ConstExprId, GlobalConstExprId, ModuleIdAllocator};
     use nia_ty::{PrimitiveTy, TypeStore};
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: nia_ty::TyKind) -> InternedTyId;
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: nia_ty::TyKind) -> InternedTyId {
+            self.intern(kind).expect("intern fact-owner test type")
+        }
+
+        fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+            self.primitive(primitive)
+                .expect("intern primitive fact-owner test type")
+        }
+    }
+
     #[test]
     fn const_expression_metadata_contributes_type_owner_modules() {
         let modules = ModuleIdAllocator::new().expect("create module ID allocator");
@@ -689,7 +705,7 @@ mod tests {
         let types = TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(const_owner)
-            .primitive(PrimitiveTy::Usize);
+            .test_primitive(PrimitiveTy::Usize);
         let arg = nia_ty::ConstGenericArg {
             ty,
             value: nia_ty::ConstGenericValue::ConstExpr(GlobalConstExprId {
@@ -734,18 +750,18 @@ mod tests {
         };
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(use_module);
-        let backing = append.primitive(PrimitiveTy::U8);
-        let leaf_ty = append.intern(TyKind::Nominal {
+        let backing = append.test_primitive(PrimitiveTy::U8);
+        let leaf_ty = append.test_intern(TyKind::Nominal {
             def_id: leaf_id,
             args: Vec::new(),
             const_args: Vec::new(),
         });
-        let alias_ty = append.intern(TyKind::Nominal {
+        let alias_ty = append.test_intern(TyKind::Nominal {
             def_id: alias_id,
             args: Vec::new(),
             const_args: Vec::new(),
         });
-        let outer_ty = append.intern(TyKind::Nominal {
+        let outer_ty = append.test_intern(TyKind::Nominal {
             def_id: outer_id,
             args: Vec::new(),
             const_args: Vec::new(),
