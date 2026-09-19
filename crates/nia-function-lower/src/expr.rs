@@ -32,7 +32,12 @@ impl FunctionLowerer<'_> {
                 params,
                 return_type,
             }) if *actual_id == closure_id => (captures.clone(), params.clone(), *return_type),
-            _ => unreachable!("typed closure expression must have its closure-state type"),
+            _ => {
+                self.record_internal(nia_ice::Ice::new(
+                    "typed closure expression has no closure-state type",
+                ));
+                return;
+            }
         };
         debug_assert_eq!(capture_types.len(), captures.len());
         debug_assert_eq!(param_types.len(), params.len());
@@ -56,6 +61,10 @@ impl FunctionLowerer<'_> {
             captures: capture_fields,
         });
         let entry_body = entry_lowerer.lower_body(body);
+        if let Some(error) = entry_lowerer.internal_error {
+            self.record_internal(error.with_context("lowering nested closure entry"));
+            return;
+        }
         self.closure_entries.extend(entry_lowerer.closure_entries);
         self.closure_entries.push(FunctionClosureEntry {
             closure_id,
@@ -138,9 +147,10 @@ impl FunctionLowerer<'_> {
             TypedExprKind::Range(range) => {
                 FunctionExprKind::Range(self.lower_range(range, scope, current, ops, blocks))
             }
-            TypedExprKind::MemoryIntrinsic(_) => unreachable!(
-                "function lowering input validation rejects memory intrinsics in value position"
-            ),
+            TypedExprKind::MemoryIntrinsic(_) => {
+                self.record_internal(nia_ice::Ice::new("memory intrinsic reached value lowering"));
+                FunctionExprKind::Error
+            }
             TypedExprKind::Atomic(atomic) => {
                 FunctionExprKind::Atomic(self.lower_atomic(atomic, scope, current, ops, blocks))
             }
@@ -377,9 +387,12 @@ impl FunctionLowerer<'_> {
             TypedExprKind::InlineAsm(asm) => {
                 FunctionExprKind::InlineAsm(self.lower_inline_asm(asm, scope, current, ops, blocks))
             }
-            TypedExprKind::Error => unreachable!(
-                "function lowering input validation rejects error expressions before lowering"
-            ),
+            TypedExprKind::Error => {
+                self.record_internal(nia_ice::Ice::new(
+                    "error expression reached function lowering",
+                ));
+                FunctionExprKind::Error
+            }
             TypedExprKind::Closure {
                 closure_id,
                 captures,
@@ -462,7 +475,14 @@ impl FunctionLowerer<'_> {
             error_conversion, ..
         } = &expr.kind
         else {
-            unreachable!("try lowering requires a try expression")
+            self.record_internal(nia_ice::Ice::new(
+                "try lowering received a non-try expression",
+            ));
+            return FunctionExpr {
+                span: expr.span,
+                ty: expr.ty,
+                kind: FunctionExprKind::Error,
+            };
         };
         let mut value = self.lower_value_expr(inner, scope, current, ops, blocks);
         let error_conversion = error_conversion.as_ref().map(|conversion| {
@@ -501,9 +521,16 @@ impl FunctionLowerer<'_> {
         });
         let local = self.alloc_temp_local(expr.span, expr.ty);
         let success_target = self.alloc_block();
-        let kind = self
-            .try_kind(inner.ty)
-            .expect("try operand kind validated before function lowering");
+        let Some(kind) = self.try_kind(inner.ty) else {
+            self.record_internal(nia_ice::Ice::new(
+                "try operand has no Optional or ErrorUnion propagation kind",
+            ));
+            return FunctionExpr {
+                span: expr.span,
+                ty: expr.ty,
+                kind: FunctionExprKind::Error,
+            };
+        };
         self.finish_block(
             blocks,
             *current,
@@ -1142,9 +1169,16 @@ impl FunctionLowerer<'_> {
                     }),
                     TypedPatternKind::Nominal { .. } => {
                         arms.push(FunctionSwitchArm {
-                            pattern: self
-                                .direct_enum_match_pattern(pattern)
-                                .expect("payload enum patterns require condition-chain lowering"),
+                            pattern: self.direct_enum_match_pattern(pattern).unwrap_or_else(|| {
+                                self.record_internal(nia_ice::Ice::new(
+                                    "payload enum pattern reached direct match lowering",
+                                ));
+                                FunctionExpr {
+                                    span: pattern.span,
+                                    ty: pattern.ty,
+                                    kind: FunctionExprKind::Error,
+                                }
+                            }),
                             target: arm_target,
                         });
                     }
@@ -1424,7 +1458,16 @@ impl FunctionLowerer<'_> {
             TypedCallee::Closure(callee) => {
                 let closure_id = match self.types.get(callee.ty) {
                     Some(TyKind::ClosureState { closure_id, .. }) => *closure_id,
-                    _ => unreachable!("typed closure callee must have closure-state type"),
+                    _ => {
+                        self.record_internal(nia_ice::Ice::new(
+                            "typed closure callee has no closure-state type",
+                        ));
+                        return FunctionCallee::FunctionPointer(Box::new(FunctionExpr {
+                            span: callee.span,
+                            ty: callee.ty,
+                            kind: FunctionExprKind::Error,
+                        }));
+                    }
                 };
                 let state_ptr_ty = self.types.intern(TyKind::Pointer {
                     is_readonly: true,

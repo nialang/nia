@@ -4,7 +4,7 @@ use super::*;
 pub(super) fn validate_function_lowering_input(
     body: &TypedBody,
     types: &FunctionTypeContext<'_>,
-) -> Result<(), FunctionLoweringDiagnostic> {
+) -> Result<(), FunctionLoweringInvariant> {
     BodyInputValidator {
         types,
         closure_ids: std::cell::RefCell::new(std::collections::HashSet::new()),
@@ -21,7 +21,7 @@ struct BodyInputValidator<'context, 'store> {
 }
 
 impl BodyInputValidator<'_, '_> {
-    fn validate_effect_body(&self, body: &TypedBody) -> Result<(), FunctionLoweringDiagnostic> {
+    fn validate_effect_body(&self, body: &TypedBody) -> Result<(), FunctionLoweringInvariant> {
         for stmt in &body.stmts {
             self.validate_stmt(stmt)?;
         }
@@ -31,7 +31,7 @@ impl BodyInputValidator<'_, '_> {
         Ok(())
     }
 
-    fn validate_value_body(&self, body: &TypedBody) -> Result<(), FunctionLoweringDiagnostic> {
+    fn validate_value_body(&self, body: &TypedBody) -> Result<(), FunctionLoweringInvariant> {
         for stmt in &body.stmts {
             self.validate_stmt(stmt)?;
         }
@@ -41,7 +41,7 @@ impl BodyInputValidator<'_, '_> {
         Ok(())
     }
 
-    fn validate_stmt(&self, stmt: &TypedStmt) -> Result<(), FunctionLoweringDiagnostic> {
+    fn validate_stmt(&self, stmt: &TypedStmt) -> Result<(), FunctionLoweringInvariant> {
         match &stmt.kind {
             TypedStmtKind::Binding(binding) => {
                 if let Some(value) = &binding.value {
@@ -78,7 +78,7 @@ impl BodyInputValidator<'_, '_> {
         Ok(())
     }
 
-    fn validate_tail_expr(&self, expr: &TypedExpr) -> Result<(), FunctionLoweringDiagnostic> {
+    fn validate_tail_expr(&self, expr: &TypedExpr) -> Result<(), FunctionLoweringInvariant> {
         if self.expr_is_effect_only(expr) {
             self.validate_effect_expr(expr)
         } else {
@@ -89,7 +89,7 @@ impl BodyInputValidator<'_, '_> {
     fn validate_tail_value_result(
         &self,
         expr: &TypedExpr,
-    ) -> Result<(), FunctionLoweringDiagnostic> {
+    ) -> Result<(), FunctionLoweringInvariant> {
         if self.expr_is_terminating_effect(expr) {
             self.validate_effect_expr(expr)
         } else {
@@ -97,7 +97,7 @@ impl BodyInputValidator<'_, '_> {
         }
     }
 
-    fn validate_effect_expr(&self, expr: &TypedExpr) -> Result<(), FunctionLoweringDiagnostic> {
+    fn validate_effect_expr(&self, expr: &TypedExpr) -> Result<(), FunctionLoweringInvariant> {
         self.reject_error_expr(expr)?;
         match &expr.kind {
             TypedExprKind::Block(body) => self.validate_effect_body(body),
@@ -161,10 +161,10 @@ impl BodyInputValidator<'_, '_> {
         }
     }
 
-    fn validate_value_expr(&self, expr: &TypedExpr) -> Result<(), FunctionLoweringDiagnostic> {
+    fn validate_value_expr(&self, expr: &TypedExpr) -> Result<(), FunctionLoweringInvariant> {
         self.reject_error_expr(expr)?;
         if self.expr_is_effect_only(expr) {
-            return Err(FunctionLoweringDiagnostic {
+            return Err(FunctionLoweringInvariant {
                 span: expr.span,
                 message: format!(
                     "{} expression used where a value is required",
@@ -289,7 +289,7 @@ impl BodyInputValidator<'_, '_> {
             TypedExprKind::Try { expr: inner, .. } => {
                 self.validate_value_expr(inner)?;
                 if self.try_kind(inner.ty).is_none() {
-                    return Err(FunctionLoweringDiagnostic {
+                    return Err(FunctionLoweringInvariant {
                         span: expr.span,
                         message: "try operand must have Optional or ErrorUnion type".to_string(),
                     });
@@ -359,7 +359,7 @@ impl BodyInputValidator<'_, '_> {
     fn validate_match_arm_effect_body(
         &self,
         body: &TypedMatchArmBody,
-    ) -> Result<(), FunctionLoweringDiagnostic> {
+    ) -> Result<(), FunctionLoweringInvariant> {
         match body {
             TypedMatchArmBody::Expr(expr) => self.validate_effect_expr(expr),
             TypedMatchArmBody::Stmt(stmt) => self.validate_stmt(stmt),
@@ -370,7 +370,7 @@ impl BodyInputValidator<'_, '_> {
     fn validate_match_arm_value_body(
         &self,
         body: &TypedMatchArmBody,
-    ) -> Result<(), FunctionLoweringDiagnostic> {
+    ) -> Result<(), FunctionLoweringInvariant> {
         match body {
             TypedMatchArmBody::Expr(expr) => self.validate_tail_value_result(expr),
             TypedMatchArmBody::Stmt(stmt) => self.validate_stmt(stmt),
@@ -378,7 +378,7 @@ impl BodyInputValidator<'_, '_> {
         }
     }
 
-    fn validate_pattern(&self, pattern: &TypedPattern) -> Result<(), FunctionLoweringDiagnostic> {
+    fn validate_pattern(&self, pattern: &TypedPattern) -> Result<(), FunctionLoweringInvariant> {
         match &pattern.kind {
             TypedPatternKind::Pointer(inner)
             | TypedPatternKind::MutPointer(inner)
@@ -392,7 +392,7 @@ impl BodyInputValidator<'_, '_> {
                 if let TypedNominalPatternConstructor::Struct { field_defs } = constructor
                     && field_defs.len() != fields.len()
                 {
-                    return Err(FunctionLoweringDiagnostic {
+                    return Err(FunctionLoweringInvariant {
                         span: pattern.span,
                         message: "typed struct pattern field metadata is inconsistent".to_string(),
                     });
@@ -424,7 +424,7 @@ impl BodyInputValidator<'_, '_> {
     fn validate_array_elements(
         &self,
         elems: &TypedArrayElements,
-    ) -> Result<(), FunctionLoweringDiagnostic> {
+    ) -> Result<(), FunctionLoweringInvariant> {
         match elems {
             TypedArrayElements::List(elems) => {
                 for elem in elems {
@@ -436,7 +436,7 @@ impl BodyInputValidator<'_, '_> {
         }
     }
 
-    fn validate_inline_asm(&self, asm: &TypedInlineAsm) -> Result<(), FunctionLoweringDiagnostic> {
+    fn validate_inline_asm(&self, asm: &TypedInlineAsm) -> Result<(), FunctionLoweringInvariant> {
         for input in &asm.inputs {
             self.validate_value_expr(&input.value)?;
         }
@@ -449,7 +449,7 @@ impl BodyInputValidator<'_, '_> {
     fn validate_memory_intrinsic(
         &self,
         memory: &nia_body_ir::TypedMemoryIntrinsic,
-    ) -> Result<(), FunctionLoweringDiagnostic> {
+    ) -> Result<(), FunctionLoweringInvariant> {
         self.validate_value_expr(&memory.dest)?;
         match &memory.source {
             TypedMemoryIntrinsicSource::Slice(source)
@@ -457,7 +457,7 @@ impl BodyInputValidator<'_, '_> {
         }
     }
 
-    fn validate_atomic(&self, atomic: &TypedAtomic) -> Result<(), FunctionLoweringDiagnostic> {
+    fn validate_atomic(&self, atomic: &TypedAtomic) -> Result<(), FunctionLoweringInvariant> {
         match atomic {
             TypedAtomic::Load { ptr, .. } => self.validate_value_expr(ptr),
             TypedAtomic::Store { ptr, value, .. } | TypedAtomic::Rmw { ptr, value, .. } => {
@@ -478,13 +478,13 @@ impl BodyInputValidator<'_, '_> {
         }
     }
 
-    fn validate_callee(&self, callee: &TypedCallee) -> Result<(), FunctionLoweringDiagnostic> {
+    fn validate_callee(&self, callee: &TypedCallee) -> Result<(), FunctionLoweringInvariant> {
         match callee {
             TypedCallee::Tracked { callee, .. } => self.validate_callee(callee),
             TypedCallee::Closure(callee) => {
                 self.validate_value_expr(callee)?;
                 if !matches!(self.types.get(callee.ty), Some(TyKind::ClosureState { .. })) {
-                    return Err(FunctionLoweringDiagnostic {
+                    return Err(FunctionLoweringInvariant {
                         span: callee.span,
                         message: "closure callee does not have a closure-state type".to_string(),
                     });
@@ -512,13 +512,13 @@ impl BodyInputValidator<'_, '_> {
         captures: &[nia_body_ir::TypedClosureCapture],
         params: &[LocalId],
         body: &TypedBody,
-    ) -> Result<(), FunctionLoweringDiagnostic> {
+    ) -> Result<(), FunctionLoweringInvariant> {
         // This is the ABI shape consumed by `ensure_closure_entry`, not a
         // second type-checking pass. Validate every field that lowering zips
         // or maps by position so malformed recovery products cannot turn its
         // internal assertions into a process panic.
         if !self.closure_ids.borrow_mut().insert(closure_id) {
-            return Err(FunctionLoweringDiagnostic {
+            return Err(FunctionLoweringInvariant {
                 span: expr.span,
                 message: "closure identity is defined more than once in one function body"
                     .to_string(),
@@ -531,33 +531,33 @@ impl BodyInputValidator<'_, '_> {
             return_type,
         }) = self.types.get(expr.ty)
         else {
-            return Err(FunctionLoweringDiagnostic {
+            return Err(FunctionLoweringInvariant {
                 span: expr.span,
                 message: "closure expression does not have a closure-state type".to_string(),
             });
         };
         if *type_closure_id != closure_id {
-            return Err(FunctionLoweringDiagnostic {
+            return Err(FunctionLoweringInvariant {
                 span: expr.span,
                 message: "closure expression identity does not match its closure-state type"
                     .to_string(),
             });
         }
         if capture_types.len() != captures.len() {
-            return Err(FunctionLoweringDiagnostic {
+            return Err(FunctionLoweringInvariant {
                 span: expr.span,
                 message: "closure capture count does not match its closure-state type".to_string(),
             });
         }
         if param_types.len() != params.len() {
-            return Err(FunctionLoweringDiagnostic {
+            return Err(FunctionLoweringInvariant {
                 span: expr.span,
                 message: "closure parameter count does not match its closure-state type"
                     .to_string(),
             });
         }
         if *return_type != body.ty {
-            return Err(FunctionLoweringDiagnostic {
+            return Err(FunctionLoweringInvariant {
                 span: body.span,
                 message: "closure body type does not match its closure-state return type"
                     .to_string(),
@@ -566,13 +566,13 @@ impl BodyInputValidator<'_, '_> {
         let mut capture_locals = std::collections::HashSet::with_capacity(captures.len());
         for (capture, expected) in captures.iter().zip(capture_types) {
             if !capture_locals.insert(capture.local_id) {
-                return Err(FunctionLoweringDiagnostic {
+                return Err(FunctionLoweringInvariant {
                     span: expr.span,
                     message: "closure capture locals must be unique".to_string(),
                 });
             }
             if capture.value.ty != *expected {
-                return Err(FunctionLoweringDiagnostic {
+                return Err(FunctionLoweringInvariant {
                     span: capture.value.span,
                     message: "closure capture type does not match its closure-state field"
                         .to_string(),
@@ -582,7 +582,7 @@ impl BodyInputValidator<'_, '_> {
         let mut param_locals = std::collections::HashSet::with_capacity(params.len());
         for (param, expected) in params.iter().zip(param_types) {
             if !param_locals.insert(*param) || capture_locals.contains(param) {
-                return Err(FunctionLoweringDiagnostic {
+                return Err(FunctionLoweringInvariant {
                     span: body.span,
                     message: "closure capture and parameter locals must be distinct".to_string(),
                 });
@@ -593,7 +593,7 @@ impl BodyInputValidator<'_, '_> {
                 .find(|local| local.id == *param)
                 .is_none_or(|local| local.ty != *expected)
             {
-                return Err(FunctionLoweringDiagnostic {
+                return Err(FunctionLoweringInvariant {
                     span: body.span,
                     message: "closure parameter local does not match its closure-state signature"
                         .to_string(),
@@ -603,11 +603,11 @@ impl BodyInputValidator<'_, '_> {
         Ok(())
     }
 
-    fn validate_place(&self, place: &TypedPlace) -> Result<(), FunctionLoweringDiagnostic> {
+    fn validate_place(&self, place: &TypedPlace) -> Result<(), FunctionLoweringInvariant> {
         match &place.base {
             PlaceBase::Deref(expr) => self.validate_value_expr(expr)?,
             PlaceBase::Error => {
-                return Err(FunctionLoweringDiagnostic {
+                return Err(FunctionLoweringInvariant {
                     span: place.span,
                     message: "error place escaped into function lowering input".to_string(),
                 });
@@ -618,7 +618,7 @@ impl BodyInputValidator<'_, '_> {
             match elem {
                 PlaceElem::Index(index) => self.validate_value_expr(index)?,
                 PlaceElem::Error => {
-                    return Err(FunctionLoweringDiagnostic {
+                    return Err(FunctionLoweringInvariant {
                         span: place.span,
                         message: "error place element escaped into function lowering input"
                             .to_string(),
@@ -633,7 +633,7 @@ impl BodyInputValidator<'_, '_> {
     fn validate_slice_range(
         &self,
         range: &TypedSliceRange,
-    ) -> Result<(), FunctionLoweringDiagnostic> {
+    ) -> Result<(), FunctionLoweringInvariant> {
         if let Some(start) = &range.start {
             self.validate_value_expr(start)?;
         }
@@ -643,9 +643,9 @@ impl BodyInputValidator<'_, '_> {
         Ok(())
     }
 
-    fn reject_error_expr(&self, expr: &TypedExpr) -> Result<(), FunctionLoweringDiagnostic> {
+    fn reject_error_expr(&self, expr: &TypedExpr) -> Result<(), FunctionLoweringInvariant> {
         if matches!(expr.kind, TypedExprKind::Error) {
-            return Err(FunctionLoweringDiagnostic {
+            return Err(FunctionLoweringInvariant {
                 span: expr.span,
                 message: "error expression escaped into function lowering input".to_string(),
             });

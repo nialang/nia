@@ -85,7 +85,6 @@ impl BackendLoweringInputs {
         let function_body_ids = parts
             .function_bodies
             .iter()
-            .filter(|body| body.value.body().is_some())
             .map(|body| body.def_id)
             .collect::<Vec<_>>();
         let function_body_indices = parts
@@ -238,13 +237,18 @@ impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
     fn function_body(&self, def_id: GlobalDefId) -> Option<&nia_function_ir::FunctionBody> {
         self.function_body_indices
             .get(&def_id)
-            .and_then(|index| self.function_bodies[*index].value.body())
+            .map(|index| &self.function_bodies[*index].value.body)
     }
 
     fn closure_entries(&self, def_id: GlobalDefId) -> &[nia_function_ir::FunctionClosureEntry] {
         self.function_body_indices
             .get(&def_id)
-            .map(|index| self.function_bodies[*index].value.closure_entries())
+            .map(|index| {
+                self.function_bodies[*index]
+                    .value
+                    .closure_entries
+                    .as_slice()
+            })
             .unwrap_or_default()
     }
 
@@ -434,19 +438,17 @@ mod tests {
         };
         let lowered = vec![LoweredFunctionBodyHandle {
             def_id,
-            value: Arc::new(LoweredFunctionBodyValue::Body(
-                nia_function_lower::LoweredFunctionBody {
-                    body: FunctionBody {
-                        span: Span::default(),
-                        locals: Vec::new(),
-                        scopes: Vec::new(),
-                        blocks: Vec::new(),
-                        entry: FunctionBlockId(0),
-                        ty,
-                    },
-                    closure_entries: Vec::new(),
+            value: Arc::new(nia_function_lower::LoweredFunctionBody {
+                body: FunctionBody {
+                    span: Span::default(),
+                    locals: Vec::new(),
+                    scopes: Vec::new(),
+                    blocks: Vec::new(),
+                    entry: FunctionBlockId(0),
+                    ty,
                 },
-            )),
+                closure_entries: Vec::new(),
+            }),
         }];
 
         let init = Arc::new(nia_static_ir::StaticInit::Bytes(vec![1, 2, 3]));
@@ -454,8 +456,7 @@ mod tests {
             def_id,
             value: Arc::new(Some(Arc::clone(&init))),
         }];
-        let query_owned =
-            lowered[0].value.body().expect("query-owned function body") as *const FunctionBody;
+        let query_owned = &lowered[0].value.body as *const FunctionBody;
 
         let inputs = BackendLoweringInputs {
             symbols: nia_symbol_table::SymbolTable::new(),

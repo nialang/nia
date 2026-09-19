@@ -188,9 +188,12 @@ impl FunctionLowerer<'_> {
                 PlaceBase::Deref(expr) => FunctionPlaceBase::Deref(Box::new(
                     self.lower_value_expr(expr, scope, current, ops, blocks),
                 )),
-                PlaceBase::Error => unreachable!(
-                    "function lowering input validation rejects error places before lowering"
-                ),
+                PlaceBase::Error => {
+                    self.record_internal(nia_ice::Ice::new(
+                        "error place reached function lowering",
+                    ));
+                    FunctionPlaceBase::Error
+                }
             },
             elems: Vec::new(),
         };
@@ -278,9 +281,12 @@ impl FunctionLowerer<'_> {
             PlaceElem::Index(index) => FunctionPlaceElem::Index(Box::new(
                 self.lower_value_expr(index, scope, current, ops, blocks),
             )),
-            PlaceElem::Error => unreachable!(
-                "function lowering input validation rejects error place elements before lowering"
-            ),
+            PlaceElem::Error => {
+                self.record_internal(nia_ice::Ice::new(
+                    "error place element reached function lowering",
+                ));
+                FunctionPlaceElem::Error
+            }
         }
     }
 

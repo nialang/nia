@@ -42,41 +42,24 @@ mod support;
 mod tests;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// A typed-body or produced-function-IR invariant rejected during lowering.
-pub struct FunctionLoweringDiagnostic {
-    /// Narrowest source span available for the failed invariant.
-    pub span: Span,
-    /// Human-readable invariant description.
-    pub message: String,
+struct FunctionLoweringInvariant {
+    span: Span,
+    message: String,
 }
 
-impl From<nia_function_ir::FunctionIrError> for FunctionLoweringDiagnostic {
+impl FunctionLoweringInvariant {
+    fn into_ice(self, phase: &str) -> nia_ice::Ice {
+        nia_ice::Ice::new(self.message)
+            .with_context(format!("{phase} at source span {:?}", self.span))
+    }
+}
+
+impl From<nia_function_ir::FunctionIrError> for FunctionLoweringInvariant {
     fn from(error: nia_function_ir::FunctionIrError) -> Self {
         Self {
             span: error.span,
             message: error.message,
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-/// Failure produced while lowering a typed body.
-pub enum FunctionLoweringError {
-    /// Invalid typed input or malformed produced CFG.
-    Diagnostic(FunctionLoweringDiagnostic),
-    /// Compiler invariant failure while materializing lowering types.
-    Internal(nia_ice::Ice),
-}
-
-impl From<FunctionLoweringDiagnostic> for FunctionLoweringError {
-    fn from(diagnostic: FunctionLoweringDiagnostic) -> Self {
-        Self::Diagnostic(diagnostic)
-    }
-}
-
-impl From<nia_ice::Ice> for FunctionLoweringError {
-    fn from(error: nia_ice::Ice) -> Self {
-        Self::Internal(error)
     }
 }
 
@@ -139,23 +122,24 @@ pub fn lower_function_body(
     module_id: ModuleId,
     body: &TypedBody,
     types: FunctionTypeContext<'_>,
-) -> Result<LoweredFunctionBody, FunctionLoweringError> {
+) -> nia_ice::IceResult<LoweredFunctionBody> {
     input::validate_function_lowering_input(body, &types)
-        .map_err(FunctionLoweringError::Diagnostic)?;
+        .map_err(|error| error.into_ice("validating function lowering input"))?;
     let mut lowerer = FunctionLowerer::new(module_id, types);
     let body = lowerer.lower_body(body);
+    if let Some(error) = lowerer.internal_error.take() {
+        return Err(error);
+    }
     if let Some(error) = lowerer.types.take_internal_error() {
-        return Err(FunctionLoweringError::Internal(error.with_context(
-            format!("lowering function body in module {module_id:?}"),
-        )));
+        return Err(error.with_context(format!("lowering function body in module {module_id:?}")));
     }
     validate_function_body(&body)
-        .map_err(FunctionLoweringDiagnostic::from)
-        .map_err(FunctionLoweringError::Diagnostic)?;
+        .map_err(FunctionLoweringInvariant::from)
+        .map_err(|error| error.into_ice("validating lowered function body"))?;
     for entry in &lowerer.closure_entries {
         validate_function_closure_entry(entry)
-            .map_err(FunctionLoweringDiagnostic::from)
-            .map_err(FunctionLoweringError::Diagnostic)?;
+            .map_err(FunctionLoweringInvariant::from)
+            .map_err(|error| error.into_ice("validating lowered closure entry"))?;
     }
     Ok(LoweredFunctionBody {
         body,
@@ -175,6 +159,7 @@ struct FunctionLowerer<'a> {
     closure_entries: Vec<FunctionClosureEntry>,
     nested_closure_locals: HashSet<LocalId>,
     closure_state: Option<ClosureStateContext>,
+    internal_error: Option<nia_ice::Ice>,
 }
 
 #[derive(Debug, Clone)]
@@ -227,6 +212,7 @@ impl<'a> FunctionLowerer<'a> {
             closure_entries: Vec::new(),
             nested_closure_locals: HashSet::new(),
             closure_state: None,
+            internal_error: None,
         }
     }
 
@@ -317,5 +303,11 @@ impl<'a> FunctionLowerer<'a> {
         self.scopes.clear();
         self.loop_targets.clear();
         self.nested_closure_locals.clear();
+    }
+
+    fn record_internal(&mut self, error: nia_ice::Ice) {
+        if self.internal_error.is_none() {
+            self.internal_error = Some(error);
+        }
     }
 }

@@ -529,9 +529,16 @@ impl FunctionLowerer<'_> {
                     }),
                     TypedPatternKind::Nominal { .. } => {
                         arms.push(FunctionSwitchArm {
-                            pattern: self
-                                .direct_enum_match_pattern(pattern)
-                                .expect("payload enum patterns require condition-chain lowering"),
+                            pattern: self.direct_enum_match_pattern(pattern).unwrap_or_else(|| {
+                                self.record_internal(nia_ice::Ice::new(
+                                    "payload enum pattern reached direct match lowering",
+                                ));
+                                FunctionExpr {
+                                    span: pattern.span,
+                                    ty: pattern.ty,
+                                    kind: FunctionExprKind::Error,
+                                }
+                            }),
                             target: arm_target,
                         });
                     }

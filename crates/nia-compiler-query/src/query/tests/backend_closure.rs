@@ -32,9 +32,8 @@ pub fn main(base: i32) i32 {
         .expect("main definition");
 
     let lowered = db.expect_get(LoweredFunctionBodyQuery(main));
-    assert!(lowered.diagnostic().is_none());
-    assert_eq!(lowered.closure_entries().len(), 1);
-    let entry = &lowered.closure_entries()[0];
+    assert_eq!(lowered.closure_entries.len(), 1);
+    let entry = &lowered.closure_entries[0];
     assert_eq!(entry.closure_id.owner, main);
     assert!(matches!(
         db.context().type_store.get(entry.body.locals[0].ty),
@@ -45,8 +44,7 @@ pub fn main(base: i32) i32 {
     ));
     assert!(
         lowered
-            .body()
-            .expect("source body")
+            .body
             .blocks
             .iter()
             .flat_map(|block| &block.ops)
@@ -66,8 +64,7 @@ pub fn main(base: i32) i32 {
             ))
     );
     let tail = lowered
-        .body()
-        .expect("source body")
+        .body
         .blocks
         .iter()
         .find_map(|block| match &block.terminator {
@@ -264,13 +261,11 @@ pub fn main() i32 {
         .expect("main definition");
 
     let lowered = db.expect_get(LoweredFunctionBodyQuery(main));
-    assert!(lowered.diagnostic().is_none());
-    assert_eq!(lowered.closure_entries().len(), 1);
-    let entry = &lowered.closure_entries()[0];
+    assert_eq!(lowered.closure_entries.len(), 1);
+    let entry = &lowered.closure_entries[0];
     assert_eq!(entry.closure_id.owner, main);
     assert!(lowered
-        .body()
-        .expect("source body")
+        .body
         .blocks
         .iter()
         .flat_map(|block| &block.ops)
