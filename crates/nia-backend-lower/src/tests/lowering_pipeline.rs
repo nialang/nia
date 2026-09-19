@@ -42,14 +42,16 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
             },
         )
         .with_symbols(&symbols),
-    );
+    )
+    .expect("lower backend-lower pipeline test types");
     let mut signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
         defs: &defs,
         lowered: &type_lowering,
         type_store: &type_store,
         symbols: None,
-    });
+    })
+    .expect("collect backend-lower pipeline test signatures");
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     let active_item_tree = active_item_tree(&module);
@@ -66,7 +68,8 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         type_store: &type_store,
         input_ids: &normalization_input,
         signatures: &signatures,
-    });
+    })
+    .expect("normalize backend-lower pipeline test types");
     let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-backend-lower-test/main.nia");
     let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
@@ -103,7 +106,8 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         source_text: source,
         program: nia_const_check::ConstProgramContext::empty(),
     };
-    let const_eval = nia_const_check::check_module_const(const_input);
+    let const_eval = nia_const_check::check_module_const(const_input)
+        .expect("check backend-lower pipeline test const module");
     let root_types = signatures.type_roots();
     let layouts =
         nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
@@ -115,7 +119,8 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
             array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
             target: nia_layout::TargetDataLayout::LP64,
             program: nia_layout::ProgramLayoutContext::default(),
-        });
+        })
+        .expect("compute backend-lower pipeline test layouts");
     let const_array_lengths = nia_const_check::ConstArrayLengths {
         values: const_eval.array_lengths.clone(),
         provider_demands: const_eval.provider_demands.clone(),
@@ -227,7 +232,8 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         }],
         [(module_id, nia_source::SourceIdentity::new("main"))],
         &type_store,
-    );
+    )
+    .expect("collect backend-lower pipeline monomorphizations");
     assert!(
         monomorphization.diagnostics.is_empty(),
         "{:?}",

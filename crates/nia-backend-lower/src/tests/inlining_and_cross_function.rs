@@ -988,7 +988,7 @@ fn main() i32 {
         i32_ty.set(Some(
             type_store
                 .append_for_module(defs.module_id)
-                .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32)),
+                .test_intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32)),
         ));
         let impl_id = _signatures.trait_impls[0].impl_id;
         extensions.insert(
@@ -1169,7 +1169,7 @@ fn main() i32 {
         let add_id = global_def_id_by_name(defs, "add");
         let i32_type = type_store
             .append_for_module(defs.module_id)
-            .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
+            .test_intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
         let box_pattern = signatures
             .trait_impls
             .iter()
