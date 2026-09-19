@@ -308,10 +308,10 @@ fn statement_match_pattern_binding_stores_tagged_union_payload() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
-    let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
-    let bool_ty = append.intern(TyKind::Primitive(PrimitiveTy::Bool));
-    let optional_ty = append.intern(TyKind::Optional { elem: i32_ty });
+    let i32_ty = intern_ty(&append, TyKind::Primitive(PrimitiveTy::I32));
+    let unit_ty = intern_ty(&append, TyKind::Tuple(Vec::new()));
+    let bool_ty = intern_ty(&append, TyKind::Primitive(PrimitiveTy::Bool));
+    let optional_ty = intern_ty(&append, TyKind::Optional { elem: i32_ty });
     let target_local = LocalId(0);
     let payload_local = LocalId(1);
     let span = Span::default();
@@ -414,12 +414,15 @@ fn statement_if_error_union_pattern_binding_uses_payload_type() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
-    let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
-    let error_ty = append.intern(TyKind::ErrorUnion {
-        error: i32_ty,
-        value: i32_ty,
-    });
+    let i32_ty = intern_ty(&append, TyKind::Primitive(PrimitiveTy::I32));
+    let unit_ty = intern_ty(&append, TyKind::Tuple(Vec::new()));
+    let error_ty = intern_ty(
+        &append,
+        TyKind::ErrorUnion {
+            error: i32_ty,
+            value: i32_ty,
+        },
+    );
     let target_local = LocalId(0);
     let payload_local = LocalId(1);
     let span = Span::default();
@@ -452,7 +455,7 @@ fn statement_if_error_union_pattern_binding_uses_payload_type() {
                         ty: error_ty,
                         kind: TypedExprKind::Local(target_local),
                     },
-                    bool_ty: append.intern(TyKind::Primitive(PrimitiveTy::Bool)),
+                    bool_ty: intern_ty(&append, TyKind::Primitive(PrimitiveTy::Bool)),
                     pattern: TypedPattern {
                         ty: error_ty,
                         span,

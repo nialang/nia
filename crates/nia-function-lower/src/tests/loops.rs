@@ -241,8 +241,8 @@ fn lowering_for_in_appends_synthesized_optional_item_type() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = TypeStore::new().expect("create type store");
     let append = type_store.append_for_module(module_id);
-    let item_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
-    let bool_ty = append.intern(TyKind::Primitive(PrimitiveTy::Bool));
+    let item_ty = intern_ty(&append, TyKind::Primitive(PrimitiveTy::I32));
+    let bool_ty = intern_ty(&append, TyKind::Primitive(PrimitiveTy::Bool));
     let body = TypedBody {
         span,
         locals: vec![
