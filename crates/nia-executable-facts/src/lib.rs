@@ -1326,7 +1326,8 @@ mod tests {
         let types = nia_ty::TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
-            .primitive(nia_ty::PrimitiveTy::Bool);
+            .primitive(nia_ty::PrimitiveTy::Bool)
+            .expect("intern bool type");
         let referenced = GlobalDefId {
             module_id,
             def_id: DefId(7),
@@ -1402,7 +1403,8 @@ mod tests {
         let types = nia_ty::TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
-            .primitive(nia_ty::PrimitiveTy::I32);
+            .primitive(nia_ty::PrimitiveTy::I32)
+            .expect("intern i32 type");
         let function = GlobalDefId {
             module_id,
             def_id: DefId(8),
@@ -1478,7 +1480,8 @@ mod tests {
         let types = nia_ty::TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
-            .primitive(nia_ty::PrimitiveTy::I32);
+            .primitive(nia_ty::PrimitiveTy::I32)
+            .expect("intern i32 type");
         let method = GlobalDefId {
             module_id,
             def_id: DefId(11),
@@ -1602,7 +1605,8 @@ mod tests {
         let types = nia_ty::TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
-            .primitive(nia_ty::PrimitiveTy::I32);
+            .primitive(nia_ty::PrimitiveTy::I32)
+            .expect("intern i32 type");
         let function = GlobalDefId {
             module_id,
             def_id: DefId(9),
@@ -1660,7 +1664,8 @@ mod tests {
         let types = nia_ty::TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
-            .primitive(nia_ty::PrimitiveTy::Bool);
+            .primitive(nia_ty::PrimitiveTy::Bool)
+            .expect("intern bool type");
         let reachable_function = GlobalDefId {
             module_id,
             def_id: DefId(1),
@@ -1722,7 +1727,8 @@ mod tests {
         let types = nia_ty::TypeStore::new().expect("create type store");
         let ty = types
             .append_for_module(module_id)
-            .primitive(nia_ty::PrimitiveTy::Bool);
+            .primitive(nia_ty::PrimitiveTy::Bool)
+            .expect("intern bool type");
         let function = GlobalDefId {
             module_id,
             def_id: DefId(10),
