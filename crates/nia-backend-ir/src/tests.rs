@@ -224,7 +224,8 @@ fn owner_directory_records_actual_instance_publication_module() {
         const_args: Vec::new(),
     };
 
-    let directory = BackendModuleOwnerDirectory::from_modules([&module]);
+    let directory = BackendModuleOwnerDirectory::from_modules([&module])
+        .expect("build backend owner directory");
 
     assert_eq!(
         directory.global_instance_owner(&key),
