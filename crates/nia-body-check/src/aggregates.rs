@@ -843,10 +843,14 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let variant_id = self.enum_constructor_variant(expr, expected)?;
         let (enum_id, variant) = self.resolved_enum_variant(variant_id)?;
-        // Unit variants remain ordinary values, including their address-taking rules.
-        if matches!(variant.payload, EnumVariantPayloadSignature::Unit) {
-            return None;
-        }
+        let params = match variant.payload {
+            // Unit variants remain ordinary values, including their address-taking rules.
+            EnumVariantPayloadSignature::Unit => return None,
+            EnumVariantPayloadSignature::Tuple(params) => params,
+            EnumVariantPayloadSignature::Named(fields) => {
+                fields.into_iter().map(|field| field.ty).collect()
+            }
+        };
         self.reject_const_operation(
             expr.span,
             "function pointer values are not available during const evaluation",
@@ -859,15 +863,6 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         }
-        let params = match variant.payload {
-            EnumVariantPayloadSignature::Tuple(params) => params,
-            EnumVariantPayloadSignature::Named(fields) => {
-                fields.into_iter().map(|field| field.ty).collect()
-            }
-            EnumVariantPayloadSignature::Unit => unreachable!(
-                "unit enum variants returned before constructor signature construction"
-            ),
-        };
         let return_type = self.enum_ty(enum_id);
         let ty = self.interner.intern(TyKind::FunctionPointer {
             params,
@@ -1714,7 +1709,7 @@ impl<'a> BodyChecker<'a> {
             Ok(Some(ty)) => ty,
             Ok(None) => return None,
             Err(error) => {
-                self.interner.record_internal(error);
+                self.record_internal(error);
                 return None;
             }
         };

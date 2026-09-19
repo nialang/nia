@@ -500,7 +500,7 @@ impl<'a> BodyChecker<'a> {
         ) {
             Ok(ty) => ty,
             Err(error) => {
-                self.interner.record_internal(error);
+                self.record_internal(error);
                 self.interner.error()
             }
         }
@@ -523,7 +523,7 @@ impl<'a> BodyChecker<'a> {
         ) {
             Ok(ty) => ty,
             Err(error) => {
-                self.interner.record_internal(error);
+                self.record_internal(error);
                 self.interner.error()
             }
         }

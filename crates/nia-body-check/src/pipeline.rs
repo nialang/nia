@@ -3,28 +3,49 @@ use super::*;
 
 struct ClosureOrdinalCollector {
     ordinals: FastHashMap<VersionedNodeKey, u32>,
+    internal_error: Option<Ice>,
 }
 
 impl<'ast> Visitor<'ast> for ClosureOrdinalCollector {
     fn visit_expr(&mut self, expr: &'ast Expr) {
+        if self.internal_error.is_some() {
+            return;
+        }
         if matches!(expr.kind, ExprKind::Closure { .. }) {
-            let ordinal = u32::try_from(self.ordinals.len())
-                .expect("Nia ICE: function contains more than u32::MAX closure expressions");
-            self.ordinals.insert(expr.node_key.clone(), ordinal);
+            let Ok(ordinal) = u32::try_from(self.ordinals.len()) else {
+                self.internal_error = Some(Ice::new(
+                    "function contains more closure expressions than can be identified",
+                ));
+                return;
+            };
+            if self
+                .ordinals
+                .insert(expr.node_key.clone(), ordinal)
+                .is_some()
+            {
+                self.internal_error = Some(Ice::new(
+                    "function contains duplicate closure expression identities",
+                ));
+                return;
+            }
         }
         nia_ast_walk::walk_expr(self, expr);
     }
 }
 
-fn closure_ordinals(body: &Block) -> FastHashMap<VersionedNodeKey, u32> {
+fn closure_ordinals(body: &Block) -> IceResult<FastHashMap<VersionedNodeKey, u32>> {
     // Constraint probes may inspect expressions in candidate-dependent order.
     // Assign source identities up front so that order cannot leak into IR or
     // persistent object fingerprints.
     let mut collector = ClosureOrdinalCollector {
         ordinals: FastHashMap::default(),
+        internal_error: None,
     };
     collector.visit_block(body);
-    collector.ordinals
+    match collector.internal_error {
+        Some(error) => Err(error),
+        None => Ok(collector.ordinals),
+    }
 }
 
 impl<'a> BodyChecker<'a> {
@@ -228,6 +249,15 @@ impl<'a> BodyChecker<'a> {
         let Some(body) = &function.body else {
             return;
         };
+        let closure_ordinals = match closure_ordinals(body) {
+            Ok(ordinals) => ordinals,
+            Err(error) => {
+                self.record_internal(error.with_context(format!(
+                    "assigning closure identities for function {global_def_id:?}"
+                )));
+                return;
+            }
+        };
         let previous_return = self.current_return;
         let previous_def_id = self.current_def_id;
         let previous_closure_ordinals = std::mem::take(&mut self.closure_ordinals);
@@ -235,7 +265,7 @@ impl<'a> BodyChecker<'a> {
         self.swap_function_facts(global_def_id);
         self.current_return = signature.return_type;
         self.current_def_id = Some(global_def_id);
-        self.closure_ordinals = closure_ordinals(body);
+        self.closure_ordinals = closure_ordinals;
         self.current_param_locals = function
             .params
             .iter()
@@ -683,6 +713,15 @@ impl<'a> BodyChecker<'a> {
         let Some(signature) = signature else {
             return;
         };
+        let closure_ordinals = match function.body.as_ref().map(closure_ordinals).transpose() {
+            Ok(ordinals) => ordinals,
+            Err(error) => {
+                self.record_internal(error.with_context(format!(
+                    "assigning closure identities for function {global_def_id:?}"
+                )));
+                return;
+            }
+        };
         time_body_stage_if_slow(
             self.timing,
             "body_check.function.projection_obligations",
@@ -730,8 +769,8 @@ impl<'a> BodyChecker<'a> {
                 });
             },
         );
-        if let Some(body) = &function.body {
-            self.closure_ordinals = closure_ordinals(body);
+        if let Some((body, closure_ordinals)) = function.body.as_ref().zip(closure_ordinals) {
+            self.closure_ordinals = closure_ordinals;
             if !self.closure_ordinals.is_empty() {
                 self.infer_function_closures(body);
             }

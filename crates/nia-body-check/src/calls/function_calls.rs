@@ -1834,12 +1834,28 @@ impl<'a> BodyChecker<'a> {
                     expr: inner,
                 },
                 _,
-            ) if matches!(&inner.kind, ExprKind::String(_) | ExprKind::ByteString(_)) => {
-                let array = match &inner.kind {
-                    ExprKind::String(literal) => self.string_literal_array_type(literal),
-                    ExprKind::ByteString(literal) => self.byte_string_literal_array_type(literal),
-                    _ => unreachable!(),
+            ) if matches!(&inner.kind, ExprKind::String(_)) => {
+                let ExprKind::String(literal) = &inner.kind else {
+                    return false;
                 };
+                let array = self.string_literal_array_type(literal);
+                let actual = self.interner.intern(TyKind::Pointer {
+                    is_readonly: true,
+                    elem: array,
+                });
+                self.type_can_match_call_expected(expected, actual)
+            }
+            (
+                ExprKind::Unary {
+                    op: UnaryOp::RefReadOnly,
+                    expr: inner,
+                },
+                _,
+            ) if matches!(&inner.kind, ExprKind::ByteString(_)) => {
+                let ExprKind::ByteString(literal) = &inner.kind else {
+                    return false;
+                };
+                let array = self.byte_string_literal_array_type(literal);
                 let actual = self.interner.intern(TyKind::Pointer {
                     is_readonly: true,
                     elem: array,

@@ -17,10 +17,7 @@ impl IntegerLiteralRangeValue {
 
     pub(super) fn display(&self) -> String {
         match self {
-            Self::Representable(value) if value.is_signed() => value
-                .as_i128()
-                .expect("signed integer constant")
-                .to_string(),
+            Self::Representable(value) if value.is_signed() => (value.bits() as i128).to_string(),
             Self::Representable(value) => value.bits().to_string(),
             Self::BelowI128Min(magnitude) => format!("-{magnitude}"),
         }
@@ -46,7 +43,7 @@ pub(super) fn integer_literal_value(expr: &Expr) -> Option<IntegerLiteralRangeVa
                 ))
             } else {
                 i128::try_from(magnitude)
-                    .expect("magnitude below the signed endpoint")
+                    .ok()?
                     .checked_neg()
                     .map(nia_ty::IntConst::signed)
                     .map(IntegerLiteralRangeValue::Representable)

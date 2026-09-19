@@ -2,6 +2,7 @@
 use crate::BodyChecker;
 use nia_ast::{BracketArg, Expr, ExprKind};
 use nia_diagnostic::{Diagnostic, codes};
+use nia_ice::Ice;
 use nia_ids::{BuiltinFunction, GlobalDefId, InternedTyId, LayoutBuiltin, TraitId};
 use nia_sema_ir::BuiltinValue;
 use nia_span::Span;
@@ -144,10 +145,10 @@ impl<'a> BodyChecker<'a> {
                     builtin,
                     Some(type_arg.ty),
                 );
-                let layout_builtin = match builtin {
-                    BuiltinFunction::SizeOf => LayoutBuiltin::Size,
-                    BuiltinFunction::AlignOf => LayoutBuiltin::Align,
-                    _ => unreachable!(),
+                let layout_builtin = if matches!(builtin, BuiltinFunction::SizeOf) {
+                    LayoutBuiltin::Size
+                } else {
+                    LayoutBuiltin::Align
                 };
                 self.require_sized_type(type_arg.span, type_arg.ty, name);
                 if let Some(layout) = self.layout_of(type_arg.ty) {
@@ -298,14 +299,15 @@ impl<'a> BodyChecker<'a> {
                         self.check_expr(arg);
                     }
                 }
-                declared_return_type.unwrap_or_else(|| {
-                    self.diagnostics.push(Diagnostic::internal_error_at(
-                        codes::TYPE_CHECK,
-                        call_span,
-                        "builtin `callerLocation` call is missing its declared return type",
-                    ));
-                    self.error()
-                })
+                match declared_return_type {
+                    Some(return_type) => return_type,
+                    None => {
+                        self.record_internal(Ice::new(
+                            "builtin `callerLocation` call is missing its declared return type",
+                        ));
+                        self.error()
+                    }
+                }
             }
         }
     }

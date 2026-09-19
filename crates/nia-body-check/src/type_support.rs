@@ -496,7 +496,7 @@ impl<'a> BodyChecker<'a> {
         {
             Ok(resolved) => resolved,
             Err(error) => {
-                self.interner.record_internal(error);
+                self.record_internal(error);
                 None
             }
         }
@@ -536,7 +536,7 @@ impl<'a> BodyChecker<'a> {
         {
             Ok(resolved) => resolved,
             Err(error) => {
-                self.interner.record_internal(error);
+                self.record_internal(error);
                 None
             }
         }
@@ -1538,6 +1538,7 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn clone_for_type_compare(&self) -> BodyChecker<'a> {
         BodyChecker {
+            failure: self.failure.clone(),
             type_store: self.type_store,
             active_item_tree: self.active_item_tree,
             defs: self.defs,
@@ -1545,7 +1546,7 @@ impl<'a> BodyChecker<'a> {
             values: self.values,
             locals: self.locals,
             semantic_uses: self.semantic_uses,
-            interner: BodyTypeCx::new(self.type_store, self.defs.module_id),
+            interner: BodyTypeCx::new(self.type_store, self.defs.module_id, self.failure.clone()),
             type_lowering: self.type_lowering,
             signatures: self.signatures,
             const_signatures: self.const_signatures,
@@ -2428,7 +2429,7 @@ mod tests {
             .expect("create module ID allocator")
             .allocate()
             .expect("allocate module ID");
-        let interner = BodyTypeCx::new(&local_store, module_id);
+        let interner = BodyTypeCx::new(&local_store, module_id, crate::BodyFailure::new());
         let local = interner.intern(TyKind::Primitive(PrimitiveTy::I32));
         let foreign = foreign_store
             .append_for_module(module_id)

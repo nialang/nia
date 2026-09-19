@@ -304,9 +304,14 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
     } else {
         BodyVisibleExtensionSource::Eager(input.extensions)
     };
-    let types = BodyTypeCx::new(input.type_store, module_id);
+    let failure = BodyFailure::new();
+    let types = BodyTypeCx::new(input.type_store, module_id, failure.clone());
     let unit_ty = types.intern(TyKind::Tuple(Vec::new()));
+    if let Some(error) = failure.internal_error() {
+        return body_check_internal_error(error);
+    }
     let mut checker = time_body_stage(timing, "body_check.init", module_id, || BodyChecker {
+        failure,
         type_store: input.type_store,
         active_item_tree: input.active_item_tree,
         defs: input.defs,
@@ -403,6 +408,10 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
             checker.check_module(input.active_item_tree, timing, module_id);
         });
     }
+    if let Some(error) = checker.failure.internal_error() {
+        checker.print_profile();
+        return body_check_internal_error(error);
+    }
     match checker.product {
         BodyCheckProduct::Full | BodyCheckProduct::BodyOnly => {
             time_body_stage(timing, "body_check.lower_checked", module_id, || {
@@ -417,6 +426,9 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         BodyCheckProduct::FactsOnly => {}
     }
     checker.print_profile();
+    if let Some(error) = checker.failure.internal_error() {
+        return body_check_internal_error(error);
+    }
     time_body_stage(timing, "body_check.finish", module_id, || {
         let facts = SemanticFactsBuilder {
             global_types: checker
@@ -460,7 +472,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
             .diagnostic_owners
             .resize(checker.diagnostics.len(), None);
         BodyCheck {
-            internal_error: checker.interner.internal_error(),
+            internal_error: None,
             ir: Arc::new(BodyIr {
                 function_bodies: checker.function_bodies,
                 global_inits: checker.global_inits,
@@ -513,8 +525,34 @@ pub(super) fn time_body_stage_if_slow<T>(
 
 #[cfg(test)]
 mod tests {
-    use super::{body_check_target_layout_error, target_data_layout};
+    use super::{
+        SemanticFacts, body_check_internal_error, body_check_target_layout_error,
+        target_data_layout,
+    };
+    use nia_ice::Ice;
     use nia_target_config::TargetConfig;
+
+    #[test]
+    fn internal_failure_does_not_publish_partial_products() {
+        let check = body_check_internal_error(Ice::new("body-check invariant failed"));
+
+        assert_eq!(
+            check
+                .internal_error
+                .as_ref()
+                .map(|error| error.message.as_str()),
+            Some("body-check invariant failed")
+        );
+        assert!(check.ir.function_bodies.is_empty());
+        assert!(check.ir.global_inits.is_empty());
+        assert_eq!(*check.facts, SemanticFacts::default());
+        assert!(check.static_init_refs.is_empty());
+        assert!(check.checked_functions.is_empty());
+        assert!(check.provider_demands.is_empty());
+        assert!(check.provider_demands_by_function.is_empty());
+        assert!(check.diagnostic_owners.is_empty());
+        assert!(check.diagnostics.is_empty());
+    }
 
     #[test]
     fn unsupported_target_pointer_widths_are_recoverable() {

@@ -90,6 +90,23 @@ mod trait_methods;
 mod type_patterns;
 
 impl<'a> BodyChecker<'a> {
+    fn check_contextual_receiver_expr(
+        &mut self,
+        receiver: &Expr,
+        inference: ContextualReceiverInference,
+    ) -> Option<InternedTyId> {
+        self.profile_stage(
+            "body_check.profile.method.receiver_expr",
+            |this| match inference {
+                ContextualReceiverInference::Unique(expected) => {
+                    Some(this.check_expr_with_expected(receiver, Some(expected)))
+                }
+                ContextualReceiverInference::Unavailable => Some(this.check_expr(receiver)),
+                ContextualReceiverInference::Ambiguous => None,
+            },
+        )
+    }
+
     pub(super) fn check_field_method_call(
         &mut self,
         expr: &Expr,
@@ -105,7 +122,8 @@ impl<'a> BodyChecker<'a> {
             }
             None => ContextualReceiverInference::Unavailable,
         };
-        if matches!(receiver_expected, ContextualReceiverInference::Ambiguous) {
+        let Some(receiver_ty) = self.check_contextual_receiver_expr(receiver, receiver_expected)
+        else {
             let name = self.symbol_name(*name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -116,16 +134,7 @@ impl<'a> BodyChecker<'a> {
                 self.check_expr(arg);
             }
             return Some(self.error());
-        }
-        let receiver_ty = self.profile_stage("body_check.profile.method.receiver_expr", |this| {
-            match receiver_expected {
-                ContextualReceiverInference::Unique(expected) => {
-                    this.check_expr_with_expected(receiver, Some(expected))
-                }
-                ContextualReceiverInference::Unavailable => this.check_expr(receiver),
-                ContextualReceiverInference::Ambiguous => unreachable!(),
-            }
-        });
+        };
         let resolution = self.method_receiver_resolution(receiver, receiver_ty, name);
         self.check_method_call_with_receiver_ty(
             MethodCall {
@@ -167,7 +176,8 @@ impl<'a> BodyChecker<'a> {
             ),
             None => ContextualReceiverInference::Unavailable,
         };
-        if matches!(receiver_expected, ContextualReceiverInference::Ambiguous) {
+        let Some(receiver_ty) = self.check_contextual_receiver_expr(receiver, receiver_expected)
+        else {
             let name = self.symbol_name(*name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -178,16 +188,7 @@ impl<'a> BodyChecker<'a> {
                 self.check_expr(arg);
             }
             return Some(self.error());
-        }
-        let receiver_ty = self.profile_stage("body_check.profile.method.receiver_expr", |this| {
-            match receiver_expected {
-                ContextualReceiverInference::Unique(expected) => {
-                    this.check_expr_with_expected(receiver, Some(expected))
-                }
-                ContextualReceiverInference::Unavailable => this.check_expr(receiver),
-                ContextualReceiverInference::Ambiguous => unreachable!(),
-            }
-        });
+        };
         let resolution = self.method_receiver_resolution(receiver, receiver_ty, name);
         self.check_method_call_with_receiver_ty(
             MethodCall {
@@ -399,32 +400,12 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         };
-        let Some(receiver_param) = signature
-            .params
-            .first()
-            .filter(|param| param.receiver.is_some())
-        else {
+        let Some(receiver_kind) = signature.params.first().and_then(|param| param.receiver) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call.span,
                 "associated functions are not supported by receiver method call syntax",
             ));
-            return Some(self.error());
-        };
-
-        let Some(receiver_kind) = receiver_param.receiver else {
-            self.diagnostics.push(
-                Diagnostic::internal_error(
-                    codes::METHOD_RESOLUTION_INVARIANT,
-                    "receiver method candidate has no receiver",
-                )
-                .primary(
-                    call.span,
-                    "method resolution selected a candidate without receiver metadata",
-                )
-                .debug("method_id", method_id)
-                .finish(),
-            );
             return Some(self.error());
         };
         let receiver_expected_ty = self.receiver_ty_for_target(candidate.target_ty, receiver_kind);

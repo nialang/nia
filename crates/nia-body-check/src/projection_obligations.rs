@@ -1951,7 +1951,7 @@ impl<'a> BodyChecker<'a> {
         }) {
             Ok(resolution) => resolution,
             Err(error) => {
-                self.interner.record_internal(error);
+                self.record_internal(error);
                 return TraitResolution::Unsatisfied;
             }
         };
@@ -1972,7 +1972,7 @@ impl<'a> BodyChecker<'a> {
                 Ok(Some(actual_ty)) => actual_ty,
                 Ok(None) => return TraitResolution::Unsatisfied,
                 Err(error) => {
-                    self.interner.record_internal(error);
+                    self.record_internal(error);
                     return TraitResolution::Unsatisfied;
                 }
             };
@@ -1980,7 +1980,7 @@ impl<'a> BodyChecker<'a> {
                 Ok(true) => {}
                 Ok(false) => return TraitResolution::Unsatisfied,
                 Err(error) => {
-                    self.interner.record_internal(error);
+                    self.record_internal(error);
                     return TraitResolution::Unsatisfied;
                 }
             }

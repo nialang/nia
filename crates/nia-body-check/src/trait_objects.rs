@@ -532,7 +532,7 @@ impl<'a> BodyChecker<'a> {
             }) {
                 Ok(proven) => proven,
                 Err(error) => {
-                    self.interner.record_internal(error);
+                    self.record_internal(error);
                     false
                 }
             }

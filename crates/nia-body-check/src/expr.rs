@@ -4,6 +4,7 @@ use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
 use nia_defs::{DefId, DefKind, VisibleExtensionAssociatedValue};
 use nia_diagnostic::{Diagnostic, codes};
+use nia_ice::Ice;
 use nia_ids::{BuiltinAssociatedConst, GlobalDefId, InternedTyId};
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::{
@@ -480,22 +481,27 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.error();
         };
-        let closure_id = self
+        let existing_closure_id = self
             .expr_ty(expr)
             .and_then(|ty| match self.interner.get(ty) {
                 Some(TyKind::ClosureState { closure_id, .. }) if closure_id.owner == owner => {
                     Some(*closure_id)
                 }
                 _ => None,
-            })
-            .unwrap_or_else(|| {
-                let ordinal = self
-                    .closure_ordinals
-                    .get(&expr.node_key)
-                    .copied()
-                    .expect("Nia ICE: closure expression has no source ordinal");
-                nia_ids::ClosureId { owner, ordinal }
             });
+        let closure_id = match existing_closure_id {
+            Some(closure_id) => closure_id,
+            None => {
+                let Some(ordinal) = self.closure_ordinals.get(&expr.node_key).copied() else {
+                    self.record_internal(
+                        Ice::new("closure expression has no source ordinal")
+                            .with_context(format!("checking closure in function {owner:?}")),
+                    );
+                    return self.error();
+                };
+                nia_ids::ClosureId { owner, ordinal }
+            }
+        };
 
         let mut capture_types = Vec::with_capacity(captures.len());
         for capture in captures {
@@ -689,31 +695,31 @@ impl<'a> BodyChecker<'a> {
                 ),
             ));
         }
-        let TraitId::Source(trait_def_id) = trait_id else {
-            let TraitId::Builtin(trait_id) = trait_id else {
-                unreachable!("trait_id matched source or builtin");
-            };
-            if let Some(associated) =
-                crate::symbols::builtin_associated_const_symbol(trait_id, *name)
-            {
-                if matches!(trait_id, BuiltinTrait::Simd)
-                    && matches!(associated, BuiltinAssociatedConst::Lanes)
-                    && let Some(TyKind::Vector { lanes, .. }) =
-                        self.interner.get(target_ty).cloned()
+        let trait_def_id = match trait_id {
+            TraitId::Source(trait_def_id) => trait_def_id,
+            TraitId::Builtin(trait_id) => {
+                if let Some(associated) =
+                    crate::symbols::builtin_associated_const_symbol(trait_id, *name)
                 {
-                    self.record_builtin_node_value(expr, BuiltinValue::Usize(u64::from(lanes)));
+                    if matches!(trait_id, BuiltinTrait::Simd)
+                        && matches!(associated, BuiltinAssociatedConst::Lanes)
+                        && let Some(TyKind::Vector { lanes, .. }) =
+                            self.interner.get(target_ty).cloned()
+                    {
+                        self.record_builtin_node_value(expr, BuiltinValue::Usize(u64::from(lanes)));
+                    }
+                    return self.primitive(PrimitiveTy::Usize);
                 }
-                return self.primitive(PrimitiveTy::Usize);
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    expr.span,
+                    format!(
+                        "trait has no associated const value `{}`",
+                        self.symbol_name(*name)
+                    ),
+                ));
+                return self.error();
             }
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                expr.span,
-                format!(
-                    "trait has no associated const value `{}`",
-                    self.symbol_name(*name)
-                ),
-            ));
-            return self.error();
         };
         let Some(signature) = self.resolved_trait_signature(trait_def_id) else {
             return self.error();

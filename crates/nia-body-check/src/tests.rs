@@ -8,6 +8,7 @@ mod calls;
 mod diagnostics;
 mod generic_inference;
 mod inline_asm;
+mod internal_failures;
 mod literals;
 mod matches_and_enums;
 mod methods;
