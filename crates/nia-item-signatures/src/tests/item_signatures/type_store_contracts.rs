@@ -14,19 +14,17 @@ fn rejects_lowered_types_from_another_type_store() {
         &module,
         &resolved,
         TypeLoweringContext::empty(&lowering_store),
-    );
+    )
+    .expect("lower module types");
     let signature_store = TypeStore::new().expect("create type store");
-    let signatures = collect_item_signatures(ItemSignatureInput {
+    let error = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
         defs: &defs,
         lowered: &lowering,
         type_store: &signature_store,
         symbols: None,
-    });
+    })
+    .expect_err("foreign type store IDs must be rejected as an internal error");
 
-    assert!(signatures.diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .summary
-            .contains("outside the session type store")
-    }));
+    assert!(error.message.contains("outside the session type store"));
 }

@@ -180,14 +180,16 @@ fn bodyless_non_extern_functions_require_builtin_attribute() {
         &module,
         &resolved,
         TypeLoweringContext::empty(&type_store),
-    );
+    )
+    .expect("lower module types");
     let signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
         defs: &defs,
         lowered: &lowering,
         type_store: &type_store,
         symbols: None,
-    });
+    })
+    .expect("collect item signatures");
 
     assert!(signatures.diagnostics.iter().any(|diagnostic| {
         diagnostic
