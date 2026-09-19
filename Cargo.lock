@@ -900,6 +900,7 @@ name = "nia-maintain"
 version = "0.2.0-dev"
 dependencies = [
  "nia-compat",
+ "nia-mangle",
  "regex",
  "serde",
  "serde_json",

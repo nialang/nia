@@ -4,7 +4,7 @@ use std::process::ExitCode;
 
 use nia_maintain::audit::{compatibility, std_build_host};
 use nia_maintain::baseline::{build, compare, compiler};
-use nia_maintain::report::crate_boundaries;
+use nia_maintain::report::{crate_boundaries, llvm_ir};
 use nia_maintain::{MaintainResult, parse_usize, repository_root};
 
 const USAGE: &str = "\
@@ -14,6 +14,7 @@ commands:
   audit compatibility      check compatibility identities
   audit std-build-host     check the std build-host closure
   report crate-boundaries  report workspace crate evidence
+  report llvm-ir           rank generated LLVM IR modules and functions
   baseline compiler        collect compiler performance samples
   baseline compare         compare compiler performance samples
   baseline build           collect the representative build baseline
@@ -76,6 +77,33 @@ fn crate_boundaries_command(arguments: &[String]) -> MaintainResult<()> {
         index += 1;
     }
     crate_boundaries::run(&repository_root(), &options)
+}
+
+fn llvm_ir_command(arguments: &[String]) -> MaintainResult<()> {
+    let mut input = None;
+    let mut json = false;
+    let mut limit = 20;
+    let mut index = 0;
+    while index < arguments.len() {
+        let option = arguments[index].as_str();
+        match option {
+            "--json" => json = true,
+            "--limit" => {
+                let value = take_value(arguments, &mut index, option)?;
+                limit = parse_usize(&value, option)?;
+            }
+            value if value.starts_with('-') => {
+                return Err(format!("unknown llvm-ir report option: {value}"));
+            }
+            value if input.is_none() => input = Some(PathBuf::from(value)),
+            value => return Err(format!("unexpected llvm-ir report argument: {value}")),
+        }
+        index += 1;
+    }
+    let Some(input) = input else {
+        return Err("usage: nia-maintain report llvm-ir <file> [--limit N] [--json]".to_owned());
+    };
+    llvm_ir::run(&input, limit, json)
 }
 
 fn parse_f64(value: &str, option: &str) -> MaintainResult<f64> {
@@ -237,6 +265,9 @@ fn dispatch(arguments: &[String]) -> MaintainResult<bool> {
         [first, second, rest @ ..] if first == "report" && second == "crate-boundaries" => {
             crate_boundaries_command(rest).map(|()| true)
         }
+        [first, second, rest @ ..] if first == "report" && second == "llvm-ir" => {
+            llvm_ir_command(rest).map(|()| true)
+        }
         [first, second, rest @ ..] if first == "baseline" && second == "compiler" => {
             compiler_baseline_command(rest).map(|()| true)
         }
@@ -274,6 +305,7 @@ mod tests {
     fn usage_lists_owned_command_groups() {
         assert!(USAGE.contains("audit compatibility"));
         assert!(USAGE.contains("report crate-boundaries"));
+        assert!(USAGE.contains("report llvm-ir"));
         assert!(USAGE.contains("check"));
     }
 
