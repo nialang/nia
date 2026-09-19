@@ -2432,7 +2432,8 @@ mod tests {
         let local = interner.intern(TyKind::Primitive(PrimitiveTy::I32));
         let foreign = foreign_store
             .append_for_module(module_id)
-            .intern(TyKind::Primitive(PrimitiveTy::U8));
+            .intern(TyKind::Primitive(PrimitiveTy::U8))
+            .expect("intern foreign test type");
 
         assert!(matches!(
             type_kind_or_error(&interner, local),

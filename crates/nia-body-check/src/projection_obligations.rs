@@ -2413,8 +2413,8 @@ mod tests {
                 .allocate()
                 .expect("allocate module ID"),
         );
-        let left_ty = append.primitive(PrimitiveTy::I32);
-        let right_ty = append.primitive(PrimitiveTy::I64);
+        let left_ty = append.primitive(PrimitiveTy::I32).expect("intern i32 type");
+        let right_ty = append.primitive(PrimitiveTy::I64).expect("intern i64 type");
         let left = ArrayLenTy::Builtin {
             builtin: LayoutBuiltin::Size,
             ty: left_ty,
