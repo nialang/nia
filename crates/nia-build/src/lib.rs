@@ -1272,7 +1272,15 @@ pub fn main(init: process::Init) process::ExitCode!() {
         )
         .replace(
             "__NIA_RUNNER_CONFIG_MAGIC__",
-            std::str::from_utf8(RUNNER_CONFIG.magic).expect("runner config magic is ASCII"),
+            std::str::from_utf8(RUNNER_CONFIG.magic).map_err(|_| {
+                BuildError::PrepareRunnerConfiguration {
+                    path: invocation.runner_config.clone(),
+                    error: io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "runner config magic is not valid UTF-8",
+                    ),
+                }
+            })?,
         );
     Ok(BuildRunnerSource { path, source })
 }

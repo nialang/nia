@@ -99,22 +99,23 @@ where
     O: Send + 'static,
 {
     let capacity = action_resource_capacity(session, max_parallel_actions);
-    let budget = Arc::new(ActionResourceBudget::new(capacity));
+    let budget = Arc::new(ActionResourceBudget::new(capacity)?);
     let tasks = tasks
         .into_iter()
         .map(|(resource_class, task)| {
             let budget = Arc::clone(&budget);
-            move || {
-                let _permit = budget.acquire(resource_class);
+            move || -> nia_ice::IceResult<O> {
+                let _permit = budget.acquire(resource_class)?;
                 nia_timing::emit_counter(resource_class_counter(resource_class), 1);
-                task()
+                Ok(task())
             }
         })
         .collect::<Vec<_>>();
-    match max_parallel_actions {
+    let outcomes = match max_parallel_actions {
         Some(limit) => session.run_tasks_bounded(tasks, limit.get()),
         None => session.run_tasks(tasks),
-    }
+    }?;
+    outcomes.into_iter().collect()
 }
 
 pub(super) fn action_resource_capacity(

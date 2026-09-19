@@ -232,7 +232,8 @@ fn plan_external_identity_directory(path: &Path) -> io::Result<ExternalDirectory
             .as_encoded_bytes()
             .cmp(right.file_name().as_encoded_bytes())
     });
-    let mut encoded_len = u64::try_from(EXTERNAL_DIRECTORY_IDENTITY_MAGIC.len() + 8).unwrap();
+    let mut encoded_len = u64::try_from(EXTERNAL_DIRECTORY_IDENTITY_MAGIC.len() + 8)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "directory header is too large"))?;
     let mut planned = Vec::with_capacity(entries.len());
     for entry in entries {
         let name = entry.file_name();

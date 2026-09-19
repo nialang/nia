@@ -514,7 +514,13 @@ impl ExternalCommandCache {
                 ));
             }
         };
-        if path != self.path(entry.fingerprints) || entry.payloads.is_none() {
+        let Some(payloads) = entry.payloads else {
+            self.retire_scanned_corrupt(&path, identity, true)?;
+            return Ok(ExternalCommandCacheLookup::Miss(
+                ActionCacheMissReason::Corrupt,
+            ));
+        };
+        if path != self.path(entry.fingerprints) {
             self.retire_scanned_corrupt(&path, identity, true)?;
             return Ok(ExternalCommandCacheLookup::Miss(
                 ActionCacheMissReason::Corrupt,
@@ -522,7 +528,7 @@ impl ExternalCommandCache {
         }
         Ok(ExternalCommandCacheLookup::Hit(ExternalCommandCacheHit {
             file: entry.file,
-            payloads: entry.payloads.unwrap(),
+            payloads,
         }))
     }
 
@@ -664,13 +670,16 @@ impl ExternalCommandCache {
                 Ok(()) => return Ok(()),
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                     match scan_external_command_entry(path, Some(identity)) {
-                        Ok(Some(entry))
-                            if path == self.path(entry.fingerprints)
-                                && entry.payloads.is_some() =>
-                        {
+                        Ok(Some(entry)) => {
+                            let Some(payloads) = entry.payloads else {
+                                continue;
+                            };
+                            if path != self.path(entry.fingerprints) {
+                                continue;
+                            }
                             let mut hit = ExternalCommandCacheHit {
                                 file: entry.file,
-                                payloads: entry.payloads.unwrap(),
+                                payloads,
                             };
                             if hit.matches_outputs(outputs)? {
                                 return Ok(());
@@ -938,7 +947,8 @@ fn scan_external_command_entry(
     let mut identity_matches =
         expected.is_some_and(|expected| expected.fingerprints == fingerprints);
 
-    let mut consumed = u64::try_from(EXTERNAL_COMMAND_ENTRY.magic.len() + 14 * 16).unwrap();
+    let mut consumed = u64::try_from(EXTERNAL_COMMAND_ENTRY.magic.len() + 14 * 16)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "cache header is too large"))?;
     let identity_domains = [
         EXTERNAL_COMMAND_KEY_DOMAIN,
         EXTERNAL_COMMAND_DECLARATION_DOMAIN,
@@ -990,8 +1000,11 @@ fn scan_external_command_entry(
             6 => expected.working_directory.as_slice(),
             7 => expected.package_roots.as_slice(),
             8 => expected.outputs.as_slice(),
-            _ => unreachable!(),
+            _ => &[] as &[u8],
         });
+        if index >= 9 {
+            return Ok(None);
+        }
         let Some((found, first_u64, field_matches)) =
             stream_identity_field(&mut file, domain, length, capture_count, expected_bytes)?
         else {
