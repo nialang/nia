@@ -283,7 +283,7 @@ impl BackendModuleFinalizationCollector {
         // by source-module position so parallel finalization cannot perturb observable ordering.
         self.finalization
             .owner_directory
-            .validate_finalized_module(&module_finalization.module);
+            .validate_finalized_module(&module_finalization.module)?;
         self.modules.publish(module_finalization.module)?;
         self.optimization_reports[position] = Some(module_finalization.optimization_report);
         self.diagnostics[position] = Some(module_finalization.diagnostics);
@@ -365,11 +365,13 @@ impl BackendItemPlan {
     /// The returned module vector preserves input order. Its plans may be
     /// finalized concurrently, then joined with a
     /// [`BackendModuleFinalizationCollector`].
-    pub fn into_module_plans(self) -> (BackendItemPlanFinalization, Vec<BackendModuleItemPlan>) {
+    pub fn into_module_plans(
+        self,
+    ) -> nia_ice::IceResult<(BackendItemPlanFinalization, Vec<BackendModuleItemPlan>)> {
         let owner_directory = Arc::new(nia_backend_ir::BackendModuleOwnerDirectory::from_modules(
             self.modules.iter().map(BackendModuleItemPlan::module),
-        ));
-        (
+        )?);
+        Ok((
             BackendItemPlanFinalization {
                 optimization: self.optimization,
                 optimization_report: self.optimization_report,
@@ -377,7 +379,7 @@ impl BackendItemPlan {
                 owner_directory,
             },
             self.modules,
-        )
+        ))
     }
 
     /// Returns the optimization policy captured by planning.
@@ -616,7 +618,7 @@ pub fn lower_backend_program_with_timings(
     timings: nia_timing::TimingMode,
 ) -> nia_ice::IceResult<BackendLowering> {
     let plan = plan_backend_program_with_timings(modules, type_store, optimization, timings);
-    let (finalization, module_plans) = plan.into_module_plans();
+    let (finalization, module_plans) = plan.into_module_plans()?;
     finalize_backend_module_item_plans_with_timings(
         modules,
         type_store,

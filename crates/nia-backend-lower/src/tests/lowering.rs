@@ -344,7 +344,9 @@ fn main() i32 {
     assert_eq!(plan.optimization(), optimization);
     let planned_functions = plan.modules()[0].module().functions.as_ptr();
     let planned_globals = plan.modules()[0].module().globals.as_ptr();
-    let (finalization, module_plans) = plan.into_module_plans();
+    let (finalization, module_plans) = plan
+        .into_module_plans()
+        .expect("split backend module plans");
     let lowering =
         finalize_backend_module_item_plans(&inputs, &type_store, finalization, module_plans)
             .expect("finalize backend module item plans");

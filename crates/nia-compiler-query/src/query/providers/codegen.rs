@@ -403,7 +403,7 @@ pub(in crate::query) fn with_backend_finalization_schedule<R>(
     let plan = db.get_owned(BackendItemPlanQuery)?;
     emit_backend_module_plan_allocation("before_publish");
     let has_diagnostics = !plan.diagnostics().is_empty();
-    let (finalization, module_plans) = plan.into_module_plans();
+    let (finalization, module_plans) = plan.into_module_plans().map_err(QueryError::Internal)?;
     let module_ids = module_plans
         .iter()
         .map(|module_plan| module_plan.module().id)

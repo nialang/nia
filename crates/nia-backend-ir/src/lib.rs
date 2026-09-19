@@ -262,7 +262,9 @@ pub struct BackendModuleOwnerDirectory {
 
 impl BackendModuleOwnerDirectory {
     /// Builds the directory and rejects duplicate definition owners.
-    pub fn from_modules<'a>(modules: impl IntoIterator<Item = &'a BackendModule>) -> Self {
+    pub fn from_modules<'a>(
+        modules: impl IntoIterator<Item = &'a BackendModule>,
+    ) -> nia_ice::IceResult<Self> {
         let mut directory = Self::default();
         for module in modules {
             for def_id in module
@@ -274,10 +276,11 @@ impl BackendModuleOwnerDirectory {
                 .chain(module.globals.iter().map(|item| item.def_id))
                 .chain(module.functions.iter().map(|item| item.def_id))
             {
-                assert!(
-                    directory.items.insert(def_id, module.id).is_none(),
-                    "Nia ICE: backend item {def_id:?} has multiple module owners"
-                );
+                if directory.items.insert(def_id, module.id).is_some() {
+                    return Err(nia_ice::Ice::new(format!(
+                        "backend item {def_id:?} has multiple module owners"
+                    )));
+                }
             }
             for item in &module.struct_instances {
                 let key = BackendStructInstanceKey {
@@ -285,10 +288,11 @@ impl BackendModuleOwnerDirectory {
                     args: item.args.clone(),
                     const_args: item.const_args.clone(),
                 };
-                assert!(
-                    directory.struct_instances.insert(key, module.id).is_none(),
-                    "Nia ICE: backend struct instance has multiple module owners"
-                );
+                if directory.struct_instances.insert(key, module.id).is_some() {
+                    return Err(nia_ice::Ice::new(
+                        "backend struct instance has multiple module owners",
+                    ));
+                }
             }
             for item in &module.union_instances {
                 let key = BackendStructInstanceKey {
@@ -296,10 +300,11 @@ impl BackendModuleOwnerDirectory {
                     args: item.args.clone(),
                     const_args: item.const_args.clone(),
                 };
-                assert!(
-                    directory.union_instances.insert(key, module.id).is_none(),
-                    "Nia ICE: backend union instance has multiple module owners"
-                );
+                if directory.union_instances.insert(key, module.id).is_some() {
+                    return Err(nia_ice::Ice::new(
+                        "backend union instance has multiple module owners",
+                    ));
+                }
             }
             for item in &module.global_instances {
                 let key = BackendGlobalInstanceKey {
@@ -308,10 +313,11 @@ impl BackendModuleOwnerDirectory {
                     args: item.args.clone(),
                     const_args: item.const_args.clone(),
                 };
-                assert!(
-                    directory.global_instances.insert(key, module.id).is_none(),
-                    "Nia ICE: backend global instance has multiple module owners"
-                );
+                if directory.global_instances.insert(key, module.id).is_some() {
+                    return Err(nia_ice::Ice::new(
+                        "backend global instance has multiple module owners",
+                    ));
+                }
             }
             for item in &module.function_instances {
                 let key = FunctionInstanceKey {
@@ -321,22 +327,26 @@ impl BackendModuleOwnerDirectory {
                     args: item.args.clone(),
                     const_args: item.const_args.clone(),
                 };
-                assert!(
-                    directory
-                        .function_instances
-                        .insert(key, module.id)
-                        .is_none(),
-                    "Nia ICE: backend function instance has multiple module owners"
-                );
+                if directory
+                    .function_instances
+                    .insert(key, module.id)
+                    .is_some()
+                {
+                    return Err(nia_ice::Ice::new(
+                        "backend function instance has multiple module owners",
+                    ));
+                }
             }
             for item in &module.trait_object_vtables {
-                assert!(
-                    directory
-                        .vtables
-                        .insert(item.key.clone(), module.id)
-                        .is_none(),
-                    "Nia ICE: backend vtable has multiple module owners"
-                );
+                if directory
+                    .vtables
+                    .insert(item.key.clone(), module.id)
+                    .is_some()
+                {
+                    return Err(nia_ice::Ice::new(
+                        "backend vtable has multiple module owners",
+                    ));
+                }
                 directory
                     .vtables_by_object_ty
                     .entry(item.key.object_ty)
@@ -363,7 +373,7 @@ impl BackendModuleOwnerDirectory {
         for keys in directory.vtables_by_trait.values_mut() {
             keys.sort_by_key(|key| (key.self_ty, key.object_ty));
         }
-        directory
+        Ok(directory)
     }
 
     /// Returns the module owning a non-instantiated item definition.
@@ -372,50 +382,51 @@ impl BackendModuleOwnerDirectory {
     }
 
     /// Confirms that every finalized definition was present in the plan.
-    pub fn validate_finalized_module(&self, module: &BackendModule) {
-        let definitions = Self::from_modules([module]);
+    pub fn validate_finalized_module(&self, module: &BackendModule) -> nia_ice::IceResult<()> {
+        let definitions = Self::from_modules([module])?;
         for (def_id, owner) in definitions.items {
-            assert_eq!(
-                self.items.get(&def_id),
-                Some(&owner),
-                "Nia ICE: finalized backend item {def_id:?} was absent from its definition manifest"
-            );
+            if self.items.get(&def_id) != Some(&owner) {
+                return Err(nia_ice::Ice::new(format!(
+                    "finalized backend item {def_id:?} was absent from its definition manifest"
+                )));
+            }
         }
         for (key, owner) in definitions.struct_instances {
-            assert_eq!(
-                self.struct_instances.get(&key),
-                Some(&owner),
-                "Nia ICE: finalized backend struct instance was absent from its definition manifest"
-            );
+            if self.struct_instances.get(&key) != Some(&owner) {
+                return Err(nia_ice::Ice::new(
+                    "finalized backend struct instance was absent from its definition manifest",
+                ));
+            }
         }
         for (key, owner) in definitions.union_instances {
-            assert_eq!(
-                self.union_instances.get(&key),
-                Some(&owner),
-                "Nia ICE: finalized backend union instance was absent from its definition manifest"
-            );
+            if self.union_instances.get(&key) != Some(&owner) {
+                return Err(nia_ice::Ice::new(
+                    "finalized backend union instance was absent from its definition manifest",
+                ));
+            }
         }
         for (key, owner) in definitions.global_instances {
-            assert_eq!(
-                self.global_instances.get(&key),
-                Some(&owner),
-                "Nia ICE: finalized backend global instance was absent from its definition manifest"
-            );
+            if self.global_instances.get(&key) != Some(&owner) {
+                return Err(nia_ice::Ice::new(
+                    "finalized backend global instance was absent from its definition manifest",
+                ));
+            }
         }
         for (key, owner) in definitions.function_instances {
-            assert_eq!(
-                self.function_instances.get(&key),
-                Some(&owner),
-                "Nia ICE: finalized backend function instance was absent from its definition manifest"
-            );
+            if self.function_instances.get(&key) != Some(&owner) {
+                return Err(nia_ice::Ice::new(
+                    "finalized backend function instance was absent from its definition manifest",
+                ));
+            }
         }
         for (key, owner) in definitions.vtables {
-            assert_eq!(
-                self.vtables.get(&key),
-                Some(&owner),
-                "Nia ICE: finalized backend vtable was absent from its definition manifest"
-            );
+            if self.vtables.get(&key) != Some(&owner) {
+                return Err(nia_ice::Ice::new(
+                    "finalized backend vtable was absent from its definition manifest",
+                ));
+            }
         }
+        Ok(())
     }
 
     /// Returns the owner of an exact struct instance.
