@@ -25,6 +25,10 @@ use nia_target_config::TargetConfig;
 
 const LINK_RESULT_FINGERPRINT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.link-result-components");
+
+fn stream_chunk_len(remaining: u64, buffer_len: usize) -> usize {
+    usize::try_from(remaining).map_or(buffer_len, |remaining| remaining.min(buffer_len))
+}
 const ARCHIVE_RESULT_FINGERPRINT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.archive-result-components");
 const ARCHIVE_TOOLCHAIN_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.archive-toolchain");
@@ -776,7 +780,7 @@ fn stream_fingerprint_bytes(
     let mut buffer = [0; 64 * 1024];
     let mut remaining = length;
     while remaining != 0 {
-        let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        let chunk_len = stream_chunk_len(remaining, buffer.len());
         reader.read_exact(&mut buffer[..chunk_len])?;
         writer.write_chunk(&buffer[..chunk_len])?;
         remaining -= chunk_len as u64;

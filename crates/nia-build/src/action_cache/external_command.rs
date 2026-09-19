@@ -122,7 +122,7 @@ impl ExternalCommandContentIdentity {
         let mut remaining = length;
         let mut buffer = [0; EXTERNAL_COMMAND_IDENTITY_STREAM_BYTES];
         while remaining != 0 {
-            let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+            let chunk_len = crate::stream_chunk_len(remaining, buffer.len());
             reader.read_exact(&mut buffer[..chunk_len])?;
             writer.write_chunk(&buffer[..chunk_len])?;
             remaining -= chunk_len as u64;
@@ -413,7 +413,7 @@ impl ExternalCommandCacheHit {
         let mut remaining = payload.length;
         let mut matches = true;
         while remaining != 0 {
-            let chunk_len = usize::try_from(remaining.min(cache_buffer.len() as u64)).unwrap();
+            let chunk_len = crate::stream_chunk_len(remaining, cache_buffer.len());
             let cache_chunk = &mut cache_buffer[..chunk_len];
             let output_chunk = &mut output_buffer[..chunk_len];
             self.file.read_exact(cache_chunk)?;
@@ -458,7 +458,7 @@ impl ExternalCommandCacheHit {
             u64::try_from(expected.len()).unwrap_or(u64::MAX) == payload.length
         });
         while remaining != 0 {
-            let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+            let chunk_len = crate::stream_chunk_len(remaining, buffer.len());
             let chunk = &mut buffer[..chunk_len];
             self.file.read_exact(chunk)?;
             checksum.write_chunk(chunk)?;
@@ -793,7 +793,7 @@ fn stream_output_chunks(
     let mut buffer = [0; EXTERNAL_COMMAND_IDENTITY_STREAM_BYTES];
     let mut remaining = length;
     while remaining != 0 {
-        let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        let chunk_len = crate::stream_chunk_len(remaining, buffer.len());
         let chunk = &mut buffer[..chunk_len];
         file.read_exact(chunk)?;
         consume(chunk)?;
@@ -1086,7 +1086,7 @@ fn stream_identity_field(
     let mut matches =
         expected.is_none_or(|expected| u64::try_from(expected.len()).unwrap_or(u64::MAX) == length);
     while remaining != 0 {
-        let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        let chunk_len = crate::stream_chunk_len(remaining, buffer.len());
         let chunk = &mut buffer[..chunk_len];
         if !read_exact_or_corrupt(reader, chunk)? {
             return Ok(None);

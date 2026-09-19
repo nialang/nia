@@ -353,7 +353,7 @@ fn stream_payload<W: Write>(
     let mut buffer = [0; LINK_CACHE_STREAM_BYTES];
     let mut remaining = payload_len;
     while remaining != 0 {
-        let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        let chunk_len = crate::stream_chunk_len(remaining, buffer.len());
         if !read_exact_or_invalid(entry, &mut buffer[..chunk_len])? {
             return Ok(false);
         }
@@ -400,7 +400,7 @@ fn compare_installed(
     let mut remaining = header.payload_len;
     let mut identical = true;
     while remaining != 0 {
-        let chunk_len = usize::try_from(remaining.min(entry_buffer.len() as u64)).unwrap();
+        let chunk_len = crate::stream_chunk_len(remaining, entry_buffer.len());
         if !read_exact_or_invalid(&mut entry, &mut entry_buffer[..chunk_len])? {
             return Ok(InstalledEntry::Corrupt);
         }
@@ -503,7 +503,7 @@ fn stream_file_chunks(
     let mut buffer = [0; LINK_CACHE_STREAM_BYTES];
     let mut remaining = length;
     while remaining != 0 {
-        let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        let chunk_len = crate::stream_chunk_len(remaining, buffer.len());
         file.read_exact(&mut buffer[..chunk_len])?;
         consume(&buffer[..chunk_len])?;
         remaining -= chunk_len as u64;
@@ -568,7 +568,7 @@ fn files_equal(left: &mut File, right: &mut File) -> io::Result<bool> {
     let mut right_buffer = [0; LINK_CACHE_STREAM_BYTES];
     let mut remaining = left_len;
     while remaining != 0 {
-        let chunk_len = usize::try_from(remaining.min(left_buffer.len() as u64)).unwrap();
+        let chunk_len = crate::stream_chunk_len(remaining, left_buffer.len());
         left.read_exact(&mut left_buffer[..chunk_len])?;
         right.read_exact(&mut right_buffer[..chunk_len])?;
         if left_buffer[..chunk_len] != right_buffer[..chunk_len] {

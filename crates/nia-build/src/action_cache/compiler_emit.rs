@@ -124,7 +124,7 @@ impl CompilerEmitCacheLinkInput {
         let mut buffer = [0; 64 * 1024];
         let mut remaining = length;
         while remaining != 0 {
-            let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+            let chunk_len = crate::stream_chunk_len(remaining, buffer.len());
             reader.read_exact(&mut buffer[..chunk_len])?;
             writer.write_chunk(&buffer[..chunk_len])?;
             remaining -= chunk_len as u64;
