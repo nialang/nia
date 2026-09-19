@@ -492,7 +492,8 @@ impl<'a> BodyChecker<'a> {
         };
         let mut solver = context
             .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
-        match solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name) {
+        match solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
+        {
             Ok(resolved) => resolved,
             Err(error) => {
                 self.interner.record_internal(error);
@@ -531,7 +532,8 @@ impl<'a> BodyChecker<'a> {
             }),
         };
         let mut solver = context.solver(&assumptions);
-        match solver.resolve_associated_const(self_ty, trait_id, trait_args, trait_const_args, name) {
+        match solver.resolve_associated_const(self_ty, trait_id, trait_args, trait_const_args, name)
+        {
             Ok(resolved) => resolved,
             Err(error) => {
                 self.interner.record_internal(error);

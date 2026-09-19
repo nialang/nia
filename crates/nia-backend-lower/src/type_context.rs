@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
 use nia_ice::Ice;
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use nia_ids::InternedTyId;

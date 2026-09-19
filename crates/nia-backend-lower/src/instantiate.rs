@@ -1084,9 +1084,7 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::SlicePointee { elem }) => {
                 let elem =
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
-                let instantiated = self
-                    .type_context
-                    .intern(TyKind::SlicePointee { elem });
+                let instantiated = self.type_context.intern(TyKind::SlicePointee { elem });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::Array { len, elem }) => {
@@ -1100,9 +1098,7 @@ impl<'a> ModuleLowerer<'a> {
                 let bound = bound.map(|bound| {
                     self.instantiate_ty_with_id_inner(bound, substitutions, active_projections)
                 });
-                let instantiated = self
-                    .type_context
-                    .intern(TyKind::Range { kind, bound });
+                let instantiated = self.type_context.intern(TyKind::Range { kind, bound });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::FunctionPointer {

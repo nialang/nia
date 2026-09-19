@@ -1413,29 +1413,41 @@ mod tests {
         };
         let left_types = [
             intern(&left_append, TyKind::ConstOnly),
-            intern(&left_append, TyKind::Vector {
-                elem: PrimitiveTy::I32,
-                lanes: 4,
-            }),
-            intern(&left_append, TyKind::ClosureState {
-                closure_id,
-                captures: vec![left_i32],
-                params: vec![left_i32],
-                return_type: left_i32,
-            }),
+            intern(
+                &left_append,
+                TyKind::Vector {
+                    elem: PrimitiveTy::I32,
+                    lanes: 4,
+                },
+            ),
+            intern(
+                &left_append,
+                TyKind::ClosureState {
+                    closure_id,
+                    captures: vec![left_i32],
+                    params: vec![left_i32],
+                    return_type: left_i32,
+                },
+            ),
         ];
         let right_types = [
             intern(&right_append, TyKind::ConstOnly),
-            intern(&right_append, TyKind::Vector {
-                elem: PrimitiveTy::I32,
-                lanes: 4,
-            }),
-            intern(&right_append, TyKind::ClosureState {
-                closure_id,
-                captures: vec![right_i32],
-                params: vec![right_i32],
-                return_type: right_i32,
-            }),
+            intern(
+                &right_append,
+                TyKind::Vector {
+                    elem: PrimitiveTy::I32,
+                    lanes: 4,
+                },
+            ),
+            intern(
+                &right_append,
+                TyKind::ClosureState {
+                    closure_id,
+                    captures: vec![right_i32],
+                    params: vec![right_i32],
+                    return_type: right_i32,
+                },
+            ),
         ];
         let equivalence = DualStoreEquivalence {
             left: &left,
@@ -1463,22 +1475,28 @@ mod tests {
             module_id,
             def_id: nia_ids::DefId(9),
         };
-        let left_ty = intern(&left_append, TyKind::Nominal {
-            def_id,
-            args: Vec::new(),
-            const_args: vec![ConstGenericArg {
-                ty: left_usize,
-                value: ConstGenericValue::Int(IntConst::signed(11)),
-            }],
-        });
-        let right_ty = intern(&right_append, TyKind::Nominal {
-            def_id,
-            args: Vec::new(),
-            const_args: vec![ConstGenericArg {
-                ty: right_usize,
-                value: ConstGenericValue::Int(IntConst::unsigned(11)),
-            }],
-        });
+        let left_ty = intern(
+            &left_append,
+            TyKind::Nominal {
+                def_id,
+                args: Vec::new(),
+                const_args: vec![ConstGenericArg {
+                    ty: left_usize,
+                    value: ConstGenericValue::Int(IntConst::signed(11)),
+                }],
+            },
+        );
+        let right_ty = intern(
+            &right_append,
+            TyKind::Nominal {
+                def_id,
+                args: Vec::new(),
+                const_args: vec![ConstGenericArg {
+                    ty: right_usize,
+                    value: ConstGenericValue::Int(IntConst::unsigned(11)),
+                }],
+            },
+        );
         let equivalence = DualStoreEquivalence {
             left: &left,
             right: &right,
@@ -1513,33 +1531,42 @@ mod tests {
             trait_const_args: Vec::new(),
             ty,
         };
-        let left_ty = intern(&left_append, TyKind::TraitObject {
-            is_readonly: false,
-            trait_id,
-            trait_args: Vec::new(),
-            trait_const_args: Vec::new(),
-            associated_type_bindings: vec![binding(left_i32), binding(left_bool)],
-        });
-        let right_ty = intern(&right_append, TyKind::TraitObject {
-            is_readonly: false,
-            trait_id,
-            trait_args: Vec::new(),
-            trait_const_args: Vec::new(),
-            associated_type_bindings: vec![binding(right_bool), binding(right_i32)],
-        });
+        let left_ty = intern(
+            &left_append,
+            TyKind::TraitObject {
+                is_readonly: false,
+                trait_id,
+                trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
+                associated_type_bindings: vec![binding(left_i32), binding(left_bool)],
+            },
+        );
+        let right_ty = intern(
+            &right_append,
+            TyKind::TraitObject {
+                is_readonly: false,
+                trait_id,
+                trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
+                associated_type_bindings: vec![binding(right_bool), binding(right_i32)],
+            },
+        );
         let equivalence = DualStoreEquivalence {
             left: &left,
             right: &right,
         };
 
         assert!(equivalence.same_type_for_equiv(left_ty, right_ty));
-        let right_mismatch = intern(&right_append, TyKind::TraitObject {
-            is_readonly: false,
-            trait_id,
-            trait_args: Vec::new(),
-            trait_const_args: Vec::new(),
-            associated_type_bindings: vec![binding(right_i32), binding(right_i32)],
-        });
+        let right_mismatch = intern(
+            &right_append,
+            TyKind::TraitObject {
+                is_readonly: false,
+                trait_id,
+                trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
+                associated_type_bindings: vec![binding(right_i32), binding(right_i32)],
+            },
+        );
         assert!(!equivalence.same_type_for_equiv(left_ty, right_mismatch));
     }
 
@@ -1618,14 +1645,20 @@ mod tests {
         let second = store.append_for_module(module_ids.allocate().expect("allocate module ID"));
         let first_elem = primitive(&first, PrimitiveTy::U32);
         let second_elem = primitive(&second, PrimitiveTy::U32);
-        let first_pointer = intern(&first, TyKind::Pointer {
-            is_readonly: true,
-            elem: first_elem,
-        });
-        let second_pointer = intern(&second, TyKind::Pointer {
-            is_readonly: true,
-            elem: second_elem,
-        });
+        let first_pointer = intern(
+            &first,
+            TyKind::Pointer {
+                is_readonly: true,
+                elem: first_elem,
+            },
+        );
+        let second_pointer = intern(
+            &second,
+            TyKind::Pointer {
+                is_readonly: true,
+                elem: second_elem,
+            },
+        );
 
         assert_eq!(first_elem, second_elem);
         assert_eq!(first_pointer, second_pointer);
@@ -1640,14 +1673,20 @@ mod tests {
             .expect("allocate module ID");
         let append = store.append_for_module(module_id);
         let i32_ty = primitive(&append, PrimitiveTy::I32);
-        let pointee = intern(&append, TyKind::CallablePointee {
-            params: vec![i32_ty],
-            return_type: i32_ty,
-        });
-        let view = intern(&append, TyKind::Pointer {
-            is_readonly: true,
-            elem: pointee,
-        });
+        let pointee = intern(
+            &append,
+            TyKind::CallablePointee {
+                params: vec![i32_ty],
+                return_type: i32_ty,
+            },
+        );
+        let view = intern(
+            &append,
+            TyKind::Pointer {
+                is_readonly: true,
+                elem: pointee,
+            },
+        );
 
         assert_eq!(
             store.get(view),

@@ -6,6 +6,8 @@
 //! callers select a product/filter explicitly so reachability and cache reuse
 //! cannot silently alter which semantic work is performed.
 
+use nia_ice::Ice;
+use parking_lot::Mutex;
 use std::cell::RefCell;
 use std::fmt;
 use std::{
@@ -13,8 +15,6 @@ use std::{
     rc::Rc,
     sync::Arc,
 };
-use nia_ice::Ice;
-use parking_lot::Mutex;
 
 mod aggregates;
 mod bir;

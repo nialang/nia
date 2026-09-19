@@ -1596,18 +1596,24 @@ mod tests {
             .expect("allocate module ID");
         let append = type_store.append_for_module(module_id);
         let i32_ty = primitive(&append, PrimitiveTy::I32);
-        let nominal = intern(&append, TyKind::Nominal {
-            def_id: GlobalDefId {
-                module_id,
-                def_id: DefId(4),
+        let nominal = intern(
+            &append,
+            TyKind::Nominal {
+                def_id: GlobalDefId {
+                    module_id,
+                    def_id: DefId(4),
+                },
+                args: vec![i32_ty],
+                const_args: Vec::new(),
             },
-            args: vec![i32_ty],
-            const_args: Vec::new(),
-        });
-        let builtin_trait = intern(&append, TyKind::BuiltinTrait {
-            trait_id: BuiltinTrait::Deref,
-            args: vec![i32_ty],
-        });
+        );
+        let builtin_trait = intern(
+            &append,
+            TyKind::BuiltinTrait {
+                trait_id: BuiltinTrait::Deref,
+                args: vec![i32_ty],
+            },
+        );
         let resolvers = || {
             MangleResolvers::new(
                 |_| MangleModuleId::from_normalized_source_path("main.nia"),
@@ -1634,30 +1640,45 @@ mod tests {
         let append = type_store.append_for_module(module_id);
         let i32_ty = primitive(&append, PrimitiveTy::I32);
         let bool_ty = primitive(&append, PrimitiveTy::Bool);
-        let nullary_function = intern(&append, TyKind::FunctionPointer {
-            params: Vec::new(),
-            return_type: i32_ty,
-            is_variadic: false,
-        });
-        let binary_function = intern(&append, TyKind::FunctionPointer {
-            params: vec![i32_ty, bool_ty],
-            return_type: i32_ty,
-            is_variadic: false,
-        });
-        let readonly = intern(&append, TyKind::Callable {
-            is_readonly: true,
-            params: vec![i32_ty, bool_ty],
-            return_type: i32_ty,
-        });
-        let mutable = intern(&append, TyKind::Callable {
-            is_readonly: false,
-            params: vec![i32_ty, bool_ty],
-            return_type: i32_ty,
-        });
-        let pointee = intern(&append, TyKind::CallablePointee {
-            params: vec![bool_ty, i32_ty],
-            return_type: i32_ty,
-        });
+        let nullary_function = intern(
+            &append,
+            TyKind::FunctionPointer {
+                params: Vec::new(),
+                return_type: i32_ty,
+                is_variadic: false,
+            },
+        );
+        let binary_function = intern(
+            &append,
+            TyKind::FunctionPointer {
+                params: vec![i32_ty, bool_ty],
+                return_type: i32_ty,
+                is_variadic: false,
+            },
+        );
+        let readonly = intern(
+            &append,
+            TyKind::Callable {
+                is_readonly: true,
+                params: vec![i32_ty, bool_ty],
+                return_type: i32_ty,
+            },
+        );
+        let mutable = intern(
+            &append,
+            TyKind::Callable {
+                is_readonly: false,
+                params: vec![i32_ty, bool_ty],
+                return_type: i32_ty,
+            },
+        );
+        let pointee = intern(
+            &append,
+            TyKind::CallablePointee {
+                params: vec![bool_ty, i32_ty],
+                return_type: i32_ty,
+            },
+        );
         let resolvers = || {
             MangleResolvers::new(
                 |_| MangleModuleId::from_normalized_source_path("main.nia"),
