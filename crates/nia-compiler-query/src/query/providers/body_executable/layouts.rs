@@ -43,7 +43,7 @@ pub(super) fn rooted_layouts_for_checked_module(
     }
     let item_signatures = item_signatures_semantic(db, module.id)?;
     let target = compiler_target_data_layout(db)?;
-    let roots = checked_module_layout_roots(&db.context().type_store, module);
+    let roots = checked_module_layout_roots(&db.context().type_store, module)?;
     let array_lengths = &module.const_eval.array_lengths;
     let symbols = db.context().symbols();
     let query_failure = RefCell::new(None);
@@ -105,7 +105,7 @@ pub(super) fn executable_layout_roots(
     type_uses: impl IntoIterator<Item = InternedTyId>,
     reachable_functions: &HashSet<GlobalDefId>,
     reachable_globals: &HashSet<GlobalDefId>,
-) -> CollectedLayoutRoots {
+) -> nia_ice::IceResult<CollectedLayoutRoots> {
     let ExecutableLayoutModule {
         module_id,
         signatures,
@@ -159,7 +159,7 @@ pub(super) fn executable_layout_roots(
 fn checked_module_layout_roots(
     type_store: &nia_ty::TypeStore,
     module: &CheckedModule,
-) -> CollectedLayoutRoots {
+) -> nia_ice::IceResult<CollectedLayoutRoots> {
     let mut roots = LayoutRootCollector::new(type_store, module.id);
     collect_semantic_layout_roots(&module.semantic_facts, &mut roots);
     roots.finish()

@@ -324,7 +324,8 @@ pub fn lower_module_types_from_active_item_tree_with_context(
     )
 }
 
-/// Lowers only active declarations from an active item tree.
+/// Lowers active declarations, including item-like local static types but
+/// excluding ordinary function-body type references.
 pub fn lower_module_declaration_types_from_active_item_tree_with_context(
     module_id: ModuleId,
     item_tree: &ActiveModuleItemTree,
@@ -610,7 +611,8 @@ mod tests {
     use nia_parser::{parse_module, parse_module_with_symbols};
     use nia_symbol_table::SymbolTable;
     use nia_type_resolve::{
-        ProgramDefsContext as TypeResolveProgramDefsContext, resolve_module_types,
+        ProgramDefsContext as TypeResolveProgramDefsContext,
+        resolve_module_declaration_types_from_active_item_tree, resolve_module_types,
         resolve_module_types_from_active_item_tree,
     };
     use std::collections::HashMap;

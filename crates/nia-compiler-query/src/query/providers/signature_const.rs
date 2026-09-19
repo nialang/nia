@@ -587,7 +587,7 @@ pub(super) fn signature_layouts_for_types(
                 &program_union,
                 type_uses,
             )
-        });
+        })?;
         let layouts = nia_layout::compute_layouts_for_roots_with_program_context(
             nia_layout::LayoutComputationInput {
                 type_store: &db.context().type_store,
@@ -627,7 +627,7 @@ fn signature_layout_roots(
     program_struct: &dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,
     program_union: &dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>,
     type_uses: impl IntoIterator<Item = InternedTyId>,
-) -> CollectedLayoutRoots {
+) -> nia_ice::IceResult<CollectedLayoutRoots> {
     let mut roots =
         LayoutRootCollector::with_program(type_store, module_id, program_struct, program_union);
     for ty in type_uses {

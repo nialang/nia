@@ -352,7 +352,7 @@ pub fn main() i32 {
         .context()
         .type_store
         .append_for_module(module_id)
-        .primitive(nia_ty::PrimitiveTy::I32);
+        .test_primitive(nia_ty::PrimitiveTy::I32);
     assert_eq!(captures, &[i32_ty]);
     assert!(params.is_empty());
     assert_eq!(*return_type, i32_ty);

@@ -201,6 +201,15 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_, '_> {
                 && let Some(body) = &function.body
             {
                 lowerer.visit_block(body);
+            } else if let Some(body) = &function.body {
+                nia_ast_walk::walk_static_bindings(body, &mut |stmt| {
+                    let nia_ast::StmtKind::Static(binding) = &stmt.kind else {
+                        return;
+                    };
+                    if let Some(ty) = &binding.ty {
+                        lowerer.lower_type_in_context(ty, TypeContext::Value);
+                    }
+                });
             }
         });
     }

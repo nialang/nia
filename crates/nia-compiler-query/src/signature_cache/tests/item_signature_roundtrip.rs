@@ -33,9 +33,9 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
     let value_name = symbol("value");
     let item_name = symbol("Item");
     let generic_name = symbol("T");
-    let primitive = append.intern(TyKind::Primitive(PrimitiveTy::I32));
-    let generic = append.intern(TyKind::GenericParam(generic_name));
-    let nominal = append.intern(TyKind::Nominal {
+    let primitive = append.test_intern(TyKind::Primitive(PrimitiveTy::I32));
+    let generic = append.test_intern(TyKind::GenericParam(generic_name));
+    let nominal = append.test_intern(TyKind::Nominal {
         def_id: GlobalDefId {
             module_id: old_dependency,
             def_id: DefId(70),
@@ -43,7 +43,7 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
         args: vec![generic],
         const_args: Vec::new(),
     });
-    let trait_ty = append.intern(TyKind::BuiltinTrait {
+    let trait_ty = append.test_intern(TyKind::BuiltinTrait {
         trait_id: BuiltinTrait::Iterator,
         args: vec![generic],
     });
@@ -364,7 +364,7 @@ fn item_signature_decoder_rejects_duplicate_field_names() {
         .expect("allocate module ID");
     let ty = store
         .append_for_module(module)
-        .intern(TyKind::Primitive(PrimitiveTy::I32));
+        .test_intern(TyKind::Primitive(PrimitiveTy::I32));
     let mut encoded = Vec::new();
     write_u64(&mut encoded, 2);
     for def_id in [1_u64, 2] {

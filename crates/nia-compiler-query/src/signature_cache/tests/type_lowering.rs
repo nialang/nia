@@ -35,20 +35,20 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
     let old_symbols = SymbolTable::new();
     let length = old_symbols.intern("Length").expect("intern length");
     let item = old_symbols.intern("Item").expect("intern item");
-    let primitive = append.intern(TyKind::Primitive(PrimitiveTy::Usize));
-    let generic = append.intern(TyKind::GenericParam(length));
-    let pointer = append.intern(TyKind::Pointer {
+    let primitive = append.test_intern(TyKind::Primitive(PrimitiveTy::Usize));
+    let generic = append.test_intern(TyKind::GenericParam(length));
+    let pointer = append.test_intern(TyKind::Pointer {
         is_readonly: true,
         elem: primitive,
     });
-    let array = append.intern(TyKind::Array {
+    let array = append.test_intern(TyKind::Array {
         len: ArrayLenTy::Builtin {
             builtin: LayoutBuiltin::Align,
             ty: pointer,
         },
         elem: generic,
     });
-    let nominal = append.intern(TyKind::Nominal {
+    let nominal = append.test_intern(TyKind::Nominal {
         def_id: GlobalDefId {
             module_id: old_dependency,
             def_id: DefId(31),
@@ -77,7 +77,7 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
         module_id: old_dependency,
         def_id: DefId(37),
     });
-    let object = append.intern(TyKind::TraitObject {
+    let object = append.test_intern(TyKind::TraitObject {
         is_readonly: false,
         trait_id,
         trait_args: vec![nominal],
@@ -90,65 +90,65 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
             ty: array,
         }],
     });
-    let projection = append.intern(TyKind::Projection {
+    let projection = append.test_intern(TyKind::Projection {
         self_ty: object,
         trait_id,
         trait_args: vec![nominal],
         trait_const_args: Vec::new(),
         name: item,
     });
-    let function = append.intern(TyKind::FunctionPointer {
-        params: vec![projection, append.intern(TyKind::SelfParam)],
-        return_type: append.intern(TyKind::Optional { elem: nominal }),
+    let function = append.test_intern(TyKind::FunctionPointer {
+        params: vec![projection, append.test_intern(TyKind::SelfParam)],
+        return_type: append.test_intern(TyKind::Optional { elem: nominal }),
         is_variadic: true,
     });
-    let opaque = append.intern(TyKind::Opaque);
-    let tuple = append.intern(TyKind::Tuple(vec![primitive, opaque, array]));
+    let opaque = append.test_intern(TyKind::Opaque);
+    let tuple = append.test_intern(TyKind::Tuple(vec![primitive, opaque, array]));
     let roots = [
         function,
         tuple,
-        append.intern(TyKind::Tuple(Vec::new())),
-        append.intern(TyKind::ConstOnly),
-        append.intern(TyKind::VolatilePointer {
+        append.test_intern(TyKind::Tuple(Vec::new())),
+        append.test_intern(TyKind::ConstOnly),
+        append.test_intern(TyKind::VolatilePointer {
             is_readonly: false,
             elem: primitive,
         }),
-        append.intern(TyKind::Slice {
+        append.test_intern(TyKind::Slice {
             is_readonly: true,
             elem: nominal,
         }),
-        append.intern(TyKind::SlicePointee { elem: primitive }),
-        append.intern(TyKind::Vector {
+        append.test_intern(TyKind::SlicePointee { elem: primitive }),
+        append.test_intern(TyKind::Vector {
             elem: PrimitiveTy::I32,
             lanes: 8,
         }),
-        append.intern(TyKind::Range {
+        append.test_intern(TyKind::Range {
             kind: RangeTyKind::ToInclusive,
             bound: Some(primitive),
         }),
-        append.intern(TyKind::ErrorUnion {
-            error: append.intern(TyKind::Error),
+        append.test_intern(TyKind::ErrorUnion {
+            error: append.test_intern(TyKind::Error),
             value: nominal,
         }),
-        append.intern(TyKind::BuiltinType(BuiltinType::AsmConfig)),
-        append.intern(TyKind::BuiltinType(BuiltinType::AsmInputs)),
-        append.intern(TyKind::BuiltinType(BuiltinType::AsmOutputs)),
-        append.intern(TyKind::BuiltinTrait {
+        append.test_intern(TyKind::BuiltinType(BuiltinType::AsmConfig)),
+        append.test_intern(TyKind::BuiltinType(BuiltinType::AsmInputs)),
+        append.test_intern(TyKind::BuiltinType(BuiltinType::AsmOutputs)),
+        append.test_intern(TyKind::BuiltinTrait {
             trait_id: BuiltinTrait::Sized,
             args: vec![nominal],
         }),
-        append.intern(TyKind::TraitObjectPointee {
+        append.test_intern(TyKind::TraitObjectPointee {
             trait_id,
             trait_args: vec![primitive],
             trait_const_args: Vec::new(),
             associated_type_bindings: Vec::new(),
         }),
-        append.intern(TyKind::Callable {
+        append.test_intern(TyKind::Callable {
             is_readonly: false,
             params: vec![primitive, nominal],
             return_type: array,
         }),
-        append.intern(TyKind::CallablePointee {
+        append.test_intern(TyKind::CallablePointee {
             params: vec![nominal, primitive],
             return_type: tuple,
         }),
@@ -287,8 +287,8 @@ fn type_lowering_rejects_const_expression_handles() {
     let module_id = ids.allocate().expect("allocate module ID");
     let store = TypeStore::new().expect("create type store");
     let append = store.append_for_module(module_id);
-    let primitive = append.intern(TyKind::Primitive(PrimitiveTy::Usize));
-    let array = append.intern(TyKind::Array {
+    let primitive = append.test_intern(TyKind::Primitive(PrimitiveTy::Usize));
+    let array = append.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstExpr(GlobalConstExprId {
             module_id,
             const_expr_id: ConstExprId(3),

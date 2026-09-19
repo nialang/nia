@@ -592,14 +592,14 @@ impl Analyzer<'_> {
     }
 
     fn intern_type_for_module(&self, module_id: ModuleId, kind: TyKind) -> InternedTyId {
-        match self.type_contexts.get(&module_id) {
-            Some(types) => types.intern(kind),
-            None => {
-                self.internal_error.lock().get_or_insert_with(|| {
-                    nia_ice::Ice::new(format!(
-                        "missing const-analysis type context for module {module_id:?}"
-                    ))
-                });
+        // A module append capability is derived from the shared session store;
+        // it does not require an active const execution frame. The context
+        // map is reserved for frame-local substitution and evaluation state.
+        let types = self.input.type_store.append_for_module(module_id);
+        match types.intern(kind) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.internal_error.lock().get_or_insert(error);
                 self.input.type_store.error()
             }
         }

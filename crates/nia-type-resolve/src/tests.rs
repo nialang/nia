@@ -245,6 +245,50 @@ fn selected(value: i32) () {}
     );
 }
 
+#[test]
+fn declaration_resolution_includes_local_static_types_only() {
+    let symbols = SymbolTable::new();
+    let (module, errors) = parse_module_with_symbols(
+        r#"
+fn main() () {
+    let ignored: Missing = {};
+    static retained: i32 = 0;
+}
+"#,
+        symbols.clone(),
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let tree = ModuleItemTree::from_module(&module);
+    let active = tree.active_items(&mut BoolResolver(false)).unwrap();
+    let module_id = ModuleIdAllocator::new()
+        .expect("create module ID allocator")
+        .allocate()
+        .expect("allocate module ID");
+    let defs = collect_module_defs_from_active_item_tree(module_id, &active);
+    let resolved = resolve_module_declaration_types_from_active_item_tree_with_symbols(
+        &active,
+        &defs,
+        ProgramDefsContext::empty(),
+        &nia_defs::PublicSurfaces::default(),
+        &nia_defs::ModuleUsingScope::default(),
+        &symbols,
+    );
+
+    assert!(
+        resolved.diagnostics.is_empty(),
+        "{:?}",
+        resolved.diagnostics
+    );
+    assert_eq!(
+        resolved
+            .node_type_names
+            .values()
+            .filter(|resolution| matches!(resolution, TypeNameResolution::Primitive(_)))
+            .count(),
+        1
+    );
+}
+
 struct BoolResolver(bool);
 
 impl nia_item_tree::ConditionResolver for BoolResolver {

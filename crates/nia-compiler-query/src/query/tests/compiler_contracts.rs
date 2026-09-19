@@ -131,8 +131,8 @@ fn stable_type_graph_publication_remaps_session_handles() {
         .context()
         .type_store
         .append_for_module(fixture.entry_id());
-    let int_ty = append.primitive(nia_ty::PrimitiveTy::I32);
-    let pointer_ty = append.intern(nia_ty::TyKind::Pointer {
+    let int_ty = append.test_primitive(nia_ty::PrimitiveTy::I32);
+    let pointer_ty = append.test_intern(nia_ty::TyKind::Pointer {
         is_readonly: true,
         elem: int_ty,
     });
@@ -174,12 +174,12 @@ fn stable_type_graph_order_is_independent_of_session_allocation_order() {
         .context()
         .type_store
         .append_for_module(first.entry_id());
-    let i32_a = append.primitive(nia_ty::PrimitiveTy::I32);
-    let ptr_a = append.intern(nia_ty::TyKind::Pointer {
+    let i32_a = append.test_primitive(nia_ty::PrimitiveTy::I32);
+    let ptr_a = append.test_intern(nia_ty::TyKind::Pointer {
         is_readonly: true,
         elem: i32_a,
     });
-    let tuple_a = append.intern(nia_ty::TyKind::Tuple(vec![i32_a]));
+    let tuple_a = append.test_intern(nia_ty::TyKind::Tuple(vec![i32_a]));
     let graph_a = first_db
         .stable_type_graph_for_roots(package.clone(), &[ptr_a, tuple_a])
         .unwrap();
@@ -191,9 +191,9 @@ fn stable_type_graph_order_is_independent_of_session_allocation_order() {
         .context()
         .type_store
         .append_for_module(second.entry_id());
-    let i32_b = append.primitive(nia_ty::PrimitiveTy::I32);
-    let tuple_b = append.intern(nia_ty::TyKind::Tuple(vec![i32_b]));
-    let ptr_b = append.intern(nia_ty::TyKind::Pointer {
+    let i32_b = append.test_primitive(nia_ty::PrimitiveTy::I32);
+    let tuple_b = append.test_intern(nia_ty::TyKind::Tuple(vec![i32_b]));
+    let ptr_b = append.test_intern(nia_ty::TyKind::Pointer {
         is_readonly: true,
         elem: i32_b,
     });
@@ -218,7 +218,7 @@ fn stable_type_graph_publication_encodes_generic_parameter_identity() {
         .context()
         .type_store
         .append_for_module(fixture.entry_id());
-    let generic = append.intern(nia_ty::TyKind::GenericParam(sym("T")));
+    let generic = append.test_intern(nia_ty::TyKind::GenericParam(sym("T")));
     let graph = database
         .stable_type_graph_for_roots(
             nia_package_metadata::PackageId {
@@ -287,8 +287,8 @@ fn stable_type_graph_publication_carries_trait_objects_and_projections() {
         .context()
         .type_store
         .append_for_module(fixture.entry_id());
-    let value = append.primitive(nia_ty::PrimitiveTy::I32);
-    let object = append.intern(nia_ty::TyKind::TraitObject {
+    let value = append.test_primitive(nia_ty::PrimitiveTy::I32);
+    let object = append.test_intern(nia_ty::TyKind::TraitObject {
         is_readonly: false,
         trait_id: nia_ty::TraitId::Builtin(nia_ids::BuiltinTrait::Iterator),
         trait_args: vec![value],
@@ -301,7 +301,7 @@ fn stable_type_graph_publication_carries_trait_objects_and_projections() {
             ty: value,
         }],
     });
-    let projection = append.intern(nia_ty::TyKind::Projection {
+    let projection = append.test_intern(nia_ty::TyKind::Projection {
         self_ty: value,
         trait_id: nia_ty::TraitId::Builtin(nia_ids::BuiltinTrait::Iterator),
         trait_args: vec![],
@@ -341,7 +341,7 @@ fn stable_type_graph_publication_remaps_nominal_definition_identity() {
     let defs = database.db.get(FullModuleDefsQuery(module)).unwrap();
     let (def_id, _) = defs.semantic.defs.iter().next().unwrap();
     let append = database.db.context().type_store.append_for_module(module);
-    let nominal = append.intern(nia_ty::TyKind::Nominal {
+    let nominal = append.test_intern(nia_ty::TyKind::Nominal {
         def_id: nia_ids::GlobalDefId {
             module_id: module,
             def_id,
@@ -374,8 +374,8 @@ fn stable_type_graph_publication_preserves_nominal_type_arguments() {
     let defs = database.db.get(FullModuleDefsQuery(module)).unwrap();
     let (def_id, _) = defs.semantic.defs.iter().next().unwrap();
     let append = database.db.context().type_store.append_for_module(module);
-    let argument = append.primitive(nia_ty::PrimitiveTy::I32);
-    let nominal = append.intern(nia_ty::TyKind::Nominal {
+    let argument = append.test_primitive(nia_ty::PrimitiveTy::I32);
+    let nominal = append.test_intern(nia_ty::TyKind::Nominal {
         def_id: nia_ids::GlobalDefId {
             module_id: module,
             def_id,
@@ -408,7 +408,7 @@ fn stable_const_arguments_preserve_declared_type_identity() {
     let (def_id, _) = defs.semantic.defs.iter().next().unwrap();
     let append = database.db.context().type_store.append_for_module(module);
     let make = |ty| {
-        append.intern(nia_ty::TyKind::Nominal {
+        append.test_intern(nia_ty::TyKind::Nominal {
             def_id: nia_ids::GlobalDefId {
                 module_id: module,
                 def_id,
@@ -420,8 +420,8 @@ fn stable_const_arguments_preserve_declared_type_identity() {
             }],
         })
     };
-    let u8_ty = append.primitive(nia_ty::PrimitiveTy::U8);
-    let usize_ty = append.primitive(nia_ty::PrimitiveTy::Usize);
+    let u8_ty = append.test_primitive(nia_ty::PrimitiveTy::U8);
+    let usize_ty = append.test_primitive(nia_ty::PrimitiveTy::Usize);
     let graph = database
         .stable_type_graph_for_roots(
             nia_package_metadata::PackageId {
@@ -459,7 +459,7 @@ fn stable_type_graph_publication_uses_explicit_definition_package_resolver() {
     let defs = database.db.get(FullModuleDefsQuery(module)).unwrap();
     let (def_id, _) = defs.semantic.defs.iter().next().unwrap();
     let append = database.db.context().type_store.append_for_module(module);
-    let nominal = append.intern(nia_ty::TyKind::Nominal {
+    let nominal = append.test_intern(nia_ty::TyKind::Nominal {
         def_id: nia_ids::GlobalDefId {
             module_id: module,
             def_id,

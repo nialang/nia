@@ -3365,6 +3365,23 @@ mod tests {
     use crate::RuntimeSpec;
     use nia_sema_ir::SemanticValueUse;
     use nia_source::{SourceId, SourceIdentity, SourceRevision};
+
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: nia_ty::TyKind) -> nia_ids::InternedTyId;
+        fn test_primitive(&self, primitive: nia_ty::PrimitiveTy) -> nia_ids::InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: nia_ty::TyKind) -> nia_ids::InternedTyId {
+            self.intern(kind).expect("intern compiler-query test type")
+        }
+
+        fn test_primitive(&self, primitive: nia_ty::PrimitiveTy) -> nia_ids::InternedTyId {
+            self.primitive(primitive)
+                .expect("intern primitive compiler-query test type")
+        }
+    }
+
     #[path = "backend_closure.rs"]
     mod backend_closure;
     #[path = "backend_orchestration.rs"]

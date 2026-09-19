@@ -430,6 +430,16 @@ mod tests {
     use nia_source::{SourceId, SourceIdentity, SourcePath, SourceRevision};
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    trait TestTypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId;
+    }
+
+    impl TestTypeStoreAppend for nia_ty::TypeStoreAppend {
+        fn test_intern(&self, kind: TyKind) -> InternedTyId {
+            self.intern(kind).expect("intern signature-cache test type")
+        }
+    }
+
     include!("signature_cache/tests/test_support.rs");
 
     #[test]

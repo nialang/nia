@@ -9,7 +9,7 @@ use nia_ast::{
     ArrayLen, AssocBindingKey, FunctionItem, GenericParam, GenericParamKind, Item, ItemKind,
     Module, PathSegmentKind, TypeArg, TypeKind, TypePathSegment, TypeRef,
 };
-use nia_ast_walk::{Visitor, walk_function, walk_item};
+use nia_ast_walk::{Visitor, walk_item};
 use nia_defs::{DefCollection, DefKind, PublicNamespace, PublicSurfaceLookup, UsingScopeLookup};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_hash::FastHashMap;
@@ -214,7 +214,8 @@ pub fn resolve_module_types_from_active_item_tree(
     )
 }
 
-/// Resolves only active declarations, excluding function-body type references.
+/// Resolves active declarations, including item-like local static types but
+/// excluding ordinary function-body type references.
 pub fn resolve_module_declaration_types_from_active_item_tree(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
