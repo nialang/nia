@@ -16,6 +16,31 @@ use nia_ty::TyKind;
 use super::FunctionCodegen;
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
+    pub(super) fn emit_addr_of_if_place(
+        &mut self,
+        expr: &FunctionExpr,
+    ) -> Result<Option<PointerValue<'ctx>>, Diagnostic> {
+        let is_nonvolatile_place = match &expr.kind {
+            FunctionExprKind::Global(_)
+            | FunctionExprKind::Local(_)
+            | FunctionExprKind::Field { .. }
+            | FunctionExprKind::Index { .. } => true,
+            FunctionExprKind::Unary {
+                op: nia_ast::UnaryOp::Deref,
+                expr: pointer,
+            } => !matches!(
+                self.module.ty_kind(pointer.ty),
+                Some(TyKind::VolatilePointer { .. })
+            ),
+            _ => false,
+        };
+        if is_nonvolatile_place {
+            self.emit_addr_of(expr).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
     pub(super) fn emit_addr_of(
         &mut self,
         expr: &FunctionExpr,
