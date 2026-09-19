@@ -273,17 +273,19 @@ fn filtered_const_global_initializer_for_body_check(
                 })
             },
         );
-        Ok::<_, nia_ice::Ice>(lowered
-            .module
-            .global_initializers()
-            .get(&global_id)
-            .or_else(|| {
-                lowered
-                    .module
-                    .deferred_global_initializers()
-                    .get(&global_id)
-            })
-            .cloned())
+        Ok::<_, nia_ice::Ice>(
+            lowered
+                .module
+                .global_initializers()
+                .get(&global_id)
+                .or_else(|| {
+                    lowered
+                        .module
+                        .deferred_global_initializers()
+                        .get(&global_id)
+                })
+                .cloned(),
+        )
     };
     let values = time_module_provider(
         db,

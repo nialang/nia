@@ -708,7 +708,6 @@ impl Diagnostic {
         if let Some(location) = &ice.location {
             diagnostic = diagnostic.debug("failure_location", location);
         }
-        diagnostic = diagnostic.debug("ice_origin", ice.origin);
         for (index, context) in ice.contexts.iter().enumerate() {
             diagnostic = diagnostic.debug(format!("ice_context_{index}"), context);
         }

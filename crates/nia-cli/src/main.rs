@@ -4,8 +4,8 @@
 //! Global target, module-map, optimization, timing, and toolchain options are
 //! parsed once and then translated into typed `nia-driver` or `nia-build`
 //! requests. Native outputs remain file-only, inspection output uses stdout,
-//! and diagnostics/timings use stderr. Panics cross one installed ICE boundary
-//! and become a failed process exit rather than unwinding through the CLI.
+//! and diagnostics/timings use stderr. Compiler failures reach this boundary as
+//! structured diagnostics rather than unwinding through the CLI.
 #[cfg(feature = "perf-alloc")]
 use std::alloc::System;
 use std::{
@@ -33,7 +33,6 @@ static GLOBAL_ALLOCATOR: nia_timing::CountingAllocator<System> =
 fn main() -> ExitCode {
     #[cfg(feature = "perf-alloc")]
     nia_timing::register_allocation_instrumentation();
-    nia_ice::install_panic_hook();
     match parse_cli(env::args().skip(1).collect()) {
         Ok(CliAction::Help(topic)) => write_stdout(format_args!(
             "{}",
@@ -44,11 +43,7 @@ fn main() -> ExitCode {
         }
         Ok(CliAction::Run(cli)) => {
             let timing_options = cli.timing_options();
-            run_with_ice_boundary(
-                timing_options,
-                || run_cli(cli),
-                |ice| eprintln!("{}", ice.render_message()),
-            )
+            nia_timing::collect_to_stderr(timing_options, || run_cli(cli))
         }
         Err(error) => {
             if error.is_help {
@@ -78,20 +73,6 @@ fn report_cli_error(message: &str, help: HelpTopic) {
     eprintln!("error: {message}");
     eprintln!();
     eprint!("{}", error_help_text(help, HelpStyle::for_stderr()));
-}
-
-fn run_with_ice_boundary(
-    timing_options: TimingOptions,
-    f: impl FnOnce() -> ExitCode,
-    report: impl FnOnce(&nia_ice::Ice),
-) -> ExitCode {
-    match nia_ice::catch_unexpected_panic(|| nia_timing::collect_to_stderr(timing_options, f)) {
-        Ok(code) => code,
-        Err(ice) => {
-            report(&ice);
-            ExitCode::FAILURE
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -2343,20 +2324,6 @@ mod tests {
             error.contains("neither `main.nia` nor `pkg.nia`"),
             "{error}"
         );
-    }
-
-    #[test]
-    fn ice_boundary_converts_panic_to_failure() {
-        let mut message = String::new();
-        let code = run_with_ice_boundary(
-            TimingOptions::default(),
-            || panic!("Nia ICE: forced failure"),
-            |ice| message = ice.render_message(),
-        );
-
-        assert_eq!(code, ExitCode::FAILURE);
-        assert!(message.contains("internal compiler error: forced failure"));
-        assert!(message.contains("Please report it"));
     }
 
     #[test]

@@ -1519,7 +1519,7 @@ fn extend_reachability_from_value_ref_edges(
         .map(|(module_id, module_functions, module_globals)| {
             let db = db.clone();
             move || {
-                executable_value_ref_edges_from_reachable_items(
+                Ok(executable_value_ref_edges_from_reachable_items(
                     &db,
                     module_id,
                     &module_functions,
@@ -1527,7 +1527,7 @@ fn extend_reachability_from_value_ref_edges(
                 )
                 .map(|(edges, closure_functions)| {
                     (module_id, module_globals, closure_functions, edges)
-                })
+                }))
             }
         });
     let results = db.session().run_tasks_bounded(tasks, 4)?;

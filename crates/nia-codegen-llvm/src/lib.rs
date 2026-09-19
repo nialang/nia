@@ -144,7 +144,7 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
                             options,
                             cache.as_deref(),
                         );
-                        (key, outcome)
+                        Ok((key, outcome))
                     })?;
                 }
                 CodegenPartitionPreparation::Invalid {
@@ -278,7 +278,7 @@ impl<'session> LlvmIrReadinessEmitter<'session> {
                     let options = self.options;
                     self.tasks.submit(move || {
                         let outcome = emit_llvm_ir_partition(prepared, index, options);
-                        (key, outcome)
+                        Ok((key, outcome))
                     })?;
                 }
                 CodegenPartitionPreparation::Invalid {
@@ -430,16 +430,20 @@ fn emit_llvm_ir_with_options_inner(
     let outcomes = match session.run_tasks_bounded(
         tasks.into_iter().map(|task| {
             let index = Arc::clone(&index);
-            move || match task {
-                LlvmIrTask::Partition(preparation) => match *preparation {
-                    CodegenPartitionPreparation::Ready(prepared) => {
-                        emit_llvm_ir_partition(prepared, index, options).map(Some)
+            move || {
+                Ok(match task {
+                    LlvmIrTask::Partition(preparation) => match *preparation {
+                        CodegenPartitionPreparation::Ready(prepared) => {
+                            emit_llvm_ir_partition(prepared, index, options).map(Some)
+                        }
+                        CodegenPartitionPreparation::Invalid { diagnostics, .. } => {
+                            Err(diagnostics)
+                        }
+                    },
+                    LlvmIrTask::DeclarationModule(module_id) => {
+                        validate_declaration_module(module_id, &index).map(|()| None)
                     }
-                    CodegenPartitionPreparation::Invalid { diagnostics, .. } => Err(diagnostics),
-                },
-                LlvmIrTask::DeclarationModule(module_id) => {
-                    validate_declaration_module(module_id, &index).map(|()| None)
-                }
+                })
             }
         }),
         nia_query::llvm_memory_task_capacity(),
@@ -553,22 +557,26 @@ fn emit_native_objects_inner(
         tasks.into_iter().map(|task| {
             let index = Arc::clone(&index);
             let cache = cache.clone();
-            move || match task {
-                NativeCodegenTask::Partition(preparation) => match *preparation {
-                    CodegenPartitionPreparation::Ready(prepared) => {
-                        emit_native_object_partition(prepared, index, options, cache.as_deref())
-                            .map(Some)
+            move || {
+                Ok(match task {
+                    NativeCodegenTask::Partition(preparation) => match *preparation {
+                        CodegenPartitionPreparation::Ready(prepared) => {
+                            emit_native_object_partition(prepared, index, options, cache.as_deref())
+                                .map(Some)
+                        }
+                        CodegenPartitionPreparation::Invalid { diagnostics, .. } => {
+                            Err(diagnostics)
+                        }
+                    },
+                    NativeCodegenTask::DeclarationModule(module_id) => {
+                        validate_declaration_module(module_id, &index).map(|()| None)
                     }
-                    CodegenPartitionPreparation::Invalid { diagnostics, .. } => Err(diagnostics),
-                },
-                NativeCodegenTask::DeclarationModule(module_id) => {
-                    validate_declaration_module(module_id, &index).map(|()| None)
-                }
-                NativeCodegenTask::CompilerBuiltins(symbols) => {
-                    emit_compiler_builtins_object(symbols, options, cache.as_deref())
-                        .map(Some)
-                        .map_err(|diagnostic| vec![diagnostic])
-                }
+                    NativeCodegenTask::CompilerBuiltins(symbols) => {
+                        emit_compiler_builtins_object(symbols, options, cache.as_deref())
+                            .map(Some)
+                            .map_err(|diagnostic| vec![diagnostic])
+                    }
+                })
             }
         }),
         nia_query::llvm_memory_task_capacity(),

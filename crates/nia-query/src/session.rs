@@ -57,7 +57,7 @@ impl QuerySession {
                 dependencies: Mutex::new(QueryDependencyGraph::default()),
                 activity: Mutex::new(QueryActivityState::default()),
                 activity_ready: Condvar::new(),
-                unexpected_failure: Mutex::new(None),
+                internal_failure: Mutex::new(None),
             }),
         })
     }
@@ -75,7 +75,7 @@ impl QuerySession {
     /// Runs independent tasks concurrently and restores submission order in the result.
     pub fn run_tasks<T, O>(&self, tasks: impl IntoIterator<Item = T>) -> nia_ice::IceResult<Vec<O>>
     where
-        T: FnOnce() -> O + Send + 'static,
+        T: FnOnce() -> nia_ice::IceResult<O> + Send + 'static,
         O: Send + 'static,
     {
         let _activity = self.enter_activity();
@@ -89,7 +89,7 @@ impl QuerySession {
         max_parallelism: usize,
     ) -> nia_ice::IceResult<Vec<O>>
     where
-        T: FnOnce() -> O + Send + 'static,
+        T: FnOnce() -> nia_ice::IceResult<O> + Send + 'static,
         O: Send + 'static,
     {
         if max_parallelism == 0 {
@@ -116,8 +116,8 @@ impl QuerySession {
             .run_tasks(lanes.into_iter().map(|lane| {
                 move || {
                     lane.into_iter()
-                        .map(|(index, task)| (index, task()))
-                        .collect::<Vec<_>>()
+                        .map(|(index, task)| task().map(|output| (index, output)))
+                        .collect::<nia_ice::IceResult<Vec<_>>>()
                 }
             }))?
             .into_iter()
@@ -154,7 +154,7 @@ impl QuerySession {
         tasks: impl IntoIterator<Item = T>,
     ) -> nia_ice::IceResult<Vec<O>>
     where
-        T: FnOnce() -> O + Send + 'static,
+        T: FnOnce() -> nia_ice::IceResult<O> + Send + 'static,
         O: Send + 'static,
     {
         self.inner.ensure_healthy()?;
@@ -162,7 +162,10 @@ impl QuerySession {
         if tasks.len() <= 1 {
             return tasks
                 .into_iter()
-                .map(|task| self.inner.capture_unexpected_panic(task))
+                .map(|task| {
+                    self.inner.ensure_healthy()?;
+                    task().map_err(|ice| self.inner.record_failure(ice))
+                })
                 .collect();
         }
         let batch = Arc::new(QueryBatch::new(tasks.len()));
@@ -181,7 +184,10 @@ impl QuerySession {
                     settle: Box::new(move |failure| {
                         let outcome = match failure {
                             Some(ice) => Err(session.record_failure(ice)),
-                            None => session.capture_unexpected_panic(task),
+                            None => session
+                                .ensure_healthy()
+                                .and_then(|()| task())
+                                .map_err(|ice| session.record_failure(ice)),
                         };
                         if let Err(ice) = batch.complete(index, outcome) {
                             session.record_failure(ice);
@@ -208,7 +214,7 @@ impl QuerySession {
         consume: impl FnOnce(&mut TaskCompletionStream<'_, O>) -> nia_ice::IceResult<R>,
     ) -> nia_ice::IceResult<R>
     where
-        T: FnOnce() -> O + Send + 'static,
+        T: FnOnce() -> nia_ice::IceResult<O> + Send + 'static,
         O: Send + 'static,
     {
         let tasks = tasks.into_iter().collect::<Vec<_>>();
@@ -228,7 +234,10 @@ impl QuerySession {
                     settle: Box::new(move |failure| {
                         let outcome = match failure {
                             Some(ice) => Err(session.record_failure(ice)),
-                            None => session.capture_unexpected_panic(task),
+                            None => session
+                                .ensure_healthy()
+                                .and_then(|()| task())
+                                .map_err(|ice| session.record_failure(ice)),
                         };
                         if let Err(ice) = batch.complete(index, outcome) {
                             session.record_failure(ice);
@@ -282,7 +291,7 @@ impl QuerySession {
             self.inner.activity_ready.wait(&mut state);
         }
         // Set `retiring` before waiting for active work so no new outer activity can enter while
-        // the current generation drains. The guard reopens admission even if retirement panics.
+        // the current generation drains. The guard reopens admission on every return path.
         state.retiring = true;
         self.inner.activity_ready.notify_all();
         while state.active > 0 {
@@ -359,7 +368,7 @@ impl QuerySession {
 
 impl QuerySessionInner {
     pub(super) fn ensure_healthy(&self) -> nia_ice::IceResult<()> {
-        let failure = self.unexpected_failure.lock();
+        let failure = self.internal_failure.lock();
         match failure.as_ref() {
             Some(ice) => Err(ice
                 .clone()
@@ -368,23 +377,8 @@ impl QuerySessionInner {
         }
     }
 
-    pub(super) fn capture_unexpected_panic<T>(
-        &self,
-        f: impl FnOnce() -> T,
-    ) -> nia_ice::IceResult<T> {
-        self.ensure_healthy()?;
-        let result = nia_ice::catch_unexpected_panic(f);
-        if let Err(ice) = &result {
-            let mut failure = self.unexpected_failure.lock();
-            if failure.is_none() {
-                *failure = Some(ice.clone());
-            }
-        }
-        result
-    }
-
     pub(super) fn record_failure(&self, ice: nia_ice::Ice) -> nia_ice::Ice {
-        let mut failure = self.unexpected_failure.lock();
+        let mut failure = self.internal_failure.lock();
         if failure.is_none() {
             *failure = Some(ice.clone());
         }

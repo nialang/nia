@@ -5,7 +5,7 @@ fn session_tasks_move_non_clone_outputs_in_submission_order() {
     let session = QuerySession::with_parallelism(2);
 
     let values = session
-        .run_tasks((0..4).map(|value| move || OwnedNonCloneValue { value }))
+        .run_tasks((0..4).map(|value| move || Ok(OwnedNonCloneValue { value })))
         .expect("session tasks");
 
     assert_eq!(
@@ -32,7 +32,7 @@ fn session_tasks_use_the_shared_executor_budget() {
             peak_active.fetch_max(current, Ordering::SeqCst);
             barrier.wait();
             active.fetch_sub(1, Ordering::SeqCst);
-            value
+            Ok(value)
         }
     });
 
@@ -60,7 +60,7 @@ fn bounded_session_tasks_preserve_order_and_limit_worker_lanes() {
             peak_active.fetch_max(current, Ordering::SeqCst);
             barrier.wait();
             active.fetch_sub(1, Ordering::SeqCst);
-            OwnedNonCloneValue { value }
+            Ok(OwnedNonCloneValue { value })
         }
     });
 
@@ -122,7 +122,7 @@ fn session_construction_rejects_zero_parallelism() {
 fn bounded_task_apis_reject_zero_without_panicking() {
     let session = QuerySession::with_parallelism(2);
     let error = session
-        .run_tasks_bounded([|| 1], 0)
+        .run_tasks_bounded([|| Ok(1)], 0)
         .expect_err("zero bounded parallelism must be rejected");
     assert!(error.message.contains("must be non-zero"));
 

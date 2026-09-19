@@ -235,6 +235,7 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
+        self.inner.session.inner.ensure_healthy()?;
         self.try_get_cached(key)
     }
 
@@ -247,6 +248,7 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
+        self.inner.session.inner.ensure_healthy()?;
         if K::STORAGE != QueryStoragePolicy::SingleConsumerOwned {
             return Err(Self::internal_query_error(
                 &key,
@@ -312,31 +314,25 @@ impl<C> QueryDb<C> {
                     nia_timing::time_detail(detail_timing, "query.record_execution", || {
                         slot.stats.record_execution()
                     });
-                    let value = match self.inner.session.inner.capture_unexpected_panic(|| {
-                        nia_timing::time_detail(detail_timing, "query.provider", || {
+                    let value =
+                        match nia_timing::time_detail(detail_timing, "query.provider", || {
                             key.execute_result(self)
-                        })
-                    }) {
-                        Ok(Ok(value)) => value,
-                        Ok(Err(error)) => {
-                            let mut state = slot.state.lock();
-                            *state = QueryState::Empty;
-                            guard.discard();
-                            self.clear_dependencies_from(node_id);
-                            slot.ready.notify_all();
-                            return Err(error.with_query_context(query_frame::<C, K>(&key)));
-                        }
-                        Err(ice) => {
-                            let mut state = slot.state.lock();
-                            *state = QueryState::Empty;
-                            guard.discard();
-                            self.clear_dependencies_from(node_id);
-                            slot.ready.notify_all();
-                            drop(state);
-                            return Err(QueryError::Internal(ice)
-                                .with_query_context(query_frame::<C, K>(&key)));
-                        }
-                    };
+                        }) {
+                            Ok(value) => value,
+                            Err(error) => {
+                                let mut state = slot.state.lock();
+                                *state = QueryState::Empty;
+                                guard.discard();
+                                self.clear_dependencies_from(node_id);
+                                slot.ready.notify_all();
+                                drop(state);
+                                let error = error.with_query_context(query_frame::<C, K>(&key));
+                                if let QueryError::Internal(ice) = &error {
+                                    self.inner.session.inner.record_failure(ice.clone());
+                                }
+                                return Err(error);
+                            }
+                        };
 
                     let mut state = slot.state.lock();
                     let was_invalidated =
@@ -702,34 +698,28 @@ impl<C> QueryDb<C> {
                     nia_timing::time_detail(detail_timing, "query.record_execution", || {
                         slot.stats.record_execution()
                     });
-                    let value = match self.inner.session.inner.capture_unexpected_panic(|| {
-                        nia_timing::time_detail(detail_timing, "query.provider", || {
+                    let value =
+                        match nia_timing::time_detail(detail_timing, "query.provider", || {
                             key.execute_result(self)
-                        })
-                    }) {
-                        Ok(Ok(value)) => value,
-                        Ok(Err(error)) => {
-                            let mut state = slot.state.lock();
-                            *state = QueryState::Empty;
-                            guard.discard();
-                            self.clear_dependencies_from(node_id);
-                            slot.ready.notify_all();
-                            return Err(error.with_query_context(query_frame::<C, K>(&key)));
-                        }
-                        Err(ice) => {
-                            let mut state = slot.state.lock();
-                            *state = QueryState::Empty;
-                            // Dependencies recorded during a failed execution are speculative:
-                            // keeping them would make future invalidations report a query value
-                            // that was never cached and can no longer be reused.
-                            guard.discard();
-                            self.clear_dependencies_from(node_id);
-                            slot.ready.notify_all();
-                            drop(state);
-                            return Err(QueryError::Internal(ice)
-                                .with_query_context(query_frame::<C, K>(&key)));
-                        }
-                    };
+                        }) {
+                            Ok(value) => value,
+                            Err(error) => {
+                                let mut state = slot.state.lock();
+                                *state = QueryState::Empty;
+                                // Dependencies recorded during a failed execution are speculative:
+                                // keeping them would make future invalidations report a query value
+                                // that was never cached and can no longer be reused.
+                                guard.discard();
+                                self.clear_dependencies_from(node_id);
+                                slot.ready.notify_all();
+                                drop(state);
+                                let error = error.with_query_context(query_frame::<C, K>(&key));
+                                if let QueryError::Internal(ice) = &error {
+                                    self.inner.session.inner.record_failure(ice.clone());
+                                }
+                                return Err(error);
+                            }
+                        };
 
                     let fingerprint = match K::FINGERPRINT {
                         QueryFingerprintPolicy::None => {
@@ -837,12 +827,14 @@ impl<C> QueryDb<C> {
 
     /// Consumes owned query results as they complete, exposing submission indices.
     ///
-    /// The callback is always drained after it returns or panics so worker tasks
-    /// finish and their dependency facts are merged into the parent stack.
+    /// The callback is always drained after it returns so worker tasks finish
+    /// and their dependency facts are merged into the parent stack.
     pub fn with_many_owned_completion<K, R>(
         &self,
         keys: impl IntoIterator<Item = K>,
-        consume: impl FnOnce(&mut QueryCompletionStream<'_, '_, QueryResult<K::Value>>) -> R,
+        consume: impl FnOnce(
+            &mut QueryCompletionStream<'_, '_, QueryResult<K::Value>>,
+        ) -> QueryResult<R>,
     ) -> QueryResult<R>
     where
         C: Send + Sync + 'static,
@@ -855,7 +847,7 @@ impl<C> QueryDb<C> {
         &self,
         keys: impl IntoIterator<Item = K>,
         get: fn(&Self, K) -> O,
-        consume: impl FnOnce(&mut QueryCompletionStream<'_, '_, O>) -> R,
+        consume: impl FnOnce(&mut QueryCompletionStream<'_, '_, O>) -> QueryResult<R>,
     ) -> QueryResult<R>
     where
         C: Send + Sync + 'static,
@@ -870,10 +862,10 @@ impl<C> QueryDb<C> {
         let tasks = keys.into_iter().map(|key| {
             let db = self.clone();
             let parent_stack = parent_stack.clone();
-            move || {
+            move || -> nia_ice::IceResult<_> {
                 let _stack_guard = install_query_stack(parent_stack);
                 let value = get(&db, key);
-                (value, take_current_stack_dependencies())
+                Ok((value, take_current_stack_dependencies()))
             }
         });
         let (result, dependencies) = self
@@ -887,24 +879,20 @@ impl<C> QueryDb<C> {
                         fingerprints: records_fingerprints.then(DependencyFingerprints::default),
                     },
                 };
-                let result = self
-                    .inner
-                    .session
-                    .inner
-                    .capture_unexpected_panic(|| consume(&mut stream));
+                let result = consume(&mut stream);
                 let drain = (|| -> nia_ice::IceResult<()> {
                     while stream.wait_next()?.is_some() {}
                     Ok(())
                 })();
                 let dependencies = stream.dependencies;
-                match (result, drain) {
-                    (Ok(value), Ok(())) => Ok((value, dependencies)),
-                    (Err(ice), _) | (Ok(_), Err(ice)) => Err(ice),
+                match drain {
+                    Ok(()) => Ok((result, dependencies)),
+                    Err(ice) => Err(ice),
                 }
             })
             .map_err(QueryError::from)?;
         merge_dependencies_into_current_stack(dependencies);
-        Ok(result)
+        result
     }
 
     pub(super) fn get_many_with<K, O>(
@@ -927,10 +915,10 @@ impl<C> QueryDb<C> {
             .map(|key| {
                 let db = self.clone();
                 let parent_stack = parent_stack.clone();
-                move || {
+                move || -> nia_ice::IceResult<_> {
                     let _stack_guard = install_query_stack(parent_stack);
                     let value = get(&db, key);
-                    (value, take_current_stack_dependencies())
+                    Ok((value, take_current_stack_dependencies()))
                 }
             })
             .collect();

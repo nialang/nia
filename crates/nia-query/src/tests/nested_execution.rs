@@ -120,7 +120,7 @@ fn batch_waiter_does_not_run_tasks_that_depend_on_its_paused_query() {
 }
 
 #[test]
-fn get_many_panic_becomes_internal_error_and_taints_session() {
+fn get_many_internal_error_taints_session() {
     let session = QuerySession::with_parallelism(2);
     let db = QueryDb::new_with_timings_in_session(
         TestContext {
@@ -132,16 +132,21 @@ fn get_many_panic_becomes_internal_error_and_taints_session() {
     .expect("create query database");
 
     let failure = db
-        .get_many([PanicsOnce, PanicsOnce])
-        .expect_err("batch should report the query panic");
+        .get_many([FailsOnce, FailsOnce])
+        .expect_err("batch should report the query ICE");
     let QueryError::Internal(ice) = failure else {
         panic!("expected internal query error");
     };
-    assert_eq!(ice.origin, nia_ice::IceOrigin::UnexpectedPanic);
+    assert!(ice.message.contains("transient query failure"));
+    let executions_after_failure = db.context().executions.load(Ordering::SeqCst);
+    assert!((1..=2).contains(&executions_after_failure));
 
     let retry = db
-        .get_many([PanicsOnce, PanicsOnce])
+        .get_many([FailsOnce, FailsOnce])
         .expect_err("tainted session must reject retries");
     assert!(matches!(retry, QueryError::Internal(_)));
-    assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        db.context().executions.load(Ordering::SeqCst),
+        executions_after_failure
+    );
 }
