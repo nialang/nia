@@ -476,8 +476,8 @@ pub(in crate::query) fn provide_signature_type_resolution_semantic(
         let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set))?;
         let defs = module_defs_semantic(db, module_id)?;
         let graph = QueryModuleGraphLookup::new(db)?;
-        let public_surfaces = db.get(PublicSurfacesQuery)?;
-        let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
+        let public_surfaces = QueryPublicSurfaceLookup::new(db);
+        let using_scope = QueryUsingScopeLookup::new(db, module_id);
         let query_failure = RefCell::new(None);
         let program_defs =
             |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
@@ -494,12 +494,17 @@ pub(in crate::query) fn provide_signature_type_resolution_semantic(
                 graph: Some(&graph),
                 builtin_trait: Some(&builtin_trait),
             },
-            &public_surfaces.surfaces,
-            using_scope.as_ref(),
+            &public_surfaces,
+            &using_scope,
             &symbols,
             db.context().node_store(),
         );
-        if let Some(error) = query_failure.into_inner().or_else(|| graph.take_failure()) {
+        if let Some(error) = query_failure
+            .into_inner()
+            .or_else(|| graph.take_failure())
+            .or_else(|| public_surfaces.take_failure())
+            .or_else(|| using_scope.take_failure())
+        {
             return Err(error);
         }
         let diagnostics = std::mem::take(&mut resolution.diagnostics);
