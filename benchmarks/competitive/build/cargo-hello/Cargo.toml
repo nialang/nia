@@ -1,0 +1,12 @@
+[package]
+name = "competitive-hello"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+opt-level = 2
+debug = 0

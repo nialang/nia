@@ -30,6 +30,7 @@ pub(pkg) module validation;
 using pkg::build::core;
 using pkg::build::lifecycle;
 using pkg::build::plan;
+using pkg::build::targets;
 
 pub using error::{
     Error,

@@ -114,13 +114,13 @@ cargo maintain baseline competitive
 By default this builds the release Nia compiler, takes five samples of both
 development and release profiles, and writes a revision-labelled report below
 `target/nia-perf/competitive/`. `--no-build`, `--repeat`, `--profile`,
-`--workload`, `--nia`, `--rustc`, `--zig`, `--time`, `--resource-root`, and
+`--workload`, `--nia`, `--rustc`, `--cargo`, `--zig`, `--time`, `--resource-root`, and
 `--output` make every material input explicit. The profile and workload options
 may be repeated to select distinct entries; duplicate selections are rejected
 rather than measured twice accidentally.
 
-The first matrix covers `minimal_check`, `hello_check`, and
-`hello_executable`. The sources under `benchmarks/competitive/` are maintained
+The matrix covers `minimal_check`, `hello_check`, `hello_executable`,
+`empty_build`, and `hello_build`. The sources under `benchmarks/competitive/` are maintained
 language-native Rust and Zig counterparts to `benchmarks/minimal.nia` and
 `examples/hello.nia`. Check modes are deliberately described precisely:
 
@@ -140,9 +140,18 @@ pass pipelines, runtime linkage, executable format, or standard-library
 distribution strategy. Executable sizes therefore remain useful raw evidence,
 not a direct quality ranking.
 
-Every process gets an independently created workspace, an absent output, and
-an absent explicit Nia or Zig project cache. Direct rustc is invoked without
-incremental compilation. Nia's selected resource root, rustc's distributed
+Build-system modes use fresh copied fixture trees. Nia and Zig both compile and
+run their build-language programs for an empty graph. Cargo has no equivalent
+build-script-only empty-graph mode and rejects a zero-member virtual workspace,
+so that matrix cell is recorded as unavailable and no misleading sample is
+fabricated. The Hello build does produce and execute one native executable
+through `nia build`, Cargo, and `zig build`.
+
+Every process gets an independently created workspace and absent expected
+output. Direct compilation starts with absent explicit Nia/Zig project caches;
+build-system samples start without Nia build/cache directories, Cargo's target
+directory, or Zig's local cache and output directories. Direct rustc is invoked
+without incremental compilation. Nia's selected resource root, rustc's distributed
 sysroot, and Zig's shared global toolchain cache are retained: this is a
 project-cold comparison, not an SDK/toolchain-cold comparison. OS page cache is
 uncontrolled and shared across the interleaved tools. Compiler order rotates

@@ -1,0 +1,14 @@
+using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!() {
+    let rootModule = b.addModule(
+        build::ModuleOptions::init(&"hello", fs::PathView::init(&"src/main.nia")),
+    ).?;
+    let executable = b.addExecutable(
+        build::ExecutableOptions::init(&"hello", rootModule),
+    ).?;
+    let emit = b.addEmitExecutableStep(&"hello", executable).?;
+    b.setDefaultStep(emit).?;
+    !()
+}

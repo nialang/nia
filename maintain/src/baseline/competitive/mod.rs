@@ -34,8 +34,6 @@ pub enum Language {
 }
 
 impl Language {
-    const ALL: [Self; 3] = [Self::Nia, Self::Rust, Self::Zig];
-
     const fn extension(self) -> &'static str {
         match self {
             Self::Nia => "nia",
@@ -100,14 +98,14 @@ impl Profile {
             Self::Development => ProfileContract {
                 profile: self,
                 nia: "--profile debug -O0",
-                rust: "-C opt-level=0 -C debuginfo=0 (direct rustc; runtime safety checks retained)",
-                zig: "-O Debug -fno-incremental",
+                rust: "direct rustc -C opt-level=0 -C debuginfo=0; Cargo dev with debug=0",
+                zig: "direct -O Debug -fno-incremental; zig build -Doptimize=Debug",
             },
             Self::Release => ProfileContract {
                 profile: self,
                 nia: "--profile release -O2",
-                rust: "-C opt-level=2 -C debuginfo=0 (direct rustc)",
-                zig: "-O ReleaseSafe -fno-incremental (optimized with runtime safety retained)",
+                rust: "direct rustc -C opt-level=2 -C debuginfo=0; Cargo release with opt-level=2 and debug=0",
+                zig: "direct -O ReleaseSafe -fno-incremental; zig build -Doptimize=ReleaseSafe",
             },
         }
     }
@@ -118,6 +116,7 @@ impl Profile {
 pub struct Options {
     pub nia: PathBuf,
     pub rustc: PathBuf,
+    pub cargo: PathBuf,
     pub zig: PathBuf,
     pub time: PathBuf,
     pub resource_root: PathBuf,
@@ -135,6 +134,7 @@ impl Options {
         Self {
             nia: root.join("target/release/nia"),
             rustc: PathBuf::from("rustc"),
+            cargo: PathBuf::from("cargo"),
             zig: PathBuf::from("zig"),
             time: PathBuf::from("/usr/bin/time"),
             resource_root: root.join("lib"),
@@ -183,6 +183,88 @@ fn artifact(path: &Path, kind: OutputKind) -> MaintainResult<Option<Artifact>> {
         size_bytes: bytes.len() as u64,
         blake3: blake3::hash(&bytes).to_hex().to_string(),
     }))
+}
+
+fn copy_tree(source: &Path, destination: &Path) -> MaintainResult<()> {
+    fs::create_dir_all(destination)
+        .map_err(|error| format!("failed to create {}: {error}", destination.display()))?;
+    let mut entries = fs::read_dir(source)
+        .map_err(|error| format!("failed to read {}: {error}", source.display()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("failed to inspect {}: {error}", source.display()))?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for entry in entries {
+        if matches!(
+            entry.file_name().to_str(),
+            Some(".nia-build" | ".nia-cache" | ".zig-cache" | "zig-out" | "target")
+        ) {
+            continue;
+        }
+        let target = destination.join(entry.file_name());
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("failed to inspect {}: {error}", entry.path().display()))?;
+        if file_type.is_dir() {
+            copy_tree(&entry.path(), &target)?;
+        } else if file_type.is_file() {
+            fs::copy(entry.path(), &target)
+                .map_err(|error| format!("failed to copy {}: {error}", entry.path().display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn collect_tree_files(
+    root: &Path,
+    directory: &Path,
+    files: &mut Vec<PathBuf>,
+) -> MaintainResult<()> {
+    for entry in fs::read_dir(directory)
+        .map_err(|error| format!("failed to read {}: {error}", directory.display()))?
+    {
+        let entry =
+            entry.map_err(|error| format!("failed to inspect {}: {error}", directory.display()))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("failed to inspect {}: {error}", entry.path().display()))?;
+        if file_type.is_dir() {
+            collect_tree_files(root, &entry.path(), files)?;
+        } else if file_type.is_file() {
+            files.push(
+                entry
+                    .path()
+                    .strip_prefix(root)
+                    .expect("collected path is below root")
+                    .to_path_buf(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn source_hash(path: &Path) -> MaintainResult<String> {
+    if path.is_file() {
+        let bytes = fs::read(path)
+            .map_err(|error| format!("failed to read fixture {}: {error}", path.display()))?;
+        return Ok(blake3::hash(&bytes).to_hex().to_string());
+    }
+    let mut files = Vec::new();
+    collect_tree_files(path, path, &mut files)?;
+    files.sort();
+    let mut hasher = blake3::Hasher::new();
+    for relative in files {
+        let bytes = fs::read(path.join(&relative)).map_err(|error| {
+            format!(
+                "failed to read fixture {}: {error}",
+                path.join(&relative).display()
+            )
+        })?;
+        hasher.update(relative.to_string_lossy().as_bytes());
+        hasher.update(&[0]);
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
+    }
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 fn verify_executable(
@@ -238,12 +320,12 @@ fn sample_acceptance(
 ) -> SampleAcceptance {
     SampleAcceptance {
         fresh_workspace: true,
-        fresh_project_cache: !initial_state.project_cache_existed,
+        fresh_project_products: !initial_state.project_products_existed,
         fresh_output: !initial_state.output_existed,
         command_succeeded,
         output_contract_satisfied,
         executable_verified,
-        passed: !initial_state.project_cache_existed
+        passed: !initial_state.project_products_existed
             && !initial_state.output_existed
             && command_succeeded
             && output_contract_satisfied
@@ -256,22 +338,34 @@ fn collect_sample(inputs: &SampleInputs<'_>) -> MaintainResult<CompetitiveSample
     let workspace = temporary.path();
     let source_relative = inputs.workload.source_relative(inputs.language);
     let source_fixture = inputs.root.join(source_relative);
-    let source = workspace.join(format!("main.{}", inputs.language.extension()));
-    fs::copy(&source_fixture, &source).map_err(|error| {
-        format!(
-            "failed to copy fixture {} to {}: {error}",
-            source_fixture.display(),
-            source.display()
-        )
-    })?;
-    let source_bytes = fs::read(&source)
-        .map_err(|error| format!("failed to read fixture {}: {error}", source.display()))?;
-    let source_blake3 = blake3::hash(&source_bytes).to_hex().to_string();
-    let cache = workspace.join("project-cache");
+    let source = if inputs.workload.is_build() {
+        copy_tree(&source_fixture, workspace)?;
+        workspace.to_path_buf()
+    } else {
+        let source = workspace.join(format!("main.{}", inputs.language.extension()));
+        fs::copy(&source_fixture, &source).map_err(|error| {
+            format!(
+                "failed to copy fixture {} to {}: {error}",
+                source_fixture.display(),
+                source.display()
+            )
+        })?;
+        source
+    };
+    let source_blake3 = source_hash(&source_fixture)?;
+    let product_paths =
+        workload::project_product_paths(workspace, inputs.workload, inputs.language);
+    let cache = product_paths[0].clone();
     let output_kind = inputs.workload.output_kind(inputs.language);
-    let output = workload::output_path(workspace, output_kind);
+    let output = workload::output_path(
+        workspace,
+        inputs.workload,
+        inputs.language,
+        inputs.profile,
+        output_kind,
+    );
     let initial_state = InitialState {
-        project_cache_existed: cache.exists(),
+        project_products_existed: product_paths.iter().any(|path| path.exists()),
         output_existed: output.exists(),
     };
     let command = workload::command(
@@ -354,7 +448,7 @@ fn selected_workloads(options: &Options) -> MaintainResult<Vec<Workload>> {
     for name in &options.workloads {
         let workload = Workload::parse(name).ok_or_else(|| {
             format!(
-                "unknown competitive workload {name:?}; expected minimal_check, hello_check, or hello_executable"
+                "unknown competitive workload {name:?}; expected minimal_check, hello_check, hello_executable, empty_build, or hello_build"
             )
         })?;
         if selected.contains(&workload) {
@@ -405,11 +499,13 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
     }
     let (nia, nia_identity) = resolve_tool(&nia_input, &["--version"])?;
     let (rustc, rustc_identity) = resolve_tool(&options.rustc, &["--version", "--verbose"])?;
+    let (cargo, cargo_identity) = resolve_tool(&options.cargo, &["--version"])?;
     let (zig, zig_identity) = resolve_tool(&options.zig, &["version"])?;
     let (time, time_identity) = resolve_tool(&options.time, &["--version"])?;
     let programs = Programs {
         nia: &nia,
         rustc: &rustc,
+        cargo: &cargo,
         zig: &zig,
         resource_root: &resource_root,
     };
@@ -421,21 +517,27 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
     let revision = &toolchain.source.revision;
     let short_revision = &revision[..revision.len().min(12)];
     let experiment_id = format!(
-        "competitive-v1-{short_revision}-{started}-{}",
+        "competitive-v2-{short_revision}-{started}-{}",
         std::process::id()
     );
 
     let mut samples = Vec::new();
+    let samples_per_repetition = profiles.len()
+        * workloads
+            .iter()
+            .map(|workload| workload.languages().len())
+            .sum::<usize>();
     for repetition in 1..=options.repeat {
         for profile in &profiles {
             for workload in &workloads {
-                let rotation = (repetition - 1) % Language::ALL.len();
-                for offset in 0..Language::ALL.len() {
-                    let language = Language::ALL[(rotation + offset) % Language::ALL.len()];
+                let languages = workload.languages();
+                let rotation = (repetition - 1) % languages.len();
+                for offset in 0..languages.len() {
+                    let language = languages[(rotation + offset) % languages.len()];
                     let sequence = samples.len() + 1;
                     eprintln!(
                         "competitive: {sequence}/{} repetition={repetition} profile={profile:?} workload={} language={language:?}",
-                        options.repeat * profiles.len() * workloads.len() * Language::ALL.len(),
+                        options.repeat * samples_per_repetition,
                         workload.name()
                     );
                     samples.push(collect_sample(&SampleInputs {
@@ -465,14 +567,15 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
     };
     let report = CompetitiveBaseline {
         release_compatibility: nia_compat::RELEASE_COMPATIBILITY,
-        schema_version: 1,
-        kind: "competitive_compiler_baseline",
+        schema_version: 2,
+        kind: "competitive_toolchain_baseline",
         experiment_id: experiment_id.clone(),
         machine: machine_metadata(None),
         toolchain,
         tools: CompetitiveTools {
             nia: nia_identity,
             rustc: rustc_identity,
+            cargo: cargo_identity,
             zig: zig_identity,
             time: time_identity,
         },
@@ -482,7 +585,7 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
             repetitions: options.repeat,
             profiles: profiles.iter().map(|profile| profile.contract()).collect(),
             project_workspace_state: "fresh temporary workspace for every process",
-            project_cache_state: "fresh explicit Nia/Zig project cache per process; direct rustc incremental compilation disabled by omission",
+            project_product_state: "fresh Nia build/cache, Cargo target, and Zig local cache/output roots per build process; fresh explicit Nia/Zig project cache per direct process; direct rustc incremental compilation disabled by omission",
             sdk_toolchain_cache_state: "selected Nia resource root, rustc sysroot, and Zig global cache retained; SDK/toolchain-cold is a separate experiment",
             os_page_cache_state: "uncontrolled; may be warm and shared across interleaved tools",
         },
@@ -551,7 +654,7 @@ mod tests {
     #[test]
     fn acceptance_rejects_warm_or_invalid_samples() {
         let cold = InitialState {
-            project_cache_existed: false,
+            project_products_existed: false,
             output_existed: false,
         };
         assert!(sample_acceptance(&cold, true, true, Some(true)).passed);
@@ -560,7 +663,7 @@ mod tests {
         assert!(
             !sample_acceptance(
                 &InitialState {
-                    project_cache_existed: true,
+                    project_products_existed: true,
                     output_existed: false,
                 },
                 true,
@@ -572,7 +675,7 @@ mod tests {
         assert!(
             !sample_acceptance(
                 &InitialState {
-                    project_cache_existed: false,
+                    project_products_existed: false,
                     output_existed: true,
                 },
                 true,
