@@ -67,10 +67,8 @@ pub struct PerformanceResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-/// Release-compatible performance baseline and its machine identity.
+/// Performance baseline and its machine identity.
 pub struct PerformanceBaseline {
-    /// Nia release compatibility recorded by the baseline.
-    pub release_compatibility: u32,
     /// Machine identity captured with the samples.
     pub machine: MachineIdentity,
     /// Workload samples, including repeated entries.
@@ -99,8 +97,6 @@ pub struct MetricComparison {
 #[derive(Debug, Clone, Serialize)]
 /// Complete machine, threshold, and metric comparison report.
 pub struct ComparisonReport {
-    /// Nia release compatibility recorded by the comparison report.
-    pub release_compatibility: u32,
     /// Whether machine identity matched within tolerance.
     pub machine_compatible: bool,
     /// Human-readable machine mismatches.
@@ -168,12 +164,6 @@ fn validate_baseline(
     baseline: PerformanceBaseline,
     context: &str,
 ) -> MaintainResult<PerformanceBaseline> {
-    if baseline.release_compatibility != nia_compat::RELEASE_COMPATIBILITY {
-        return Err(format!(
-            "{context} does not use release_compatibility={}",
-            nia_compat::RELEASE_COMPATIBILITY
-        ));
-    }
     let machine_numbers = [
         baseline.machine.effective_cpu_limit,
         baseline.machine.effective_memory_limit_bytes,
@@ -201,7 +191,7 @@ fn validate_baseline(
     Ok(baseline)
 }
 
-/// Loads and validates one schema-v1 performance baseline JSON file.
+/// Loads and validates one performance baseline JSON file.
 pub fn load_baseline(path: &Path) -> MaintainResult<PerformanceBaseline> {
     let source = fs::read_to_string(path)
         .map_err(|error| format!("failed to read baseline {}: {error}", path.display()))?;
@@ -385,7 +375,6 @@ pub fn compare_baselines(
     }
     let passed = errors.is_empty() && comparisons.iter().all(|item| item.passed);
     Ok(ComparisonReport {
-        release_compatibility: nia_compat::RELEASE_COMPATIBILITY,
         machine_compatible: mismatches.is_empty(),
         machine_mismatches: mismatches,
         allow_machine_mismatch,
@@ -463,7 +452,6 @@ mod tests {
         model: &str,
     ) -> PerformanceBaseline {
         PerformanceBaseline {
-            release_compatibility: nia_compat::RELEASE_COMPATIBILITY,
             machine: MachineIdentity {
                 runner_class: runner.map(str::to_owned),
                 system: "Linux".to_owned(),
@@ -605,7 +593,6 @@ mod tests {
     #[test]
     fn rejects_boolean_metrics_at_the_schema_boundary() {
         let source = serde_json::json!({
-            "release_compatibility": nia_compat::RELEASE_COMPATIBILITY,
             "machine": {"system": "Linux", "architecture": "x86_64"},
             "results": [{
                 "name": "check",

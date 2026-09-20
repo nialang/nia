@@ -483,7 +483,6 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
     let dirty = command_output(root, git, &["status", "--porcelain"]).is_some();
     let version = command_output(root, &compiler, &["--version"]);
     let baseline = json!({
-        "release_compatibility": nia_compat::RELEASE_COMPATIBILITY,
         "compiler": {
             "path": command_label(root, &compiler.to_string_lossy()),
             "resource_root": command_label(root, &resource_root.to_string_lossy()),

@@ -1,5 +1,4 @@
 {
-  "release_compatibility": 2,
   "kind": "nia-std-build-host-source-closure",
   "roots": [
     "std/builtin.nia",

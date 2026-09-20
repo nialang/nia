@@ -45,7 +45,6 @@ fn fixture_result(process_id: u32, name: &str, counters: Map<String, Value>) -> 
         artifact_equivalence: None,
         reports: BuildReports {
             actions: ActionReport {
-                release_compatibility: nia_compat::RELEASE_COMPATIBILITY,
                 kind: "actions".to_owned(),
                 success: name != "failed_action",
                 counters: BTreeMap::new(),
