@@ -152,7 +152,7 @@ impl PublicSurfaceModuleFacts {
             let index = defs.defs.len();
             defs.defs.push(DefEntry {
                 id: fact.id,
-                identity: DefIdentity::cached(fact.id),
+                identity: DefIdentity::rehydrated(fact.id),
                 def: Def {
                     name: fact.name,
                     kind: fact.kind,
@@ -502,8 +502,12 @@ impl DefMap {
 }
 
 fn stable_def_id(identity: &DefIdentity) -> u64 {
+    let segments = match &identity.repr {
+        DefIdentityRepr::Structural(segments) => segments,
+        DefIdentityRepr::Rehydrated(id) => return id.0,
+    };
     let mut hash = StableDefHasher::new();
-    for segment in &identity.segments {
+    for segment in segments {
         hash.segment(segment);
     }
     hash.finish()
@@ -645,7 +649,13 @@ struct DefEntry {
 /// Canonical structural identity hashed into a stable [`DefId`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DefIdentity {
-    segments: Vec<DefIdentitySegment>,
+    repr: DefIdentityRepr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum DefIdentityRepr {
+    Structural(Box<[DefIdentitySegment]>),
+    Rehydrated(DefId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -678,52 +688,71 @@ enum DefNamespace {
 }
 
 impl DefIdentity {
-    fn cached(def_id: DefId) -> Self {
+    fn rehydrated(def_id: DefId) -> Self {
         Self {
-            segments: vec![DefIdentitySegment::Extension {
-                target: format!("cached-def:{:016x}", def_id.0),
-                trait_ref: None,
-                generics: Vec::new(),
-                where_clause: Vec::new(),
-            }],
+            repr: DefIdentityRepr::Rehydrated(def_id),
         }
     }
 
     fn top(namespace: DefNamespace, kind: DefKind, name: &SymbolId) -> Self {
         Self {
-            segments: vec![DefIdentitySegment::Top {
-                namespace,
-                kind,
-                name: *name,
-            }],
+            repr: DefIdentityRepr::Structural(
+                vec![DefIdentitySegment::Top {
+                    namespace,
+                    kind,
+                    name: *name,
+                }]
+                .into_boxed_slice(),
+            ),
         }
     }
 
     fn child(&self, kind: DefKind, name: &SymbolId) -> Self {
-        let mut segments = self.segments.clone();
+        let DefIdentityRepr::Structural(parent_segments) = &self.repr else {
+            unreachable!("cannot derive a child from a rehydrated definition identity");
+        };
+        let mut segments = Vec::with_capacity(parent_segments.len() + 1);
+        segments.extend_from_slice(parent_segments);
         segments.push(DefIdentitySegment::Member { kind, name: *name });
-        Self { segments }
+        Self {
+            repr: DefIdentityRepr::Structural(segments.into_boxed_slice()),
+        }
     }
 
     fn extension(extend: &ExtendItem) -> Self {
         Self {
-            segments: vec![DefIdentitySegment::Extension {
-                target: type_ref_identity(&extend.target),
-                trait_ref: extend.trait_ref.as_ref().map(type_ref_identity),
-                generics: generic_param_identities(&extend.generics),
-                where_clause: where_clause_identity(&extend.where_clause),
-            }],
+            repr: DefIdentityRepr::Structural(
+                vec![DefIdentitySegment::Extension {
+                    target: type_ref_identity(&extend.target),
+                    trait_ref: extend.trait_ref.as_ref().map(type_ref_identity),
+                    generics: generic_param_identities(&extend.generics),
+                    where_clause: where_clause_identity(&extend.where_clause),
+                }]
+                .into_boxed_slice(),
+            ),
         }
     }
 
     fn duplicate(&self, ordinal: u32) -> Self {
-        let mut segments = self.segments.clone();
+        let DefIdentityRepr::Structural(base_segments) = &self.repr else {
+            unreachable!("cannot disambiguate a rehydrated definition identity");
+        };
+        let mut segments = Vec::with_capacity(base_segments.len() + 1);
+        segments.extend_from_slice(base_segments);
         segments.push(DefIdentitySegment::Duplicate { ordinal });
-        Self { segments }
+        Self {
+            repr: DefIdentityRepr::Structural(segments.into_boxed_slice()),
+        }
     }
 
     fn display(&self) -> String {
-        self.segments
+        let segments = match &self.repr {
+            DefIdentityRepr::Structural(segments) => segments,
+            DefIdentityRepr::Rehydrated(id) => {
+                return format!("extend:None:cached-def:{:016x}:[]:[]", id.0);
+            }
+        };
+        segments
             .iter()
             .map(|segment| match segment {
                 DefIdentitySegment::Top {
