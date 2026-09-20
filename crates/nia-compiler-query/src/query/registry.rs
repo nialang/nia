@@ -37,6 +37,7 @@ pub(super) fn compiler_query_registry() -> QueryResult<nia_query::QueryRegistry>
         ConstQuery,
         ConstTypedFactsQuery,
         ConstValuesQuery,
+        CurrentModuleIdQuery,
         DeclarationActiveModuleItemTreeInputQuery,
         DeclarationActiveModuleItemTreeQuery,
         DeclarationModuleItemTreeInputQuery,

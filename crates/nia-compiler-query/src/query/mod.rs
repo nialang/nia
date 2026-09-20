@@ -3365,16 +3365,6 @@ impl CompilerContext {
             })
     }
 
-    fn module_id_for_stable_key(
-        &self,
-        stable_key: &StableModuleKey,
-    ) -> QueryResult<Option<ModuleId>> {
-        Ok(self
-            .loader_facts
-            .module_graph()?
-            .module_id_for_stable_key(stable_key))
-    }
-
     fn symbols(&self) -> nia_symbol_table::SymbolTable {
         self.loader_facts().symbols()
     }

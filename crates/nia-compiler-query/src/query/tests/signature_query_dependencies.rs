@@ -3,6 +3,40 @@
 use super::*;
 
 #[test]
+fn signature_type_resolution_semantic_uses_precise_module_graph_facts() {
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fn make(value: i32) i32 { value }");
+    let module_id = fixture.entry_id();
+    let db = query_db(fixture.program());
+
+    let resolution = db.expect_get(SignatureTypeResolutionSemanticQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Functions,
+    ));
+    assert!(
+        resolution.semantic.diagnostics.is_empty(),
+        "{:?}",
+        resolution.semantic.diagnostics
+    );
+    let trace = db.query_trace().expect("query trace");
+
+    assert!(trace_has_dependency(
+        &trace,
+        "signature_type_resolution_semantic",
+        "module_graph_entry"
+    ));
+    assert!(trace_has_dependency(
+        &trace,
+        "signature_type_resolution_semantic",
+        "current_module_id"
+    ));
+    assert!(!trace_has_dependency(
+        &trace,
+        "signature_type_resolution_semantic",
+        "module_graph"
+    ));
+}
+
+#[test]
 fn body_check_resolves_program_signatures_through_precise_signature_queries() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",

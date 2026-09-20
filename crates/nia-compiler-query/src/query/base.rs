@@ -93,6 +93,31 @@ impl QueryKey<CompilerContext> for ModuleGraphQuery {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct CurrentModuleIdQuery(pub(super) StableModuleKey);
+
+impl QueryKey<CompilerContext> for CurrentModuleIdQuery {
+    type Value = Option<ModuleId>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "current_module_id"
+    }
+
+    fn description(&self) -> String {
+        format!("current_module_id({:?})", self.0)
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        Ok(db.get(ModuleGraphQuery)?.module_id_for_stable_key(&self.0))
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ModuleGraphEntryQuery;
 

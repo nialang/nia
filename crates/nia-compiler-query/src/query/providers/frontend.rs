@@ -114,22 +114,13 @@ pub(super) fn provide_full_module_defs(
 
 fn canonical_builtin_trait(
     db: &QueryDb<CompilerContext>,
+    graph: &dyn nia_imports::ModuleGraphLookup,
     def_id: GlobalDefId,
 ) -> QueryResult<Option<nia_ids::BuiltinTrait>> {
-    let graph = db.get(ModuleGraphQuery)?;
-    let Some(std_root) = graph.std_package_root() else {
+    let Some(std_root) = graph.package_root_module(&nia_symbol::known::STD) else {
         return Ok(None);
     };
-    let mut cursor = Some(def_id.module_id);
-    let mut belongs_to_std = false;
-    while let Some(module_id) = cursor {
-        if module_id == std_root {
-            belongs_to_std = true;
-            break;
-        }
-        cursor = graph.get(module_id).and_then(|node| node.parent);
-    }
-    if !belongs_to_std {
+    if graph.current_package_root_module(def_id.module_id) != Some(std_root) {
         return Ok(None);
     }
 
@@ -289,7 +280,11 @@ pub(super) fn provide_type_resolution(
             capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id))
         };
         let builtin_trait = |def_id| {
-            capture_query_failure(&query_failure, canonical_builtin_trait(db, def_id)).flatten()
+            capture_query_failure(
+                &query_failure,
+                canonical_builtin_trait(db, graph.as_ref(), def_id),
+            )
+            .flatten()
         };
         let symbols = db.context().symbols();
         let mut resolution =
@@ -333,7 +328,11 @@ pub(super) fn provide_declaration_type_resolution(
         let program_defs =
             |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
         let builtin_trait = |def_id| {
-            capture_query_failure(&query_failure, canonical_builtin_trait(db, def_id)).flatten()
+            capture_query_failure(
+                &query_failure,
+                canonical_builtin_trait(db, graph.as_ref(), def_id),
+            )
+            .flatten()
         };
         let symbols = db.context().symbols();
         let resolution =
@@ -476,14 +475,15 @@ pub(in crate::query) fn provide_signature_type_resolution_semantic(
     time_module_provider(db, "signature_type_resolution_semantic", module_id, || {
         let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set))?;
         let defs = module_defs_semantic(db, module_id)?;
-        let graph = db.get(ModuleGraphQuery)?;
+        let graph = QueryModuleGraphLookup::new(db)?;
         let public_surfaces = db.get(PublicSurfacesQuery)?;
         let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
         let query_failure = RefCell::new(None);
         let program_defs =
             |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
         let builtin_trait = |def_id| {
-            capture_query_failure(&query_failure, canonical_builtin_trait(db, def_id)).flatten()
+            capture_query_failure(&query_failure, canonical_builtin_trait(db, &graph, def_id))
+                .flatten()
         };
         let symbols = db.context().symbols();
         let mut resolution = nia_type_resolve::resolve_module_declaration_types_from_active_item_tree_with_symbols_in_store(
@@ -491,7 +491,7 @@ pub(in crate::query) fn provide_signature_type_resolution_semantic(
             &defs,
             nia_type_resolve::ProgramDefsContext {
                 defs: Some(&program_defs),
-                graph: Some(graph.as_ref()),
+                graph: Some(&graph),
                 builtin_trait: Some(&builtin_trait),
             },
             &public_surfaces.surfaces,
@@ -499,7 +499,7 @@ pub(in crate::query) fn provide_signature_type_resolution_semantic(
             &symbols,
             db.context().node_store(),
         );
-        if let Some(error) = query_failure.into_inner() {
+        if let Some(error) = query_failure.into_inner().or_else(|| graph.take_failure()) {
             return Err(error);
         }
         let diagnostics = std::mem::take(&mut resolution.diagnostics);
@@ -524,7 +524,11 @@ pub(super) fn provide_signature_const_type_resolution(
         let program_defs =
             |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
         let builtin_trait = |def_id| {
-            capture_query_failure(&query_failure, canonical_builtin_trait(db, def_id)).flatten()
+            capture_query_failure(
+                &query_failure,
+                canonical_builtin_trait(db, graph.as_ref(), def_id),
+            )
+            .flatten()
         };
         let symbols = db.context().symbols();
         let resolution =

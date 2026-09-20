@@ -108,14 +108,22 @@ fn stable_graph_entry_remaps_after_module_graph_owner_replacement() {
     assert_ne!(old_entry, new_entry);
     let database = old_fixture.database();
     let first = database.db.expect_get(ModuleGraphEntryQuery);
+    let first_module_id = database
+        .db
+        .expect_get(CurrentModuleIdQuery(first.as_ref().clone()));
     let first_loaded = database.db.expect_get(LoadedModulesQuery);
+    assert_eq!(*first_module_id, Some(old_entry));
 
     database.update(CompileRequest::new(new_fixture.program()));
 
     let latest = database.db.expect_get(ModuleGraphEntryQuery);
+    let latest_module_id = database
+        .db
+        .expect_get(CurrentModuleIdQuery(latest.as_ref().clone()));
     let latest_loaded = database.db.expect_get(LoadedModulesQuery);
     assert!(!Arc::ptr_eq(&first, &latest));
     assert_eq!(first.as_ref(), latest.as_ref());
+    assert_eq!(*latest_module_id, Some(new_entry));
     assert!(Arc::ptr_eq(&first_loaded, &latest_loaded));
     assert_eq!(
         resolve_stable_module_sequence(&database.db, &latest_loaded)
