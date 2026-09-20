@@ -66,6 +66,11 @@ impl BackendProgram {
         Arc::clone(&self.modules.store)
     }
 
+    /// Counts source and instantiated functions retained by backend lowering.
+    pub fn function_stats(&self) -> BackendFunctionStats {
+        BackendFunctionStats::from_modules(&self.modules)
+    }
+
     /// Derives the deterministic codegen partition plan.
     pub fn codegen_partition_plan(&self) -> nia_ice::IceResult<CodegenPartitionPlan> {
         CodegenPartitionPlan::from_modules(&self.modules)
@@ -102,6 +107,61 @@ impl BackendProgram {
             ));
         }
         Ok(module)
+    }
+}
+
+/// Counts function items and emitted definitions in a backend program.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BackendFunctionStats {
+    source_items: usize,
+    source_definitions: usize,
+    instance_items: usize,
+    instance_definitions: usize,
+}
+
+impl BackendFunctionStats {
+    fn from_modules(modules: &BackendModules) -> Self {
+        let mut stats = Self::default();
+        for module in modules.iter() {
+            stats.source_items += module.functions.len();
+            stats.source_definitions += module
+                .functions
+                .iter()
+                .filter(|function| function.function_body.is_some())
+                .count();
+            stats.instance_items += module.function_instances.len();
+            stats.instance_definitions += module
+                .function_instances
+                .iter()
+                .filter(|function| function.function_body.is_some())
+                .count();
+        }
+        stats
+    }
+
+    /// Returns all retained non-instantiated function items.
+    pub const fn source_items(self) -> usize {
+        self.source_items
+    }
+
+    /// Returns non-instantiated functions carrying an emitted body.
+    pub const fn source_definitions(self) -> usize {
+        self.source_definitions
+    }
+
+    /// Returns all retained concrete function-instance items.
+    pub const fn instance_items(self) -> usize {
+        self.instance_items
+    }
+
+    /// Returns concrete function instances carrying an emitted body.
+    pub const fn instance_definitions(self) -> usize {
+        self.instance_definitions
+    }
+
+    /// Returns all source and instantiated definitions carrying a body.
+    pub const fn definitions(self) -> usize {
+        self.source_definitions + self.instance_definitions
     }
 }
 

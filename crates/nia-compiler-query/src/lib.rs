@@ -58,6 +58,7 @@ pub use frontend_fingerprint::{
     item_signature_fingerprint, source_content_fingerprint, syntax_fingerprint,
 };
 
+pub use nia_backend_ir::BackendFunctionStats;
 pub use nia_backend_lower::{BackendOptimizationChange, BackendOptimizationReport};
 pub use nia_timing::TimingMode;
 pub use query::{
