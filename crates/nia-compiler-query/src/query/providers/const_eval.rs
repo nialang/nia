@@ -169,19 +169,23 @@ pub(super) fn with_const_input_and_program_facts<T>(
         }
         capture_query_failure(&query_failure, type_normalization_semantic(db, module_id))
     };
-    let local_trait_impls = non_function_signatures_override
-        .is_none()
-        .then(|| db.get(VisibleTraitImplsQuery(module_id)))
-        .transpose()?;
+    let local_trait_impls = RefCell::new(None);
     let trait_impls_for_module = |requested_module_id| {
         if requested_module_id == module_id {
-            return non_function_signatures_override
-                .map(|signatures| signatures.trait_impls.clone())
-                .or_else(|| {
-                    local_trait_impls
-                        .as_ref()
-                        .map(|signatures| signatures.trait_impls.clone())
-                });
+            if let Some(signatures) = non_function_signatures_override {
+                return Some(signatures.trait_impls.clone());
+            }
+            if local_trait_impls.borrow().is_none() {
+                let facts = capture_query_failure(
+                    &query_failure,
+                    db.get(VisibleTraitImplsQuery(module_id)),
+                )?;
+                *local_trait_impls.borrow_mut() = Some(facts);
+            }
+            return local_trait_impls
+                .borrow()
+                .as_ref()
+                .map(|signatures| signatures.trait_impls.clone());
         }
         if let Some(signatures) = non_function_signatures_override {
             return Some(signatures.trait_impls.clone());
@@ -237,10 +241,20 @@ pub(super) fn with_const_input_and_program_facts<T>(
             ),
         )
     };
-    let local_visible_extensions = db.get(VisibleExtensionsQuery(module_id))?;
+    let local_visible_extensions = RefCell::new(None);
     let visible_extensions_for_module = |requested_module_id| {
         if requested_module_id == module_id {
-            return Some(local_visible_extensions.methods.clone());
+            if local_visible_extensions.borrow().is_none() {
+                let facts = capture_query_failure(
+                    &query_failure,
+                    db.get(VisibleExtensionsQuery(module_id)),
+                )?;
+                *local_visible_extensions.borrow_mut() = Some(facts);
+            }
+            return local_visible_extensions
+                .borrow()
+                .as_ref()
+                .map(|extensions| extensions.methods.clone());
         }
         capture_query_failure(
             &query_failure,
