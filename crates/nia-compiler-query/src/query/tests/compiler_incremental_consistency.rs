@@ -134,15 +134,30 @@ fn method_provider_change_removes_only_affected_function_diagnostics() {
         "pub fn value() i32 { 1 }",
     );
     database.update(CompileRequest::new(fixture.program()));
+    let provider_change_count = provider_changes.len();
     database.replace_provider_facts(provider_fact_snapshot(
         next_revision(revision),
         revision,
         provider_changes,
     ));
     let worklist = database.db.expect_get(ProviderFactWorklistQuery);
+    let module_versions = fixture
+        .modules
+        .iter()
+        .map(|module| (module.id, module.source_version))
+        .collect::<HashMap<_, _>>();
 
     let mut session = database.db.context().executable_fact_session.lock();
-    session.apply_provider_fact_worklist(&worklist, &database.db.context().type_store);
+    assert!(session.can_preserve_diagnostic_facts_for_provider_growth(&worklist, &module_versions));
+    let invalidation =
+        session.apply_provider_fact_worklist(&worklist, &database.db.context().type_store);
+    assert_eq!(invalidation.invalidating_changes, provider_change_count);
+    assert_eq!(invalidation.invalidated_functions, 1);
+    let module_sync = session.synchronize_module_versions(&module_versions, true);
+    assert_eq!(module_sync.added_modules, 1);
+    assert_eq!(module_sync.discarded_diagnostic_modules, 0);
+    assert_eq!(module_sync.discarded_functions, 0);
+    assert!(!module_sync.reset_reachability);
     let state = session
         .modules
         .get(&entry_id)

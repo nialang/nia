@@ -393,9 +393,27 @@ fn executable_check_in_session(
         Err(error) => return (Err(error), session),
     };
     session.enter_epoch(&executable_fact_epoch);
-    session.synchronize_module_versions(&module_versions);
-    session.apply_body_activation_worklist(&body_activation_worklist);
-    session.apply_provider_fact_worklist(&provider_fact_worklist, &db.context().type_store);
+    let precise_provider_growth = session.can_preserve_diagnostic_facts_for_provider_growth(
+        &provider_fact_worklist,
+        &module_versions,
+    );
+    let (module_sync, invalidation) = if precise_provider_growth {
+        let invalidation =
+            session.apply_provider_fact_worklist(&provider_fact_worklist, &db.context().type_store);
+        let module_sync = session.synchronize_module_versions(&module_versions, true);
+        (module_sync, invalidation)
+    } else {
+        let module_sync = session.synchronize_module_versions(&module_versions, false);
+        session.apply_body_activation_worklist(&body_activation_worklist);
+        let invalidation =
+            session.apply_provider_fact_worklist(&provider_fact_worklist, &db.context().type_store);
+        (module_sync, invalidation)
+    };
+    emit_module_version_sync_counters(db, product, module_sync);
+    emit_provider_fact_invalidation_counters(db, product, invalidation);
+    if precise_provider_growth {
+        session.apply_body_activation_worklist(&body_activation_worklist);
+    }
     let ExecutableFactSession {
         epoch,
         module_versions,
@@ -1259,6 +1277,75 @@ fn emit_executable_check_counter(
     nia_timing::emit_counter(
         format!("compiler.executable_checked_modules.{product}.{name}"),
         value,
+    );
+}
+
+fn emit_provider_fact_invalidation_counters(
+    db: &QueryDb<CompilerContext>,
+    product: ExecutableCheckProduct,
+    stats: ProviderFactInvalidationStats,
+) {
+    emit_executable_check_counter(db, product, "provider_changes", stats.changes as u64);
+    emit_executable_check_counter(
+        db,
+        product,
+        "invalidating_provider_changes",
+        stats.invalidating_changes as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "provider_discarded_modules",
+        stats.discarded_modules as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "provider_invalidated_functions",
+        stats.invalidated_functions as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "provider_reachability_resets",
+        u64::from(stats.reset_reachability),
+    );
+}
+
+fn emit_module_version_sync_counters(
+    db: &QueryDb<CompilerContext>,
+    product: ExecutableCheckProduct,
+    stats: ModuleVersionSyncStats,
+) {
+    emit_executable_check_counter(
+        db,
+        product,
+        "module_sync_added_modules",
+        stats.added_modules as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "module_sync_removed_or_changed_modules",
+        stats.removed_or_changed_modules as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "module_sync_discarded_diagnostic_modules",
+        stats.discarded_diagnostic_modules as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "module_sync_discarded_functions",
+        stats.discarded_functions as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "module_sync_reachability_resets",
+        u64::from(stats.reset_reachability),
     );
 }
 
