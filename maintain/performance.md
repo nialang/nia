@@ -120,9 +120,12 @@ may be repeated to select distinct entries; duplicate selections are rejected
 rather than measured twice accidentally.
 
 The matrix covers `minimal_check`, `hello_check`, `hello_executable`,
-`empty_build`, and `hello_build`. The sources under `benchmarks/competitive/` are maintained
-language-native Rust and Zig counterparts to `benchmarks/minimal.nia` and
-`examples/hello.nia`. Check modes are deliberately described precisely:
+`empty_build`, `hello_build`, and the `synthetic_10_modules`,
+`synthetic_50_modules`, `synthetic_100_modules`, and
+`synthetic_500_modules` scales. The sources under `benchmarks/competitive/`
+are maintained language-native Rust and Zig counterparts to
+`benchmarks/minimal.nia` and `examples/hello.nia`. Check modes are deliberately
+described precisely:
 
 - Nia uses `nia check` without native output.
 - Rust uses direct `rustc --emit=metadata`. Rust has no direct full semantic
@@ -147,6 +150,18 @@ so that matrix cell is recorded as unavailable and no misleading sample is
 fabricated. The Hello build does produce and execute one native executable
 through `nia build`, Cargo, and `zig build`.
 
+The synthetic scales are generated directly into each sample's fresh workspace
+from one deterministic workload specification. A scale of N means N leaf
+modules plus one executable root source file. The root has a flat/star edge to
+every leaf and calls every leaf at runtime. Each leaf contains one
+compile-time-derived constant, one module-local generic identity instance, and
+one reachable value function. The executable checks the exact aggregate and
+prints `synthetic-ok`; the collector runs it and rejects a wrong result. The
+100-leaf point is the fixed medium synthetic corpus. Nia, Rust, and Zig use
+language-native source spellings, so source byte counts and hashes differ, but
+the graph and semantic work contract are the same. This controlled flat graph
+does not stand in for later deep-chain or mixed-fan-out workloads.
+
 Every process gets an independently created workspace and absent expected
 output. Direct compilation starts with absent explicit Nia/Zig project caches;
 build-system samples start without Nia build/cache directories, Cargo's target
@@ -157,13 +172,16 @@ project-cold comparison, not an SDK/toolchain-cold comparison. OS page cache is
 uncontrolled and shared across the interleaved tools. Compiler order rotates
 between repetitions to reduce fixed ordering bias.
 
-The versioned JSON retains the experiment and Git revision identities, dirty
-state, complete compiler and GNU time identities, normalized command, source
-hash, raw stdout/stderr, process wall/user/system time, CPU utilization, peak
-RSS, artifact size and hash, executable output verification, and every raw
-sample. Summaries report median, nearest-rank p95, minimum, and maximum. A
-report is still published when a compiler or acceptance check fails so the
-failure remains auditable.
+The JSON retains the experiment and Git revision identities, dirty state,
+complete compiler and GNU time identities, normalized command, typed source
+manifest (descriptor, tree hash, file count, and source bytes), raw
+stdout/stderr, process wall/user/system time, CPU utilization, peak RSS,
+artifact size and hash, executable output verification, and every raw sample.
+The report shape is owned by the current maintenance source and has no
+independent schema or compatibility version; Git revision and complete tool
+identities provide experiment attribution. Summaries report median,
+nearest-rank p95, minimum, and maximum. A report is still published when a
+compiler or acceptance check fails so the failure remains auditable.
 
 To audit persistent frontend reuse across separate compiler processes, give both
 checks the same explicit artifact cache directory:
@@ -225,9 +243,9 @@ the private runner executable; the runner is still started and its plan is
 still validated and executed. Malformed or corrupted records are retired as
 misses.
 
-Diagnostics and the JSON record both use stderr, but the JSON record is one
-complete line beginning with `{"release_compatibility":2`; the baseline runner selects
-that record structurally rather than parsing diagnostic or timing prose.
+Diagnostics and compiler timing records both use stderr. The baseline runner
+selects a complete structured timing record for the current toolchain rather
+than parsing diagnostic or timing prose.
 
 ## Machine Resource Model
 

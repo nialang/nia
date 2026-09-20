@@ -28,7 +28,16 @@ pub(super) struct ToolContract {
 pub(super) struct WorkloadContract {
     pub(super) name: &'static str,
     pub(super) source_class: &'static str,
+    pub(super) synthetic: Option<SyntheticContract>,
     pub(super) tools: Vec<ToolContract>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct SyntheticContract {
+    pub(super) generator: &'static str,
+    pub(super) leaf_modules: usize,
+    pub(super) graph: &'static str,
+    pub(super) per_module_work: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -104,14 +113,21 @@ pub(super) struct SampleAcceptance {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub(super) struct SourceManifest {
+    pub(super) descriptor: &'static str,
+    pub(super) blake3: String,
+    pub(super) file_count: usize,
+    pub(super) size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub(super) struct CompetitiveSample {
     pub(super) sequence: usize,
     pub(super) repetition: usize,
     pub(super) profile: Profile,
     pub(super) workload: &'static str,
     pub(super) language: Language,
-    pub(super) source: &'static str,
-    pub(super) source_blake3: String,
+    pub(super) source: SourceManifest,
     pub(super) command: Vec<String>,
     pub(super) process_id: u32,
     pub(super) return_code: i32,
@@ -151,8 +167,6 @@ pub(super) struct AggregateAcceptance {
 
 #[derive(Debug, Serialize)]
 pub(super) struct CompetitiveBaseline {
-    pub(super) release_compatibility: u32,
-    pub(super) schema_version: u32,
     pub(super) kind: &'static str,
     pub(super) experiment_id: String,
     pub(super) machine: MachineMetadata,

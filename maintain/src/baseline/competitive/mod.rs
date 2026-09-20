@@ -1,6 +1,7 @@
 mod process;
 mod schema;
 mod summary;
+mod synthetic;
 mod workload;
 
 use std::collections::BTreeSet;
@@ -15,7 +16,7 @@ use self::process::measure;
 use self::schema::{
     AggregateAcceptance, Artifact, CompetitiveBaseline, CompetitiveConfiguration,
     CompetitiveSample, CompetitiveTools, ExecutionVerification, InitialState, OutputKind,
-    ProfileContract, SampleAcceptance,
+    ProfileContract, SampleAcceptance, SourceManifest,
 };
 use self::summary::summarize;
 use self::workload::{Programs, Workload};
@@ -242,16 +243,23 @@ fn collect_tree_files(
     Ok(())
 }
 
-fn source_hash(path: &Path) -> MaintainResult<String> {
+fn source_manifest(path: &Path, descriptor: &'static str) -> MaintainResult<SourceManifest> {
     if path.is_file() {
         let bytes = fs::read(path)
             .map_err(|error| format!("failed to read fixture {}: {error}", path.display()))?;
-        return Ok(blake3::hash(&bytes).to_hex().to_string());
+        return Ok(SourceManifest {
+            descriptor,
+            blake3: blake3::hash(&bytes).to_hex().to_string(),
+            file_count: 1,
+            size_bytes: bytes.len() as u64,
+        });
     }
     let mut files = Vec::new();
     collect_tree_files(path, path, &mut files)?;
     files.sort();
+    let file_count = files.len();
     let mut hasher = blake3::Hasher::new();
+    let mut size_bytes = 0u64;
     for relative in files {
         let bytes = fs::read(path.join(&relative)).map_err(|error| {
             format!(
@@ -263,8 +271,14 @@ fn source_hash(path: &Path) -> MaintainResult<String> {
         hasher.update(&[0]);
         hasher.update(&(bytes.len() as u64).to_le_bytes());
         hasher.update(&bytes);
+        size_bytes += bytes.len() as u64;
     }
-    Ok(hasher.finalize().to_hex().to_string())
+    Ok(SourceManifest {
+        descriptor,
+        blake3: hasher.finalize().to_hex().to_string(),
+        file_count,
+        size_bytes,
+    })
 }
 
 fn verify_executable(
@@ -336,23 +350,35 @@ fn sample_acceptance(
 fn collect_sample(inputs: &SampleInputs<'_>) -> MaintainResult<CompetitiveSample> {
     let temporary = TemporaryDirectory::new("nia-competitive-")?;
     let workspace = temporary.path();
-    let source_relative = inputs.workload.source_relative(inputs.language);
-    let source_fixture = inputs.root.join(source_relative);
-    let source = if inputs.workload.is_build() {
-        copy_tree(&source_fixture, workspace)?;
-        workspace.to_path_buf()
+    let source_descriptor = inputs.workload.source_descriptor(inputs.language);
+    let source_fixture = inputs
+        .workload
+        .source_relative(inputs.language)
+        .map(|relative| inputs.root.join(relative));
+    let (source, manifest_root) = if let Some(leaf_modules) = inputs.workload.synthetic_modules() {
+        let source = synthetic::generate(workspace, inputs.language, leaf_modules)?;
+        (source, workspace.to_path_buf())
+    } else if inputs.workload.is_build() {
+        let source_fixture = source_fixture
+            .as_ref()
+            .expect("build workload has a fixture");
+        copy_tree(source_fixture, workspace)?;
+        (workspace.to_path_buf(), workspace.to_path_buf())
     } else {
+        let source_fixture = source_fixture
+            .as_ref()
+            .expect("direct workload has a fixture");
         let source = workspace.join(format!("main.{}", inputs.language.extension()));
-        fs::copy(&source_fixture, &source).map_err(|error| {
+        fs::copy(source_fixture, &source).map_err(|error| {
             format!(
                 "failed to copy fixture {} to {}: {error}",
                 source_fixture.display(),
                 source.display()
             )
         })?;
-        source
+        (source.clone(), source)
     };
-    let source_blake3 = source_hash(&source_fixture)?;
+    let source_manifest = source_manifest(&manifest_root, source_descriptor)?;
     let product_paths =
         workload::project_product_paths(workspace, inputs.workload, inputs.language);
     let cache = product_paths[0].clone();
@@ -412,8 +438,7 @@ fn collect_sample(inputs: &SampleInputs<'_>) -> MaintainResult<CompetitiveSample
         profile: inputs.profile,
         workload: inputs.workload.name(),
         language: inputs.language,
-        source: inputs.workload.source_relative(inputs.language),
-        source_blake3,
+        source: source_manifest,
         command: command_label,
         process_id: measured.process_id,
         return_code: measured.return_code,
@@ -448,7 +473,8 @@ fn selected_workloads(options: &Options) -> MaintainResult<Vec<Workload>> {
     for name in &options.workloads {
         let workload = Workload::parse(name).ok_or_else(|| {
             format!(
-                "unknown competitive workload {name:?}; expected minimal_check, hello_check, hello_executable, empty_build, or hello_build"
+                "unknown competitive workload {name:?}; expected one of: {}",
+                Workload::ALL.map(Workload::name).join(", ")
             )
         })?;
         if selected.contains(&workload) {
@@ -517,7 +543,7 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
     let revision = &toolchain.source.revision;
     let short_revision = &revision[..revision.len().min(12)];
     let experiment_id = format!(
-        "competitive-v2-{short_revision}-{started}-{}",
+        "competitive-{short_revision}-{started}-{}",
         std::process::id()
     );
 
@@ -566,8 +592,6 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
         failed_sequences,
     };
     let report = CompetitiveBaseline {
-        release_compatibility: nia_compat::RELEASE_COMPATIBILITY,
-        schema_version: 2,
         kind: "competitive_toolchain_baseline",
         experiment_id: experiment_id.clone(),
         machine: machine_metadata(None),
@@ -684,5 +708,20 @@ mod tests {
             )
             .passed
         );
+    }
+
+    #[test]
+    fn generated_source_manifest_is_relocation_stable() {
+        let first = TemporaryDirectory::new("nia-synthetic-manifest-").unwrap();
+        let second = TemporaryDirectory::new("nia-synthetic-manifest-").unwrap();
+        synthetic::generate(first.path(), Language::Nia, 3).unwrap();
+        synthetic::generate(second.path(), Language::Nia, 3).unwrap();
+        let first = source_manifest(first.path(), "generated:competitive_synthetic/test").unwrap();
+        let second =
+            source_manifest(second.path(), "generated:competitive_synthetic/test").unwrap();
+        assert_eq!(first.blake3, second.blake3);
+        assert_eq!(first.file_count, 4);
+        assert_eq!(first.file_count, second.file_count);
+        assert_eq!(first.size_bytes, second.size_bytes);
     }
 }

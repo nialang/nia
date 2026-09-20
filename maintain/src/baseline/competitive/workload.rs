@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use super::schema::{OutputKind, ToolContract, WorkloadContract};
+use super::schema::{OutputKind, SyntheticContract, ToolContract, WorkloadContract};
+use super::synthetic;
 use super::{Language, Profile};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -10,15 +11,23 @@ pub(super) enum Workload {
     HelloExecutable,
     EmptyBuild,
     HelloBuild,
+    Synthetic10Modules,
+    Synthetic50Modules,
+    Synthetic100Modules,
+    Synthetic500Modules,
 }
 
 impl Workload {
-    pub(super) const ALL: [Self; 5] = [
+    pub(super) const ALL: [Self; 9] = [
         Self::MinimalCheck,
         Self::HelloCheck,
         Self::HelloExecutable,
         Self::EmptyBuild,
         Self::HelloBuild,
+        Self::Synthetic10Modules,
+        Self::Synthetic50Modules,
+        Self::Synthetic100Modules,
+        Self::Synthetic500Modules,
     ];
 
     pub(super) fn parse(name: &str) -> Option<Self> {
@@ -34,6 +43,10 @@ impl Workload {
             Self::HelloExecutable => "hello_executable",
             Self::EmptyBuild => "empty_build",
             Self::HelloBuild => "hello_build",
+            Self::Synthetic10Modules => "synthetic_10_modules",
+            Self::Synthetic50Modules => "synthetic_50_modules",
+            Self::Synthetic100Modules => "synthetic_100_modules",
+            Self::Synthetic500Modules => "synthetic_500_modules",
         }
     }
 
@@ -56,33 +69,73 @@ impl Workload {
             }
             Self::EmptyBuild => "empty build graph or closest available coordinator-only mode",
             Self::HelloBuild => "standard-library hello world through the native build system",
+            Self::Synthetic10Modules
+            | Self::Synthetic50Modules
+            | Self::Synthetic100Modules
+            | Self::Synthetic500Modules => {
+                "generated flat/star native executable with controlled frontend and reachable code"
+            }
         }
     }
 
-    pub(super) const fn source_relative(self, language: Language) -> &'static str {
+    pub(super) const fn synthetic_modules(self) -> Option<usize> {
+        match self {
+            Self::Synthetic10Modules => Some(10),
+            Self::Synthetic50Modules => Some(50),
+            Self::Synthetic100Modules => Some(100),
+            Self::Synthetic500Modules => Some(500),
+            _ => None,
+        }
+    }
+
+    pub(super) const fn source_descriptor(self, language: Language) -> &'static str {
+        match self {
+            Self::Synthetic10Modules => "generated:competitive_synthetic/10-leaf-modules",
+            Self::Synthetic50Modules => "generated:competitive_synthetic/50-leaf-modules",
+            Self::Synthetic100Modules => "generated:competitive_synthetic/100-leaf-modules",
+            Self::Synthetic500Modules => "generated:competitive_synthetic/500-leaf-modules",
+            _ => match self.source_relative(language) {
+                Some(relative) => relative,
+                None => unreachable!(),
+            },
+        }
+    }
+
+    pub(super) const fn source_relative(self, language: Language) -> Option<&'static str> {
         match (self, language) {
-            (Self::MinimalCheck, Language::Nia) => "benchmarks/minimal.nia",
-            (Self::MinimalCheck, Language::Rust) => "benchmarks/competitive/minimal.rs",
-            (Self::MinimalCheck, Language::Zig) => "benchmarks/competitive/minimal.zig",
-            (Self::HelloCheck | Self::HelloExecutable, Language::Nia) => "examples/hello.nia",
+            (Self::MinimalCheck, Language::Nia) => Some("benchmarks/minimal.nia"),
+            (Self::MinimalCheck, Language::Rust) => Some("benchmarks/competitive/minimal.rs"),
+            (Self::MinimalCheck, Language::Zig) => Some("benchmarks/competitive/minimal.zig"),
+            (Self::HelloCheck | Self::HelloExecutable, Language::Nia) => Some("examples/hello.nia"),
             (Self::HelloCheck | Self::HelloExecutable, Language::Rust) => {
-                "benchmarks/competitive/hello.rs"
+                Some("benchmarks/competitive/hello.rs")
             }
             (Self::HelloCheck | Self::HelloExecutable, Language::Zig) => {
-                "benchmarks/competitive/hello.zig"
+                Some("benchmarks/competitive/hello.zig")
             }
-            (Self::EmptyBuild, Language::Nia) => "benchmarks/competitive/build/nia-empty",
+            (Self::EmptyBuild, Language::Nia) => Some("benchmarks/competitive/build/nia-empty"),
             (Self::EmptyBuild, Language::Rust) => panic!("Cargo empty-build mode is unavailable"),
-            (Self::EmptyBuild, Language::Zig) => "benchmarks/competitive/build/zig-empty",
-            (Self::HelloBuild, Language::Nia) => "benchmarks/competitive/build/nia-hello",
-            (Self::HelloBuild, Language::Rust) => "benchmarks/competitive/build/cargo-hello",
-            (Self::HelloBuild, Language::Zig) => "benchmarks/competitive/build/zig-hello",
+            (Self::EmptyBuild, Language::Zig) => Some("benchmarks/competitive/build/zig-empty"),
+            (Self::HelloBuild, Language::Nia) => Some("benchmarks/competitive/build/nia-hello"),
+            (Self::HelloBuild, Language::Rust) => Some("benchmarks/competitive/build/cargo-hello"),
+            (Self::HelloBuild, Language::Zig) => Some("benchmarks/competitive/build/zig-hello"),
+            (
+                Self::Synthetic10Modules
+                | Self::Synthetic50Modules
+                | Self::Synthetic100Modules
+                | Self::Synthetic500Modules,
+                _,
+            ) => None,
         }
     }
 
     pub(super) const fn output_kind(self, language: Language) -> OutputKind {
         match self {
-            Self::HelloExecutable => OutputKind::Executable,
+            Self::HelloExecutable
+            | Self::Synthetic10Modules
+            | Self::Synthetic50Modules
+            | Self::Synthetic100Modules
+            | Self::Synthetic500Modules => OutputKind::Executable,
             Self::HelloBuild => OutputKind::Executable,
             Self::EmptyBuild => OutputKind::None,
             Self::MinimalCheck | Self::HelloCheck if matches!(language, Language::Rust) => {
@@ -97,6 +150,13 @@ impl Workload {
             (Self::HelloExecutable | Self::HelloBuild, Language::Nia) => Some("hello from nia"),
             (Self::HelloExecutable | Self::HelloBuild, Language::Rust) => Some("hello from rust"),
             (Self::HelloExecutable | Self::HelloBuild, Language::Zig) => Some("hello from zig"),
+            (
+                Self::Synthetic10Modules
+                | Self::Synthetic50Modules
+                | Self::Synthetic100Modules
+                | Self::Synthetic500Modules,
+                _,
+            ) => Some("synthetic-ok"),
             _ => None,
         }
     }
@@ -180,10 +240,36 @@ impl Workload {
                     "compiles and runs build.zig, then installs the native Hello executable",
                 ),
             ],
+            Self::Synthetic10Modules
+            | Self::Synthetic50Modules
+            | Self::Synthetic100Modules
+            | Self::Synthetic500Modules => vec![
+                tool(
+                    Language::Nia,
+                    "nia emit --exe",
+                    "native executable from a generated Nia module tree with every leaf reachable",
+                ),
+                tool(
+                    Language::Rust,
+                    "rustc --emit=link",
+                    "native executable from the equivalent generated Rust module tree with every leaf reachable",
+                ),
+                tool(
+                    Language::Zig,
+                    "zig build-exe",
+                    "native executable from the equivalent generated Zig module tree with every leaf reachable",
+                ),
+            ],
         };
         WorkloadContract {
             name: self.name(),
             source_class: self.source_class(),
+            synthetic: self.synthetic_modules().map(|leaf_modules| SyntheticContract {
+                generator: synthetic::GENERATOR_IDENTITY,
+                leaf_modules,
+                graph: "one executable root with a flat/star dependency on every leaf module",
+                per_module_work: "one compile-time-derived constant, one module-local generic identity instance, and one reachable value function",
+            }),
             tools,
         }
     }
@@ -267,7 +353,11 @@ pub(super) fn command(
                         path(cache),
                     ]);
                 }
-                Workload::HelloExecutable => {
+                Workload::HelloExecutable
+                | Workload::Synthetic10Modules
+                | Workload::Synthetic50Modules
+                | Workload::Synthetic100Modules
+                | Workload::Synthetic500Modules => {
                     command.extend([
                         "emit".to_owned(),
                         "--exe".to_owned(),
@@ -298,7 +388,11 @@ pub(super) fn command(
             ];
             command.push(match workload {
                 Workload::MinimalCheck | Workload::HelloCheck => "--emit=metadata".to_owned(),
-                Workload::HelloExecutable => "--emit=link".to_owned(),
+                Workload::HelloExecutable
+                | Workload::Synthetic10Modules
+                | Workload::Synthetic50Modules
+                | Workload::Synthetic100Modules
+                | Workload::Synthetic500Modules => "--emit=link".to_owned(),
                 Workload::EmptyBuild | Workload::HelloBuild => unreachable!(),
             });
             command
@@ -318,7 +412,11 @@ pub(super) fn command(
                 Workload::MinimalCheck | Workload::HelloCheck => {
                     command.push("-fno-emit-bin".to_owned());
                 }
-                Workload::HelloExecutable => {
+                Workload::HelloExecutable
+                | Workload::Synthetic10Modules
+                | Workload::Synthetic50Modules
+                | Workload::Synthetic100Modules
+                | Workload::Synthetic500Modules => {
                     command.push(format!("-femit-bin={}", path(output)));
                 }
                 Workload::EmptyBuild | Workload::HelloBuild => unreachable!(),
@@ -419,5 +517,24 @@ mod tests {
         assert!(!rust.available);
         assert!(rust.comparability.contains("no build-script-only"));
         assert_eq!(rust.output, OutputKind::None);
+    }
+
+    #[test]
+    fn synthetic_scales_share_one_explicit_generator_contract() {
+        let counts = [10, 50, 100, 500];
+        for (workload, expected) in Workload::ALL[5..].iter().zip(counts) {
+            let contract = workload.contract();
+            let synthetic = contract.synthetic.unwrap();
+            assert_eq!(synthetic.generator, synthetic::GENERATOR_IDENTITY);
+            assert_eq!(synthetic.leaf_modules, expected);
+            assert_eq!(contract.tools.len(), 3);
+            assert!(contract.tools.iter().all(|tool| tool.available));
+            assert!(
+                contract
+                    .tools
+                    .iter()
+                    .all(|tool| tool.output == OutputKind::Executable)
+            );
+        }
     }
 }
