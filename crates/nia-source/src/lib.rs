@@ -87,7 +87,7 @@ pub struct SourceVersion {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Relocation-stable logical identity derived from normalized path text.
 pub struct SourceIdentity {
-    normalized_path: String,
+    normalized_path: Arc<str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -136,8 +136,12 @@ impl SourceIdentity {
     /// Creates an identity after normalizing the supplied path text.
     pub fn new(path: impl AsRef<str>) -> Self {
         Self {
-            normalized_path: normalize_path(path.as_ref()),
+            normalized_path: normalize_path(path.as_ref()).into(),
         }
+    }
+
+    fn from_normalized(normalized_path: Arc<str>) -> Self {
+        Self { normalized_path }
     }
 
     /// Clones the logical identity carried by a source path.
@@ -157,7 +161,7 @@ impl SourceIdentity {
 /// Equality and hashing use only the logical identity, allowing relocated
 /// toolchain/package sources to retain stable compiler identities.
 pub struct SourcePath {
-    physical_path: String,
+    physical_path: Arc<str>,
     identity: SourceIdentity,
 }
 
@@ -178,19 +182,39 @@ impl Hash for SourcePath {
 impl SourcePath {
     /// Creates a path whose physical location and logical identity match.
     pub fn new(path: impl Into<String>) -> Self {
-        let physical_path = normalize_path(&path.into());
+        let physical_path: Arc<str> = normalize_path(&path.into()).into();
         Self {
-            identity: SourceIdentity::new(&physical_path),
+            identity: SourceIdentity::from_normalized(physical_path.clone()),
             physical_path,
         }
     }
 
     /// Builds a source path from text that already satisfies `normalize_path`.
-    pub fn from_normalized_unchecked(path: impl Into<String>) -> Self {
+    pub fn from_normalized_unchecked(path: impl Into<Arc<str>>) -> Self {
         let physical_path = path.into();
         Self {
-            identity: SourceIdentity::new(&physical_path),
+            identity: SourceIdentity::from_normalized(physical_path.clone()),
             physical_path,
+        }
+    }
+
+    /// Builds a relocated source path from text that already satisfies
+    /// `normalize_path` for both its physical and logical coordinates.
+    /// The caller is responsible for upholding that invariant.
+    pub fn with_normalized_identity_unchecked(
+        physical_path: impl Into<Arc<str>>,
+        logical_identity: impl Into<Arc<str>>,
+    ) -> Self {
+        let physical_path = physical_path.into();
+        let logical_identity = logical_identity.into();
+        let normalized_path = if physical_path == logical_identity {
+            physical_path.clone()
+        } else {
+            logical_identity
+        };
+        Self {
+            physical_path,
+            identity: SourceIdentity::from_normalized(normalized_path),
         }
     }
 
@@ -199,10 +223,10 @@ impl SourcePath {
         physical_path: impl Into<String>,
         logical_identity: impl AsRef<str>,
     ) -> Self {
-        Self {
-            physical_path: normalize_path(&physical_path.into()),
-            identity: SourceIdentity::new(logical_identity),
-        }
+        Self::with_normalized_identity_unchecked(
+            normalize_path(&physical_path.into()),
+            normalize_path(logical_identity.as_ref()),
+        )
     }
 
     /// Returns the normalized physical path used for I/O.
@@ -213,6 +237,11 @@ impl SourcePath {
     /// Clones the logical source identity.
     pub fn identity(&self) -> SourceIdentity {
         SourceIdentity::from_path(self)
+    }
+
+    /// Borrows the relocation-stable logical identity.
+    pub fn identity_ref(&self) -> &SourceIdentity {
+        &self.identity
     }
 }
 
@@ -444,6 +473,24 @@ mod tests {
 
         assert_eq!(identity.normalized_path(), "src/root.nia");
         assert_eq!(identity, SourceIdentity::from_path(&path));
+        assert!(Arc::ptr_eq(
+            &path.physical_path,
+            &path.identity.normalized_path
+        ));
+    }
+
+    #[test]
+    fn normalized_source_paths_share_equal_physical_and_logical_text() {
+        let path = SourcePath::with_normalized_identity_unchecked(
+            "toolchain:/std/pkg.nia",
+            "toolchain:/std/pkg.nia",
+        );
+
+        assert_eq!(path.as_str(), path.identity_ref().normalized_path());
+        assert!(Arc::ptr_eq(
+            &path.physical_path,
+            &path.identity.normalized_path
+        ));
     }
 
     #[test]
