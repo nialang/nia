@@ -232,28 +232,27 @@ fn encode_type_resolution(
         ));
     }
     let mut encoded = Vec::new();
-    write_sorted_entries(
+    write_sorted_node_entries(
         &mut encoded,
-        resolution.node_type_names.iter().map(|(site, value)| {
-            let mut entry = Vec::new();
-            write_node_site(&mut entry, site, source_version.id)?;
-            write_type_name_resolution(&mut entry, *value, module_paths)?;
-            Ok(entry)
-        }),
+        resolution
+            .node_type_names
+            .iter()
+            .map(|(site, value)| Ok((site, *value))),
+        |site| *site,
+        source_version.id,
+        |encoded, value| write_type_name_resolution(encoded, value, module_paths),
     )?;
-    write_sorted_entries(
+    write_sorted_node_entries(
         &mut encoded,
         resolution
             .node_qualified_type_names
             .iter()
-            .map(|(site, value)| {
-                let mut entry = Vec::new();
-                write_node_site(&mut entry, site, source_version.id)?;
-                write_global_def(&mut entry, *value, module_paths)?;
-                Ok(entry)
-            }),
+            .map(|(site, value)| Ok((site, *value))),
+        |site| *site,
+        source_version.id,
+        |encoded, value| write_global_def(encoded, value, module_paths),
     )?;
-    write_sorted_entries(
+    write_sorted_node_entries(
         &mut encoded,
         resolution
             .node_const_generic_names
@@ -265,14 +264,17 @@ fn encode_type_resolution(
                         "type resolution node belongs to another source version",
                     ));
                 }
-                let mut entry = Vec::new();
-                write_node_site(&mut entry, key.site(), source_version.id)?;
-                let text = symbols.resolve(*symbol).ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::InvalidInput, "unresolved cached symbol")
-                })?;
-                write_string(&mut entry, &text);
-                Ok(entry)
+                Ok((key, *symbol))
             }),
+        VersionedNodeKey::site,
+        source_version.id,
+        |encoded, symbol| {
+            let text = symbols.resolve(symbol).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "unresolved cached symbol")
+            })?;
+            write_string(encoded, &text);
+            Ok(())
+        },
     )?;
     Ok(encoded)
 }
