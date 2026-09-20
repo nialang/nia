@@ -1134,11 +1134,17 @@ fn executable_check_in_session(
         .filter(|(module_id, _)| runtime_module_ids.contains(module_id))
         .map(|(module_id, module)| (*module_id, Arc::clone(&module.module)))
         .collect();
+    let mut function_bodies = HashMap::new();
+    for module in &mut codegen_modules {
+        let body_ir = Arc::make_mut(&mut module.body_ir);
+        function_bodies.extend(body_ir.function_bodies.drain());
+    }
     let output = match extension_lookup.take_failure() {
         Some(error) => Err(error),
         None => Ok(ExecutableCheckOutput::Modules(
             ExecutableCheckedModuleFacts {
                 modules: codegen_modules.into_iter().map(Arc::new).collect(),
+                function_bodies,
                 const_modules,
                 runtime_functions,
                 runtime_globals,
@@ -1541,7 +1547,7 @@ fn final_executable_checked_modules(
                                 program_function_signature_cache: Some(
                                     &caches.body_function_signatures,
                                 ),
-                                product: nia_body_check::BodyCheckProduct::FactsOnly,
+                                product: nia_body_check::BodyCheckProduct::Full,
                                 prechecked,
                             },
                         )

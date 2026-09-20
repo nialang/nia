@@ -11,6 +11,9 @@ pub(in crate::query) fn provide_executable_function_body(
     if facts.runtime_functions.binary_search(&def_id).is_err() {
         return Ok(None);
     }
+    if let Some(body) = facts.function_bodies.get(&def_id) {
+        return Ok(Some(Arc::clone(body)));
+    }
     let Some(module) = facts
         .modules
         .iter()
@@ -18,6 +21,9 @@ pub(in crate::query) fn provide_executable_function_body(
     else {
         return Ok(None);
     };
+    if let Some(body) = module.body_ir.function_bodies.get(&def_id) {
+        return Ok(Some(Arc::clone(body)));
+    }
     // Rechecking one body must not retain facts owned by sibling functions.
     // Module-level type/const facts remain available because the selected body
     // may reference them without owning them.
