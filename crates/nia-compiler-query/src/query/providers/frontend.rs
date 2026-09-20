@@ -378,6 +378,7 @@ pub(super) fn provide_signature_type_resolution(
         let cached = if let Some(cache) = db.context().signature_cache.as_ref()
             && let Some((program_sources, source, namespace, key)) = cache_input
         {
+            nia_timing::emit_counter("frontend.signature_type_resolution_reuse_read_attempts", 1);
             match cache.load_type_resolution(
                 crate::signature_cache::SignatureTypeResolutionIdentity {
                     key,
@@ -447,7 +448,11 @@ pub(super) fn provide_signature_type_resolution(
             if replace {
                 cache.remove_type_resolution(key);
             }
-            let _ = cache.publish_type_resolution(
+            nia_timing::emit_counter(
+                "frontend.signature_type_resolution_reuse_publish_attempts",
+                1,
+            );
+            let publication = cache.publish_type_resolution(
                 crate::signature_cache::SignatureTypeResolutionIdentity {
                     key,
                     namespace,
@@ -461,6 +466,14 @@ pub(super) fn provide_signature_type_resolution(
                 &program_sources.path_by_module,
                 &symbols,
                 replace,
+            );
+            nia_timing::emit_counter(
+                if publication.is_ok() {
+                    "frontend.signature_type_resolution_reuse_publish_successes"
+                } else {
+                    "frontend.signature_type_resolution_reuse_publish_errors"
+                },
+                1,
             );
         }
         Ok(fresh.as_ref().clone())
@@ -637,6 +650,7 @@ pub(super) fn provide_signature_type_lowering(
     let cached = if let Some(cache) = db.context().signature_cache.as_ref()
         && let Some((program_sources, source, namespace, key)) = cache_input
     {
+        nia_timing::emit_counter("frontend.signature_type_lowering_reuse_read_attempts", 1);
         match cache.load_type_lowering(
             crate::signature_cache::SignatureTypeLoweringIdentity {
                 key,
@@ -709,7 +723,8 @@ pub(super) fn provide_signature_type_lowering(
             && fresh.semantic.const_exprs.is_empty()
             && fresh.semantic.const_expr_summaries.is_empty()
         {
-            let _ = cache.publish_type_lowering(
+            nia_timing::emit_counter("frontend.signature_type_lowering_reuse_publish_attempts", 1);
+            let publication = cache.publish_type_lowering(
                 crate::signature_cache::SignatureTypeLoweringIdentity {
                     key,
                     namespace,
@@ -724,6 +739,14 @@ pub(super) fn provide_signature_type_lowering(
                 &symbols,
                 db.context().type_store(),
                 replace,
+            );
+            nia_timing::emit_counter(
+                if publication.is_ok() {
+                    "frontend.signature_type_lowering_reuse_publish_successes"
+                } else {
+                    "frontend.signature_type_lowering_reuse_publish_errors"
+                },
+                1,
             );
         }
     }
@@ -846,6 +869,7 @@ pub(super) fn provide_signature_item_signatures(
     let cached = if let Some(cache) = db.context().signature_cache.as_ref()
         && let Some((program_sources, source, namespace, key)) = cache_input
     {
+        nia_timing::emit_counter("frontend.signature_item_signatures_reuse_read_attempts", 1);
         match cache.load_item_signatures(
             crate::signature_cache::SignatureItemSignaturesIdentity {
                 key,
@@ -918,7 +942,11 @@ pub(super) fn provide_signature_item_signatures(
             cache.remove_item_signatures(key);
         }
         if fresh.cacheable {
-            let _ = cache.publish_item_signatures(
+            nia_timing::emit_counter(
+                "frontend.signature_item_signatures_reuse_publish_attempts",
+                1,
+            );
+            let publication = cache.publish_item_signatures(
                 crate::signature_cache::SignatureItemSignaturesIdentity {
                     key,
                     namespace,
@@ -932,6 +960,14 @@ pub(super) fn provide_signature_item_signatures(
                 &symbols,
                 db.context().type_store(),
                 replace,
+            );
+            nia_timing::emit_counter(
+                if publication.is_ok() {
+                    "frontend.signature_item_signatures_reuse_publish_successes"
+                } else {
+                    "frontend.signature_item_signatures_reuse_publish_errors"
+                },
+                1,
             );
         }
     }
