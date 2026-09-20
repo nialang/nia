@@ -123,6 +123,45 @@ impl QueryKey<RedGreenContext> for StableParityParent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct UnfingerprintedValue;
+
+impl QueryKey<RedGreenContext> for UnfingerprintedValue {
+    type Value = usize;
+
+    fn name() -> &'static str {
+        "unfingerprinted_value"
+    }
+
+    fn execute_result(&self, db: &QueryDb<RedGreenContext>) -> QueryResult<Self::Value> {
+        Ok(db.context().input.load(Ordering::SeqCst))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct StableUnfingerprintedParent;
+
+impl QueryKey<RedGreenContext> for StableUnfingerprintedParent {
+    type Value = usize;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+    fn name() -> &'static str {
+        "stable_unfingerprinted_parent"
+    }
+
+    fn execute_result(&self, db: &QueryDb<RedGreenContext>) -> QueryResult<Self::Value> {
+        Ok(*db.get(UnfingerprintedValue)? + 1)
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(test_usize_fingerprint(
+            FingerprintDomain::new("nia.query.test.stable-unfingerprinted-parent"),
+            *value,
+        ))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct SemanticParity;
 
 impl QueryKey<RedGreenContext> for SemanticParity {

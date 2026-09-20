@@ -610,30 +610,40 @@ impl<C> QueryDb<C> {
                         }
                     };
                     slot.stats.record_validation();
-                    let is_green = match self.dependencies_are_green(&dependency_fingerprints) {
-                        Ok(is_green) => is_green,
-                        Err(error) => {
-                            guard.discard();
-                            let mut state = slot.state.lock();
-                            let was_invalidated = matches!(
-                                &*state,
-                                QueryState::Validating { invalidated: true }
-                                    | QueryState::Computing { invalidated: true }
-                            );
-                            if was_invalidated {
-                                *state = QueryState::Empty;
-                                self.clear_dependencies_from(node_id);
-                            } else {
-                                *state = QueryState::PotentiallyOutdated {
-                                    value,
-                                    fingerprint,
-                                    dependency_fingerprints,
-                                };
+                    let validation_failure =
+                        match self.dependency_validation_failure(&dependency_fingerprints) {
+                            Ok(validation_failure) => validation_failure,
+                            Err(error) => {
+                                guard.discard();
+                                let mut state = slot.state.lock();
+                                let was_invalidated = matches!(
+                                    &*state,
+                                    QueryState::Validating { invalidated: true }
+                                        | QueryState::Computing { invalidated: true }
+                                );
+                                if was_invalidated {
+                                    *state = QueryState::Empty;
+                                    self.clear_dependencies_from(node_id);
+                                } else {
+                                    *state = QueryState::PotentiallyOutdated {
+                                        value,
+                                        fingerprint,
+                                        dependency_fingerprints,
+                                    };
+                                }
+                                slot.ready.notify_all();
+                                return Err(error.with_query_context(query_frame::<C, K>(&key)));
                             }
-                            slot.ready.notify_all();
-                            return Err(error.with_query_context(query_frame::<C, K>(&key)));
-                        }
-                    };
+                        };
+                    if let Some((dependency, reason)) = validation_failure {
+                        self.inner
+                            .session
+                            .inner
+                            .dependencies
+                            .lock()
+                            .record_validation_failure(node_id, dependency, reason);
+                    }
+                    let is_green = validation_failure.is_none();
                     guard.discard();
 
                     let mut state = slot.state.lock();
@@ -961,15 +971,17 @@ impl<C> QueryDb<C> {
             let slots = self.inner.slots.lock();
             Self::query_stats(&slots)
         };
+        let (dependencies, validation_failures) = {
+            let graph = self.inner.session.inner.dependencies.lock();
+            (
+                graph.dependencies(self.inner.id, &self.inner.session)?,
+                graph.validation_failures(self.inner.id, &self.inner.session)?,
+            )
+        };
         Ok(QueryTrace {
-            dependencies: self
-                .inner
-                .session
-                .inner
-                .dependencies
-                .lock()
-                .dependencies(self.inner.id, &self.inner.session)?,
+            dependencies,
             queries,
+            validation_failures,
         })
     }
 
@@ -1405,22 +1417,28 @@ impl<C> QueryDb<C> {
         dependencies.collect_dependents(root)
     }
 
-    fn dependencies_are_green(&self, expected: &DependencyFingerprints) -> QueryResult<bool> {
+    fn dependency_validation_failure(
+        &self,
+        expected: &DependencyFingerprints,
+    ) -> QueryResult<Option<(QueryNodeId, QueryValidationFailureReason)>> {
         let mut dependencies = expected.iter().collect::<Vec<_>>();
         dependencies.sort_unstable_by_key(|(node_id, _)| (node_id.db_id.0, node_id.index));
         for (node_id, expected_fingerprint) in dependencies {
             let Some(expected_fingerprint) = expected_fingerprint else {
-                return Ok(false);
+                return Ok(Some((
+                    *node_id,
+                    QueryValidationFailureReason::Unfingerprinted,
+                )));
             };
             // Ensuring first recursively validates the dependency. Its stored fingerprint is only
             // meaningful after that state transition, so comparing the pre-ensure value would let
             // an outdated dependency incorrectly keep this query green.
             self.ensure_node(*node_id)?;
             if self.node_fingerprint(*node_id)? != Some(*expected_fingerprint) {
-                return Ok(false);
+                return Ok(Some((*node_id, QueryValidationFailureReason::Changed)));
             }
         }
-        Ok(true)
+        Ok(None)
     }
 
     fn ensure_node(&self, node_id: QueryNodeId) -> QueryResult<()> {
