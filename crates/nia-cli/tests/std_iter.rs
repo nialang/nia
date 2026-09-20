@@ -13,6 +13,7 @@ fn emit_exe_std_iterator_for_each_accepts_borrowed_closure() {
     std::fs::write(
         &main,
         r#"
+using std::iter;
 using std::process;
 
 static mut invocationCount: i32 = 0;
@@ -70,6 +71,7 @@ fn emit_exe_std_iterator_fold_accepts_capturing_borrowed_closure() {
     std::fs::write(
         &main,
         r#"
+using std::iter;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
@@ -121,6 +123,7 @@ fn emit_exe_std_iterator_try_fold_preserves_error_and_stops_consuming() {
         r#"
 using std::error;
 using std::builtin;
+using std::iter;
 using std::process;
 
 enum FoldError: i32 {
@@ -213,6 +216,7 @@ fn emit_exe_std_iterator_position_consumes_items_with_borrowed_predicate() {
     std::fs::write(
         &main,
         r#"
+using std::iter;
 using std::process;
 
 static mut predicateCount: i32 = 0;
