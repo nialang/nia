@@ -1441,11 +1441,20 @@ pub(super) fn executable_layouts_for_reachable_items(
 ) -> QueryResult<nia_layout::Layouts> {
     time_module_provider(db, "executable_layouts", module_id, || {
         let query_failure = RefCell::new(None);
-        let defs = full_module_defs_semantic(db, module_id)?;
-        let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
-        let type_lowering = type_lowering_semantic(db, module_id)?;
-        let type_normalization = db.get(LayoutTypeNormalizationQuery(module_id))?;
-        let item_signatures = item_signatures_semantic(db, module_id)?;
+        let (defs, active_item_tree, type_lowering, type_normalization, item_signatures) =
+            time_provider(
+                db.context().timings(),
+                "executable_layouts.inputs",
+                || -> QueryResult<_> {
+                    Ok((
+                        full_module_defs_semantic(db, module_id)?,
+                        db.get(FullActiveModuleItemTreeQuery(module_id))?,
+                        type_lowering_semantic(db, module_id)?,
+                        db.get(LayoutTypeNormalizationQuery(module_id))?,
+                        item_signatures_semantic(db, module_id)?,
+                    ))
+                },
+            )?;
         let program_struct = |def_id: GlobalDefId| {
             capture_query_failure(
                 &query_failure,
@@ -1503,75 +1512,112 @@ pub(super) fn executable_layouts_for_reachable_items(
             .map(|signature| ProgramTypeAliasSignature { signature })
         };
         let load_filtered_array_lengths = |target_module_id| {
-            let has_reachable_body_items = reachable_body_modules_override
-                .map(|modules| modules.contains(target_module_id))
-                .map(Ok)
-                .unwrap_or_else(|| {
-                    has_reachable_executable_body_items(
-                        db,
-                        target_module_id,
-                        reachable_functions,
-                        reachable_globals,
-                    )
-                })?;
+            let has_reachable_body_items = time_provider(
+                db.context().timings(),
+                "executable_layouts.local_array_lengths.reachability",
+                || {
+                    reachable_body_modules_override
+                        .map(|modules| modules.contains(target_module_id))
+                        .map(Ok)
+                        .unwrap_or_else(|| {
+                            has_reachable_executable_body_items(
+                                db,
+                                target_module_id,
+                                reachable_functions,
+                                reachable_globals,
+                            )
+                        })
+                },
+            )?;
             if has_reachable_body_items {
-                with_const_input_and_program_facts(
-                    db,
-                    target_module_id,
-                    non_function_signatures_override,
-                    |module_id| {
-                        reachable_body_modules_override
-                            .map(|modules| !modules.contains(module_id))
-                            .unwrap_or_else(|| {
-                                capture_query_failure(
-                                    &query_failure,
-                                    has_reachable_executable_body_items(
-                                        db,
-                                        module_id,
-                                        reachable_functions,
-                                        reachable_globals,
-                                    ),
-                                )
-                                .is_some_and(|has_reachable_items| !has_reachable_items)
-                            })
-                    },
-                    |input, module| {
-                        let mut array_lengths =
-                            nia_const_check::compute_module_const_array_lengths(input)?;
-                        array_lengths.diagnostics.extend(module.diagnostics.clone());
-                        Ok(array_lengths)
+                time_provider(
+                    db.context().timings(),
+                    "executable_layouts.local_array_lengths.body_input",
+                    || {
+                        with_const_input_and_program_facts(
+                            db,
+                            target_module_id,
+                            non_function_signatures_override,
+                            |module_id| {
+                                reachable_body_modules_override
+                                    .map(|modules| !modules.contains(module_id))
+                                    .unwrap_or_else(|| {
+                                        capture_query_failure(
+                                            &query_failure,
+                                            has_reachable_executable_body_items(
+                                                db,
+                                                module_id,
+                                                reachable_functions,
+                                                reachable_globals,
+                                            ),
+                                        )
+                                        .is_some_and(|has_reachable_items| !has_reachable_items)
+                                    })
+                            },
+                            |input, module| {
+                                let mut array_lengths =
+                                    nia_const_check::compute_module_const_array_lengths(input)?;
+                                array_lengths.diagnostics.extend(module.diagnostics.clone());
+                                Ok(array_lengths)
+                            },
+                        )
                     },
                 )
             } else {
-                with_type_signature_const_input(
-                    db,
-                    target_module_id,
-                    non_function_signatures_override,
-                    |input, module| {
-                        let mut array_lengths =
-                            nia_const_check::compute_module_const_array_lengths(input)?;
-                        array_lengths.diagnostics.extend(module.diagnostics.clone());
-                        Ok(array_lengths)
+                time_provider(
+                    db.context().timings(),
+                    "executable_layouts.local_array_lengths.signature_input",
+                    || {
+                        with_type_signature_const_input(
+                            db,
+                            target_module_id,
+                            non_function_signatures_override,
+                            |input, module| {
+                                let mut array_lengths =
+                                    nia_const_check::compute_module_const_array_lengths(input)?;
+                                array_lengths.diagnostics.extend(module.diagnostics.clone());
+                                Ok(array_lengths)
+                            },
+                        )
                     },
                 )
             }
         };
-        let local_array_lengths = if let Some(array_length_cache) = array_length_cache {
-            let cached = array_length_cache.borrow().get(&module_id).cloned();
-            if let Some(array_lengths) = cached {
-                array_lengths
-            } else {
-                let array_lengths = load_filtered_array_lengths(module_id)?;
-                array_length_cache
-                    .borrow_mut()
-                    .insert(module_id, array_lengths.clone());
-                array_lengths
-            }
-        } else {
-            load_filtered_array_lengths(module_id)?
-        };
+        let local_array_lengths = time_provider(
+            db.context().timings(),
+            "executable_layouts.local_array_lengths",
+            || -> QueryResult<_> {
+                if let Some(array_length_cache) = array_length_cache {
+                    let cached = time_provider(
+                        db.context().timings(),
+                        "executable_layouts.local_array_lengths.lookup",
+                        || array_length_cache.borrow().get(&module_id).cloned(),
+                    );
+                    if let Some(array_lengths) = cached {
+                        return Ok(array_lengths);
+                    }
+                    let array_lengths = time_provider(
+                        db.context().timings(),
+                        "executable_layouts.local_array_lengths.compute",
+                        || load_filtered_array_lengths(module_id),
+                    )?;
+                    array_length_cache
+                        .borrow_mut()
+                        .insert(module_id, array_lengths.clone());
+                    Ok(array_lengths)
+                } else {
+                    time_provider(
+                        db.context().timings(),
+                        "executable_layouts.local_array_lengths.compute",
+                        || load_filtered_array_lengths(module_id),
+                    )
+                }
+            },
+        )?;
         let signature_array_lengths = RefCell::new(HashMap::new());
-        let target = compiler_target_data_layout(db)?;
+        let target = time_provider(db.context().timings(), "executable_layouts.target", || {
+            compiler_target_data_layout(db)
+        })?;
         let executable_array_lengths = |id: nia_ids::GlobalConstExprId| {
             if id.module_id == module_id {
                 return local_array_lengths.values.get(&id).copied();
@@ -1579,15 +1625,21 @@ pub(super) fn executable_layouts_for_reachable_items(
             if !signature_array_lengths.borrow().contains_key(&id.module_id)
                 && let Some(array_lengths) = capture_query_failure(
                     &query_failure,
-                    with_type_signature_const_input(
-                        db,
-                        id.module_id,
-                        non_function_signatures_override,
-                        |input, module| {
-                            let mut array_lengths =
-                                nia_const_check::compute_module_const_array_lengths(input)?;
-                            array_lengths.diagnostics.extend(module.diagnostics.clone());
-                            Ok(array_lengths)
+                    time_provider(
+                        db.context().timings(),
+                        "executable_layouts.signature_array_lengths",
+                        || {
+                            with_type_signature_const_input(
+                                db,
+                                id.module_id,
+                                non_function_signatures_override,
+                                |input, module| {
+                                    let mut array_lengths =
+                                        nia_const_check::compute_module_const_array_lengths(input)?;
+                                    array_lengths.diagnostics.extend(module.diagnostics.clone());
+                                    Ok(array_lengths)
+                                },
+                            )
                         },
                     ),
                 )
