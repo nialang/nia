@@ -1,0 +1,128 @@
+use std::io::Read;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+use std::path::Path;
+use std::process::{Command, ExitStatus, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use crate::MaintainResult;
+
+/// Captured result from one independently executed child process.
+pub struct BoundedOutput {
+    /// Child process identifier.
+    pub process_id: u32,
+    /// Child exit status.
+    pub status: ExitStatus,
+    /// Complete standard output.
+    pub stdout: Vec<u8>,
+    /// Complete standard error.
+    pub stderr: Vec<u8>,
+    /// Parent-observed wall time in seconds.
+    pub elapsed: f64,
+}
+
+#[cfg(unix)]
+fn terminate_process_group(child: &mut std::process::Child) {
+    if child.try_wait().ok().flatten().is_some() {
+        return;
+    }
+    let group = format!("-{}", child.id());
+    let _ = Command::new("kill")
+        .args(["-TERM", "--", &group])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if child.try_wait().ok().flatten().is_some() {
+            return;
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    let _ = Command::new("kill")
+        .args(["-KILL", "--", &group])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let _ = child.wait();
+}
+
+#[cfg(not(unix))]
+fn terminate_process_group(_child: &mut std::process::Child) {}
+
+#[cfg(unix)]
+fn configure_process_group(process: &mut Command) {
+    process.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_process_group(_process: &mut Command) {}
+
+fn read_pipe<R: Read + Send + 'static>(
+    mut pipe: R,
+) -> thread::JoinHandle<std::io::Result<Vec<u8>>> {
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        pipe.read_to_end(&mut bytes)?;
+        Ok(bytes)
+    })
+}
+
+fn join_pipe(
+    handle: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+    name: &str,
+) -> MaintainResult<Vec<u8>> {
+    handle
+        .join()
+        .map_err(|_| format!("{name} reader thread panicked"))?
+        .map_err(|error| format!("failed to read child {name}: {error}"))
+}
+
+/// Executes a command in an owned process group with bounded output capture.
+pub fn run_bounded(
+    command: &[String],
+    cwd: &Path,
+    timeout_seconds: u64,
+) -> MaintainResult<BoundedOutput> {
+    let started = Instant::now();
+    let mut process = Command::new(&command[0]);
+    process
+        .args(&command[1..])
+        .current_dir(cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    configure_process_group(&mut process);
+    let mut child = process
+        .spawn()
+        .map_err(|error| format!("failed to run {}: {error}", command.join(" ")))?;
+    let process_id = child.id();
+    let stdout = read_pipe(child.stdout.take().expect("piped child stdout"));
+    let stderr = read_pipe(child.stderr.take().expect("piped child stderr"));
+    let deadline = started + Duration::from_secs(timeout_seconds);
+    let status = loop {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| format!("failed to wait for child process: {error}"))?
+        {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            terminate_process_group(&mut child);
+            let _ = join_pipe(stdout, "stdout");
+            let _ = join_pipe(stderr, "stderr");
+            return Err(format!(
+                "command timed out after {timeout_seconds}s: {}",
+                command.join(" ")
+            ));
+        }
+        thread::sleep(Duration::from_millis(25));
+    };
+    Ok(BoundedOutput {
+        process_id,
+        status,
+        stdout: join_pipe(stdout, "stdout")?,
+        stderr: join_pipe(stderr, "stderr")?,
+        elapsed: started.elapsed().as_secs_f64(),
+    })
+}

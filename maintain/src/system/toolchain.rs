@@ -114,6 +114,14 @@ fn tool_identity(program: impl Into<PathBuf>, arguments: &[&str]) -> MaintainRes
     })
 }
 
+/// Resolves an external executable and captures its complete version output.
+pub fn external_tool_identity(
+    program: impl Into<PathBuf>,
+    arguments: &[&str],
+) -> MaintainResult<ToolIdentity> {
+    tool_identity(program, arguments)
+}
+
 fn llvm_config_program() -> PathBuf {
     env::var_os(LLVM_SYS_PREFIX_ENV)
         .map(|prefix| PathBuf::from(prefix).join("bin/llvm-config"))

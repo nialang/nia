@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use nia_maintain::audit::{compatibility, std_build_host};
-use nia_maintain::baseline::{build, compare, compiler};
+use nia_maintain::baseline::{build, compare, competitive, compiler};
 use nia_maintain::report::{crate_boundaries, llvm_ir};
 use nia_maintain::{MaintainResult, parse_usize, repository_root};
 
@@ -16,6 +16,7 @@ commands:
   report crate-boundaries  report workspace crate evidence
   report llvm-ir           rank generated LLVM IR modules and functions
   baseline compiler        collect compiler performance samples
+  baseline competitive     compare Nia, rustc, and Zig on fixed workloads
   baseline compare         compare compiler performance samples
   baseline build           collect the representative build baseline
   check                    run every fast repository audit";
@@ -146,6 +147,51 @@ fn compiler_baseline_command(arguments: &[String]) -> MaintainResult<()> {
     compiler::run(&root, &options)
 }
 
+fn competitive_baseline_command(arguments: &[String]) -> MaintainResult<()> {
+    let root = repository_root();
+    let mut options = competitive::Options::for_repository(&root);
+    let mut index = 0;
+    while index < arguments.len() {
+        let option = arguments[index].as_str();
+        match option {
+            "--nia" => options.nia = PathBuf::from(take_value(arguments, &mut index, option)?),
+            "--rustc" => options.rustc = PathBuf::from(take_value(arguments, &mut index, option)?),
+            "--zig" => options.zig = PathBuf::from(take_value(arguments, &mut index, option)?),
+            "--time" => options.time = PathBuf::from(take_value(arguments, &mut index, option)?),
+            "--resource-root" => {
+                options.resource_root = PathBuf::from(take_value(arguments, &mut index, option)?)
+            }
+            "--output" => {
+                options.output = Some(PathBuf::from(take_value(arguments, &mut index, option)?))
+            }
+            "--repeat" => {
+                let value = take_value(arguments, &mut index, option)?;
+                options.repeat = parse_usize(&value, option)?;
+            }
+            "--timeout-seconds" => {
+                let value = take_value(arguments, &mut index, option)?;
+                options.timeout_seconds = value.parse().map_err(|_| {
+                    format!("{option} requires a non-negative integer, found {value:?}")
+                })?;
+            }
+            "--profile" => {
+                options
+                    .profiles
+                    .push(competitive::Profile::parse(&take_value(
+                        arguments, &mut index, option,
+                    )?)?);
+            }
+            "--workload" => options
+                .workloads
+                .push(take_value(arguments, &mut index, option)?),
+            "--no-build" => options.build_compiler = false,
+            _ => return Err(format!("unknown competitive baseline option: {option}")),
+        }
+        index += 1;
+    }
+    competitive::run(&root, &options)
+}
+
 fn compare_baseline_command(arguments: &[String]) -> MaintainResult<bool> {
     let mut positional = Vec::new();
     let mut max_wall_regression = 50.0;
@@ -271,6 +317,9 @@ fn dispatch(arguments: &[String]) -> MaintainResult<bool> {
         [first, second, rest @ ..] if first == "baseline" && second == "compiler" => {
             compiler_baseline_command(rest).map(|()| true)
         }
+        [first, second, rest @ ..] if first == "baseline" && second == "competitive" => {
+            competitive_baseline_command(rest).map(|()| true)
+        }
         [first, second, rest @ ..] if first == "baseline" && second == "compare" => {
             compare_baseline_command(rest)
         }
@@ -306,6 +355,7 @@ mod tests {
         assert!(USAGE.contains("audit compatibility"));
         assert!(USAGE.contains("report crate-boundaries"));
         assert!(USAGE.contains("report llvm-ir"));
+        assert!(USAGE.contains("baseline competitive"));
         assert!(USAGE.contains("check"));
     }
 
