@@ -102,6 +102,60 @@ The compiler can also emit one structured timing record directly:
 target/release/nia --timings=detail --timings-format=json check benchmarks/minimal.nia
 ```
 
+## Competitive Compiler Baseline
+
+The fixed cross-toolchain matrix is collected independently from Nia's
+internal compiler baseline:
+
+```sh
+cargo maintain baseline competitive
+```
+
+By default this builds the release Nia compiler, takes five samples of both
+development and release profiles, and writes a revision-labelled report below
+`target/nia-perf/competitive/`. `--no-build`, `--repeat`, `--profile`,
+`--workload`, `--nia`, `--rustc`, `--zig`, `--time`, `--resource-root`, and
+`--output` make every material input explicit. The profile and workload options
+may be repeated to select distinct entries; duplicate selections are rejected
+rather than measured twice accidentally.
+
+The first matrix covers `minimal_check`, `hello_check`, and
+`hello_executable`. The sources under `benchmarks/competitive/` are maintained
+language-native Rust and Zig counterparts to `benchmarks/minimal.nia` and
+`examples/hello.nia`. Check modes are deliberately described precisely:
+
+- Nia uses `nia check` without native output.
+- Rust uses direct `rustc --emit=metadata`. Rust has no direct full semantic
+  no-output mode; a binary crate's metadata artifact may be empty even though
+  the frontend performed the check.
+- Zig uses `zig build-exe -fno-emit-bin`. `zig ast-check` is not treated as an
+  equivalent because it stops before full semantic analysis.
+
+Development means Nia `--profile debug -O0`, Rust `-C opt-level=0 -C
+debuginfo=0`, and Zig `-O Debug -fno-incremental`. Release means Nia `--profile
+release -O2`, Rust `-C opt-level=2 -C debuginfo=0`, and Zig `-O ReleaseSafe
+-fno-incremental`. These settings align optimization intent and retain normal
+runtime safety where the tools expose it; they do not imply identical optimizer
+pass pipelines, runtime linkage, executable format, or standard-library
+distribution strategy. Executable sizes therefore remain useful raw evidence,
+not a direct quality ranking.
+
+Every process gets an independently created workspace, an absent output, and
+an absent explicit Nia or Zig project cache. Direct rustc is invoked without
+incremental compilation. Nia's selected resource root, rustc's distributed
+sysroot, and Zig's shared global toolchain cache are retained: this is a
+project-cold comparison, not an SDK/toolchain-cold comparison. OS page cache is
+uncontrolled and shared across the interleaved tools. Compiler order rotates
+between repetitions to reduce fixed ordering bias.
+
+The versioned JSON retains the experiment and Git revision identities, dirty
+state, complete compiler and GNU time identities, normalized command, source
+hash, raw stdout/stderr, process wall/user/system time, CPU utilization, peak
+RSS, artifact size and hash, executable output verification, and every raw
+sample. Summaries report median, nearest-rank p95, minimum, and maximum. A
+report is still published when a compiler or acceptance check fails so the
+failure remains auditable.
+
 To audit persistent frontend reuse across separate compiler processes, give both
 checks the same explicit artifact cache directory:
 
