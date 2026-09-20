@@ -83,4 +83,32 @@ fn derived_red_green_validation_reexecutes_dependents_when_output_changes() {
         .expect("stable parent trace");
     assert_eq!(parent.stats.validations, 1);
     assert_eq!(parent.stats.green_validations, 0);
+    assert!(trace.validation_failures.iter().any(|failure| {
+        failure.query.name == "stable_parity_parent"
+            && failure.dependency.name == "stable_parity"
+            && failure.reason == QueryValidationFailureReason::Changed
+            && failure.count == 1
+    }));
+}
+
+#[test]
+fn validation_trace_attributes_dependencies_without_fingerprints() {
+    let db = QueryDb::new_for_test(RedGreenContext {
+        input: AtomicUsize::new(7),
+        derived_executions: AtomicUsize::new(0),
+        parent_executions: AtomicUsize::new(0),
+    });
+    assert_eq!(*db.expect_get(StableUnfingerprintedParent), 8);
+
+    db.invalidate(UnfingerprintedValue)
+        .expect("invalidate unfingerprinted dependency");
+    assert_eq!(*db.expect_get(StableUnfingerprintedParent), 8);
+
+    let trace = db.query_trace().expect("query trace");
+    assert!(trace.validation_failures.iter().any(|failure| {
+        failure.query.name == "stable_unfingerprinted_parent"
+            && failure.dependency.name == "unfingerprinted_value"
+            && failure.reason == QueryValidationFailureReason::Unfingerprinted
+            && failure.count == 1
+    }));
 }

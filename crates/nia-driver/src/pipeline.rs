@@ -2111,6 +2111,7 @@ fn emit_compilation_counters(
         );
     }
     emit_query_category_counters(&traces);
+    emit_query_validation_failure_counters(&traces);
     nia_timing::emit_counter("driver.provider_demand_rounds", provider_demand_rounds);
     nia_timing::emit_counter(
         "compiler.checked_bodies",
@@ -2142,6 +2143,29 @@ fn emit_query_category_counters(traces: &[&nia_query::QueryTrace]) {
         nia_timing::emit_counter(
             format!("query.reexecutions.{query_name}.{category}"),
             executions.saturating_sub(slots),
+        );
+    }
+}
+
+fn emit_query_validation_failure_counters(traces: &[&nia_query::QueryTrace]) {
+    let mut grouped = std::collections::BTreeMap::<(&str, &str, &str, &str), u64>::new();
+    for failure in traces
+        .iter()
+        .flat_map(|trace| trace.validation_failures.iter())
+    {
+        *grouped
+            .entry((
+                failure.query.name,
+                failure.query.stats_category.unwrap_or("all"),
+                failure.dependency.name,
+                failure.reason.as_str(),
+            ))
+            .or_default() += failure.count as u64;
+    }
+    for ((query, category, dependency, reason), count) in grouped {
+        nia_timing::emit_counter(
+            format!("query.validation_failures.{query}.{category}.{dependency}.{reason}"),
+            count,
         );
     }
 }

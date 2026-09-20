@@ -8,6 +8,55 @@
 use super::*;
 
 impl QueryDependencyGraph {
+    pub(super) fn record_validation_failure(
+        &mut self,
+        query: QueryNodeId,
+        dependency: QueryNodeId,
+        reason: QueryValidationFailureReason,
+    ) {
+        *self
+            .validation_failures
+            .entry((query, dependency, reason))
+            .or_default() += 1;
+    }
+
+    pub(super) fn validation_failures(
+        &self,
+        db_id: QueryDbId,
+        session: &QuerySession,
+    ) -> QueryResult<Vec<QueryValidationFailure>> {
+        let mut failures = self
+            .validation_failures
+            .iter()
+            .filter(|((query, _, _), _)| query.db_id == db_id)
+            .map(|((query, dependency, reason), count)| {
+                Ok(QueryValidationFailure {
+                    query: session.frame(*query)?,
+                    dependency: session.frame(*dependency)?,
+                    reason: *reason,
+                    count: *count,
+                })
+            })
+            .collect::<QueryResult<Vec<_>>>()?;
+        failures.sort_by(|left, right| {
+            (
+                left.query.name,
+                left.query.key.as_str(),
+                left.dependency.name,
+                left.dependency.key.as_str(),
+                left.reason,
+            )
+                .cmp(&(
+                    right.query.name,
+                    right.query.key.as_str(),
+                    right.dependency.name,
+                    right.dependency.key.as_str(),
+                    right.reason,
+                ))
+        });
+        Ok(failures)
+    }
+
     pub(super) fn replace_dependencies_from(
         &mut self,
         from: QueryNodeId,
@@ -103,6 +152,8 @@ impl QueryDependencyGraph {
                 }
             }
         }
+        self.validation_failures
+            .retain(|(query, dependency, _), _| *query != node && *dependency != node);
     }
 
     pub(super) fn require_only_predecessor(

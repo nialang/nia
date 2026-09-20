@@ -694,6 +694,8 @@ impl QuerySlotIdentity {
 struct QueryDependencyGraph {
     forward: FastHashMap<QueryNodeId, FastHashSet<QueryNodeId>>,
     reverse: FastHashMap<QueryNodeId, FastHashSet<QueryNodeId>>,
+    validation_failures:
+        FastHashMap<(QueryNodeId, QueryNodeId, QueryValidationFailureReason), usize>,
 }
 
 trait ErasedQueryDatabase: Send + Sync {
@@ -783,6 +785,40 @@ pub struct QueryTrace {
     pub dependencies: Vec<QueryDependency>,
     /// Per-slot execution and validation statistics.
     pub queries: Vec<QueryTraceQuery>,
+    /// Dependency-driven red validation causes accumulated by query slots.
+    pub validation_failures: Vec<QueryValidationFailure>,
+}
+
+/// Why a direct dependency prevented one cached query from validating green.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum QueryValidationFailureReason {
+    /// The dependency did not publish a fingerprint that could be compared.
+    Unfingerprinted,
+    /// The dependency's validated fingerprint differs from the recorded value.
+    Changed,
+}
+
+impl QueryValidationFailureReason {
+    /// Stable counter label for timing and maintenance reports.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unfingerprinted => "unfingerprinted",
+            Self::Changed => "changed",
+        }
+    }
+}
+
+/// Aggregated direct cause of dependency-driven red query validation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryValidationFailure {
+    /// Cached query whose validation failed.
+    pub query: QueryFrame,
+    /// Direct dependency that could not prove the cached query green.
+    pub dependency: QueryFrame,
+    /// Fingerprint condition that failed.
+    pub reason: QueryValidationFailureReason,
+    /// Number of times this slot observed the same cause.
+    pub count: usize,
 }
 
 /// Execution and validation counters for one query slot.
