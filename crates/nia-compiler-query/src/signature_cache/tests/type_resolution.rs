@@ -118,6 +118,7 @@ fn type_resolution_rehydrates_current_source_module_and_symbol_owners() {
         ("src/main.nia".to_string(), new_module),
         ("src/dep.nia".to_string(), new_dependency),
     ]);
+    let cache = PersistentSignatureCache::new(root.clone());
     let loaded = cache
         .load_type_resolution(
             SignatureTypeResolutionIdentity {

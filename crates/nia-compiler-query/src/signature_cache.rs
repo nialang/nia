@@ -10,7 +10,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{self, Cursor, Read, Write},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 use nia_compat::formats::{
@@ -81,6 +81,9 @@ static STAGE_ID: AtomicU64 = AtomicU64::new(0);
 #[derive(Debug)]
 pub(crate) struct PersistentSignatureCache {
     root: PathBuf,
+    type_resolution_directory_exists: AtomicBool,
+    type_lowering_directory_exists: AtomicBool,
+    item_signature_directory_exists: AtomicBool,
 }
 
 #[derive(Debug, Clone, Copy)]

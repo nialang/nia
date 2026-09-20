@@ -1,9 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+fn signature_product_directory(root: &Path, product: &str) -> PathBuf {
+    root.join("artifacts")
+        .join("frontend")
+        .join(FRONTEND_CACHE.path_component)
+        .join(product)
+}
+
 impl PersistentSignatureCache {
     pub(crate) fn new(root: PathBuf) -> Self {
-        Self { root }
+        let type_resolution_directory_exists =
+            signature_product_directory(&root, "signature-type-resolutions").is_dir();
+        let type_lowering_directory_exists =
+            signature_product_directory(&root, "signature-type-lowerings").is_dir();
+        let item_signature_directory_exists =
+            signature_product_directory(&root, "signature-item-signatures").is_dir();
+        Self {
+            root,
+            type_resolution_directory_exists: AtomicBool::new(type_resolution_directory_exists),
+            type_lowering_directory_exists: AtomicBool::new(type_lowering_directory_exists),
+            item_signature_directory_exists: AtomicBool::new(item_signature_directory_exists),
+        }
     }
 
     pub(crate) fn root(&self) -> &Path {
@@ -17,6 +35,16 @@ impl PersistentSignatureCache {
         symbols: &SymbolTable,
         node_store: &nia_node_id::NodeStore,
     ) -> io::Result<SignatureTypeResolutionLookup> {
+        if !self
+            .type_resolution_directory_exists
+            .load(Ordering::Acquire)
+        {
+            nia_timing::emit_counter(
+                "frontend.signature_type_resolution_reuse_directory_skips",
+                1,
+            );
+            return Ok(SignatureTypeResolutionLookup::NotFound);
+        }
         let path = self.type_resolution_path(identity.key);
         let encoded = match read_signature_cache_entry(&path)? {
             SignatureCacheEntryRead::Bytes(encoded) => encoded,
@@ -59,6 +87,8 @@ impl PersistentSignatureCache {
         }
         let path = self.type_resolution_path(identity.key);
         if !replace && path.is_file() {
+            self.type_resolution_directory_exists
+                .store(true, Ordering::Release);
             return Ok(());
         }
         let payload =
@@ -68,7 +98,12 @@ impl PersistentSignatureCache {
             .parent()
             .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
         fs::create_dir_all(parent)?;
-        atomic_publish(&path, &encoded, replace)
+        let publication = atomic_publish(&path, &encoded, replace);
+        if publication.is_ok() {
+            self.type_resolution_directory_exists
+                .store(true, Ordering::Release);
+        }
+        publication
     }
 
     pub(crate) fn remove_type_resolution(&self, key: FrontendSignatureTypeResolutionCacheKey) {
@@ -82,6 +117,10 @@ impl PersistentSignatureCache {
         symbols: &SymbolTable,
         type_store: &TypeStore,
     ) -> Result<SignatureTypeLoweringLookup, SignatureCacheLoadError> {
+        if !self.type_lowering_directory_exists.load(Ordering::Acquire) {
+            nia_timing::emit_counter("frontend.signature_type_lowering_reuse_directory_skips", 1);
+            return Ok(SignatureTypeLoweringLookup::NotFound);
+        }
         let path = self.type_lowering_path(identity.key);
         let encoded = match read_signature_cache_entry(&path)? {
             SignatureCacheEntryRead::Bytes(encoded) => encoded,
@@ -137,6 +176,8 @@ impl PersistentSignatureCache {
         }
         let path = self.type_lowering_path(identity.key);
         if !replace && path.is_file() {
+            self.type_lowering_directory_exists
+                .store(true, Ordering::Release);
             return Ok(());
         }
         let payload = encode_type_lowering(
@@ -151,7 +192,12 @@ impl PersistentSignatureCache {
             .parent()
             .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
         fs::create_dir_all(parent)?;
-        atomic_publish(&path, &encoded, replace)
+        let publication = atomic_publish(&path, &encoded, replace);
+        if publication.is_ok() {
+            self.type_lowering_directory_exists
+                .store(true, Ordering::Release);
+        }
+        publication
     }
 
     pub(crate) fn remove_type_lowering(&self, key: FrontendSignatureTypeLoweringCacheKey) {
@@ -165,6 +211,13 @@ impl PersistentSignatureCache {
         symbols: &SymbolTable,
         type_store: &TypeStore,
     ) -> Result<SignatureItemSignaturesLookup, SignatureCacheLoadError> {
+        if !self.item_signature_directory_exists.load(Ordering::Acquire) {
+            nia_timing::emit_counter(
+                "frontend.signature_item_signatures_reuse_directory_skips",
+                1,
+            );
+            return Ok(SignatureItemSignaturesLookup::NotFound);
+        }
         let path = self.item_signatures_path(identity.key);
         let encoded = match read_signature_cache_entry(&path)? {
             SignatureCacheEntryRead::Bytes(encoded) => encoded,
@@ -216,6 +269,8 @@ impl PersistentSignatureCache {
         }
         let path = self.item_signatures_path(identity.key);
         if !replace && path.is_file() {
+            self.item_signature_directory_exists
+                .store(true, Ordering::Release);
             return Ok(());
         }
         let payload = encode_item_signatures(signatures, module_paths, symbols, type_store)?;
@@ -224,7 +279,12 @@ impl PersistentSignatureCache {
             .parent()
             .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
         fs::create_dir_all(parent)?;
-        atomic_publish(&path, &encoded, replace)
+        let publication = atomic_publish(&path, &encoded, replace);
+        if publication.is_ok() {
+            self.item_signature_directory_exists
+                .store(true, Ordering::Release);
+        }
+        publication
     }
 
     pub(crate) fn remove_item_signatures(&self, key: FrontendSignatureItemSignaturesCacheKey) {
@@ -397,21 +457,13 @@ impl PersistentSignatureCache {
         key: FrontendSignatureTypeResolutionCacheKey,
     ) -> PathBuf {
         let [first, second] = key.parts();
-        self.root
-            .join("artifacts")
-            .join("frontend")
-            .join(FRONTEND_CACHE.path_component)
-            .join("signature-type-resolutions")
+        signature_product_directory(&self.root, "signature-type-resolutions")
             .join(format!("{first:016x}{second:016x}.str"))
     }
 
     pub(crate) fn type_lowering_path(&self, key: FrontendSignatureTypeLoweringCacheKey) -> PathBuf {
         let [first, second] = key.parts();
-        self.root
-            .join("artifacts")
-            .join("frontend")
-            .join(FRONTEND_CACHE.path_component)
-            .join("signature-type-lowerings")
+        signature_product_directory(&self.root, "signature-type-lowerings")
             .join(format!("{first:016x}{second:016x}.stl"))
     }
 
@@ -420,11 +472,7 @@ impl PersistentSignatureCache {
         key: FrontendSignatureItemSignaturesCacheKey,
     ) -> PathBuf {
         let [first, second] = key.parts();
-        self.root
-            .join("artifacts")
-            .join("frontend")
-            .join(FRONTEND_CACHE.path_component)
-            .join("signature-item-signatures")
+        signature_product_directory(&self.root, "signature-item-signatures")
             .join(format!("{first:016x}{second:016x}.sis"))
     }
 
