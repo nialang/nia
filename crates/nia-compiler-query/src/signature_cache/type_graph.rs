@@ -22,13 +22,18 @@ pub(crate) fn encode_type_lowering(
     let mut uses = lowering
         .type_uses
         .iter()
-        .map(|(site, ty)| {
-            let mut encoded_site = Vec::new();
-            write_node_site(&mut encoded_site, site, source_version.id)?;
-            Ok((encoded_site, *ty))
-        })
-        .collect::<io::Result<Vec<_>>>()?;
-    uses.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        .map(|(site, ty)| (site, *ty))
+        .collect::<Vec<_>>();
+    if uses
+        .iter()
+        .any(|(site, _)| site.source_id != source_version.id)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "type lowering node belongs to another source",
+        ));
+    }
+    uses.sort_unstable_by(|left, right| compare_encoded_node_sites(left.0, right.0));
 
     let mut graph = TypeGraphEncoder {
         type_store,
@@ -38,18 +43,20 @@ pub(crate) fn encode_type_lowering(
         visiting: HashSet::new(),
         nodes: Vec::new(),
     };
-    let uses = uses
-        .into_iter()
-        .map(|(site, ty)| Ok((site, graph.intern(ty)?)))
+    let indexes = uses
+        .iter()
+        .map(|(_, ty)| graph.intern(*ty))
         .collect::<io::Result<Vec<_>>>()?;
 
     let mut encoded = Vec::new();
     write_type_graph(&mut encoded, graph.nodes);
     write_u64(&mut encoded, uses.len() as u64);
-    for (site, index) in uses {
-        write_u64(&mut encoded, site.len().saturating_add(8) as u64);
-        encoded.extend_from_slice(&site);
-        write_u64(&mut encoded, index as u64);
+    for ((site, _), index) in uses.into_iter().zip(indexes) {
+        write_length_prefixed(&mut encoded, |encoded| {
+            write_node_site(encoded, site, source_version.id)?;
+            write_u64(encoded, index as u64);
+            Ok(())
+        })?;
     }
     Ok(encoded)
 }

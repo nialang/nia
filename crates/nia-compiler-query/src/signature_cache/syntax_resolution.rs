@@ -1,22 +1,97 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Deterministic syntax/type-resolution node encoding.
 
+use std::cmp::Ordering;
+
 use super::*;
 
-pub(crate) fn write_sorted_entries(
+pub(crate) fn write_sorted_node_entries<S, T>(
     encoded: &mut Vec<u8>,
-    entries: impl IntoIterator<Item = io::Result<Vec<u8>>>,
+    entries: impl IntoIterator<Item = io::Result<(S, T)>>,
+    site_of: impl Fn(&S) -> &NodeSite,
+    source_id: nia_source::SourceId,
+    mut write_value: impl FnMut(&mut Vec<u8>, T) -> io::Result<()>,
 ) -> io::Result<()> {
     let mut entries = entries.into_iter().collect::<io::Result<Vec<_>>>()?;
-    // Hash-backed compiler maps have no stable iteration order. Sorting complete encoded records
-    // makes cache bytes and their checksums reproducible across processes.
-    entries.sort_unstable();
+    // Match the prior complete-record byte ordering exactly so this allocation optimization does
+    // not perturb persistent cache payloads or type-graph root order.
+    entries.sort_unstable_by(|left, right| {
+        compare_encoded_node_sites(site_of(&left.0), site_of(&right.0))
+    });
     write_u64(encoded, entries.len() as u64);
-    for entry in entries {
-        write_u64(encoded, entry.len() as u64);
-        encoded.extend_from_slice(&entry);
+    for (site, value) in entries {
+        write_length_prefixed(encoded, |encoded| {
+            write_node_site(encoded, site_of(&site), source_id)?;
+            write_value(encoded, value)
+        })?;
     }
     Ok(())
+}
+
+pub(crate) fn write_length_prefixed(
+    encoded: &mut Vec<u8>,
+    write_entry: impl FnOnce(&mut Vec<u8>) -> io::Result<()>,
+) -> io::Result<()> {
+    let length_offset = encoded.len();
+    write_u64(encoded, 0);
+    let entry_offset = encoded.len();
+    if let Err(error) = write_entry(encoded) {
+        encoded.truncate(length_offset);
+        return Err(error);
+    }
+    let entry_len = (encoded.len() - entry_offset) as u64;
+    encoded[length_offset..entry_offset].copy_from_slice(&entry_len.to_le_bytes());
+    Ok(())
+}
+
+pub(crate) fn compare_encoded_node_sites(left: &NodeSite, right: &NodeSite) -> Ordering {
+    syntax_kind_tag(left.kind)
+        .cmp(&syntax_kind_tag(right.kind))
+        .then_with(|| compare_encoded_positions(&left.position, &right.position))
+}
+
+fn compare_encoded_positions(left: &NodePosition, right: &NodePosition) -> Ordering {
+    match (left, right) {
+        (NodePosition::Span(left), NodePosition::Span(right)) => {
+            compare_encoded_usize(left.start, right.start)
+                .then_with(|| compare_encoded_usize(left.end, right.end))
+        }
+        (NodePosition::ChildPath(left), NodePosition::ChildPath(right)) => {
+            compare_encoded_child_paths(left, right)
+        }
+        (
+            NodePosition::ChildPathRange {
+                start: left_start,
+                end: left_end,
+            },
+            NodePosition::ChildPathRange {
+                start: right_start,
+                end: right_end,
+            },
+        ) => compare_encoded_child_paths(left_start, right_start)
+            .then_with(|| compare_encoded_child_paths(left_end, right_end)),
+        (NodePosition::Span(_), _) => Ordering::Less,
+        (NodePosition::ChildPath(_), NodePosition::Span(_)) => Ordering::Greater,
+        (NodePosition::ChildPath(_), NodePosition::ChildPathRange { .. }) => Ordering::Less,
+        (NodePosition::ChildPathRange { .. }, _) => Ordering::Greater,
+    }
+}
+
+fn compare_encoded_child_paths(left: &NodeChildPath, right: &NodeChildPath) -> Ordering {
+    compare_encoded_usize(left.steps().len(), right.steps().len()).then_with(|| {
+        left.steps()
+            .iter()
+            .zip(right.steps())
+            .map(|(left, right)| left.to_le_bytes().cmp(&right.to_le_bytes()))
+            .find(|ordering| !ordering.is_eq())
+            .unwrap_or(Ordering::Equal)
+    })
+}
+
+fn compare_encoded_usize(left: usize, right: usize) -> Ordering {
+    (left as u64)
+        .to_le_bytes()
+        .cmp(&(right as u64).to_le_bytes())
 }
 
 pub(crate) fn read_entries<'a>(
@@ -355,4 +430,108 @@ pub(crate) fn read_syntax_kind(cursor: &mut Cursor<&[u8]>) -> Option<SyntaxKind>
         8 => SyntaxKind::Token,
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_source::SourceId;
+
+    #[test]
+    fn streamed_node_entries_match_complete_record_byte_sorting() {
+        let source_id = SourceId(7);
+        let entries = [
+            (
+                NodeSite {
+                    source_id,
+                    kind: SyntaxKind::Type,
+                    position: NodePosition::Span(nia_span::Span::new(1, 257)),
+                },
+                10_u8,
+            ),
+            (
+                NodeSite {
+                    source_id,
+                    kind: SyntaxKind::Type,
+                    position: NodePosition::Span(nia_span::Span::new(256, 257)),
+                },
+                11,
+            ),
+            (
+                NodeSite {
+                    source_id,
+                    kind: SyntaxKind::Expr,
+                    position: NodePosition::ChildPath(NodeChildPath::from_steps(vec![256, 1])),
+                },
+                12,
+            ),
+            (
+                NodeSite {
+                    source_id,
+                    kind: SyntaxKind::Expr,
+                    position: NodePosition::ChildPath(NodeChildPath::from_steps(vec![1, 256])),
+                },
+                13,
+            ),
+            (
+                NodeSite {
+                    source_id,
+                    kind: SyntaxKind::Expr,
+                    position: NodePosition::ChildPathRange {
+                        start: NodeChildPath::from_steps(vec![3]),
+                        end: NodeChildPath::from_steps(vec![5, 8]),
+                    },
+                },
+                14,
+            ),
+        ];
+
+        let mut records = entries
+            .iter()
+            .map(|(site, value)| {
+                let mut record = Vec::new();
+                write_node_site(&mut record, site, source_id).expect("encode legacy node site");
+                record.push(*value);
+                record
+            })
+            .collect::<Vec<_>>();
+        records.sort_unstable();
+        let mut expected = Vec::new();
+        write_u64(&mut expected, records.len() as u64);
+        for record in records {
+            write_u64(&mut expected, record.len() as u64);
+            expected.extend_from_slice(&record);
+        }
+
+        let mut actual = Vec::new();
+        write_sorted_node_entries(
+            &mut actual,
+            entries.iter().map(|(site, value)| Ok((site, *value))),
+            |site| *site,
+            source_id,
+            |encoded, value| {
+                encoded.push(value);
+                Ok(())
+            },
+        )
+        .expect("stream node entries");
+
+        assert_eq!(actual, expected);
+        let mut cursor = Cursor::new(actual.as_slice());
+        assert_eq!(read_entries(&mut cursor, actual.len()).unwrap().len(), 5);
+        assert_eq!(cursor.position() as usize, actual.len());
+    }
+
+    #[test]
+    fn length_prefixed_entry_rolls_back_failed_encoding() {
+        let mut encoded = vec![7, 8, 9];
+        let error = write_length_prefixed(&mut encoded, |encoded| {
+            encoded.extend_from_slice(&[10, 11]);
+            Err(io::Error::new(io::ErrorKind::InvalidInput, "test failure"))
+        })
+        .expect_err("reject entry");
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(encoded, [7, 8, 9]);
+    }
 }

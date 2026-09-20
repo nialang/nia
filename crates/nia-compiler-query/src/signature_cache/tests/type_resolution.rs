@@ -1,6 +1,117 @@
 use super::*;
 
 #[test]
+fn type_resolution_encoding_is_independent_of_map_insertion_order() {
+    let version = SourceVersion {
+        id: SourceId(11),
+        revision: SourceRevision(4),
+    };
+    let sites = [
+        NodeSite {
+            source_id: version.id,
+            kind: SyntaxKind::Type,
+            position: NodePosition::Span(nia_span::Span::new(256, 260)),
+        },
+        NodeSite {
+            source_id: version.id,
+            kind: SyntaxKind::Type,
+            position: NodePosition::Span(nia_span::Span::new(1, 5)),
+        },
+        NodeSite {
+            source_id: version.id,
+            kind: SyntaxKind::Type,
+            position: NodePosition::ChildPath(NodeChildPath::from_steps(vec![2, 1])),
+        },
+    ];
+    let store = nia_node_id::NodeStore::new();
+    let make_resolution = |indexes: &[usize]| {
+        let mut node_type_names = nia_hash::FastHashMap::default();
+        for index in indexes {
+            node_type_names.insert(
+                sites[*index].clone(),
+                TypeNameResolution::Primitive(PrimitiveTypeSpelling::Scalar(PrimitiveTy::Usize)),
+            );
+        }
+        TypeResolution {
+            node_type_names,
+            node_qualified_type_names: nia_hash::FastHashMap::default(),
+            node_const_generic_names: NodeMap::builder(&store).finish(),
+            diagnostics: Vec::new(),
+        }
+    };
+
+    let forward = encode_type_resolution(
+        &make_resolution(&[0, 1, 2]),
+        version,
+        &HashMap::new(),
+        &SymbolTable::new(),
+    )
+    .expect("encode forward insertion order");
+    let reverse = encode_type_resolution(
+        &make_resolution(&[2, 1, 0]),
+        version,
+        &HashMap::new(),
+        &SymbolTable::new(),
+    )
+    .expect("encode reverse insertion order");
+    assert_eq!(forward, reverse);
+}
+
+#[test]
+fn type_resolution_encoding_rejects_foreign_source_and_revision() {
+    let version = SourceVersion {
+        id: SourceId(11),
+        revision: SourceRevision(4),
+    };
+    let store = nia_node_id::NodeStore::new();
+    let foreign_site = NodeSite {
+        source_id: SourceId(12),
+        kind: SyntaxKind::Type,
+        position: NodePosition::Span(nia_span::Span::new(0, 1)),
+    };
+    let foreign_source = TypeResolution {
+        node_type_names: nia_hash::FastHashMap::from_iter([(
+            foreign_site,
+            TypeNameResolution::Primitive(PrimitiveTypeSpelling::Scalar(PrimitiveTy::Usize)),
+        )]),
+        node_qualified_type_names: nia_hash::FastHashMap::default(),
+        node_const_generic_names: NodeMap::builder(&store).finish(),
+        diagnostics: Vec::new(),
+    };
+    assert!(
+        encode_type_resolution(
+            &foreign_source,
+            version,
+            &HashMap::new(),
+            &SymbolTable::new(),
+        )
+        .is_err()
+    );
+
+    let symbols = SymbolTable::new();
+    let symbol = symbols.intern("Length").expect("intern symbol");
+    let mut const_names = NodeMap::builder(&store);
+    const_names.insert(
+        VersionedNodeKey {
+            site: NodeSite {
+                source_id: version.id,
+                kind: SyntaxKind::Expr,
+                position: NodePosition::Span(nia_span::Span::new(2, 3)),
+            },
+            revision: SourceRevision(5),
+        },
+        symbol,
+    );
+    let foreign_revision = TypeResolution {
+        node_type_names: nia_hash::FastHashMap::default(),
+        node_qualified_type_names: nia_hash::FastHashMap::default(),
+        node_const_generic_names: const_names.finish(),
+        diagnostics: Vec::new(),
+    };
+    assert!(encode_type_resolution(&foreign_revision, version, &HashMap::new(), &symbols).is_err());
+}
+
+#[test]
 fn type_resolution_rehydrates_current_source_module_and_symbol_owners() {
     let root = temp_dir("type_resolution_rehydrate");
     let cache = PersistentSignatureCache::new(root.clone());
