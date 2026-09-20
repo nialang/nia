@@ -1324,12 +1324,12 @@ pub fn declared_child_source_path_for_with_symbols_and_entry(
         entry_module,
     );
     let logical = declared_child_path_text(
-        parent_path.identity().normalized_path(),
+        parent_path.identity_ref().normalized_path(),
         parent_module_path,
         &child,
         entry_module,
     );
-    SourcePath::with_identity(physical, logical)
+    SourcePath::with_normalized_identity_unchecked(physical, logical)
 }
 
 fn declared_child_path_text(

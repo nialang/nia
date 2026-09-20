@@ -490,16 +490,20 @@ fn resolve_child_source_path(
     let mut path = start_path;
     let mut module_path = start_module_path;
     for segment in segments {
+        let parent_module_path_len = module_path.segments.len();
+        module_path.segments.push(*segment);
         path = if let Some(existing) = graph
-            .module_id_for_module_path(&module_path.child(*segment))
+            .module_id_for_module_path(&module_path)
             .and_then(|module_id| graph.get(module_id))
             .map(|node| node.path.clone())
         {
             existing
         } else {
-            graph.declared_child_source_path_for(&path, &module_path, *segment)
+            module_path.segments.truncate(parent_module_path_len);
+            let child = graph.declared_child_source_path_for(&path, &module_path, *segment);
+            module_path.segments.push(*segment);
+            child
         };
-        module_path = module_path.child(*segment);
     }
     Some(path)
 }
