@@ -16,7 +16,7 @@ commands:
   report crate-boundaries  report workspace crate evidence
   report llvm-ir           rank generated LLVM IR modules and functions
   baseline compiler        collect compiler performance samples
-  baseline competitive     compare Nia, rustc, and Zig on fixed workloads
+  baseline competitive     compare Nia, Rust, and Zig toolchains on fixed workloads
   baseline compare         compare compiler performance samples
   baseline build           collect the representative build baseline
   check                    run every fast repository audit";
@@ -156,6 +156,7 @@ fn competitive_baseline_command(arguments: &[String]) -> MaintainResult<()> {
         match option {
             "--nia" => options.nia = PathBuf::from(take_value(arguments, &mut index, option)?),
             "--rustc" => options.rustc = PathBuf::from(take_value(arguments, &mut index, option)?),
+            "--cargo" => options.cargo = PathBuf::from(take_value(arguments, &mut index, option)?),
             "--zig" => options.zig = PathBuf::from(take_value(arguments, &mut index, option)?),
             "--time" => options.time = PathBuf::from(take_value(arguments, &mut index, option)?),
             "--resource-root" => {

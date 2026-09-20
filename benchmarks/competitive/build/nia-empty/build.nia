@@ -1,0 +1,7 @@
+using std::build;
+
+pub fn build(b: &mut build::Build) build::Error!() {
+    let all = b.addAggregateStep(&"all").?;
+    b.setDefaultStep(all).?;
+    !()
+}

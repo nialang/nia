@@ -18,6 +18,7 @@ pub(super) enum OutputKind {
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct ToolContract {
     pub(super) language: Language,
+    pub(super) available: bool,
     pub(super) mode: &'static str,
     pub(super) output: OutputKind,
     pub(super) comparability: &'static str,
@@ -42,6 +43,7 @@ pub(super) struct ProfileContract {
 pub(super) struct CompetitiveTools {
     pub(super) nia: ToolIdentity,
     pub(super) rustc: ToolIdentity,
+    pub(super) cargo: ToolIdentity,
     pub(super) zig: ToolIdentity,
     pub(super) time: ToolIdentity,
 }
@@ -53,7 +55,7 @@ pub(super) struct CompetitiveConfiguration {
     pub(super) repetitions: usize,
     pub(super) profiles: Vec<ProfileContract>,
     pub(super) project_workspace_state: &'static str,
-    pub(super) project_cache_state: &'static str,
+    pub(super) project_product_state: &'static str,
     pub(super) sdk_toolchain_cache_state: &'static str,
     pub(super) os_page_cache_state: &'static str,
 }
@@ -70,7 +72,7 @@ pub(super) struct ProcessMetrics {
 
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct InitialState {
-    pub(super) project_cache_existed: bool,
+    pub(super) project_products_existed: bool,
     pub(super) output_existed: bool,
 }
 
@@ -93,7 +95,7 @@ pub(super) struct ExecutionVerification {
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct SampleAcceptance {
     pub(super) fresh_workspace: bool,
-    pub(super) fresh_project_cache: bool,
+    pub(super) fresh_project_products: bool,
     pub(super) fresh_output: bool,
     pub(super) command_succeeded: bool,
     pub(super) output_contract_satisfied: bool,
