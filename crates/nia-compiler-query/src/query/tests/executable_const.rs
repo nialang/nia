@@ -31,6 +31,87 @@ explicit + inferred
     );
     assert_eq!(module.semantic_facts.const_types.len(), 2);
     assert_eq!(module.body_ir.function_bodies.len(), 1);
+
+    let trace = db.query_trace().expect("query trace");
+    let visible_extensions_key = format!("VisibleExtensionsQuery({module_id:?})");
+    let visible_extensions = trace
+        .queries
+        .iter()
+        .find(|query| {
+            query.frame.name == "visible_extensions" && query.frame.key == visible_extensions_key
+        })
+        .expect("executable facts should build the entry module extension index");
+    assert_eq!(
+        visible_extensions.stats.cache_hits, 0,
+        "plain executable const inputs should not request the extension index again"
+    );
+}
+
+#[test]
+fn executable_filtered_const_loads_extensions_when_resolving_method_calls() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+enum Size { Small }
+
+extend Size {
+const fn value(self) usize {
+4usize
+}
+}
+
+const fn len() usize {
+Size::Small.value()
+}
+
+pub fn main() i32 {
+let mut values: [u8; len()] = [0; 4];
+values[0] as i32
+}
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let loaded = fixture.freestanding_program();
+    let db = query_db(loaded);
+
+    let modules = db.expect_get(ExecutableCheckedModulesQuery);
+    let module = modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .expect("entry module should be executable-reachable");
+
+    assert!(
+        module.body_diagnostics.is_empty(),
+        "extension-backed executable const inputs should remain valid: {:?}",
+        module.body_diagnostics.diagnostics()
+    );
+    assert!(
+        module
+            .const_eval
+            .array_lengths
+            .values()
+            .any(|length| *length == 4),
+        "extension method result should remain available as an array length"
+    );
+
+    let trace = db.query_trace().expect("query trace");
+    let visible_extensions_key = format!("VisibleExtensionsQuery({module_id:?})");
+    let visible_extensions = trace
+        .queries
+        .iter()
+        .find(|query| {
+            query.frame.name == "visible_extensions" && query.frame.key == visible_extensions_key
+        })
+        .expect("extension method resolution should build the entry module extension index");
+    assert!(
+        visible_extensions.stats.cache_hits > 0,
+        "filtered const method resolution should request the extension index: {:?}",
+        trace
+            .queries
+            .iter()
+            .filter(|query| query.frame.name == "visible_extensions")
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]
