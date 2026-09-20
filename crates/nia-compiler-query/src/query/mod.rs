@@ -1364,7 +1364,11 @@ impl CompilerDatabase {
         })();
         let publications = self.db.context().finish_frontend_cache_publications();
         result.inspect(|_| {
-            self.flush_frontend_cache_publications(publications);
+            nia_timing::time_query(
+                self.db.context().timings(),
+                "frontend.signature_reuse_flush",
+                || self.flush_frontend_cache_publications(publications),
+            );
         })
     }
 
