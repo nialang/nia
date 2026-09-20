@@ -135,6 +135,7 @@ where
 {
     QueryFrame {
         name: K::name(),
+        stats_category: key.stats_category(),
         key: format!("{key:?}"),
         description: key.description(),
     }
@@ -144,6 +145,7 @@ fn retired_query_frame(node_id: QueryNodeId) -> QueryFrame {
     let key = format!("{}:{}", node_id.db_id.0, node_id.index);
     QueryFrame {
         name: "<retired-query>",
+        stats_category: None,
         description: format!("retired query node {key}"),
         key,
     }

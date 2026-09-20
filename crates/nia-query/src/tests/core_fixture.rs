@@ -144,6 +144,10 @@ impl QueryKey<TestContext> for Double {
         format!("double({})", self.0)
     }
 
+    fn stats_category(&self) -> Option<&'static str> {
+        Some("arithmetic")
+    }
+
     fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
         db.context().executions.fetch_add(1, Ordering::SeqCst);
         Ok(self.0 * 2)

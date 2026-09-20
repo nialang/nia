@@ -656,6 +656,8 @@ where
 pub struct QueryFrame {
     /// Stable query kind name.
     pub name: &'static str,
+    /// Optional stable category for grouped query statistics.
+    pub stats_category: Option<&'static str>,
     /// Debug-formatted key identity.
     pub key: String,
     /// Human-readable query description.

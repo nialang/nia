@@ -26,7 +26,10 @@ fn records_query_execution_and_cache_hit_stats() {
         .queries
         .iter()
         .find(|query| query.frame.description == "double(21)")
-        .map(|query| &query.stats)
+        .map(|query| {
+            assert_eq!(query.frame.stats_category, Some("arithmetic"));
+            &query.stats
+        })
         .expect("double query stats");
 
     assert_eq!(stats.executions, 1);
