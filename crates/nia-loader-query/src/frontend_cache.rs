@@ -763,8 +763,11 @@ fn write_staged_file(staged: &Path, encoded: &[u8]) -> io::Result<()> {
         .write(true)
         .create_new(true)
         .open(staged)?;
-    file.write_all(encoded)?;
-    file.sync_all()
+    // Frontend products are validated, disposable cache entries. Closing the
+    // staged file before rename preserves atomic visibility to concurrent
+    // readers; a crash may lose an entry, which becomes a cache miss or
+    // corruption instead of imposing an fsync on every cold compilation.
+    file.write_all(encoded)
 }
 
 fn validate_cache_entry_size(len: usize) -> io::Result<()> {
