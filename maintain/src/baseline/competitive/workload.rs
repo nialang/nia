@@ -14,12 +14,14 @@ pub(super) enum Workload {
     Synthetic10Modules,
     Synthetic50Modules,
     Synthetic100Modules,
+    Synthetic100ModulesDeepChain,
+    Synthetic100ModulesMixedFanOut,
     Synthetic500Modules,
     Synthetic100ModulesBuild,
 }
 
 impl Workload {
-    pub(super) const ALL: [Self; 10] = [
+    pub(super) const ALL: [Self; 12] = [
         Self::MinimalCheck,
         Self::HelloCheck,
         Self::HelloExecutable,
@@ -28,6 +30,8 @@ impl Workload {
         Self::Synthetic10Modules,
         Self::Synthetic50Modules,
         Self::Synthetic100Modules,
+        Self::Synthetic100ModulesDeepChain,
+        Self::Synthetic100ModulesMixedFanOut,
         Self::Synthetic500Modules,
         Self::Synthetic100ModulesBuild,
     ];
@@ -48,6 +52,8 @@ impl Workload {
             Self::Synthetic10Modules => "synthetic_10_modules",
             Self::Synthetic50Modules => "synthetic_50_modules",
             Self::Synthetic100Modules => "synthetic_100_modules",
+            Self::Synthetic100ModulesDeepChain => "synthetic_100_modules_deep_chain",
+            Self::Synthetic100ModulesMixedFanOut => "synthetic_100_modules_mixed_fan_out",
             Self::Synthetic500Modules => "synthetic_500_modules",
             Self::Synthetic100ModulesBuild => "synthetic_100_modules_build",
         }
@@ -92,19 +98,29 @@ impl Workload {
             | Self::Synthetic500Modules => {
                 "generated flat/star native executable with controlled frontend and reachable code"
             }
+            Self::Synthetic100ModulesDeepChain => {
+                "generated deep-chain native executable with controlled frontend and reachable code"
+            }
+            Self::Synthetic100ModulesMixedFanOut => {
+                "generated mixed-fan-out native executable with controlled frontend and reachable code"
+            }
             Self::Synthetic100ModulesBuild => {
                 "generated medium flat/star executable through native build systems with ordered clean, no-op warm, and one-leaf-edit states"
             }
         }
     }
 
-    pub(super) const fn synthetic_modules(self) -> Option<usize> {
+    pub(super) const fn synthetic_specification(self) -> Option<synthetic::Specification> {
         match self {
-            Self::Synthetic10Modules => Some(10),
-            Self::Synthetic50Modules => Some(50),
-            Self::Synthetic100Modules => Some(100),
-            Self::Synthetic500Modules => Some(500),
-            Self::Synthetic100ModulesBuild => Some(100),
+            Self::Synthetic10Modules => Some(synthetic::Specification::flat_star(10)),
+            Self::Synthetic50Modules => Some(synthetic::Specification::flat_star(50)),
+            Self::Synthetic100Modules => Some(synthetic::Specification::flat_star(100)),
+            Self::Synthetic100ModulesDeepChain => Some(synthetic::Specification::deep_chain(100)),
+            Self::Synthetic100ModulesMixedFanOut => {
+                Some(synthetic::Specification::mixed_fan_out(100))
+            }
+            Self::Synthetic500Modules => Some(synthetic::Specification::flat_star(500)),
+            Self::Synthetic100ModulesBuild => Some(synthetic::Specification::flat_star(100)),
             _ => None,
         }
     }
@@ -115,12 +131,18 @@ impl Workload {
 
     pub(super) const fn source_descriptor(self, language: Language) -> &'static str {
         match self {
-            Self::Synthetic10Modules => "generated:competitive_synthetic/10-leaf-modules",
-            Self::Synthetic50Modules => "generated:competitive_synthetic/50-leaf-modules",
-            Self::Synthetic100Modules => "generated:competitive_synthetic/100-leaf-modules",
-            Self::Synthetic500Modules => "generated:competitive_synthetic/500-leaf-modules",
+            Self::Synthetic10Modules => "generated:competitive_synthetic/10-modules-flat-star",
+            Self::Synthetic50Modules => "generated:competitive_synthetic/50-modules-flat-star",
+            Self::Synthetic100Modules => "generated:competitive_synthetic/100-modules-flat-star",
+            Self::Synthetic100ModulesDeepChain => {
+                "generated:competitive_synthetic/100-modules-deep-chain"
+            }
+            Self::Synthetic100ModulesMixedFanOut => {
+                "generated:competitive_synthetic/100-modules-mixed-fan-out"
+            }
+            Self::Synthetic500Modules => "generated:competitive_synthetic/500-modules-flat-star",
             Self::Synthetic100ModulesBuild => {
-                "generated:competitive_synthetic/100-leaf-modules-native-build"
+                "generated:competitive_synthetic/100-modules-flat-star-native-build"
             }
             _ => match self.source_relative(language) {
                 Some(relative) => relative,
@@ -151,6 +173,8 @@ impl Workload {
                 Self::Synthetic10Modules
                 | Self::Synthetic50Modules
                 | Self::Synthetic100Modules
+                | Self::Synthetic100ModulesDeepChain
+                | Self::Synthetic100ModulesMixedFanOut
                 | Self::Synthetic500Modules
                 | Self::Synthetic100ModulesBuild,
                 _,
@@ -164,6 +188,8 @@ impl Workload {
             | Self::Synthetic10Modules
             | Self::Synthetic50Modules
             | Self::Synthetic100Modules
+            | Self::Synthetic100ModulesDeepChain
+            | Self::Synthetic100ModulesMixedFanOut
             | Self::Synthetic500Modules
             | Self::Synthetic100ModulesBuild => OutputKind::Executable,
             Self::HelloBuild => OutputKind::Executable,
@@ -190,6 +216,8 @@ impl Workload {
                 Self::Synthetic10Modules
                 | Self::Synthetic50Modules
                 | Self::Synthetic100Modules
+                | Self::Synthetic100ModulesDeepChain
+                | Self::Synthetic100ModulesMixedFanOut
                 | Self::Synthetic500Modules,
                 _,
                 _,
@@ -284,21 +312,23 @@ impl Workload {
             Self::Synthetic10Modules
             | Self::Synthetic50Modules
             | Self::Synthetic100Modules
+            | Self::Synthetic100ModulesDeepChain
+            | Self::Synthetic100ModulesMixedFanOut
             | Self::Synthetic500Modules => vec![
                 tool(
                     Language::Nia,
                     "nia emit --exe",
-                    "native executable from a generated Nia module tree with every leaf reachable",
+                    "native executable from a generated Nia module tree with every module's value function reachable",
                 ),
                 tool(
                     Language::Rust,
                     "rustc --emit=link",
-                    "native executable from the equivalent generated Rust module tree with every leaf reachable",
+                    "native executable from the equivalent generated Rust module tree with every module's value function reachable",
                 ),
                 tool(
                     Language::Zig,
                     "zig build-exe",
-                    "native executable from the equivalent generated Zig module tree with every leaf reachable",
+                    "native executable from the equivalent generated Zig module tree with every module's value function reachable",
                 ),
             ],
             Self::Synthetic100ModulesBuild => vec![
@@ -322,10 +352,10 @@ impl Workload {
         WorkloadContract {
             name: self.name(),
             source_class: self.source_class(),
-            synthetic: self.synthetic_modules().map(|leaf_modules| SyntheticContract {
+            synthetic: self.synthetic_specification().map(|specification| SyntheticContract {
                 generator: synthetic::GENERATOR_IDENTITY,
-                leaf_modules,
-                graph: "one executable root with a flat/star dependency on every leaf module",
+                module_count: specification.module_count,
+                graph: specification.graph_shape.description(),
                 per_module_work: "one compile-time-derived constant, one module-local generic identity instance, and one reachable value function",
             }),
             states: self.states(),
@@ -416,6 +446,8 @@ pub(super) fn command(
                 | Workload::Synthetic10Modules
                 | Workload::Synthetic50Modules
                 | Workload::Synthetic100Modules
+                | Workload::Synthetic100ModulesDeepChain
+                | Workload::Synthetic100ModulesMixedFanOut
                 | Workload::Synthetic500Modules => {
                     command.extend([
                         "emit".to_owned(),
@@ -453,6 +485,8 @@ pub(super) fn command(
                 | Workload::Synthetic10Modules
                 | Workload::Synthetic50Modules
                 | Workload::Synthetic100Modules
+                | Workload::Synthetic100ModulesDeepChain
+                | Workload::Synthetic100ModulesMixedFanOut
                 | Workload::Synthetic500Modules => "--emit=link".to_owned(),
                 Workload::EmptyBuild
                 | Workload::HelloBuild
@@ -479,6 +513,8 @@ pub(super) fn command(
                 | Workload::Synthetic10Modules
                 | Workload::Synthetic50Modules
                 | Workload::Synthetic100Modules
+                | Workload::Synthetic100ModulesDeepChain
+                | Workload::Synthetic100ModulesMixedFanOut
                 | Workload::Synthetic500Modules => {
                     command.push(format!("-femit-bin={}", path(output)));
                 }
@@ -596,11 +632,17 @@ mod tests {
     #[test]
     fn synthetic_scales_share_one_explicit_generator_contract() {
         let counts = [10, 50, 100, 500];
-        for (workload, expected) in Workload::ALL[5..9].iter().zip(counts) {
+        let workloads = [
+            Workload::Synthetic10Modules,
+            Workload::Synthetic50Modules,
+            Workload::Synthetic100Modules,
+            Workload::Synthetic500Modules,
+        ];
+        for (workload, expected) in workloads.iter().zip(counts) {
             let contract = workload.contract();
             let synthetic = contract.synthetic.unwrap();
             assert_eq!(synthetic.generator, synthetic::GENERATOR_IDENTITY);
-            assert_eq!(synthetic.leaf_modules, expected);
+            assert_eq!(synthetic.module_count, expected);
             assert_eq!(contract.tools.len(), 3);
             assert!(contract.tools.iter().all(|tool| tool.available));
             assert!(
@@ -613,10 +655,42 @@ mod tests {
     }
 
     #[test]
+    fn medium_graph_workloads_have_distinct_explicit_shapes() {
+        let cases = [
+            (
+                Workload::Synthetic100Modules,
+                synthetic::GraphShape::FlatStar,
+                "flat/star",
+            ),
+            (
+                Workload::Synthetic100ModulesDeepChain,
+                synthetic::GraphShape::DeepChain,
+                "single dependency chain",
+            ),
+            (
+                Workload::Synthetic100ModulesMixedFanOut,
+                synthetic::GraphShape::MixedFanOut,
+                "ten equal-depth",
+            ),
+        ];
+        for (workload, graph_shape, description) in cases {
+            let specification = workload.synthetic_specification().unwrap();
+            let contract = workload.contract().synthetic.unwrap();
+            assert_eq!(specification.module_count, 100);
+            assert_eq!(specification.graph_shape, graph_shape);
+            assert!(contract.graph.contains(description));
+            assert_eq!(contract.module_count, 100);
+        }
+    }
+
+    #[test]
     fn synthetic_build_uses_one_ordered_incremental_sequence() {
         let workload = Workload::Synthetic100ModulesBuild;
         assert!(workload.is_build());
-        assert_eq!(workload.synthetic_modules(), Some(100));
+        assert_eq!(
+            workload.synthetic_specification(),
+            Some(synthetic::Specification::flat_star(100))
+        );
         assert_eq!(
             workload.states(),
             &[

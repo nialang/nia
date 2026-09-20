@@ -52,7 +52,7 @@ pub(super) struct WorkloadContract {
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct SyntheticContract {
     pub(super) generator: &'static str,
-    pub(super) leaf_modules: usize,
+    pub(super) module_count: usize,
     pub(super) graph: &'static str,
     pub(super) per_module_work: &'static str,
 }
