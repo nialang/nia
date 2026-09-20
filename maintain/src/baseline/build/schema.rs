@@ -9,8 +9,6 @@ use crate::system::toolchain::{ToolIdentity, ToolchainIdentity};
 #[derive(Debug, Clone, Serialize)]
 /// Action-execution outcome emitted by the build coordinator.
 pub struct ActionReport {
-    /// Nia release compatibility recorded by the report.
-    pub release_compatibility: u32,
     /// Stable report kind discriminator.
     pub kind: String,
     /// Whether every selected action succeeded.
@@ -225,10 +223,8 @@ pub(super) struct BuildBaselineConfiguration {
 }
 
 #[derive(Debug, Serialize)]
-/// Schema-v2 representative and runner-only build baseline report.
+/// Representative and runner-only build baseline report.
 pub(super) struct BuildBaseline<'a> {
-    /// Nia release compatibility recorded by the baseline.
-    pub(super) release_compatibility: u32,
     /// Stable report kind discriminator.
     pub(super) kind: &'static str,
     /// Machine and resource identity for the run.

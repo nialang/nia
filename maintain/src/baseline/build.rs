@@ -67,7 +67,7 @@ impl Options {
     }
 }
 
-/// Runs the representative build matrix and writes its schema-v2 report.
+/// Runs the representative build matrix and writes its report.
 pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
     let requested_nia = absolute_path(&options.nia)?;
     let default_compiler = root.join("target/release/nia");
@@ -149,7 +149,6 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
         .map(|run| workload_acceptance(run))
         .collect::<MaintainResult<Vec<_>>>()?;
     let baseline = BuildBaseline {
-        release_compatibility: nia_compat::RELEASE_COMPATIBILITY,
         kind: "nia-build-baseline",
         machine: machine_metadata(None),
         toolchain: toolchain_identity(root)?,

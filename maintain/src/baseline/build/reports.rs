@@ -130,7 +130,6 @@ pub fn parse_build_reports(stderr: &str, succeeded: bool) -> MaintainResult<Buil
     }
     Ok(BuildReports {
         actions: ActionReport {
-            release_compatibility: nia_compat::RELEASE_COMPATIBILITY,
             kind: "nia-build-coordinator-actions".to_owned(),
             success: succeeded,
             counters: action_counters,
