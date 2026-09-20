@@ -1,0 +1,49 @@
+using std::fs;
+using std::io;
+
+pub enum Error: i32 {
+    TooLarge = 1,
+    File = 2,
+    _,
+}
+
+pub fn read(path: fs::PathView, storage: &mut [u8], readerBuffer: &mut [u8]) Error!&[u8] {
+    let mut file = match fs::File::open(path, .readOnly()) {
+        !value => value,
+        error! => {
+            _ = error;
+            return .File!;
+        },
+    };
+    let len = match file.len() {
+        !value => value,
+        error! => {
+            _ = error;
+            _ = file.close();
+            return .File!;
+        },
+    };
+    if len > storage.len() as u64 {
+        _ = file.close();
+        return .TooLarge!;
+    }
+    let mut reader = match file.reader(readerBuffer) {
+        !value => value,
+        error! => {
+            _ = error;
+            _ = file.close();
+            return .File!;
+        },
+    };
+    let count = len as usize;
+    if reader.readExact(&mut storage[0..count]) is error! {
+        _ = error;
+        _ = file.close();
+        return .File!;
+    }
+    if file.close() is error! {
+        _ = error;
+        return .File!;
+    }
+    !&storage[0..count]
+}

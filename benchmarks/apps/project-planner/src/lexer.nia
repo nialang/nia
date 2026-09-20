@@ -1,0 +1,43 @@
+using entry::model;
+
+pub struct Lexer {
+    source: &[u8],
+    index: usize,
+}
+
+extend Lexer {
+    pub fn init(source: &[u8]) Lexer {
+        .{ source, index: 0 }
+    }
+
+    fn skipIgnored(&mut self) () {
+        while self.index < self.source.len() {
+            let byte = self.source[self.index];
+            if byte == b' ' or byte == b'\t' or byte == b'\r' or byte == b'\n' {
+                self.index += 1;
+            } else if byte == b'#' {
+                while self.index < self.source.len() and self.source[self.index] != b'\n' {
+                    self.index += 1;
+                }
+            } else {
+                return;
+            }
+        }
+    }
+
+    pub fn next(&mut self) ?model::Span {
+        self.skipIgnored();
+        if self.index == self.source.len() {
+            return null;
+        }
+        let start = self.index;
+        while self.index < self.source.len() {
+            let byte = self.source[self.index];
+            if byte == b' ' or byte == b'\t' or byte == b'\r' or byte == b'\n' or byte == b'#' {
+                break;
+            }
+            self.index += 1;
+        }
+        ?model::Span::init(start, self.index)
+    }
+}

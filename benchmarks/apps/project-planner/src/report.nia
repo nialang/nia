@@ -1,0 +1,22 @@
+using entry::analysis;
+using std::fmt;
+using std::io;
+using std::process;
+
+pub fn write(summary: &analysis::Summary) process::ExitCode!() {
+    let mut buffer: [u8; 256] = [0; 256];
+    let mut stdout = io::FileWriter::stdout(&mut buffer);
+    stdout.print(
+        &"plan-ok tasks={} dependencies={} roots={} leaves={} effort={} critical={}\n",
+        &[
+            &summary.taskCount(),
+            &summary.dependencyCount(),
+            &summary.rootCount(),
+            &summary.leafCount(),
+            &summary.totalDuration(),
+            &summary.criticalDuration(),
+        ],
+    ).?;
+    stdout.flush().?;
+    !()
+}
