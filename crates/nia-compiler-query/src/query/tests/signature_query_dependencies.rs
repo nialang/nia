@@ -34,6 +34,16 @@ fn signature_type_resolution_semantic_uses_precise_module_graph_facts() {
         "signature_type_resolution_semantic",
         "module_graph"
     ));
+    assert!(!trace_has_dependency(
+        &trace,
+        "signature_type_resolution_semantic",
+        "public_surfaces"
+    ));
+    assert!(!trace_has_dependency(
+        &trace,
+        "signature_type_resolution_semantic",
+        "module_using_scope"
+    ));
 }
 
 #[test]
