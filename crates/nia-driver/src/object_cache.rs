@@ -155,7 +155,9 @@ impl ObjectWorkProductCache for PersistentObjectWorkProductCache {
                 .create_new(true)
                 .open(&staged)?;
             write_work_product(&mut file, key, fingerprints, bytes)?;
-            file.sync_all()?;
+            // Object work products are validated, disposable cache entries.
+            // Closing before rename preserves atomic visibility; a crash may
+            // only turn an entry into a cache miss or corrupt-entry recovery.
             drop(file);
 
             let _lock = ObjectCacheMutationLock::acquire(&path)?;
@@ -173,9 +175,6 @@ impl ObjectWorkProductCache for PersistentObjectWorkProductCache {
                 }
             }
             fs::rename(&staged, &path)?;
-            if let Ok(directory) = File::open(parent) {
-                let _ = directory.sync_all();
-            }
             Ok(())
         })();
         if result.is_err() || staged.exists() {
