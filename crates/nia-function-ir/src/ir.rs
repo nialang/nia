@@ -1297,38 +1297,52 @@ impl FunctionTerminator {
     /// the switch fallback even when a default is present, and a loop's
     /// `continue_target`. Optimizers must keep these references valid because a
     /// later transformation can make them operational again.
-    pub fn referenced_blocks(&self) -> Vec<FunctionBlockId> {
-        match self {
+    pub fn referenced_blocks(&self) -> impl Iterator<Item = FunctionBlockId> + '_ {
+        let (fixed, arms, trailing): (
+            [Option<FunctionBlockId>; 3],
+            &[FunctionSwitchArm],
+            [Option<FunctionBlockId>; 2],
+        ) = match self {
             FunctionTerminator::Error { .. }
             | FunctionTerminator::Return { .. }
-            | FunctionTerminator::Tail { .. } => Vec::new(),
+            | FunctionTerminator::Tail { .. } => ([None; 3], &[], [None; 2]),
             FunctionTerminator::Branch { target, .. } | FunctionTerminator::Next { target, .. } => {
-                vec![*target]
+                ([Some(*target), None, None], &[], [None; 2])
             }
-            FunctionTerminator::Try { success_target, .. } => vec![*success_target],
+            FunctionTerminator::Try { success_target, .. } => {
+                ([Some(*success_target), None, None], &[], [None; 2])
+            }
             FunctionTerminator::If {
                 then_target,
                 else_target,
                 ..
-            } => vec![*then_target, *else_target],
+            } => (
+                [Some(*then_target), Some(*else_target), None],
+                &[],
+                [None; 2],
+            ),
             FunctionTerminator::Switch {
                 arms,
                 default,
                 fallback,
                 ..
-            } => {
-                let mut targets = arms.iter().map(|arm| arm.target).collect::<Vec<_>>();
-                targets.extend(default.iter().copied());
-                targets.push(*fallback);
-                targets
-            }
+            } => ([None; 3], arms, [*default, Some(*fallback)]),
             FunctionTerminator::Loop {
                 body,
                 continue_target,
                 break_target,
                 ..
-            } => vec![*body, *continue_target, *break_target],
-        }
+            } => (
+                [Some(*body), Some(*continue_target), Some(*break_target)],
+                &[],
+                [None; 2],
+            ),
+        };
+        fixed
+            .into_iter()
+            .flatten()
+            .chain(arms.iter().map(|arm| arm.target))
+            .chain(trailing.into_iter().flatten())
     }
 }
 
