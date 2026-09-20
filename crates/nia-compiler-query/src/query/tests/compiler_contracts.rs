@@ -8,7 +8,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         .expect("create compiler query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 134);
+    assert_eq!(descriptors.len(), 137);
     assert!(
         !descriptors
             .iter()
@@ -112,7 +112,13 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "public_surfaces"
             | "public_using_scopes"
             | "signature_const_item_tree"
+            | "signature_item_signatures"
+            | "signature_item_signatures_semantic"
             | "signature_item_tree"
+            | "signature_type_lowering"
+            | "signature_type_lowering_semantic"
+            | "signature_type_resolution"
+            | "signature_type_resolution_semantic"
             | "using_scope_type"
             | "using_scope_unresolved"
             | "using_scope_value" => nia_query::QueryFingerprintPolicy::SemanticValue,
