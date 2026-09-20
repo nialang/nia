@@ -4,6 +4,9 @@ pub(crate) struct ModuleGraphQuery;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ModuleGraphRevisionQuery(pub(crate) nia_compiler_query::ProviderFactRevision);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ModuleSourceIdQuery(pub(crate) nia_imports::ModuleId);
+
 use crate::provider_facts::{ProviderDemandsQuery, ProviderFactEvent};
 use crate::provider_loading::{
     add_public_reexport_source_module, module_defines_extensions, process_provider_request,
@@ -18,8 +21,8 @@ use nia_imports::{
     ModuleGraph, ModuleGraphError, ModuleGraphSnapshot, ModuleNode, ResolvedModuleDeclaration,
     module_declaration_visibility_allows,
 };
-use nia_query::{QueryDb, QueryError, QueryKey, QueryResult};
-use nia_source::SourcePath;
+use nia_query::{QueryDb, QueryError, QueryFingerprintPolicy, QueryKey, QueryResult};
+use nia_source::{SourceId, SourcePath};
 use nia_symbol::SymbolId;
 
 #[derive(Debug)]
@@ -103,6 +106,38 @@ impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
         }?;
         db.context().provider_facts.compact_transition(self.0);
         Ok(graph)
+    }
+}
+
+impl QueryKey<LoaderContext> for ModuleSourceIdQuery {
+    type Value = Option<SourceId>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "module_source_id"
+    }
+
+    fn description(&self) -> String {
+        format!("module_source_id({:?})", self.0)
+    }
+
+    fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
+        let graph = db.get(ModuleGraphQuery)?;
+        graph
+            .semantic
+            .get(self.0)
+            .map(|module| {
+                db.context()
+                    .sources
+                    .id_for_path(&module.path)
+                    .map_err(|error| QueryError::internal(error.to_string()))
+            })
+            .transpose()
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 

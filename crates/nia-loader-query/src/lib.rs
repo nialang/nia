@@ -54,6 +54,7 @@ fn loader_query_registry() -> QueryResult<nia_query::QueryRegistry> {
     register!(
         graph::ModuleGraphQuery,
         graph::ModuleGraphRevisionQuery,
+        graph::ModuleSourceIdQuery,
         queries::LoadDiagnosticsQuery,
         queries::ActiveModuleItemTreeFactQuery,
         queries::LoadedModuleQuery,
@@ -577,16 +578,7 @@ impl LoaderDatabase {
         &self,
         module_id: nia_imports::ModuleId,
     ) -> QueryResult<Option<nia_source::SourceId>> {
-        let graph = self.db.get(graph::ModuleGraphQuery)?;
-        graph
-            .semantic
-            .get(module_id)
-            .map(|module| {
-                self.sources
-                    .id_for_path(&module.path)
-                    .map_err(|error| QueryError::internal(error.to_string()))
-            })
-            .transpose()
+        Ok(*self.db.get(graph::ModuleSourceIdQuery(module_id))?)
     }
 }
 
@@ -642,14 +634,9 @@ impl LoaderFactProvider for LoaderDatabase {
         &self,
         module_id: nia_imports::ModuleId,
     ) -> QueryResult<Option<nia_source::SourceVersion>> {
-        let graph = self.db.get(graph::ModuleGraphQuery)?;
-        let Some(module) = graph.semantic.get(module_id) else {
+        let Some(source_id) = self.source_id_for_module(module_id)? else {
             return Ok(None);
         };
-        let source_id = self
-            .sources
-            .id_for_path(&module.path)
-            .map_err(|error| QueryError::internal(error.to_string()))?;
         Ok(match *self.db.get(queries::SourceStatusQuery(source_id))? {
             queries::SourceStatus::Present(version) => Some(version),
             queries::SourceStatus::Missing => None,
