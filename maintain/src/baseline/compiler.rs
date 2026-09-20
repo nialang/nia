@@ -5,6 +5,8 @@ use std::process::{Command, Stdio};
 
 use serde_json::{Map, Value, json};
 
+use super::Language;
+use super::synthetic::{self, Specification};
 use crate::system::machine::machine_metadata;
 use crate::system::toolchain::toolchain_identity;
 use crate::{MaintainResult, TemporaryDirectory, absolute_path};
@@ -74,7 +76,7 @@ fn workloads(root: &Path, output: &Path) -> MaintainResult<Vec<(String, Vec<Stri
     fs::write(&large, large_codegen_source(16, 1024 * 1024))
         .map_err(|error| format!("failed to write {}: {error}", large.display()))?;
     let path = |relative: &str| root.join(relative).to_string_lossy().into_owned();
-    Ok(vec![
+    let mut workloads = vec![
         (
             "minimal".to_owned(),
             vec!["check".to_owned(), path("benchmarks/minimal.nia")],
@@ -153,7 +155,29 @@ fn workloads(root: &Path, output: &Path) -> MaintainResult<Vec<(String, Vec<Stri
                 output.join("std-hello").to_string_lossy().into_owned(),
             ],
         ),
-    ])
+    ];
+    for module_count in [10, 50, 100, 500] {
+        let source_root = output.join(format!("synthetic-{module_count}-modules"));
+        let source = synthetic::generate(
+            &source_root,
+            Language::Nia,
+            Specification::flat_star(module_count),
+        )?;
+        workloads.push((
+            format!("synthetic_{module_count}_modules"),
+            vec![
+                "emit".to_owned(),
+                "--exe".to_owned(),
+                source.to_string_lossy().into_owned(),
+                "-o".to_owned(),
+                output
+                    .join(format!("synthetic-{module_count}"))
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
+        ));
+    }
+    Ok(workloads)
 }
 
 fn command_output(root: &Path, program: &Path, arguments: &[&str]) -> Option<String> {
@@ -286,6 +310,40 @@ fn require_std_hello_instrumentation(
     Ok(())
 }
 
+fn synthetic_module_count(name: &str) -> Option<i64> {
+    match name {
+        "synthetic_10_modules" => Some(10),
+        "synthetic_50_modules" => Some(50),
+        "synthetic_100_modules" => Some(100),
+        "synthetic_500_modules" => Some(500),
+        _ => None,
+    }
+}
+
+fn require_synthetic_scale_instrumentation(
+    report: &Map<String, Value>,
+    module_count: i64,
+) -> MaintainResult<()> {
+    let loaded_modules = integer_counter(report, "compiler.loaded_modules");
+    let query_executions = integer_counter(report, "query.executions");
+    let checked_bodies = integer_counter(report, "compiler.checked_bodies");
+    let reachable_bodies = integer_counter(report, "compiler.reachable_bodies");
+    let llvm_units = integer_counter(report, "llvm.units");
+    let ready_submissions = integer_counter(report, "llvm.ready_task_submissions");
+    let valid = loaded_modules.is_some_and(|value| value > module_count)
+        && query_executions.is_some_and(|value| value > module_count)
+        && checked_bodies.is_some_and(|value| value >= module_count)
+        && reachable_bodies.is_some_and(|value| value >= module_count)
+        && llvm_units.is_some_and(|value| value >= module_count)
+        && ready_submissions.is_some_and(|value| Some(value) == llvm_units);
+    if !valid {
+        return Err(format!(
+            "synthetic {module_count}-module timing report did not retain the required module, query, body, and LLVM-unit counters"
+        ));
+    }
+    Ok(())
+}
+
 fn command_label(root: &Path, value: &str) -> String {
     let path = Path::new(value);
     if !path.is_absolute() {
@@ -366,6 +424,8 @@ fn run_workload(
         require_std_hello_instrumentation(&report, false)?;
     } else if name == "std_hello_exe" {
         require_std_hello_instrumentation(&report, true)?;
+    } else if let Some(module_count) = synthetic_module_count(name) {
+        require_synthetic_scale_instrumentation(&report, module_count)?;
     }
     report.insert("name".to_owned(), Value::String(name.to_owned()));
     let compiler_label = compiler
@@ -611,6 +671,60 @@ mod tests {
             "llvm.ready_task_submissions": 35,
         }));
         assert!(require_std_hello_instrumentation(&executable, true).is_ok());
+    }
+
+    #[test]
+    fn validates_synthetic_scale_instrumentation() {
+        let valid = report(json!({
+            "compiler.loaded_modules": 135,
+            "query.executions": 20_000,
+            "compiler.checked_bodies": 120,
+            "compiler.reachable_bodies": 110,
+            "llvm.units": 108,
+            "llvm.ready_task_submissions": 108,
+        }));
+        assert!(require_synthetic_scale_instrumentation(&valid, 100).is_ok());
+
+        for missing in [
+            "compiler.loaded_modules",
+            "query.executions",
+            "compiler.checked_bodies",
+            "compiler.reachable_bodies",
+            "llvm.units",
+            "llvm.ready_task_submissions",
+        ] {
+            let mut incomplete = valid.clone();
+            incomplete
+                .get_mut("counters")
+                .and_then(Value::as_object_mut)
+                .unwrap()
+                .remove(missing);
+            assert!(require_synthetic_scale_instrumentation(&incomplete, 100).is_err());
+        }
+    }
+
+    #[test]
+    fn compiler_workloads_share_the_competitive_synthetic_generator() {
+        let temporary = TemporaryDirectory::new("nia-compiler-workloads-").unwrap();
+        let available = workloads(temporary.path(), temporary.path()).unwrap();
+        for module_count in [10, 50, 100, 500] {
+            let name = format!("synthetic_{module_count}_modules");
+            let arguments = &available
+                .iter()
+                .find(|(available, _)| available == &name)
+                .unwrap()
+                .1;
+            let entry = Path::new(&arguments[2]);
+            assert!(entry.is_file());
+            assert_eq!(
+                entry.file_name().and_then(|name| name.to_str()),
+                Some("main.nia")
+            );
+            assert_eq!(
+                fs::read_dir(entry.parent().unwrap()).unwrap().count(),
+                module_count + 1
+            );
+        }
     }
 
     #[test]

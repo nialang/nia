@@ -39,12 +39,13 @@ baseline builds the repository-default release compiler before measurement;
 `--no-build` is an explicit escape hatch for an externally prepared compiler,
 and the report marks that distinction.
 
-The suite currently fixes eleven compiler paths: minimal check, standard-library
+The suite currently fixes fifteen compiler paths: minimal check, standard-library
 Hello World check and executable emission, strings and slices, ArrayList,
 trait-heavy code, const-eval-heavy code, multi-module backend lowering, small
 and large bounded multi-unit object codegen, and a larger full executable
-emission. Benchmark sources live in `benchmarks/`, reuse maintained examples,
-or are generated deterministically by the runner; generated sources, objects,
+emission, plus the 10, 50, 100, and 500-module flat/star synthetic executable
+scales. Benchmark sources live in `benchmarks/`, reuse maintained examples, or
+are generated deterministically by the runner; generated sources, objects,
 executables, and reports remain under temporary or `target/` directories. The
 `codegen_buckets` workload is a single source with eight reachable definitions.
 `codegen_buckets_large` generates sixteen reachable 1 MiB static definitions
@@ -62,6 +63,12 @@ checked-body and query-execution counts, and its executable workload must use
 the live multi-unit LLVM path. This prevents the cold standard-library boundary
 from silently disappearing from the measurement through a fixture or cache
 configuration change.
+The four synthetic scales reuse the competitive matrix's Nia source generator
+and compile every module to a native executable. Each sample is rejected unless
+its loaded-module, query-execution, checked-body, reachable-body, LLVM-unit, and
+live ready-task counters retain at least the requested scale. Repeated compiler
+baseline samples therefore provide the internal distributions corresponding to
+the competitive baseline's cold wall, CPU-utilization, and peak-RSS scales.
 
 Each result contains process wall, user, and system time; maximum resident set
 size; CPU utilization; aggregated stage/query timings; query execution and
