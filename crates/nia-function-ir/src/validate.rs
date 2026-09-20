@@ -967,6 +967,50 @@ mod tests {
     }
 
     #[test]
+    fn referenced_blocks_preserve_switch_structural_order() {
+        let span = Span::default();
+        let ty = test_ty();
+        let terminator = FunctionTerminator::Switch {
+            target: FunctionExpr {
+                span,
+                ty,
+                kind: FunctionExprKind::Integer("0".to_string()),
+            },
+            arms: vec![
+                crate::FunctionSwitchArm {
+                    pattern: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("1".to_string()),
+                    },
+                    target: FunctionBlockId(1),
+                },
+                crate::FunctionSwitchArm {
+                    pattern: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("2".to_string()),
+                    },
+                    target: FunctionBlockId(2),
+                },
+            ],
+            default: Some(FunctionBlockId(3)),
+            fallback: FunctionBlockId(4),
+            span,
+        };
+
+        assert_eq!(
+            terminator.referenced_blocks().collect::<Vec<_>>(),
+            vec![
+                FunctionBlockId(1),
+                FunctionBlockId(2),
+                FunctionBlockId(3),
+                FunctionBlockId(4)
+            ]
+        );
+    }
+
+    #[test]
     fn validates_closure_entry_local_contract() {
         validate_function_closure_entry(&closure_entry()).expect("well-formed closure entry");
 

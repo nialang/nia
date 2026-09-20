@@ -46,15 +46,13 @@ impl FunctionCfg {
         self.predecessors.get(&id).map(Vec::as_slice).unwrap_or(&[])
     }
 
-    pub(crate) fn referenced_blocks(
-        &self,
-        terminator: &FunctionTerminator,
-    ) -> Vec<FunctionBlockId> {
+    pub(crate) fn referenced_blocks<'a>(
+        &'a self,
+        terminator: &'a FunctionTerminator,
+    ) -> impl Iterator<Item = FunctionBlockId> + 'a {
         terminator
             .referenced_blocks()
-            .into_iter()
             .filter(|id| self.blocks_by_id.contains_key(id))
-            .collect()
     }
 
     pub(crate) fn reachable_from(
