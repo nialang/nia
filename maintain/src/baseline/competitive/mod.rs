@@ -4,7 +4,8 @@ mod summary;
 mod synthetic;
 mod workload;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -14,9 +15,10 @@ use serde::Serialize;
 
 use self::process::measure;
 use self::schema::{
-    AggregateAcceptance, Artifact, CompetitiveBaseline, CompetitiveConfiguration,
+    AggregateAcceptance, Artifact, ArtifactRelation, CompetitiveBaseline, CompetitiveConfiguration,
     CompetitiveSample, CompetitiveTools, ExecutionVerification, InitialState, OutputKind,
-    ProfileContract, SampleAcceptance, SourceManifest,
+    ProfileContract, ProjectProductState, SampleAcceptance, SampleState, SourceManifest,
+    TransitionEvidence,
 };
 use self::summary::summarize;
 use self::workload::{Programs, Workload};
@@ -195,10 +197,7 @@ fn copy_tree(source: &Path, destination: &Path) -> MaintainResult<()> {
         .map_err(|error| format!("failed to inspect {}: {error}", source.display()))?;
     entries.sort_by_key(std::fs::DirEntry::file_name);
     for entry in entries {
-        if matches!(
-            entry.file_name().to_str(),
-            Some(".nia-build" | ".nia-cache" | ".zig-cache" | "zig-out" | "target")
-        ) {
+        if is_project_product_directory(&entry.file_name()) {
             continue;
         }
         let target = destination.join(entry.file_name());
@@ -215,6 +214,13 @@ fn copy_tree(source: &Path, destination: &Path) -> MaintainResult<()> {
     Ok(())
 }
 
+fn is_project_product_directory(name: &OsStr) -> bool {
+    matches!(
+        name.to_str(),
+        Some(".nia-build" | ".nia-cache" | ".zig-cache" | "zig-out" | "target")
+    )
+}
+
 fn collect_tree_files(
     root: &Path,
     directory: &Path,
@@ -229,6 +235,9 @@ fn collect_tree_files(
             .file_type()
             .map_err(|error| format!("failed to inspect {}: {error}", entry.path().display()))?;
         if file_type.is_dir() {
+            if is_project_product_directory(&entry.file_name()) {
+                continue;
+            }
             collect_tree_files(root, &entry.path(), files)?;
         } else if file_type.is_file() {
             files.push(
@@ -243,15 +252,24 @@ fn collect_tree_files(
     Ok(())
 }
 
-fn source_manifest(path: &Path, descriptor: &'static str) -> MaintainResult<SourceManifest> {
+struct SourceSnapshot {
+    manifest: SourceManifest,
+    files: BTreeMap<PathBuf, String>,
+}
+
+fn source_snapshot(path: &Path, descriptor: &'static str) -> MaintainResult<SourceSnapshot> {
     if path.is_file() {
         let bytes = fs::read(path)
             .map_err(|error| format!("failed to read fixture {}: {error}", path.display()))?;
-        return Ok(SourceManifest {
-            descriptor,
-            blake3: blake3::hash(&bytes).to_hex().to_string(),
-            file_count: 1,
-            size_bytes: bytes.len() as u64,
+        let blake3 = blake3::hash(&bytes).to_hex().to_string();
+        return Ok(SourceSnapshot {
+            manifest: SourceManifest {
+                descriptor,
+                blake3: blake3.clone(),
+                file_count: 1,
+                size_bytes: bytes.len() as u64,
+            },
+            files: BTreeMap::from([(PathBuf::from("."), blake3)]),
         });
     }
     let mut files = Vec::new();
@@ -260,6 +278,7 @@ fn source_manifest(path: &Path, descriptor: &'static str) -> MaintainResult<Sour
     let file_count = files.len();
     let mut hasher = blake3::Hasher::new();
     let mut size_bytes = 0u64;
+    let mut file_hashes = BTreeMap::new();
     for relative in files {
         let bytes = fs::read(path.join(&relative)).map_err(|error| {
             format!(
@@ -272,13 +291,29 @@ fn source_manifest(path: &Path, descriptor: &'static str) -> MaintainResult<Sour
         hasher.update(&(bytes.len() as u64).to_le_bytes());
         hasher.update(&bytes);
         size_bytes += bytes.len() as u64;
+        file_hashes.insert(relative, blake3::hash(&bytes).to_hex().to_string());
     }
-    Ok(SourceManifest {
-        descriptor,
-        blake3: hasher.finalize().to_hex().to_string(),
-        file_count,
-        size_bytes,
+    Ok(SourceSnapshot {
+        manifest: SourceManifest {
+            descriptor,
+            blake3: hasher.finalize().to_hex().to_string(),
+            file_count,
+            size_bytes,
+        },
+        files: file_hashes,
     })
+}
+
+fn changed_files(before: &SourceSnapshot, after: &SourceSnapshot) -> Vec<String> {
+    before
+        .files
+        .keys()
+        .chain(after.files.keys())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|path| before.files.get(*path) != after.files.get(*path))
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .collect()
 }
 
 fn verify_executable(
@@ -314,6 +349,7 @@ fn verify_executable(
     }
 }
 
+#[derive(Clone, Copy)]
 struct SampleInputs<'a> {
     root: &'a Path,
     programs: &'a Programs<'a>,
@@ -323,47 +359,81 @@ struct SampleInputs<'a> {
     profile: Profile,
     repetition: usize,
     sequence: usize,
+    total_samples: usize,
     timeout_seconds: u64,
 }
 
 fn sample_acceptance(
+    state: SampleState,
     initial_state: &InitialState,
+    transition: &TransitionEvidence,
     command_succeeded: bool,
     output_contract_satisfied: bool,
     executable_verified: Option<bool>,
 ) -> SampleAcceptance {
+    let expected_products = !matches!(state, SampleState::Clean);
+    let expected_output = !matches!(state, SampleState::Clean);
+    let initial_state_satisfied = initial_state
+        .project_products
+        .iter()
+        .all(|product| product.existed == expected_products)
+        && initial_state.output_existed == expected_output;
     SampleAcceptance {
-        fresh_workspace: true,
-        fresh_project_products: !initial_state.project_products_existed,
-        fresh_output: !initial_state.output_existed,
+        expected_project_products_existed: expected_products,
+        expected_output_existed: expected_output,
+        initial_state_satisfied,
+        process_transition_satisfied: transition.process_satisfied,
+        source_transition_satisfied: transition.source_satisfied,
+        artifact_transition_satisfied: transition.artifact_satisfied,
         command_succeeded,
         output_contract_satisfied,
         executable_verified,
-        passed: !initial_state.project_products_existed
-            && !initial_state.output_existed
+        passed: initial_state_satisfied
+            && transition.process_satisfied
+            && transition.source_satisfied
+            && transition.artifact_satisfied
             && command_succeeded
             && output_contract_satisfied
             && executable_verified.unwrap_or(true),
     }
 }
 
-fn collect_sample(inputs: &SampleInputs<'_>) -> MaintainResult<CompetitiveSample> {
+struct PreparedProject {
+    _temporary: TemporaryDirectory,
+    workspace: PathBuf,
+    source: PathBuf,
+    manifest_root: PathBuf,
+    measurements: PathBuf,
+}
+
+fn prepare_project(inputs: &SampleInputs<'_>) -> MaintainResult<PreparedProject> {
     let temporary = TemporaryDirectory::new("nia-competitive-")?;
-    let workspace = temporary.path();
-    let source_descriptor = inputs.workload.source_descriptor(inputs.language);
+    let workspace = temporary.path().join("project");
+    fs::create_dir_all(&workspace)
+        .map_err(|error| format!("failed to create {}: {error}", workspace.display()))?;
     let source_fixture = inputs
         .workload
         .source_relative(inputs.language)
         .map(|relative| inputs.root.join(relative));
-    let (source, manifest_root) = if let Some(leaf_modules) = inputs.workload.synthetic_modules() {
-        let source = synthetic::generate(workspace, inputs.language, leaf_modules)?;
-        (source, workspace.to_path_buf())
+    let (source, manifest_root) = if inputs.workload.is_synthetic_build() {
+        synthetic::generate_build_project(
+            &workspace,
+            inputs.language,
+            inputs
+                .workload
+                .synthetic_modules()
+                .expect("synthetic build has a module count"),
+        )?;
+        (workspace.clone(), workspace.clone())
+    } else if let Some(leaf_modules) = inputs.workload.synthetic_modules() {
+        let source = synthetic::generate(&workspace, inputs.language, leaf_modules)?;
+        (source, workspace.clone())
     } else if inputs.workload.is_build() {
         let source_fixture = source_fixture
             .as_ref()
             .expect("build workload has a fixture");
-        copy_tree(source_fixture, workspace)?;
-        (workspace.to_path_buf(), workspace.to_path_buf())
+        copy_tree(source_fixture, &workspace)?;
+        (workspace.clone(), workspace.clone())
     } else {
         let source_fixture = source_fixture
             .as_ref()
@@ -378,20 +448,108 @@ fn collect_sample(inputs: &SampleInputs<'_>) -> MaintainResult<CompetitiveSample
         })?;
         (source.clone(), source)
     };
-    let source_manifest = source_manifest(&manifest_root, source_descriptor)?;
+    let measurements = temporary.path().join("measurements");
+    fs::create_dir_all(&measurements)
+        .map_err(|error| format!("failed to create {}: {error}", measurements.display()))?;
+    Ok(PreparedProject {
+        _temporary: temporary,
+        workspace,
+        source,
+        manifest_root,
+        measurements,
+    })
+}
+
+struct Predecessor<'a> {
+    sequence: usize,
+    process_id: u32,
+    source: &'a SourceSnapshot,
+    artifact: Option<&'a Artifact>,
+}
+
+fn transition_evidence(
+    state: SampleState,
+    predecessor: Option<&Predecessor<'_>>,
+    process_id: u32,
+    source: &SourceSnapshot,
+    artifact: Option<&Artifact>,
+    edited_leaf: Option<&str>,
+) -> TransitionEvidence {
+    let predecessor_process_id = predecessor.map(|previous| previous.process_id);
+    let process_satisfied = match state {
+        SampleState::Clean => predecessor_process_id.is_none(),
+        SampleState::NoOpWarm | SampleState::LeafEdit => {
+            predecessor_process_id.is_some_and(|predecessor| predecessor != process_id)
+        }
+    };
+    let changed_files = predecessor
+        .map(|previous| changed_files(previous.source, source))
+        .unwrap_or_default();
+    let expected_changed_files = match state {
+        SampleState::Clean | SampleState::NoOpWarm => Vec::new(),
+        SampleState::LeafEdit => vec![edited_leaf.expect("leaf edit path is known").to_owned()],
+    };
+    let source_satisfied = changed_files == expected_changed_files;
+    let expected_artifact_relation = match state {
+        SampleState::Clean => ArtifactRelation::NotApplicable,
+        SampleState::NoOpWarm => ArtifactRelation::Identical,
+        SampleState::LeafEdit => ArtifactRelation::Different,
+    };
+    let artifact_satisfied = match expected_artifact_relation {
+        ArtifactRelation::NotApplicable => true,
+        ArtifactRelation::Identical => predecessor
+            .and_then(|previous| previous.artifact)
+            .zip(artifact)
+            .is_some_and(|(before, after)| before.blake3 == after.blake3),
+        ArtifactRelation::Different => predecessor
+            .and_then(|previous| previous.artifact)
+            .zip(artifact)
+            .is_some_and(|(before, after)| before.blake3 != after.blake3),
+    };
+    TransitionEvidence {
+        predecessor_sequence: predecessor.map(|previous| previous.sequence),
+        predecessor_process_id,
+        process_satisfied,
+        expected_changed_files,
+        changed_files,
+        source_satisfied,
+        expected_artifact_relation,
+        artifact_satisfied,
+    }
+}
+
+fn collect_prepared_sample(
+    inputs: &SampleInputs<'_>,
+    prepared: &PreparedProject,
+    state: SampleState,
+    predecessor: Option<Predecessor<'_>>,
+    edited_leaf: Option<&str>,
+) -> MaintainResult<(CompetitiveSample, SourceSnapshot)> {
+    let source_descriptor = inputs.workload.source_descriptor(inputs.language);
+    let source_snapshot = source_snapshot(&prepared.manifest_root, source_descriptor)?;
     let product_paths =
-        workload::project_product_paths(workspace, inputs.workload, inputs.language);
+        workload::project_product_paths(&prepared.workspace, inputs.workload, inputs.language);
     let cache = product_paths[0].clone();
     let output_kind = inputs.workload.output_kind(inputs.language);
     let output = workload::output_path(
-        workspace,
+        &prepared.workspace,
         inputs.workload,
         inputs.language,
         inputs.profile,
         output_kind,
     );
     let initial_state = InitialState {
-        project_products_existed: product_paths.iter().any(|path| path.exists()),
+        project_products: product_paths
+            .iter()
+            .map(|path| ProjectProductState {
+                path: path
+                    .strip_prefix(&prepared.workspace)
+                    .expect("product path is below workspace")
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+                existed: path.exists(),
+            })
+            .collect(),
         output_existed: output.exists(),
     };
     let command = workload::command(
@@ -399,16 +557,18 @@ fn collect_sample(inputs: &SampleInputs<'_>) -> MaintainResult<CompetitiveSample
         inputs.workload,
         inputs.language,
         inputs.profile,
-        &source,
+        &prepared.source,
         &output,
         &cache,
     );
-    let command_label = workload::normalized_command(&command, inputs.root, workspace);
+    let command_label = workload::normalized_command(&command, inputs.root, &prepared.workspace);
     let measured = measure(
         inputs.time,
         &command,
-        workspace,
-        &workspace.join("time.txt"),
+        &prepared.workspace,
+        &prepared
+            .measurements
+            .join(format!("{}.txt", inputs.sequence)),
         inputs.timeout_seconds,
     )?;
     let command_succeeded = measured.return_code == 0;
@@ -419,26 +579,37 @@ fn collect_sample(inputs: &SampleInputs<'_>) -> MaintainResult<CompetitiveSample
     };
     let execution = inputs
         .workload
-        .expected_output(inputs.language)
+        .expected_output(inputs.language, state)
         .filter(|_| artifact.is_some())
         .map(|expected| verify_executable(&output, expected, inputs.timeout_seconds));
     let executable_verified = inputs
         .workload
-        .expected_output(inputs.language)
+        .expected_output(inputs.language, state)
         .map(|_| execution.as_ref().is_some_and(|execution| execution.passed));
+    let transition = transition_evidence(
+        state,
+        predecessor.as_ref(),
+        measured.process_id,
+        &source_snapshot,
+        artifact.as_ref(),
+        edited_leaf,
+    );
     let acceptance = sample_acceptance(
+        state,
         &initial_state,
+        &transition,
         command_succeeded,
         output_contract_satisfied,
         executable_verified,
     );
-    Ok(CompetitiveSample {
+    let sample = CompetitiveSample {
         sequence: inputs.sequence,
         repetition: inputs.repetition,
         profile: inputs.profile,
         workload: inputs.workload.name(),
         language: inputs.language,
-        source: source_manifest,
+        state,
+        source: source_snapshot.manifest.clone(),
         command: command_label,
         process_id: measured.process_id,
         return_code: measured.return_code,
@@ -446,10 +617,69 @@ fn collect_sample(inputs: &SampleInputs<'_>) -> MaintainResult<CompetitiveSample
         stderr: String::from_utf8_lossy(&measured.stderr).into_owned(),
         metrics: measured.metrics,
         initial_state,
+        transition,
         artifact,
         execution,
         acceptance,
-    })
+    };
+    Ok((sample, source_snapshot))
+}
+
+fn collect_samples(inputs: &SampleInputs<'_>) -> MaintainResult<Vec<CompetitiveSample>> {
+    let prepared = prepare_project(inputs)?;
+    let mut samples = Vec::<CompetitiveSample>::new();
+    let mut predecessor_source = None;
+    let mut predecessor_artifact = None;
+    let mut predecessor_sequence = None;
+    let mut edited_leaf = None;
+    for (offset, state) in inputs.workload.states().iter().copied().enumerate() {
+        if matches!(state, SampleState::LeafEdit) {
+            let relative = synthetic::edit_leaf(
+                &prepared.workspace,
+                inputs.language,
+                inputs
+                    .workload
+                    .synthetic_modules()
+                    .expect("leaf edit workload has modules")
+                    / 2,
+            )?;
+            edited_leaf = Some(relative.to_string_lossy().replace('\\', "/"));
+        }
+        let sequence = inputs.sequence + offset;
+        eprintln!(
+            "competitive: {sequence}/{} repetition={} profile={:?} workload={} language={:?} state={state:?}",
+            inputs.total_samples,
+            inputs.repetition,
+            inputs.profile,
+            inputs.workload.name(),
+            inputs.language,
+        );
+        let state_inputs = SampleInputs {
+            sequence,
+            ..*inputs
+        };
+        let predecessor = predecessor_source.as_ref().map(|source| Predecessor {
+            sequence: predecessor_sequence.expect("predecessor sequence exists"),
+            process_id: samples
+                .last()
+                .expect("predecessor sample exists")
+                .process_id,
+            source,
+            artifact: predecessor_artifact.as_ref(),
+        });
+        let (sample, source) = collect_prepared_sample(
+            &state_inputs,
+            &prepared,
+            state,
+            predecessor,
+            edited_leaf.as_deref(),
+        )?;
+        predecessor_sequence = Some(sample.sequence);
+        predecessor_artifact = sample.artifact.clone();
+        predecessor_source = Some(source);
+        samples.push(sample);
+    }
+    Ok(samples)
 }
 
 fn selected_profiles(options: &Options) -> MaintainResult<Vec<Profile>> {
@@ -551,8 +781,9 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
     let samples_per_repetition = profiles.len()
         * workloads
             .iter()
-            .map(|workload| workload.languages().len())
+            .map(|workload| workload.languages().len() * workload.states().len())
             .sum::<usize>();
+    let total_samples = options.repeat * samples_per_repetition;
     for repetition in 1..=options.repeat {
         for profile in &profiles {
             for workload in &workloads {
@@ -561,12 +792,7 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
                 for offset in 0..languages.len() {
                     let language = languages[(rotation + offset) % languages.len()];
                     let sequence = samples.len() + 1;
-                    eprintln!(
-                        "competitive: {sequence}/{} repetition={repetition} profile={profile:?} workload={} language={language:?}",
-                        options.repeat * samples_per_repetition,
-                        workload.name()
-                    );
-                    samples.push(collect_sample(&SampleInputs {
+                    samples.extend(collect_samples(&SampleInputs {
                         root,
                         programs: &programs,
                         time: &time,
@@ -575,6 +801,7 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
                         profile: *profile,
                         repetition,
                         sequence,
+                        total_samples,
                         timeout_seconds: options.timeout_seconds,
                     })?);
                 }
@@ -608,8 +835,8 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
             compiler_cargo_profile: built.then_some("release"),
             repetitions: options.repeat,
             profiles: profiles.iter().map(|profile| profile.contract()).collect(),
-            project_workspace_state: "fresh temporary workspace for every process",
-            project_product_state: "fresh Nia build/cache, Cargo target, and Zig local cache/output roots per build process; fresh explicit Nia/Zig project cache per direct process; direct rustc incremental compilation disabled by omission",
+            project_workspace_state: "fresh temporary workspace for every clean sample or ordered state sequence; no-op warm and leaf-edit states share only their sequence workspace",
+            project_product_state: "absent Nia build/cache, Cargo target, and Zig local cache/output roots before clean build processes; retained for ordered no-op warm and leaf-edit states; fresh explicit Nia/Zig project cache per direct process; direct rustc incremental compilation disabled by omission",
             sdk_toolchain_cache_state: "selected Nia resource root, rustc sysroot, and Zig global cache retained; SDK/toolchain-cold is a separate experiment",
             os_page_cache_state: "uncontrolled; may be warm and shared across interleaved tools",
         },
@@ -676,20 +903,63 @@ mod tests {
     }
 
     #[test]
-    fn acceptance_rejects_warm_or_invalid_samples() {
-        let cold = InitialState {
-            project_products_existed: false,
-            output_existed: false,
+    fn acceptance_enforces_state_and_transition_contracts() {
+        let transition = |state, passed| TransitionEvidence {
+            predecessor_sequence: (!matches!(state, SampleState::Clean)).then_some(1),
+            predecessor_process_id: (!matches!(state, SampleState::Clean)).then_some(100),
+            process_satisfied: passed,
+            expected_changed_files: Vec::new(),
+            changed_files: Vec::new(),
+            source_satisfied: passed,
+            expected_artifact_relation: ArtifactRelation::NotApplicable,
+            artifact_satisfied: passed,
         };
-        assert!(sample_acceptance(&cold, true, true, Some(true)).passed);
-        assert!(!sample_acceptance(&cold, true, true, Some(false)).passed);
-        assert!(!sample_acceptance(&cold, false, true, None).passed);
+        let initial = |product_existed, output_existed| InitialState {
+            project_products: vec![ProjectProductState {
+                path: "cache".to_owned(),
+                existed: product_existed,
+            }],
+            output_existed,
+        };
+        let cold = initial(false, false);
+        assert!(
+            sample_acceptance(
+                SampleState::Clean,
+                &cold,
+                &transition(SampleState::Clean, true),
+                true,
+                true,
+                Some(true),
+            )
+            .passed
+        );
         assert!(
             !sample_acceptance(
-                &InitialState {
-                    project_products_existed: true,
-                    output_existed: false,
-                },
+                SampleState::Clean,
+                &cold,
+                &transition(SampleState::Clean, true),
+                true,
+                true,
+                Some(false),
+            )
+            .passed
+        );
+        assert!(
+            !sample_acceptance(
+                SampleState::Clean,
+                &cold,
+                &transition(SampleState::Clean, true),
+                false,
+                true,
+                None,
+            )
+            .passed
+        );
+        assert!(
+            !sample_acceptance(
+                SampleState::Clean,
+                &initial(true, false),
+                &transition(SampleState::Clean, true),
                 true,
                 true,
                 None,
@@ -698,13 +968,59 @@ mod tests {
         );
         assert!(
             !sample_acceptance(
-                &InitialState {
-                    project_products_existed: false,
-                    output_existed: true,
-                },
+                SampleState::Clean,
+                &initial(false, true),
+                &transition(SampleState::Clean, true),
                 true,
                 true,
                 None,
+            )
+            .passed
+        );
+        let warm = initial(true, true);
+        assert!(
+            sample_acceptance(
+                SampleState::NoOpWarm,
+                &warm,
+                &transition(SampleState::NoOpWarm, true),
+                true,
+                true,
+                Some(true),
+            )
+            .passed
+        );
+        assert!(
+            !sample_acceptance(
+                SampleState::NoOpWarm,
+                &warm,
+                &transition(SampleState::NoOpWarm, false),
+                true,
+                true,
+                Some(true),
+            )
+            .passed
+        );
+        let partial_warm = InitialState {
+            project_products: vec![
+                ProjectProductState {
+                    path: "build".to_owned(),
+                    existed: true,
+                },
+                ProjectProductState {
+                    path: "cache".to_owned(),
+                    existed: false,
+                },
+            ],
+            output_existed: true,
+        };
+        assert!(
+            !sample_acceptance(
+                SampleState::NoOpWarm,
+                &partial_warm,
+                &transition(SampleState::NoOpWarm, true),
+                true,
+                true,
+                Some(true),
             )
             .passed
         );
@@ -716,12 +1032,43 @@ mod tests {
         let second = TemporaryDirectory::new("nia-synthetic-manifest-").unwrap();
         synthetic::generate(first.path(), Language::Nia, 3).unwrap();
         synthetic::generate(second.path(), Language::Nia, 3).unwrap();
-        let first = source_manifest(first.path(), "generated:competitive_synthetic/test").unwrap();
+        let first = source_snapshot(first.path(), "generated:competitive_synthetic/test").unwrap();
         let second =
-            source_manifest(second.path(), "generated:competitive_synthetic/test").unwrap();
-        assert_eq!(first.blake3, second.blake3);
-        assert_eq!(first.file_count, 4);
-        assert_eq!(first.file_count, second.file_count);
-        assert_eq!(first.size_bytes, second.size_bytes);
+            source_snapshot(second.path(), "generated:competitive_synthetic/test").unwrap();
+        assert_eq!(first.manifest.blake3, second.manifest.blake3);
+        assert_eq!(first.manifest.file_count, 4);
+        assert_eq!(first.manifest.file_count, second.manifest.file_count);
+        assert_eq!(first.manifest.size_bytes, second.manifest.size_bytes);
+    }
+
+    #[test]
+    fn source_diff_ignores_products_and_identifies_one_leaf() {
+        let temporary = TemporaryDirectory::new("nia-synthetic-diff-").unwrap();
+        let project = temporary.path();
+        fs::create_dir_all(project.join("src")).unwrap();
+        fs::write(project.join("src/main.nia"), "pub module leaf;\n").unwrap();
+        fs::write(
+            project.join("src/leaf.nia"),
+            "pub fn value() i64 { 1i64 }\n",
+        )
+        .unwrap();
+        let before = source_snapshot(project, "generated:test").unwrap();
+
+        fs::create_dir_all(project.join(".nia-build")).unwrap();
+        fs::create_dir_all(project.join(".nia-cache")).unwrap();
+        fs::create_dir_all(project.join("target")).unwrap();
+        fs::create_dir_all(project.join(".zig-cache")).unwrap();
+        fs::create_dir_all(project.join("zig-out")).unwrap();
+        fs::write(project.join(".nia-build/app"), "product").unwrap();
+        fs::write(project.join("target/app"), "product").unwrap();
+        fs::write(
+            project.join("src/leaf.nia"),
+            "pub fn value() i64 { 2i64 }\n",
+        )
+        .unwrap();
+
+        let after = source_snapshot(project, "generated:test").unwrap();
+        assert_eq!(changed_files(&before, &after), ["src/leaf.nia"]);
+        assert_eq!(before.manifest.file_count, after.manifest.file_count);
     }
 }

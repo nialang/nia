@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::schema::{CompetitiveSample, CompetitiveSummary, Distribution};
+use super::schema::{CompetitiveSample, CompetitiveSummary, Distribution, SampleState};
 use super::{Language, Profile};
 
 fn distribution(mut values: Vec<f64>) -> Distribution {
@@ -23,16 +23,22 @@ fn distribution(mut values: Vec<f64>) -> Distribution {
 }
 
 pub(super) fn summarize(samples: &[CompetitiveSample]) -> Vec<CompetitiveSummary> {
-    let mut groups = BTreeMap::<(Profile, &'static str, Language), Vec<&CompetitiveSample>>::new();
+    let mut groups =
+        BTreeMap::<(Profile, &'static str, Language, SampleState), Vec<&CompetitiveSample>>::new();
     for sample in samples {
         groups
-            .entry((sample.profile, sample.workload, sample.language))
+            .entry((
+                sample.profile,
+                sample.workload,
+                sample.language,
+                sample.state,
+            ))
             .or_default()
             .push(sample);
     }
     groups
         .into_iter()
-        .map(|((profile, workload, language), samples)| {
+        .map(|((profile, workload, language, state), samples)| {
             let metric = |read: fn(&CompetitiveSample) -> f64| {
                 distribution(samples.iter().map(|sample| read(sample)).collect())
             };
@@ -65,6 +71,7 @@ pub(super) fn summarize(samples: &[CompetitiveSample]) -> Vec<CompetitiveSummary
                 profile,
                 workload,
                 language,
+                state,
                 sample_count: samples.len(),
                 metrics,
                 artifact_size_bytes: (!artifact_sizes.is_empty())

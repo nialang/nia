@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::schema::{OutputKind, SyntheticContract, ToolContract, WorkloadContract};
+use super::schema::{OutputKind, SampleState, SyntheticContract, ToolContract, WorkloadContract};
 use super::synthetic;
 use super::{Language, Profile};
 
@@ -15,10 +15,11 @@ pub(super) enum Workload {
     Synthetic50Modules,
     Synthetic100Modules,
     Synthetic500Modules,
+    Synthetic100ModulesBuild,
 }
 
 impl Workload {
-    pub(super) const ALL: [Self; 9] = [
+    pub(super) const ALL: [Self; 10] = [
         Self::MinimalCheck,
         Self::HelloCheck,
         Self::HelloExecutable,
@@ -28,6 +29,7 @@ impl Workload {
         Self::Synthetic50Modules,
         Self::Synthetic100Modules,
         Self::Synthetic500Modules,
+        Self::Synthetic100ModulesBuild,
     ];
 
     pub(super) fn parse(name: &str) -> Option<Self> {
@@ -47,11 +49,26 @@ impl Workload {
             Self::Synthetic50Modules => "synthetic_50_modules",
             Self::Synthetic100Modules => "synthetic_100_modules",
             Self::Synthetic500Modules => "synthetic_500_modules",
+            Self::Synthetic100ModulesBuild => "synthetic_100_modules_build",
         }
     }
 
     pub(super) const fn is_build(self) -> bool {
-        matches!(self, Self::EmptyBuild | Self::HelloBuild)
+        matches!(
+            self,
+            Self::EmptyBuild | Self::HelloBuild | Self::Synthetic100ModulesBuild
+        )
+    }
+
+    pub(super) const fn states(self) -> &'static [SampleState] {
+        match self {
+            Self::Synthetic100ModulesBuild => &[
+                SampleState::Clean,
+                SampleState::NoOpWarm,
+                SampleState::LeafEdit,
+            ],
+            _ => &[SampleState::Clean],
+        }
     }
 
     pub(super) const fn languages(self) -> &'static [Language] {
@@ -75,6 +92,9 @@ impl Workload {
             | Self::Synthetic500Modules => {
                 "generated flat/star native executable with controlled frontend and reachable code"
             }
+            Self::Synthetic100ModulesBuild => {
+                "generated medium flat/star executable through native build systems with ordered clean, no-op warm, and one-leaf-edit states"
+            }
         }
     }
 
@@ -84,8 +104,13 @@ impl Workload {
             Self::Synthetic50Modules => Some(50),
             Self::Synthetic100Modules => Some(100),
             Self::Synthetic500Modules => Some(500),
+            Self::Synthetic100ModulesBuild => Some(100),
             _ => None,
         }
+    }
+
+    pub(super) const fn is_synthetic_build(self) -> bool {
+        matches!(self, Self::Synthetic100ModulesBuild)
     }
 
     pub(super) const fn source_descriptor(self, language: Language) -> &'static str {
@@ -94,6 +119,9 @@ impl Workload {
             Self::Synthetic50Modules => "generated:competitive_synthetic/50-leaf-modules",
             Self::Synthetic100Modules => "generated:competitive_synthetic/100-leaf-modules",
             Self::Synthetic500Modules => "generated:competitive_synthetic/500-leaf-modules",
+            Self::Synthetic100ModulesBuild => {
+                "generated:competitive_synthetic/100-leaf-modules-native-build"
+            }
             _ => match self.source_relative(language) {
                 Some(relative) => relative,
                 None => unreachable!(),
@@ -123,7 +151,8 @@ impl Workload {
                 Self::Synthetic10Modules
                 | Self::Synthetic50Modules
                 | Self::Synthetic100Modules
-                | Self::Synthetic500Modules,
+                | Self::Synthetic500Modules
+                | Self::Synthetic100ModulesBuild,
                 _,
             ) => None,
         }
@@ -135,7 +164,8 @@ impl Workload {
             | Self::Synthetic10Modules
             | Self::Synthetic50Modules
             | Self::Synthetic100Modules
-            | Self::Synthetic500Modules => OutputKind::Executable,
+            | Self::Synthetic500Modules
+            | Self::Synthetic100ModulesBuild => OutputKind::Executable,
             Self::HelloBuild => OutputKind::Executable,
             Self::EmptyBuild => OutputKind::None,
             Self::MinimalCheck | Self::HelloCheck if matches!(language, Language::Rust) => {
@@ -145,18 +175,29 @@ impl Workload {
         }
     }
 
-    pub(super) const fn expected_output(self, language: Language) -> Option<&'static str> {
-        match (self, language) {
-            (Self::HelloExecutable | Self::HelloBuild, Language::Nia) => Some("hello from nia"),
-            (Self::HelloExecutable | Self::HelloBuild, Language::Rust) => Some("hello from rust"),
-            (Self::HelloExecutable | Self::HelloBuild, Language::Zig) => Some("hello from zig"),
+    pub(super) const fn expected_output(
+        self,
+        language: Language,
+        state: SampleState,
+    ) -> Option<&'static str> {
+        match (self, language, state) {
+            (Self::HelloExecutable | Self::HelloBuild, Language::Nia, _) => Some("hello from nia"),
+            (Self::HelloExecutable | Self::HelloBuild, Language::Rust, _) => {
+                Some("hello from rust")
+            }
+            (Self::HelloExecutable | Self::HelloBuild, Language::Zig, _) => Some("hello from zig"),
             (
                 Self::Synthetic10Modules
                 | Self::Synthetic50Modules
                 | Self::Synthetic100Modules
                 | Self::Synthetic500Modules,
                 _,
+                _,
             ) => Some("synthetic-ok"),
+            (Self::Synthetic100ModulesBuild, _, SampleState::Clean | SampleState::NoOpWarm) => {
+                Some("synthetic-ok")
+            }
+            (Self::Synthetic100ModulesBuild, _, SampleState::LeafEdit) => Some("synthetic-edited"),
             _ => None,
         }
     }
@@ -260,6 +301,23 @@ impl Workload {
                     "native executable from the equivalent generated Zig module tree with every leaf reachable",
                 ),
             ],
+            Self::Synthetic100ModulesBuild => vec![
+                tool(
+                    Language::Nia,
+                    "nia build",
+                    "ordered clean, no-op warm, and one-leaf-edit native executable builds in one generated project workspace",
+                ),
+                tool(
+                    Language::Rust,
+                    "cargo build",
+                    "ordered clean, no-op warm, and one-leaf-edit native executable builds in one generated Cargo workspace",
+                ),
+                tool(
+                    Language::Zig,
+                    "zig build",
+                    "ordered clean, no-op warm, and one-leaf-edit native executable builds in one generated Zig workspace",
+                ),
+            ],
         };
         WorkloadContract {
             name: self.name(),
@@ -270,6 +328,7 @@ impl Workload {
                 graph: "one executable root with a flat/star dependency on every leaf module",
                 per_module_work: "one compile-time-derived constant, one module-local generic identity instance, and one reachable value function",
             }),
+            states: self.states(),
             tools,
         }
     }
@@ -368,7 +427,9 @@ pub(super) fn command(
                         path(cache),
                     ]);
                 }
-                Workload::EmptyBuild | Workload::HelloBuild => unreachable!(),
+                Workload::EmptyBuild
+                | Workload::HelloBuild
+                | Workload::Synthetic100ModulesBuild => unreachable!(),
             }
             command
         }
@@ -393,7 +454,9 @@ pub(super) fn command(
                 | Workload::Synthetic50Modules
                 | Workload::Synthetic100Modules
                 | Workload::Synthetic500Modules => "--emit=link".to_owned(),
-                Workload::EmptyBuild | Workload::HelloBuild => unreachable!(),
+                Workload::EmptyBuild
+                | Workload::HelloBuild
+                | Workload::Synthetic100ModulesBuild => unreachable!(),
             });
             command
         }
@@ -419,7 +482,9 @@ pub(super) fn command(
                 | Workload::Synthetic500Modules => {
                     command.push(format!("-femit-bin={}", path(output)));
                 }
-                Workload::EmptyBuild | Workload::HelloBuild => unreachable!(),
+                Workload::EmptyBuild
+                | Workload::HelloBuild
+                | Workload::Synthetic100ModulesBuild => unreachable!(),
             }
             command
         }
@@ -445,13 +510,22 @@ pub(super) fn output_path(
 ) -> PathBuf {
     if workload.is_build() {
         return match language {
-            Language::Nia => workspace.join(".nia-build/hello"),
-            Language::Rust => workspace.join(if matches!(profile, Profile::Development) {
-                "target/debug/competitive-hello"
+            Language::Nia => workspace.join(if workload.is_synthetic_build() {
+                ".nia-build/synthetic"
             } else {
-                "target/release/competitive-hello"
+                ".nia-build/hello"
             }),
-            Language::Zig => workspace.join("zig-out/bin/hello"),
+            Language::Rust => workspace.join(match (workload.is_synthetic_build(), profile) {
+                (true, Profile::Development) => "target/debug/competitive-synthetic",
+                (true, Profile::Release) => "target/release/competitive-synthetic",
+                (false, Profile::Development) => "target/debug/competitive-hello",
+                (false, Profile::Release) => "target/release/competitive-hello",
+            }),
+            Language::Zig => workspace.join(if workload.is_synthetic_build() {
+                "zig-out/bin/synthetic"
+            } else {
+                "zig-out/bin/hello"
+            }),
         };
     }
     match kind {
@@ -522,7 +596,7 @@ mod tests {
     #[test]
     fn synthetic_scales_share_one_explicit_generator_contract() {
         let counts = [10, 50, 100, 500];
-        for (workload, expected) in Workload::ALL[5..].iter().zip(counts) {
+        for (workload, expected) in Workload::ALL[5..9].iter().zip(counts) {
             let contract = workload.contract();
             let synthetic = contract.synthetic.unwrap();
             assert_eq!(synthetic.generator, synthetic::GENERATOR_IDENTITY);
@@ -536,5 +610,24 @@ mod tests {
                     .all(|tool| tool.output == OutputKind::Executable)
             );
         }
+    }
+
+    #[test]
+    fn synthetic_build_uses_one_ordered_incremental_sequence() {
+        let workload = Workload::Synthetic100ModulesBuild;
+        assert!(workload.is_build());
+        assert_eq!(workload.synthetic_modules(), Some(100));
+        assert_eq!(
+            workload.states(),
+            &[
+                SampleState::Clean,
+                SampleState::NoOpWarm,
+                SampleState::LeafEdit,
+            ]
+        );
+        assert_eq!(
+            workload.expected_output(Language::Nia, SampleState::LeafEdit),
+            Some("synthetic-edited")
+        );
     }
 }
