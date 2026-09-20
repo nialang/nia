@@ -1,0 +1,107 @@
+using std::collections;
+
+pub struct Span {
+    start: usize,
+    end: usize,
+}
+
+extend Span {
+    pub fn init(start: usize, end: usize) Span {
+        .{ start, end }
+    }
+
+    pub fn bytes(&self, source: &[u8]) &[u8] {
+        &source[self.start..self.end]
+    }
+
+    pub fn equals(&self, source: &[u8], text: &[u8]) bool {
+        self.bytes(source).equals(text)
+    }
+}
+
+pub struct TaskId {
+    index: usize,
+}
+
+extend TaskId {
+    pub fn init(index: usize) TaskId {
+        .{ index }
+    }
+
+    pub fn index(&self) usize {
+        self.index
+    }
+}
+
+pub struct Task {
+    name: Span,
+    duration: u32,
+    dependencies: collections::ArrayList[TaskId],
+}
+
+extend Task {
+    pub fn init(name: Span, duration: u32) Task {
+        .{ name, duration, dependencies: .init() }
+    }
+
+    pub fn name(&self) Span {
+        self.name
+    }
+
+    pub fn duration(&self) u32 {
+        self.duration
+    }
+
+    pub fn dependencies(&self) &[TaskId] {
+        self.dependencies.asSlice()
+    }
+
+    pub fn dependenciesMut(&mut self) &mut collections::ArrayList[TaskId] {
+        &mut self.dependencies
+    }
+}
+
+pub struct DependencyRef {
+    task: TaskId,
+    name: Span,
+}
+
+extend DependencyRef {
+    pub fn init(task: TaskId, name: Span) DependencyRef {
+        .{ task, name }
+    }
+
+    pub fn task(&self) TaskId {
+        self.task
+    }
+
+    pub fn name(&self) Span {
+        self.name
+    }
+}
+
+pub struct Graph {
+    tasks: collections::ArrayList[Task],
+}
+
+extend Graph {
+    pub fn init(tasks: collections::ArrayList[Task]) Graph {
+        .{ tasks }
+    }
+
+    pub fn len(&self) usize {
+        self.tasks.len()
+    }
+
+    pub fn task(&self, id: TaskId) &Task {
+        &self.tasks.asSlice()[id.index()]
+    }
+
+    pub fn taskMut(&mut self, id: TaskId) &mut Task {
+        &mut self.tasks.asMutSlice()[id.index()]
+    }
+
+    pub fn tasks(&self) &[Task] {
+        self.tasks.asSlice()
+    }
+}

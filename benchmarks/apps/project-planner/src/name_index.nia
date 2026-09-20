@@ -1,0 +1,55 @@
+using entry::model;
+using std::collections;
+using std::hash;
+using std::mem;
+
+struct NameContext {
+    source: &[u8],
+}
+
+extend NameContext {
+    fn init(source: &[u8]) NameContext {
+        .{ source }
+    }
+}
+
+extend NameContext : collections::HashMapContext[model::Span] {
+    fn hash(&self, seed: u64, key: &model::Span) u64 {
+        hash::wyhash(seed, key.bytes(self.source))
+    }
+
+    fn eql(&self, left: &model::Span, right: &model::Span) bool {
+        left.bytes(self.source).equals(right.bytes(self.source))
+    }
+}
+
+pub struct NameIndex {
+    values: collections::HashMapWithContext[model::Span, model::TaskId, NameContext],
+}
+
+extend NameIndex {
+    pub fn init(source: &[u8]) NameIndex {
+        .{ values: .initContextSeed(NameContext::init(source), 0) }
+    }
+
+    pub fn insert(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: model::Span,
+        id: model::TaskId,
+    ) mem::Error!bool {
+        if self.values.insertIfAbsent(allocator, name, id).? is ?_ {
+            !false
+        } else {
+            !true
+        }
+    }
+
+    pub fn get(&self, name: model::Span) ?model::TaskId {
+        if self.values.get(&name) is ?id {
+            ?id.*
+        } else {
+            null
+        }
+    }
+}

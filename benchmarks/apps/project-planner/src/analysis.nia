@@ -1,0 +1,155 @@
+using entry::model;
+using std::collections;
+using std::mem;
+
+pub enum Error: i32 {
+    Cycle = 1,
+    Overflow = 2,
+    Allocation = 3,
+    _,
+}
+
+pub struct Summary {
+    taskCount: usize,
+    dependencyCount: usize,
+    rootCount: usize,
+    leafCount: usize,
+    totalDuration: u64,
+    criticalDuration: u64,
+}
+
+extend Summary {
+    pub fn init(
+        taskCount: usize,
+        dependencyCount: usize,
+        rootCount: usize,
+        leafCount: usize,
+        totalDuration: u64,
+        criticalDuration: u64,
+    ) Summary {
+        .{ taskCount, dependencyCount, rootCount, leafCount, totalDuration, criticalDuration }
+    }
+
+    pub fn taskCount(&self) usize { self.taskCount }
+    pub fn dependencyCount(&self) usize { self.dependencyCount }
+    pub fn rootCount(&self) usize { self.rootCount }
+    pub fn leafCount(&self) usize { self.leafCount }
+    pub fn totalDuration(&self) u64 { self.totalDuration }
+    pub fn criticalDuration(&self) u64 { self.criticalDuration }
+}
+
+fn visit(
+    allocator: &mut mem::Allocator,
+    graph: &model::Graph,
+    id: model::TaskId,
+    states: &mut [u8],
+    order: &mut collections::ArrayList[model::TaskId],
+) Error!() {
+    let index = id.index();
+    if states[index] == 1 {
+        return .Cycle!;
+    }
+    if states[index] == 2 {
+        return !();
+    }
+    states[index] = 1;
+    for &dependency in graph.task(id).dependencies() {
+        visit(allocator, graph, dependency, states, order).?;
+    }
+    states[index] = 2;
+    if order.push(allocator, id) is error! {
+        _ = error;
+        return .Allocation!;
+    }
+    !()
+}
+
+fn topologicalOrder(
+    allocator: &mut mem::Allocator,
+    graph: &model::Graph,
+) Error!collections::ArrayList[model::TaskId] {
+    let mut states: collections::ArrayList[u8] = .init();
+    let mut order: collections::ArrayList[model::TaskId] = .init();
+    let mut index: usize = 0;
+    while index < graph.len() {
+        if states.push(allocator, 0) is error! {
+            _ = error;
+            return .Allocation!;
+        }
+        index += 1;
+    }
+    index = 0;
+    while index < graph.len() {
+        visit(allocator, graph, model::TaskId::init(index), states.asMutSlice(), &mut order).?;
+        index += 1;
+    }
+    !order
+}
+
+fn isDependency(graph: &model::Graph, candidate: model::TaskId) bool {
+    for task in graph.tasks() {
+        for &dependency in task.dependencies() {
+            if dependency.index() == candidate.index() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+pub fn analyze(allocator: &mut mem::Allocator, graph: &model::Graph) Error!Summary {
+    let order = topologicalOrder(allocator, graph).?;
+    let mut completion: collections::ArrayList[u64] = .init();
+    let mut index: usize = 0;
+    while index < graph.len() {
+        if completion.push(allocator, 0) is error! {
+            _ = error;
+            return .Allocation!;
+        }
+        index += 1;
+    }
+
+    let mut dependencyCount: usize = 0;
+    let mut rootCount: usize = 0;
+    let mut leafCount: usize = 0;
+    let mut totalDuration: u64 = 0;
+    let mut criticalDuration: u64 = 0;
+    for &id in order.asSlice() {
+        let task = graph.task(id);
+        dependencyCount += task.dependencies().len();
+        if task.dependencies().isEmpty() {
+            rootCount += 1;
+        }
+        if not isDependency(graph, id) {
+            leafCount += 1;
+        }
+        let mut start: u64 = 0;
+        for &dependency in task.dependencies() {
+            let value = completion.asSlice()[dependency.index()];
+            if value > start {
+                start = value;
+            }
+        }
+        let duration = task.duration() as u64;
+        let finish = match start.checkedAdd(duration) {
+            ?value => value,
+            null => return .Overflow!,
+        };
+        completion.asMutSlice()[id.index()] = finish;
+        if finish > criticalDuration {
+            criticalDuration = finish;
+        }
+        totalDuration = match totalDuration.checkedAdd(duration) {
+            ?value => value,
+            null => return .Overflow!,
+        };
+    }
+    !Summary::init(
+        graph.len(),
+        dependencyCount,
+        rootCount,
+        leafCount,
+        totalDuration,
+        criticalDuration,
+    )
+}

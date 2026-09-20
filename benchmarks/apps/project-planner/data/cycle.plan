@@ -1,0 +1,3 @@
+task alpha 2 beta ;
+task beta 3 gamma ;
+task gamma 5 alpha ;

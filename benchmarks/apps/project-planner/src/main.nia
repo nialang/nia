@@ -1,0 +1,67 @@
+pub module analysis;
+pub module input;
+pub module lexer;
+pub module model;
+pub module name_index;
+pub module parser;
+pub module report;
+
+using entry::analysis;
+using entry::input;
+using entry::parser;
+using entry::report;
+using std::fs;
+using std::mem;
+using std::process;
+using std::string;
+
+fn exitForTextError(error: string::TextError) process::ExitCode {
+    match error {
+        .InvalidUtf8(_) => process::ExitCode(22),
+        .Allocation(_) => process::ExitCode(12),
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    let mut page: mem::PageAllocator = .init();
+    let mut general: mem::GeneralPurposeAllocator = .init(&mut page);
+    defer general.deinit().ok().?;
+    let mut arena = mem::ArenaAllocator::init(&mut general);
+    defer arena.deinit().?;
+
+    let argument = match init.args().get(1) {
+        ?value => value.bytes(),
+        null => &b"data/reference.plan",
+    };
+    let mut path = match fs::Path::fromUtf8(&mut arena, argument) {
+        !value => value,
+        error! => return exitForTextError(error)!,
+    };
+    defer path.deinit(&mut arena).?;
+
+    let mut sourceStorage: [u8; 65536] = [0; 65536];
+    let mut readerBuffer: [u8; 4096] = [0; 4096];
+    let source = match input::read(path.view(), &mut sourceStorage, &mut readerBuffer) {
+        !value => value,
+        error! => {
+            _ = error;
+            return process::ExitCode(4)!;
+        },
+    };
+    let graph = match parser::parsePlan(&mut arena, source) {
+        !value => value,
+        error! => {
+            _ = error;
+            return process::ExitCode(5)!;
+        },
+    };
+    let summary = match analysis::analyze(&mut arena, &graph) {
+        !value => value,
+        error! => {
+            _ = error;
+            return process::ExitCode(6)!;
+        },
+    };
+    report::write(&summary).?;
+    !()
+}

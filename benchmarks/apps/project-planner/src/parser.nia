@@ -1,0 +1,145 @@
+using entry::lexer;
+using entry::model;
+using entry::name_index;
+using std::collections;
+using std::mem;
+
+pub enum Error: i32 {
+    UnexpectedEnd = 1,
+    ExpectedTask = 2,
+    MissingName = 3,
+    InvalidDuration = 4,
+    MissingTerminator = 5,
+    DuplicateTask = 6,
+    MissingDependency = 7,
+    SelfDependency = 8,
+    EmptyPlan = 9,
+    Allocation = 10,
+    _,
+}
+
+fn parseDuration(bytes: &[u8]) Error!u32 {
+    if bytes.isEmpty() {
+        return .InvalidDuration!;
+    }
+    let mut value: u32 = 0;
+    for &byte in bytes {
+        if byte < b'0' or byte > b'9' {
+            return .InvalidDuration!;
+        }
+        value = match value.checkedMul(10) {
+            ?next => next,
+            null => return .InvalidDuration!,
+        };
+        value = match value.checkedAdd((byte - b'0') as u32) {
+            ?next => next,
+            null => return .InvalidDuration!,
+        };
+    }
+    if value == 0 {
+        .InvalidDuration!
+    } else {
+        !value
+    }
+}
+
+fn appendTask(
+    allocator: &mut mem::Allocator,
+    source: &[u8],
+    tokens: &mut lexer::Lexer,
+    tasks: &mut collections::ArrayList[model::Task],
+    pending: &mut collections::ArrayList[model::DependencyRef],
+) Error!() {
+    let name = match tokens.next() {
+        ?value => value,
+        null => return .MissingName!,
+    };
+    let durationToken = match tokens.next() {
+        ?value => value,
+        null => return .UnexpectedEnd!,
+    };
+    let duration = parseDuration(durationToken.bytes(source)).?;
+
+    let id = model::TaskId::init(tasks.len());
+    if tasks.push(allocator, model::Task::init(name, duration)) is error! {
+        _ = error;
+        return .Allocation!;
+    }
+    while true {
+        let dependency = match tokens.next() {
+            ?value => value,
+            null => return .MissingTerminator!,
+        };
+        if dependency.equals(source, &b";") {
+            return !();
+        }
+        if pending.push(allocator, model::DependencyRef::init(id, dependency)) is error! {
+            _ = error;
+            return .Allocation!;
+        }
+    }
+    .UnexpectedEnd!
+}
+
+fn resolveDependencies(
+    allocator: &mut mem::Allocator,
+    source: &[u8],
+    tasks: &mut collections::ArrayList[model::Task],
+    pending: &[model::DependencyRef],
+) Error!() {
+    let mut names = name_index::NameIndex::init(source);
+    let mut index: usize = 0;
+    while index < tasks.len() {
+        let name = tasks.asSlice()[index].name();
+        let inserted = match names.insert(allocator, name, model::TaskId::init(index)) {
+            !value => value,
+            error! => {
+                _ = error;
+                return .Allocation!;
+            },
+        };
+        if not inserted {
+            return .DuplicateTask!;
+        }
+        index += 1;
+    }
+
+    for dependency in pending {
+        let target = match names.get(dependency.name()) {
+            ?value => value,
+            null => return .MissingDependency!,
+        };
+        if target.index() == dependency.task().index() {
+            return .SelfDependency!;
+        }
+        let task = tasks.asMutSlice().getMut(dependency.task().index());
+        if task is mut ?value {
+            if value.dependenciesMut().push(allocator, target) is error! {
+                _ = error;
+                return .Allocation!;
+            }
+        }
+    }
+    !()
+}
+
+pub fn parsePlan(allocator: &mut mem::Allocator, source: &[u8]) Error!model::Graph {
+    let mut tasks: collections::ArrayList[model::Task] = .init();
+    let mut pending: collections::ArrayList[model::DependencyRef] = .init();
+    let mut tokens = lexer::Lexer::init(source);
+    while true {
+        let keyword = match tokens.next() {
+            ?value => value,
+            null => break,
+        };
+        if not keyword.equals(source, &b"task") {
+            return .ExpectedTask!;
+        }
+        appendTask(allocator, source, &mut tokens, &mut tasks, &mut pending).?;
+    }
+    if tasks.isEmpty() {
+        return .EmptyPlan!;
+    }
+    resolveDependencies(allocator, source, &mut tasks, pending.asSlice()).?;
+    !model::Graph::init(tasks)
+}
