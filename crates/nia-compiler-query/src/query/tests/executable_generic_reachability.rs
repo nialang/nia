@@ -3,6 +3,59 @@
 use super::*;
 
 #[test]
+fn executable_reachability_indexes_trait_impl_for_pointer_pointee_receiver() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+trait Writer {
+fn write(&mut self) i32;
+}
+
+fn forward[W](writer: &mut W) i32
+where W: Writer
+{
+writer.write()
+}
+
+struct Sink {}
+
+extend Sink : Writer {
+fn write(&mut self) i32 {
+7
+}
+}
+
+pub fn main() i32 {
+let mut sink = Sink {};
+forward[Sink](&mut sink)
+}
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let db = query_db(fixture.program());
+
+    let modules = db.expect_get(ExecutableCheckedModulesQuery);
+    let module = modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .expect("entry module should be executable-reachable");
+    let write = module
+        .defs
+        .defs
+        .iter()
+        .find_map(|(def_id, def)| {
+            (def.name == sym("write") && def.kind == nia_defs::DefKind::Method)
+                .then_some(GlobalDefId { module_id, def_id })
+        })
+        .expect("Writer implementation method should be defined");
+
+    assert!(
+        module.body_ir.function_bodies.contains_key(&write),
+        "pointer receiver reachability should retain its pointee trait implementation body"
+    );
+}
+
+#[test]
 fn executable_reachability_expands_where_predicates_through_generic_extension_wrappers() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",

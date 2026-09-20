@@ -36,6 +36,30 @@ pub trait ExecutableExtensionLookup {
         f: &mut dyn FnMut(&nia_defs::ExtensionMethod),
     );
 
+    /// Visits implementation methods that can match one concrete receiver.
+    ///
+    /// Implementations without a target index may conservatively visit every
+    /// method. The reachability matcher remains the source of truth.
+    fn for_each_method_candidate_for_trait(
+        &self,
+        trait_id: TraitId,
+        _target_ty: InternedTyId,
+        f: &mut dyn FnMut(&nia_defs::ExtensionMethod),
+    ) {
+        self.for_each_method_for_trait(trait_id, f);
+    }
+
+    /// Visits named implementation methods that can match one receiver.
+    fn for_each_method_candidate_for_trait_method(
+        &self,
+        trait_id: TraitId,
+        method_name: &SymbolId,
+        _target_ty: InternedTyId,
+        f: &mut dyn FnMut(&nia_defs::ExtensionMethod),
+    ) {
+        self.for_each_method_for_trait_method(trait_id, method_name, f);
+    }
+
     /// Supplies the impl-level predicates inherited by a method definition.
     fn with_where_predicates_for_def(
         &self,
