@@ -43,12 +43,7 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
             .semantic
             .modules()
             .map(|node| {
-                let source_id = db
-                    .context()
-                    .sources
-                    .id_for_path(&node.path)
-                    .map_err(|error| QueryError::internal(error.to_string()))?;
-                db.get(LoadedModuleQuery(source_id))
+                db.get(LoadedModuleQuery(node.source_id))
                     .map(|module| module.as_ref().clone())
             })
             .collect::<QueryResult<Vec<_>>>()?;
@@ -566,7 +561,8 @@ impl QueryKey<LoaderContext> for SourceStatusQuery {
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
         let mut builder = QueryFingerprintBuilder::new(SOURCE_STATUS_DOMAIN);
-        builder.write_u64(u64::from(self.0.0));
+        builder.write_u64(u64::from(self.0.store_index()));
+        builder.write_u64(u64::from(self.0.local_index()));
         match value {
             SourceStatus::Missing => builder.write_u8(0),
             SourceStatus::Present(version) => {

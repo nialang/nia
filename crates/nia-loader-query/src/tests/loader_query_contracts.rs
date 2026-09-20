@@ -138,7 +138,7 @@ fn source_products_propagate_unknown_source_query_failures() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let db = registered_query_db(test_loader_context(main, ModuleMap::default(), sources));
-    let unknown = SourceId(u32::MAX);
+    let unknown = SourceId::isolated();
 
     for error in [
         db.get(SourceStatusQuery(unknown))

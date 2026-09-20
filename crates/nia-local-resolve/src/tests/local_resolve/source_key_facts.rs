@@ -5,7 +5,7 @@ fn records_local_facts_by_source_versioned_node_keys() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
     let version = SourceVersion {
-        id: SourceId(4),
+        id: SourceId::isolated(),
         revision: SourceRevision(2),
     };
     let syntax = nia_syntax::parse_source(
@@ -41,7 +41,7 @@ fn records_local_facts_by_red_child_path_origins() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
     let version = SourceVersion {
-        id: SourceId(5),
+        id: SourceId::isolated(),
         revision: SourceRevision(1),
     };
     let syntax = nia_syntax::parse_source(

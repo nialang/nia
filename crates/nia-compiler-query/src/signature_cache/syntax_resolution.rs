@@ -439,7 +439,7 @@ mod tests {
 
     #[test]
     fn streamed_node_entries_match_complete_record_byte_sorting() {
-        let source_id = SourceId(7);
+        let source_id = SourceId::isolated();
         let entries = [
             (
                 NodeSite {

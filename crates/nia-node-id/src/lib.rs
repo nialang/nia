@@ -945,7 +945,7 @@ mod tests {
     #[test]
     fn span_node_key_carries_source_version_kind_and_span() {
         let version = SourceVersion {
-            id: SourceId(3),
+            id: SourceId::isolated(),
             revision: SourceRevision(9),
         };
         let key = VersionedNodeKey::span(version, SyntaxKind::Expr, Span::new(4, 8));
@@ -958,7 +958,7 @@ mod tests {
     #[test]
     fn child_path_position_is_available_for_future_green_trees() {
         let version = SourceVersion {
-            id: SourceId(1),
+            id: SourceId::isolated(),
             revision: SourceRevision::INITIAL,
         };
         let path = NodeChildPath::from_steps([0, 2, 1]);
@@ -988,7 +988,7 @@ mod tests {
     #[test]
     fn child_path_range_position_can_key_lowered_ast_nodes() {
         let version = SourceVersion {
-            id: SourceId(1),
+            id: SourceId::isolated(),
             revision: SourceRevision::INITIAL,
         };
         let start = NodeChildPath::from_steps([0, 1]);
@@ -1006,7 +1006,7 @@ mod tests {
     #[test]
     fn revision_interner_preserves_lookups_across_table_growth() {
         let version = SourceVersion {
-            id: SourceId(1),
+            id: SourceId::isolated(),
             revision: SourceRevision::INITIAL,
         };
         let store = NodeStore::new();
@@ -1035,7 +1035,7 @@ mod tests {
     #[test]
     fn origin_table_maps_kind_and_span_to_node_key() {
         let version = SourceVersion {
-            id: SourceId(2),
+            id: SourceId::isolated(),
             revision: SourceRevision(1),
         };
         let span = Span::new(4, 9);
@@ -1054,7 +1054,7 @@ mod tests {
     #[test]
     fn origin_builder_rollback_restores_overwritten_entries() {
         let version = SourceVersion {
-            id: SourceId(4),
+            id: SourceId::isolated(),
             revision: SourceRevision(2),
         };
         let span = Span::new(1, 3);
@@ -1085,7 +1085,7 @@ mod tests {
     #[test]
     fn origin_tables_compare_by_locator_across_stores() {
         let version = SourceVersion {
-            id: SourceId(2),
+            id: SourceId::isolated(),
             revision: SourceRevision(1),
         };
         let span = Span::new(4, 9);
@@ -1107,12 +1107,13 @@ mod tests {
 
     #[test]
     fn source_revision_is_part_of_node_identity() {
+        let source_id = SourceId::isolated();
         let first = SourceVersion {
-            id: SourceId(0),
+            id: source_id,
             revision: SourceRevision::INITIAL,
         };
         let second = SourceVersion {
-            id: SourceId(0),
+            id: source_id,
             revision: SourceRevision(1),
         };
 
@@ -1124,12 +1125,13 @@ mod tests {
 
     #[test]
     fn node_site_keeps_source_position_identity_across_revisions() {
+        let source_id = SourceId::isolated();
         let first = SourceVersion {
-            id: SourceId(0),
+            id: source_id,
             revision: SourceRevision::INITIAL,
         };
         let second = SourceVersion {
-            id: SourceId(0),
+            id: source_id,
             revision: SourceRevision(1),
         };
 
@@ -1147,7 +1149,7 @@ mod tests {
         let mut append = store.append();
         let locator = VersionedNodeKey::span(
             SourceVersion {
-                id: SourceId(4),
+                id: SourceId::isolated(),
                 revision: SourceRevision(2),
             },
             SyntaxKind::Expr,
@@ -1166,9 +1168,10 @@ mod tests {
     fn node_store_keeps_revisions_distinct_and_old_slots_stable() {
         let store = NodeStore::new();
         let mut append = store.append();
+        let source_id = SourceId::isolated();
         let first_locator = VersionedNodeKey::span(
             SourceVersion {
-                id: SourceId(1),
+                id: source_id,
                 revision: SourceRevision::INITIAL,
             },
             SyntaxKind::Type,
@@ -1176,7 +1179,7 @@ mod tests {
         );
         let second_locator = VersionedNodeKey::span(
             SourceVersion {
-                id: SourceId(1),
+                id: source_id,
                 revision: SourceRevision(1),
             },
             SyntaxKind::Type,
@@ -1194,12 +1197,13 @@ mod tests {
     #[test]
     fn node_store_retires_revision_owner_without_invalidating_owned_maps() {
         let store = NodeStore::new();
+        let source_id = SourceId::isolated();
         let first_version = SourceVersion {
-            id: SourceId(1),
+            id: source_id,
             revision: SourceRevision::INITIAL,
         };
         let second_version = SourceVersion {
-            id: SourceId(1),
+            id: source_id,
             revision: SourceRevision(1),
         };
         let first_locator =
@@ -1246,7 +1250,7 @@ mod tests {
         let store = NodeStore::new();
         let locator = VersionedNodeKey::span(
             SourceVersion {
-                id: SourceId(3),
+                id: SourceId::isolated(),
                 revision: SourceRevision(2),
             },
             SyntaxKind::Expr,
@@ -1275,7 +1279,7 @@ mod tests {
     fn node_map_value_projection_preserves_node_ownership() {
         let store = NodeStore::new();
         let version = SourceVersion {
-            id: SourceId(3),
+            id: SourceId::isolated(),
             revision: SourceRevision(2),
         };
         let retained = VersionedNodeKey::span(version, SyntaxKind::Expr, Span::new(4, 8));
@@ -1299,7 +1303,7 @@ mod tests {
     fn node_maps_compare_by_locator_across_owners() {
         let locator = VersionedNodeKey::span(
             SourceVersion {
-                id: SourceId(3),
+                id: SourceId::isolated(),
                 revision: SourceRevision(2),
             },
             SyntaxKind::Type,
@@ -1319,7 +1323,7 @@ mod tests {
     #[test]
     fn retained_and_reacquired_generations_compare_by_locator() {
         let version = SourceVersion {
-            id: SourceId(9),
+            id: SourceId::isolated(),
             revision: SourceRevision(3),
         };
         let span = Span::new(1, 4);
@@ -1350,7 +1354,7 @@ mod tests {
     #[test]
     fn same_store_merge_coalesces_reacquired_locator_generations() {
         let version = SourceVersion {
-            id: SourceId(10),
+            id: SourceId::isolated(),
             revision: SourceRevision(4),
         };
         let locator = VersionedNodeKey::span(version, SyntaxKind::Type, Span::new(2, 6));
@@ -1376,9 +1380,10 @@ mod tests {
     fn node_map_builder_merges_handles_and_rehomes_foreign_maps() {
         let first_store = NodeStore::new();
         let second_store = NodeStore::new();
+        let source_id = SourceId::isolated();
         let first_locator = VersionedNodeKey::span(
             SourceVersion {
-                id: SourceId(7),
+                id: source_id,
                 revision: SourceRevision::INITIAL,
             },
             SyntaxKind::Expr,
@@ -1386,7 +1391,7 @@ mod tests {
         );
         let second_locator = VersionedNodeKey::span(
             SourceVersion {
-                id: SourceId(7),
+                id: source_id,
                 revision: SourceRevision::INITIAL,
             },
             SyntaxKind::Expr,
@@ -1421,7 +1426,7 @@ mod tests {
         let second_store = NodeStore::new();
         let locator = VersionedNodeKey::span(
             SourceVersion {
-                id: SourceId(0),
+                id: SourceId::isolated(),
                 revision: SourceRevision::INITIAL,
             },
             SyntaxKind::Stmt,
@@ -1440,7 +1445,7 @@ mod tests {
         let second = NodeStore::new();
         let locator = VersionedNodeKey::span(
             SourceVersion {
-                id: SourceId(2),
+                id: SourceId::isolated(),
                 revision: SourceRevision::INITIAL,
             },
             SyntaxKind::Item,

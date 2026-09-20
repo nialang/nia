@@ -148,10 +148,12 @@ fn stable_graph_relations_remap_fork_local_module_handles() {
     let mut old_fixture = LoadedProgramFixture {
         graph: base.graph.clone(),
         modules: base.modules.clone(),
+        sources: base.sources.clone(),
     };
     let mut new_fixture = LoadedProgramFixture {
         graph: base.graph.clone(),
         modules: base.modules,
+        sources: base.sources,
     };
     let child_name = sym("child");
     let package = sym("pkg");
@@ -302,7 +304,7 @@ fn source_handle_replacement_cannot_reuse_old_source_version() {
     let database = fixture.database();
     let first = database.db.expect_get(ModuleSourceVersionQuery(module_id));
     let replacement = SourceVersion {
-        id: SourceId(first.id.0 + 1),
+        id: SourceId::isolated(),
         revision: first.revision,
     };
     fixture.modules[0] =

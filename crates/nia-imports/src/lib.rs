@@ -8,8 +8,8 @@ use nia_ice::Ice;
 use nia_ids::ModuleIdAllocator;
 pub use nia_ids::{DefId, GlobalDefId, ModuleId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
-use nia_source::SourceIdentity;
-pub use nia_source::SourcePath;
+pub use nia_source::{SourceId, SourcePath};
+use nia_source::{SourceIdentity, SourceStoreId, SourceTable};
 use nia_span::Span;
 use nia_symbol::{
     KnownSymbolText, SymbolId, SymbolMap, SymbolText, known, stable_hash, symbol_identity_key,
@@ -313,8 +313,10 @@ impl StableDefKey {
 /// Mutable module graph keyed by stable source and module-path identities.
 pub struct ModuleGraph {
     module_ids: ModuleIdAllocator,
+    sources: SourceTable,
     entry: ModuleId,
     modules: Vec<ModuleNode>,
+    by_source_id: nia_hash::FastHashMap<SourceId, ModuleId>,
     by_stable_key: nia_hash::FastHashMap<StableModuleKey, ModuleId>,
     by_module_path: nia_hash::FastHashMap<ModulePath, ModuleId>,
     package_roots: SymbolMap<ModuleId>,
@@ -327,6 +329,7 @@ impl fmt::Debug for ModuleGraph {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ModuleGraph")
             .field("module_ids", &self.module_ids)
+            .field("source_store_id", &self.sources.id())
             .field("entry", &self.entry)
             .field("modules", &self.modules)
             .field("by_stable_key", &self.by_stable_key)
@@ -343,6 +346,7 @@ impl PartialEq for ModuleGraph {
         self.module_ids == other.module_ids
             && self.entry == other.entry
             && self.modules == other.modules
+            && self.by_source_id == other.by_source_id
             && self.by_stable_key == other.by_stable_key
             && self.by_module_path == other.by_module_path
             && self.package_roots == other.package_roots
@@ -403,8 +407,20 @@ impl ModuleGraph {
         entry_path: SourcePath,
         symbols: Arc<dyn SymbolText + Send + Sync>,
     ) -> nia_ice::IceResult<Self> {
+        Self::with_source_table(entry_path, symbols, SourceTable::new())
+    }
+
+    /// Creates a graph bound to an explicit source/path interner.
+    pub fn with_source_table(
+        entry_path: SourcePath,
+        symbols: Arc<dyn SymbolText + Send + Sync>,
+        sources: SourceTable,
+    ) -> nia_ice::IceResult<Self> {
         let module_ids = ModuleIdAllocator::new()?;
         let entry = module_ids.allocate()?;
+        let entry_source_id = sources
+            .id_for_path(&entry_path)
+            .map_err(|error| Ice::new(error.to_string()))?;
         let entry_module_path = ModulePath::root(ENTRY_MODULE_MAP_NAME);
         let entry_stable_key = StableModuleKey::from_source_identity(entry_path.identity());
         let mut by_stable_key = nia_hash::FastHashMap::default();
@@ -413,12 +429,16 @@ impl ModuleGraph {
         by_module_path.insert(entry_module_path.clone(), entry);
         let mut package_roots = SymbolMap::default();
         package_roots.insert(known::ENTRY, entry);
+        let mut by_source_id = nia_hash::FastHashMap::default();
+        by_source_id.insert(entry_source_id, entry);
         Ok(Self {
             module_ids,
+            sources,
             entry,
             modules: vec![ModuleNode {
                 id: entry,
                 stable_key: entry_stable_key,
+                source_id: entry_source_id,
                 path: entry_path,
                 module_path: entry_module_path,
                 parent: None,
@@ -430,6 +450,7 @@ impl ModuleGraph {
                 process_used_paths: true,
                 process_declared_children: true,
             }],
+            by_source_id,
             by_stable_key,
             by_module_path,
             package_roots,
@@ -449,7 +470,22 @@ impl ModuleGraph {
         package_root_path: SourcePath,
         symbols: Arc<dyn SymbolText + Send + Sync>,
     ) -> nia_ice::IceResult<Self> {
-        let mut graph = Self::with_symbol_text(package_root_path, symbols)?;
+        Self::with_package_root_and_source_table(
+            entry_path,
+            package_root_path,
+            symbols,
+            SourceTable::new(),
+        )
+    }
+
+    /// Creates a package-root graph bound to an explicit source/path interner.
+    pub fn with_package_root_and_source_table(
+        entry_path: SourcePath,
+        package_root_path: SourcePath,
+        symbols: Arc<dyn SymbolText + Send + Sync>,
+        sources: SourceTable,
+    ) -> nia_ice::IceResult<Self> {
+        let mut graph = Self::with_source_table(package_root_path, symbols, sources)?;
         let package_root = graph.entry;
         graph
             .get_mut(package_root)
@@ -476,6 +512,16 @@ impl ModuleGraph {
     /// Returns the entry module id.
     pub fn entry(&self) -> ModuleId {
         self.entry
+    }
+
+    /// Returns the source-store owner accepted by this graph.
+    pub fn source_store_id(&self) -> SourceStoreId {
+        self.sources.id()
+    }
+
+    /// Resolves an owner-qualified source handle to its module.
+    pub fn module_id_for_source_id(&self, source_id: SourceId) -> Option<ModuleId> {
+        self.by_source_id.get(&source_id).copied()
     }
 
     /// Marks a module and all descendants as executable roots.
@@ -734,7 +780,7 @@ impl ModuleGraph {
             .into());
         };
         let child_module_path = parent.module_path.child(*name);
-        let child_path = self.declared_child_source_path(&parent, *name);
+        let (_, child_path) = self.intern_declared_child_source_path(&parent, *name)?;
         self.intern_declared_child_with_source_path_and_processing(DeclaredChildSpec {
             parent_id,
             name: *name,
@@ -842,6 +888,10 @@ impl ModuleGraph {
         process_used_paths: bool,
         process_declared_children: bool,
     ) -> nia_ice::IceResult<ModuleId> {
+        let source_id = self
+            .sources
+            .id_for_path(&path)
+            .map_err(|error| Ice::new(error.to_string()))?;
         if let Some(id) = self.by_module_path.get(&module_path).copied() {
             if process_used_paths {
                 self.mark_process_used_paths(id);
@@ -872,10 +922,12 @@ impl ModuleGraph {
             self.package_roots.insert(module_path.package, id);
         }
         self.by_stable_key.insert(stable_key.clone(), id);
+        self.by_source_id.insert(source_id, id);
         self.by_module_path.insert(module_path.clone(), id);
         self.modules.push(ModuleNode {
             id,
             stable_key,
+            source_id,
             path,
             module_path,
             parent,
@@ -903,6 +955,44 @@ impl ModuleGraph {
         declared_child_source_path_with_symbols(self.symbols.as_ref(), parent, child)
     }
 
+    /// Interns and returns a declared child's owner-qualified source handle.
+    pub fn intern_declared_child_source_path(
+        &self,
+        parent: &ModuleNode,
+        child: SymbolId,
+    ) -> nia_ice::IceResult<(SourceId, SourcePath)> {
+        let sibling = parent.entry_module
+            || (parent.module_path.is_package_root()
+                && (parent.module_path.is_entry_package() || is_package_root_file(&parent.path)));
+        self.intern_child_source_path(parent.source_id, child, sibling)
+    }
+
+    /// Interns and returns a child below a non-root source file.
+    pub fn intern_nested_child_source_path(
+        &self,
+        parent: SourceId,
+        child: SymbolId,
+    ) -> nia_ice::IceResult<(SourceId, SourcePath)> {
+        self.intern_child_source_path(parent, child, false)
+    }
+
+    fn intern_child_source_path(
+        &self,
+        parent: SourceId,
+        child: SymbolId,
+        sibling: bool,
+    ) -> nia_ice::IceResult<(SourceId, SourcePath)> {
+        let child = resolved_module_symbol_text(self.symbols.as_ref(), child);
+        let source_id = self
+            .sources
+            .id_for_child_path(parent, &child, sibling)
+            .map_err(|error| Ice::new(error.to_string()))?;
+        self.sources.path_for_id(source_id).map_or_else(
+            || Err(Ice::new("source interner lost a derived child path")),
+            |path| Ok((source_id, path.as_ref().clone())),
+        )
+    }
+
     /// Computes a declared child path from explicit parent identities.
     pub fn declared_child_source_path_for(
         &self,
@@ -917,15 +1007,6 @@ impl ModuleGraph {
             child,
         )
     }
-
-    /// Computes a child source path below a non-root module.
-    pub fn declared_nested_child_source_path(
-        &self,
-        parent_path: &SourcePath,
-        child: SymbolId,
-    ) -> SourcePath {
-        declared_nested_child_source_path_with_symbols(self.symbols.as_ref(), parent_path, child)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -935,6 +1016,8 @@ pub struct ModuleNode {
     pub id: ModuleId,
     /// Stable source identity key.
     pub stable_key: StableModuleKey,
+    /// Owner-qualified source/path interner handle.
+    pub source_id: SourceId,
     /// Source path used to load the module.
     pub path: SourcePath,
     /// Package and child-segment identity.
@@ -1333,14 +1416,6 @@ pub fn declared_child_source_path_for_with_symbols_and_entry(
     declared_child_source_path_with_layout(symbols, parent_path, child, sibling)
 }
 
-fn declared_nested_child_source_path_with_symbols(
-    symbols: &dyn SymbolText,
-    parent_path: &SourcePath,
-    child: SymbolId,
-) -> SourcePath {
-    declared_child_source_path_with_layout(symbols, parent_path, child, false)
-}
-
 fn declared_child_source_path_with_layout(
     symbols: &dyn SymbolText,
     parent_path: &SourcePath,
@@ -1393,8 +1468,16 @@ mod tests {
         let mut graph =
             ModuleGraph::new(SourcePath::new("src/./main.nia")).expect("create module graph");
         let entry = graph.entry();
+        let entry_source = graph.get(entry).expect("entry module").source_id;
 
         assert_eq!(graph.module_id_for_path("src/main.nia"), Some(entry));
+        assert_eq!(graph.module_id_for_source_id(entry_source), Some(entry));
+        assert_eq!(entry_source.store_id(), graph.source_store_id());
+        let foreign_source = SourceTable::new()
+            .id_for_path(&SourcePath::new("src/main.nia"))
+            .expect("foreign source id");
+        assert_eq!(foreign_source.local_index(), entry_source.local_index());
+        assert_eq!(graph.module_id_for_source_id(foreign_source), None);
         let entry_key = graph.stable_key(entry).expect("entry stable key");
         assert_eq!(graph.module_id_for_stable_key(entry_key), Some(entry));
         let package = graph

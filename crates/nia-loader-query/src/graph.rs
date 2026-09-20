@@ -124,16 +124,7 @@ impl QueryKey<LoaderContext> for ModuleSourceIdQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         let graph = db.get(ModuleGraphQuery)?;
-        graph
-            .semantic
-            .get(self.0)
-            .map(|module| {
-                db.context()
-                    .sources
-                    .id_for_path(&module.path)
-                    .map_err(|error| QueryError::internal(error.to_string()))
-            })
-            .transpose()
+        Ok(graph.semantic.get(self.0).map(|module| module.source_id))
     }
 
     fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
@@ -198,15 +189,18 @@ fn build_module_graph(
             (graph, value.diagnostics.clone(), existing_modules)
         }
         None => {
+            let source_table = db.context().sources.source_table();
             let mut graph = match &db.context().package_root {
-                Some(package_root) => ModuleGraph::with_package_root(
+                Some(package_root) => ModuleGraph::with_package_root_and_source_table(
                     db.context().entry_path.clone(),
                     package_root.clone(),
                     std::sync::Arc::new(db.context().symbols.clone()),
+                    source_table,
                 ),
-                None => ModuleGraph::with_symbol_text(
+                None => ModuleGraph::with_source_table(
                     db.context().entry_path.clone(),
                     std::sync::Arc::new(db.context().symbols.clone()),
+                    source_table,
                 ),
             }?;
             inject_entry_runtime(db, &mut graph)?;

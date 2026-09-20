@@ -47,7 +47,7 @@ fn main() i32 { 0 }
 fn parses_ast_from_lossless_syntax_tree() {
     let source = "fn  main() i32 { // retained by syntax\n  0\n}\n";
     let version = SourceVersion {
-        id: SourceId(8),
+        id: SourceId::isolated(),
         revision: SourceRevision(1),
     };
     let syntax = nia_syntax::parse_source(source, Some(version));
@@ -62,7 +62,7 @@ fn parses_ast_from_lossless_syntax_tree() {
 #[test]
 fn parse_errors_from_syntax_carry_red_token_node_keys() {
     let version = SourceVersion {
-        id: SourceId(9),
+        id: SourceId::isolated(),
         revision: SourceRevision(3),
     };
     let syntax = nia_syntax::parse_source("fn bad(value) {}", Some(version));
@@ -83,7 +83,7 @@ fn parse_errors_from_syntax_carry_red_token_node_keys() {
 #[test]
 fn parse_module_syntax_records_ast_origins_as_red_child_path_ranges() {
     let version = SourceVersion {
-        id: SourceId(10),
+        id: SourceId::isolated(),
         revision: SourceRevision(4),
     };
     let syntax = nia_syntax::parse_source(
@@ -157,7 +157,7 @@ fn malformed_caller_token_spans_use_recovery_node_identity_without_panicking() {
 }
 
 #[test]
-fn unversioned_syntax_uses_reserved_synthetic_origin_identity() {
+fn unversioned_syntax_uses_one_isolated_origin_identity_per_parse() {
     let syntax = nia_syntax::parse_source("fn main() i32 { 0 }", None);
     let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
 
@@ -169,20 +169,31 @@ fn unversioned_syntax_uses_reserved_synthetic_origin_identity() {
     let key = origins
         .locator(SyntaxKind::Type, return_type.span)
         .expect("return type origin");
-    assert_eq!(
-        key.source_version(),
-        SourceVersion {
-            id: SourceId(u32::MAX),
-            revision: SourceRevision::INITIAL,
-        }
-    );
+    let item_key = origins
+        .locator(SyntaxKind::Item, module.items[0].span)
+        .expect("function item origin");
+    assert_eq!(key.source_version().revision, SourceRevision::INITIAL);
+    assert_eq!(key.source_version().id, item_key.source_version().id);
+
+    let second_syntax = nia_syntax::parse_source("fn main() i32 { 0 }", None);
+    let (second_module, second_errors, second_origins) =
+        parse_module_syntax_with_origins(&second_syntax);
+    assert!(second_errors.is_empty(), "{second_errors:?}");
+    let ItemKind::Function(second_function) = &second_module.items[0].kind else {
+        panic!("expected function");
+    };
+    let second_return_type = second_function.return_type.as_ref().expect("return type");
+    let second_key = second_origins
+        .locator(SyntaxKind::Type, second_return_type.span)
+        .expect("return type origin");
+    assert_ne!(key.source_version().id, second_key.source_version().id);
 }
 
 #[test]
 fn speculative_expression_parsing_does_not_publish_discarded_origins() {
     let source = "fn main() i32 { value[index]; 0 }";
     let version = SourceVersion {
-        id: SourceId(11),
+        id: SourceId::isolated(),
         revision: SourceRevision(1),
     };
     let syntax = nia_syntax::parse_source(source, Some(version));
@@ -212,7 +223,7 @@ fn speculative_expression_parsing_does_not_publish_discarded_origins() {
 fn failed_item_recovery_does_not_publish_partial_ast_origins() {
     let source = "fn broken(value: Input) Output {";
     let version = SourceVersion {
-        id: SourceId(12),
+        id: SourceId::isolated(),
         revision: SourceRevision(1),
     };
     let syntax = nia_syntax::parse_source(source, Some(version));

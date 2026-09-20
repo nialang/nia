@@ -27,7 +27,7 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
     let old_module = old_ids.allocate().expect("allocate module ID");
     let old_dependency = old_ids.allocate().expect("allocate module ID");
     let old_version = SourceVersion {
-        id: SourceId(4),
+        id: SourceId::isolated(),
         revision: SourceRevision(7),
     };
     let old_store = TypeStore::new().expect("create type store");
@@ -203,7 +203,7 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
     let new_dependency = new_ids.allocate().expect("allocate module ID");
     let new_module = new_ids.allocate().expect("allocate module ID");
     let new_version = SourceVersion {
-        id: SourceId(90),
+        id: SourceId::isolated(),
         revision: SourceRevision(2),
     };
     let new_store = TypeStore::new().expect("create type store");
@@ -297,7 +297,7 @@ fn type_lowering_rejects_const_expression_handles() {
         elem: primitive,
     });
     let version = SourceVersion {
-        id: SourceId(2),
+        id: SourceId::isolated(),
         revision: SourceRevision::INITIAL,
     };
     let lowering = TypeLowering {

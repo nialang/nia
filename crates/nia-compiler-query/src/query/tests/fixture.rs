@@ -35,17 +35,29 @@ fn intern_shallow_child(
 pub(super) struct LoadedProgramFixture {
     pub(super) graph: ModuleGraph,
     pub(super) modules: Vec<LoadedModule>,
+    pub(super) sources: nia_source::SourceDatabase,
 }
 
 impl LoadedProgramFixture {
     pub(super) fn new(entry_path: &str, source: &str) -> Self {
-        let graph =
-            ModuleGraph::with_symbol_text(SourcePath::new(entry_path), Arc::new(test_symbols()))
-                .expect("create module graph");
+        let sources = nia_source::SourceDatabase::new();
+        let graph = ModuleGraph::with_source_table(
+            SourcePath::new(entry_path),
+            Arc::new(test_symbols()),
+            sources.source_table(),
+        )
+        .expect("create module graph");
         let entry_id = graph.entry();
         Self {
             graph,
-            modules: vec![loaded_module(entry_id, entry_path, source)],
+            modules: vec![loaded_module_in(
+                &sources,
+                entry_id,
+                SourcePath::new(entry_path),
+                source,
+                SourceRevision::INITIAL,
+            )],
+            sources,
         }
     }
 
@@ -78,7 +90,13 @@ impl LoadedProgramFixture {
         source: &str,
     ) -> ModuleId {
         let module_id = intern_child(&mut self.graph, parent, child_name, visibility);
-        self.modules.push(loaded_module(module_id, path, source));
+        self.modules.push(loaded_module_in(
+            &self.sources,
+            module_id,
+            SourcePath::new(path),
+            source,
+            SourceRevision::INITIAL,
+        ));
         module_id
     }
 
@@ -95,7 +113,13 @@ impl LoadedProgramFixture {
             child_name,
             nia_ids::Visibility::Public,
         );
-        self.modules.push(loaded_module(module_id, path, source));
+        self.modules.push(loaded_module_in(
+            &self.sources,
+            module_id,
+            SourcePath::new(path),
+            source,
+            SourceRevision::INITIAL,
+        ));
         module_id
     }
 
@@ -117,8 +141,13 @@ impl LoadedProgramFixture {
                 path.clone(),
             )
             .expect("intern child source path");
-        self.modules
-            .push(loaded_module_with_source_path(module_id, path, source));
+        self.modules.push(loaded_module_in(
+            &self.sources,
+            module_id,
+            path,
+            source,
+            SourceRevision::INITIAL,
+        ));
         module_id
     }
 
@@ -129,10 +158,12 @@ impl LoadedProgramFixture {
             .graph
             .intern_runtime_package_root(runtime_root_path.clone())
             .expect("intern runtime package root");
-        self.modules.push(loaded_module_with_source_path(
+        self.modules.push(loaded_module_in(
+            &self.sources,
             runtime_root,
             runtime_root_path,
             "",
+            SourceRevision::INITIAL,
         ));
         let start_path =
             SourcePath::with_identity("runtime/start.nia", "toolchain:/runtime/start.nia");
@@ -146,10 +177,12 @@ impl LoadedProgramFixture {
                 start_path.clone(),
             )
             .expect("intern runtime start");
-        self.modules.push(loaded_module_with_source_path(
+        self.modules.push(loaded_module_in(
+            &self.sources,
             start,
             start_path,
             "pub(pkg) module freestanding;",
+            SourceRevision::INITIAL,
         ));
         let freestanding = self.add_child_with_source_path(
             start,
@@ -196,7 +229,13 @@ impl LoadedProgramFixture {
             .iter_mut()
             .find(|module| module.id == module_id)
             .expect("fixture module");
-        *module = loaded_module_with_revision(module_id, module.path.as_str(), source, revision);
+        *module = loaded_module_in(
+            &self.sources,
+            module_id,
+            module.path.clone(),
+            source,
+            revision,
+        );
     }
 
     pub(super) fn update_module_path(&mut self, module_id: ModuleId, path: &str) {
@@ -205,8 +244,13 @@ impl LoadedProgramFixture {
             .iter_mut()
             .find(|module| module.id == module_id)
             .expect("fixture module");
-        module.path = SourcePath::new(path);
-        module.source_identity = module.path.identity();
+        *module = loaded_module_in(
+            &self.sources,
+            module_id,
+            SourcePath::new(path),
+            &module.source_text,
+            module.source_version.revision,
+        );
     }
 
     pub(super) fn program(&self) -> LoadedProgram {
@@ -234,6 +278,7 @@ impl LoadedProgramFixture {
         let mut fixture = Self {
             graph: self.graph.clone(),
             modules: self.modules.clone(),
+            sources: self.sources.clone(),
         };
         fixture.add_freestanding_runtime(source);
         let mut program = fixture.program();
@@ -247,14 +292,14 @@ impl LoadedProgramFixture {
 }
 
 pub(super) fn loaded_module(id: ModuleId, path: &str, source: &str) -> LoadedModule {
-    loaded_module_with_revision(id, path, source, SourceRevision::INITIAL)
-}
-
-fn loaded_module_with_source_path(id: ModuleId, path: SourcePath, source: &str) -> LoadedModule {
-    let mut module = loaded_module(id, path.as_str(), source);
-    module.path = path.clone();
-    module.source_identity = path.identity();
-    module
+    let sources = nia_source::SourceDatabase::new();
+    loaded_module_in(
+        &sources,
+        id,
+        SourcePath::new(path),
+        source,
+        SourceRevision::INITIAL,
+    )
 }
 
 pub(super) fn test_freestanding_runtime() -> RuntimeSpec {
@@ -262,21 +307,28 @@ pub(super) fn test_freestanding_runtime() -> RuntimeSpec {
         .expect("host test runtime")
 }
 
-fn loaded_module_with_revision(
+fn loaded_module_in(
+    sources: &nia_source::SourceDatabase,
     id: ModuleId,
-    path: &str,
+    path: SourcePath,
     source: &str,
     revision: SourceRevision,
 ) -> LoadedModule {
-    loaded_module_with_source_version(
+    let source_id = sources
+        .id_for_path(&path)
+        .expect("allocate fixture source id");
+    let mut module = loaded_module_with_source_version(
         id,
-        path,
+        path.as_str(),
         source,
         SourceVersion {
-            id: SourceId(id.local_index()),
+            id: source_id,
             revision,
         },
-    )
+    );
+    module.path = path.clone();
+    module.source_identity = path.identity();
+    module
 }
 
 pub(super) fn loaded_module_with_source_version(
