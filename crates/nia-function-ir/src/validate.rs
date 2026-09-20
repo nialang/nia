@@ -7,7 +7,7 @@
 //! Nominal type and definition lookup remains the backend validator's job,
 //! because this crate intentionally has no program/type-store dependency.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use nia_ids::LocalId;
 use nia_span::Span;
@@ -40,20 +40,19 @@ impl FunctionIrError {
 
 /// Validates a complete function body, including recursively nested defers.
 pub fn validate_function_body(body: &FunctionBody) -> Result<(), FunctionIrError> {
-    FunctionIrValidator::new(&body.locals, &body.scopes, &body.blocks, body.entry)
-        .validate_body(body.span)?;
-    let body_block_ids = body
-        .blocks
-        .iter()
-        .map(|block| block.id)
-        .collect::<HashSet<_>>();
+    let validator = FunctionIrValidator::new(&body.locals, &body.scopes, &body.blocks, body.entry)?;
+    validator.validate_body(body.span)?;
+    let outer_blocks = BlockIdNamespace {
+        ids: &validator.block_ids,
+        outer: None,
+    };
     for block in &body.blocks {
         for op in &block.ops {
             if let FunctionOp::Defer(defer_body) = op {
                 validate_function_defer_body_with_outer_blocks(
                     &body.locals,
                     defer_body,
-                    &body_block_ids,
+                    Some(&outer_blocks),
                 )?;
             }
         }
@@ -143,29 +142,32 @@ pub fn validate_function_defer_body(
     enclosing_locals: &[FunctionLocal],
     body: &FunctionDeferBody,
 ) -> Result<(), FunctionIrError> {
-    validate_function_defer_body_with_outer_blocks(enclosing_locals, body, &HashSet::new())
+    validate_function_defer_body_with_outer_blocks(enclosing_locals, body, None)
 }
 
 fn validate_function_defer_body_with_outer_blocks(
     enclosing_locals: &[FunctionLocal],
     body: &FunctionDeferBody,
-    outer_block_ids: &HashSet<FunctionBlockId>,
+    outer_blocks: Option<&BlockIdNamespace<'_>>,
 ) -> Result<(), FunctionIrError> {
     // Defer bodies execute in the enclosing function's local namespace: captures are plain
     // local references, while control-flow scopes are private to this deferred mini-body.
     // Keeping that split explicit here prevents codegen-only failures when nested defer
     // lowering changes either side of the representation.
-    FunctionIrValidator::new(enclosing_locals, &body.scopes, &body.blocks, body.entry)
-        .validate_defer_body(body.span, outer_block_ids)?;
-    let mut nested_outer_block_ids = outer_block_ids.clone();
-    nested_outer_block_ids.extend(body.blocks.iter().map(|block| block.id));
+    let validator =
+        FunctionIrValidator::new(enclosing_locals, &body.scopes, &body.blocks, body.entry)?;
+    validator.validate_defer_body(body.span, outer_blocks)?;
+    let nested_outer_blocks = BlockIdNamespace {
+        ids: &validator.block_ids,
+        outer: outer_blocks,
+    };
     for block in &body.blocks {
         for op in &block.ops {
             if let FunctionOp::Defer(defer_body) = op {
                 validate_function_defer_body_with_outer_blocks(
                     enclosing_locals,
                     defer_body,
-                    &nested_outer_block_ids,
+                    Some(&nested_outer_blocks),
                 )?;
             }
         }
@@ -173,13 +175,23 @@ fn validate_function_defer_body_with_outer_blocks(
     Ok(())
 }
 
+struct BlockIdNamespace<'a> {
+    ids: &'a HashSet<FunctionBlockId>,
+    outer: Option<&'a BlockIdNamespace<'a>>,
+}
+
+impl BlockIdNamespace<'_> {
+    fn contains(&self, id: FunctionBlockId) -> bool {
+        self.ids.contains(&id) || self.outer.is_some_and(|outer| outer.contains(id))
+    }
+}
+
 struct FunctionIrValidator<'a> {
-    locals: &'a [FunctionLocal],
     scopes: &'a [FunctionScope],
     blocks: &'a [FunctionBlock],
     entry: FunctionBlockId,
     local_ids: HashSet<LocalId>,
-    scope_ids: HashSet<FunctionScopeId>,
+    scope_parents: HashMap<FunctionScopeId, Option<FunctionScopeId>>,
     block_ids: HashSet<FunctionBlockId>,
 }
 
@@ -189,16 +201,42 @@ impl<'a> FunctionIrValidator<'a> {
         scopes: &'a [FunctionScope],
         blocks: &'a [FunctionBlock],
         entry: FunctionBlockId,
-    ) -> Self {
-        Self {
-            locals,
+    ) -> Result<Self, FunctionIrError> {
+        let mut local_ids = HashSet::with_capacity(locals.len());
+        for local in locals {
+            if !local_ids.insert(local.id) {
+                return Err(FunctionIrError::new(
+                    local.span,
+                    "duplicate function local id",
+                ));
+            }
+        }
+        let mut scope_parents = HashMap::with_capacity(scopes.len());
+        for scope in scopes {
+            if scope_parents.insert(scope.id, scope.parent).is_some() {
+                return Err(FunctionIrError::new(
+                    scope.span,
+                    "duplicate function scope id",
+                ));
+            }
+        }
+        let mut block_ids = HashSet::with_capacity(blocks.len());
+        for block in blocks {
+            if !block_ids.insert(block.id) {
+                return Err(FunctionIrError::new(
+                    block.span,
+                    "duplicate function block id",
+                ));
+            }
+        }
+        Ok(Self {
             scopes,
             blocks,
             entry,
-            local_ids: locals.iter().map(|local| local.id).collect(),
-            scope_ids: scopes.iter().map(|scope| scope.id).collect(),
-            block_ids: blocks.iter().map(|block| block.id).collect(),
-        }
+            local_ids,
+            scope_parents,
+            block_ids,
+        })
     }
 
     fn validate_body(&self, span: Span) -> Result<(), FunctionIrError> {
@@ -215,22 +253,19 @@ impl<'a> FunctionIrValidator<'a> {
     fn validate_defer_body(
         &self,
         span: Span,
-        outer_block_ids: &HashSet<FunctionBlockId>,
+        outer_blocks: Option<&BlockIdNamespace<'_>>,
     ) -> Result<(), FunctionIrError> {
         self.validate_body_shape(span)?;
         for block in self.blocks {
             for op in &block.ops {
                 self.validate_op(op)?;
             }
-            self.validate_defer_terminator(&block.terminator, outer_block_ids)?;
+            self.validate_defer_terminator(&block.terminator, outer_blocks)?;
         }
         Ok(())
     }
 
     fn validate_body_shape(&self, span: Span) -> Result<(), FunctionIrError> {
-        self.validate_unique_locals()?;
-        self.validate_unique_scopes()?;
-        self.validate_unique_blocks()?;
         self.require_block(self.entry, span, "function entry block")?;
         for scope in self.scopes {
             if let Some(parent) = scope.parent {
@@ -251,60 +286,25 @@ impl<'a> FunctionIrValidator<'a> {
     }
 
     fn validate_scope_parent_chain(&self, scope: &FunctionScope) -> Result<(), FunctionIrError> {
-        let mut seen = HashSet::new();
-        let mut current = Some(scope.id);
-        while let Some(scope_id) = current {
-            if !seen.insert(scope_id) {
+        let mut slow = self.scope_parent(scope.id);
+        let mut fast = slow.and_then(|scope_id| self.scope_parent(scope_id));
+        while let (Some(slow_id), Some(fast_id)) = (slow, fast) {
+            if slow_id == fast_id {
                 return Err(FunctionIrError::new(
                     scope.span,
                     "scope parent chain contains a cycle",
                 ));
             }
-            let Some(scope) = self.scopes.iter().find(|scope| scope.id == scope_id) else {
-                return Ok(());
-            };
-            current = scope.parent;
+            slow = self.scope_parent(slow_id);
+            fast = self
+                .scope_parent(fast_id)
+                .and_then(|scope_id| self.scope_parent(scope_id));
         }
         Ok(())
     }
 
-    fn validate_unique_locals(&self) -> Result<(), FunctionIrError> {
-        let mut seen = HashSet::new();
-        for local in self.locals {
-            if !seen.insert(local.id) {
-                return Err(FunctionIrError::new(
-                    local.span,
-                    "duplicate function local id",
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn validate_unique_scopes(&self) -> Result<(), FunctionIrError> {
-        let mut seen = HashSet::new();
-        for scope in self.scopes {
-            if !seen.insert(scope.id) {
-                return Err(FunctionIrError::new(
-                    scope.span,
-                    "duplicate function scope id",
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn validate_unique_blocks(&self) -> Result<(), FunctionIrError> {
-        let mut seen = HashSet::new();
-        for block in self.blocks {
-            if !seen.insert(block.id) {
-                return Err(FunctionIrError::new(
-                    block.span,
-                    "duplicate function block id",
-                ));
-            }
-        }
-        Ok(())
+    fn scope_parent(&self, scope: FunctionScopeId) -> Option<FunctionScopeId> {
+        self.scope_parents.get(&scope).copied().flatten()
     }
 
     fn validate_op(&self, op: &FunctionOp) -> Result<(), FunctionIrError> {
@@ -385,10 +385,12 @@ impl<'a> FunctionIrValidator<'a> {
     fn validate_defer_terminator(
         &self,
         terminator: &FunctionTerminator,
-        outer_block_ids: &HashSet<FunctionBlockId>,
+        outer_blocks: Option<&BlockIdNamespace<'_>>,
     ) -> Result<(), FunctionIrError> {
         for target in terminator.referenced_blocks() {
-            if !self.block_ids.contains(&target) && !outer_block_ids.contains(&target) {
+            if !self.block_ids.contains(&target)
+                && !outer_blocks.is_some_and(|blocks| blocks.contains(target))
+            {
                 return Err(FunctionIrError::new(
                     terminator.span(),
                     format!("terminator references missing block `{}`", target.0),
@@ -763,7 +765,7 @@ impl<'a> FunctionIrValidator<'a> {
         span: Span,
         what: &str,
     ) -> Result<(), FunctionIrError> {
-        if self.scope_ids.contains(&scope) {
+        if self.scope_parents.contains_key(&scope) {
             Ok(())
         } else {
             Err(FunctionIrError::new(
@@ -914,7 +916,12 @@ mod tests {
             },
             FunctionScope {
                 id: FunctionScopeId(1),
-                parent: Some(FunctionScopeId(0)),
+                parent: Some(FunctionScopeId(2)),
+                span: Span::default(),
+            },
+            FunctionScope {
+                id: FunctionScopeId(2),
+                parent: Some(FunctionScopeId(1)),
                 span: Span::default(),
             },
         ]);
@@ -927,6 +934,106 @@ mod tests {
                 .contains("scope parent chain contains a cycle"),
             "{error:?}"
         );
+    }
+
+    #[test]
+    fn rejects_duplicate_local_scope_and_block_ids() {
+        let span = Span::default();
+        let scope = FunctionScope {
+            id: FunctionScopeId(0),
+            parent: None,
+            span,
+        };
+
+        let mut duplicate_local = empty_body(vec![scope.clone()]);
+        let local = FunctionLocal {
+            id: LocalId(0),
+            name: crate::LocalName::named(sym("value")),
+            kind: FunctionLocalKind::ImmutableBinding,
+            ty: test_ty(),
+            span,
+        };
+        duplicate_local.locals = vec![local.clone(), local];
+        let error =
+            validate_function_body(&duplicate_local).expect_err("duplicate local must fail");
+        assert_eq!(error.message, "duplicate function local id");
+
+        let duplicate_scope = empty_body(vec![scope.clone(), scope]);
+        let error =
+            validate_function_body(&duplicate_scope).expect_err("duplicate scope must fail");
+        assert_eq!(error.message, "duplicate function scope id");
+
+        let mut duplicate_block = empty_body(vec![FunctionScope {
+            id: FunctionScopeId(0),
+            parent: None,
+            span,
+        }]);
+        duplicate_block
+            .blocks
+            .push(duplicate_block.blocks[0].clone());
+        let error =
+            validate_function_body(&duplicate_block).expect_err("duplicate block must fail");
+        assert_eq!(error.message, "duplicate function block id");
+    }
+
+    #[test]
+    fn accepts_nested_defer_targets_from_each_outer_namespace() {
+        let span = Span::default();
+        let nested = FunctionDeferBody {
+            span,
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(2),
+                parent: None,
+                span,
+            }],
+            blocks: vec![
+                FunctionBlock {
+                    id: FunctionBlockId(2),
+                    scope: FunctionScopeId(2),
+                    span,
+                    ops: Vec::new(),
+                    terminator: FunctionTerminator::Branch {
+                        target: FunctionBlockId(0),
+                        span,
+                    },
+                },
+                FunctionBlock {
+                    id: FunctionBlockId(3),
+                    scope: FunctionScopeId(2),
+                    span,
+                    ops: Vec::new(),
+                    terminator: FunctionTerminator::Branch {
+                        target: FunctionBlockId(1),
+                        span,
+                    },
+                },
+            ],
+            entry: FunctionBlockId(2),
+        };
+        let outer = FunctionDeferBody {
+            span,
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(1),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(1),
+                scope: FunctionScopeId(1),
+                span,
+                ops: vec![FunctionOp::Defer(nested)],
+                terminator: FunctionTerminator::Tail { value: None, span },
+            }],
+            entry: FunctionBlockId(1),
+        };
+        let mut body = empty_body(vec![FunctionScope {
+            id: FunctionScopeId(0),
+            parent: None,
+            span,
+        }]);
+        body.blocks[0].ops.push(FunctionOp::Defer(outer));
+
+        validate_function_body(&body).expect("all enclosing block namespaces must remain visible");
     }
 
     #[test]
