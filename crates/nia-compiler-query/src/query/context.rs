@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use super::frontend_cache_publication::PendingFrontendCachePublications;
 use super::{CompileRequest, CompilerQueryProviders, ExecutableFactSession};
 use crate::{
     CodegenScope, FrontendCheckCertificateCacheKey, FrontendCheckInputFingerprint,
@@ -27,6 +28,8 @@ pub(super) struct CompilerContext {
     pub(super) node_store: nia_node_id::NodeStore,
     pub(super) signature_cache: Option<Arc<crate::signature_cache::PersistentSignatureCache>>,
     pub(super) verify_frontend_cache: bool,
+    pub(super) provider_settlement_scheduler: Mutex<()>,
+    pub(super) frontend_cache_publications: Mutex<Option<PendingFrontendCachePublications>>,
     pub(super) provider_demand_rounds: std::sync::atomic::AtomicU64,
 }
 

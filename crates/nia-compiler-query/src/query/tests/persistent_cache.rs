@@ -2,6 +2,54 @@
 use super::*;
 
 #[test]
+fn provider_settlement_publishes_final_signature_products() {
+    static CACHE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let cache_id = CACHE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!(
+        "nia-settled-signature-products-{}-{cache_id}",
+        std::process::id()
+    ));
+    let source = "fn main() i32 { 1 }";
+    let source_fingerprint = crate::source_content_fingerprint(source);
+    let database = || {
+        let fixture = LoadedProgramFixture::new("main.nia", source);
+        let module_id = fixture.entry_id();
+        let db = query_db_with_frontend_cache(
+            fixture.program(),
+            HashMap::from([(module_id, (source_fingerprint, source.len()))]),
+            root.clone(),
+            false,
+        );
+        (module_id, db)
+    };
+
+    let (_, cold) = database();
+    let inputs = Arc::clone(&cold.context().inputs);
+    let compiler = super::super::CompilerDatabase {
+        db: cold.clone(),
+        inputs,
+    };
+    compiler.analyze_program().expect("cold program analysis");
+    assert!(
+        cold.context().frontend_cache_publications.lock().is_none(),
+        "provider settlement must close its publication session"
+    );
+
+    let (warm_module, warm) = database();
+    warm.expect_get(SignatureItemSignaturesQuery(
+        warm_module,
+        nia_item_tree::SignatureItemSet::Functions,
+    ));
+    let trace = warm.query_trace().expect("warm signature trace");
+    assert_eq!(
+        query_executions(&trace, "signature_item_signatures_semantic"),
+        0,
+        "the final settled product should be reusable in a new query database"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn persistent_check_certificate_reuses_diagnostics_and_verifies_fresh() {
     static CACHE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let cache_id = CACHE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

@@ -374,6 +374,20 @@ pub(super) fn provide_signature_type_resolution(
                 );
                 Some((program_sources, source, namespace, key))
             });
+        if !db.context().verify_frontend_cache
+            && let Some((program_sources, source, _, _)) = cache_input
+            && let Some(semantic) = db.context().deferred_signature_type_resolution(
+                &source.module,
+                set,
+                program_sources.fingerprint,
+            )
+        {
+            nia_timing::emit_counter("frontend.signature_type_resolution_reuse_session_hits", 1);
+            return Ok(SignatureTypeResolution {
+                semantic,
+                diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
+            });
+        }
         let symbols = db.context().symbols();
         let cached = if let Some(cache) = db.context().signature_cache.as_ref()
             && let Some((program_sources, source, namespace, key)) = cache_input
@@ -448,33 +462,42 @@ pub(super) fn provide_signature_type_resolution(
             if replace {
                 cache.remove_type_resolution(key);
             }
-            nia_timing::emit_counter(
-                "frontend.signature_type_resolution_reuse_publish_attempts",
-                1,
+            let deferral = db.context().defer_signature_type_resolution(
+                source.module.clone(),
+                set,
+                program_sources.fingerprint,
+                Arc::clone(&fresh.semantic),
             );
-            let publication = cache.publish_type_resolution(
-                crate::signature_cache::SignatureTypeResolutionIdentity {
-                    key,
-                    namespace,
-                    module: &source.module,
-                    set,
-                    program_sources: program_sources.fingerprint,
-                    source_version: source.version,
-                    source_len: source.len,
-                },
-                &fresh.semantic,
-                &program_sources.path_by_module,
-                &symbols,
-                replace,
-            );
-            nia_timing::emit_counter(
-                if publication.is_ok() {
-                    "frontend.signature_type_resolution_reuse_publish_successes"
-                } else {
-                    "frontend.signature_type_resolution_reuse_publish_errors"
-                },
-                1,
-            );
+            if !emit_frontend_cache_publication_deferral(
+                deferral,
+                "frontend.signature_type_resolution_reuse_publish_deferred",
+                "frontend.signature_type_resolution_reuse_publish_replaced",
+            ) {
+                nia_timing::emit_counter(
+                    "frontend.signature_type_resolution_reuse_publish_attempts",
+                    1,
+                );
+                let publication = cache.publish_type_resolution(
+                    crate::signature_cache::SignatureTypeResolutionIdentity {
+                        key,
+                        namespace,
+                        module: &source.module,
+                        set,
+                        program_sources: program_sources.fingerprint,
+                        source_version: source.version,
+                        source_len: source.len,
+                    },
+                    &fresh.semantic,
+                    &program_sources.path_by_module,
+                    &symbols,
+                    replace,
+                );
+                emit_frontend_cache_publication_result(
+                    publication,
+                    "frontend.signature_type_resolution_reuse_publish_successes",
+                    "frontend.signature_type_resolution_reuse_publish_errors",
+                );
+            }
         }
         Ok(fresh.as_ref().clone())
     })
@@ -646,6 +669,20 @@ pub(super) fn provide_signature_type_lowering(
             );
             Some((program_sources, source, namespace, key))
         });
+    if !db.context().verify_frontend_cache
+        && let Some((program_sources, source, _, _)) = cache_input
+        && let Some(semantic) = db.context().deferred_signature_type_lowering(
+            &source.module,
+            set,
+            program_sources.fingerprint,
+        )
+    {
+        nia_timing::emit_counter("frontend.signature_type_lowering_reuse_session_hits", 1);
+        return Ok(SignatureTypeLowering {
+            semantic,
+            diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
+        });
+    }
     let symbols = db.context().symbols();
     let cached = if let Some(cache) = db.context().signature_cache.as_ref()
         && let Some((program_sources, source, namespace, key)) = cache_input
@@ -723,31 +760,43 @@ pub(super) fn provide_signature_type_lowering(
             && fresh.semantic.const_exprs.is_empty()
             && fresh.semantic.const_expr_summaries.is_empty()
         {
-            nia_timing::emit_counter("frontend.signature_type_lowering_reuse_publish_attempts", 1);
-            let publication = cache.publish_type_lowering(
-                crate::signature_cache::SignatureTypeLoweringIdentity {
-                    key,
-                    namespace,
-                    module: &source.module,
-                    set,
-                    program_sources: program_sources.fingerprint,
-                    source_version: source.version,
-                    source_len: source.len,
-                },
-                &fresh.semantic,
-                &program_sources.path_by_module,
-                &symbols,
-                db.context().type_store(),
-                replace,
+            let deferral = db.context().defer_signature_type_lowering(
+                source.module.clone(),
+                set,
+                program_sources.fingerprint,
+                Arc::clone(&fresh.semantic),
             );
-            nia_timing::emit_counter(
-                if publication.is_ok() {
-                    "frontend.signature_type_lowering_reuse_publish_successes"
-                } else {
-                    "frontend.signature_type_lowering_reuse_publish_errors"
-                },
-                1,
-            );
+            if !emit_frontend_cache_publication_deferral(
+                deferral,
+                "frontend.signature_type_lowering_reuse_publish_deferred",
+                "frontend.signature_type_lowering_reuse_publish_replaced",
+            ) {
+                nia_timing::emit_counter(
+                    "frontend.signature_type_lowering_reuse_publish_attempts",
+                    1,
+                );
+                let publication = cache.publish_type_lowering(
+                    crate::signature_cache::SignatureTypeLoweringIdentity {
+                        key,
+                        namespace,
+                        module: &source.module,
+                        set,
+                        program_sources: program_sources.fingerprint,
+                        source_version: source.version,
+                        source_len: source.len,
+                    },
+                    &fresh.semantic,
+                    &program_sources.path_by_module,
+                    &symbols,
+                    db.context().type_store(),
+                    replace,
+                );
+                emit_frontend_cache_publication_result(
+                    publication,
+                    "frontend.signature_type_lowering_reuse_publish_successes",
+                    "frontend.signature_type_lowering_reuse_publish_errors",
+                );
+            }
         }
     }
     Ok(fresh.as_ref().clone())
@@ -865,6 +914,21 @@ pub(super) fn provide_signature_item_signatures(
             );
             Some((program_sources, source, namespace, key))
         });
+    if !db.context().verify_frontend_cache
+        && let Some((program_sources, source, _, _)) = cache_input
+        && let Some(semantic) = db.context().deferred_signature_item_signatures(
+            &source.module,
+            set,
+            program_sources.fingerprint,
+        )
+    {
+        nia_timing::emit_counter("frontend.signature_item_signatures_reuse_session_hits", 1);
+        return Ok(SignatureItemSignatures {
+            semantic,
+            diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
+            cacheable: true,
+        });
+    }
     let symbols = db.context().symbols();
     let cached = if let Some(cache) = db.context().signature_cache.as_ref()
         && let Some((program_sources, source, namespace, key)) = cache_input
@@ -942,33 +1006,42 @@ pub(super) fn provide_signature_item_signatures(
             cache.remove_item_signatures(key);
         }
         if fresh.cacheable {
-            nia_timing::emit_counter(
-                "frontend.signature_item_signatures_reuse_publish_attempts",
-                1,
+            let deferral = db.context().defer_signature_item_signatures(
+                source.module.clone(),
+                set,
+                program_sources.fingerprint,
+                Arc::clone(&fresh.semantic),
             );
-            let publication = cache.publish_item_signatures(
-                crate::signature_cache::SignatureItemSignaturesIdentity {
-                    key,
-                    namespace,
-                    module: &source.module,
-                    set,
-                    program_sources: program_sources.fingerprint,
-                    source_len: source.len,
-                },
-                &fresh.semantic,
-                &program_sources.path_by_module,
-                &symbols,
-                db.context().type_store(),
-                replace,
-            );
-            nia_timing::emit_counter(
-                if publication.is_ok() {
-                    "frontend.signature_item_signatures_reuse_publish_successes"
-                } else {
-                    "frontend.signature_item_signatures_reuse_publish_errors"
-                },
-                1,
-            );
+            if !emit_frontend_cache_publication_deferral(
+                deferral,
+                "frontend.signature_item_signatures_reuse_publish_deferred",
+                "frontend.signature_item_signatures_reuse_publish_replaced",
+            ) {
+                nia_timing::emit_counter(
+                    "frontend.signature_item_signatures_reuse_publish_attempts",
+                    1,
+                );
+                let publication = cache.publish_item_signatures(
+                    crate::signature_cache::SignatureItemSignaturesIdentity {
+                        key,
+                        namespace,
+                        module: &source.module,
+                        set,
+                        program_sources: program_sources.fingerprint,
+                        source_len: source.len,
+                    },
+                    &fresh.semantic,
+                    &program_sources.path_by_module,
+                    &symbols,
+                    db.context().type_store(),
+                    replace,
+                );
+                emit_frontend_cache_publication_result(
+                    publication,
+                    "frontend.signature_item_signatures_reuse_publish_successes",
+                    "frontend.signature_item_signatures_reuse_publish_errors",
+                );
+            }
         }
     }
     Ok(fresh.as_ref().clone())

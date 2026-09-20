@@ -78,6 +78,7 @@ mod context;
 mod diagnostics;
 mod executable;
 mod extension_provider_queries;
+mod frontend_cache_publication;
 mod function_body_queries;
 mod program;
 mod program_signature_queries;
@@ -140,6 +141,7 @@ use context::*;
 use diagnostics::*;
 use executable::*;
 use extension_provider_queries::*;
+use frontend_cache_publication::*;
 use function_body_queries::*;
 use program::*;
 use program_signature_queries::*;
@@ -1303,48 +1305,67 @@ impl CompilerDatabase {
         compile: impl Fn(&Self) -> QueryResult<T>,
         provider_demands: impl Fn(&T) -> Vec<crate::ProviderDemand>,
     ) -> QueryResult<T> {
-        let mut skip_executable_discovery = false;
-        let mut rounds = 0_u64;
-        loop {
-            rounds += 1;
-            if discover_executable_providers && !skip_executable_discovery {
-                let demands = self.executable_provider_demands()?;
-                emit_provider_demand_batch(self.db.context().timings(), rounds, &demands);
-                if let crate::ProviderGraphUpdate::Changed {
-                    invalidates_resolved_body_facts,
-                } = self.update_provider_demands_with_telemetry(rounds, "discovery", demands)?
-                {
-                    emit_provider_graph_change(
-                        self.db.context().timings(),
-                        rounds,
-                        invalidates_resolved_body_facts,
-                    );
-                    skip_executable_discovery = !invalidates_resolved_body_facts;
-                    continue;
-                }
-            }
-            let output = compile(self)?;
-            match self.update_provider_demands_with_telemetry(
-                rounds,
-                "compile",
-                provider_demands(&output),
-            )? {
-                crate::ProviderGraphUpdate::Changed {
-                    invalidates_resolved_body_facts,
-                } => {
-                    skip_executable_discovery =
-                        discover_executable_providers && !invalidates_resolved_body_facts;
-                }
-                crate::ProviderGraphUpdate::Stable => {
-                    self.db.context().loader_facts().settle_provider_demands()?;
-                    self.db
-                        .context()
-                        .provider_demand_rounds
-                        .store(rounds, std::sync::atomic::Ordering::Relaxed);
-                    return Ok(output);
-                }
-            }
+        // The loader fixed point and its deferred cache publications form one
+        // session; concurrent top-level settlements must not mix either state.
+        let _settlement = self.db.context().provider_settlement_scheduler.lock();
+        self.db.context().begin_frontend_cache_publications()?;
+        if self.db.context().signature_cache.is_some()
+            && let Ok(program_sources) = self.db.get(FrontendProgramSourcesQuery)
+            && let Some(program_sources) = program_sources.as_ref().as_ref()
+        {
+            self.db
+                .context()
+                .observe_frontend_program_sources(program_sources);
         }
+        let result = (|| {
+            let mut skip_executable_discovery = false;
+            let mut rounds = 0_u64;
+            loop {
+                rounds += 1;
+                if discover_executable_providers && !skip_executable_discovery {
+                    let demands = self.executable_provider_demands()?;
+                    emit_provider_demand_batch(self.db.context().timings(), rounds, &demands);
+                    if let crate::ProviderGraphUpdate::Changed {
+                        invalidates_resolved_body_facts,
+                    } =
+                        self.update_provider_demands_with_telemetry(rounds, "discovery", demands)?
+                    {
+                        emit_provider_graph_change(
+                            self.db.context().timings(),
+                            rounds,
+                            invalidates_resolved_body_facts,
+                        );
+                        skip_executable_discovery = !invalidates_resolved_body_facts;
+                        continue;
+                    }
+                }
+                let output = compile(self)?;
+                match self.update_provider_demands_with_telemetry(
+                    rounds,
+                    "compile",
+                    provider_demands(&output),
+                )? {
+                    crate::ProviderGraphUpdate::Changed {
+                        invalidates_resolved_body_facts,
+                    } => {
+                        skip_executable_discovery =
+                            discover_executable_providers && !invalidates_resolved_body_facts;
+                    }
+                    crate::ProviderGraphUpdate::Stable => {
+                        self.db.context().loader_facts().settle_provider_demands()?;
+                        self.db
+                            .context()
+                            .provider_demand_rounds
+                            .store(rounds, std::sync::atomic::Ordering::Relaxed);
+                        return Ok(output);
+                    }
+                }
+            }
+        })();
+        let publications = self.db.context().finish_frontend_cache_publications();
+        result.inspect(|_| {
+            self.flush_frontend_cache_publications(publications);
+        })
     }
 
     fn update_provider_demands_with_telemetry(
@@ -2701,6 +2722,8 @@ fn compiler_database_with_providers_in_session(
             node_store,
             signature_cache,
             verify_frontend_cache,
+            provider_settlement_scheduler: Mutex::new(()),
+            frontend_cache_publications: Mutex::new(None),
             provider_demand_rounds: std::sync::atomic::AtomicU64::new(0),
         },
         timings,
@@ -3104,12 +3127,14 @@ impl CompilerContext {
                 .iter()
                 .map(|(module, source, len)| (module, *source, *len)),
         );
-        Ok(Some(FrontendProgramSources {
+        let sources = FrontendProgramSources {
             fingerprint,
             by_module,
             module_by_path,
             path_by_module,
-        }))
+        };
+        self.observe_frontend_program_sources(&sources);
+        Ok(Some(sources))
     }
 
     fn stable_module_sequence(
