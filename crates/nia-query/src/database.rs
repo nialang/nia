@@ -316,7 +316,11 @@ impl<C> QueryDb<C> {
                     });
                     let value =
                         match nia_timing::time_detail(detail_timing, "query.provider", || {
-                            key.execute_result(self)
+                            nia_timing::time_detail(
+                                detail_timing,
+                                &format!("query.provider.{}", K::name()),
+                                || key.execute_result(self),
+                            )
                         }) {
                             Ok(value) => value,
                             Err(error) => {
@@ -700,7 +704,11 @@ impl<C> QueryDb<C> {
                     });
                     let value =
                         match nia_timing::time_detail(detail_timing, "query.provider", || {
-                            key.execute_result(self)
+                            nia_timing::time_detail(
+                                detail_timing,
+                                &format!("query.provider.{}", K::name()),
+                                || key.execute_result(self),
+                            )
                         }) {
                             Ok(value) => value,
                             Err(error) => {
