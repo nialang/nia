@@ -584,6 +584,7 @@ struct LayoutComputer<'a> {
     diagnostics: Vec<Diagnostic>,
     internal_error: Option<nia_ice::Ice>,
     visiting: HashSet<InternedTyId>,
+    open_generic_seen: HashSet<InternedTyId>,
     visiting_structs: HashSet<StructLayoutKey>,
     visiting_unions: HashSet<StructLayoutKey>,
     program: ProgramLayoutContext<'a>,
@@ -613,6 +614,7 @@ impl<'a> LayoutComputer<'a> {
             diagnostics: Vec::new(),
             internal_error: None,
             visiting: HashSet::new(),
+            open_generic_seen: HashSet::new(),
             visiting_structs: HashSet::new(),
             visiting_unions: HashSet::new(),
             program: input.program,
@@ -808,9 +810,12 @@ impl<'a> LayoutComputer<'a> {
         )
     }
 
-    fn is_open_generic_type(&self, ty_id: InternedTyId) -> bool {
-        let mut seen = HashSet::new();
-        self.is_open_generic_type_inner(ty_id, &mut seen)
+    fn is_open_generic_type(&mut self, ty_id: InternedTyId) -> bool {
+        let mut seen = std::mem::take(&mut self.open_generic_seen);
+        seen.clear();
+        let is_open = self.is_open_generic_type_inner(ty_id, &mut seen);
+        self.open_generic_seen = seen;
+        is_open
     }
 
     fn is_open_generic_type_inner(
@@ -824,7 +829,8 @@ impl<'a> LayoutComputer<'a> {
         match self.type_context.get(ty_id) {
             Some(TyKind::GenericParam(_) | TyKind::SelfParam) => true,
             Some(TyKind::Array { len, elem }) => {
-                self.is_open_generic_array_len(len) || self.is_open_generic_type_inner(*elem, seen)
+                self.is_open_generic_array_len(len, seen)
+                    || self.is_open_generic_type_inner(*elem, seen)
             }
             Some(
                 TyKind::Opaque
@@ -947,10 +953,14 @@ impl<'a> LayoutComputer<'a> {
         }
     }
 
-    fn is_open_generic_array_len(&self, len: &ArrayLenTy) -> bool {
+    fn is_open_generic_array_len(
+        &self,
+        len: &ArrayLenTy,
+        seen: &mut HashSet<InternedTyId>,
+    ) -> bool {
         match len {
             ArrayLenTy::GenericParam(_) => true,
-            ArrayLenTy::Builtin { ty, .. } => self.is_open_generic_type(*ty),
+            ArrayLenTy::Builtin { ty, .. } => self.is_open_generic_type_inner(*ty, seen),
             ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => false,
         }
     }
@@ -1756,6 +1766,80 @@ mod tests {
                 align: 16,
             })
         );
+    }
+
+    #[test]
+    fn open_generic_detection_follows_nested_type_store_dependencies() {
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
+        let (module, symbols) = parse_test_module("fn main() {}");
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
+        let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
+        let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
+        let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
+        let append = type_store.append_for_module(module_id);
+        let concrete = append
+            .primitive(PrimitiveTy::U8)
+            .expect("intern concrete type");
+        let generic = append
+            .intern(TyKind::GenericParam(sym("T")))
+            .expect("intern generic type");
+        let generic_tuple = append
+            .intern(TyKind::Tuple(vec![concrete, generic, concrete]))
+            .expect("intern generic tuple");
+        let generic_const = append
+            .intern(TyKind::Nominal {
+                def_id: GlobalDefId {
+                    module_id,
+                    def_id: nia_defs::DefId(1),
+                },
+                args: Vec::new(),
+                const_args: vec![ConstGenericArg {
+                    ty: concrete,
+                    value: ConstGenericValue::GenericParam(sym("N")),
+                }],
+            })
+            .expect("intern const-generic nominal type");
+        let generic_layout_operand = append
+            .intern(TyKind::Array {
+                len: ArrayLenTy::Builtin {
+                    builtin: LayoutBuiltin::Size,
+                    ty: generic_tuple,
+                },
+                elem: concrete,
+            })
+            .expect("intern layout-builtin array type");
+        let closed = append
+            .intern(TyKind::Tuple(vec![concrete, concrete]))
+            .expect("intern closed tuple");
+        let mut shared_dag = concrete;
+        for _ in 0..64 {
+            shared_dag = append
+                .intern(TyKind::Tuple(vec![shared_dag, shared_dag]))
+                .expect("intern shared type DAG layer");
+        }
+        let normalized = HashMap::new();
+        let no_array_lengths = |_: GlobalConstExprId| None;
+        let mut computer = LayoutComputer::new(LayoutComputationInput {
+            type_store: &type_store,
+            defs: &defs,
+            signatures: &signatures,
+            root_types: &[],
+            normalized: &normalized,
+            array_lengths: &no_array_lengths,
+            target: TargetDataLayout::LP64,
+            program: ProgramLayoutContext::default(),
+        });
+
+        assert!(computer.is_open_generic_type(generic_tuple));
+        assert!(computer.is_open_generic_type(generic_const));
+        assert!(computer.is_open_generic_type(generic_layout_operand));
+        assert!(!computer.is_open_generic_type(closed));
+        assert!(!computer.is_open_generic_type(shared_dag));
+        assert_eq!(computer.open_generic_seen.len(), 65);
+        let scratch_capacity = computer.open_generic_seen.capacity();
+        assert!(!computer.is_open_generic_type(shared_dag));
+        assert_eq!(computer.open_generic_seen.capacity(), scratch_capacity);
     }
 
     include!("tests/layout/test_support.rs");
