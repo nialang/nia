@@ -12,8 +12,8 @@ use std::{
 };
 
 use nia_compiler_query::{
-    CodegenScope, CompileRequest, CompilerDatabase, TimingMode, has_error_diagnostics,
-    query_error_diagnostic,
+    BackendFunctionStats, CodegenScope, CompileRequest, CompilerDatabase, TimingMode,
+    has_error_diagnostics, query_error_diagnostic,
 };
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleMap;
@@ -855,20 +855,13 @@ impl Driver {
                             if !lowering.diagnostics.is_empty() {
                                 return Err(DriverError::CodegenDiagnostics(lowering.diagnostics));
                             }
-                            let reachable_body_count = lowering
-                                .program
-                                .modules
-                                .iter()
-                                .map(|module| {
-                                    module.functions.len() + module.function_instances.len()
-                                })
-                                .sum();
+                            let backend_function_stats = lowering.program.function_stats();
                             let backend_module_count = lowering.program.modules.len();
                             Ok((
                                 emitter.finish().map_err(|error| {
                                     DriverError::InternalDiagnostic(Diagnostic::from(error))
                                 })?,
-                                reachable_body_count,
+                                backend_function_stats,
                                 backend_module_count,
                                 lowering.optimization_report,
                             ))
@@ -876,7 +869,7 @@ impl Driver {
                     }
                 })())
             });
-            let (output, reachable_body_count, backend_module_count, optimization_report) =
+            let (output, backend_function_stats, backend_module_count, optimization_report) =
                 match result {
                     Ok(Ok(output)) => output,
                     Ok(Err(error)) => return DriverOutput::from_error(error),
@@ -900,7 +893,9 @@ impl Driver {
                 &loader_trace,
                 &LiveCodegenCounters {
                     checked_body_count,
-                    reachable_body_count,
+                    reachable_body_count: backend_function_stats.definitions(),
+                    backend_function_stats,
+                    link_input_count: None,
                     checked_module_count,
                     monomorphized_instance_count,
                     backend_module_count,
@@ -1023,6 +1018,8 @@ impl Driver {
                     &LiveCodegenCounters {
                         checked_body_count: emission.checked_body_count,
                         reachable_body_count: emission.reachable_body_count,
+                        backend_function_stats: emission.backend_function_stats,
+                        link_input_count: Some(emission.link_input_count),
                         checked_module_count: emission.checked_module_count,
                         monomorphized_instance_count: emission.monomorphized_instance_count,
                         backend_module_count: emission.backend_module_count,
@@ -1085,7 +1082,7 @@ impl Driver {
         let cache = self.object_cache.as_ref().map(|cache| {
             cache.clone() as std::sync::Arc<dyn nia_codegen_llvm::ObjectWorkProductCache>
         });
-        let (output, reachable_body_count, backend_module_count, optimization_report) = database
+        let (output, backend_function_stats, backend_module_count, optimization_report) = database
             .with_backend_finalization_schedule(|schedule| {
                 Ok((|| -> Result<_, DriverError> {
                     match schedule {
@@ -1135,14 +1132,7 @@ impl Driver {
                             if !lowering.diagnostics.is_empty() {
                                 return Err(DriverError::CodegenDiagnostics(lowering.diagnostics));
                             }
-                            let reachable_body_count = lowering
-                                .program
-                                .modules
-                                .iter()
-                                .map(|module| {
-                                    module.functions.len() + module.function_instances.len()
-                                })
-                                .sum();
+                            let backend_function_stats = lowering.program.function_stats();
                             let backend_module_count = lowering.program.modules.len();
                             Ok((
                                 time_detail_stage(timings, "native_llvm_finish", || {
@@ -1151,7 +1141,7 @@ impl Driver {
                                 .map_err(|error| {
                                     DriverError::InternalDiagnostic(Diagnostic::from(error))
                                 })?,
-                                reachable_body_count,
+                                backend_function_stats,
                                 backend_module_count,
                                 lowering.optimization_report,
                             ))
@@ -1163,6 +1153,7 @@ impl Driver {
         if !output.diagnostics.is_empty() {
             return Err(DriverError::CodegenDiagnostics(output.diagnostics));
         }
+        let link_input_count = output.link_inputs.len();
         Ok(NativeDatabaseEmission {
             artifact: ObjectArtifact {
                 link_inputs: output.link_inputs,
@@ -1171,7 +1162,9 @@ impl Driver {
                 diagnostics,
             },
             checked_body_count,
-            reachable_body_count,
+            reachable_body_count: backend_function_stats.definitions(),
+            backend_function_stats,
+            link_input_count,
             checked_module_count,
             monomorphized_instance_count,
             backend_module_count,
@@ -1809,11 +1802,21 @@ trait ProviderDemandOutput {
     fn backend_module_count(&self) -> Option<usize> {
         None
     }
+
+    fn backend_function_stats(&self) -> Option<BackendFunctionStats> {
+        None
+    }
+
+    fn link_input_count(&self) -> Option<usize> {
+        None
+    }
 }
 
 struct LiveCodegenCounters {
     checked_body_count: usize,
     reachable_body_count: usize,
+    backend_function_stats: BackendFunctionStats,
+    link_input_count: Option<usize>,
     checked_module_count: usize,
     monomorphized_instance_count: usize,
     backend_module_count: usize,
@@ -1838,6 +1841,14 @@ impl ProviderDemandOutput for LiveCodegenCounters {
 
     fn backend_module_count(&self) -> Option<usize> {
         Some(self.backend_module_count)
+    }
+
+    fn backend_function_stats(&self) -> Option<BackendFunctionStats> {
+        Some(self.backend_function_stats)
+    }
+
+    fn link_input_count(&self) -> Option<usize> {
+        self.link_input_count
     }
 }
 
@@ -1874,12 +1885,9 @@ impl ProviderDemandOutput for CodegenProgram {
     }
 
     fn reachable_body_count(&self) -> usize {
-        self.backend_lowering
-            .program
-            .modules
-            .iter()
-            .map(|module| module.functions.len() + module.function_instances.len())
-            .sum()
+        self.backend_function_stats()
+            .expect("codegen programs have backend function counts")
+            .definitions()
     }
 
     fn checked_module_count(&self) -> Option<usize> {
@@ -1892,6 +1900,10 @@ impl ProviderDemandOutput for CodegenProgram {
 
     fn backend_module_count(&self) -> Option<usize> {
         Some(self.backend_lowering.program.modules.len())
+    }
+
+    fn backend_function_stats(&self) -> Option<BackendFunctionStats> {
+        Some(self.backend_lowering.program.function_stats())
     }
 }
 
@@ -1929,6 +1941,27 @@ fn emit_compilation_counters(
     }
     if let Some(count) = output.backend_module_count() {
         nia_timing::emit_counter("compiler.backend_modules", count as u64);
+    }
+    if let Some(stats) = output.backend_function_stats() {
+        nia_timing::emit_counter(
+            "compiler.backend_source_function_items",
+            stats.source_items() as u64,
+        );
+        nia_timing::emit_counter(
+            "compiler.backend_source_function_definitions",
+            stats.source_definitions() as u64,
+        );
+        nia_timing::emit_counter(
+            "compiler.backend_function_instance_items",
+            stats.instance_items() as u64,
+        );
+        nia_timing::emit_counter(
+            "compiler.backend_function_instance_definitions",
+            stats.instance_definitions() as u64,
+        );
+    }
+    if let Some(count) = output.link_input_count() {
+        nia_timing::emit_counter("compiler.link_inputs", count as u64);
     }
     nia_timing::emit_counter(
         "query.executions",
@@ -2397,6 +2430,8 @@ struct NativeDatabaseEmission {
     artifact: ObjectArtifact,
     checked_body_count: usize,
     reachable_body_count: usize,
+    backend_function_stats: BackendFunctionStats,
+    link_input_count: usize,
     checked_module_count: usize,
     monomorphized_instance_count: usize,
     backend_module_count: usize,

@@ -71,6 +71,71 @@ fn module_with_global(
 }
 
 #[test]
+fn backend_function_stats_distinguish_items_from_definitions() {
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
+    let type_store = nia_ty::TypeStore::new().expect("create type store");
+    let ty = type_store
+        .append_for_module(module_id)
+        .test_primitive(PrimitiveTy::I32);
+    let body = FunctionBody {
+        span: Span::default(),
+        locals: Vec::new(),
+        scopes: Vec::new(),
+        blocks: Vec::new(),
+        entry: FunctionBlockId(0),
+        ty,
+    };
+    let def_id = GlobalDefId {
+        module_id,
+        def_id: DefId(1),
+    };
+    let mut module = module_with_global(module_id, ty, "stats", false);
+    for function_body in [Some(body.clone()), None] {
+        module.functions.push(BackendFunction {
+            def_id,
+            name: SymbolId::EMPTY,
+            linkage: BackendLinkage::Nia,
+            generics: Vec::new(),
+            params: Vec::new(),
+            return_type: ty,
+            is_variadic: false,
+            attributes: Vec::new(),
+            local_names: HashMap::new(),
+            function_body,
+            span: Span::default(),
+        });
+    }
+    for function_body in [Some(body), None] {
+        module.function_instances.push(BackendFunctionInstance {
+            def_id,
+            name: SymbolId::EMPTY,
+            arg_module_id: module_id,
+            self_arg: None,
+            args: vec![ty],
+            const_args: Vec::new(),
+            symbol: format!("instance-{}", module.function_instances.len()),
+            params: Vec::new(),
+            return_type: ty,
+            linkage: BackendLinkage::Nia,
+            is_variadic: false,
+            attributes: Vec::new(),
+            local_names: HashMap::new(),
+            function_body,
+            span: Span::default(),
+        });
+    }
+    let program = BackendProgram::new(vec![module]).expect("build backend program");
+
+    let stats = program.function_stats();
+    assert_eq!(stats.source_items(), 2);
+    assert_eq!(stats.source_definitions(), 1);
+    assert_eq!(stats.instance_items(), 2);
+    assert_eq!(stats.instance_definitions(), 1);
+    assert_eq!(stats.definitions(), 2);
+}
+
+#[test]
 fn closure_entry_keys_distinguish_source_and_concrete_instance_owners() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");

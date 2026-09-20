@@ -233,6 +233,7 @@ fn assert_configured_build_success(
     for counter in [
         "compiler.backend_modules",
         "compiler.checked_modules",
+        "compiler.link_inputs",
         "compiler.loaded_modules",
         "compiler.monomorphized_instances",
         "compiler.semantic_selected_modules",
