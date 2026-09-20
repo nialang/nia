@@ -13,7 +13,7 @@ use nia_ast::{
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{DefId, GlobalDefId, ModuleId};
 use nia_item_signatures::{FunctionSignature, ItemSignatures};
-use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
+use nia_item_tree::{ActiveModuleItemTree, ItemTreeItems, ItemTreeNodeKind, ModuleItemTree};
 use nia_symbol::SymbolId;
 use nia_ty::{TyKind, TypeStore};
 use std::collections::{HashMap, HashSet};
@@ -253,8 +253,8 @@ impl FlowChecker<'_> {
         self.check_items(&item_tree.items);
     }
 
-    fn check_items(&mut self, items: &[ItemTreeNode]) {
-        for item in items {
+    fn check_items(&mut self, items: &ItemTreeItems) {
+        for item in items.iter() {
             match &item.kind {
                 ItemTreeNodeKind::Function(function) => self.check_function(function),
                 ItemTreeNodeKind::Trait(item_trait) => {

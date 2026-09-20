@@ -780,26 +780,27 @@ extend Value {
         let (module, errors) = nia_parser::parse_module(source);
         assert!(errors.is_empty(), "{errors:?}");
         let syntax = SyntaxTree::parse(source, None);
-        let mut item_tree = ModuleItemTree::from_module(&module);
-        if let ItemTreeNodeKind::Function(function) =
-            &mut std::sync::Arc::make_mut(&mut item_tree.items)[0].kind
-        {
+        let mut malformed_module = module.clone();
+        if let ItemTreeNodeKind::Function(function) = &mut malformed_module.items[0].kind {
             let body = function.body.as_mut().expect("expected function body");
             body.span = Span::new(body.span.end, body.span.start);
         } else {
             panic!("expected function item");
         }
+        let mut out_of_bounds_module = malformed_module.clone();
+        let item_tree = ModuleItemTree::from_owned_module(malformed_module);
         let recovered = item_signature_fingerprint(&syntax, &item_tree);
 
-        if let ItemTreeNodeKind::Function(function) =
-            &mut std::sync::Arc::make_mut(&mut item_tree.items)[0].kind
-        {
+        if let ItemTreeNodeKind::Function(function) = &mut out_of_bounds_module.items[0].kind {
             let body = function.body.as_mut().expect("expected function body");
             body.span = Span::new(0, source.len() + 1);
         } else {
             panic!("expected function item");
         }
-        let out_of_bounds = item_signature_fingerprint(&syntax, &item_tree);
+        let out_of_bounds = item_signature_fingerprint(
+            &syntax,
+            &ModuleItemTree::from_owned_module(out_of_bounds_module),
+        );
 
         assert_ne!(
             recovered,

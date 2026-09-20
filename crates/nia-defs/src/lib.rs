@@ -19,7 +19,9 @@ use nia_ast::{
 };
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::{DefId, ModuleId, Visibility};
-use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
+use nia_item_tree::{
+    ActiveModuleItemTree, ItemTreeItems, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree,
+};
 use nia_node_id::{NodeId, NodeMap, NodeMapBuilder, NodeStore, NodeStoreId, VersionedNodeKey};
 use nia_span::Span;
 use nia_symbol::{
@@ -1047,8 +1049,8 @@ impl<'a> Collector<'a> {
         symbol_text_from_optional_resolver(self.symbols, symbol)
     }
 
-    fn collect(mut self, items: &[ItemTreeNode]) -> nia_ice::IceResult<DefCollection> {
-        for item in items {
+    fn collect(mut self, items: &ItemTreeItems) -> nia_ice::IceResult<DefCollection> {
+        for item in items.iter() {
             self.collect_item(item)?;
         }
         Ok(DefCollection {
@@ -1072,7 +1074,7 @@ impl<'a> Collector<'a> {
                 self.add_module_def(
                     module.name,
                     DefKind::Module,
-                    item.visibility,
+                    item.vis,
                     item.span,
                     item.node_key.clone(),
                 )?;
@@ -1091,7 +1093,7 @@ impl<'a> Collector<'a> {
                 let function_id = self.add_value_def(
                     function.name,
                     DefKind::Function,
-                    item.visibility,
+                    item.vis,
                     item.span,
                     function.node_key.clone(),
                     function.generics.clone(),
@@ -1102,7 +1104,7 @@ impl<'a> Collector<'a> {
                     &function_identity,
                     function_id,
                     function,
-                    item.visibility,
+                    item.vis,
                 )?;
             }
             ItemTreeNodeKind::Binding(binding) => {
@@ -1113,7 +1115,7 @@ impl<'a> Collector<'a> {
                     } else {
                         DefKind::Global
                     },
-                    item.visibility,
+                    item.vis,
                     item.span,
                     binding.node_key.clone(),
                     Vec::new(),
@@ -1125,7 +1127,7 @@ impl<'a> Collector<'a> {
 
     fn collect_using(&mut self, item: &ItemTreeNode, using: &UsingItem) {
         self.module_usings.push(ModuleUsing {
-            visibility: item.visibility,
+            visibility: item.vis,
             span: item.span,
             host: using.host.iter().map(UsingPathSegment::from_ast).collect(),
             selector: UsingSelector::from_ast(&using.selector),
@@ -1142,7 +1144,7 @@ impl<'a> Collector<'a> {
         let struct_id = self.add_type_def(
             item_struct.name,
             DefKind::Struct,
-            item.visibility,
+            item.vis,
             item.span,
             item.node_key.clone(),
             item_struct.generics.clone(),
@@ -1180,7 +1182,7 @@ impl<'a> Collector<'a> {
         let union_id = self.add_type_def(
             item_union.name,
             DefKind::Union,
-            item.visibility,
+            item.vis,
             item.span,
             item.node_key.clone(),
             item_union.generics.clone(),
@@ -1238,7 +1240,7 @@ impl<'a> Collector<'a> {
         let trait_id = self.add_type_def(
             item_trait.name,
             DefKind::Trait,
-            item.visibility,
+            item.vis,
             item.span,
             item.node_key.clone(),
             item_trait.generics.clone(),
@@ -1515,7 +1517,7 @@ impl<'a> Collector<'a> {
         let enum_id = self.add_type_def(
             item_enum.name,
             DefKind::Enum,
-            item.visibility,
+            item.vis,
             item.span,
             item.node_key.clone(),
             Vec::new(),
@@ -1574,7 +1576,7 @@ impl<'a> Collector<'a> {
         self.add_type_def(
             alias.name,
             DefKind::TypeAlias,
-            item.visibility,
+            item.vis,
             item.span,
             item.node_key.clone(),
             alias.generics.clone(),

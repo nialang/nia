@@ -4,14 +4,15 @@
 use nia_ast::{
     Attribute, AttributeKind, BindingItem, ConditionExpr, ConditionExprKind, EnumItem, EnumVariant,
     ExtendAssociatedType, ExtendAssociatedValue, ExtendItem, ExtendMethod, Field, FunctionItem,
-    GenericParam, GenericParamKind, Item, ItemKind, Module, ModuleItem, Param, StructItem,
-    TraitAssociatedType, TraitAssociatedValue, TraitItem, TraitMethod, TypeAliasItem, UnionItem,
-    UsingGroupItem, UsingItem, UsingName, UsingSelector, Visibility, expr_decl_eq,
-    option_type_ref_decl_eq, type_ref_decl_eq, type_refs_decl_eq, where_clause_decl_eq,
+    GenericParam, GenericParamKind, Module, Param, StructItem, TraitAssociatedType,
+    TraitAssociatedValue, TraitItem, TraitMethod, TypeAliasItem, UnionItem, UsingGroupItem,
+    UsingItem, UsingName, UsingSelector, expr_decl_eq, option_type_ref_decl_eq, type_ref_decl_eq,
+    type_refs_decl_eq, where_clause_decl_eq,
 };
-use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, ops::Index, sync::Arc};
+
+pub use nia_ast::{Item as ItemTreeNode, ItemKind as ItemTreeNodeKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// Consumer-specific subset selected from an active item tree.
@@ -32,54 +33,20 @@ pub enum SignatureItemSet {
 /// Module-level items before conditional attributes are evaluated.
 pub struct ModuleItemTree {
     /// Items in source order.
-    pub items: Arc<[ItemTreeNode]>,
+    pub items: ItemTreeItems,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-/// One module-level item retaining source identity and attributes.
-pub struct ItemTreeNode {
-    /// Source range of the item.
-    pub span: Span,
-    /// Versioned syntax-node identity.
-    pub node_key: VersionedNodeKey,
-    /// Source attributes, including conditional attributes.
-    pub attributes: Vec<Attribute>,
-    /// Declared item visibility.
-    pub visibility: Visibility,
-    /// Item payload.
-    pub kind: ItemTreeNodeKind,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-/// Supported module-level item payloads.
-pub enum ItemTreeNodeKind {
-    /// Child module declaration.
-    Module(ModuleItem),
-    /// Import or using declaration.
-    Using(UsingItem),
-    /// Struct declaration.
-    Struct(StructItem),
-    /// Union declaration.
-    Union(UnionItem),
-    /// Trait declaration.
-    Trait(TraitItem),
-    /// Inherent or trait extension declaration.
-    Extend(ExtendItem),
-    /// Enum declaration.
-    Enum(EnumItem),
-    /// Type-alias declaration.
-    TypeAlias(TypeAliasItem),
-    /// Function declaration or definition.
-    Function(FunctionItem),
-    /// Module-level value, const, or static binding.
-    Binding(BindingItem),
+/// Ordered, immutable handles to shared canonical item payloads.
+#[derive(Debug, Clone)]
+pub struct ItemTreeItems {
+    items: Arc<[Arc<ItemTreeNode>]>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 /// Conditionally selected item tree plus inactive source ranges.
 pub struct ActiveModuleItemTree {
     /// Active items in source order.
-    pub items: Arc<[ItemTreeNode]>,
+    pub items: ItemTreeItems,
     /// Source ranges excluded by conditional attributes.
     pub inactive_spans: Arc<HashSet<Span>>,
 }
@@ -115,18 +82,20 @@ impl ModuleItemTree {
     /// Projects module-level AST items into an item tree.
     pub fn from_module(module: &Module) -> Self {
         Self {
-            items: module
-                .items
-                .iter()
-                .map(lower_item)
-                .collect::<Vec<_>>()
-                .into(),
+            items: ItemTreeItems::new(module.items.to_vec()),
+        }
+    }
+
+    /// Moves module-level AST items into an item tree without cloning payloads.
+    pub fn from_owned_module(module: Module) -> Self {
+        Self {
+            items: ItemTreeItems::new(module.items),
         }
     }
 
     /// Treats every item as active without evaluating conditional attributes.
     pub fn all_items_active(&self) -> ActiveModuleItemTree {
-        ActiveModuleItemTree::from_shared_parts(Arc::clone(&self.items), Arc::new(HashSet::new()))
+        ActiveModuleItemTree::from_shared_parts(self.items.clone(), Arc::new(HashSet::new()))
     }
 
     /// Compares declaration-relevant syntax while ignoring bodies and identities.
@@ -147,7 +116,10 @@ impl ModuleItemTree {
         let mut items = Vec::new();
         let mut inactive_spans = HashSet::new();
         collect_active_items(&self.items, resolver, &mut items, &mut inactive_spans)?;
-        Ok(ActiveModuleItemTree::new(items, inactive_spans))
+        Ok(ActiveModuleItemTree::from_shared_parts(
+            self.items.select(items),
+            Arc::new(inactive_spans),
+        ))
     }
 }
 
@@ -155,16 +127,13 @@ impl ActiveModuleItemTree {
     /// Creates an active tree from selected items and inactive ranges.
     pub fn new(items: Vec<ItemTreeNode>, inactive_spans: HashSet<Span>) -> Self {
         Self {
-            items: items.into(),
+            items: ItemTreeItems::new(items),
             inactive_spans: Arc::new(inactive_spans),
         }
     }
 
     /// Creates an active tree from already-shared immutable parts.
-    pub fn from_shared_parts(
-        items: Arc<[ItemTreeNode]>,
-        inactive_spans: Arc<HashSet<Span>>,
-    ) -> Self {
+    pub fn from_shared_parts(items: ItemTreeItems, inactive_spans: Arc<HashSet<Span>>) -> Self {
         Self {
             items,
             inactive_spans,
@@ -174,7 +143,7 @@ impl ActiveModuleItemTree {
     /// Projects active items back into a module AST.
     pub fn to_module(&self) -> Module {
         Module {
-            items: self.items.iter().map(ItemTreeNode::to_ast_item).collect(),
+            items: self.items.iter().cloned().collect(),
         }
     }
 
@@ -193,11 +162,7 @@ impl ActiveModuleItemTree {
     /// Filters and trims items for one signature consumer.
     pub fn signature_items(&self, set: SignatureItemSet) -> Self {
         Self::from_shared_parts(
-            self.items
-                .iter()
-                .filter_map(|item| signature_item(item, set))
-                .collect::<Vec<_>>()
-                .into(),
+            self.items.project(|item| signature_item(item, set)),
             Arc::clone(&self.inactive_spans),
         )
     }
@@ -205,41 +170,88 @@ impl ActiveModuleItemTree {
     /// Filters items to declarations relevant to const signature collection.
     pub fn const_signature_items(&self) -> Self {
         Self::from_shared_parts(
-            self.items
-                .iter()
-                .filter_map(const_signature_item)
-                .collect::<Vec<_>>()
-                .into(),
+            self.items.project(const_signature_item),
             Arc::clone(&self.inactive_spans),
         )
     }
 }
 
-impl ItemTreeNode {
-    /// Projects this tree node back into an AST item.
-    pub fn to_ast_item(&self) -> Item {
-        Item {
-            span: self.span,
-            node_key: self.node_key.clone(),
-            attributes: self.attributes.clone(),
-            vis: self.visibility,
-            kind: match &self.kind {
-                ItemTreeNodeKind::Module(item) => ItemKind::Module(item.clone()),
-                ItemTreeNodeKind::Using(item) => ItemKind::Using(item.clone()),
-                ItemTreeNodeKind::Struct(item) => ItemKind::Struct(item.clone()),
-                ItemTreeNodeKind::Union(item) => ItemKind::Union(item.clone()),
-                ItemTreeNodeKind::Trait(item) => ItemKind::Trait(item.clone()),
-                ItemTreeNodeKind::Extend(item) => ItemKind::Extend(item.clone()),
-                ItemTreeNodeKind::Enum(item) => ItemKind::Enum(item.clone()),
-                ItemTreeNodeKind::TypeAlias(item) => ItemKind::TypeAlias(item.clone()),
-                ItemTreeNodeKind::Function(item) => ItemKind::Function(item.clone()),
-                ItemTreeNodeKind::Binding(item) => ItemKind::Binding(item.clone()),
-            },
-        }
+impl PartialEq for ItemTreeItems {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().zip(other.iter()).all(|(lhs, rhs)| lhs == rhs)
     }
 }
 
-fn item_tree_nodes_declaration_eq(lhs: &[ItemTreeNode], rhs: &[ItemTreeNode]) -> bool {
+impl ItemTreeItems {
+    fn new(items: Vec<ItemTreeNode>) -> Self {
+        Self {
+            items: items.into_iter().map(Arc::new).collect::<Vec<_>>().into(),
+        }
+    }
+
+    /// Returns the number of items in this ordered view.
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Reports whether this view contains no items.
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    /// Iterates item payloads in source order.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &ItemTreeNode> {
+        self.items.iter().map(Arc::as_ref)
+    }
+
+    /// Clones the immutable payload handles in source order.
+    pub fn shared_items(&self) -> impl ExactSizeIterator<Item = Arc<ItemTreeNode>> + '_ {
+        self.items.iter().map(Arc::clone)
+    }
+
+    /// Builds an ordered view from existing immutable payload handles.
+    pub fn from_shared_items(items: Vec<Arc<ItemTreeNode>>) -> Self {
+        Self {
+            items: items.into(),
+        }
+    }
+
+    fn select(&self, selected: Vec<Arc<ItemTreeNode>>) -> Self {
+        Self {
+            items: selected.into(),
+        }
+    }
+
+    fn project(
+        &self,
+        mut project: impl FnMut(&Arc<ItemTreeNode>) -> Option<Arc<ItemTreeNode>>,
+    ) -> Self {
+        Self {
+            items: self.items.iter().filter_map(&mut project).collect(),
+        }
+    }
+
+    #[cfg(test)]
+    fn shares_payload(&self, other: &Self, index: usize) -> bool {
+        Arc::ptr_eq(&self.items[index], &other.items[index])
+    }
+}
+
+impl Index<usize> for ItemTreeItems {
+    type Output = ItemTreeNode;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.items[index]
+    }
+}
+
+impl From<Vec<ItemTreeNode>> for ItemTreeItems {
+    fn from(items: Vec<ItemTreeNode>) -> Self {
+        Self::new(items)
+    }
+}
+
+fn item_tree_nodes_declaration_eq(lhs: &ItemTreeItems, rhs: &ItemTreeItems) -> bool {
     lhs.len() == rhs.len()
         && lhs
             .iter()
@@ -247,7 +259,7 @@ fn item_tree_nodes_declaration_eq(lhs: &[ItemTreeNode], rhs: &[ItemTreeNode]) ->
             .all(|(lhs, rhs)| item_tree_node_declaration_eq(lhs, rhs))
 }
 
-fn item_tree_nodes_definition_eq(lhs: &[ItemTreeNode], rhs: &[ItemTreeNode]) -> bool {
+fn item_tree_nodes_definition_eq(lhs: &ItemTreeItems, rhs: &ItemTreeItems) -> bool {
     lhs.len() == rhs.len()
         && lhs
             .iter()
@@ -257,13 +269,13 @@ fn item_tree_nodes_definition_eq(lhs: &[ItemTreeNode], rhs: &[ItemTreeNode]) -> 
 
 fn item_tree_node_declaration_eq(lhs: &ItemTreeNode, rhs: &ItemTreeNode) -> bool {
     item_attributes_declaration_eq(&lhs.attributes, &rhs.attributes)
-        && lhs.visibility == rhs.visibility
+        && lhs.vis == rhs.vis
         && item_tree_node_kind_declaration_eq(&lhs.kind, &rhs.kind)
 }
 
 fn item_tree_node_definition_eq(lhs: &ItemTreeNode, rhs: &ItemTreeNode) -> bool {
     item_attributes_definition_eq(&lhs.attributes, &rhs.attributes)
-        && lhs.visibility == rhs.visibility
+        && lhs.vis == rhs.vis
         && item_tree_node_kind_definition_eq(&lhs.kind, &rhs.kind)
 }
 
@@ -474,8 +486,8 @@ fn item_attributes_definition_eq(lhs: &[Attribute], rhs: &[Attribute]) -> bool {
             .all(|(lhs, rhs)| attribute_kind_declaration_eq(&lhs.kind, &rhs.kind))
 }
 
-fn signature_item(item: &ItemTreeNode, set: SignatureItemSet) -> Option<ItemTreeNode> {
-    let kind = match (&item.kind, set) {
+fn signature_item(item: &Arc<ItemTreeNode>, set: SignatureItemSet) -> Option<Arc<ItemTreeNode>> {
+    match (&item.kind, set) {
         (ItemTreeNodeKind::Struct(_), SignatureItemSet::Values)
         | (ItemTreeNodeKind::Union(_), SignatureItemSet::Values)
         | (ItemTreeNodeKind::Enum(_), SignatureItemSet::Values)
@@ -495,115 +507,121 @@ fn signature_item(item: &ItemTreeNode, set: SignatureItemSet) -> Option<ItemTree
             | SignatureItemSet::Traits,
         )
         | (ItemTreeNodeKind::Trait(_), SignatureItemSet::Values | SignatureItemSet::Types)
-        | (ItemTreeNodeKind::Extend(_), SignatureItemSet::Types) => return None,
-        (ItemTreeNodeKind::Module(item), _) => ItemTreeNodeKind::Module(item.clone()),
-        (ItemTreeNodeKind::Using(item), _) => ItemTreeNodeKind::Using(item.clone()),
+        | (ItemTreeNodeKind::Extend(_), SignatureItemSet::Types) => None,
         (
-            ItemTreeNodeKind::Struct(item),
-            SignatureItemSet::Functions
-            | SignatureItemSet::ExtensionFunctions
-            | SignatureItemSet::Types
-            | SignatureItemSet::Traits,
-        ) => ItemTreeNodeKind::Struct(item.clone()),
-        (
-            ItemTreeNodeKind::Union(item),
-            SignatureItemSet::Functions
-            | SignatureItemSet::ExtensionFunctions
-            | SignatureItemSet::Types
-            | SignatureItemSet::Traits,
-        ) => ItemTreeNodeKind::Union(item.clone()),
-        (
-            ItemTreeNodeKind::Enum(item),
-            SignatureItemSet::Functions
-            | SignatureItemSet::ExtensionFunctions
-            | SignatureItemSet::Types
-            | SignatureItemSet::Traits,
-        ) => ItemTreeNodeKind::Enum(item.clone()),
-        (
-            ItemTreeNodeKind::TypeAlias(item),
-            SignatureItemSet::Functions
-            | SignatureItemSet::ExtensionFunctions
-            | SignatureItemSet::Types
-            | SignatureItemSet::Traits,
-        ) => ItemTreeNodeKind::TypeAlias(item.clone()),
-        (ItemTreeNodeKind::Function(item), SignatureItemSet::Functions) => {
-            ItemTreeNodeKind::Function(item.clone())
-        }
-        (ItemTreeNodeKind::Binding(item), SignatureItemSet::Values) => {
-            ItemTreeNodeKind::Binding(item.clone())
-        }
-        (
-            ItemTreeNodeKind::Trait(item),
-            SignatureItemSet::Functions
-            | SignatureItemSet::ExtensionFunctions
-            | SignatureItemSet::Traits,
-        ) => ItemTreeNodeKind::Trait(item.clone()),
-        (
-            ItemTreeNodeKind::Extend(item),
+            ItemTreeNodeKind::Extend(extend),
             SignatureItemSet::Functions | SignatureItemSet::ExtensionFunctions,
         ) => {
-            let mut item = item.clone();
-            item.associated_values.clear();
-            ItemTreeNodeKind::Extend(item)
+            if extend.associated_values.is_empty() {
+                return Some(Arc::clone(item));
+            }
+            Some(replace_item_kind(
+                item,
+                ItemTreeNodeKind::Extend(project_extend(
+                    extend,
+                    extend.associated_types.clone(),
+                    Vec::new(),
+                    extend.methods.clone(),
+                )),
+            ))
         }
-        (ItemTreeNodeKind::Extend(item), SignatureItemSet::Values) => {
-            if item.associated_values.is_empty() {
+        (ItemTreeNodeKind::Extend(extend), SignatureItemSet::Values) => {
+            if extend.associated_values.is_empty() {
                 return None;
             }
-            let mut item = item.clone();
-            item.methods.clear();
-            item.associated_types.clear();
-            ItemTreeNodeKind::Extend(item)
+            if extend.methods.is_empty() && extend.associated_types.is_empty() {
+                return Some(Arc::clone(item));
+            }
+            Some(replace_item_kind(
+                item,
+                ItemTreeNodeKind::Extend(project_extend(
+                    extend,
+                    Vec::new(),
+                    extend.associated_values.clone(),
+                    Vec::new(),
+                )),
+            ))
         }
-        (ItemTreeNodeKind::Extend(item), SignatureItemSet::Traits) => {
-            ItemTreeNodeKind::Extend(item.clone())
-        }
-    };
-    Some(ItemTreeNode {
-        span: item.span,
-        node_key: item.node_key.clone(),
-        attributes: item.attributes.clone(),
-        visibility: item.visibility,
-        kind,
-    })
+        _ => Some(Arc::clone(item)),
+    }
 }
 
-fn const_signature_item(item: &ItemTreeNode) -> Option<ItemTreeNode> {
-    let kind = match &item.kind {
-        ItemTreeNodeKind::Struct(item) => ItemTreeNodeKind::Struct(item.clone()),
-        ItemTreeNodeKind::Union(item) => ItemTreeNodeKind::Union(item.clone()),
-        ItemTreeNodeKind::Enum(item) => ItemTreeNodeKind::Enum(item.clone()),
-        ItemTreeNodeKind::TypeAlias(item) => ItemTreeNodeKind::TypeAlias(item.clone()),
-        ItemTreeNodeKind::Binding(item) if item.is_const() => {
-            ItemTreeNodeKind::Binding(item.clone())
-        }
-        ItemTreeNodeKind::Function(item) if item.is_const => {
-            ItemTreeNodeKind::Function(item.clone())
-        }
-        ItemTreeNodeKind::Extend(item) => {
-            let mut item = item.clone();
-            item.associated_values
-                .retain(|associated_value| associated_value.binding.is_const());
-            item.methods.retain(|method| method.function.is_const);
-            if item.associated_types.is_empty()
-                && item.associated_values.is_empty()
-                && item.methods.is_empty()
+fn const_signature_item(item: &Arc<ItemTreeNode>) -> Option<Arc<ItemTreeNode>> {
+    match &item.kind {
+        ItemTreeNodeKind::Struct(_)
+        | ItemTreeNodeKind::Union(_)
+        | ItemTreeNodeKind::Enum(_)
+        | ItemTreeNodeKind::TypeAlias(_)
+        | ItemTreeNodeKind::Module(_)
+        | ItemTreeNodeKind::Using(_) => Some(Arc::clone(item)),
+        ItemTreeNodeKind::Binding(binding) if binding.is_const() => Some(Arc::clone(item)),
+        ItemTreeNodeKind::Function(function) if function.is_const => Some(Arc::clone(item)),
+        ItemTreeNodeKind::Extend(extend) => {
+            if extend
+                .associated_values
+                .iter()
+                .all(|associated_value| associated_value.binding.is_const())
+                && extend.methods.iter().all(|method| method.function.is_const)
+            {
+                return Some(Arc::clone(item));
+            }
+            let associated_values = extend
+                .associated_values
+                .iter()
+                .filter(|associated_value| associated_value.binding.is_const())
+                .cloned()
+                .collect::<Vec<_>>();
+            let methods = extend
+                .methods
+                .iter()
+                .filter(|method| method.function.is_const)
+                .cloned()
+                .collect::<Vec<_>>();
+            if extend.associated_types.is_empty()
+                && associated_values.is_empty()
+                && methods.is_empty()
             {
                 return None;
             }
-            ItemTreeNodeKind::Extend(item)
+            Some(replace_item_kind(
+                item,
+                ItemTreeNodeKind::Extend(project_extend(
+                    extend,
+                    extend.associated_types.clone(),
+                    associated_values,
+                    methods,
+                )),
+            ))
         }
-        ItemTreeNodeKind::Module(item) => ItemTreeNodeKind::Module(item.clone()),
-        ItemTreeNodeKind::Using(item) => ItemTreeNodeKind::Using(item.clone()),
         ItemTreeNodeKind::Trait(_)
         | ItemTreeNodeKind::Function(_)
-        | ItemTreeNodeKind::Binding(_) => return None,
-    };
-    Some(ItemTreeNode {
+        | ItemTreeNodeKind::Binding(_) => None,
+    }
+}
+
+fn project_extend(
+    extend: &ExtendItem,
+    associated_types: Vec<ExtendAssociatedType>,
+    associated_values: Vec<ExtendAssociatedValue>,
+    methods: Vec<ExtendMethod>,
+) -> ExtendItem {
+    ExtendItem {
+        generics: extend.generics.clone(),
+        target: extend.target.clone(),
+        trait_ref: extend.trait_ref.clone(),
+        where_clause: extend.where_clause.clone(),
+        associated_types,
+        associated_values,
+        methods,
+    }
+}
+
+fn replace_item_kind(item: &ItemTreeNode, kind: ItemTreeNodeKind) -> Arc<ItemTreeNode> {
+    Arc::new(nia_ast::Item {
         span: item.span,
         node_key: item.node_key.clone(),
         attributes: item.attributes.clone(),
-        visibility: item.visibility,
+        vis: item.vis,
         kind,
     })
 }
@@ -874,36 +892,15 @@ pub fn lower_module_items(module: &Module) -> ModuleItemTree {
     ModuleItemTree::from_module(module)
 }
 
-fn lower_item(item: &Item) -> ItemTreeNode {
-    ItemTreeNode {
-        span: item.span,
-        node_key: item.node_key.clone(),
-        attributes: item.attributes.clone(),
-        visibility: item.vis,
-        kind: match &item.kind {
-            ItemKind::Module(module) => ItemTreeNodeKind::Module(module.clone()),
-            ItemKind::Using(using) => ItemTreeNodeKind::Using(using.clone()),
-            ItemKind::Struct(item_struct) => ItemTreeNodeKind::Struct(item_struct.clone()),
-            ItemKind::Union(item_union) => ItemTreeNodeKind::Union(item_union.clone()),
-            ItemKind::Trait(item_trait) => ItemTreeNodeKind::Trait(item_trait.clone()),
-            ItemKind::Extend(extend) => ItemTreeNodeKind::Extend(extend.clone()),
-            ItemKind::Enum(item_enum) => ItemTreeNodeKind::Enum(item_enum.clone()),
-            ItemKind::TypeAlias(alias) => ItemTreeNodeKind::TypeAlias(alias.clone()),
-            ItemKind::Function(function) => ItemTreeNodeKind::Function(function.clone()),
-            ItemKind::Binding(binding) => ItemTreeNodeKind::Binding(binding.clone()),
-        },
-    }
-}
-
 fn collect_active_items(
-    items: &[ItemTreeNode],
+    items: &ItemTreeItems,
     resolver: &mut impl ConditionResolver,
-    active_items: &mut Vec<ItemTreeNode>,
+    active_items: &mut Vec<Arc<ItemTreeNode>>,
     inactive_spans: &mut HashSet<Span>,
 ) -> Result<(), ItemTreeError> {
-    for item in items {
+    for item in items.items.iter() {
         if item_is_active(item, resolver)? {
-            active_items.push(item.clone());
+            active_items.push(Arc::clone(item));
         } else {
             inactive_spans.insert(item.span);
         }
@@ -1000,7 +997,7 @@ fn selected() i32 { 1 }
 
         let active = tree.all_items_active();
 
-        assert!(Arc::ptr_eq(&tree.items, &active.items));
+        assert!(tree.items.shares_payload(&active.items, 0));
         assert!(active.inactive_spans.is_empty());
     }
 
@@ -1023,6 +1020,54 @@ fn selected() i32 { 1 }
             &active.inactive_spans,
             &signature.inactive_spans
         ));
+    }
+
+    #[test]
+    fn ordinary_signature_projection_shares_item_payload() {
+        let (module, errors) = parse_module("fn selected() i32 { 1 }");
+        assert!(errors.is_empty(), "{errors:?}");
+        let active = lower_module_items(&module).all_items_active();
+
+        let signature = active.signature_items(SignatureItemSet::Functions);
+
+        assert!(active.items.shares_payload(&signature.items, 0));
+    }
+
+    #[test]
+    fn trimmed_extend_signature_replaces_only_its_payload() {
+        let (module, errors) = parse_module(
+            r#"
+fn selected() i32 { 1 }
+extend i32 {
+    fn value(self) i32 { self }
+    const answer: i32 = 42;
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let active = lower_module_items(&module).all_items_active();
+
+        let signature = active.signature_items(SignatureItemSet::Functions);
+
+        assert!(active.items.shares_payload(&signature.items, 0));
+        assert!(!active.items.shares_payload(&signature.items, 1));
+    }
+
+    #[test]
+    fn already_projected_extend_signature_shares_its_payload() {
+        let (module, errors) = parse_module(
+            r#"
+extend i32 {
+    fn value(self) i32 { self }
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let active = lower_module_items(&module).all_items_active();
+
+        let signature = active.signature_items(SignatureItemSet::Functions);
+
+        assert!(active.items.shares_payload(&signature.items, 0));
     }
 
     #[test]

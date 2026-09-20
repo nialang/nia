@@ -1148,6 +1148,7 @@ name = "nia-target-config"
 version = "0.2.0-dev"
 dependencies = [
  "nia-ast",
+ "nia-ast-walk",
  "nia-diagnostic",
  "nia-ids",
  "nia-item-tree",

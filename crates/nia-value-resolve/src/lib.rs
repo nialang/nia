@@ -15,7 +15,9 @@ use nia_imports::{
     ModuleGraph, ModuleGraphLookup, ModuleRootSegment, module_declaration_visibility_allows,
     visibility_allows,
 };
-use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
+use nia_item_tree::{
+    ActiveModuleItemTree, ItemTreeItems, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree,
+};
 use nia_node_id::{NodeMap, NodeMapBuilder, NodeStore, VersionedNodeKey};
 use nia_sema_ir::{BuiltinAssociatedValue, PrimitiveIntLimit, supports_primitive_int_limit};
 use nia_span::Span;
@@ -540,12 +542,12 @@ fn resolve_module_values_from_exprs_inner(
 }
 
 fn resolve_module_values_from_items(
-    items: &[ItemTreeNode],
+    items: &ItemTreeItems,
     inputs: ValueResolveInputs<'_>,
     node_store: &NodeStore,
 ) -> ValueResolution {
     let mut resolver = ValueResolver::new(inputs);
-    for item in items {
+    for item in items.iter() {
         resolver.visit_item_tree_node(item);
     }
     resolver.finish(node_store)

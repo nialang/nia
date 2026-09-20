@@ -5,8 +5,8 @@ use super::*;
 mod bracket_resolution;
 
 pub(super) fn resolve_module_locals_from_filtered_items(
-    filtered_items: &[ItemTreeNode],
-    full_items: &[ItemTreeNode],
+    filtered_items: &ItemTreeItems,
+    full_items: &ItemTreeItems,
     defs: &DefCollection,
     values: &ValueResolution,
     symbols: Option<&dyn SymbolText>,
@@ -34,7 +34,7 @@ pub(super) fn resolve_module_locals_from_filtered_items(
 }
 
 pub(super) fn resolve_module_locals_from_items(
-    items: &[ItemTreeNode],
+    items: &ItemTreeItems,
     defs: &DefCollection,
     values: &ValueResolution,
     node_store: &NodeStore,
@@ -43,7 +43,7 @@ pub(super) fn resolve_module_locals_from_items(
 }
 
 pub(super) fn resolve_module_locals_from_items_with_symbols(
-    items: &[ItemTreeNode],
+    items: &ItemTreeItems,
     defs: &DefCollection,
     values: &ValueResolution,
     symbols: Option<&dyn SymbolText>,
@@ -139,8 +139,8 @@ impl<'a> LocalResolver<'a> {
         symbol_text_from_optional_resolver(self.symbols, symbol)
     }
 
-    fn resolve_items(&mut self, items: &[ItemTreeNode]) {
-        for item in items {
+    fn resolve_items(&mut self, items: &ItemTreeItems) {
+        for item in items.iter() {
             self.resolve_item_tree_node(item);
         }
     }

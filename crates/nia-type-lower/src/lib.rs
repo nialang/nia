@@ -22,7 +22,9 @@ use nia_ast_walk::Visitor;
 use nia_defs::DefCollection;
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{ConstExprId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
-use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
+use nia_item_tree::{
+    ActiveModuleItemTree, ItemTreeItems, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree,
+};
 use nia_node_id::NodeSite;
 use nia_span::Span;
 use nia_symbol::{
@@ -359,7 +361,7 @@ pub fn lower_module_types_from_item_tree_with_context(
 
 fn lower_module_types_from_items(
     module_id: ModuleId,
-    items: &[ItemTreeNode],
+    items: &ItemTreeItems,
     resolved: &TypeResolution,
     context: TypeLoweringContext<'_>,
     mode: TypeLowerMode,
@@ -383,7 +385,7 @@ fn lower_module_types_from_items(
         next_const_expr_id: 0,
         mode,
     };
-    for item in items {
+    for item in items.iter() {
         lowerer.visit_item_tree_node(item);
     }
     if let Some(error) = lowerer.internal_error {
