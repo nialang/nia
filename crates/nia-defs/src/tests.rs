@@ -79,6 +79,15 @@ pub fn make() () {}
             .iter()
             .all(|(_, def)| def.module_id == second_module)
     );
+    assert!(rebased.defs.defs.iter().all(|entry| matches!(
+        entry.identity.repr,
+        DefIdentityRepr::Rehydrated(id) if id == entry.id
+    )));
+    let first_id = rebased.defs.iter().next().expect("rehydrated definition").0;
+    assert_eq!(
+        rebased.defs.stable_identity(first_id),
+        Some(format!("extend:None:cached-def:{:016x}:[]:[]", first_id.0))
+    );
     assert!(rebased.def_nodes.entries().next().is_none());
 }
 
