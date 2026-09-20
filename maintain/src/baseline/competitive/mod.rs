@@ -1,7 +1,6 @@
 mod process;
 mod schema;
 mod summary;
-mod synthetic;
 mod workload;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -22,29 +21,12 @@ use self::schema::{
 };
 use self::summary::summarize;
 use self::workload::{Programs, Workload};
+pub use super::Language;
+use super::synthetic;
 use crate::system::machine::machine_metadata;
 use crate::system::process::run_bounded;
 use crate::system::toolchain::{external_tool_identity, toolchain_identity};
 use crate::{MaintainResult, TemporaryDirectory, absolute_path};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "snake_case")]
-/// Language toolchain represented in the competitive matrix.
-pub enum Language {
-    Nia,
-    Rust,
-    Zig,
-}
-
-impl Language {
-    const fn extension(self) -> &'static str {
-        match self {
-            Self::Nia => "nia",
-            Self::Rust => "rs",
-            Self::Zig => "zig",
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
