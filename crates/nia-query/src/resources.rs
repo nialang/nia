@@ -18,7 +18,10 @@ use std::{fs, io::Read as _};
 use std::path::{Component, Path};
 
 const MAX_PARALLEL_LLVM_TASKS: usize = 4;
-const LLVM_TASK_MEMORY_BYTES: usize = 1536 * 1024 * 1024;
+// LLVM lanes share the frontend, backend index, and process baseline. Reserve
+// half of visible memory for that shared state and model only the measured
+// incremental cost of admitting another concurrent lane.
+const LLVM_INCREMENTAL_LANE_MEMORY_BYTES: usize = 512 * 1024 * 1024;
 const LLVM_MEMORY_HEADROOM_BYTES: usize = 512 * 1024 * 1024;
 // Kernel pseudo-files are tiny protocols. These budgets leave generous room
 // for large machines and deeply nested containers without trusting a growing
@@ -170,10 +173,11 @@ impl MemoryBudget {
     }
 
     fn memory_pressure_allows(&self, active: usize) -> bool {
-        active == 0
-            || self.minimum_available_bytes.is_none_or(|minimum| {
-                effective_available_memory_bytes().is_none_or(|available| available >= minimum)
-            })
+        memory_pressure_allows(
+            active,
+            self.minimum_available_bytes,
+            effective_available_memory_bytes(),
+        )
     }
 
     fn identity(&self) -> usize {
@@ -243,9 +247,20 @@ fn llvm_memory_budget() -> &'static MemoryBudget {
                     .unwrap_or(1),
                 effective_memory_limit_bytes(),
             ),
-            Some(LLVM_TASK_MEMORY_BYTES.saturating_add(LLVM_MEMORY_HEADROOM_BYTES)),
+            Some(LLVM_INCREMENTAL_LANE_MEMORY_BYTES.saturating_add(LLVM_MEMORY_HEADROOM_BYTES)),
         )
     })
+}
+
+fn memory_pressure_allows(
+    active: usize,
+    minimum_available_bytes: Option<usize>,
+    available_bytes: Option<usize>,
+) -> bool {
+    active == 0
+        || minimum_available_bytes
+            .zip(available_bytes)
+            .is_none_or(|(minimum, available)| available >= minimum)
 }
 
 fn memory_task_capacity(available_cpus: usize, memory_limit: Option<usize>) -> usize {
@@ -253,7 +268,7 @@ fn memory_task_capacity(available_cpus: usize, memory_limit: Option<usize>) -> u
     let memory_capacity = memory_limit
         .map(|limit| {
             (limit / 2)
-                .checked_div(LLVM_TASK_MEMORY_BYTES)
+                .checked_div(LLVM_INCREMENTAL_LANE_MEMORY_BYTES)
                 .unwrap_or(0)
                 .max(1)
         })
@@ -432,24 +447,36 @@ mod tests {
     use std::sync::{Arc, Barrier};
 
     #[test]
-    fn memory_task_capacity_reserves_half_of_visible_memory() {
+    fn memory_task_capacity_reserves_half_for_shared_process_state() {
         let large_limit =
             usize::try_from(8u64 * 1024 * 1024 * 1024).unwrap_or(3usize * 1024 * 1024 * 1024);
         let expected_large_capacity = if cfg!(target_pointer_width = "64") {
-            2
+            4
         } else {
-            1
+            3
         };
         assert_eq!(
             memory_task_capacity(32, Some(large_limit)),
             expected_large_capacity
         );
-        assert_eq!(memory_task_capacity(32, Some(3 * 1024 * 1024 * 1024)), 1);
+        assert_eq!(memory_task_capacity(32, Some(3 * 1024 * 1024 * 1024)), 3);
+        assert_eq!(memory_task_capacity(32, Some(2 * 1024 * 1024 * 1024)), 2);
+        assert_eq!(memory_task_capacity(32, Some(1024 * 1024 * 1024)), 1);
         assert_eq!(
             memory_task_capacity(2, Some(large_limit)),
             expected_large_capacity.min(2)
         );
         assert_eq!(memory_task_capacity(32, None), 1);
+    }
+
+    #[test]
+    fn memory_pressure_preserves_one_forward_progress_lane() {
+        let minimum = 1024 * 1024 * 1024;
+        assert!(memory_pressure_allows(0, Some(minimum), Some(0)));
+        assert!(!memory_pressure_allows(1, Some(minimum), Some(minimum - 1)));
+        assert!(memory_pressure_allows(1, Some(minimum), Some(minimum)));
+        assert!(memory_pressure_allows(1, Some(minimum), None));
+        assert!(memory_pressure_allows(1, None, Some(0)));
     }
 
     #[test]
