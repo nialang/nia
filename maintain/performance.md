@@ -122,8 +122,10 @@ rather than measured twice accidentally.
 The matrix covers `minimal_check`, `hello_check`, `hello_executable`,
 `empty_build`, `hello_build`, and the `synthetic_10_modules`,
 `synthetic_50_modules`, `synthetic_100_modules`, and
-`synthetic_500_modules` scales. The sources under `benchmarks/competitive/`
-are maintained language-native Rust and Zig counterparts to
+`synthetic_500_modules` clean scales. A separate
+`synthetic_100_modules_build` workload runs the medium corpus through Nia
+build, Cargo, and Zig build. The sources under `benchmarks/competitive/` are
+maintained language-native Rust and Zig counterparts to
 `benchmarks/minimal.nia` and `examples/hello.nia`. Check modes are deliberately
 described precisely:
 
@@ -162,21 +164,33 @@ language-native source spellings, so source byte counts and hashes differ, but
 the graph and semantic work contract are the same. This controlled flat graph
 does not stand in for later deep-chain or mixed-fan-out workloads.
 
-Every process gets an independently created workspace and absent expected
-output. Direct compilation starts with absent explicit Nia/Zig project caches;
-build-system samples start without Nia build/cache directories, Cargo's target
-directory, or Zig's local cache and output directories. Direct rustc is invoked
-without incremental compilation. Nia's selected resource root, rustc's distributed
-sysroot, and Zig's shared global toolchain cache are retained: this is a
-project-cold comparison, not an SDK/toolchain-cold comparison. OS page cache is
-uncontrolled and shared across the interleaved tools. Compiler order rotates
-between repetitions to reduce fixed ordering bias.
+The medium build workload runs an ordered three-process sequence in one fresh
+workspace: clean, no-op warm, then one-leaf edit. The edit changes only leaf 50
+and changes the executable's required output from `synthetic-ok` to
+`synthetic-edited`. Acceptance compares per-file source hashes, requires the
+no-op artifact to remain byte-identical, requires the edited artifact to
+change, and executes every artifact. It also proves that each state used a
+different process and that build products were absent only before clean and
+present before both non-cold states.
+
+Every clean sample or state sequence gets an independently created workspace.
+Direct compilation starts with absent explicit Nia/Zig project caches;
+build-system clean states start without Nia build/cache directories, Cargo's
+target directory, or Zig's local cache and output directories. Direct rustc is
+invoked without incremental compilation. The stateful medium workload retains
+each native build system's project products after clean. Nia's selected
+resource root, rustc's distributed sysroot, and Zig's shared global toolchain
+cache are retained: clean states are project-cold rather than
+SDK/toolchain-cold. OS page cache is uncontrolled and shared across the
+interleaved tools. Compiler order rotates between repetitions to reduce fixed
+ordering bias.
 
 The JSON retains the experiment and Git revision identities, dirty state,
 complete compiler and GNU time identities, normalized command, typed source
 manifest (descriptor, tree hash, file count, and source bytes), raw
 stdout/stderr, process wall/user/system time, CPU utilization, peak RSS,
-artifact size and hash, executable output verification, and every raw sample.
+artifact size and hash, state/predecessor/source-diff evidence, executable
+output verification, and every raw sample.
 The report shape is owned by the current maintenance source and has no
 independent schema or compatibility version; Git revision and complete tool
 identities provide experiment attribution. Summaries report median,

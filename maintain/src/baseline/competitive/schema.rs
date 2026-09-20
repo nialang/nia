@@ -7,6 +7,22 @@ use crate::system::toolchain::{ToolIdentity, ToolchainIdentity};
 
 use super::{Language, Profile};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum SampleState {
+    Clean,
+    NoOpWarm,
+    LeafEdit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum ArtifactRelation {
+    NotApplicable,
+    Identical,
+    Different,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum OutputKind {
@@ -29,6 +45,7 @@ pub(super) struct WorkloadContract {
     pub(super) name: &'static str,
     pub(super) source_class: &'static str,
     pub(super) synthetic: Option<SyntheticContract>,
+    pub(super) states: &'static [SampleState],
     pub(super) tools: Vec<ToolContract>,
 }
 
@@ -80,8 +97,14 @@ pub(super) struct ProcessMetrics {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub(super) struct ProjectProductState {
+    pub(super) path: String,
+    pub(super) existed: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub(super) struct InitialState {
-    pub(super) project_products_existed: bool,
+    pub(super) project_products: Vec<ProjectProductState>,
     pub(super) output_existed: bool,
 }
 
@@ -103,13 +126,28 @@ pub(super) struct ExecutionVerification {
 
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct SampleAcceptance {
-    pub(super) fresh_workspace: bool,
-    pub(super) fresh_project_products: bool,
-    pub(super) fresh_output: bool,
+    pub(super) expected_project_products_existed: bool,
+    pub(super) expected_output_existed: bool,
+    pub(super) initial_state_satisfied: bool,
+    pub(super) process_transition_satisfied: bool,
+    pub(super) source_transition_satisfied: bool,
+    pub(super) artifact_transition_satisfied: bool,
     pub(super) command_succeeded: bool,
     pub(super) output_contract_satisfied: bool,
     pub(super) executable_verified: Option<bool>,
     pub(super) passed: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct TransitionEvidence {
+    pub(super) predecessor_sequence: Option<usize>,
+    pub(super) predecessor_process_id: Option<u32>,
+    pub(super) process_satisfied: bool,
+    pub(super) expected_changed_files: Vec<String>,
+    pub(super) changed_files: Vec<String>,
+    pub(super) source_satisfied: bool,
+    pub(super) expected_artifact_relation: ArtifactRelation,
+    pub(super) artifact_satisfied: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -127,6 +165,7 @@ pub(super) struct CompetitiveSample {
     pub(super) profile: Profile,
     pub(super) workload: &'static str,
     pub(super) language: Language,
+    pub(super) state: SampleState,
     pub(super) source: SourceManifest,
     pub(super) command: Vec<String>,
     pub(super) process_id: u32,
@@ -135,6 +174,7 @@ pub(super) struct CompetitiveSample {
     pub(super) stderr: String,
     pub(super) metrics: ProcessMetrics,
     pub(super) initial_state: InitialState,
+    pub(super) transition: TransitionEvidence,
     pub(super) artifact: Option<Artifact>,
     pub(super) execution: Option<ExecutionVerification>,
     pub(super) acceptance: SampleAcceptance,
@@ -153,6 +193,7 @@ pub(super) struct CompetitiveSummary {
     pub(super) profile: Profile,
     pub(super) workload: &'static str,
     pub(super) language: Language,
+    pub(super) state: SampleState,
     pub(super) sample_count: usize,
     pub(super) metrics: BTreeMap<&'static str, Distribution>,
     pub(super) artifact_size_bytes: Option<Distribution>,
