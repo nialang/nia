@@ -763,6 +763,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
 }
 
 static BUILD_INVOCATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+const BUILD_RUNNER_SOURCE_PATH: &str = "build-package:build-runner:/root.nia";
 
 fn next_build_invocation_name() -> String {
     let sequence = BUILD_INVOCATION_SEQUENCE.fetch_add(1, Ordering::Relaxed);
@@ -771,12 +772,7 @@ fn next_build_invocation_name() -> String {
 
 /// Produces the generated host-runner source for a resolved invocation.
 pub fn build_runner_source(invocation: &BuildInvocation) -> Result<BuildRunnerSource, BuildError> {
-    let path = invocation
-        .runner_dir
-        .join("root.nia")
-        .to_string_lossy()
-        .into_owned();
-    build_runner_source_for_path(invocation, path)
+    build_runner_source_for_path(invocation, BUILD_RUNNER_SOURCE_PATH.to_string())
 }
 
 fn build_runner_source_for_path(
@@ -1916,10 +1912,7 @@ mod tests {
 
         let runner = build_runner_source(&plan).expect("build runner source");
 
-        assert_eq!(
-            runner.path,
-            plan.runner_dir.join("root.nia").to_string_lossy()
-        );
+        assert_eq!(runner.path, BUILD_RUNNER_SOURCE_PATH);
         assert!(runner.source.contains("using std::build;"));
         assert!(runner.source.contains("using std::fs;"));
         assert!(runner.source.contains("using std::io;"));
@@ -2137,6 +2130,12 @@ mod tests {
         .expect("build invocation");
         let runner = build_runner_source(&plan).expect("build runner source");
 
+        assert_eq!(runner.path, BUILD_RUNNER_SOURCE_PATH);
+        assert!(
+            !runner
+                .path
+                .contains(&package_root.to_string_lossy().to_string())
+        );
         assert!(
             !runner
                 .source
