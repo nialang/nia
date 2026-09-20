@@ -73,8 +73,9 @@ module-plan publication, after publication, and after consuming the per-module
 query slots. The multi-module backend workload additionally requires a
 process-wide live-allocation window around the parallel finalization batch. It
 reports start, end, peak, and peak growth bytes across allocations performed by
-all query workers. The JSON schema is versioned so trend tooling does not need
-to parse the human timing report.
+all query workers. The compiler JSON report carries the unified release
+compatibility identity, so trend tooling can validate the protocol without
+introducing a maintenance-owned version axis or parsing the human timing report.
 
 Allocation counters require both the `perf-alloc` build feature and
 `--timings=detail`; the normal compiler binary uses the ordinary Rust allocator

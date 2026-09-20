@@ -25,11 +25,6 @@ const FORBIDDEN_IDENTITY_NAMES: [&str; 14] = [
     "ARCHIVE_SCHEMA",
     "SCHEMA_VERSION",
 ];
-const TEXT_SUFFIXES: [&str; 12] = [
-    "json", "md", "meta", "nia", "py", "rs", "sh", "toml", "txt", "yaml", "yml", "lock",
-];
-const VERSION_AUTHORITIES: [&str; 3] = ["Cargo.toml", "Cargo.lock", "lib/toolchain.meta"];
-
 static DOMAIN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(&format!(r"^{DOMAIN_IDENTITY}$")).expect("valid domain regex"));
 static STRING: LazyLock<Regex> =
@@ -82,13 +77,6 @@ fn collect_files(root: &Path, files: &mut Vec<PathBuf>) -> MaintainResult<()> {
         }
     }
     Ok(())
-}
-
-fn source_files(root: &Path) -> MaintainResult<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    collect_files(root, &mut files)?;
-    files.sort();
-    Ok(files)
 }
 
 fn rust_sources(root: &Path) -> MaintainResult<Vec<PathBuf>> {
@@ -339,22 +327,13 @@ fn workspace_version(root: &Path) -> MaintainResult<String> {
         .ok_or_else(|| "Cargo.toml has no workspace.package.version".to_owned())
 }
 
-/// Reports duplicated workspace release-version literals in source files.
+/// Reports duplicated workspace release-version literals in crate production sources.
 pub fn release_version_errors(root: &Path) -> MaintainResult<Vec<String>> {
     let version = workspace_version(root)?;
-    let authorities = VERSION_AUTHORITIES.into_iter().collect::<BTreeSet<_>>();
-    let suffixes = TEXT_SUFFIXES.into_iter().collect::<BTreeSet<_>>();
     let mut errors = Vec::new();
-    for path in source_files(root)? {
+    for path in production_rust_sources(root)? {
         let relative = relative(root, &path);
-        let suffix = path.extension().and_then(|value| value.to_str());
-        if authorities.contains(relative.as_str()) || !suffix.is_some_and(|s| suffixes.contains(s))
-        {
-            continue;
-        }
-        let Ok(source) = fs::read_to_string(&path) else {
-            continue;
-        };
+        let source = production_source(&path)?;
         if source.contains(&version) {
             errors.push(format!(
                 "{relative}: workspace version `{version}` is duplicated"
@@ -466,9 +445,27 @@ mod tests {
     }
 
     #[test]
-    fn rejects_workspace_version_outside_authorities() {
+    fn release_version_governance_is_limited_to_crate_production_sources() {
         let directory = repository("duplicate-version");
         directory.write("README.md", "current version: 1.2.3\n");
-        assert!(release_version_errors(directory.path()).unwrap()[0].contains("README.md"));
+        directory.write("maintain/src/main.rs", "const VERSION: &str = \"1.2.3\";\n");
+        directory.write(
+            "crates/owner/src/tests.rs",
+            "const TEST_VERSION: &str = \"1.2.3\";\n",
+        );
+        directory.write(
+            "crates/owner/src/lib.rs",
+            "#[cfg(test)]\nmod tests { const VERSION: &str = \"1.2.3\"; }\n",
+        );
+        assert!(release_version_errors(directory.path()).unwrap().is_empty());
+
+        directory.write(
+            "crates/owner/src/lib.rs",
+            "const DUPLICATED_VERSION: &str = \"1.2.3\";\n",
+        );
+        assert_eq!(
+            release_version_errors(directory.path()).unwrap(),
+            vec!["crates/owner/src/lib.rs: workspace version `1.2.3` is duplicated"]
+        );
     }
 }
