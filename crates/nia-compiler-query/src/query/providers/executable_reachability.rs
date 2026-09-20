@@ -425,8 +425,7 @@ fn executable_check_in_session(
         applied_body_activations,
     } = session;
     let query_failure = RefCell::new(None);
-    let mut value_ref_scanned_functions = HashSet::new();
-    let mut value_ref_scanned_globals = HashSet::new();
+    let mut value_ref_scan_progress = ValueRefScanProgress::default();
     let function_signature = |def_id: GlobalDefId| {
         if let Some(signature) = caches
             .reachability_function_signatures
@@ -636,8 +635,8 @@ fn executable_check_in_session(
                     reachability,
                     &function_signature,
                     &fact_by_id,
-                    &mut value_ref_scanned_functions,
-                    &mut value_ref_scanned_globals,
+                    &caches,
+                    &mut value_ref_scan_progress,
                 )
             },
         ) {
@@ -1350,12 +1349,22 @@ fn emit_module_version_sync_counters(
 }
 
 #[derive(Default)]
+struct ValueRefScanProgress {
+    functions: HashSet<GlobalDefId>,
+    globals: HashSet<GlobalDefId>,
+}
+
+#[derive(Default)]
 struct ValueRefScanStats {
     candidate_functions: usize,
     candidate_globals: usize,
     work_modules: usize,
     scanned_functions: usize,
     scanned_globals: usize,
+    first_scanned_functions: usize,
+    repeated_scanned_functions: usize,
+    first_scanned_globals: usize,
+    repeated_scanned_globals: usize,
     discovered_function_edges: usize,
     discovered_global_edges: usize,
     new_function_edges: usize,
@@ -1396,6 +1405,30 @@ fn emit_value_ref_scan_counters(
         product,
         "value_ref_scanned_globals",
         stats.scanned_globals as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "value_ref_first_scanned_functions",
+        stats.first_scanned_functions as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "value_ref_repeated_scanned_functions",
+        stats.repeated_scanned_functions as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "value_ref_first_scanned_globals",
+        stats.first_scanned_globals as u64,
+    );
+    emit_executable_check_counter(
+        db,
+        product,
+        "value_ref_repeated_scanned_globals",
+        stats.repeated_scanned_globals as u64,
     );
     emit_executable_check_counter(
         db,
@@ -1738,13 +1771,13 @@ fn extend_reachability_from_value_ref_edges(
     reachability: &mut nia_executable_reachability::ExecutableReachability,
     function_signature: &dyn Fn(GlobalDefId) -> Option<Arc<ProgramFunctionSignature>>,
     fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
-    scanned_functions: &mut HashSet<GlobalDefId>,
-    scanned_globals: &mut HashSet<GlobalDefId>,
+    caches: &ExecutableCheckCaches,
+    progress: &mut ValueRefScanProgress,
 ) -> QueryResult<(bool, ValueRefScanStats)> {
     let mut work_by_module =
         HashMap::<ModuleId, (HashSet<GlobalDefId>, HashSet<GlobalDefId>)>::new();
     for def_id in reachability.functions().iter().copied() {
-        if scanned_functions.contains(&def_id) || !parse_ok.contains(&def_id.module_id) {
+        if progress.functions.contains(&def_id) || !parse_ok.contains(&def_id.module_id) {
             continue;
         }
         if fact_by_id
@@ -1760,7 +1793,7 @@ fn extend_reachability_from_value_ref_edges(
             .insert(def_id);
     }
     for def_id in reachability.globals().iter().copied() {
-        if scanned_globals.contains(&def_id) || !parse_ok.contains(&def_id.module_id) {
+        if progress.globals.contains(&def_id) || !parse_ok.contains(&def_id.module_id) {
             continue;
         }
         if fact_by_id
@@ -1808,10 +1841,28 @@ fn extend_reachability_from_value_ref_edges(
         let (_, module_globals, closure_functions, edges) = result?;
         stats.scanned_functions += closure_functions.len();
         stats.scanned_globals += module_globals.len();
+        if db.context().timings().enabled() {
+            let mut observed = caches.observed_value_ref_functions.borrow_mut();
+            for function in &closure_functions {
+                if observed.insert(*function) {
+                    stats.first_scanned_functions += 1;
+                } else {
+                    stats.repeated_scanned_functions += 1;
+                }
+            }
+            let mut observed = caches.observed_value_ref_globals.borrow_mut();
+            for global in &module_globals {
+                if observed.insert(*global) {
+                    stats.first_scanned_globals += 1;
+                } else {
+                    stats.repeated_scanned_globals += 1;
+                }
+            }
+        }
         stats.discovered_function_edges += edges.functions.len();
         stats.discovered_global_edges += edges.globals.len();
-        scanned_functions.extend(closure_functions);
-        scanned_globals.extend(module_globals);
+        progress.functions.extend(closure_functions);
+        progress.globals.extend(module_globals);
         for def_id in edges.functions {
             if (function_signature)(def_id).is_none() {
                 continue;

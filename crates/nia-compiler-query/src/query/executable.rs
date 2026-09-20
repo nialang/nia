@@ -15,6 +15,8 @@ pub(super) struct ExecutableCheckCaches {
     pub(super) global_initializers:
         RefCell<HashMap<GlobalDefId, Option<nia_const_ir::ResolvedConstExpr>>>,
     pub(super) const_modules: RefCell<HashMap<ModuleId, ConstModuleLowering>>,
+    pub(super) observed_value_ref_functions: RefCell<HashSet<GlobalDefId>>,
+    pub(super) observed_value_ref_globals: RefCell<HashSet<GlobalDefId>>,
 }
 
 impl Default for ExecutableCheckCaches {
@@ -26,6 +28,8 @@ impl Default for ExecutableCheckCaches {
             body_function_signatures: RefCell::new(HashMap::new()),
             global_initializers: RefCell::new(HashMap::new()),
             const_modules: RefCell::new(HashMap::new()),
+            observed_value_ref_functions: RefCell::new(HashSet::new()),
+            observed_value_ref_globals: RefCell::new(HashSet::new()),
         }
     }
 }
@@ -50,6 +54,12 @@ impl ExecutableCheckCaches {
         self.const_modules
             .get_mut()
             .retain(|module_id, _| modules.contains(module_id));
+        self.observed_value_ref_functions
+            .get_mut()
+            .retain(|def_id| modules.contains(&def_id.module_id));
+        self.observed_value_ref_globals
+            .get_mut()
+            .retain(|def_id| modules.contains(&def_id.module_id));
     }
 }
 

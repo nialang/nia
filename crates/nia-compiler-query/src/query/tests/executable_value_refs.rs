@@ -202,3 +202,54 @@ fn main() i32 {
     assert!(facts.runtime_globals.contains(&first_value));
     assert!(facts.runtime_globals.contains(&second_value));
 }
+
+#[test]
+fn value_ref_rescan_observation_is_enabled_only_with_timings() {
+    let source = "static mut value: i32 = 1; fn main() i32 { value }";
+    let fixture = LoadedProgramFixture::new("main.nia", source);
+    let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
+
+    database
+        .executable_provider_demands()
+        .expect("provider demands without timings");
+    {
+        let session = database.db.context().executable_fact_session.lock();
+        assert!(
+            session
+                .caches
+                .observed_value_ref_functions
+                .borrow()
+                .is_empty()
+        );
+        assert!(
+            session
+                .caches
+                .observed_value_ref_globals
+                .borrow()
+                .is_empty()
+        );
+    }
+
+    let fixture = LoadedProgramFixture::new("main.nia", source);
+    let database = CompilerDatabase::new(
+        CompileRequest::new(fixture.program()).with_timings(crate::TimingMode::Summary),
+    );
+    database
+        .executable_provider_demands()
+        .expect("provider demands with timings");
+    let session = database.db.context().executable_fact_session.lock();
+    assert!(
+        !session
+            .caches
+            .observed_value_ref_functions
+            .borrow()
+            .is_empty()
+    );
+    assert!(
+        !session
+            .caches
+            .observed_value_ref_globals
+            .borrow()
+            .is_empty()
+    );
+}
