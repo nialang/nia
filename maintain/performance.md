@@ -135,7 +135,9 @@ The matrix covers `minimal_check`, `hello_check`, `hello_executable`,
 `synthetic_100_modules_mixed_fan_out` workloads hold module count and semantic
 work constant while varying dependency shape. A separate
 `synthetic_100_modules_build` workload runs the medium corpus through Nia
-build, Cargo, and Zig build. The sources under `benchmarks/competitive/` are
+build, Cargo, and Zig build. The Nia-only `project_planner_build` workload
+builds the source-owned application under `benchmarks/apps/project-planner`.
+The sources under `benchmarks/competitive/` are
 maintained language-native Rust and Zig counterparts to
 `benchmarks/minimal.nia` and `examples/hello.nia`. Check modes are deliberately
 described precisely:
@@ -186,6 +188,17 @@ no-op artifact to remain byte-identical, requires the edited artifact to
 change, and executes every artifact. It also proves that each state used a
 different process and that build products were absent only before clean and
 present before both non-cold states.
+
+Project Planner is the first non-generated medium Nia application in the
+suite. It is an ordinary multi-module `nia build` project that reads a plan
+file, indexes task names, validates references and cycles, computes a
+topological schedule and critical path, and formats a deterministic report.
+The collector copies the complete project, builds it from source, then runs
+the executable from the copied project root with `data/reference.plan`; the
+sample is rejected unless the exact 63-task summary is produced. Its report
+contract explicitly records one Nia tool and no synthetic generator. No Rust
+or Zig translation is supplied because this workload represents real Nia
+development and is not a cross-language parity claim.
 
 Every clean sample or state sequence gets an independently created workspace.
 Direct compilation starts with absent explicit Nia/Zig project caches;

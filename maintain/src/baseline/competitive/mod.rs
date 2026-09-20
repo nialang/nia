@@ -300,20 +300,25 @@ fn changed_files(before: &SourceSnapshot, after: &SourceSnapshot) -> Vec<String>
 
 fn verify_executable(
     path: &Path,
+    arguments: &[&str],
+    working_directory: &Path,
     expected_output: &'static str,
     timeout_seconds: u64,
 ) -> ExecutionVerification {
-    let command = [path.to_string_lossy().into_owned()];
-    match run_bounded(
-        &command,
-        path.parent().unwrap_or_else(|| Path::new(".")),
-        timeout_seconds,
-    ) {
+    let command = std::iter::once(path.to_string_lossy().into_owned())
+        .chain(arguments.iter().map(|argument| (*argument).to_owned()))
+        .collect::<Vec<_>>();
+    let normalized_command = std::iter::once("$ARTIFACT".to_owned())
+        .chain(arguments.iter().map(|argument| (*argument).to_owned()))
+        .collect::<Vec<_>>();
+    match run_bounded(&command, working_directory, timeout_seconds) {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
             let actual = format!("{stdout}\n{stderr}").trim().to_owned();
             ExecutionVerification {
+                command: normalized_command,
+                working_directory: "$WORKSPACE",
                 return_code: output.status.code().unwrap_or(-1),
                 passed: output.status.success() && actual == expected_output,
                 stdout,
@@ -322,6 +327,8 @@ fn verify_executable(
             }
         }
         Err(error) => ExecutionVerification {
+            command: normalized_command,
+            working_directory: "$WORKSPACE",
             return_code: -1,
             stdout: String::new(),
             stderr: error,
@@ -563,7 +570,15 @@ fn collect_prepared_sample(
         .workload
         .expected_output(inputs.language, state)
         .filter(|_| artifact.is_some())
-        .map(|expected| verify_executable(&output, expected, inputs.timeout_seconds));
+        .map(|expected| {
+            verify_executable(
+                &output,
+                inputs.workload.execution_arguments(),
+                &prepared.workspace,
+                expected,
+                inputs.timeout_seconds,
+            )
+        });
     let executable_verified = inputs
         .workload
         .expected_output(inputs.language, state)
