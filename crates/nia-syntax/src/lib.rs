@@ -462,37 +462,38 @@ impl<'a> SyntaxNode<'a> {
     /// Returns significant descendant tokens in source order, including EOF.
     pub fn tokens(&self) -> Vec<SyntaxToken> {
         let mut tokens = Vec::new();
-        self.push_tokens(&mut tokens);
+        let mut path = self.path.clone();
+        push_tokens(self.tree, self.node, &mut path, &mut tokens);
         tokens
     }
+}
 
-    fn push_tokens(&self, tokens: &mut Vec<SyntaxToken>) {
-        for (index, child) in self.node.children.iter().enumerate() {
-            let mut path = self.path.clone();
-            let Some(index) = u32::try_from(index).ok() else {
-                continue;
-            };
-            path.push(index);
-            match child {
-                GreenElement::Node(node) => SyntaxNode {
-                    tree: self.tree,
-                    path,
-                    node,
-                }
-                .push_tokens(tokens),
-                GreenElement::Token(token) => {
-                    if let SyntaxKind::Token(kind) = &token.kind {
-                        tokens.push(SyntaxToken {
-                            kind: kind.clone(),
-                            span: token.span,
-                            text: token.text.clone(),
-                            path: NodeChildPath::from_steps(path),
-                            version: self.tree.version,
-                        });
-                    }
+fn push_tokens(
+    tree: &SyntaxTree,
+    node: &GreenNode,
+    path: &mut Vec<u32>,
+    tokens: &mut Vec<SyntaxToken>,
+) {
+    for (index, child) in node.children.iter().enumerate() {
+        let Some(index) = u32::try_from(index).ok() else {
+            continue;
+        };
+        path.push(index);
+        match child {
+            GreenElement::Node(node) => push_tokens(tree, node, path, tokens),
+            GreenElement::Token(token) => {
+                if let SyntaxKind::Token(kind) = &token.kind {
+                    tokens.push(SyntaxToken {
+                        kind: kind.clone(),
+                        span: token.span,
+                        text: token.text.clone(),
+                        path: NodeChildPath::from_slice(path),
+                        version: tree.version,
+                    });
                 }
             }
         }
+        path.pop();
     }
 }
 
