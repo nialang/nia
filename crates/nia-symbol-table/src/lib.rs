@@ -72,6 +72,17 @@ impl SymbolTable {
     /// Interns text by stable hash, reporting collisions instead of overwriting.
     pub fn intern(&self, text: &str) -> Result<SymbolId, SymbolCollision> {
         let symbol = SymbolId::from_stable_hash(stable_hash(text));
+        if let Some(existing) = self.inner.read().by_id.get(&symbol) {
+            return if existing.as_ref() == text {
+                Ok(symbol)
+            } else {
+                Err(SymbolCollision {
+                    symbol,
+                    existing: existing.clone(),
+                    incoming: Arc::<str>::from(text),
+                })
+            };
+        }
         let incoming = Arc::<str>::from(text);
         let mut inner = self.inner.write();
         match inner.by_id.entry(symbol) {
@@ -214,6 +225,32 @@ mod tests {
         assert_eq!(table, clone);
         assert_eq!(resolver.resolve(symbol).as_deref(), Some("session_name"));
         assert_eq!(resolver.display(symbol).to_string(), "session_name");
+    }
+
+    #[test]
+    fn concurrent_interning_converges_on_one_registration() {
+        const WORKERS: usize = 8;
+
+        let table = SymbolTable::new();
+        let barrier = Arc::new(std::sync::Barrier::new(WORKERS));
+        let workers = (0..WORKERS)
+            .map(|_| {
+                let table = table.clone();
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    table
+                        .intern("concurrent_name")
+                        .expect("concurrent symbol registration")
+                })
+            })
+            .collect::<Vec<_>>();
+        let expected = SymbolId::from_stable_hash(stable_hash("concurrent_name"));
+
+        for worker in workers {
+            assert_eq!(worker.join().expect("join symbol worker"), expected);
+        }
+        assert_eq!(table.resolve(expected).as_deref(), Some("concurrent_name"));
     }
 
     #[test]
