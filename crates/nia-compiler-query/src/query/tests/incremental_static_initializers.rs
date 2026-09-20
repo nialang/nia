@@ -42,10 +42,14 @@ fn body_edit_keeps_unrelated_lowered_function_product_green() {
         .expect("entry module facts should exist");
     assert!(
         fact_module.body_ir.function_bodies.is_empty(),
-        "the executable facts aggregate must not produce checked bodies"
+        "the executable facts module shell must not duplicate checked bodies"
     );
     assert!(fact_modules.runtime_functions.contains(&helper));
     assert!(fact_modules.runtime_functions.contains(&main));
+    let fact_helper = fact_modules
+        .function_bodies
+        .get(&helper)
+        .expect("executable facts should retain the checked helper body");
     let checked_helper = module
         .body_ir
         .function_bodies
@@ -56,6 +60,7 @@ fn body_edit_keeps_unrelated_lowered_function_product_green() {
         .as_ref()
         .as_ref()
         .expect("helper checked-body product");
+    assert!(Arc::ptr_eq(fact_helper, checked_helper));
     assert!(Arc::ptr_eq(checked_helper, checked_helper_product));
     let first_helper = database.db.expect_get(LoweredFunctionBodyQuery(helper));
     let first_main = database.db.expect_get(LoweredFunctionBodyQuery(main));
@@ -131,7 +136,7 @@ first[0] + second[0]
         .expect("entry module facts should exist");
     assert!(
         fact_module.body_ir.global_inits.is_empty(),
-        "the executable facts aggregate must not produce static initializer payloads"
+        "the executable facts module shell must not duplicate static initializer payloads"
     );
     assert!(fact_modules.runtime_globals.contains(&first));
     assert!(fact_modules.runtime_globals.contains(&second));
