@@ -117,8 +117,19 @@ fn additive_module_growth_discards_diagnostic_executable_facts() {
         },
     );
 
-    session.synchronize_module_versions(&grown_versions);
+    let discarded_functions = session
+        .modules
+        .get(&entry_id)
+        .expect("entry executable facts")
+        .checked_functions
+        .len();
+    let stats = session.synchronize_module_versions(&grown_versions, false);
 
+    assert_eq!(stats.added_modules, 1);
+    assert_eq!(stats.removed_or_changed_modules, 0);
+    assert_eq!(stats.discarded_diagnostic_modules, 1);
+    assert_eq!(stats.discarded_functions, discarded_functions);
+    assert!(stats.reset_reachability);
     assert!(!session.modules.contains_key(&entry_id));
 }
 
@@ -143,11 +154,16 @@ fn semantic_provider_growth_preserves_reachability_state() {
             module_path: SourcePath::new("main/provider.nia"),
         },
     };
-    session.apply_provider_fact_worklist(
+    let stats = session.apply_provider_fact_worklist(
         &provider_fact_snapshot(next_revision(revision), revision, [semantic_demand]),
         &database.db.context().type_store,
     );
 
+    assert_eq!(stats.changes, 1);
+    assert_eq!(stats.invalidating_changes, 0);
+    assert_eq!(stats.discarded_modules, 0);
+    assert_eq!(stats.invalidated_functions, 0);
+    assert!(!stats.reset_reachability);
     assert!(
         session
             .reachability
@@ -205,7 +221,18 @@ fn provider_changes_discard_affected_executable_fact_caches() {
     }
     let worklist = database.db.expect_get(ProviderFactWorklistQuery);
     let mut session = database.db.context().executable_fact_session.lock();
-    session.apply_provider_fact_worklist(&worklist, &database.db.context().type_store);
+    let checked_functions = session
+        .modules
+        .get(&entry_id)
+        .expect("entry executable facts")
+        .checked_functions
+        .len();
+    let stats = session.apply_provider_fact_worklist(&worklist, &database.db.context().type_store);
+    assert_eq!(stats.changes, 1);
+    assert_eq!(stats.invalidating_changes, 1);
+    assert_eq!(stats.discarded_modules, 1);
+    assert_eq!(stats.invalidated_functions, checked_functions);
+    assert!(stats.reset_reachability);
     assert!(!session.modules.contains_key(&entry_id));
     assert!(
         !session

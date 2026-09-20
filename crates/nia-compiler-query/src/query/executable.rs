@@ -82,6 +82,24 @@ pub(super) struct ExecutableFactSession {
     pub(super) applied_body_activations: HashSet<nia_imports::StableModuleKey>,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct ProviderFactInvalidationStats {
+    pub(super) changes: usize,
+    pub(super) invalidating_changes: usize,
+    pub(super) discarded_modules: usize,
+    pub(super) invalidated_functions: usize,
+    pub(super) reset_reachability: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct ModuleVersionSyncStats {
+    pub(super) added_modules: usize,
+    pub(super) removed_or_changed_modules: usize,
+    pub(super) discarded_diagnostic_modules: usize,
+    pub(super) discarded_functions: usize,
+    pub(super) reset_reachability: bool,
+}
+
 impl ExecutableFactSession {
     pub(super) fn enter_epoch(&mut self, epoch: &ExecutableFactEpoch) {
         if self.epoch.as_ref() == Some(epoch) {
@@ -96,16 +114,30 @@ impl ExecutableFactSession {
     pub(super) fn synchronize_module_versions(
         &mut self,
         module_versions: &HashMap<ModuleId, nia_source::SourceVersion>,
-    ) {
+        precise_provider_changes_applied: bool,
+    ) -> ModuleVersionSyncStats {
         if self.module_versions == *module_versions {
-            return;
+            return ModuleVersionSyncStats::default();
         }
+        let mut stats = ModuleVersionSyncStats {
+            added_modules: module_versions
+                .keys()
+                .filter(|module_id| !self.module_versions.contains_key(module_id))
+                .count(),
+            removed_or_changed_modules: self
+                .module_versions
+                .iter()
+                .filter(|(module_id, version)| module_versions.get(module_id) != Some(*version))
+                .count(),
+            ..ModuleVersionSyncStats::default()
+        };
         let additive_growth = self
             .module_versions
             .iter()
             .all(|(module_id, version)| module_versions.get(module_id) == Some(version));
         if !additive_growth {
             self.reachability = Default::default();
+            stats.reset_reachability = true;
         }
         let mut retained_modules = self
             .module_versions
@@ -115,17 +147,49 @@ impl ExecutableFactSession {
             })
             .collect::<HashSet<_>>();
         let module_count = self.modules.len();
-        // A newly loaded provider can turn an earlier lookup diagnostic into a
-        // valid resolution even when the diagnostic owner's source is unchanged.
+        // Provider-driven additive growth has already invalidated the exact
+        // functions that requested the new facts. Other graph transitions must
+        // remain conservative because unchanged source can still observe them.
+        let discard_diagnostic_modules = !additive_growth || !precise_provider_changes_applied;
         self.modules.retain(|module_id, state| {
-            retained_modules.contains(module_id) && state.diagnostics.is_empty()
+            let source_retained = retained_modules.contains(module_id);
+            let retained =
+                source_retained && (!discard_diagnostic_modules || state.diagnostics.is_empty());
+            if !retained {
+                stats.discarded_functions += state.checked_functions.len();
+                if source_retained {
+                    stats.discarded_diagnostic_modules += 1;
+                }
+            }
+            retained
         });
         if self.modules.len() != module_count {
             self.reachability = Default::default();
+            stats.reset_reachability = true;
         }
         retained_modules.retain(|module_id| self.modules.contains_key(module_id));
         self.caches.retain_modules(&retained_modules);
         self.module_versions = module_versions.clone();
+        stats
+    }
+
+    pub(super) fn can_preserve_diagnostic_facts_for_provider_growth(
+        &self,
+        worklist: &crate::ProviderFactSnapshot,
+        module_versions: &HashMap<ModuleId, nia_source::SourceVersion>,
+    ) -> bool {
+        self.module_versions != *module_versions
+            && self
+                .module_versions
+                .iter()
+                .all(|(module_id, version)| module_versions.get(module_id) == Some(version))
+            && !self
+                .applied_provider_fact_revision
+                .is_some_and(|previous| worklist.reset_revision().is_newer_than(previous))
+            && worklist
+                .demands()
+                .difference(&self.applied_provider_changes)
+                .any(provider_change_invalidates_facts)
     }
 
     pub(super) fn apply_body_activation_worklist(&mut self, worklist: &BodyActivationWorklist) {
@@ -168,9 +232,9 @@ impl ExecutableFactSession {
         &mut self,
         worklist: &crate::ProviderFactSnapshot,
         type_store: &nia_ty::TypeStore,
-    ) {
+    ) -> ProviderFactInvalidationStats {
         if self.applied_provider_fact_revision == Some(worklist.revision()) {
-            return;
+            return ProviderFactInvalidationStats::default();
         }
         let reset = self
             .applied_provider_fact_revision
@@ -187,6 +251,15 @@ impl ExecutableFactSession {
             .difference(&self.applied_provider_changes)
             .cloned()
             .collect::<HashSet<_>>();
+        let mut stats = ProviderFactInvalidationStats {
+            changes: pending_changes.len(),
+            invalidating_changes: pending_changes
+                .iter()
+                .filter(|demand| provider_change_invalidates_facts(demand))
+                .count(),
+            reset_reachability: reset,
+            ..ProviderFactInvalidationStats::default()
+        };
         if !pending_changes.is_empty() {
             let mut invalidates_reachability = false;
             let mut retained_modules = HashSet::new();
@@ -195,6 +268,11 @@ impl ExecutableFactSession {
                 let retained = state.invalidate_provider_changes(&pending_changes, type_store);
                 if retained {
                     retained_modules.insert(*module_id);
+                    stats.invalidated_functions +=
+                        checked_functions.saturating_sub(state.checked_functions.len());
+                } else {
+                    stats.discarded_modules += 1;
+                    stats.invalidated_functions += checked_functions;
                 }
                 invalidates_reachability |=
                     !retained || checked_functions != state.checked_functions.len();
@@ -202,11 +280,13 @@ impl ExecutableFactSession {
             });
             if invalidates_reachability {
                 self.reachability = Default::default();
+                stats.reset_reachability = true;
             }
             self.caches.retain_modules(&retained_modules);
             self.applied_provider_changes.extend(pending_changes);
         }
         self.applied_provider_fact_revision = Some(worklist.revision());
+        stats
     }
 }
 
