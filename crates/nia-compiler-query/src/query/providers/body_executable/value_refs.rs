@@ -532,7 +532,7 @@ fn executable_value_ref_active_item_tree_for_inputs<'a>(
         start = end;
     }
     ActiveModuleItemTree::from_shared_parts(
-        Arc::from(items),
+        items.into(),
         Arc::clone(&full_active_item_tree.inactive_spans),
     )
 }
@@ -540,13 +540,13 @@ fn executable_value_ref_active_item_tree_for_inputs<'a>(
 pub(super) fn collect_executable_value_ref_index_for_items(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    items: &[nia_item_tree::ItemTreeNode],
+    items: &nia_item_tree::ItemTreeItems,
     defs: &DefCollection,
     values: &ValueResolution,
     locals: &LocalResolution,
     index: &mut ExecutableValueRefIndex,
 ) -> QueryResult<()> {
-    for item in items {
+    for item in items.iter() {
         match &item.kind {
             nia_item_tree::ItemTreeNodeKind::Function(function) => {
                 collect_executable_value_ref_index_for_function(

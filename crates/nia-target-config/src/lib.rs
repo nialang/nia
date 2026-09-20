@@ -6,10 +6,14 @@ use nia_ast::{
     ConditionExprKind, ConditionUnaryOp, Expr, ExprKind, FieldInit, IndexArg, Item, ItemKind,
     MatchArmBody, Module, Pattern, PatternKind, SliceRange, Stmt, StmtKind,
 };
+use nia_ast_walk::Visitor;
 use nia_diagnostic::{Diagnostic, codes};
-use nia_item_tree::{ActiveModuleItemTree, ConditionResolver, ItemTreeError, ModuleItemTree};
+use nia_item_tree::{
+    ActiveModuleItemTree, ConditionResolver, ItemTreeError, ItemTreeItems, ModuleItemTree,
+};
 use nia_span::Span;
 use nia_symbol::{SymbolMap, SymbolText, known, symbol_text_from_optional_resolver};
+use std::sync::Arc;
 
 /// Build profile used for profile-conditional source selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -142,6 +146,23 @@ pub fn prune_module_for_target_with_profile_mode_and_symbols(
     mode: CompilationMode,
     symbols: Option<&dyn SymbolText>,
 ) -> PruneResult {
+    let item_tree = ModuleItemTree::from_owned_module(module);
+    prune_item_tree_for_target_with_profile_mode_and_symbols(
+        &item_tree, config, profile, mode, symbols,
+    )
+}
+
+/// Prunes an item tree using the complete conditional-compilation context.
+///
+/// Unchanged items retain their shared immutable payloads. Only items that
+/// contain conditional statements are cloned for recursive body pruning.
+pub fn prune_item_tree_for_target_with_profile_mode_and_symbols(
+    item_tree: &ModuleItemTree,
+    config: &TargetConfig,
+    profile: BuildProfile,
+    mode: CompilationMode,
+    symbols: Option<&dyn SymbolText>,
+) -> PruneResult {
     let mut pruner = Pruner {
         config,
         profile,
@@ -149,9 +170,9 @@ pub fn prune_module_for_target_with_profile_mode_and_symbols(
         symbols,
         diagnostics: Vec::new(),
     };
-    let pruned = pruner.prune_module(module);
+    let active_item_tree = pruner.prune_item_tree(item_tree);
     PruneResult {
-        active_item_tree: pruned.active_item_tree,
+        active_item_tree,
         diagnostics: pruner.diagnostics,
     }
 }
@@ -193,13 +214,35 @@ struct Pruner<'a> {
     diagnostics: Vec<Diagnostic>,
 }
 
-struct PrunedModule {
-    active_item_tree: ActiveModuleItemTree,
+fn item_needs_nested_pruning(item: &Item) -> bool {
+    struct ConditionalStatementVisitor {
+        found: bool,
+    }
+
+    impl<'ast> Visitor<'ast> for ConditionalStatementVisitor {
+        fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+            if self.found {
+                return;
+            }
+            self.found = stmt.attributes.iter().any(|attribute| {
+                matches!(
+                    attribute.kind,
+                    AttributeKind::If(_) | AttributeKind::Profile(_) | AttributeKind::Test
+                )
+            });
+            if !self.found {
+                nia_ast_walk::walk_stmt(self, stmt);
+            }
+        }
+    }
+
+    let mut visitor = ConditionalStatementVisitor { found: false };
+    visitor.visit_item(item);
+    visitor.found
 }
 
 impl Pruner<'_> {
-    fn prune_module(&mut self, module: Module) -> PrunedModule {
-        let tree = ModuleItemTree::from_module(&module);
+    fn prune_item_tree(&mut self, tree: &ModuleItemTree) -> ActiveModuleItemTree {
         let active_item_tree = match tree.active_items(self) {
             Ok(active) => active,
             Err(err) => {
@@ -211,41 +254,39 @@ impl Pruner<'_> {
                 ActiveModuleItemTree::new(Vec::new(), Default::default())
             }
         };
-        let inactive_spans = active_item_tree.inactive_spans.clone();
-        let module = Module {
-            items: active_item_tree
-                .items
-                .iter()
-                .map(|item| item.to_ast_item())
-                .flat_map(|item| self.prune_item(item))
-                .collect(),
-        };
-        let item_tree = ModuleItemTree::from_module(&module);
-        PrunedModule {
-            active_item_tree: ActiveModuleItemTree::from_shared_parts(
-                item_tree.items,
-                inactive_spans,
-            ),
+        if !active_item_tree.items.iter().any(item_needs_nested_pruning) {
+            return active_item_tree;
         }
+
+        let items = active_item_tree
+            .items
+            .shared_items()
+            .map(|item| {
+                if item_needs_nested_pruning(&item) {
+                    Arc::new(self.prune_item((*item).clone()))
+                } else {
+                    item
+                }
+            })
+            .collect();
+        ActiveModuleItemTree::from_shared_parts(
+            ItemTreeItems::from_shared_items(items),
+            Arc::clone(&active_item_tree.inactive_spans),
+        )
     }
 
-    fn prune_item(&mut self, item: Item) -> Vec<Item> {
-        if !self.attributes_active(&item.attributes, item.span) {
-            return Vec::new();
-        }
+    fn prune_item(&mut self, item: Item) -> Item {
         match item.kind {
-            ItemKind::Struct(item_struct) => {
-                vec![Item {
-                    kind: ItemKind::Struct(item_struct),
-                    ..item
-                }]
-            }
+            ItemKind::Struct(item_struct) => Item {
+                kind: ItemKind::Struct(item_struct),
+                ..item
+            },
             ItemKind::Function(mut function) => {
                 function.body = function.body.map(|body| self.prune_block(body));
-                vec![Item {
+                Item {
                     kind: ItemKind::Function(function),
                     ..item
-                }]
+                }
             }
             ItemKind::Trait(mut item_trait) => {
                 for method in &mut item_trait.methods {
@@ -255,10 +296,10 @@ impl Pruner<'_> {
                         .take()
                         .map(|body| self.prune_block(body));
                 }
-                vec![Item {
+                Item {
                     kind: ItemKind::Trait(item_trait),
                     ..item
-                }]
+                }
             }
             ItemKind::Extend(mut extend) => {
                 for associated_value in &mut extend.associated_values {
@@ -275,12 +316,12 @@ impl Pruner<'_> {
                         .take()
                         .map(|body| self.prune_block(body));
                 }
-                vec![Item {
+                Item {
                     kind: ItemKind::Extend(extend),
                     ..item
-                }]
+                }
             }
-            _ => vec![item],
+            _ => item,
         }
     }
 
@@ -940,6 +981,64 @@ fn endian() -> &'static str {
 mod tests {
     use super::*;
     use nia_ast::{ItemKind, StmtKind};
+
+    #[test]
+    fn pruning_without_conditional_statements_shares_item_payloads() {
+        let (module, errors) =
+            nia_parser::parse_module("fn first() i32 { 1 }\nfn second() i32 { 2 }");
+        assert!(errors.is_empty(), "{errors:?}");
+        let tree = ModuleItemTree::from_owned_module(module);
+        let original = tree.items.shared_items().collect::<Vec<_>>();
+
+        let pruned = prune_item_tree_for_target_with_profile_mode_and_symbols(
+            &tree,
+            &TargetConfig::host(),
+            BuildProfile::Debug,
+            CompilationMode::Normal,
+            None,
+        );
+        let active = pruned
+            .active_item_tree
+            .items
+            .shared_items()
+            .collect::<Vec<_>>();
+
+        assert!(Arc::ptr_eq(&original[0], &active[0]));
+        assert!(Arc::ptr_eq(&original[1], &active[1]));
+    }
+
+    #[test]
+    fn conditional_statement_pruning_replaces_only_affected_payload() {
+        let (module, errors) = nia_parser::parse_module(
+            r#"
+fn unchanged() i32 { 1 }
+fn changed() i32 {
+    @[if false]
+    _ = 0;
+    2
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let tree = ModuleItemTree::from_owned_module(module);
+        let original = tree.items.shared_items().collect::<Vec<_>>();
+
+        let pruned = prune_item_tree_for_target_with_profile_mode_and_symbols(
+            &tree,
+            &TargetConfig::host(),
+            BuildProfile::Debug,
+            CompilationMode::Normal,
+            None,
+        );
+        let active = pruned
+            .active_item_tree
+            .items
+            .shared_items()
+            .collect::<Vec<_>>();
+
+        assert!(Arc::ptr_eq(&original[0], &active[0]));
+        assert!(!Arc::ptr_eq(&original[1], &active[1]));
+    }
 
     #[test]
     fn conditional_statement_pruning_updates_active_item_tree_bodies() {

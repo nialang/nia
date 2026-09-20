@@ -98,7 +98,7 @@ pub fn collect_item_signatures(
 }
 
 fn collect_item_signatures_from_items(
-    items: &[ItemTreeNode],
+    items: &ItemTreeItems,
     defs: &DefCollection,
     lowered: &TypeLowering,
     type_store: &TypeStore,
@@ -128,7 +128,7 @@ fn collect_item_signatures_from_items(
         consts: HashMap::new(),
         diagnostics: Vec::new(),
     };
-    for item in items {
+    for item in items.iter() {
         collector.collect_item_into(&mut signatures, item);
     }
     if let Some(error) = collector.internal_error {

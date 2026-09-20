@@ -15,9 +15,9 @@ pub(super) struct LocalDefinitionAllocator {
 }
 
 impl LocalDefinitionAllocator {
-    pub(super) fn allocate_items(items: &[ItemTreeNode]) -> nia_ice::IceResult<Self> {
+    pub(super) fn allocate_items(items: &ItemTreeItems) -> nia_ice::IceResult<Self> {
         let mut allocator = Self::default();
-        for item in items {
+        for item in items.iter() {
             allocator.allocate_item_tree_node(item);
         }
         match allocator.failure {

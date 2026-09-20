@@ -51,7 +51,7 @@ impl ModuleFacadeFacts {
         let mut provider_source_paths = Vec::new();
 
         for item in item_tree.items.iter() {
-            if item.visibility == Visibility::Public
+            if item.vis == Visibility::Public
                 && let Some(name) = public_type_name(item)
             {
                 public_type_names.insert(name);
@@ -66,10 +66,10 @@ impl ModuleFacadeFacts {
                 continue;
             };
 
-            if item.visibility == Visibility::Public {
+            if item.vis == Visibility::Public {
                 collect_public_reexport_sources(&host_path, &using.selector, &mut public_reexports);
             }
-            if item.visibility == Visibility::Public || has_declared_modules {
+            if item.vis == Visibility::Public || has_declared_modules {
                 collect_provider_source_paths(
                     &host_path,
                     &using.selector,

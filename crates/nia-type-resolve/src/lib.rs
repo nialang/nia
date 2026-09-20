@@ -19,7 +19,9 @@ use nia_imports::{
     ModuleGraph, ModuleGraphLookup, ModuleRootSegment, module_declaration_visibility_allows,
     visibility_allows,
 };
-use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
+use nia_item_tree::{
+    ActiveModuleItemTree, ItemTreeItems, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree,
+};
 use nia_node_id::{NodeMap, NodeSite, NodeStore, VersionedNodeKey};
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolText, known, symbol_text_from_optional_resolver};

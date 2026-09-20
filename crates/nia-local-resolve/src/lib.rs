@@ -12,7 +12,9 @@ use nia_ast::{
 use nia_defs::DefCollection;
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::LocalId;
-use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
+use nia_item_tree::{
+    ActiveModuleItemTree, ItemTreeItems, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree,
+};
 use nia_node_id::{NodeMap, NodeMapBuilder, NodeStore, VersionedNodeKey};
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, SymbolText, symbol_text_from_optional_resolver};

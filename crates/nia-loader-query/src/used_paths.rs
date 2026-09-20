@@ -2,9 +2,7 @@ use nia_ast::{
     Expr, ExprKind, Item, ItemKind, PathSegmentKind, Stmt, StmtKind, TypeKind, TypePathSegment,
     TypeRef, UsingGroupItem, UsingHostSegment, UsingItem, UsingSelector,
 };
-use nia_ast_walk::{
-    Visitor, walk_expr, walk_generic_params, walk_item, walk_module, walk_stmt, walk_type,
-};
+use nia_ast_walk::{Visitor, walk_expr, walk_generic_params, walk_item, walk_stmt, walk_type};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::{ModuleMap, ModuleRootSegment, ResolvedModuleDeclaration, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
@@ -42,7 +40,6 @@ pub(crate) fn collect_used_modules(
             &mut paths,
         );
     }
-    let module = item_tree.to_module();
     let mut collector = QualifiedPathModuleCollector {
         module_map,
         local_module_names: &local_module_names,
@@ -51,7 +48,9 @@ pub(crate) fn collect_used_modules(
         packages: &mut packages,
         paths: &mut paths,
     };
-    walk_module(&mut collector, &module);
+    for item in item_tree.items.iter() {
+        collector.visit_item(item);
+    }
     packages.sort();
     packages.dedup();
     paths.sort();
@@ -632,7 +631,7 @@ fn module_explicit_imports(
         let ItemTreeNodeKind::Using(using) = &item.kind else {
             continue;
         };
-        if item.visibility != Visibility::Private {
+        if item.vis != Visibility::Private {
             continue;
         }
         collect_explicit_imports_from_using(

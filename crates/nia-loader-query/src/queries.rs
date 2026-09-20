@@ -22,7 +22,7 @@ use nia_query::{
     QueryFingerprintPolicy, QueryKey, QueryResult, QueryRetirement,
 };
 use nia_source::{SourceFile, SourceId, SourcePath, SourceRevision, SourceVersion};
-use nia_target_config::prune_module_for_target_with_profile_mode_and_symbols;
+use nia_target_config::prune_item_tree_for_target_with_profile_mode_and_symbols;
 use std::sync::Arc;
 
 const SOURCE_STATUS_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.loader.source-status");
@@ -294,9 +294,9 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
                 &db.context().node_store,
                 db.context().symbols.clone(),
             );
-        let item_tree = ModuleItemTree::from_module(&raw_module);
-        let prune_result = prune_module_for_target_with_profile_mode_and_symbols(
-            raw_module,
+        let item_tree = ModuleItemTree::from_owned_module(raw_module);
+        let prune_result = prune_item_tree_for_target_with_profile_mode_and_symbols(
+            &item_tree,
             &db.context().target,
             db.context().profile,
             db.context().compilation_mode,

@@ -89,14 +89,18 @@ y
     )
     .expect("resolve locals");
 
-    let mut filtered = full.clone();
-    for item in Arc::make_mut(&mut filtered.items) {
+    let mut filtered_module = full.to_module();
+    for item in &mut filtered_module.items {
         if let ItemTreeNodeKind::Function(function) = &mut item.kind
             && function.name == sym("unused")
         {
             function.body = None;
         }
     }
+    let filtered = ActiveModuleItemTree::from_shared_parts(
+        filtered_module.items.into(),
+        Arc::clone(&full.inactive_spans),
+    );
     let filtered_values = resolve_module_values_from_active_item_tree(
         &filtered,
         &defs,
@@ -152,12 +156,16 @@ fn filtered_tree_with_unallocated_local_identity_returns_internal_error() {
         &nia_defs::PublicSurfaces::default(),
         &nia_defs::ModuleUsingScope::default(),
     );
-    let mut filtered = full.clone();
-    let item = &mut Arc::make_mut(&mut filtered.items)[0];
+    let mut filtered_module = full.to_module();
+    let item = &mut filtered_module.items[0];
     let ItemTreeNodeKind::Function(function) = &mut item.kind else {
         panic!("expected function item");
     };
     function.params[0].node_key.revision = SourceRevision(99);
+    let filtered = ActiveModuleItemTree::from_shared_parts(
+        filtered_module.items.into(),
+        Arc::clone(&full.inactive_spans),
+    );
 
     let error = resolve_module_locals_from_filtered_active_item_tree_with_origins(
         &filtered,

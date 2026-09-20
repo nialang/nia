@@ -37,7 +37,7 @@ pub(super) struct TypeResolveOptions<'a> {
 }
 
 pub(super) fn resolve_module_types_from_items_with_mode(
-    items: &[ItemTreeNode],
+    items: &ItemTreeItems,
     defs: &DefCollection,
     graph: Option<&dyn ModuleGraphLookup>,
     program_defs: ProgramDefsContext<'_>,
@@ -66,7 +66,7 @@ pub(super) fn resolve_module_types_from_items_with_mode(
         associated_type_stack: Vec::new(),
         mode,
     };
-    for item in items {
+    for item in items.iter() {
         resolver.visit_item_tree_node(item);
     }
     let mut node_const_generic_names = NodeMap::builder(node_store);

@@ -1170,7 +1170,7 @@ pub fn resolve_module_declarations_from_active_item_tree_with_symbols(
         }
         declarations.push(ResolvedModuleDeclaration {
             name: module.name,
-            visibility: item.visibility,
+            visibility: item.vis,
             span: item.span,
         });
     }
