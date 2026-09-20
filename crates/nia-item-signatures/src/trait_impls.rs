@@ -97,45 +97,137 @@ impl ProgramTraitImplIndex {
 }
 
 fn type_contains_pattern(type_store: &TypeStore, ty: InternedTyId) -> bool {
-    fn visit(type_store: &TypeStore, ty: InternedTyId, seen: &mut Vec<InternedTyId>) -> bool {
-        if seen.contains(&ty) {
-            return false;
-        }
-        seen.push(ty);
+    fn visit(type_store: &TypeStore, ty: InternedTyId) -> bool {
         let Some(kind) = type_store.get(ty) else {
             return true;
         };
-        let result = match kind {
+        match kind {
             TyKind::GenericParam(_) | TyKind::SelfParam => true,
             TyKind::Nominal {
                 args, const_args, ..
             } => {
-                args.iter().any(|arg| visit(type_store, *arg, seen))
+                args.iter().any(|arg| visit(type_store, *arg))
                     || const_args.iter().any(|arg| {
                         matches!(
                             arg.value,
                             ConstGenericValue::GenericParam(_) | ConstGenericValue::ConstExpr(_)
-                        ) || visit(type_store, arg.ty, seen)
+                        ) || visit(type_store, arg.ty)
                     })
             }
             TyKind::Array { len, elem } => {
                 matches!(len, ArrayLenTy::GenericParam(_) | ArrayLenTy::ConstExpr(_))
-                    || matches!(len, ArrayLenTy::Builtin { ty, .. } if visit(type_store, *ty, seen))
-                    || visit(type_store, *elem, seen)
+                    || matches!(len, ArrayLenTy::Builtin { ty, .. } if visit(type_store, *ty))
+                    || visit(type_store, *elem)
             }
             _ => {
                 let mut nested = false;
                 kind.visit_referenced_types(|referenced| {
-                    nested |= visit(type_store, referenced, seen);
+                    nested |= visit(type_store, referenced);
                 });
                 nested
             }
-        };
-        seen.pop();
-        result
+        }
     }
 
-    visit(type_store, ty, &mut Vec::new())
+    // TypeStore only publishes kinds whose referenced handles already belong
+    // to that store, so its immutable type graph is acyclic by construction.
+    visit(type_store, ty)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn impl_signature(
+        module_id: nia_ids::ModuleId,
+        impl_id: u64,
+        target_ty: InternedTyId,
+        trait_id: TraitId,
+    ) -> ProgramTraitImplSignature {
+        ProgramTraitImplSignature {
+            module_id,
+            impl_id: nia_ids::TraitImplId(impl_id),
+            builtin: None,
+            generics: Vec::new(),
+            generic_params: Vec::new(),
+            target_ty,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            where_predicates: Vec::new(),
+            associated_types: Vec::new(),
+            associated_values: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn target_index_keeps_pattern_and_foreign_types_in_fallback() {
+        let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
+        let store = TypeStore::new().expect("create type store");
+        let append = store.append_for_module(module_id);
+        let concrete = append
+            .primitive(nia_ty::PrimitiveTy::I32)
+            .expect("intern concrete type");
+        let unrelated = append
+            .primitive(nia_ty::PrimitiveTy::Bool)
+            .expect("intern unrelated concrete type");
+        let usize_ty = append
+            .primitive(nia_ty::PrimitiveTy::Usize)
+            .expect("intern const argument type");
+        let type_param = append
+            .intern(TyKind::GenericParam(SymbolId::from_stable_hash(1)))
+            .expect("intern generic parameter");
+        let generic_target = append
+            .intern(TyKind::Nominal {
+                def_id: nia_ids::GlobalDefId {
+                    module_id,
+                    def_id: nia_ids::DefId(1),
+                },
+                args: vec![type_param],
+                const_args: Vec::new(),
+            })
+            .expect("intern generic target");
+        let const_target = append
+            .intern(TyKind::Nominal {
+                def_id: nia_ids::GlobalDefId {
+                    module_id,
+                    def_id: nia_ids::DefId(2),
+                },
+                args: Vec::new(),
+                const_args: vec![nia_ty::ConstGenericArg {
+                    ty: usize_ty,
+                    value: ConstGenericValue::GenericParam(SymbolId::from_stable_hash(2)),
+                }],
+            })
+            .expect("intern const-generic target");
+        let foreign_store = TypeStore::new().expect("create foreign type store");
+        let foreign_target = foreign_store
+            .append_for_module(module_id)
+            .primitive(nia_ty::PrimitiveTy::I32)
+            .expect("intern foreign target");
+        let trait_id = TraitId::Source(nia_ids::GlobalDefId {
+            module_id,
+            def_id: nia_ids::DefId(3),
+        });
+        let trait_impls = [
+            impl_signature(module_id, 0, concrete, trait_id),
+            impl_signature(module_id, 1, generic_target, trait_id),
+            impl_signature(module_id, 2, const_target, trait_id),
+            impl_signature(module_id, 3, foreign_target, trait_id),
+        ];
+
+        let index = ProgramTraitImplIndex::new_with_type_store(&trait_impls, &store);
+
+        assert_eq!(
+            index.indexes_for_trait_and_target(trait_id, concrete),
+            vec![0, 1, 2, 3]
+        );
+        assert_eq!(
+            index.indexes_for_trait_and_target(trait_id, unrelated),
+            vec![1, 2, 3]
+        );
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
