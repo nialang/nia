@@ -917,6 +917,15 @@ impl ModuleGraph {
             child,
         )
     }
+
+    /// Computes a child source path below a non-root module.
+    pub fn declared_nested_child_source_path(
+        &self,
+        parent_path: &SourcePath,
+        child: SymbolId,
+    ) -> SourcePath {
+        declared_nested_child_source_path_with_symbols(self.symbols.as_ref(), parent_path, child)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1318,33 +1327,47 @@ pub fn declared_child_source_path_for_with_symbols_and_entry(
     child: SymbolId,
     entry_module: bool,
 ) -> SourcePath {
+    let sibling = entry_module
+        || (parent_module_path.is_package_root()
+            && (parent_module_path.is_entry_package() || is_package_root_file(parent_path)));
+    declared_child_source_path_with_layout(symbols, parent_path, child, sibling)
+}
+
+fn declared_nested_child_source_path_with_symbols(
+    symbols: &dyn SymbolText,
+    parent_path: &SourcePath,
+    child: SymbolId,
+) -> SourcePath {
+    declared_child_source_path_with_layout(symbols, parent_path, child, false)
+}
+
+fn declared_child_source_path_with_layout(
+    symbols: &dyn SymbolText,
+    parent_path: &SourcePath,
+    child: SymbolId,
+    sibling: bool,
+) -> SourcePath {
     let child = resolved_module_symbol_text(symbols, child);
     let physical_parent = parent_path.as_str();
     let logical_parent = parent_path.identity_ref().normalized_path();
-    let physical =
-        declared_child_path_text(physical_parent, parent_module_path, &child, entry_module);
+    let physical = declared_child_path_text(physical_parent, &child, sibling);
     if physical_parent == logical_parent {
         return SourcePath::from_normalized_unchecked(physical);
     }
-    let logical =
-        declared_child_path_text(logical_parent, parent_module_path, &child, entry_module);
+    let logical = declared_child_path_text(logical_parent, &child, sibling);
     SourcePath::with_normalized_identity_unchecked(physical, logical)
 }
 
-fn declared_child_path_text(
-    parent_path: &str,
-    parent_module_path: &ModulePath,
-    child: &str,
-    entry_module: bool,
-) -> String {
-    let package_root_file = parent_path
+fn is_package_root_file(parent_path: &SourcePath) -> bool {
+    parent_path
+        .as_str()
         .rsplit_once('/')
-        .map_or(parent_path, |(_, file)| file)
-        == "pkg.nia";
-    let base = if entry_module
-        || (parent_module_path.is_package_root()
-            && (parent_module_path.is_entry_package() || package_root_file))
-    {
+        .map_or(parent_path.as_str(), |(_, file)| file)
+        == "pkg.nia"
+}
+
+fn declared_child_path_text(parent_path: &str, child: &str, sibling: bool) -> String {
+    let base = if sibling {
         parent_path.rsplit_once('/').map_or("", |(dir, _)| dir)
     } else {
         parent_path.strip_suffix(".nia").unwrap_or(parent_path)

@@ -322,7 +322,7 @@ fn add_reexport_provider_modules_matching(
     let selected_paths = prefer_selected_branches.then(|| {
         source_paths
             .iter()
-            .filter(|path| provider_branch_is_semantic_selected(db, graph, facade_module, path))
+            .filter(|path| provider_branch_is_semantic_selected(graph, facade_module, path))
             .cloned()
             .collect::<Vec<_>>()
     });
@@ -357,13 +357,11 @@ fn add_reexport_provider_modules_matching(
 }
 
 fn provider_branch_is_semantic_selected(
-    db: &QueryDb<LoaderContext>,
     graph: &ModuleGraph,
     facade_module: nia_imports::ModuleId,
     path: &UsedModulePath,
 ) -> bool {
-    let Some(candidate_path) = resolve_used_module_path_source(db, graph, facade_module, path)
-    else {
+    let Some(candidate_path) = resolve_used_module_path_source(graph, facade_module, path) else {
         return false;
     };
     let Some(candidate) = graph.module_id_for_source_identity(&candidate_path.identity()) else {
@@ -397,7 +395,7 @@ fn add_reexport_provider_modules_matching_inner(
     let mut any_match = false;
     for source_path in source_paths {
         let Some(candidate_path) =
-            resolve_used_module_path_source(db, graph, facade_module, source_path)
+            resolve_used_module_path_source(graph, facade_module, source_path)
         else {
             continue;
         };
@@ -458,64 +456,32 @@ fn add_reexport_provider_modules_matching_inner(
 }
 
 fn resolve_used_module_path_source(
-    db: &QueryDb<LoaderContext>,
     graph: &ModuleGraph,
     current_module: nia_imports::ModuleId,
     path: &UsedModulePath,
 ) -> Option<SourcePath> {
     let start = used_path_start(graph, current_module, path)?;
-    let start_node = graph.get(start)?;
-    resolve_child_source_path(
-        graph,
-        start_node.path.clone(),
-        start_node.module_path.clone(),
-        path.segments(),
-    )
-    .or_else(|| {
-        let existing = add_existing_module_path_source(graph, start, path.segments())?;
-        Some(existing)
-    })
-    .or_else(|| {
-        let _ = db;
-        None
-    })
+    resolve_child_source_path(graph, start, path.segments())
 }
 
 fn resolve_child_source_path(
-    graph: &ModuleGraph,
-    start_path: SourcePath,
-    start_module_path: nia_imports::ModulePath,
-    segments: &[SymbolId],
-) -> Option<SourcePath> {
-    let mut path = start_path;
-    let mut module_path = start_module_path;
-    for segment in segments {
-        let parent_module_path_len = module_path.segments.len();
-        module_path.segments.push(*segment);
-        path = if let Some(existing) = graph
-            .module_id_for_module_path(&module_path)
-            .and_then(|module_id| graph.get(module_id))
-            .map(|node| node.path.clone())
-        {
-            existing
-        } else {
-            module_path.segments.truncate(parent_module_path_len);
-            let child = graph.declared_child_source_path_for(&path, &module_path, *segment);
-            module_path.segments.push(*segment);
-            child
-        };
-    }
-    Some(path)
-}
-
-fn add_existing_module_path_source(
     graph: &ModuleGraph,
     start: nia_imports::ModuleId,
     segments: &[SymbolId],
 ) -> Option<SourcePath> {
     let mut current = start;
-    for segment in segments {
-        current = graph.get(current)?.children.get(segment).copied()?;
+    for (index, segment) in segments.iter().enumerate() {
+        let node = graph.get(current)?;
+        if let Some(child) = node.children.get(segment).copied() {
+            current = child;
+            continue;
+        }
+
+        let mut path = graph.declared_child_source_path(node, *segment);
+        for descendant in &segments[index + 1..] {
+            path = graph.declared_nested_child_source_path(&path, *descendant);
+        }
+        return Some(path);
     }
     graph.get(current).map(|node| node.path.clone())
 }
@@ -563,4 +529,51 @@ pub(crate) fn module_defines_extensions(
     Ok(db
         .get(provider_summary_query(db, &node.path)?)?
         .has_providers())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_imports::Visibility;
+    use nia_span::Span;
+
+    #[test]
+    fn provider_source_resolution_preserves_existing_paths_before_deriving_suffixes() {
+        let mut graph = ModuleGraph::new(SourcePath::new("src/main.nia")).expect("module graph");
+        let entry = graph.entry();
+        let explicit =
+            SourcePath::with_identity("/opt/nia/runtime/start.nia", "toolchain:/runtime/start.nia");
+        let start = graph
+            .intern_declared_child_with_source_path(
+                entry,
+                &known::START,
+                Visibility::Private,
+                Span::default(),
+                explicit.clone(),
+            )
+            .expect("explicit child");
+
+        assert_eq!(
+            resolve_child_source_path(&graph, entry, &[known::START]),
+            Some(explicit)
+        );
+        let descendant = resolve_child_source_path(&graph, entry, &[known::START, known::MAIN])
+            .expect("derived descendant");
+        assert_eq!(descendant.as_str(), "/opt/nia/runtime/start/main.nia");
+        assert_eq!(
+            descendant.identity_ref().normalized_path(),
+            "toolchain:/runtime/start/main.nia"
+        );
+        assert_eq!(graph.get(start).expect("start node").parent, Some(entry));
+    }
+
+    #[test]
+    fn provider_source_resolution_uses_entry_sibling_then_nested_layout() {
+        let graph = ModuleGraph::new(SourcePath::new("src/main.nia")).expect("module graph");
+        let resolved =
+            resolve_child_source_path(&graph, graph.entry(), &[known::START, known::MAIN])
+                .expect("derived path");
+
+        assert_eq!(resolved.as_str(), "src/start/main.nia");
+    }
 }
