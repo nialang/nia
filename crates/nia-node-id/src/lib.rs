@@ -67,6 +67,13 @@ impl NodeChildPath {
         }
     }
 
+    /// Copies a borrowed child-index path into immutable shared storage.
+    pub fn from_slice(steps: &[u32]) -> Self {
+        Self {
+            steps: Arc::from(steps),
+        }
+    }
+
     /// Returns child indices from root to node.
     pub fn steps(&self) -> &[u32] {
         &self.steps
@@ -967,6 +974,15 @@ mod tests {
 
         assert!(Arc::ptr_eq(&path.steps, &cloned.steps));
         assert_eq!(cloned.steps(), &[0, 2, 1]);
+    }
+
+    #[test]
+    fn child_path_copies_borrowed_steps() {
+        let mut steps = vec![0, 2, 1];
+        let path = NodeChildPath::from_slice(&steps);
+        steps[1] = 9;
+
+        assert_eq!(path.steps(), &[0, 2, 1]);
     }
 
     #[test]
