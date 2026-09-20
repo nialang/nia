@@ -1468,6 +1468,12 @@ mod tests {
     use nia_ids::ModuleIdAllocator;
     use nia_node_id::{NodeChildPath, SyntaxKind};
     use nia_source::{SourceId, SourceRevision, SourceVersion};
+    use std::sync::OnceLock;
+
+    fn test_source_id() -> SourceId {
+        static SOURCE_ID: OnceLock<SourceId> = OnceLock::new();
+        *SOURCE_ID.get_or_init(SourceId::isolated)
+    }
 
     fn key() -> VersionedNodeKey {
         key_at(0)
@@ -1476,7 +1482,7 @@ mod tests {
     fn key_at(step: u32) -> VersionedNodeKey {
         VersionedNodeKey::child_path(
             SourceVersion {
-                id: SourceId(0),
+                id: test_source_id(),
                 revision: SourceRevision::INITIAL,
             },
             SyntaxKind::Expr,

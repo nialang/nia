@@ -1208,8 +1208,9 @@ fn selected() i32 { 2 }
     #[test]
     fn source_revision_changes_do_not_change_item_tree_declaration_shape() {
         let source = "pub fn main(value: i32) i32 { value }";
-        let before_tree = parse_versioned_item_tree(source, SourceRevision::INITIAL);
-        let after_tree = parse_versioned_item_tree(source, SourceRevision(1));
+        let source_id = SourceId::isolated();
+        let before_tree = parse_versioned_item_tree(source, source_id, SourceRevision::INITIAL);
+        let after_tree = parse_versioned_item_tree(source, source_id, SourceRevision(1));
 
         assert_ne!(before_tree, after_tree);
         assert!(before_tree.declaration_eq(&after_tree));
@@ -1217,9 +1218,14 @@ fn selected() i32 { 2 }
 
     #[test]
     fn body_change_with_new_source_revision_keeps_function_declaration_shape() {
-        let before_tree =
-            parse_versioned_item_tree("pub fn main() i32 { 0 }", SourceRevision::INITIAL);
-        let after_tree = parse_versioned_item_tree("pub fn main() i32 { 1 }", SourceRevision(1));
+        let source_id = SourceId::isolated();
+        let before_tree = parse_versioned_item_tree(
+            "pub fn main() i32 { 0 }",
+            source_id,
+            SourceRevision::INITIAL,
+        );
+        let after_tree =
+            parse_versioned_item_tree("pub fn main() i32 { 1 }", source_id, SourceRevision(1));
 
         assert_ne!(before_tree, after_tree);
         assert!(before_tree.declaration_eq(&after_tree));
@@ -1227,12 +1233,15 @@ fn selected() i32 { 2 }
 
     #[test]
     fn attribute_layout_and_source_revision_do_not_change_declaration_shape() {
+        let source_id = SourceId::isolated();
         let before_tree = parse_versioned_item_tree(
             "@[if true]\n@[linkName(\"main\")]\npub fn main() i32 { 0 }",
+            source_id,
             SourceRevision::INITIAL,
         );
         let after_tree = parse_versioned_item_tree(
             "\n\n@[if true]\n@[linkName(\"main\")]\npub fn main() i32 { 1 }",
+            source_id,
             SourceRevision(1),
         );
 
@@ -1242,12 +1251,15 @@ fn selected() i32 { 2 }
 
     #[test]
     fn using_spans_and_source_revision_do_not_change_declaration_shape() {
+        let source_id = SourceId::isolated();
         let before_tree = parse_versioned_item_tree(
             "using math::{add, sub as minus, Operator::*};",
+            source_id,
             SourceRevision::INITIAL,
         );
         let after_tree = parse_versioned_item_tree(
             "\n\nusing math::{ add, sub as minus, Operator::* };",
+            source_id,
             SourceRevision(1),
         );
 
@@ -1258,12 +1270,15 @@ fn selected() i32 { 2 }
 
     #[test]
     fn enum_discriminant_spans_and_revision_do_not_change_declaration_shape() {
+        let source_id = SourceId::isolated();
         let before_tree = parse_versioned_item_tree(
             "enum Mode: u8 { Zero = 0, One = 1 + 0 }",
+            source_id,
             SourceRevision::INITIAL,
         );
         let after_tree = parse_versioned_item_tree(
             "\n\nenum Mode: u8 { Zero = 0, One = 1 + 0 }",
+            source_id,
             SourceRevision(1),
         );
 
@@ -1301,9 +1316,13 @@ fn main(items: & [ Box[ i32 ] ]) & Box[ i32 ] { &items[0] }
         assert!(before_tree.declaration_eq(&after_tree));
     }
 
-    fn parse_versioned_item_tree(source: &str, revision: SourceRevision) -> ModuleItemTree {
+    fn parse_versioned_item_tree(
+        source: &str,
+        source_id: SourceId,
+        revision: SourceRevision,
+    ) -> ModuleItemTree {
         let version = SourceVersion {
-            id: SourceId(0),
+            id: source_id,
             revision,
         };
         let syntax = nia_syntax::parse_source(source, Some(version));

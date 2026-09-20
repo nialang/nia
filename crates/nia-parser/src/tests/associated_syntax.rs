@@ -44,7 +44,7 @@ fn main() i32 {
 fn generic_type_or_const_arguments_retain_both_origins() {
     let source = "type Alias = Box[i32];\n";
     let version = SourceVersion {
-        id: SourceId(13),
+        id: SourceId::isolated(),
         revision: SourceRevision(1),
     };
     let syntax = nia_syntax::parse_source(source, Some(version));

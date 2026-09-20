@@ -1356,13 +1356,19 @@ mod tests {
     use crate::MatchExpr;
     use nia_node_id::{SyntaxKind, VersionedNodeKey};
     use nia_source::{SourceId, SourceRevision, SourceVersion};
+    use std::sync::OnceLock;
+
+    fn test_source_id() -> SourceId {
+        static SOURCE_ID: OnceLock<SourceId> = OnceLock::new();
+        *SOURCE_ID.get_or_init(SourceId::isolated)
+    }
 
     fn type_ref(kind: TypeKind, span: Span) -> TypeRef {
         TypeRef {
             span,
             node_key: VersionedNodeKey::span(
                 SourceVersion {
-                    id: SourceId(1),
+                    id: test_source_id(),
                     revision: SourceRevision::INITIAL,
                 },
                 SyntaxKind::Type,
@@ -1378,7 +1384,7 @@ mod tests {
             span,
             node_key: VersionedNodeKey::span(
                 SourceVersion {
-                    id: SourceId(1),
+                    id: test_source_id(),
                     revision: SourceRevision::INITIAL,
                 },
                 SyntaxKind::Expr,
@@ -1545,7 +1551,7 @@ mod tests {
             kind,
             node_key: VersionedNodeKey::span(
                 SourceVersion {
-                    id: SourceId(1),
+                    id: test_source_id(),
                     revision: SourceRevision::INITIAL,
                 },
                 SyntaxKind::Item,
@@ -1560,7 +1566,7 @@ mod tests {
                         span: Span::default(),
                         node_key: VersionedNodeKey::span(
                             SourceVersion {
-                                id: SourceId(1),
+                                id: test_source_id(),
                                 revision: SourceRevision::INITIAL,
                             },
                             SyntaxKind::Stmt,
@@ -1594,7 +1600,7 @@ mod tests {
                         span: Span::default(),
                         node_key: VersionedNodeKey::span(
                             SourceVersion {
-                                id: SourceId(1),
+                                id: test_source_id(),
                                 revision: SourceRevision::INITIAL,
                             },
                             SyntaxKind::Stmt,

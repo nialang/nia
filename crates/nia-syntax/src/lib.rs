@@ -858,7 +858,7 @@ mod tests {
     #[test]
     fn tokens_filter_trivia_but_keep_source_text() {
         let version = SourceVersion {
-            id: SourceId(5),
+            id: SourceId::isolated(),
             revision: SourceRevision(1),
         };
         let tree = parse_source("fn  main() // c\n{}", Some(version));
@@ -908,7 +908,7 @@ mod tests {
     #[test]
     fn token_cursor_finds_tokens_around_offsets_by_span() {
         let version = SourceVersion {
-            id: SourceId(7),
+            id: SourceId::isolated(),
             revision: SourceRevision(1),
         };
         let tree = parse_source("fn  main() {}\n", Some(version));
@@ -1004,7 +1004,7 @@ mod tests {
     #[test]
     fn red_root_has_child_path_node_identity() {
         let version = SourceVersion {
-            id: SourceId(2),
+            id: SourceId::isolated(),
             revision: SourceRevision(5),
         };
         let tree = parse_source("fn main() () {}", Some(version));
@@ -1020,7 +1020,7 @@ mod tests {
     #[test]
     fn delimiter_groups_create_nested_child_paths() {
         let version = SourceVersion {
-            id: SourceId(3),
+            id: SourceId::isolated(),
             revision: SourceRevision(1),
         };
         let tree = parse_source("fn main() i32 { (1 + 2) }", Some(version));
@@ -1077,12 +1077,13 @@ mod tests {
 
     #[test]
     fn reparses_single_token_edit_partially() {
+        let source_id = SourceId::isolated();
         let original_version = SourceVersion {
-            id: SourceId(4),
+            id: source_id,
             revision: SourceRevision(1),
         };
         let edited_version = SourceVersion {
-            id: SourceId(4),
+            id: source_id,
             revision: SourceRevision(2),
         };
         let source = "fn main() i32 { 1 }";

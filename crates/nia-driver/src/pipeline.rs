@@ -699,6 +699,7 @@ impl Driver {
             &loader_trace,
             &output,
             database.provider_demand_rounds(),
+            self.sources.source_table_stats(),
         )?;
         Ok(output)
     }
@@ -722,6 +723,7 @@ impl Driver {
             &loader_trace,
             &output,
             database.provider_demand_rounds(),
+            self.sources.source_table_stats(),
         )?;
         Ok((output, source_manifest))
     }
@@ -904,6 +906,7 @@ impl Driver {
                     backend_module_count,
                 },
                 database.provider_demand_rounds(),
+                self.sources.source_table_stats(),
             ) {
                 return DriverOutput::from_error(DriverError::InternalDiagnostic(
                     query_error_diagnostic(error),
@@ -1025,6 +1028,7 @@ impl Driver {
                         backend_module_count: emission.backend_module_count,
                     },
                     database.provider_demand_rounds(),
+                    self.sources.source_table_stats(),
                 )
             }) {
                 return DriverOutput::from_error(DriverError::InternalDiagnostic(
@@ -1897,6 +1901,7 @@ fn emit_compilation_counters(
     loader_trace: &nia_query::QueryTrace,
     output: &impl ProviderDemandOutput,
     provider_demand_rounds: u64,
+    source_stats: nia_source::SourceTableStats,
 ) -> nia_query::QueryResult<()> {
     if !timings.enabled() {
         return Ok(());
@@ -1904,6 +1909,10 @@ fn emit_compilation_counters(
     let compiler_trace = database.query_trace()?;
     let traces = [loader_trace, &compiler_trace];
     let graph = database.module_graph()?;
+    nia_timing::emit_counter("source.paths", source_stats.path_count);
+    nia_timing::emit_counter("source.child_requests", source_stats.child_requests);
+    nia_timing::emit_counter("source.child_hits", source_stats.child_hits);
+    nia_timing::emit_counter("source.child_misses", source_stats.child_misses);
     nia_timing::emit_counter("compiler.loaded_modules", graph.modules().count() as u64);
     nia_timing::emit_counter(
         "compiler.semantic_selected_modules",

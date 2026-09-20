@@ -342,11 +342,7 @@ impl LoaderDatabase {
         let graph = self.db.get(graph::ModuleGraphQuery)?;
         let mut sources = Vec::with_capacity(graph.semantic.modules().count());
         for module in graph.semantic.modules() {
-            let source_id = self
-                .sources
-                .id_for_path(&module.path)
-                .map_err(|error| QueryError::internal(error.to_string()))?;
-            let source = self.db.get(SourceTextQuery(source_id))?;
+            let source = self.db.get(SourceTextQuery(module.source_id))?;
             let content = source
                 .file
                 .as_ref()

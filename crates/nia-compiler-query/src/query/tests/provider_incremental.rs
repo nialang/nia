@@ -112,7 +112,7 @@ fn additive_module_growth_discards_diagnostic_executable_facts() {
     grown_versions.insert(
         module_ids.allocate().expect("allocate module ID"),
         SourceVersion {
-            id: SourceId(u32::MAX),
+            id: SourceId::isolated(),
             revision: SourceRevision::INITIAL,
         },
     );

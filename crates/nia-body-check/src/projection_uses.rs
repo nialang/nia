@@ -81,7 +81,7 @@ const result: usize = {
         let syntax = nia_syntax::parse_source(
             source,
             Some(SourceVersion {
-                id: SourceId(1),
+                id: SourceId::isolated(),
                 revision: SourceRevision::INITIAL,
             }),
         );

@@ -5,8 +5,9 @@ fn stable_module(path: &str) -> StableModuleKey {
 }
 
 fn source_version() -> SourceVersion {
+    static SOURCE_ID: std::sync::OnceLock<SourceId> = std::sync::OnceLock::new();
     SourceVersion {
-        id: SourceId(1),
+        id: *SOURCE_ID.get_or_init(SourceId::isolated),
         revision: SourceRevision(1),
     }
 }

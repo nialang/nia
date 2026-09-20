@@ -56,7 +56,7 @@ fn defs_from_source(module_id: nia_ids::ModuleId, source: &str) -> DefCollection
     let syntax = nia_syntax::parse_source(
         source,
         Some(SourceVersion {
-            id: SourceId(module_id.local_index()),
+            id: SourceId::isolated(),
             revision: SourceRevision::INITIAL,
         }),
     );

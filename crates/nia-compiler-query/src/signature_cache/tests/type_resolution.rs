@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn type_resolution_encoding_is_independent_of_map_insertion_order() {
     let version = SourceVersion {
-        id: SourceId(11),
+        id: SourceId::isolated(),
         revision: SourceRevision(4),
     };
     let sites = [
@@ -60,12 +60,12 @@ fn type_resolution_encoding_is_independent_of_map_insertion_order() {
 #[test]
 fn type_resolution_encoding_rejects_foreign_source_and_revision() {
     let version = SourceVersion {
-        id: SourceId(11),
+        id: SourceId::isolated(),
         revision: SourceRevision(4),
     };
     let store = nia_node_id::NodeStore::new();
     let foreign_site = NodeSite {
-        source_id: SourceId(12),
+        source_id: SourceId::isolated(),
         kind: SyntaxKind::Type,
         position: NodePosition::Span(nia_span::Span::new(0, 1)),
     };
@@ -138,7 +138,7 @@ fn type_resolution_rehydrates_current_source_module_and_symbol_owners() {
     let old_module = old_ids.allocate().expect("allocate module ID");
     let old_dependency = old_ids.allocate().expect("allocate module ID");
     let old_version = SourceVersion {
-        id: SourceId(3),
+        id: SourceId::isolated(),
         revision: SourceRevision(7),
     };
     let old_store = nia_node_id::NodeStore::new();
@@ -220,7 +220,7 @@ fn type_resolution_rehydrates_current_source_module_and_symbol_owners() {
     let new_dependency = new_ids.allocate().expect("allocate module ID");
     let new_module = new_ids.allocate().expect("allocate module ID");
     let new_version = SourceVersion {
-        id: SourceId(90),
+        id: SourceId::isolated(),
         revision: SourceRevision(2),
     };
     let new_store = nia_node_id::NodeStore::new();

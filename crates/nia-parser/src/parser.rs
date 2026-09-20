@@ -38,7 +38,7 @@ mod types;
 
 fn synthetic_source_version() -> SourceVersion {
     SourceVersion {
-        id: SourceId(u32::MAX),
+        id: SourceId::isolated(),
         revision: SourceRevision::INITIAL,
     }
 }
@@ -105,6 +105,7 @@ pub struct Parser {
     symbols: SymbolTable,
     errors: Vec<ParseError>,
     origins: NodeOriginTableBuilder,
+    fallback_source_version: SourceVersion,
 }
 
 /// A parser checkpoint covers both token position and origin-map mutations.
@@ -148,6 +149,11 @@ impl Parser {
 
     fn from_syntax(syntax: &SyntaxTree, symbols: SymbolTable, node_store: &NodeStore) -> Self {
         let tokens = SyntaxTokenCursor::new(syntax);
+        let fallback_source_version = tokens
+            .tokens()
+            .iter()
+            .find_map(SyntaxToken::source_version)
+            .unwrap_or_else(synthetic_source_version);
         let errors = tokens
             .tokens()
             .iter()
@@ -166,6 +172,7 @@ impl Parser {
             symbols,
             errors,
             origins: NodeOriginTable::builder(node_store),
+            fallback_source_version,
         }
     }
 
@@ -192,11 +199,11 @@ impl Parser {
             return self.insert_fallback_node_key(kind, span);
         };
         // Syntax tooling may construct trees without a session source version.
-        // Keep those standalone parses usable with the same reserved identity
-        // as `parse_module`, while still rejecting genuinely mixed revisions.
+        // Reuse one isolated identity for every origin in a standalone parse,
+        // while still rejecting genuinely mixed revisions.
         let version = start
             .source_version()
-            .unwrap_or_else(synthetic_source_version);
+            .unwrap_or(self.fallback_source_version);
         if let Some(end_version) = end.source_version()
             && end_version != version
         {
@@ -218,12 +225,7 @@ impl Parser {
         // progress with a span identity rather than turning recovery input
         // into an internal panic; normal lexer-produced trees keep the more
         // precise child-path identity above.
-        let version = self
-            .tokens
-            .tokens()
-            .iter()
-            .find_map(SyntaxToken::source_version)
-            .unwrap_or_else(synthetic_source_version);
+        let version = self.fallback_source_version;
         let key = VersionedNodeKey::span(version, kind, span);
         self.origins.insert(kind, span, key.clone());
         key

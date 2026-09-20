@@ -3032,7 +3032,8 @@ fn source_version_fingerprint(
     version: SourceVersion,
 ) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
-    builder.write_u64(u64::from(version.id.0));
+    builder.write_u64(u64::from(version.id.store_index()));
+    builder.write_u64(u64::from(version.id.local_index()));
     builder.write_u64(version.revision.0);
     builder.finish()
 }

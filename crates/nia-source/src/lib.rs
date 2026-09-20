@@ -7,7 +7,10 @@ use std::{
     hash::{Hash, Hasher},
     io::{self, Read},
     path::Path,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
 };
 
 /// Maximum UTF-8 source bytes accepted from one filesystem file.
@@ -43,8 +46,57 @@ fn source_file_too_large() -> io::Error {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-/// Session-local identity assigned to one logical source path.
-pub struct SourceId(pub u32);
+/// Identity of the source store that owns compact source handles.
+pub struct SourceStoreId(u32);
+
+impl SourceStoreId {
+    fn fresh() -> Self {
+        static NEXT_SOURCE_STORE_ID: AtomicU32 = AtomicU32::new(1);
+        let id = NEXT_SOURCE_STORE_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .unwrap_or(u32::MAX);
+        Self(id)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Monotonic source index within one source store.
+struct SourceIndex(u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Compact session-local source handle scoped to one source store.
+pub struct SourceId {
+    store_id: SourceStoreId,
+    index: SourceIndex,
+}
+
+impl SourceId {
+    /// Creates a handle for one source that is intentionally not table-managed.
+    ///
+    /// This is used by standalone parsing APIs. Related sources must instead be
+    /// allocated by the same [`SourceTable`] so owner checks remain meaningful.
+    pub fn isolated() -> Self {
+        Self {
+            store_id: SourceStoreId::fresh(),
+            index: SourceIndex(0),
+        }
+    }
+
+    /// Returns the source store that owns this handle.
+    pub fn store_id(self) -> SourceStoreId {
+        self.store_id
+    }
+
+    /// Returns the numeric identity of the owning source store.
+    pub fn store_index(self) -> u32 {
+        self.store_id.0
+    }
+
+    /// Returns the compact index within the owning source store.
+    pub fn local_index(self) -> u32 {
+        self.index.0
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Monotonic version of source text stored under one [`SourceId`].
@@ -63,13 +115,35 @@ impl SourceRevision {
     }
 }
 
-/// Failure returned when a source identity counter cannot allocate another id.
+/// Failure to allocate or resolve an owner-qualified source identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SourceIdentityError;
+pub enum SourceIdentityError {
+    /// The source store cannot allocate another compact index.
+    IdentitySpaceExhausted,
+    /// The source text revision cannot advance further.
+    RevisionSpaceExhausted,
+    /// A handle owned by another source store was presented to this store.
+    ForeignSource {
+        /// Source store required by the operation.
+        expected: SourceStoreId,
+        /// Source store carried by the supplied handle.
+        actual: SourceStoreId,
+    },
+    /// The handle has this store's owner but does not name an allocated path.
+    UnknownSource(SourceId),
+}
 
 impl std::fmt::Display for SourceIdentityError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("source identity space exhausted")
+        match self {
+            Self::IdentitySpaceExhausted => f.write_str("source identity space exhausted"),
+            Self::RevisionSpaceExhausted => f.write_str("source revision space exhausted"),
+            Self::ForeignSource { expected, actual } => write!(
+                f,
+                "source handle belongs to store {actual:?}, expected store {expected:?}"
+            ),
+            Self::UnknownSource(id) => write!(f, "unknown source handle {id:?}"),
+        }
     }
 }
 
@@ -243,6 +317,35 @@ impl SourcePath {
     pub fn identity_ref(&self) -> &SourceIdentity {
         &self.identity
     }
+
+    /// Derives a normalized child file while preserving logical relocation.
+    pub fn derived_child_file(&self, child: &str, sibling: bool) -> Self {
+        let physical = derived_child_path_text(self.as_str(), child, sibling);
+        let logical_parent = self.identity_ref().normalized_path();
+        if self.as_str() == logical_parent {
+            return Self::from_normalized_unchecked(physical);
+        }
+        let logical = derived_child_path_text(logical_parent, child, sibling);
+        Self::with_normalized_identity_unchecked(physical, logical)
+    }
+}
+
+fn derived_child_path_text(parent_path: &str, child: &str, sibling: bool) -> String {
+    let base = if sibling {
+        parent_path.rsplit_once('/').map_or("", |(dir, _)| dir)
+    } else {
+        parent_path.strip_suffix(".nia").unwrap_or(parent_path)
+    };
+    let mut path = String::with_capacity(
+        base.len() + usize::from(!base.is_empty()) + child.len() + ".nia".len(),
+    );
+    if !base.is_empty() {
+        path.push_str(base);
+        path.push('/');
+    }
+    path.push_str(child);
+    path.push_str(".nia");
+    path
 }
 
 /// Lexically normalizes `/`, `.`, and `..` path components.
@@ -309,38 +412,109 @@ impl SourceFile {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 /// Concurrent bijection between logical source paths and session-local ids.
 pub struct SourceTable {
+    id: SourceStoreId,
     inner: Arc<Mutex<SourceTableInner>>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Work counters for one source/path interner lifetime.
+pub struct SourceTableStats {
+    /// Number of canonical source paths interned so far.
+    pub path_count: u64,
+    /// Total child derivation requests.
+    pub child_requests: u64,
+    /// Child derivations served without constructing a path.
+    pub child_hits: u64,
+    /// Unique child derivations constructed and interned.
+    pub child_misses: u64,
 }
 
 #[derive(Debug, Default)]
 struct SourceTableInner {
     ids_by_path: nia_hash::FastHashMap<Arc<SourcePath>, SourceId>,
     paths_by_id: Vec<Arc<SourcePath>>,
+    child_ids: nia_hash::FastHashMap<(SourceId, bool), nia_hash::FastHashMap<Arc<str>, SourceId>>,
+    child_requests: u64,
+    child_hits: u64,
+    child_misses: u64,
     next_id: u32,
 }
 
 impl SourceTable {
     /// Creates an empty source identity table.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            id: SourceStoreId::fresh(),
+            inner: Arc::new(Mutex::new(SourceTableInner::default())),
+        }
+    }
+
+    /// Returns this table's unique session-local identity.
+    pub fn id(&self) -> SourceStoreId {
+        self.id
+    }
+
+    /// Returns current path and child-derivation work counts.
+    pub fn stats(&self) -> SourceTableStats {
+        let inner = self.inner.lock();
+        SourceTableStats {
+            path_count: inner.paths_by_id.len() as u64,
+            child_requests: inner.child_requests,
+            child_hits: inner.child_hits,
+            child_misses: inner.child_misses,
+        }
     }
 
     /// Returns the existing id for a path or allocates the next id.
     pub fn id_for_path(&self, path: &SourcePath) -> Result<SourceId, SourceIdentityError> {
         let mut inner = self.inner.lock();
-        if let Some(id) = inner.ids_by_path.get(path).copied() {
+        self.id_for_path_locked(&mut inner, path.clone())
+    }
+
+    /// Returns or allocates a child file derived from an interned parent.
+    pub fn id_for_child_path(
+        &self,
+        parent: SourceId,
+        child: &str,
+        sibling: bool,
+    ) -> Result<SourceId, SourceIdentityError> {
+        if parent.store_id != self.id {
+            return Err(SourceIdentityError::ForeignSource {
+                expected: self.id,
+                actual: parent.store_id,
+            });
+        }
+        let mut inner = self.inner.lock();
+        inner.child_requests = inner.child_requests.saturating_add(1);
+        if let Some(id) = inner
+            .child_ids
+            .get(&(parent, sibling))
+            .and_then(|children| children.get(child))
+            .copied()
+        {
+            inner.child_hits = inner.child_hits.saturating_add(1);
             return Ok(id);
         }
-
-        let id = SourceId(inner.next_id);
-        inner.next_id = inner.next_id.checked_add(1).ok_or(SourceIdentityError)?;
-        let path = Arc::new(path.clone());
-        inner.ids_by_path.insert(path.clone(), id);
-        inner.paths_by_id.push(path);
-        Ok(id)
+        inner.child_misses = inner.child_misses.saturating_add(1);
+        let parent_path = inner
+            .paths_by_id
+            .get(
+                usize::try_from(parent.index.0)
+                    .map_err(|_| SourceIdentityError::UnknownSource(parent))?,
+            )
+            .cloned()
+            .ok_or(SourceIdentityError::UnknownSource(parent))?;
+        let child_path = parent_path.derived_child_file(child, sibling);
+        let child_id = self.id_for_path_locked(&mut inner, child_path)?;
+        inner
+            .child_ids
+            .entry((parent, sibling))
+            .or_default()
+            .insert(Arc::from(child), child_id);
+        Ok(child_id)
     }
 
     /// Looks up an id without allocating one for a missing path.
@@ -350,11 +524,42 @@ impl SourceTable {
 
     /// Returns the logical path registered for an id.
     pub fn path_for_id(&self, id: SourceId) -> Option<Arc<SourcePath>> {
+        if id.store_id != self.id {
+            return None;
+        }
         self.inner
             .lock()
             .paths_by_id
-            .get(usize::try_from(id.0).ok()?)
+            .get(usize::try_from(id.index.0).ok()?)
             .cloned()
+    }
+
+    fn id_for_path_locked(
+        &self,
+        inner: &mut SourceTableInner,
+        path: SourcePath,
+    ) -> Result<SourceId, SourceIdentityError> {
+        if let Some(id) = inner.ids_by_path.get(&path).copied() {
+            return Ok(id);
+        }
+        let id = SourceId {
+            store_id: self.id,
+            index: SourceIndex(inner.next_id),
+        };
+        inner.next_id = inner
+            .next_id
+            .checked_add(1)
+            .ok_or(SourceIdentityError::IdentitySpaceExhausted)?;
+        let path = Arc::new(path);
+        inner.ids_by_path.insert(path.clone(), id);
+        inner.paths_by_id.push(path);
+        Ok(id)
+    }
+}
+
+impl Default for SourceTable {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -374,6 +579,16 @@ impl SourceDatabase {
     /// Returns or allocates the id for a logical path.
     pub fn id_for_path(&self, path: &SourcePath) -> Result<SourceId, SourceIdentityError> {
         self.table.id_for_path(path)
+    }
+
+    /// Returns the shared source/path interner backing this database.
+    pub fn source_table(&self) -> SourceTable {
+        self.table.clone()
+    }
+
+    /// Returns source/path interner work counts for this database.
+    pub fn source_table_stats(&self) -> SourceTableStats {
+        self.table.stats()
     }
 
     /// Returns the path registered for an id.
@@ -412,7 +627,10 @@ impl SourceDatabase {
         let id = self.id_for_path(&path)?;
         let mut files = self.files.lock();
         let revision = match files.get(&id) {
-            Some(file) => file.revision.next().ok_or(SourceIdentityError)?,
+            Some(file) => file
+                .revision
+                .next()
+                .ok_or(SourceIdentityError::RevisionSpaceExhausted)?,
             None => SourceRevision::INITIAL,
         };
         let file = SourceFile::new(id, path, text).with_revision(revision);
@@ -453,13 +671,14 @@ mod tests {
 
     #[test]
     fn source_file_defaults_to_initial_revision() {
-        let file = SourceFile::new(SourceId(7), SourcePath::new("main.nia"), "fn main() {}");
+        let source_id = SourceId::isolated();
+        let file = SourceFile::new(source_id, SourcePath::new("main.nia"), "fn main() {}");
 
         assert_eq!(file.revision, SourceRevision::INITIAL);
         assert_eq!(
             file.version(),
             SourceVersion {
-                id: SourceId(7),
+                id: source_id,
                 revision: SourceRevision::INITIAL
             }
         );
@@ -570,21 +789,100 @@ mod tests {
         let main = SourcePath::new("main.nia");
         let defs = SourcePath::new("defs.nia");
 
-        assert_eq!(table.id_for_path(&main), Ok(SourceId(0)));
-        assert_eq!(table.id_for_path(&defs), Ok(SourceId(1)));
-        assert_eq!(table.id_for_path(&main), Ok(SourceId(0)));
-        assert_eq!(table.path_for_id(SourceId(0)).as_deref(), Some(&main));
-        assert_eq!(table.path_for_id(SourceId(1)).as_deref(), Some(&defs));
-        assert_eq!(table.path_for_id(SourceId(2)), None);
+        let main_id = table.id_for_path(&main).expect("main id");
+        let defs_id = table.id_for_path(&defs).expect("defs id");
+
+        assert_eq!(main_id.store_id(), table.id());
+        assert_eq!(main_id.local_index(), 0);
+        assert_eq!(defs_id.local_index(), 1);
+        assert_eq!(table.id_for_path(&main), Ok(main_id));
+        assert_eq!(table.path_for_id(main_id).as_deref(), Some(&main));
+        assert_eq!(table.path_for_id(defs_id).as_deref(), Some(&defs));
     }
 
     #[test]
-    fn source_table_rejects_ids_that_do_not_fit_target_indices() {
+    fn source_table_rejects_foreign_ids_with_matching_local_indices() {
         let table = SourceTable::new();
+        let foreign = SourceTable::new();
         let path = SourcePath::new("main.nia");
-        table.id_for_path(&path).expect("allocate source id");
+        let id = table.id_for_path(&path).expect("allocate source id");
+        let foreign_id = foreign.id_for_path(&path).expect("foreign source id");
 
-        assert_eq!(table.path_for_id(SourceId(u32::MAX)), None);
+        assert_eq!(id.local_index(), foreign_id.local_index());
+        assert_ne!(id, foreign_id);
+        assert_eq!(table.path_for_id(foreign_id), None);
+    }
+
+    #[test]
+    fn source_table_interns_child_derivations_and_preserves_relocation() {
+        let table = SourceTable::new();
+        let root = SourcePath::with_identity("/opt/nia/lib/std/pkg.nia", "toolchain:/std/pkg.nia");
+        let root_id = table.id_for_path(&root).expect("root id");
+
+        let first = table
+            .id_for_child_path(root_id, "collections", true)
+            .expect("first child id");
+        let repeated = table
+            .id_for_child_path(root_id, "collections", true)
+            .expect("repeated child id");
+        let nested = table
+            .id_for_child_path(root_id, "collections", false)
+            .expect("nested child id");
+
+        assert_eq!(first, repeated);
+        assert_ne!(first, nested);
+        assert_eq!(
+            table.stats(),
+            SourceTableStats {
+                path_count: 3,
+                child_requests: 3,
+                child_hits: 1,
+                child_misses: 2,
+            }
+        );
+        let first_path = table.path_for_id(first).expect("first child path");
+        assert_eq!(first_path.as_str(), "/opt/nia/lib/std/collections.nia");
+        assert_eq!(
+            first_path.identity_ref().normalized_path(),
+            "toolchain:/std/collections.nia"
+        );
+        assert_eq!(
+            table
+                .path_for_id(nested)
+                .expect("nested child path")
+                .as_str(),
+            "/opt/nia/lib/std/pkg/collections.nia"
+        );
+    }
+
+    #[test]
+    fn source_table_rejects_foreign_child_parents() {
+        let table = SourceTable::new();
+        let foreign = SourceTable::new();
+        let foreign_parent = foreign
+            .id_for_path(&SourcePath::new("main.nia"))
+            .expect("foreign parent id");
+
+        assert_eq!(
+            table
+                .id_for_child_path(foreign_parent, "child", true)
+                .expect_err("reject foreign parent"),
+            SourceIdentityError::ForeignSource {
+                expected: table.id(),
+                actual: foreign.id(),
+            }
+        );
+
+        let unknown_parent = SourceId {
+            store_id: table.id(),
+            index: SourceIndex(u32::MAX),
+        };
+        assert_eq!(
+            table
+                .id_for_child_path(unknown_parent, "child", true)
+                .expect_err("reject unknown parent"),
+            SourceIdentityError::UnknownSource(unknown_parent)
+        );
     }
 
     #[test]
@@ -596,7 +894,8 @@ mod tests {
             .set_source(path.clone(), "fn main() i32 { 0 }")
             .expect("store source");
 
-        assert_eq!(file.id, SourceId(0));
+        assert_eq!(file.id.store_id(), sources.table.id());
+        assert_eq!(file.id.local_index(), 0);
         assert_eq!(file.revision, SourceRevision::INITIAL);
         assert_eq!(sources.source_for_path(&path), Some(file));
     }
@@ -612,8 +911,10 @@ mod tests {
         let file = sources
             .set_source(main.clone(), "fn main() i32 { 0 }")
             .expect("store source");
-        assert_eq!(file.id, SourceId(0));
-        assert_eq!(sources.id_for_path(&missing), Ok(SourceId(1)));
+        assert_eq!(file.id.local_index(), 0);
+        let missing_id = sources.id_for_path(&missing).expect("missing source id");
+        assert_eq!(missing_id.store_id(), file.id.store_id());
+        assert_eq!(missing_id.local_index(), 1);
     }
 
     #[test]

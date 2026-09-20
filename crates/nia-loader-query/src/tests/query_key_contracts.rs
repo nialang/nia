@@ -16,13 +16,31 @@ fn source_frontend_query_keys_are_compact_handles() {
         std::mem::size_of::<nia_compiler_query::ProviderFactRevision>()
     );
     assert!(std::mem::size_of::<nia_compiler_query::ProviderFactRevision>() <= 16);
-    assert_eq!(std::mem::size_of::<SourceTextQuery>(), 4);
-    assert_eq!(std::mem::size_of::<SourceStatusQuery>(), 4);
-    assert_eq!(std::mem::size_of::<LoadedModuleQuery>(), 4);
-    assert_eq!(std::mem::size_of::<ModuleOriginsFactQuery>(), 4);
-    assert_eq!(std::mem::size_of::<ModuleParseErrorsFactQuery>(), 4);
-    assert_eq!(std::mem::size_of::<ModuleItemTreeFactQuery>(), 4);
-    assert_eq!(std::mem::size_of::<ActiveModuleItemTreeFactQuery>(), 8);
+    let source_id_size = std::mem::size_of::<SourceId>();
+    assert_eq!(source_id_size, 8);
+    assert_eq!(std::mem::size_of::<SourceTextQuery>(), source_id_size);
+    assert_eq!(std::mem::size_of::<SourceStatusQuery>(), source_id_size);
+    assert_eq!(std::mem::size_of::<LoadedModuleQuery>(), source_id_size);
+    assert_eq!(
+        std::mem::size_of::<ModuleOriginsFactQuery>(),
+        source_id_size
+    );
+    assert_eq!(
+        std::mem::size_of::<ModuleParseErrorsFactQuery>(),
+        source_id_size
+    );
+    assert_eq!(
+        std::mem::size_of::<ModuleItemTreeFactQuery>(),
+        source_id_size
+    );
+    let active_unaligned =
+        source_id_size + std::mem::size_of::<nia_compiler_query::ActiveModuleItemTreeFactKind>();
+    let source_id_alignment = std::mem::align_of::<SourceId>();
+    let active_size = active_unaligned.next_multiple_of(source_id_alignment);
+    assert_eq!(
+        std::mem::size_of::<ActiveModuleItemTreeFactQuery>(),
+        active_size
+    );
     assert_eq!(
         std::mem::size_of::<ParsedModuleQuery>(),
         wide_query_key_size()

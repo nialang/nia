@@ -150,7 +150,7 @@ mod tests {
                 name: SymbolId::from_stable_hash(1),
                 node_key: VersionedNodeKey::span(
                     SourceVersion {
-                        id: SourceId(1),
+                        id: SourceId::isolated(),
                         revision: SourceRevision::INITIAL,
                     },
                     SyntaxKind::Pattern,

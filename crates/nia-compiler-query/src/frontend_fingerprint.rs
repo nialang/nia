@@ -712,14 +712,14 @@ mod tests {
         let first = SyntaxTree::parse(
             source,
             Some(SourceVersion {
-                id: SourceId(1),
+                id: SourceId::isolated(),
                 revision: SourceRevision(2),
             }),
         );
         let second = SyntaxTree::parse(
             source,
             Some(SourceVersion {
-                id: SourceId(9),
+                id: SourceId::isolated(),
                 revision: SourceRevision(7),
             }),
         );
