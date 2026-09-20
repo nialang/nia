@@ -123,7 +123,10 @@ rather than measured twice accidentally.
 The matrix covers `minimal_check`, `hello_check`, `hello_executable`,
 `empty_build`, `hello_build`, and the `synthetic_10_modules`,
 `synthetic_50_modules`, `synthetic_100_modules`, and
-`synthetic_500_modules` clean scales. A separate
+`synthetic_500_modules` flat/star clean scales. The
+`synthetic_100_modules_deep_chain` and
+`synthetic_100_modules_mixed_fan_out` workloads hold module count and semantic
+work constant while varying dependency shape. A separate
 `synthetic_100_modules_build` workload runs the medium corpus through Nia
 build, Cargo, and Zig build. The sources under `benchmarks/competitive/` are
 maintained language-native Rust and Zig counterparts to
@@ -154,21 +157,24 @@ fabricated. The Hello build does produce and execute one native executable
 through `nia build`, Cargo, and `zig build`.
 
 The synthetic scales are generated directly into each sample's fresh workspace
-from one deterministic workload specification. A scale of N means N leaf
-modules plus one executable root source file. The root has a flat/star edge to
-every leaf and calls every leaf at runtime. Each leaf contains one
+from one deterministic workload specification. A scale of N means N generated
+modules plus one executable root source file. Each generated module contains one
 compile-time-derived constant, one module-local generic identity instance, and
-one reachable value function. The executable checks the exact aggregate and
-prints `synthetic-ok`; the collector runs it and rejects a wrong result. The
-100-leaf point is the fixed medium synthetic corpus. Nia, Rust, and Zig use
-language-native source spellings, so source byte counts and hashes differ, but
-the graph and semantic work contract are the same. This controlled flat graph
-does not stand in for later deep-chain or mixed-fan-out workloads.
+one reachable value function. Flat/star roots call every module directly; the
+deep chain has one root-to-module edge followed by 99 module edges; mixed
+fan-out has ten root branches, each followed by a ten-module chain. All three
+100-module graphs therefore contain the same 100 generated modules, 100 total
+dependency edges when the executable root is included, and 100 reachable value
+calls. The executable checks the exact aggregate and prints `synthetic-ok`; the
+collector runs it and rejects a wrong result. The flat/star 100-module point is
+the fixed medium synthetic corpus. Nia, Rust, and Zig use language-native source
+spellings, so source byte counts and hashes differ, but the graph and semantic
+work contract are the same.
 
 The medium build workload runs an ordered three-process sequence in one fresh
-workspace: clean, no-op warm, then one-leaf edit. The edit changes only leaf 50
-and changes the executable's required output from `synthetic-ok` to
-`synthetic-edited`. Acceptance compares per-file source hashes, requires the
+workspace: clean, no-op warm, then one-leaf edit. The flat/star edit changes
+only module 50 and changes the executable's required output from `synthetic-ok`
+to `synthetic-edited`. Acceptance compares per-file source hashes, requires the
 no-op artifact to remain byte-identical, requires the edited artifact to
 change, and executes every artifact. It also proves that each state used a
 different process and that build products were absent only before clean and

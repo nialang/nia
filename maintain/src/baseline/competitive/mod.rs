@@ -421,12 +421,12 @@ fn prepare_project(inputs: &SampleInputs<'_>) -> MaintainResult<PreparedProject>
             inputs.language,
             inputs
                 .workload
-                .synthetic_modules()
-                .expect("synthetic build has a module count"),
+                .synthetic_specification()
+                .expect("synthetic build has a specification"),
         )?;
         (workspace.clone(), workspace.clone())
-    } else if let Some(leaf_modules) = inputs.workload.synthetic_modules() {
-        let source = synthetic::generate(&workspace, inputs.language, leaf_modules)?;
+    } else if let Some(specification) = inputs.workload.synthetic_specification() {
+        let source = synthetic::generate(&workspace, inputs.language, specification)?;
         (source, workspace.clone())
     } else if inputs.workload.is_build() {
         let source_fixture = source_fixture
@@ -639,8 +639,9 @@ fn collect_samples(inputs: &SampleInputs<'_>) -> MaintainResult<Vec<CompetitiveS
                 inputs.language,
                 inputs
                     .workload
-                    .synthetic_modules()
-                    .expect("leaf edit workload has modules")
+                    .synthetic_specification()
+                    .expect("leaf edit workload has a specification")
+                    .module_count
                     / 2,
             )?;
             edited_leaf = Some(relative.to_string_lossy().replace('\\', "/"));
@@ -1028,17 +1029,27 @@ mod tests {
 
     #[test]
     fn generated_source_manifest_is_relocation_stable() {
-        let first = TemporaryDirectory::new("nia-synthetic-manifest-").unwrap();
-        let second = TemporaryDirectory::new("nia-synthetic-manifest-").unwrap();
-        synthetic::generate(first.path(), Language::Nia, 3).unwrap();
-        synthetic::generate(second.path(), Language::Nia, 3).unwrap();
-        let first = source_snapshot(first.path(), "generated:competitive_synthetic/test").unwrap();
-        let second =
-            source_snapshot(second.path(), "generated:competitive_synthetic/test").unwrap();
-        assert_eq!(first.manifest.blake3, second.manifest.blake3);
-        assert_eq!(first.manifest.file_count, 4);
-        assert_eq!(first.manifest.file_count, second.manifest.file_count);
-        assert_eq!(first.manifest.size_bytes, second.manifest.size_bytes);
+        let specifications = [
+            synthetic::Specification::flat_star(100),
+            synthetic::Specification::deep_chain(100),
+            synthetic::Specification::mixed_fan_out(100),
+        ];
+        for specification in specifications {
+            for language in [Language::Nia, Language::Rust, Language::Zig] {
+                let first = TemporaryDirectory::new("nia-synthetic-manifest-").unwrap();
+                let second = TemporaryDirectory::new("nia-synthetic-manifest-").unwrap();
+                synthetic::generate(first.path(), language, specification).unwrap();
+                synthetic::generate(second.path(), language, specification).unwrap();
+                let first =
+                    source_snapshot(first.path(), "generated:competitive_synthetic/test").unwrap();
+                let second =
+                    source_snapshot(second.path(), "generated:competitive_synthetic/test").unwrap();
+                assert_eq!(first.manifest.blake3, second.manifest.blake3);
+                assert_eq!(first.manifest.file_count, 101);
+                assert_eq!(first.manifest.file_count, second.manifest.file_count);
+                assert_eq!(first.manifest.size_bytes, second.manifest.size_bytes);
+            }
+        }
     }
 
     #[test]
