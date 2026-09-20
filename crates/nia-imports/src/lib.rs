@@ -108,11 +108,10 @@ fn fallback_module_symbol_text(symbol: SymbolId) -> String {
         .unwrap_or_else(|| symbol_identity_key(symbol))
 }
 
-fn resolved_module_symbol_text(symbols: &dyn SymbolText, symbol: SymbolId) -> String {
+fn resolved_module_symbol_text(symbols: &dyn SymbolText, symbol: SymbolId) -> Arc<str> {
     symbols
         .symbol_text(symbol)
-        .map(|text| text.to_string())
-        .unwrap_or_else(|| fallback_module_symbol_text(symbol))
+        .unwrap_or_else(|| fallback_module_symbol_text(symbol).into())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -893,7 +892,10 @@ impl ModuleGraph {
 
     /// Resolves a module symbol through the graph's symbol provider.
     pub fn module_symbol_text(&self, symbol: SymbolId) -> String {
-        resolved_module_symbol_text(self.symbols.as_ref(), symbol)
+        self.symbols
+            .symbol_text(symbol)
+            .map(|text| text.to_string())
+            .unwrap_or_else(|| fallback_module_symbol_text(symbol))
     }
 
     /// Computes the source path for a declared child module.
@@ -1317,18 +1319,15 @@ pub fn declared_child_source_path_for_with_symbols_and_entry(
     entry_module: bool,
 ) -> SourcePath {
     let child = resolved_module_symbol_text(symbols, child);
-    let physical = declared_child_path_text(
-        parent_path.as_str(),
-        parent_module_path,
-        &child,
-        entry_module,
-    );
-    let logical = declared_child_path_text(
-        parent_path.identity_ref().normalized_path(),
-        parent_module_path,
-        &child,
-        entry_module,
-    );
+    let physical_parent = parent_path.as_str();
+    let logical_parent = parent_path.identity_ref().normalized_path();
+    let physical =
+        declared_child_path_text(physical_parent, parent_module_path, &child, entry_module);
+    if physical_parent == logical_parent {
+        return SourcePath::from_normalized_unchecked(physical);
+    }
+    let logical =
+        declared_child_path_text(logical_parent, parent_module_path, &child, entry_module);
     SourcePath::with_normalized_identity_unchecked(physical, logical)
 }
 
@@ -1350,11 +1349,16 @@ fn declared_child_path_text(
     } else {
         parent_path.strip_suffix(".nia").unwrap_or(parent_path)
     };
-    if base.is_empty() {
-        format!("{child}.nia")
-    } else {
-        format!("{base}/{child}.nia")
+    let mut path = String::with_capacity(
+        base.len() + usize::from(!base.is_empty()) + child.len() + ".nia".len(),
+    );
+    if !base.is_empty() {
+        path.push_str(base);
+        path.push('/');
     }
+    path.push_str(child);
+    path.push_str(".nia");
+    path
 }
 
 #[cfg(test)]
@@ -1440,6 +1444,23 @@ mod tests {
                 .declared_child_source_path(graph.get(package_root).expect("package root"), child)
                 .as_str(),
             "src/start.nia"
+        );
+    }
+
+    #[test]
+    fn declared_child_paths_preserve_relocated_source_coordinates() {
+        let parent =
+            SourcePath::with_identity("/opt/nia/lib/std/pkg.nia", "toolchain:/std/pkg.nia");
+        let child = declared_child_source_path_for(
+            &parent,
+            &ModulePath::root(STD_MODULE_MAP_NAME),
+            known::START,
+        );
+
+        assert_eq!(child.as_str(), "/opt/nia/lib/std/start.nia");
+        assert_eq!(
+            child.identity_ref().normalized_path(),
+            "toolchain:/std/start.nia"
         );
     }
 
