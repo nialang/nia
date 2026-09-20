@@ -117,6 +117,8 @@ pub(super) struct Artifact {
 
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct ExecutionVerification {
+    pub(super) command: Vec<String>,
+    pub(super) working_directory: &'static str,
     pub(super) return_code: i32,
     pub(super) stdout: String,
     pub(super) stderr: String,

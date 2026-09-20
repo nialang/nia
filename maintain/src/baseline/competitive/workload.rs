@@ -18,10 +18,11 @@ pub(super) enum Workload {
     Synthetic100ModulesMixedFanOut,
     Synthetic500Modules,
     Synthetic100ModulesBuild,
+    ProjectPlannerBuild,
 }
 
 impl Workload {
-    pub(super) const ALL: [Self; 12] = [
+    pub(super) const ALL: [Self; 13] = [
         Self::MinimalCheck,
         Self::HelloCheck,
         Self::HelloExecutable,
@@ -34,6 +35,7 @@ impl Workload {
         Self::Synthetic100ModulesMixedFanOut,
         Self::Synthetic500Modules,
         Self::Synthetic100ModulesBuild,
+        Self::ProjectPlannerBuild,
     ];
 
     pub(super) fn parse(name: &str) -> Option<Self> {
@@ -56,13 +58,17 @@ impl Workload {
             Self::Synthetic100ModulesMixedFanOut => "synthetic_100_modules_mixed_fan_out",
             Self::Synthetic500Modules => "synthetic_500_modules",
             Self::Synthetic100ModulesBuild => "synthetic_100_modules_build",
+            Self::ProjectPlannerBuild => "project_planner_build",
         }
     }
 
     pub(super) const fn is_build(self) -> bool {
         matches!(
             self,
-            Self::EmptyBuild | Self::HelloBuild | Self::Synthetic100ModulesBuild
+            Self::EmptyBuild
+                | Self::HelloBuild
+                | Self::Synthetic100ModulesBuild
+                | Self::ProjectPlannerBuild
         )
     }
 
@@ -80,6 +86,7 @@ impl Workload {
     pub(super) const fn languages(self) -> &'static [Language] {
         match self {
             Self::EmptyBuild => &[Language::Nia, Language::Zig],
+            Self::ProjectPlannerBuild => &[Language::Nia],
             _ => &[Language::Nia, Language::Rust, Language::Zig],
         }
     }
@@ -106,6 +113,9 @@ impl Workload {
             }
             Self::Synthetic100ModulesBuild => {
                 "generated medium flat/star executable through native build systems with ordered clean, no-op warm, and one-leaf-edit states"
+            }
+            Self::ProjectPlannerBuild => {
+                "source-owned multi-module dependency planner with file I/O, parsing, typed graph construction, cycle detection, critical-path analysis, collections, and deterministic output"
             }
         }
     }
@@ -169,6 +179,10 @@ impl Workload {
             (Self::HelloBuild, Language::Nia) => Some("benchmarks/competitive/build/nia-hello"),
             (Self::HelloBuild, Language::Rust) => Some("benchmarks/competitive/build/cargo-hello"),
             (Self::HelloBuild, Language::Zig) => Some("benchmarks/competitive/build/zig-hello"),
+            (Self::ProjectPlannerBuild, Language::Nia) => Some("benchmarks/apps/project-planner"),
+            (Self::ProjectPlannerBuild, _) => {
+                panic!("project planner has no fabricated cross-language counterpart")
+            }
             (
                 Self::Synthetic10Modules
                 | Self::Synthetic50Modules
@@ -191,7 +205,8 @@ impl Workload {
             | Self::Synthetic100ModulesDeepChain
             | Self::Synthetic100ModulesMixedFanOut
             | Self::Synthetic500Modules
-            | Self::Synthetic100ModulesBuild => OutputKind::Executable,
+            | Self::Synthetic100ModulesBuild
+            | Self::ProjectPlannerBuild => OutputKind::Executable,
             Self::HelloBuild => OutputKind::Executable,
             Self::EmptyBuild => OutputKind::None,
             Self::MinimalCheck | Self::HelloCheck if matches!(language, Language::Rust) => {
@@ -226,7 +241,17 @@ impl Workload {
                 Some("synthetic-ok")
             }
             (Self::Synthetic100ModulesBuild, _, SampleState::LeafEdit) => Some("synthetic-edited"),
+            (Self::ProjectPlannerBuild, Language::Nia, SampleState::Clean) => {
+                Some("plan-ok tasks=63 dependencies=124 roots=1 leaves=1 effort=334 critical=120")
+            }
             _ => None,
+        }
+    }
+
+    pub(super) const fn execution_arguments(self) -> &'static [&'static str] {
+        match self {
+            Self::ProjectPlannerBuild => &["data/reference.plan"],
+            _ => &[],
         }
     }
 
@@ -348,6 +373,11 @@ impl Workload {
                     "ordered clean, no-op warm, and one-leaf-edit native executable builds in one generated Zig workspace",
                 ),
             ],
+            Self::ProjectPlannerBuild => vec![tool(
+                Language::Nia,
+                "nia build",
+                "builds the source-owned Nia application through its native build script; no Rust or Zig counterpart is fabricated because this workload measures real Nia development rather than cross-language parity",
+            )],
         };
         WorkloadContract {
             name: self.name(),
@@ -461,7 +491,8 @@ pub(super) fn command(
                 }
                 Workload::EmptyBuild
                 | Workload::HelloBuild
-                | Workload::Synthetic100ModulesBuild => unreachable!(),
+                | Workload::Synthetic100ModulesBuild
+                | Workload::ProjectPlannerBuild => unreachable!(),
             }
             command
         }
@@ -490,7 +521,8 @@ pub(super) fn command(
                 | Workload::Synthetic500Modules => "--emit=link".to_owned(),
                 Workload::EmptyBuild
                 | Workload::HelloBuild
-                | Workload::Synthetic100ModulesBuild => unreachable!(),
+                | Workload::Synthetic100ModulesBuild
+                | Workload::ProjectPlannerBuild => unreachable!(),
             });
             command
         }
@@ -520,7 +552,8 @@ pub(super) fn command(
                 }
                 Workload::EmptyBuild
                 | Workload::HelloBuild
-                | Workload::Synthetic100ModulesBuild => unreachable!(),
+                | Workload::Synthetic100ModulesBuild
+                | Workload::ProjectPlannerBuild => unreachable!(),
             }
             command
         }
@@ -546,10 +579,10 @@ pub(super) fn output_path(
 ) -> PathBuf {
     if workload.is_build() {
         return match language {
-            Language::Nia => workspace.join(if workload.is_synthetic_build() {
-                ".nia-build/synthetic"
-            } else {
-                ".nia-build/hello"
+            Language::Nia => workspace.join(match workload {
+                Workload::Synthetic100ModulesBuild => ".nia-build/synthetic",
+                Workload::ProjectPlannerBuild => ".nia-build/project-planner",
+                _ => ".nia-build/hello",
             }),
             Language::Rust => workspace.join(match (workload.is_synthetic_build(), profile) {
                 (true, Profile::Development) => "target/debug/competitive-synthetic",
@@ -702,6 +735,38 @@ mod tests {
         assert_eq!(
             workload.expected_output(Language::Nia, SampleState::LeafEdit),
             Some("synthetic-edited")
+        );
+    }
+
+    #[test]
+    fn project_planner_is_a_source_owned_nia_application() {
+        let workload = Workload::ProjectPlannerBuild;
+        let contract = workload.contract();
+        assert!(workload.is_build());
+        assert_eq!(workload.languages(), &[Language::Nia]);
+        assert_eq!(workload.states(), &[SampleState::Clean]);
+        assert_eq!(workload.synthetic_specification(), None);
+        assert!(contract.synthetic.is_none());
+        assert_eq!(contract.tools.len(), 1);
+        assert_eq!(contract.tools[0].language, Language::Nia);
+        assert_eq!(
+            workload.source_relative(Language::Nia),
+            Some("benchmarks/apps/project-planner")
+        );
+        assert_eq!(workload.execution_arguments(), &["data/reference.plan"]);
+        assert_eq!(
+            output_path(
+                Path::new("/workspace"),
+                workload,
+                Language::Nia,
+                Profile::Development,
+                OutputKind::Executable,
+            ),
+            Path::new("/workspace/.nia-build/project-planner")
+        );
+        assert_eq!(
+            workload.expected_output(Language::Nia, SampleState::Clean),
+            Some("plan-ok tasks=63 dependencies=124 roots=1 leaves=1 effort=334 critical=120")
         );
     }
 }
