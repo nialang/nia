@@ -1323,7 +1323,12 @@ impl CompilerDatabase {
             loop {
                 rounds += 1;
                 if discover_executable_providers && !skip_executable_discovery {
-                    let demands = self.executable_provider_demands()?;
+                    let timings = self.db.context().timings();
+                    let demands = nia_timing::time_query(
+                        timings,
+                        &format!("executable_provider_demands.round_{rounds}"),
+                        || self.executable_provider_demands(),
+                    )?;
                     emit_provider_demand_batch(self.db.context().timings(), rounds, &demands);
                     if let crate::ProviderGraphUpdate::Changed {
                         invalidates_resolved_body_facts,
