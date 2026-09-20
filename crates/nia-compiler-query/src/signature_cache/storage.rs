@@ -527,11 +527,6 @@ fn atomic_publish(path: &Path, encoded: &[u8], replace: bool) -> io::Result<()> 
             return Ok(());
         }
         fs::rename(&staged, path)?;
-        if let Some(parent) = path.parent()
-            && let Ok(directory) = File::open(parent)
-        {
-            let _ = directory.sync_all();
-        }
         Ok(())
     })();
     if result.is_err() || staged.exists() {
@@ -545,8 +540,11 @@ fn write_staged_file(staged: &Path, encoded: &[u8]) -> io::Result<()> {
         .create_new(true)
         .write(true)
         .open(staged)?;
-    file.write_all(encoded).and_then(|()| file.sync_all())?;
-    Ok(())
+    // Signature products are validated, disposable cache entries. Closing the
+    // staged file before rename preserves atomic visibility to concurrent
+    // readers; a crash may lose an entry, which is handled as a cache miss or
+    // corruption instead of delaying every cold compilation on an fsync.
+    file.write_all(encoded)
 }
 
 struct SignatureCacheMutationLock {
