@@ -89,6 +89,15 @@ pub(super) struct QueryPublicSurfaceLookup<'a> {
     types: RefCell<HashMap<(ModuleId, SymbolId), Option<nia_defs::PublicItem>>>,
 }
 
+fn current_module_id(
+    db: &QueryDb<CompilerContext>,
+    failure: &RefCell<Option<QueryError>>,
+    stable_key: &nia_imports::StableModuleKey,
+) -> Option<ModuleId> {
+    capture_query_failure(failure, db.get(CurrentModuleIdQuery(stable_key.clone())))
+        .and_then(|module_id| *module_id)
+}
+
 impl<'a> QueryPublicSurfaceLookup<'a> {
     pub(super) fn new(db: &'a QueryDb<CompilerContext>) -> Self {
         Self {
@@ -133,10 +142,7 @@ impl PublicSurfaceLookup for QueryPublicSurfaceLookup<'_> {
             self.db.get(PublicSurfaceModuleQuery(module_id, *name)),
         )?;
         let module = match target.as_ref().as_ref() {
-            Some(stable_key) => capture_query_failure(
-                &self.failure,
-                self.db.context().module_id_for_stable_key(stable_key),
-            )?,
+            Some(stable_key) => current_module_id(self.db, &self.failure, stable_key),
             None => None,
         };
         self.modules.borrow_mut().insert(key, module);
@@ -212,10 +218,7 @@ impl UsingScopeLookup for QueryUsingScopeLookup<'_> {
             self.db.get(UsingScopeModuleQuery(self.module_id, *name)),
         )?;
         let module = match target.as_ref().as_ref() {
-            Some(stable_key) => capture_query_failure(
-                &self.failure,
-                self.db.context().module_id_for_stable_key(stable_key),
-            )?,
+            Some(stable_key) => current_module_id(self.db, &self.failure, stable_key),
             None => None,
         };
         self.modules.borrow_mut().insert(*name, module);
@@ -281,12 +284,12 @@ pub(super) struct QueryModuleGraphLookup<'a> {
 impl<'a> QueryModuleGraphLookup<'a> {
     pub(super) fn new(db: &'a QueryDb<CompilerContext>) -> QueryResult<Self> {
         let stable_key = db.get(ModuleGraphEntryQuery)?;
-        let entry_module = db
-            .context()
-            .module_id_for_stable_key(&stable_key)?
-            .ok_or_else(|| {
+        let failure = RefCell::new(None);
+        let entry_module = current_module_id(db, &failure, &stable_key).ok_or_else(|| {
+            failure.borrow_mut().take().unwrap_or_else(|| {
                 QueryError::internal("compiler entry stable key is absent from the module graph")
-            })?;
+            })
+        })?;
         Ok(Self {
             db,
             entry_module,
@@ -316,10 +319,7 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
         let root =
             capture_query_failure(&self.failure, self.db.get(ModulePackageRootQuery(*package)))?;
         let module = match root.as_ref().as_ref() {
-            Some(stable_key) => capture_query_failure(
-                &self.failure,
-                self.db.context().module_id_for_stable_key(stable_key),
-            )?,
+            Some(stable_key) => current_module_id(self.db, &self.failure, stable_key),
             None => None,
         };
         self.package_roots.borrow_mut().insert(*package, module);
@@ -347,10 +347,7 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
             self.db.get(ModuleGraphParentQuery(module_id)),
         )?;
         let parent = match parent.as_ref().as_ref() {
-            Some(stable_key) => capture_query_failure(
-                &self.failure,
-                self.db.context().module_id_for_stable_key(stable_key),
-            )?,
+            Some(stable_key) => current_module_id(self.db, &self.failure, stable_key),
             None => None,
         };
         self.parents.borrow_mut().insert(module_id, parent);
@@ -371,11 +368,8 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
             self.db.get(ModuleGraphChildQuery(module_id, *name)),
         )?;
         let child = match child.as_ref().as_ref() {
-            Some((stable_key, visibility)) => capture_query_failure(
-                &self.failure,
-                self.db.context().module_id_for_stable_key(stable_key),
-            )?
-            .map(|module_id| (module_id, *visibility)),
+            Some((stable_key, visibility)) => current_module_id(self.db, &self.failure, stable_key)
+                .map(|module_id| (module_id, *visibility)),
             None => None,
         };
         self.children.borrow_mut().insert(key, child);
@@ -386,19 +380,26 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
         if let Some(dependencies) = self.provider_dependencies.borrow().get(&module_id) {
             return dependencies.clone();
         }
-        let dependencies = capture_query_failure(
+        let stable_dependencies = capture_query_failure(
             &self.failure,
             self.db.get(ModuleGraphProviderDependenciesQuery(module_id)),
-        )
-        .and_then(|dependencies| {
-            capture_query_failure(
-                &self.failure,
-                self.db
-                    .context()
-                    .resolve_stable_module_sequence(&dependencies),
-            )
-        })
-        .unwrap_or_default();
+        );
+        let mut dependencies = Vec::new();
+        if let Some(stable_dependencies) = stable_dependencies {
+            dependencies.reserve(stable_dependencies.keys.len());
+            for stable_key in &stable_dependencies.keys {
+                let Some(module_id) = current_module_id(self.db, &self.failure, stable_key) else {
+                    if self.failure.borrow().is_none() {
+                        *self.failure.borrow_mut() = Some(QueryError::internal(format!(
+                            "stable provider dependency `{}` is missing from the current module graph",
+                            stable_key.source_identity().normalized_path()
+                        )));
+                    }
+                    return Vec::new();
+                };
+                dependencies.push(module_id);
+            }
+        }
         self.provider_dependencies
             .borrow_mut()
             .insert(module_id, dependencies.clone());

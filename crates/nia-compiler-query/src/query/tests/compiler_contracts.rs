@@ -8,7 +8,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         .expect("create compiler query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 137);
+    assert_eq!(descriptors.len(), 138);
     assert!(
         !descriptors
             .iter()
@@ -16,6 +16,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
     );
     for name in [
         "body_activation_worklist",
+        "current_module_id",
         "executable_fact_epoch",
         "module_graph_entry",
         "module_graph_path",
@@ -81,6 +82,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "backend_module_function_instance_plan"
             | "backend_module_source_item_plan"
             | "body_activation_worklist"
+            | "current_module_id"
             | "declaration_active_module_item_tree"
             | "declaration_active_module_item_tree_input"
             | "declaration_module_item_tree"
