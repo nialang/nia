@@ -26,6 +26,10 @@ pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     fn description(&self) -> String {
         format!("{}::{self:?}", Self::name())
     }
+    /// Optional stable category used to group related query keys in timing reports.
+    fn stats_category(&self) -> Option<&'static str> {
+        None
+    }
     /// Computes this key's value when the provider policy is [`QueryProviderPolicy::KeyExecute`].
     fn execute_result(&self, db: &QueryDb<C>) -> QueryResult<Self::Value>;
     /// Returns the deterministic fingerprint required by [`QueryFingerprintPolicy::StableValue`].

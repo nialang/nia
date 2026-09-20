@@ -2110,6 +2110,7 @@ fn emit_compilation_counters(
                 .sum(),
         );
     }
+    emit_query_category_counters(&traces);
     nia_timing::emit_counter("driver.provider_demand_rounds", provider_demand_rounds);
     nia_timing::emit_counter(
         "compiler.checked_bodies",
@@ -2120,6 +2121,29 @@ fn emit_compilation_counters(
         output.reachable_body_count() as u64,
     );
     Ok(())
+}
+
+fn emit_query_category_counters(traces: &[&nia_query::QueryTrace]) {
+    let mut grouped = std::collections::BTreeMap::<(&str, &str), (u64, u64)>::new();
+    for query in traces.iter().flat_map(|trace| trace.queries.iter()) {
+        let Some(category) = query.frame.stats_category else {
+            continue;
+        };
+        let (slots, executions) = grouped.entry((query.frame.name, category)).or_default();
+        *slots += 1;
+        *executions += query.stats.executions as u64;
+    }
+    for ((query_name, category), (slots, executions)) in grouped {
+        nia_timing::emit_counter(format!("query.slots.{query_name}.{category}"), slots);
+        nia_timing::emit_counter(
+            format!("query.executions.{query_name}.{category}"),
+            executions,
+        );
+        nia_timing::emit_counter(
+            format!("query.reexecutions.{query_name}.{category}"),
+            executions.saturating_sub(slots),
+        );
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

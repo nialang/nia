@@ -289,6 +289,7 @@ impl StableDefinitionResolver for StableDefinitionIndex {
         resolved.ok_or_else(|| QueryError::InvalidInput {
             query: QueryFrame {
                 name: "stable_definition_index",
+                stats_category: None,
                 key: "StableDefinitionIndex".to_string(),
                 description: "stable_definition_index".to_string(),
             },

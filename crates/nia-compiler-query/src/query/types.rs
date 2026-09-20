@@ -1,6 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+fn signature_item_set_stats_category(set: nia_item_tree::SignatureItemSet) -> &'static str {
+    match set {
+        nia_item_tree::SignatureItemSet::Functions => "functions",
+        nia_item_tree::SignatureItemSet::ExtensionFunctions => "extension_functions",
+        nia_item_tree::SignatureItemSet::Values => "values",
+        nia_item_tree::SignatureItemSet::Types => "types",
+        nia_item_tree::SignatureItemSet::Traits => "traits",
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct FrontendProgramSourcesQuery;
 
@@ -144,6 +154,10 @@ impl QueryKey<CompilerContext> for SignatureItemTreeQuery {
         format!("signature_item_tree({:?}, {:?})", self.0, self.1)
     }
 
+    fn stats_category(&self) -> Option<&'static str> {
+        Some(signature_item_set_stats_category(self.1))
+    }
+
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context().signature_item_tree(db, self.0, self.1)
     }
@@ -170,6 +184,10 @@ impl QueryKey<CompilerContext> for SignatureTypeResolutionQuery {
         format!("signature_type_resolution({:?}, {:?})", self.0, self.1)
     }
 
+    fn stats_category(&self) -> Option<&'static str> {
+        Some(signature_item_set_stats_category(self.1))
+    }
+
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.signature_type_resolution)(db, self.0, self.1)
     }
@@ -190,6 +208,10 @@ impl QueryKey<CompilerContext> for SignatureTypeLoweringQuery {
 
     fn description(&self) -> String {
         format!("signature_type_lowering({:?}, {:?})", self.0, self.1)
+    }
+
+    fn stats_category(&self) -> Option<&'static str> {
+        Some(signature_item_set_stats_category(self.1))
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
@@ -214,6 +236,10 @@ impl QueryKey<CompilerContext> for SignatureItemSignaturesQuery {
         format!("signature_item_signatures({:?}, {:?})", self.0, self.1)
     }
 
+    fn stats_category(&self) -> Option<&'static str> {
+        Some(signature_item_set_stats_category(self.1))
+    }
+
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.signature_item_signatures)(db, self.0, self.1)
     }
@@ -234,6 +260,10 @@ impl QueryKey<CompilerContext> for SignatureTypeNormalizationQuery {
 
     fn description(&self) -> String {
         format!("signature_type_normalization({:?}, {:?})", self.0, self.1)
+    }
+
+    fn stats_category(&self) -> Option<&'static str> {
+        Some(signature_item_set_stats_category(self.1))
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
