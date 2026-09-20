@@ -276,6 +276,7 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
         ("src/main.nia".to_string(), new_module),
         ("src/dep.nia".to_string(), new_dependency),
     ]);
+    let cache = PersistentSignatureCache::new(root.clone());
     let loaded = cache
         .load_item_signatures(
             SignatureItemSignaturesIdentity {

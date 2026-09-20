@@ -212,6 +212,7 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
         ("src/main.nia".to_string(), new_module),
         ("src/dep.nia".to_string(), new_dependency),
     ]);
+    let cache = PersistentSignatureCache::new(root.clone());
     let loaded = cache
         .load_type_lowering(
             SignatureTypeLoweringIdentity {
