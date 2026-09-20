@@ -52,6 +52,7 @@ pub(super) struct SignatureTypeLowering {
 pub(super) struct SignatureItemSignatures {
     pub(super) semantic: Arc<ItemSignatures>,
     pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+    pub(super) cacheable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

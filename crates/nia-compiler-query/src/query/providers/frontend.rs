@@ -435,6 +435,45 @@ pub(super) fn provide_signature_type_resolution(
                 diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
             });
         }
+        let fresh = db.get(SignatureTypeResolutionSemanticQuery(module_id, set))?;
+        if resolve_diagnostic_bundle(&fresh.diagnostics).is_empty()
+            && let Some(cache) = &db.context().signature_cache
+            && let Some((program_sources, source, namespace, key)) = cache_input
+        {
+            let replace = matches!(
+                &cached,
+                Some(crate::signature_cache::SignatureTypeResolutionLookup::Hit(cached))
+                    if cached.as_ref() != fresh.semantic.as_ref()
+            );
+            if replace {
+                cache.remove_type_resolution(key);
+            }
+            let _ = cache.publish_type_resolution(
+                crate::signature_cache::SignatureTypeResolutionIdentity {
+                    key,
+                    namespace,
+                    module: &source.module,
+                    set,
+                    program_sources: program_sources.fingerprint,
+                    source_version: source.version,
+                    source_len: source.len,
+                },
+                &fresh.semantic,
+                &program_sources.path_by_module,
+                &symbols,
+                replace,
+            );
+        }
+        Ok(fresh.as_ref().clone())
+    })
+}
+
+pub(in crate::query) fn provide_signature_type_resolution_semantic(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    set: nia_item_tree::SignatureItemSet,
+) -> QueryResult<SignatureTypeResolution> {
+    time_module_provider(db, "signature_type_resolution_semantic", module_id, || {
         let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set))?;
         let defs = module_defs_semantic(db, module_id)?;
         let graph = db.get(ModuleGraphQuery)?;
@@ -446,7 +485,8 @@ pub(super) fn provide_signature_type_resolution(
         let builtin_trait = |def_id| {
             capture_query_failure(&query_failure, canonical_builtin_trait(db, def_id)).flatten()
         };
-        let mut fresh = nia_type_resolve::resolve_module_declaration_types_from_active_item_tree_with_symbols_in_store(
+        let symbols = db.context().symbols();
+        let mut resolution = nia_type_resolve::resolve_module_declaration_types_from_active_item_tree_with_symbols_in_store(
             &active_item_tree,
             &defs,
             nia_type_resolve::ProgramDefsContext {
@@ -462,37 +502,9 @@ pub(super) fn provide_signature_type_resolution(
         if let Some(error) = query_failure.into_inner() {
             return Err(error);
         }
-        let diagnostics = std::mem::take(&mut fresh.diagnostics);
-        if diagnostics.is_empty()
-            && let Some(cache) = &db.context().signature_cache
-            && let Some((program_sources, source, namespace, key)) = cache_input
-        {
-            let replace = matches!(
-                &cached,
-                Some(crate::signature_cache::SignatureTypeResolutionLookup::Hit(cached))
-                    if cached.as_ref() != &fresh
-            );
-            if replace {
-                cache.remove_type_resolution(key);
-            }
-            let _ = cache.publish_type_resolution(
-                crate::signature_cache::SignatureTypeResolutionIdentity {
-                    key,
-                    namespace,
-                    module: &source.module,
-                    set,
-                    program_sources: program_sources.fingerprint,
-                    source_version: source.version,
-                    source_len: source.len,
-                },
-                &fresh,
-                &program_sources.path_by_module,
-                &symbols,
-                replace,
-            );
-        }
+        let diagnostics = std::mem::take(&mut resolution.diagnostics);
         Ok(SignatureTypeResolution {
-            semantic: Arc::new(fresh),
+            semantic: Arc::new(resolution),
             diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
         })
     })
@@ -672,11 +684,54 @@ pub(super) fn provide_signature_type_lowering(
             diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
         });
     }
+    let fresh = db.get(SignatureTypeLoweringSemanticQuery(module_id, set))?;
+    if let Some(cache) = &db.context().signature_cache
+        && let Some((program_sources, source, namespace, key)) = cache_input
+    {
+        let replace = matches!(
+            &cached,
+            Some(crate::signature_cache::SignatureTypeLoweringLookup::Hit(cached))
+                if cached.as_ref() != fresh.semantic.as_ref()
+        );
+        if replace {
+            cache.remove_type_lowering(key);
+        }
+        if resolve_diagnostic_bundle(&fresh.diagnostics).is_empty()
+            && fresh.semantic.const_exprs.is_empty()
+            && fresh.semantic.const_expr_summaries.is_empty()
+        {
+            let _ = cache.publish_type_lowering(
+                crate::signature_cache::SignatureTypeLoweringIdentity {
+                    key,
+                    namespace,
+                    module: &source.module,
+                    set,
+                    program_sources: program_sources.fingerprint,
+                    source_version: source.version,
+                    source_len: source.len,
+                },
+                &fresh.semantic,
+                &program_sources.path_by_module,
+                &symbols,
+                db.context().type_store(),
+                replace,
+            );
+        }
+    }
+    Ok(fresh.as_ref().clone())
+}
+
+pub(in crate::query) fn provide_signature_type_lowering_semantic(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    set: nia_item_tree::SignatureItemSet,
+) -> QueryResult<SignatureTypeLowering> {
     let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set))?;
     let type_resolution = db.get(SignatureTypeResolutionQuery(module_id, set))?;
     let query_failure = RefCell::new(None);
     let program_defs =
         |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
+    let symbols = db.context().symbols();
     let mut lowering =
         nia_type_lower::lower_module_declaration_types_from_active_item_tree_with_context(
             module_id,
@@ -703,39 +758,6 @@ pub(super) fn provide_signature_type_lowering(
     }
     if let Some(error) = query_failure.into_inner() {
         return Err(error);
-    }
-    if let Some(cache) = &db.context().signature_cache
-        && let Some((program_sources, source, namespace, key)) = cache_input
-    {
-        let replace = matches!(
-            &cached,
-            Some(crate::signature_cache::SignatureTypeLoweringLookup::Hit(cached))
-                if cached.as_ref() != &lowering
-        );
-        if replace {
-            cache.remove_type_lowering(key);
-        }
-        if diagnostics.is_empty()
-            && lowering.const_exprs.is_empty()
-            && lowering.const_expr_summaries.is_empty()
-        {
-            let _ = cache.publish_type_lowering(
-                crate::signature_cache::SignatureTypeLoweringIdentity {
-                    key,
-                    namespace,
-                    module: &source.module,
-                    set,
-                    program_sources: program_sources.fingerprint,
-                    source_version: source.version,
-                    source_len: source.len,
-                },
-                &lowering,
-                &program_sources.path_by_module,
-                &symbols,
-                db.context().type_store(),
-                replace,
-            );
-        }
     }
     Ok(SignatureTypeLowering {
         semantic: Arc::new(lowering),
@@ -871,12 +893,52 @@ pub(super) fn provide_signature_item_signatures(
         return Ok(SignatureItemSignatures {
             semantic: Arc::new(cached.as_ref().clone()),
             diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
+            cacheable: true,
         });
     }
+    let fresh = db.get(SignatureItemSignaturesSemanticQuery(module_id, set))?;
+    if let Some(cache) = &db.context().signature_cache
+        && let Some((program_sources, source, namespace, key)) = cache_input
+    {
+        let replace = matches!(
+            &cached,
+            Some(crate::signature_cache::SignatureItemSignaturesLookup::Hit(cached))
+                if cached.as_ref() != fresh.semantic.as_ref()
+        );
+        if replace {
+            cache.remove_item_signatures(key);
+        }
+        if fresh.cacheable {
+            let _ = cache.publish_item_signatures(
+                crate::signature_cache::SignatureItemSignaturesIdentity {
+                    key,
+                    namespace,
+                    module: &source.module,
+                    set,
+                    program_sources: program_sources.fingerprint,
+                    source_len: source.len,
+                },
+                &fresh.semantic,
+                &program_sources.path_by_module,
+                &symbols,
+                db.context().type_store(),
+                replace,
+            );
+        }
+    }
+    Ok(fresh.as_ref().clone())
+}
+
+pub(in crate::query) fn provide_signature_item_signatures_semantic(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    set: nia_item_tree::SignatureItemSet,
+) -> QueryResult<SignatureItemSignatures> {
     let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set))?;
     let defs = module_defs_semantic(db, module_id)?;
     let type_lowering = db.get(SignatureTypeLoweringQuery(module_id, set))?;
-    let mut fresh =
+    let symbols = db.context().symbols();
+    let mut signatures =
         nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
             source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
             defs: &defs,
@@ -889,7 +951,7 @@ pub(super) fn provide_signature_item_signatures(
                 "collecting {set:?} signature items for module {module_id:?}"
             ))
         })?;
-    let diagnostics = std::mem::take(&mut fresh.diagnostics);
+    let diagnostics = std::mem::take(&mut signatures.diagnostics);
     let cacheable = diagnostics.is_empty()
         && resolve_diagnostic_bundle(&type_lowering.diagnostics).is_empty()
         && type_lowering.semantic.const_exprs.is_empty()
@@ -904,38 +966,10 @@ pub(super) fn provide_signature_item_signatures(
             1,
         );
     }
-    if let Some(cache) = &db.context().signature_cache
-        && let Some((program_sources, source, namespace, key)) = cache_input
-    {
-        let replace = matches!(
-            &cached,
-            Some(crate::signature_cache::SignatureItemSignaturesLookup::Hit(cached))
-                if cached.as_ref() != &fresh
-        );
-        if replace {
-            cache.remove_item_signatures(key);
-        }
-        if cacheable {
-            let _ = cache.publish_item_signatures(
-                crate::signature_cache::SignatureItemSignaturesIdentity {
-                    key,
-                    namespace,
-                    module: &source.module,
-                    set,
-                    program_sources: program_sources.fingerprint,
-                    source_len: source.len,
-                },
-                &fresh,
-                &program_sources.path_by_module,
-                &symbols,
-                db.context().type_store(),
-                replace,
-            );
-        }
-    }
     Ok(SignatureItemSignatures {
-        semantic: Arc::new(fresh),
+        semantic: Arc::new(signatures),
         diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
+        cacheable,
     })
 }
 

@@ -173,8 +173,16 @@ pub(super) struct SignatureTypeResolutionQuery(
     pub(super) nia_item_tree::SignatureItemSet,
 );
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SignatureTypeResolutionSemanticQuery(
+    pub(super) ModuleId,
+    pub(super) nia_item_tree::SignatureItemSet,
+);
+
 impl QueryKey<CompilerContext> for SignatureTypeResolutionQuery {
     type Value = SignatureTypeResolution;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "signature_type_resolution"
@@ -188,8 +196,34 @@ impl QueryKey<CompilerContext> for SignatureTypeResolutionQuery {
         Some(signature_item_set_stats_category(self.1))
     }
 
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
+
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.signature_type_resolution)(db, self.0, self.1)
+    }
+}
+
+impl QueryKey<CompilerContext> for SignatureTypeResolutionSemanticQuery {
+    type Value = SignatureTypeResolution;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "signature_type_resolution_semantic"
+    }
+
+    fn stats_category(&self) -> Option<&'static str> {
+        Some(signature_item_set_stats_category(self.1))
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        provide_signature_type_resolution_semantic(db, self.0, self.1)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -199,8 +233,16 @@ pub(super) struct SignatureTypeLoweringQuery(
     pub(super) nia_item_tree::SignatureItemSet,
 );
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SignatureTypeLoweringSemanticQuery(
+    pub(super) ModuleId,
+    pub(super) nia_item_tree::SignatureItemSet,
+);
+
 impl QueryKey<CompilerContext> for SignatureTypeLoweringQuery {
     type Value = SignatureTypeLowering;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "signature_type_lowering"
@@ -214,8 +256,34 @@ impl QueryKey<CompilerContext> for SignatureTypeLoweringQuery {
         Some(signature_item_set_stats_category(self.1))
     }
 
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
+
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.signature_type_lowering)(db, self.0, self.1)
+    }
+}
+
+impl QueryKey<CompilerContext> for SignatureTypeLoweringSemanticQuery {
+    type Value = SignatureTypeLowering;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "signature_type_lowering_semantic"
+    }
+
+    fn stats_category(&self) -> Option<&'static str> {
+        Some(signature_item_set_stats_category(self.1))
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        provide_signature_type_lowering_semantic(db, self.0, self.1)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -225,8 +293,16 @@ pub(super) struct SignatureItemSignaturesQuery(
     pub(super) nia_item_tree::SignatureItemSet,
 );
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SignatureItemSignaturesSemanticQuery(
+    pub(super) ModuleId,
+    pub(super) nia_item_tree::SignatureItemSet,
+);
+
 impl QueryKey<CompilerContext> for SignatureItemSignaturesQuery {
     type Value = SignatureItemSignatures;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "signature_item_signatures"
@@ -240,8 +316,34 @@ impl QueryKey<CompilerContext> for SignatureItemSignaturesQuery {
         Some(signature_item_set_stats_category(self.1))
     }
 
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
+
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.signature_item_signatures)(db, self.0, self.1)
+    }
+}
+
+impl QueryKey<CompilerContext> for SignatureItemSignaturesSemanticQuery {
+    type Value = SignatureItemSignatures;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "signature_item_signatures_semantic"
+    }
+
+    fn stats_category(&self) -> Option<&'static str> {
+        Some(signature_item_set_stats_category(self.1))
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        provide_signature_item_signatures_semantic(db, self.0, self.1)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
