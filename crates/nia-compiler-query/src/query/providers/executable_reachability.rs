@@ -80,24 +80,36 @@ impl QueryExecutableExtensionLookup<'_> {
         if self.trait_impls_by_trait.borrow().contains_key(&trait_id) {
             return;
         }
-        let trait_impls = capture_query_failure(
-            &self.failure,
-            self.db.get(ExtensionTraitImplsForTraitQuery(trait_id)),
-        )
-        .map(|facts| facts.trait_impls.clone())
-        .unwrap_or_default();
-        let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new_with_type_store(
-            &trait_impls,
-            &self.db.context().type_store,
-        );
-        self.trait_impl_position_by_key
-            .borrow_mut()
-            .extend(trait_impls.iter().enumerate().map(|(index, signature)| {
-                (
-                    (signature.module_id, signature.impl_id, signature.trait_id),
-                    index,
+        let timings = self.db.context().timings();
+        let trait_impls = time_provider(timings, "executable_extensions.trait_impls", || {
+            capture_query_failure(
+                &self.failure,
+                self.db.get(ExtensionTraitImplsForTraitQuery(trait_id)),
+            )
+            .map(|facts| facts.trait_impls.clone())
+            .unwrap_or_default()
+        });
+        let trait_impl_index =
+            time_provider(timings, "executable_extensions.trait_impl_index", || {
+                nia_item_signatures::ProgramTraitImplIndex::new_with_type_store(
+                    &trait_impls,
+                    &self.db.context().type_store,
                 )
-            }));
+            });
+        time_provider(
+            timings,
+            "executable_extensions.trait_impl_positions",
+            || {
+                self.trait_impl_position_by_key.borrow_mut().extend(
+                    trait_impls.iter().enumerate().map(|(index, signature)| {
+                        (
+                            (signature.module_id, signature.impl_id, signature.trait_id),
+                            index,
+                        )
+                    }),
+                );
+            },
+        );
         self.trait_impls_by_trait
             .borrow_mut()
             .insert(trait_id, trait_impls);
@@ -121,16 +133,23 @@ impl QueryExecutableExtensionLookup<'_> {
         if let Some(modules) = self.module_ids_by_trait.borrow().get(&trait_id) {
             return modules.clone();
         }
-        let mut modules = Vec::new();
-        self.with_trait_impls_for_trait(trait_id, &mut |trait_impls| {
-            modules.extend(
-                trait_impls
-                    .iter()
-                    .map(|impl_signature| impl_signature.module_id),
-            );
-        });
-        modules.sort();
-        modules.dedup();
+        let modules = time_provider(
+            self.db.context().timings(),
+            "executable_extensions.module_ids",
+            || {
+                let mut modules = Vec::new();
+                self.with_trait_impls_for_trait(trait_id, &mut |trait_impls| {
+                    modules.extend(
+                        trait_impls
+                            .iter()
+                            .map(|impl_signature| impl_signature.module_id),
+                    );
+                });
+                modules.sort();
+                modules.dedup();
+                modules
+            },
+        );
         self.module_ids_by_trait
             .borrow_mut()
             .insert(trait_id, modules.clone());
@@ -141,25 +160,29 @@ impl QueryExecutableExtensionLookup<'_> {
         if self.methods_by_trait.borrow().contains_key(&trait_id) {
             return;
         }
-        let mut seen = HashSet::new();
-        let mut methods = Vec::new();
-        for module_id in self.module_ids_for_trait(trait_id) {
-            let Some(facts) = capture_query_failure(
-                &self.failure,
-                self.db.get(ExtensionProviderModuleFactsQuery(module_id)),
-            ) else {
-                break;
-            };
-            methods.extend(
-                facts
-                    .methods
-                    .all_methods()
-                    .filter(|method| method.trait_id == Some(trait_id))
-                    .filter(|method| seen.insert(method.def_id))
-                    .cloned(),
-            );
-        }
-        {
+        let timings = self.db.context().timings();
+        let methods = time_provider(timings, "executable_extensions.methods", || {
+            let mut seen = HashSet::new();
+            let mut methods = Vec::new();
+            for module_id in self.module_ids_for_trait(trait_id) {
+                let Some(facts) = capture_query_failure(
+                    &self.failure,
+                    self.db.get(ExtensionProviderModuleFactsQuery(module_id)),
+                ) else {
+                    break;
+                };
+                methods.extend(
+                    facts
+                        .methods
+                        .all_methods()
+                        .filter(|method| method.trait_id == Some(trait_id))
+                        .filter(|method| seen.insert(method.def_id))
+                        .cloned(),
+                );
+            }
+            methods
+        });
+        time_provider(timings, "executable_extensions.methods_by_impl", || {
             let mut by_impl = self.methods_by_trait_impl.borrow_mut();
             for method in &methods {
                 by_impl
@@ -167,7 +190,7 @@ impl QueryExecutableExtensionLookup<'_> {
                     .or_default()
                     .push(method.clone());
             }
-        }
+        });
         self.methods_by_trait.borrow_mut().insert(trait_id, methods);
     }
 
@@ -350,35 +373,39 @@ fn executable_check_in_session(
     mut session: ExecutableFactSession,
     mut non_function_signatures: Option<ProgramExecutableNonFunctionSignatures>,
 ) -> (QueryResult<ExecutableCheckOutput>, ExecutableFactSession) {
-    let initial_inputs = (|| {
-        let provider_fact_worklist = db.get(ProviderFactWorklistQuery)?;
-        let body_activation_worklist = db.get(BodyActivationWorklistQuery)?;
-        let executable_fact_epoch = db.get(ExecutableFactEpochQuery)?;
-        let parse_ok_module_ids = db.get(ParseOkModuleIdsQuery)?;
-        let parse_ok = resolve_stable_module_sequence(db, &parse_ok_module_ids)?;
-        let module_versions = parse_ok
-            .iter()
-            .copied()
-            .map(|module_id| {
-                db.get(ModuleSourceVersionQuery(module_id))
-                    .map(|version| (module_id, *version))
-            })
-            .collect::<QueryResult<HashMap<_, _>>>()?;
-        let (entry_module, runtime_root_modules) =
-            db.get(ExecutableRootModulesQuery)?.as_ref().clone();
-        let (root_functions, root_globals) =
-            executable_root_defs(db, entry_module, &runtime_root_modules, &parse_ok)?;
-        Ok((
-            provider_fact_worklist,
-            body_activation_worklist,
-            executable_fact_epoch,
-            parse_ok,
-            module_versions,
-            entry_module,
-            root_functions,
-            root_globals,
-        ))
-    })();
+    let initial_inputs = time_provider(
+        db.context().timings(),
+        "executable_checked_modules.initial_inputs",
+        || {
+            let provider_fact_worklist = db.get(ProviderFactWorklistQuery)?;
+            let body_activation_worklist = db.get(BodyActivationWorklistQuery)?;
+            let executable_fact_epoch = db.get(ExecutableFactEpochQuery)?;
+            let parse_ok_module_ids = db.get(ParseOkModuleIdsQuery)?;
+            let parse_ok = resolve_stable_module_sequence(db, &parse_ok_module_ids)?;
+            let module_versions = parse_ok
+                .iter()
+                .copied()
+                .map(|module_id| {
+                    db.get(ModuleSourceVersionQuery(module_id))
+                        .map(|version| (module_id, *version))
+                })
+                .collect::<QueryResult<HashMap<_, _>>>()?;
+            let (entry_module, runtime_root_modules) =
+                db.get(ExecutableRootModulesQuery)?.as_ref().clone();
+            let (root_functions, root_globals) =
+                executable_root_defs(db, entry_module, &runtime_root_modules, &parse_ok)?;
+            Ok((
+                provider_fact_worklist,
+                body_activation_worklist,
+                executable_fact_epoch,
+                parse_ok,
+                module_versions,
+                entry_module,
+                root_functions,
+                root_globals,
+            ))
+        },
+    );
     let (
         provider_fact_worklist,
         body_activation_worklist,
@@ -672,11 +699,14 @@ fn executable_check_in_session(
             break;
         }
         emit_executable_check_counter(db, product, "stale_modules", stale.len() as u64);
-        let round_reachable_body_modules =
-            match executable_reachable_body_modules(db, &reachability_by_module) {
-                Ok(modules) => modules,
-                Err(error) => return_session_error!(error),
-            };
+        let round_reachable_body_modules = match time_provider(
+            db.context().timings(),
+            "executable_checked_modules.reachable_body_modules",
+            || executable_reachable_body_modules(db, &reachability_by_module),
+        ) {
+            Ok(modules) => modules,
+            Err(error) => return_session_error!(error),
+        };
         let mut batch_items = Vec::new();
         for module_id in stale {
             let already_checked_functions = fact_by_id
@@ -751,21 +781,23 @@ fn executable_check_in_session(
             } else {
                 ReachableBodyModules::new(&round_reachable_body_modules)
             };
-            let layouts = match store_module_layouts(db.context(), {
-                let reachability = reachability_state.reachability();
-                match executable_layouts_for_reachable_items(
-                    db,
-                    module_id,
-                    reachability.functions(),
-                    reachability.globals(),
-                    Some(&caches.array_lengths),
-                    None,
-                    Some(reachable_body_modules),
-                ) {
-                    Ok(layouts) => layouts,
-                    Err(error) => return_session_error!(error),
-                }
-            }) {
+            let layouts = match time_provider(
+                db.context().timings(),
+                "executable_checked_modules.module_layouts",
+                || -> QueryResult<_> {
+                    let reachability = reachability_state.reachability();
+                    let layouts = executable_layouts_for_reachable_items(
+                        db,
+                        module_id,
+                        reachability.functions(),
+                        reachability.globals(),
+                        Some(&caches.array_lengths),
+                        None,
+                        Some(reachable_body_modules),
+                    )?;
+                    store_module_layouts(db.context(), layouts)
+                },
+            ) {
                 Ok(layouts) => layouts,
                 Err(error) => return_session_error!(error),
             };
@@ -806,7 +838,7 @@ fn executable_check_in_session(
                 program_layout_cache
                     .borrow_mut()
                     .insert(module_id, layouts.clone());
-                let executable_program_layouts = {
+                let raw_executable_program_layouts = {
                     let reachability = reachability_state.reachability();
                     executable_program_layouts(
                         db,
@@ -816,6 +848,13 @@ fn executable_check_in_session(
                         Some(&caches.array_lengths),
                         None,
                         Some(reachable_body_modules),
+                    )
+                };
+                let executable_program_layouts = |module_id| {
+                    time_provider(
+                        db.context().timings(),
+                        "executable_checked_modules.program_layout_lookup",
+                        || raw_executable_program_layouts(module_id),
                     )
                 };
                 let body_check =
@@ -843,11 +882,11 @@ fn executable_check_in_session(
                     }) {
                         Ok(body_check) => body_check,
                         Err(error) => {
-                            drop(executable_program_layouts);
+                            drop(raw_executable_program_layouts);
                             return_session_error!(error)
                         }
                     };
-                drop(executable_program_layouts);
+                drop(raw_executable_program_layouts);
                 match program_layout_failure.into_inner() {
                     Some(error) => return_session_error!(error),
                     None => body_check,
