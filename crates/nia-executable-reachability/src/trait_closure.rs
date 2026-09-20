@@ -1027,24 +1027,28 @@ pub(super) fn extend_reachable_functions_from_traits(
         }
     }
     for vtable in &reachable_traits.vtables {
-        extension_index.for_each_method_for_trait(vtable.trait_id, &mut |method| {
-            if !with_reachable_extension_method_match(
-                ReachableExtensionMatchInput {
-                    method,
-                    trait_id: vtable.trait_id,
-                    self_ty: vtable.self_ty,
-                    trait_args: &vtable.trait_args,
-                    trait_const_args: &vtable.trait_const_args,
-                    use_module_id: vtable.module_id,
-                    type_store,
-                    extension_index,
-                    modules_by_id,
-                },
-                &mut |_| {
-                    deferred_modules.add_function(method.def_id, program_signatures);
-                },
-            ) {}
-        });
+        extension_index.for_each_method_candidate_for_trait(
+            vtable.trait_id,
+            vtable.self_ty,
+            &mut |method| {
+                if !with_reachable_extension_method_match(
+                    ReachableExtensionMatchInput {
+                        method,
+                        trait_id: vtable.trait_id,
+                        self_ty: vtable.self_ty,
+                        trait_args: &vtable.trait_args,
+                        trait_const_args: &vtable.trait_const_args,
+                        use_module_id: vtable.module_id,
+                        type_store,
+                        extension_index,
+                        modules_by_id,
+                    },
+                    &mut |_| {
+                        deferred_modules.add_function(method.def_id, program_signatures);
+                    },
+                ) {}
+            },
+        );
     }
     let mut callback_error = None;
     let mut method_index = 0;
@@ -1052,9 +1056,10 @@ pub(super) fn extend_reachable_functions_from_traits(
         let mut discovered_traits = ReachableTraitRefs::default();
         {
             let reachable = &reachable_traits.methods[method_index];
-            extension_index.for_each_method_for_trait_method(
+            extension_index.for_each_method_candidate_for_trait_method(
                 reachable.trait_id,
                 &reachable.method_name,
+                reachable.self_ty,
                 &mut |method| {
                     if !with_reachable_extension_method_match(
                         ReachableExtensionMatchInput {
@@ -1146,24 +1151,28 @@ pub(super) fn extend_reachable_functions_from_traits_incremental(
             &vtable,
             &mut deferred_modules,
         );
-        extension_index.for_each_method_for_trait(vtable.trait_id, &mut |method| {
-            if !with_reachable_extension_method_match(
-                ReachableExtensionMatchInput {
-                    method,
-                    trait_id: vtable.trait_id,
-                    self_ty: vtable.self_ty,
-                    trait_args: &vtable.trait_args,
-                    trait_const_args: &vtable.trait_const_args,
-                    use_module_id: vtable.module_id,
-                    type_store,
-                    extension_index,
-                    modules_by_id,
-                },
-                &mut |_| {
-                    deferred_modules.add_function(method.def_id, program_signatures);
-                },
-            ) {}
-        });
+        extension_index.for_each_method_candidate_for_trait(
+            vtable.trait_id,
+            vtable.self_ty,
+            &mut |method| {
+                if !with_reachable_extension_method_match(
+                    ReachableExtensionMatchInput {
+                        method,
+                        trait_id: vtable.trait_id,
+                        self_ty: vtable.self_ty,
+                        trait_args: &vtable.trait_args,
+                        trait_const_args: &vtable.trait_const_args,
+                        use_module_id: vtable.module_id,
+                        type_store,
+                        extension_index,
+                        modules_by_id,
+                    },
+                    &mut |_| {
+                        deferred_modules.add_function(method.def_id, program_signatures);
+                    },
+                ) {}
+            },
+        );
         vtable_index += 1;
     }
 
@@ -1181,9 +1190,10 @@ pub(super) fn extend_reachable_functions_from_traits_incremental(
                 reachable,
                 &mut deferred_modules,
             );
-            extension_index.for_each_method_for_trait_method(
+            extension_index.for_each_method_candidate_for_trait_method(
                 reachable.trait_id,
                 &reachable.method_name,
+                reachable.self_ty,
                 &mut |method| {
                     if !with_reachable_extension_method_match(
                         ReachableExtensionMatchInput {

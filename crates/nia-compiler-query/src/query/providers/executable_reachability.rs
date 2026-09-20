@@ -47,10 +47,15 @@ struct QueryExecutableExtensionLookup<'a> {
     failure: RefCell<Option<QueryError>>,
     trait_impls_by_trait:
         RefCell<HashMap<nia_ty::TraitId, Vec<nia_item_signatures::ProgramTraitImplSignature>>>,
+    trait_impl_index_by_trait:
+        RefCell<HashMap<nia_ty::TraitId, nia_item_signatures::ProgramTraitImplIndex>>,
+    trait_impl_position_by_key:
+        RefCell<HashMap<(ModuleId, nia_ids::TraitImplId, nia_ty::TraitId), usize>>,
     module_ids_by_trait: RefCell<HashMap<nia_ty::TraitId, Vec<ModuleId>>>,
     methods_by_trait: RefCell<HashMap<nia_ty::TraitId, Vec<nia_defs::ExtensionMethod>>>,
-    methods_by_trait_name:
-        RefCell<HashMap<(nia_ty::TraitId, SymbolId), Vec<nia_defs::ExtensionMethod>>>,
+    methods_by_trait_impl: RefCell<
+        HashMap<(nia_ty::TraitId, ModuleId, nia_ids::TraitImplId), Vec<nia_defs::ExtensionMethod>>,
+    >,
 }
 
 impl QueryExecutableExtensionLookup<'_> {
@@ -59,9 +64,11 @@ impl QueryExecutableExtensionLookup<'_> {
             db,
             failure: RefCell::new(None),
             trait_impls_by_trait: RefCell::new(HashMap::new()),
+            trait_impl_index_by_trait: RefCell::new(HashMap::new()),
+            trait_impl_position_by_key: RefCell::new(HashMap::new()),
             module_ids_by_trait: RefCell::new(HashMap::new()),
             methods_by_trait: RefCell::new(HashMap::new()),
-            methods_by_trait_name: RefCell::new(HashMap::new()),
+            methods_by_trait_impl: RefCell::new(HashMap::new()),
         }
     }
 
@@ -79,9 +86,24 @@ impl QueryExecutableExtensionLookup<'_> {
         )
         .map(|facts| facts.trait_impls.clone())
         .unwrap_or_default();
+        let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new_with_type_store(
+            &trait_impls,
+            &self.db.context().type_store,
+        );
+        self.trait_impl_position_by_key
+            .borrow_mut()
+            .extend(trait_impls.iter().enumerate().map(|(index, signature)| {
+                (
+                    (signature.module_id, signature.impl_id, signature.trait_id),
+                    index,
+                )
+            }));
         self.trait_impls_by_trait
             .borrow_mut()
             .insert(trait_id, trait_impls);
+        self.trait_impl_index_by_trait
+            .borrow_mut()
+            .insert(trait_id, trait_impl_index);
     }
 
     fn with_trait_impls_for_trait(
@@ -114,21 +136,9 @@ impl QueryExecutableExtensionLookup<'_> {
             .insert(trait_id, modules.clone());
         modules
     }
-}
 
-impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
-    fn for_each_method_for_trait(
-        &self,
-        trait_id: nia_ty::TraitId,
-        f: &mut dyn FnMut(&nia_defs::ExtensionMethod),
-    ) {
+    fn ensure_methods_for_trait(&self, trait_id: nia_ty::TraitId) {
         if self.methods_by_trait.borrow().contains_key(&trait_id) {
-            let methods = self.methods_by_trait.borrow();
-            if let Some(methods) = methods.get(&trait_id) {
-                for method in methods {
-                    f(method);
-                }
-            }
             return;
         }
         let mut seen = HashSet::new();
@@ -149,7 +159,55 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
                     .cloned(),
             );
         }
+        {
+            let mut by_impl = self.methods_by_trait_impl.borrow_mut();
+            for method in &methods {
+                by_impl
+                    .entry((trait_id, method.def_id.module_id, method.impl_id))
+                    .or_default()
+                    .push(method.clone());
+            }
+        }
         self.methods_by_trait.borrow_mut().insert(trait_id, methods);
+    }
+
+    fn candidate_impl_keys_for_target(
+        &self,
+        trait_id: nia_ty::TraitId,
+        target_ty: InternedTyId,
+    ) -> Vec<(ModuleId, nia_ids::TraitImplId)> {
+        self.ensure_trait_impls_for_trait(trait_id);
+        let indexes = self.trait_impl_index_by_trait.borrow();
+        let Some(index) = indexes.get(&trait_id) else {
+            return Vec::new();
+        };
+        let mut candidate_indexes = index.indexes_for_trait_and_target(trait_id, target_ty);
+        if let Some(nia_ty::TyKind::Pointer { elem, .. }) =
+            self.db.context().type_store.get(target_ty)
+        {
+            candidate_indexes.extend(index.indexes_for_trait_and_target(trait_id, *elem));
+        }
+        candidate_indexes.sort_unstable();
+        candidate_indexes.dedup();
+        let trait_impls = self.trait_impls_by_trait.borrow();
+        let Some(trait_impls) = trait_impls.get(&trait_id) else {
+            return Vec::new();
+        };
+        candidate_indexes
+            .into_iter()
+            .filter_map(|index| trait_impls.get(index))
+            .map(|signature| (signature.module_id, signature.impl_id))
+            .collect()
+    }
+}
+
+impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
+    fn for_each_method_for_trait(
+        &self,
+        trait_id: nia_ty::TraitId,
+        f: &mut dyn FnMut(&nia_defs::ExtensionMethod),
+    ) {
+        self.ensure_methods_for_trait(trait_id);
         let methods = self.methods_by_trait.borrow();
         if let Some(methods) = methods.get(&trait_id) {
             for method in methods {
@@ -164,39 +222,51 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
         method_name: &SymbolId,
         f: &mut dyn FnMut(&nia_defs::ExtensionMethod),
     ) {
-        let key = (trait_id, *method_name);
-        if self.methods_by_trait_name.borrow().contains_key(&key) {
-            let methods = self.methods_by_trait_name.borrow();
-            if let Some(methods) = methods.get(&key) {
-                for method in methods {
+        self.ensure_methods_for_trait(trait_id);
+        let methods = self.methods_by_trait.borrow();
+        if let Some(methods) = methods.get(&trait_id) {
+            for method in methods.iter().filter(|method| method.name == *method_name) {
+                f(method);
+            }
+        }
+    }
+
+    fn for_each_method_candidate_for_trait(
+        &self,
+        trait_id: nia_ty::TraitId,
+        target_ty: InternedTyId,
+        f: &mut dyn FnMut(&nia_defs::ExtensionMethod),
+    ) {
+        let candidates = self.candidate_impl_keys_for_target(trait_id, target_ty);
+        self.ensure_methods_for_trait(trait_id);
+        let methods = self.methods_by_trait_impl.borrow();
+        for (module_id, impl_id) in candidates {
+            if let Some(candidates) = methods.get(&(trait_id, module_id, impl_id)) {
+                for method in candidates {
                     f(method);
                 }
             }
-            return;
         }
-        let mut seen = HashSet::new();
-        let mut methods = Vec::new();
-        for module_id in self.module_ids_for_trait(trait_id) {
-            let Some(facts) = capture_query_failure(
-                &self.failure,
-                self.db.get(ExtensionProviderModuleFactsQuery(module_id)),
-            ) else {
-                break;
-            };
-            methods.extend(
-                facts
-                    .methods
-                    .methods_named(method_name)
-                    .filter(|method| method.trait_id == Some(trait_id))
-                    .filter(|method| seen.insert(method.def_id))
-                    .cloned(),
-            );
-        }
-        self.methods_by_trait_name.borrow_mut().insert(key, methods);
-        let methods = self.methods_by_trait_name.borrow();
-        if let Some(methods) = methods.get(&key) {
-            for method in methods {
-                f(method);
+    }
+
+    fn for_each_method_candidate_for_trait_method(
+        &self,
+        trait_id: nia_ty::TraitId,
+        method_name: &SymbolId,
+        target_ty: InternedTyId,
+        f: &mut dyn FnMut(&nia_defs::ExtensionMethod),
+    ) {
+        let candidates = self.candidate_impl_keys_for_target(trait_id, target_ty);
+        self.ensure_methods_for_trait(trait_id);
+        let methods = self.methods_by_trait_impl.borrow();
+        for (module_id, impl_id) in candidates {
+            if let Some(candidates) = methods.get(&(trait_id, module_id, impl_id)) {
+                for method in candidates
+                    .iter()
+                    .filter(|method| method.name == *method_name)
+                {
+                    f(method);
+                }
             }
         }
     }
@@ -233,18 +303,24 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
         trait_id: nia_ty::TraitId,
         f: &mut dyn FnMut(&nia_item_signatures::ProgramTraitImplSignature),
     ) -> bool {
-        let mut found = false;
-        self.with_trait_impls_for_trait(trait_id, &mut |trait_impls| {
-            let Some(signature) = trait_impls.iter().find(|impl_signature| {
-                impl_signature.module_id == method.def_id.module_id
-                    && impl_signature.impl_id == method.impl_id
-            }) else {
-                return;
-            };
-            found = true;
-            f(signature);
-        });
-        found
+        self.ensure_trait_impls_for_trait(trait_id);
+        let Some(position) = self
+            .trait_impl_position_by_key
+            .borrow()
+            .get(&(method.def_id.module_id, method.impl_id, trait_id))
+            .copied()
+        else {
+            return false;
+        };
+        let trait_impls = self.trait_impls_by_trait.borrow();
+        let Some(signature) = trait_impls
+            .get(&trait_id)
+            .and_then(|trait_impls| trait_impls.get(position))
+        else {
+            return false;
+        };
+        f(signature);
+        true
     }
 }
 
