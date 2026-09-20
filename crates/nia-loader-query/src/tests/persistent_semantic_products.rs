@@ -27,14 +27,15 @@ fn unwrap[T](value: Box[T]) T { value.value }
     assert!(!has_error_diagnostics(&first.diagnostics));
     let first_trace = first_compiler.query_trace().expect("query trace");
     assert!(first_trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "signature_type_resolution" && dependency.to.name == "module_defs"
+        dependency.from.name == "signature_type_resolution_semantic"
+            && dependency.to.name == "module_defs"
     }));
     assert!(first_trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "signature_type_lowering"
+        dependency.from.name == "signature_type_lowering_semantic"
             && dependency.to.name == "signature_type_resolution"
     }));
     assert!(first_trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "signature_item_signatures"
+        dependency.from.name == "signature_item_signatures_semantic"
             && dependency.to.name == "signature_type_lowering"
     }));
     assert!(first_trace.dependencies.iter().any(|dependency| {
@@ -114,7 +115,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
             .dependencies
             .iter()
             .any(|dependency| {
-                dependency.from.name == "signature_type_resolution"
+                dependency.from.name == "signature_type_resolution_semantic"
                     && dependency.to.name == "module_defs"
             })
     );
@@ -125,7 +126,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
             .dependencies
             .iter()
             .any(|dependency| {
-                dependency.from.name == "signature_type_lowering"
+                dependency.from.name == "signature_type_lowering_semantic"
                     && dependency.to.name == "signature_type_resolution"
             })
     );
@@ -136,7 +137,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
             .dependencies
             .iter()
             .any(|dependency| {
-                dependency.from.name == "signature_item_signatures"
+                dependency.from.name == "signature_item_signatures_semantic"
                     && dependency.to.name == "signature_type_lowering"
             })
     );

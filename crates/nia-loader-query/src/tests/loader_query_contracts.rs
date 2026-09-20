@@ -85,7 +85,7 @@ fn loader_query_registry_covers_all_declared_query_contracts() {
         .expect("create loader query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 18);
+    assert_eq!(descriptors.len(), 19);
     assert!(
         descriptors
             .windows(2)
@@ -94,7 +94,8 @@ fn loader_query_registry_covers_all_declared_query_contracts() {
     assert!(descriptors.iter().all(|descriptor| {
         let expected_fingerprint = match descriptor.name {
             "source_status" => nia_query::QueryFingerprintPolicy::StableValue,
-            "provider_demands"
+            "module_source_id"
+            | "provider_demands"
             | "loader_active_module_item_tree_fact"
             | "loader_module_item_tree_fact"
             | "loader_module_origins_fact"
@@ -364,6 +365,12 @@ fn compiler_loader_roots_record_cross_database_dependencies() {
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "signature_item_tree"
             && dependency.to.name == "loader_active_module_item_tree_fact"
+    }));
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "signature_item_tree" && dependency.to.name == "module_source_id"
+    }));
+    assert!(!trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "signature_item_tree" && dependency.to.name == "module_graph"
     }));
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "module_origins"
