@@ -255,6 +255,26 @@ fn workloads(root: &Path, output: &Path) -> MaintainResult<Vec<(String, Vec<Stri
             ],
         ));
     }
+    let module_count = 1000;
+    let source_root = output.join(format!("synthetic-{module_count}-modules"));
+    let source = synthetic::generate(
+        &source_root,
+        Language::Nia,
+        Specification::flat_star(module_count),
+    )?;
+    workloads.push((
+        format!("synthetic_{module_count}_modules"),
+        vec![
+            "emit".to_owned(),
+            "--exe".to_owned(),
+            source.to_string_lossy().into_owned(),
+            "-o".to_owned(),
+            output
+                .join(format!("synthetic-{module_count}"))
+                .to_string_lossy()
+                .into_owned(),
+        ],
+    ));
     Ok(workloads)
 }
 
@@ -395,6 +415,7 @@ fn synthetic_module_count(name: &str) -> Option<i64> {
         "synthetic_50_modules" => Some(50),
         "synthetic_100_modules" => Some(100),
         "synthetic_500_modules" => Some(500),
+        "synthetic_1000_modules" => Some(1000),
         _ => None,
     }
 }

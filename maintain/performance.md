@@ -39,7 +39,7 @@ baseline builds the repository-default release compiler before measurement;
 `--no-build` is an explicit escape hatch for an externally prepared compiler,
 and the report marks that distinction.
 
-The suite currently fixes twenty-three compiler paths: minimal check, standard-library
+The suite currently fixes twenty-four compiler paths: minimal check, standard-library
 Hello World check and executable emission, strings and slices, ArrayList,
 trait-heavy code, const-eval-heavy code, multi-module backend lowering, small
 and large bounded multi-unit object codegen, and a larger full executable
@@ -48,7 +48,9 @@ scales. It also includes two source-volume controls: one single-module curve
 that grows top-level declarations and one comment-padding curve that grows
 source bytes without adding semantic items. Their result records include the
 generated source byte count so source-size effects are not inferred from
-workload names alone. Benchmark sources live in `benchmarks/`, reuse maintained examples, or
+workload names alone. A Nia-only 1000-module flat/star executable extends the
+500-module scale after the medium project, without fabricating Rust or Zig
+counterparts. Benchmark sources live in `benchmarks/`, reuse maintained examples, or
 are generated deterministically by the runner; generated sources, objects,
 executables, and reports remain under temporary or `target/` directories. The
 `codegen_buckets` workload is a single source with eight reachable definitions.
