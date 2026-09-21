@@ -209,67 +209,51 @@ extend ArenaAllocator {
         let mut prev: ?&mut ArenaChunk = null;
         let mut current = self.freeList;
 
-        while true {
-            match current {
-                mut ?chunk => {
-                    if chunkFitEnd(chunk, layout) is ?end {
-                        let capacity = chunkPayloadCapacity(chunk);
-                        if end <= capacity {
-                            let waste = capacity - end;
-                            if waste < bestWaste {
-                                best = ?chunk;
-                                bestPrev = prev;
-                                bestWaste = waste;
-                            }
-                        } else {
-                            let shortage = end - capacity;
-                            if shortage < closestShortage {
-                                closest = ?chunk;
-                                closestPrev = prev;
-                                closestShortage = shortage;
-                            }
+        loop {
+            if current is mut ?chunk {
+                if chunkFitEnd(chunk, layout) is ?end {
+                    let capacity = chunkPayloadCapacity(chunk);
+                    if end <= capacity {
+                        let waste = capacity - end;
+                        if waste < bestWaste {
+                            best = ?chunk;
+                            bestPrev = prev;
+                            bestWaste = waste;
+                        }
+                    } else {
+                        let shortage = end - capacity;
+                        if shortage < closestShortage {
+                            closest = ?chunk;
+                            closestPrev = prev;
+                            closestShortage = shortage;
                         }
                     }
-                    prev = ?chunk;
-                    current = chunk.next;
-                },
-                null => {
-                    let mut selected = match best {
-                        ?chunk => {
-                            chunk
-                        },
-                        null => {
-                            let mut fallback = match closest {
-                                ?chunk => {
-                                    chunk
-                                },
-                                null => {
-                                    return null;
-                                },
-                            };
-                            if not self.growFreeChunk(fallback, layout) {
-                                return null;
-                            }
-                            fallback
-                        },
-                    };
-                    let selectedPrev = if best is ?_ { bestPrev } else { closestPrev };
-                    match selectedPrev {
-                        ?before => {
-                            let mut before = before;
-                            before.next = selected.next;
-                        },
-                        null => {
-                            self.freeList = selected.next;
-                        },
-                    }
-                    selected.next = null;
-                    selected.endIndex = 0;
-                    return ?selected;
-                },
+                }
+                prev = ?chunk;
+                current = chunk.next;
+                continue;
             }
+
+            let mut selected = if best is ?chunk {
+                chunk
+            } else if closest is ?chunk {
+                if not self.growFreeChunk(chunk, layout) {
+                    return null;
+                }
+                chunk
+            } else {
+                return null;
+            };
+            let selectedPrev = if best is ?_ { bestPrev } else { closestPrev };
+            if selectedPrev is mut ?before {
+                before.next = selected.next;
+            } else {
+                self.freeList = selected.next;
+            }
+            selected.next = null;
+            selected.endIndex = 0;
+            return ?selected;
         }
-        null
     }
 
     fn growFreeChunk(&mut self, chunk: &mut ArenaChunk, layout: Layout) bool {
@@ -321,37 +305,30 @@ extend ArenaAllocator {
 
     fn listOwnsBlock(&self, first: ?&mut ArenaChunk, block: Block) bool {
         let mut current = first;
-        while true {
-            match current {
-                mut ?chunk => {
-                    if chunkOwnsBlock(chunk, block) {
-                        return true;
-                    }
-                    current = chunk.next;
-                },
-                null => {
-                    return false;
-                },
+        loop {
+            if current is mut ?chunk {
+                if chunkOwnsBlock(chunk, block) {
+                    return true;
+                }
+                current = chunk.next;
+            } else {
+                return false;
             }
         }
-        false
     }
 
     fn moveUsedToFreeList(&mut self) () {
         let mut current = self.usedList;
         self.usedList = null;
-        while true {
-            match current {
-                mut ?chunk => {
-                    let next = chunk.next;
-                    chunk.endIndex = 0;
-                    chunk.next = self.freeList;
-                    self.freeList = ?chunk;
-                    current = next;
-                },
-                null => {
-                    return;
-                },
+        loop {
+            if current is mut ?chunk {
+                let next = chunk.next;
+                chunk.endIndex = 0;
+                chunk.next = self.freeList;
+                self.freeList = ?chunk;
+                current = next;
+            } else {
+                return;
             }
         }
     }
@@ -366,74 +343,54 @@ extend ArenaAllocator {
     fn freeChunkList(&mut self, first: ?&mut ArenaChunk) Error!() {
         let mut current = first;
         let mut cleanup: error::CleanupAccumulator[Error] = .init();
-        while true {
-            match current {
-                ?chunk => {
-                    let mut chunk = chunk;
-                    let next = chunk.next;
-                    chunk.next = null;
-                    if self.child.free(chunk.block) is err! {
-                        chunk.endIndex = 0;
-                        chunk.next = self.freeList;
-                        self.freeList = ?chunk;
-                        cleanup.attempt(err!);
-                    }
-                    current = next;
-                },
-                null => {
-                    return cleanup.finish();
-                },
+        loop {
+            if current is ?chunk {
+                let mut chunk = chunk;
+                let next = chunk.next;
+                chunk.next = null;
+                if self.child.free(chunk.block) is err! {
+                    chunk.endIndex = 0;
+                    chunk.next = self.freeList;
+                    self.freeList = ?chunk;
+                    cleanup.attempt(err!);
+                }
+                current = next;
+            } else {
+                return cleanup.finish();
             }
         }
-        !()
     }
 
     fn listCapacity(&self, first: ?&mut ArenaChunk) usize {
         let mut total: usize = 0;
         let mut current = first;
-        while true {
-            match current {
-                ?chunk => {
-                    total = match total.checkedAdd(chunkPayloadCapacity(chunk)) {
-                        ?value => {
-                            value
-                        },
-                        null => {
-                            usize::MAX
-                        },
-                    };
-                    current = chunk.next;
-                },
-                null => {
-                    return total;
-                },
+        loop {
+            if current is ?chunk {
+                total = match total.checkedAdd(chunkPayloadCapacity(chunk)) {
+                    ?value => value,
+                    null => usize::MAX,
+                };
+                current = chunk.next;
+            } else {
+                return total;
             }
         }
-        total
     }
 
     fn listUsed(&self, first: ?&mut ArenaChunk) usize {
         let mut total: usize = 0;
         let mut current = first;
-        while true {
-            match current {
-                ?chunk => {
-                    total = match total.checkedAdd(chunk.endIndex) {
-                        ?value => {
-                            value
-                        },
-                        null => {
-                            usize::MAX
-                        },
-                    };
-                    current = chunk.next;
-                },
-                null => {
-                    return total;
-                },
+        loop {
+            if current is ?chunk {
+                total = match total.checkedAdd(chunk.endIndex) {
+                    ?value => value,
+                    null => usize::MAX,
+                };
+                current = chunk.next;
+            } else {
+                return total;
             }
         }
-        total
     }
 }
 

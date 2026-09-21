@@ -195,23 +195,20 @@ fn finishSpawnError(
 
 fn reapSpawnFailure(pid: ProcessId) Errno!() {
     // A failed handshake still owns the forked child until wait succeeds.
-    while true {
-        match wait(pid) {
-            !status => {
-                _ = status;
-                return !();
-            },
-            .Interrupted! => {},
-            .NoChild! => {
-                // The kernel confirms that no waitable child owner remains.
-                return !();
-            },
-            error! => {
-                return error!;
-            },
+    loop {
+        let result = wait(pid);
+        if result is !status {
+            _ = status;
+            return !();
+        } else if result is .Interrupted! {
+            continue;
+        } else if result is .NoChild! {
+            // The kernel confirms that no waitable child owner remains.
+            return !();
+        } else if result is error! {
+            return error!;
         }
     }
-    !()
 }
 
 extend SpawnAttempt {

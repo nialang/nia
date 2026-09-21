@@ -149,22 +149,7 @@ where T: Sized
         let newBlock = allocator.alloc(layout).?;
         let mut newItems = raw::blockItems[T](newBlock, len);
         _ = newItems.copyFrom(self.asSlice());
-        match allocator.free(oldBlock) {
-            !ok => {
-                _ = ok;
-            },
-            err! => {
-                match allocator.free(newBlock) {
-                    !ok => {
-                        _ = ok;
-                    },
-                    error! => {
-                        self.retainReplacementBlock(newBlock);
-                    },
-                }
-                return err!;
-            },
-        }
+        self.releaseReplacedBlock(allocator, oldBlock, newBlock).?;
         self.items = raw::danglingSlice[T](0);
         self.capacity = 0;
         self.storageBlock = null;
@@ -600,22 +585,7 @@ where T: Sized
         let newBlock = allocator.alloc(layout).?;
         let mut newItems = raw::blockItems[T](newBlock, targetCapacity);
         _ = (&mut newItems[0..self.len()]).copyFrom(self.asSlice());
-        match allocator.free(oldBlock) {
-            !ok => {
-                _ = ok;
-            },
-            err! => {
-                match allocator.free(newBlock) {
-                    !ok => {
-                        _ = ok;
-                    },
-                    error! => {
-                        self.retainReplacementBlock(newBlock);
-                    },
-                }
-                return err!;
-            },
-        }
+        self.releaseReplacedBlock(allocator, oldBlock, newBlock).?;
         self.setAllocatedBlock(newBlock, targetCapacity);
         !()
     }
@@ -664,22 +634,7 @@ where T: Sized
         let newBlock = allocator.alloc(layout).?;
         let mut newItems = raw::blockItems[T](newBlock, capacity);
         _ = newItems.copyFrom(self.asSlice());
-        match allocator.free(oldBlock) {
-            !ok => {
-                _ = ok;
-            },
-            err! => {
-                match allocator.free(newBlock) {
-                    !ok => {
-                        _ = ok;
-                    },
-                    error! => {
-                        self.retainReplacementBlock(newBlock);
-                    },
-                }
-                return err!;
-            },
-        }
+        self.releaseReplacedBlock(allocator, oldBlock, newBlock).?;
         self.setAllocatedBlock(newBlock, capacity);
         !()
     }
@@ -721,6 +676,25 @@ where T: Sized
 
     fn retainAliasBlock(&mut self, block: mem::Block) () {
         self.aliasBlock = ?block;
+    }
+
+    // Release the previous storage after a replacement copy. If the old block
+    // cannot be released, discard the replacement when possible and retain it
+    // for a later retry when that cleanup also fails.
+    fn releaseReplacedBlock(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        oldBlock: mem::Block,
+        newBlock: mem::Block,
+    ) mem::Error!() {
+        if allocator.free(oldBlock) is error! {
+            let oldError = error;
+            if allocator.free(newBlock) is error! {
+                self.retainReplacementBlock(newBlock);
+            }
+            return oldError!;
+        }
+        !()
     }
 
     // Free an alias-stabilizing copy after its operation has completed. The
