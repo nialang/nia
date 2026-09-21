@@ -24,7 +24,7 @@ mod program_index;
 mod readiness;
 mod work_product;
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use backend_validate::{
     validate_backend_declaration_module, validate_backend_partition_declarations,
@@ -32,8 +32,8 @@ use backend_validate::{
 };
 use module_codegen::ModuleCodegen;
 pub use nia_backend_ir::{
-    CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey, IncrementalLinkInput,
-    IncrementalLinkInputs,
+    BackendModuleReady, CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey,
+    IncrementalLinkInput, IncrementalLinkInputs,
 };
 use nia_backend_lower::BackendLowering;
 use nia_ids::ModuleId;
@@ -42,11 +42,11 @@ use nia_llvm::{
     target::{TargetMachine, TargetMachineIdentity},
 };
 use nia_opt::NiaOptimizationLevel;
-use nia_query::QuerySession;
+use nia_query::{FingerprintDomain, QueryFingerprintBuilder, QuerySession};
 use nia_ty::TypeStore;
 pub use output::{
     LlvmCodegenOptions, LlvmCodegenOutput, LlvmModuleOutput, LlvmObjectOutput,
-    LlvmThinLtoModuleOutput, NativeObject, ThinLtoModule,
+    LlvmThinLtoModuleOutput, NativeObject, ThinLtoCodegenConfig, ThinLtoModule,
 };
 use program_index::ProgramIndex;
 use readiness::{
@@ -69,6 +69,9 @@ type LlvmThinLtoReadinessOutcome = (
     CodegenUnitKey,
     Result<ThinLtoModule, Vec<nia_diagnostic::Diagnostic>>,
 );
+
+const THIN_LTO_BACKEND_FINGERPRINT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.llvm.thin-lto-backend");
 
 /// Incrementally emits textual LLVM IR from finalized backend modules.
 ///
@@ -391,6 +394,21 @@ impl<'session> LlvmThinLtoReadinessEmitter<'session> {
                 }
             }
         }
+        if program_diagnostics.is_empty()
+            && builtin_symbols.any()
+            && let Some(target_identity) = self.target_identity.as_deref()
+        {
+            match emit_compiler_builtins_thin_lto_module(
+                builtin_symbols,
+                self.options,
+                target_identity,
+            ) {
+                Ok(output) => self.outputs.push(output),
+                Err(diagnostic) => self
+                    .partition_diagnostics
+                    .push((CodegenUnitKey::CompilerBuiltins, vec![diagnostic])),
+            }
+        }
         if !program_diagnostics.is_empty() {
             self.outputs.clear();
         }
@@ -417,6 +435,7 @@ impl<'session> LlvmThinLtoReadinessEmitter<'session> {
         Ok(LlvmThinLtoModuleOutput {
             target: self.target_identity.map(Arc::unwrap_or_clone),
             modules: self.outputs,
+            linker_visible_symbols: thin_lto_linker_visible_symbols(&index),
             diagnostics,
         })
     }
@@ -676,6 +695,7 @@ pub fn emit_thin_lto_modules(
         return LlvmThinLtoModuleOutput {
             target: None,
             modules: Vec::new(),
+            linker_visible_symbols: Vec::new(),
             diagnostics: vec![nia_diagnostic::Diagnostic::from(ice)],
         };
     }
@@ -690,6 +710,7 @@ pub fn emit_thin_lto_modules(
                 return LlvmThinLtoModuleOutput {
                     target: None,
                     modules: Vec::new(),
+                    linker_visible_symbols: Vec::new(),
                     diagnostics: vec![nia_diagnostic::Diagnostic::from(ice)],
                 };
             }
@@ -700,6 +721,7 @@ pub fn emit_thin_lto_modules(
         return LlvmThinLtoModuleOutput {
             target: None,
             modules: Vec::new(),
+            linker_visible_symbols: Vec::new(),
             diagnostics: program_diagnostics,
         };
     }
@@ -712,6 +734,7 @@ pub fn emit_thin_lto_modules(
                 return LlvmThinLtoModuleOutput {
                     target: None,
                     modules: Vec::new(),
+                    linker_visible_symbols: Vec::new(),
                     diagnostics: vec![error.diagnostic()],
                 };
             }
@@ -726,6 +749,9 @@ pub fn emit_thin_lto_modules(
             .into_iter()
             .map(ThinLtoCodegenTask::DeclarationModule),
     );
+    if builtin_symbols.any() {
+        tasks.push(ThinLtoCodegenTask::CompilerBuiltins(builtin_symbols));
+    }
     let worker_lanes = codegen_worker_lanes(session, tasks.len());
     let outcomes = match session.run_tasks_bounded(
         tasks.into_iter().map(|task| {
@@ -745,6 +771,11 @@ pub fn emit_thin_lto_modules(
                     ThinLtoCodegenTask::DeclarationModule(module_id) => {
                         validate_declaration_module(module_id, &index).map(|()| None)
                     }
+                    ThinLtoCodegenTask::CompilerBuiltins(symbols) => {
+                        emit_compiler_builtins_thin_lto_module(symbols, options, &target_identity)
+                            .map(Some)
+                            .map_err(|diagnostic| vec![diagnostic])
+                    }
                 })
             }
         }),
@@ -755,6 +786,7 @@ pub fn emit_thin_lto_modules(
             return LlvmThinLtoModuleOutput {
                 target: Some(Arc::unwrap_or_clone(target_identity)),
                 modules: Vec::new(),
+                linker_visible_symbols: thin_lto_linker_visible_symbols(&index),
                 diagnostics: vec![nia_diagnostic::Diagnostic::from(ice)],
             };
         }
@@ -776,8 +808,220 @@ pub fn emit_thin_lto_modules(
     LlvmThinLtoModuleOutput {
         target: Some(Arc::unwrap_or_clone(target_identity)),
         modules,
+        linker_visible_symbols: thin_lto_linker_visible_symbols(&index),
         diagnostics,
     }
+}
+
+fn thin_lto_linker_visible_symbols(index: &ProgramIndex) -> Vec<String> {
+    let mut symbols = Vec::new();
+    for module_id in index.module_ids() {
+        let Some(module) = index.module(*module_id) else {
+            continue;
+        };
+        symbols.extend(module.functions.iter().filter_map(|function| {
+            match (&function.linkage, function.function_body.is_some()) {
+                (nia_backend_ir::BackendLinkage::ExternExport { symbol }, true) => {
+                    Some(symbol.clone())
+                }
+                _ => None,
+            }
+        }));
+        symbols.extend(module.function_instances.iter().filter_map(|function| {
+            match (&function.linkage, function.function_body.is_some()) {
+                (nia_backend_ir::BackendLinkage::ExternExport { symbol }, true) => {
+                    Some(symbol.clone())
+                }
+                _ => None,
+            }
+        }));
+        symbols.extend(module.globals.iter().filter_map(|global| {
+            match (&global.linkage, global.init.is_some()) {
+                (nia_backend_ir::BackendLinkage::ExternExport { symbol }, true) => {
+                    Some(symbol.clone())
+                }
+                _ => None,
+            }
+        }));
+    }
+    symbols.sort_unstable();
+    symbols.dedup();
+    symbols
+}
+
+/// Coordinates a complete set of summary modules and emits native ThinLTO objects.
+///
+/// This is a final-link operation: `input` must contain every source and
+/// compiler-provided module in the linkage unit, and `preserved_symbols` must
+/// name definitions observed by regular native linker inputs.
+pub fn emit_thin_lto_objects(
+    input: LlvmThinLtoModuleOutput,
+    options: LlvmCodegenOptions,
+    config: ThinLtoCodegenConfig<'_>,
+) -> LlvmObjectOutput {
+    if !input.diagnostics.is_empty() {
+        return LlvmObjectOutput {
+            link_inputs: IncrementalLinkInputs::default(),
+            diagnostics: input.diagnostics,
+        };
+    }
+    let Some(target) = input.target else {
+        return LlvmObjectOutput {
+            link_inputs: IncrementalLinkInputs::default(),
+            diagnostics: vec![nia_diagnostic::Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                nia_span::Span::default(),
+                "ThinLTO module output is missing its target identity",
+            )],
+        };
+    };
+    let llvm_inputs = input
+        .modules
+        .iter()
+        .map(|module| nia_llvm::lto::ThinLtoInput {
+            name: &module.module_identifier,
+            bitcode: &module.bitcode,
+        })
+        .collect::<Vec<_>>();
+    let mut preserved_symbols = input.linker_visible_symbols;
+    preserved_symbols.extend(
+        config
+            .preserved_symbols
+            .iter()
+            .map(|symbol| (*symbol).to_owned()),
+    );
+    preserved_symbols.sort_unstable();
+    preserved_symbols.dedup();
+    let preserved_symbol_refs = preserved_symbols
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let coordinated = match time_codegen_stage(options.timings, "llvm_thin_lto.coordinate", || {
+        nia_llvm::lto::run_thin_lto(
+            &llvm_inputs,
+            nia_llvm::lto::ThinLtoConfig {
+                target: &target,
+                optimization: llvm_optimization_level(options.optimization.level),
+                parallelism: config.parallelism,
+                freestanding: config.freestanding,
+                preserved_symbols: &preserved_symbol_refs,
+            },
+        )
+    }) {
+        Ok(output) => output,
+        Err(error) => {
+            return LlvmObjectOutput {
+                link_inputs: IncrementalLinkInputs::default(),
+                diagnostics: vec![error.diagnostic()],
+            };
+        }
+    };
+    if let Some(error) = coordinated
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.severity == nia_llvm::lto::ThinLtoDiagnosticSeverity::Error)
+    {
+        return LlvmObjectOutput {
+            link_inputs: IncrementalLinkInputs::default(),
+            diagnostics: vec![
+                nia_diagnostic::Diagnostic::internal_error(
+                    nia_diagnostic::codes::INTERNAL_LLVM_API,
+                    format!("ThinLTO backend reported an error: {}", error.message),
+                )
+                .finish(),
+            ],
+        };
+    }
+    if options.timings.enabled() {
+        nia_timing::emit_timing("llvm_thin_lto.thin_link", coordinated.timings.thin_link);
+        nia_timing::emit_timing("llvm_thin_lto.backend", coordinated.timings.backend);
+        nia_timing::emit_timing("llvm_thin_lto.promotion", coordinated.timings.promotion);
+        nia_timing::emit_timing(
+            "llvm_thin_lto.internalization",
+            coordinated.timings.internalization,
+        );
+        nia_timing::emit_timing("llvm_thin_lto.import", coordinated.timings.import);
+        nia_timing::emit_timing(
+            "llvm_thin_lto.optimization",
+            coordinated.timings.optimization,
+        );
+        nia_timing::emit_timing("llvm_thin_lto.codegen", coordinated.timings.codegen);
+        nia_timing::emit_counter("llvm_thin_lto.modules", input.modules.len() as u64);
+        nia_timing::emit_counter(
+            "llvm_thin_lto.diagnostics",
+            coordinated.diagnostics.len() as u64,
+        );
+    }
+
+    let mut modules = input
+        .modules
+        .into_iter()
+        .map(|module| (module.module_identifier.clone(), module))
+        .collect::<HashMap<_, _>>();
+    let mut outputs = Vec::with_capacity(coordinated.objects.len());
+    for object in coordinated.objects {
+        let Some(module) = modules.remove(&object.module_name) else {
+            return LlvmObjectOutput {
+                link_inputs: IncrementalLinkInputs::default(),
+                diagnostics: vec![nia_diagnostic::Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    nia_span::Span::default(),
+                    format!(
+                        "ThinLTO emitted an object for unknown module `{}`",
+                        object.module_name
+                    ),
+                )],
+            };
+        };
+        let fingerprint = thin_lto_backend_fingerprint(module.fingerprint, &object.cache_key);
+        outputs.push(IncrementalLinkInput {
+            key: module.key,
+            fingerprint,
+            object: NativeObject {
+                unit: module.unit,
+                name: module.name,
+                bytes: object.bytes,
+            },
+        });
+    }
+    if !modules.is_empty() {
+        let mut missing = modules.into_keys().collect::<Vec<_>>();
+        missing.sort_unstable();
+        return LlvmObjectOutput {
+            link_inputs: IncrementalLinkInputs::default(),
+            diagnostics: vec![nia_diagnostic::Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                nia_span::Span::default(),
+                format!(
+                    "ThinLTO omitted backend objects for modules: {}",
+                    missing.join(", ")
+                ),
+            )],
+        };
+    }
+    outputs.sort_unstable_by(|left, right| left.key.cmp(&right.key));
+    match IncrementalLinkInputs::new(outputs) {
+        Ok(link_inputs) => LlvmObjectOutput {
+            link_inputs,
+            diagnostics: Vec::new(),
+        },
+        Err(ice) => LlvmObjectOutput {
+            link_inputs: IncrementalLinkInputs::default(),
+            diagnostics: vec![nia_diagnostic::Diagnostic::from(ice)],
+        },
+    }
+}
+
+fn thin_lto_backend_fingerprint(
+    pre_link: CodegenUnitFingerprint,
+    llvm_cache_key: &str,
+) -> CodegenUnitFingerprint {
+    let mut builder = QueryFingerprintBuilder::new(THIN_LTO_BACKEND_FINGERPRINT_DOMAIN);
+    for part in pre_link.parts() {
+        builder.write_u64(part);
+    }
+    builder.write_str(llvm_cache_key);
+    CodegenUnitFingerprint::from_parts(builder.finish().parts())
 }
 
 /// Validates backend IR and emits linkable native object work products.
@@ -936,6 +1180,7 @@ enum NativeCodegenTask {
 enum ThinLtoCodegenTask {
     Partition(Box<CodegenPartitionPreparation>),
     DeclarationModule(ModuleId),
+    CompilerBuiltins(compiler_builtins::CompilerBuiltinSymbols),
 }
 
 enum LlvmIrTask {
@@ -1279,6 +1524,38 @@ fn emit_native_object_partition(
         },
         ObjectReuse::Miss(miss),
     ))
+}
+
+fn emit_compiler_builtins_thin_lto_module(
+    symbols: compiler_builtins::CompilerBuiltinSymbols,
+    options: LlvmCodegenOptions,
+    target_identity: &TargetMachineIdentity,
+) -> Result<ThinLtoModule, nia_diagnostic::Diagnostic> {
+    let fingerprints =
+        fingerprint::compiler_builtins_thin_lto_fingerprint(&symbols, options, target_identity);
+    let memory_permit =
+        nia_query::acquire_llvm_memory_permit().map_err(nia_diagnostic::Diagnostic::from)?;
+    record_memory_permit(options.timings, memory_permit.waited());
+    let target = time_codegen_stage(options.timings, "llvm_codegen.native_target", || {
+        TargetMachine::for_identity(
+            target_identity,
+            llvm_optimization_level(options.optimization.level),
+        )
+    })
+    .map_err(|error| error.diagnostic())?;
+    let bitcode = compiler_builtins::emit_thin_lto_bitcode(
+        &target,
+        symbols,
+        llvm_optimization_level(options.optimization.level),
+    )?;
+    Ok(ThinLtoModule {
+        unit: CodegenUnitId::CompilerBuiltins,
+        key: CodegenUnitKey::CompilerBuiltins,
+        fingerprint: fingerprints.fingerprint,
+        name: "nia.compiler_builtins".to_owned(),
+        module_identifier: "nia:cgu:compiler-builtins".to_owned(),
+        bitcode,
+    })
 }
 
 fn emit_compiler_builtins_object(

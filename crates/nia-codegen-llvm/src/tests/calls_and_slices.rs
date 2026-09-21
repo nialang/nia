@@ -126,6 +126,14 @@ fn main() i32 {
     assert_not_contains_mangled_symbol(ir, '@', "foreignValue");
     assert!(ir.contains("call i32 @nia_test_add"), "{ir}");
     assert!(ir.contains("call i32 @nia_foreign_value"), "{ir}");
+
+    let thin = emit_thin_lto_modules(
+        &codegen.backend_lowering,
+        &codegen.type_store,
+        LlvmCodegenOptions::default(),
+    );
+    assert!(thin.diagnostics.is_empty(), "{:?}", thin.diagnostics);
+    assert_eq!(thin.linker_visible_symbols, ["nia_test_add"]);
 }
 
 #[test]

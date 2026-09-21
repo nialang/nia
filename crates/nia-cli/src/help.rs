@@ -182,6 +182,10 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     left: "--cache-dir <path>",
                     right: "reuse compiler artifacts from this directory",
                 },
+                HelpRow {
+                    left: "--lto <off|thin>",
+                    right: "select final executable link-time optimization",
+                },
                 OPTIMIZATION_ROW,
                 PROFILE_ROW,
                 MODULE_ROW,

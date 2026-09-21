@@ -70,6 +70,7 @@ struct OwnedBuffer {
 struct ThinObject {
   uint32_t Task = 0;
   std::string ModuleName;
+  std::string CacheKey;
   std::string Bytes;
 };
 
@@ -91,6 +92,7 @@ struct ThinTimings {
 struct ThinResult {
   std::vector<ThinObject> Objects;
   std::vector<ThinDiagnostic> Diagnostics;
+  std::unordered_map<unsigned, std::string> CacheKeys;
   std::string Error;
   ThinTimings Timings;
 };
@@ -228,7 +230,7 @@ public:
     {
       std::lock_guard<std::mutex> Lock(ResultMutex);
       Result.Objects.push_back(ThinObject{
-          Task, std::move(ModuleName),
+          Task, std::move(ModuleName), Result.CacheKeys[Task],
           std::string(Storage->begin(), Storage->end())});
     }
     Stages.finish(Task, StageRecorder::Stage::Codegen);
@@ -502,7 +504,17 @@ ThinResult *nia_llvm_run_thin_lto(const ThinInput *Inputs, size_t InputCount,
     return ResultStream::create(Task, ModuleName.str(), *Result, ResultMutex,
                                 Stages);
   };
-  if (Error Err = Lto.run(std::move(AddStream)))
+  FileCache Cache(
+      [&, AddStream](unsigned Task, StringRef Key,
+                     const Twine &) -> Expected<AddStreamFn> {
+        {
+          std::lock_guard<std::mutex> Lock(ResultMutex);
+          Result->CacheKeys[Task] = Key.str();
+        }
+        return AddStream;
+      },
+      "");
+  if (Error Err = Lto.run(AddStream, std::move(Cache)))
     Result->Error = errorText(std::move(Err));
   auto End = Clock::now();
   Result->Timings.BackendNs = elapsedNs(BackendStart, End);
@@ -543,6 +555,22 @@ size_t nia_llvm_thin_result_object_name_len(const ThinResult *Result,
                                             size_t Index) {
   return Result && Index < Result->Objects.size()
              ? Result->Objects[Index].ModuleName.size()
+             : 0;
+}
+
+const uint8_t *nia_llvm_thin_result_object_cache_key(
+    const ThinResult *Result, size_t Index) {
+  if (!Result || Index >= Result->Objects.size() ||
+      Result->Objects[Index].CacheKey.empty())
+    return nullptr;
+  return reinterpret_cast<const uint8_t *>(
+      Result->Objects[Index].CacheKey.data());
+}
+
+size_t nia_llvm_thin_result_object_cache_key_len(const ThinResult *Result,
+                                                 size_t Index) {
+  return Result && Index < Result->Objects.size()
+             ? Result->Objects[Index].CacheKey.size()
              : 0;
 }
 

@@ -102,10 +102,30 @@ pub(super) fn compiler_builtins_fingerprint(
     options: LlvmCodegenOptions,
     target: &TargetMachineIdentity,
 ) -> CodegenUnitFingerprintSet {
+    compiler_builtins_fingerprint_inner(symbols, options, target, false)
+}
+
+pub(super) fn compiler_builtins_thin_lto_fingerprint(
+    symbols: &CompilerBuiltinSymbols,
+    options: LlvmCodegenOptions,
+    target: &TargetMachineIdentity,
+) -> CodegenUnitFingerprintSet {
+    compiler_builtins_fingerprint_inner(symbols, options, target, true)
+}
+
+fn compiler_builtins_fingerprint_inner(
+    symbols: &CompilerBuiltinSymbols,
+    options: LlvmCodegenOptions,
+    target: &TargetMachineIdentity,
+    thin_lto: bool,
+) -> CodegenUnitFingerprintSet {
     let mut policy = QueryFingerprintBuilder::new(BUILTINS_POLICY_DOMAIN);
     write_toolchain_identity(&mut policy, options.toolchain_identity);
     policy.write_u64(llvm_sys_version());
     write_optimization(&mut policy, options.optimization);
+    if thin_lto {
+        policy.write_str("artifact:thin-lto-prelink");
+    }
 
     let mut definition = QueryFingerprintBuilder::new(BUILTINS_DEFINITION_DOMAIN);
     definition.write_u8(u8::from(symbols.u128_div_rem));
@@ -122,6 +142,9 @@ pub(super) fn compiler_builtins_fingerprint(
     let declarations = QueryFingerprintBuilder::new(BUILTINS_DECLARATIONS_DOMAIN);
     let mut target_component = QueryFingerprintBuilder::new(BUILTINS_TARGET_DOMAIN);
     write_target_identity(&mut target_component, target);
+    if thin_lto {
+        target_component.write_str("artifact:thin-lto-prelink");
+    }
     CodegenUnitFingerprintSet::new(CodegenUnitFingerprintComponents {
         policy: finish_builder(policy),
         definition: finish_builder(definition),
@@ -234,7 +257,7 @@ impl<'a> Encoder<'a> {
             ArtifactTarget::ThinLtoBitcode(identity) => {
                 self.tag(2);
                 self.builder
-                    .write_str("module-passes:mem2reg;thin-lto-prelink:v1");
+                    .write_str("module-passes:mem2reg;artifact:thin-lto-prelink");
                 write_target_identity(&mut self.builder, identity);
             }
             ArtifactTarget::NativeObject(identity) => {

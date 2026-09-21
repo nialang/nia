@@ -600,6 +600,7 @@ fn emit_target_option_takes_value(arg: &str) -> bool {
             | "--rpath"
             | "--linker"
             | "--linker-flavor"
+            | "--lto"
     )
 }
 
@@ -1045,6 +1046,7 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
             }
             _ if arg.starts_with("--runtime=")
                 || arg.starts_with("--cache-dir=")
+                || arg.starts_with("--lto=")
                 || arg.starts_with("--link-arg=")
                 || arg.starts_with("--dynamic-linker=")
                 || arg == "--no-dynamic-linker"
@@ -1828,6 +1830,7 @@ fn run_emit_exe(path: &str, source: &str, args: Vec<String>, context: EmitContex
                 .with_timings(context.timings),
             output: options.output.clone(),
             link_options: options.link_options.clone(),
+            link_time_optimization: options.link_time_optimization,
         })
     });
     let executable = match output.result {
@@ -1940,17 +1943,23 @@ struct EmitExeOptions {
     output: PathBuf,
     cache_dir: Option<PathBuf>,
     link_options: nia_linker::LinkOptions,
+    link_time_optimization: nia_driver::LinkTimeOptimization,
 }
 
 fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<EmitExeOptions, String> {
     let mut output = None::<PathBuf>;
     let mut cache_dir = None::<PathBuf>;
     let mut link_options = nia_linker::LinkOptions::default();
+    let mut link_time_optimization = nia_driver::LinkTimeOptimization::Off;
     let mut explicit_linker_program = false;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         if let Some(value) = arg.strip_prefix("--cache-dir=") {
             cache_dir = Some(PathBuf::from(value));
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--lto=") {
+            link_time_optimization = parse_link_time_optimization(value)?;
             continue;
         }
         if let Some(value) = arg.strip_prefix("--runtime=") {
@@ -2022,6 +2031,12 @@ fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<EmitExeOpti
                     return Err("missing path after `--cache-dir`".to_string());
                 };
                 cache_dir = Some(PathBuf::from(path));
+            }
+            "--lto" => {
+                let Some(value) = iter.next() else {
+                    return Err("missing mode after `--lto`".to_string());
+                };
+                link_time_optimization = parse_link_time_optimization(&value)?;
             }
             "--runtime" => {
                 let Some(value) = iter.next() else {
@@ -2097,7 +2112,18 @@ fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<EmitExeOpti
         output: output.unwrap_or_else(|| default_output_path(source, env::consts::EXE_EXTENSION)),
         cache_dir,
         link_options,
+        link_time_optimization,
     })
+}
+
+fn parse_link_time_optimization(value: &str) -> Result<nia_driver::LinkTimeOptimization, String> {
+    match value {
+        "off" => Ok(nia_driver::LinkTimeOptimization::Off),
+        "thin" => Ok(nia_driver::LinkTimeOptimization::Thin),
+        _ => Err(format!(
+            "unknown LTO mode `{value}`; expected `off` or `thin`"
+        )),
+    }
 }
 
 fn parse_linker_flavor(value: &str) -> Result<nia_linker::LinkerFlavor, String> {
@@ -2146,6 +2172,25 @@ fn print_optimization_report_to_stderr(program: &nia_driver::CodegenProgram) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn emit_exe_parses_explicit_thin_lto_policy() {
+        let options = parse_emit_exe_options(
+            "main.nia",
+            vec!["--lto=thin".to_owned(), "-o".to_owned(), "main".to_owned()],
+        )
+        .expect("parse ThinLTO executable options");
+        assert_eq!(
+            options.link_time_optimization,
+            nia_driver::LinkTimeOptimization::Thin
+        );
+        assert_eq!(options.output, PathBuf::from("main"));
+
+        let error = parse_emit_exe_options("main.nia", vec!["--lto=full".to_owned()])
+            .err()
+            .expect("unsupported LTO modes must be rejected");
+        assert!(error.contains("expected `off` or `thin`"), "{error}");
+    }
 
     #[test]
     fn profile_defaults_and_release_optimization_are_workflow_based() {
