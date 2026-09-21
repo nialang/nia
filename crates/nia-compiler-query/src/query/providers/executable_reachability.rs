@@ -786,16 +786,18 @@ fn executable_check_in_session(
                 "executable_checked_modules.module_layouts",
                 || -> QueryResult<_> {
                     let reachability = reachability_state.reachability();
-                    let layouts = executable_layouts_for_reachable_items(
+                    executable_layouts_for_reachable_items(
                         db,
                         module_id,
                         reachability.functions(),
                         reachability.globals(),
-                        Some(&caches.array_lengths),
+                        ExecutableLayoutCaches {
+                            array_lengths: Some(&caches.array_lengths),
+                            fact_layouts: Some(&caches.fact_layouts),
+                        },
                         None,
                         Some(reachable_body_modules),
-                    )?;
-                    store_module_layouts(db.context(), layouts)
+                    )
                 },
             ) {
                 Ok(layouts) => layouts,
@@ -1680,13 +1682,14 @@ fn final_executable_checked_modules(
             module_id,
             reachability.functions(),
             reachability.globals(),
-            Some(&caches.array_lengths),
+            ExecutableLayoutCaches {
+                array_lengths: Some(&caches.array_lengths),
+                fact_layouts: None,
+            },
             None,
             Some(ReachableBodyModules::new(&reachable_body_modules)),
         )?;
-        program_layout_cache
-            .borrow_mut()
-            .insert(module_id, store_module_layouts(db.context(), layouts)?);
+        program_layout_cache.borrow_mut().insert(module_id, layouts);
     }
     let executable_program_layouts = executable_program_layouts(
         db,
@@ -1707,17 +1710,17 @@ fn final_executable_checked_modules(
                     if let Some(layouts) = program_layout_cache.borrow().get(&module_id).cloned() {
                         layouts
                     } else {
-                        store_module_layouts(
-                            db.context(),
-                            executable_layouts_for_reachable_items(
-                                db,
-                                module_id,
-                                reachability.functions(),
-                                reachability.globals(),
-                                Some(&caches.array_lengths),
-                                None,
-                                Some(ReachableBodyModules::new(&reachable_body_modules)),
-                            )?,
+                        executable_layouts_for_reachable_items(
+                            db,
+                            module_id,
+                            reachability.functions(),
+                            reachability.globals(),
+                            ExecutableLayoutCaches {
+                                array_lengths: Some(&caches.array_lengths),
+                                fact_layouts: None,
+                            },
+                            None,
+                            Some(ReachableBodyModules::new(&reachable_body_modules)),
                         )?
                     };
                 let filter = nia_body_check::BodyCheckFilter::ReachableItems {

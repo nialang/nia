@@ -16,6 +16,49 @@ pub(in crate::query) use value_refs::{
     ExecutableValueRefEdges, provide_executable_value_ref_edges,
 };
 
+pub(in crate::query) struct ExecutableFactLayoutCacheEntry {
+    inputs: ExecutableFactLayoutInputs,
+    layouts: ModuleLayouts,
+}
+
+#[derive(Clone, Copy, Default)]
+pub(super) struct ExecutableLayoutCaches<'a> {
+    pub(super) array_lengths:
+        Option<&'a RefCell<HashMap<ModuleId, nia_const_check::ConstArrayLengths>>>,
+    pub(super) fact_layouts: Option<&'a RefCell<HashMap<ModuleId, ExecutableFactLayoutCacheEntry>>>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ExecutableFactLayoutInputs {
+    types: Vec<InternedTyId>,
+    structs: Vec<DefId>,
+    unions: Vec<DefId>,
+    array_lengths: Arc<HashMap<nia_ids::GlobalConstExprId, u64>>,
+}
+
+impl ExecutableFactLayoutInputs {
+    fn new(
+        roots: &CollectedLayoutRoots,
+        array_lengths: &nia_const_check::ConstArrayLengths,
+    ) -> Self {
+        let mut types = roots.types.clone();
+        let mut structs = roots.structs.clone();
+        let mut unions = roots.unions.clone();
+        types.sort_unstable();
+        types.dedup();
+        structs.sort_unstable();
+        structs.dedup();
+        unions.sort_unstable();
+        unions.dedup();
+        Self {
+            types,
+            structs,
+            unions,
+            array_lengths: Arc::clone(&array_lengths.values),
+        }
+    }
+}
+
 struct BodyCheckConstInputs {
     module: ConstModuleLowering,
     array_lengths: nia_const_check::ConstArrayLengths,
@@ -1447,10 +1490,10 @@ pub(super) fn executable_layouts_for_reachable_items(
     module_id: ModuleId,
     reachable_functions: &HashSet<GlobalDefId>,
     reachable_globals: &HashSet<GlobalDefId>,
-    array_length_cache: Option<&RefCell<HashMap<ModuleId, nia_const_check::ConstArrayLengths>>>,
+    caches: ExecutableLayoutCaches<'_>,
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
     reachable_body_modules_override: Option<ReachableBodyModules<'_>>,
-) -> QueryResult<nia_layout::Layouts> {
+) -> QueryResult<ModuleLayouts> {
     time_module_provider(db, "executable_layouts", module_id, || {
         let query_failure = RefCell::new(None);
         let (defs, active_item_tree, type_lowering, type_normalization, item_signatures) =
@@ -1523,6 +1566,26 @@ pub(super) fn executable_layouts_for_reachable_items(
             .cloned()
             .map(|signature| ProgramTypeAliasSignature { signature })
         };
+        let roots = time_module_provider(db, "executable_layouts.roots", module_id, || {
+            executable_layout_roots(
+                ExecutableLayoutModule {
+                    module_id,
+                    signatures: &item_signatures,
+                    program_struct: &program_struct,
+                    program_union: &program_union,
+                },
+                &db.context().type_store,
+                type_lowering
+                    .versioned_type_uses_from_active_item_tree(&active_item_tree)
+                    .into_iter()
+                    .map(|(_, ty)| ty),
+                reachable_functions,
+                reachable_globals,
+            )
+        })?;
+        if let Some(error) = query_failure.borrow_mut().take() {
+            return Err(error);
+        }
         let load_filtered_array_lengths = |target_module_id| {
             let has_reachable_body_items = time_provider(
                 db.context().timings(),
@@ -1599,7 +1662,7 @@ pub(super) fn executable_layouts_for_reachable_items(
             db.context().timings(),
             "executable_layouts.local_array_lengths",
             || -> QueryResult<_> {
-                if let Some(array_length_cache) = array_length_cache {
+                if let Some(array_length_cache) = caches.array_lengths {
                     let cached = time_provider(
                         db.context().timings(),
                         "executable_layouts.local_array_lengths.lookup",
@@ -1626,6 +1689,23 @@ pub(super) fn executable_layouts_for_reachable_items(
                 }
             },
         )?;
+        let layout_inputs = ExecutableFactLayoutInputs::new(&roots, &local_array_lengths);
+        if let Some(cache) = caches.fact_layouts {
+            let cached = cache
+                .borrow()
+                .get(&module_id)
+                .filter(|entry| entry.inputs == layout_inputs)
+                .map(|entry| entry.layouts.clone());
+            if let Some(layouts) = cached {
+                if db.context().timings().enabled() {
+                    nia_timing::emit_counter("compiler.executable_fact_layout_cache_hits", 1);
+                }
+                return Ok(layouts);
+            }
+            if db.context().timings().enabled() {
+                nia_timing::emit_counter("compiler.executable_fact_layout_cache_misses", 1);
+            }
+        }
         let signature_array_lengths = RefCell::new(HashMap::new());
         let target = time_provider(db.context().timings(), "executable_layouts.target", || {
             compiler_target_data_layout(db)
@@ -1667,23 +1747,6 @@ pub(super) fn executable_layouts_for_reachable_items(
         };
         let layouts = time_module_provider(db, "executable_layouts.compute", module_id, || {
             let symbols = db.context().symbols();
-            let roots = time_module_provider(db, "executable_layouts.roots", module_id, || {
-                executable_layout_roots(
-                    ExecutableLayoutModule {
-                        module_id,
-                        signatures: &item_signatures,
-                        program_struct: &program_struct,
-                        program_union: &program_union,
-                    },
-                    &db.context().type_store,
-                    type_lowering
-                        .versioned_type_uses_from_active_item_tree(&active_item_tree)
-                        .into_iter()
-                        .map(|(_, ty)| ty),
-                    reachable_functions,
-                    reachable_globals,
-                )
-            })?;
             nia_layout::compute_layouts_for_roots_with_program_context(
                 nia_layout::LayoutComputationInput {
                     type_store: &db.context().type_store,
@@ -1710,10 +1773,20 @@ pub(super) fn executable_layouts_for_reachable_items(
                 },
             )
         })?;
-        match query_failure.into_inner() {
-            Some(error) => Err(error),
-            None => Ok(layouts),
+        if let Some(error) = query_failure.into_inner() {
+            return Err(error);
         }
+        let layouts = store_module_layouts(db.context(), layouts)?;
+        if let Some(cache) = caches.fact_layouts {
+            cache.borrow_mut().insert(
+                module_id,
+                ExecutableFactLayoutCacheEntry {
+                    inputs: layout_inputs,
+                    layouts: layouts.clone(),
+                },
+            );
+        }
+        Ok(layouts)
     })
 }
 
@@ -1753,18 +1826,21 @@ pub(super) fn executable_program_layouts<'a>(
                     module_id,
                     reachable_functions,
                     reachable_globals,
-                    array_length_cache,
+                    ExecutableLayoutCaches {
+                        array_lengths: array_length_cache,
+                        fact_layouts: None,
+                    },
                     non_function_signatures_override,
                     reachable_body_modules_override,
                 ),
             )?
         } else {
-            capture_query_failure(
+            let layouts = capture_query_failure(
                 failure,
                 signature_layouts_for_types(db, module_id, non_function_signatures_override),
-            )?
+            )?;
+            capture_query_failure(failure, store_module_layouts(db.context(), layouts))?
         };
-        let layouts = capture_query_failure(failure, store_module_layouts(db.context(), layouts))?;
         cache.borrow_mut().insert(module_id, layouts.clone());
         Some(layouts.semantic)
     }
@@ -2252,4 +2328,74 @@ pub(super) fn executable_flow_check(
             ),
         )
     })
+}
+
+#[cfg(test)]
+mod fact_layout_cache_tests {
+    use super::*;
+
+    #[test]
+    fn layout_input_identity_tracks_roots_owners_and_array_lengths() {
+        let modules = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = modules.allocate().expect("allocate module ID");
+        let store = nia_ty::TypeStore::new().expect("create type store");
+        let append = store.append_for_module(module_id);
+        let int = append
+            .intern(TyKind::Primitive(nia_ty::PrimitiveTy::I32))
+            .expect("intern int type");
+        let boolean = append
+            .intern(TyKind::Primitive(nia_ty::PrimitiveTy::Bool))
+            .expect("intern bool type");
+        let collected = CollectedLayoutRoots {
+            types: vec![int, boolean],
+            structs: vec![DefId(1), DefId(2)],
+            unions: vec![DefId(3)],
+        };
+        let array_lengths = nia_const_check::ConstArrayLengths::default();
+        let inputs = ExecutableFactLayoutInputs::new(&collected, &array_lengths);
+
+        assert_eq!(
+            inputs,
+            ExecutableFactLayoutInputs::new(
+                &CollectedLayoutRoots {
+                    types: vec![boolean, int],
+                    structs: vec![DefId(2), DefId(1)],
+                    unions: vec![DefId(3)],
+                },
+                &array_lengths,
+            )
+        );
+
+        let different_array_lengths = nia_const_check::ConstArrayLengths {
+            values: Arc::new(HashMap::from([(
+                nia_ids::GlobalConstExprId {
+                    module_id,
+                    const_expr_id: nia_ids::ConstExprId(0),
+                },
+                4,
+            )])),
+            ..Default::default()
+        };
+        assert_ne!(
+            inputs,
+            ExecutableFactLayoutInputs::new(&collected, &different_array_lengths)
+        );
+
+        let foreign_store = nia_ty::TypeStore::new().expect("create foreign type store");
+        let foreign_int = foreign_store
+            .append_for_module(module_id)
+            .intern(TyKind::Primitive(nia_ty::PrimitiveTy::I32))
+            .expect("intern foreign int type");
+        assert_ne!(
+            inputs,
+            ExecutableFactLayoutInputs::new(
+                &CollectedLayoutRoots {
+                    types: vec![foreign_int, boolean],
+                    structs: vec![DefId(1), DefId(2)],
+                    unions: vec![DefId(3)],
+                },
+                &array_lengths,
+            )
+        );
+    }
 }
