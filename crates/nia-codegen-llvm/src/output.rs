@@ -37,8 +37,8 @@ pub struct LlvmModuleOutput {
 #[derive(Debug, Clone, PartialEq)]
 /// LLVM pre-link modules ready for one whole-program coordination run.
 pub struct LlvmLtoModuleOutput {
-    /// Pre-link pipeline used to produce every module in this linkage unit.
-    pub mode: LtoMode,
+    /// Pre-link policy used to produce every module in this linkage unit.
+    pub pre_link: LtoPreLinkConfig,
     /// Exact target identity shared by every successfully emitted module.
     pub target: Option<TargetMachineIdentity>,
     /// Deterministically ordered LTO pre-link inputs.
@@ -75,13 +75,20 @@ pub enum LtoMode {
     Full,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Policy that determines the contents and cache identity of LTO pre-link bitcode.
+pub struct LtoPreLinkConfig {
+    /// Whole-program optimization model used after pre-link emission.
+    pub mode: LtoMode,
+    /// Exclude assumptions about hosted target-library functions.
+    pub freestanding: bool,
+}
+
 #[derive(Debug, Clone, Copy)]
 /// Whole-program policy for coordinating emitted ThinLTO modules.
 pub struct ThinLtoCodegenConfig<'a> {
     /// Maximum number of in-process ThinLTO backend workers.
     pub parallelism: usize,
-    /// Disable assumptions about hosted target-library functions.
-    pub freestanding: bool,
     /// Definitions that must remain visible to regular native linker inputs.
     pub preserved_symbols: &'a [&'a str],
     /// Release-isolated persistent cache for LLVM ThinLTO backend objects.
@@ -95,8 +102,6 @@ pub struct FullLtoCodegenConfig<'a> {
     pub linkage_source_identity: &'a SourceIdentity,
     /// Number of native partitions after monolithic optimization.
     pub parallelism: usize,
-    /// Disable assumptions about hosted target-library functions.
-    pub freestanding: bool,
     /// Definitions that must remain visible to regular native linker inputs.
     pub preserved_symbols: &'a [&'a str],
 }

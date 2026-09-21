@@ -517,7 +517,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         target: &TargetMachine,
         module_identifier: &str,
         optimization: nia_llvm::OptimizationLevel,
-        mode: crate::LtoMode,
+        pre_link: crate::LtoPreLinkConfig,
     ) -> Result<Vec<u8>, Diagnostic> {
         time_codegen_module_stage(self.timings, "emit_module", &self.source.name, || {
             self.emit_module()
@@ -533,14 +533,18 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     .map_err(Self::diagnostic_from_llvm_error)
             },
         )?;
-        let stage = match mode {
+        let stage = match pre_link.mode {
             crate::LtoMode::Thin => "thin_lto_prelink",
             crate::LtoMode::Full => "full_lto_prelink",
         };
         time_codegen_module_stage(self.timings, stage, &self.source.name, || {
-            match mode {
-                crate::LtoMode::Thin => emit_thin_lto_bitcode(&self.module, target, optimization),
-                crate::LtoMode::Full => emit_full_lto_bitcode(&self.module, target, optimization),
+            match pre_link.mode {
+                crate::LtoMode::Thin => {
+                    emit_thin_lto_bitcode(&self.module, target, optimization, pre_link.freestanding)
+                }
+                crate::LtoMode::Full => {
+                    emit_full_lto_bitcode(&self.module, target, optimization, pre_link.freestanding)
+                }
             }
             .map_err(Self::diagnostic_from_llvm_error)
         })

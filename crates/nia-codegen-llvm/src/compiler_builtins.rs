@@ -519,7 +519,7 @@ pub(crate) fn emit_lto_bitcode(
     target: &TargetMachine,
     symbols: CompilerBuiltinSymbols,
     optimization: OptimizationLevel,
-    mode: crate::LtoMode,
+    pre_link: crate::LtoPreLinkConfig,
 ) -> Result<Vec<u8>, Diagnostic> {
     let context = Context::create().map_err(diagnostic_from_llvm_error)?;
     let module = context
@@ -531,9 +531,13 @@ pub(crate) fn emit_lto_bitcode(
         .map_err(|error| error.diagnostic())?;
     emit_definitions(&context, &module, symbols)?;
     module.verify().map_err(diagnostic_from_llvm_error)?;
-    match mode {
-        crate::LtoMode::Thin => emit_thin_lto_bitcode(&module, target, optimization),
-        crate::LtoMode::Full => emit_full_lto_bitcode(&module, target, optimization),
+    match pre_link.mode {
+        crate::LtoMode::Thin => {
+            emit_thin_lto_bitcode(&module, target, optimization, pre_link.freestanding)
+        }
+        crate::LtoMode::Full => {
+            emit_full_lto_bitcode(&module, target, optimization, pre_link.freestanding)
+        }
     }
     .map_err(diagnostic_from_llvm_error)
 }

@@ -114,7 +114,10 @@ fn lto_module_cache_hit_skips_prelink_emission_and_publish() {
         Arc::clone(&codegen.type_store),
         &nia_query::QuerySession::new().expect("create query session"),
         LlvmCodegenOptions::default(),
-        crate::LtoMode::Thin,
+        crate::LtoPreLinkConfig {
+            mode: crate::LtoMode::Thin,
+            freestanding: false,
+        },
         Some(cache.clone()),
     );
 
@@ -1097,7 +1100,6 @@ fn signedTo64(value: i128) f64 {
         LlvmCodegenOptions::default(),
         crate::ThinLtoCodegenConfig {
             parallelism: 2,
-            freestanding: true,
             preserved_symbols: &[],
             backend_cache_directory: None,
         },

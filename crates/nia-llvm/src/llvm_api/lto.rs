@@ -234,11 +234,13 @@ unsafe extern "C" {
         module: LLVMModuleRef,
         target: LLVMTargetMachineRef,
         optimization: u32,
+        freestanding: u8,
     ) -> *mut FfiOwnedBuffer;
     fn nia_llvm_emit_full_lto_bitcode(
         module: LLVMModuleRef,
         target: LLVMTargetMachineRef,
         optimization: u32,
+        freestanding: u8,
     ) -> *mut FfiOwnedBuffer;
     fn nia_llvm_owned_buffer_data(buffer: *const FfiOwnedBuffer) -> *const u8;
     fn nia_llvm_owned_buffer_len(buffer: *const FfiOwnedBuffer) -> usize;
@@ -339,9 +341,15 @@ pub fn emit_thin_lto_bitcode(
     module: &Module<'_>,
     target: &TargetMachine,
     optimization: OptimizationLevel,
+    freestanding: bool,
 ) -> LlvmResult<Vec<u8>> {
     let result = unsafe {
-        nia_llvm_emit_thin_lto_bitcode(module.raw, target.raw, optimization_tag(optimization))
+        nia_llvm_emit_thin_lto_bitcode(
+            module.raw,
+            target.raw,
+            optimization_tag(optimization),
+            u8::from(freestanding),
+        )
     };
     let result = OwnedBufferHandle(
         NonNull::new(result)
@@ -371,9 +379,15 @@ pub fn emit_full_lto_bitcode(
     module: &Module<'_>,
     target: &TargetMachine,
     optimization: OptimizationLevel,
+    freestanding: bool,
 ) -> LlvmResult<Vec<u8>> {
     let result = unsafe {
-        nia_llvm_emit_full_lto_bitcode(module.raw, target.raw, optimization_tag(optimization))
+        nia_llvm_emit_full_lto_bitcode(
+            module.raw,
+            target.raw,
+            optimization_tag(optimization),
+            u8::from(freestanding),
+        )
     };
     let result = OwnedBufferHandle(
         NonNull::new(result)
@@ -669,7 +683,10 @@ mod tests {
     use super::*;
     use crate::{Context, module::Linkage};
 
-    fn summary_bitcode(name: &str) -> (TargetMachineIdentity, Vec<u8>) {
+    fn summary_bitcode_with_policy(
+        name: &str,
+        freestanding: bool,
+    ) -> (TargetMachineIdentity, Vec<u8>) {
         let context = Context::create().expect("create context");
         let module = context.create_module(name).expect("create module");
         module.set_identifier(name);
@@ -693,38 +710,69 @@ mod tests {
         let target = TargetMachine::for_identity(&identity, OptimizationLevel::Default)
             .expect("target machine");
         target.configure_module(&module).expect("configure module");
-        let bitcode = emit_thin_lto_bitcode(&module, &target, OptimizationLevel::Default)
-            .expect("emit summary-bearing bitcode");
+        let bitcode =
+            emit_thin_lto_bitcode(&module, &target, OptimizationLevel::Default, freestanding)
+                .expect("emit summary-bearing bitcode");
+        (identity, bitcode)
+    }
+
+    fn summary_bitcode(name: &str) -> (TargetMachineIdentity, Vec<u8>) {
+        summary_bitcode_with_policy(name, false)
+    }
+
+    fn full_bitcode_with_policy(
+        name: &str,
+        freestanding: bool,
+    ) -> (TargetMachineIdentity, Vec<u8>) {
+        let context = Context::create().expect("create context");
+        let module = context.create_module(name).expect("create module");
+        module.set_identifier(name);
+        let ty = context
+            .i32_type()
+            .fn_type(&[], false)
+            .expect("create function type");
+        let function = module
+            .add_function("entry", ty, Some(Linkage::External))
+            .expect("add entry function");
+        let block = context
+            .append_basic_block(function, "entry")
+            .expect("append block");
+        let builder = context.create_builder().expect("create builder");
+        builder.position_at_end(block);
+        let value = context.i32_type().const_int(42, false).expect("constant");
+        builder.build_return(Some(&value)).expect("return value");
+        module.verify().expect("verify source module");
+
+        let identity = TargetMachine::native_identity().expect("native target identity");
+        let target = TargetMachine::for_identity(&identity, OptimizationLevel::Default)
+            .expect("target machine");
+        target.configure_module(&module).expect("configure module");
+        let bitcode =
+            emit_full_lto_bitcode(&module, &target, OptimizationLevel::Default, freestanding)
+                .expect("emit full-LTO bitcode");
         (identity, bitcode)
     }
 
     fn full_bitcode(name: &str) -> (TargetMachineIdentity, Vec<u8>) {
-        let context = Context::create().expect("create context");
-        let module = context.create_module(name).expect("create module");
-        module.set_identifier(name);
-        let ty = context
-            .i32_type()
-            .fn_type(&[], false)
-            .expect("create function type");
-        let function = module
-            .add_function("entry", ty, Some(Linkage::External))
-            .expect("add entry function");
-        let block = context
-            .append_basic_block(function, "entry")
-            .expect("append block");
-        let builder = context.create_builder().expect("create builder");
-        builder.position_at_end(block);
-        let value = context.i32_type().const_int(42, false).expect("constant");
-        builder.build_return(Some(&value)).expect("return value");
-        module.verify().expect("verify source module");
+        full_bitcode_with_policy(name, false)
+    }
 
-        let identity = TargetMachine::native_identity().expect("native target identity");
-        let target = TargetMachine::for_identity(&identity, OptimizationLevel::Default)
-            .expect("target machine");
-        target.configure_module(&module).expect("configure module");
-        let bitcode = emit_full_lto_bitcode(&module, &target, OptimizationLevel::Default)
-            .expect("emit full-LTO bitcode");
-        (identity, bitcode)
+    #[test]
+    fn freestanding_prelink_bitcode_disables_hosted_builtins() {
+        for (name, bitcode) in [
+            summary_bitcode_with_policy("thin-freestanding", true).1,
+            full_bitcode_with_policy("full-freestanding", true).1,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let context = Context::create().expect("create parse context");
+            let module = context
+                .parse_bitcode_module(&format!("freestanding-{name}"), &bitcode)
+                .expect("parse pre-link bitcode");
+            let ir = module.ir_string().expect("render pre-link IR");
+            assert!(ir.contains("\"no-builtins\""), "{ir}");
+        }
     }
 
     #[test]
@@ -876,9 +924,13 @@ mod tests {
         definition_module
             .verify()
             .expect("verify definition module");
-        let definition_bitcode =
-            emit_thin_lto_bitcode(&definition_module, &target, OptimizationLevel::Default)
-                .expect("emit definition bitcode");
+        let definition_bitcode = emit_thin_lto_bitcode(
+            &definition_module,
+            &target,
+            OptimizationLevel::Default,
+            false,
+        )
+        .expect("emit definition bitcode");
 
         let caller_context = Context::create().expect("create caller context");
         let caller_module = caller_context
@@ -916,7 +968,7 @@ mod tests {
             .expect("return shared result");
         caller_module.verify().expect("verify caller module");
         let caller_bitcode =
-            emit_thin_lto_bitcode(&caller_module, &target, OptimizationLevel::Default)
+            emit_thin_lto_bitcode(&caller_module, &target, OptimizationLevel::Default, false)
                 .expect("emit caller bitcode");
 
         let output = run_thin_lto(

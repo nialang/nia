@@ -208,7 +208,10 @@ pub(super) fn emit_thin_lto_modules(
         Arc::clone(type_store),
         &nia_query::QuerySession::new().expect("create query session"),
         options,
-        crate::LtoMode::Thin,
+        crate::LtoPreLinkConfig {
+            mode: crate::LtoMode::Thin,
+            freestanding: true,
+        },
         None,
     )
 }
@@ -223,7 +226,10 @@ pub(super) fn emit_full_lto_modules(
         Arc::clone(type_store),
         &nia_query::QuerySession::new().expect("create query session"),
         options,
-        crate::LtoMode::Full,
+        crate::LtoPreLinkConfig {
+            mode: crate::LtoMode::Full,
+            freestanding: true,
+        },
         None,
     )
 }

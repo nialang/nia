@@ -80,8 +80,16 @@ fn lto_modes_link_and_run_a_freestanding_executable() {
     let root = common::temp_dir("lto-freestanding-executable");
     let source = root.join("main.nia");
     common::write(
+        &root.join("generic.nia"),
+        r#"
+pub fn identity[T](value: T) T { value }
+"#,
+    );
+    common::write(
         &source,
         r#"
+module generic;
+using entry::generic;
 using std::process;
 
 fn helper0() i32 { 0 }
@@ -92,10 +100,16 @@ fn helper4() i32 { 4 }
 fn helper5() i32 { 5 }
 fn helper6() i32 { 6 }
 
+fn clearAndRead(index: usize) u8 {
+    let mut bytes: [u8; 256] = [1; 256];
+    std::builtin::memset(&mut bytes[..], 0);
+    bytes[index]
+}
+
 pub fn main(init: process::Init) process::ExitCode!() {
-    _ = init;
     if helper0() + helper1() + helper2() + helper3()
-        + helper4() + helper5() + helper6() != 21
+        + helper4() + helper5() + helper6() + generic::identity[i32](1) != 22
+        or clearAndRead(init.argc() % 256) != 0
     {
         return process::ExitCode(9)!;
     }
@@ -113,7 +127,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         let artifact = driver
             .link_executable(
                 crate::LinkExecutableRequest::new(
-                    crate::CheckRequest::new(source.to_string_lossy().into_owned()),
+                    crate::CheckRequest::new(source.to_string_lossy().into_owned())
+                        .with_optimization(crate::NiaOptimizationLevel::O2),
                     &output,
                 )
                 .with_link_time_optimization(policy),
