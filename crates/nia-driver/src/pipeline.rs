@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    fmt, fs, io,
+    fs, io,
     path::{Path, PathBuf},
     process::Command,
     sync::Mutex,
@@ -17,13 +17,14 @@ use nia_loader_query::{LoadRequest, LoaderDatabase, SourceInputManifest};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_package_metadata::PackageId;
 use nia_source::{SourceDatabase, SourceIdentity, SourcePath};
-use nia_target_config::{BuildProfile, TargetConfig};
+use nia_target_config::BuildProfile;
 use nia_toolchain::{RuntimeSpec, ToolchainLayout};
 
 use crate::{CheckedProgram, CodegenProgram, ProgramDiagnostic};
 
 mod contracts;
 mod output;
+mod sessions;
 
 pub use contracts::{
     CheckedProgramWithSourceManifest, DriverConfig, ExecutableCacheEnvironment,
@@ -34,6 +35,7 @@ pub use contracts::{
 use output::{
     TempDir, archive_member_file_name, install_streamed_output, object_file_name, write_output_file,
 };
+use sessions::{LoaderKey, SessionCompiler, SessionLoader};
 
 /// Frontend and semantic options shared by driver requests.
 #[derive(Debug, Clone)]
@@ -2055,42 +2057,6 @@ fn emit_query_validation_failure_counters(traces: &[&nia_query::QueryTrace]) {
             format!("query.validation_failures.{query}.{category}.{dependency}.{reason}"),
             count,
         );
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct LoaderKey {
-    entry_path: SourcePath,
-    package_root: Option<SourcePath>,
-    module_map: ModuleMap,
-    target: TargetConfig,
-    profile: BuildProfile,
-    compilation_mode: nia_target_config::CompilationMode,
-    runtime: RuntimeSpec,
-}
-
-#[derive(Clone)]
-struct SessionLoader {
-    key: LoaderKey,
-    database: LoaderDatabase,
-}
-
-impl fmt::Debug for SessionLoader {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SessionLoader")
-            .field("key", &self.key)
-            .finish_non_exhaustive()
-    }
-}
-
-#[derive(Clone)]
-struct SessionCompiler {
-    database: CompilerDatabase,
-}
-
-impl fmt::Debug for SessionCompiler {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SessionCompiler").finish_non_exhaustive()
     }
 }
 
