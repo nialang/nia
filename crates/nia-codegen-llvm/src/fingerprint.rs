@@ -45,7 +45,7 @@ const TEST_EXPRESSION_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.ll
 #[derive(Clone, Copy)]
 pub(super) enum ArtifactTarget<'a> {
     LlvmIr,
-    ThinLtoBitcode(&'a TargetMachineIdentity),
+    LtoBitcode(crate::LtoMode, &'a TargetMachineIdentity),
     NativeObject(&'a TargetMachineIdentity),
 }
 
@@ -102,29 +102,33 @@ pub(super) fn compiler_builtins_fingerprint(
     options: LlvmCodegenOptions,
     target: &TargetMachineIdentity,
 ) -> CodegenUnitFingerprintSet {
-    compiler_builtins_fingerprint_inner(symbols, options, target, false)
+    compiler_builtins_fingerprint_inner(symbols, options, target, None)
 }
 
-pub(super) fn compiler_builtins_thin_lto_fingerprint(
+pub(super) fn compiler_builtins_lto_fingerprint(
     symbols: &CompilerBuiltinSymbols,
     options: LlvmCodegenOptions,
     target: &TargetMachineIdentity,
+    mode: crate::LtoMode,
 ) -> CodegenUnitFingerprintSet {
-    compiler_builtins_fingerprint_inner(symbols, options, target, true)
+    compiler_builtins_fingerprint_inner(symbols, options, target, Some(mode))
 }
 
 fn compiler_builtins_fingerprint_inner(
     symbols: &CompilerBuiltinSymbols,
     options: LlvmCodegenOptions,
     target: &TargetMachineIdentity,
-    thin_lto: bool,
+    lto: Option<crate::LtoMode>,
 ) -> CodegenUnitFingerprintSet {
     let mut policy = QueryFingerprintBuilder::new(BUILTINS_POLICY_DOMAIN);
     write_toolchain_identity(&mut policy, options.toolchain_identity);
     policy.write_u64(llvm_sys_version());
     write_optimization(&mut policy, options.optimization);
-    if thin_lto {
-        policy.write_str("artifact:thin-lto-prelink");
+    if let Some(mode) = lto {
+        policy.write_str(match mode {
+            crate::LtoMode::Thin => "artifact:thin-lto-prelink",
+            crate::LtoMode::Full => "artifact:full-lto-prelink",
+        });
     }
 
     let mut definition = QueryFingerprintBuilder::new(BUILTINS_DEFINITION_DOMAIN);
@@ -142,8 +146,11 @@ fn compiler_builtins_fingerprint_inner(
     let declarations = QueryFingerprintBuilder::new(BUILTINS_DECLARATIONS_DOMAIN);
     let mut target_component = QueryFingerprintBuilder::new(BUILTINS_TARGET_DOMAIN);
     write_target_identity(&mut target_component, target);
-    if thin_lto {
-        target_component.write_str("artifact:thin-lto-prelink");
+    if let Some(mode) = lto {
+        target_component.write_str(match mode {
+            crate::LtoMode::Thin => "artifact:thin-lto-prelink",
+            crate::LtoMode::Full => "artifact:full-lto-prelink",
+        });
     }
     CodegenUnitFingerprintSet::new(CodegenUnitFingerprintComponents {
         policy: finish_builder(policy),
@@ -244,6 +251,14 @@ impl<'a> Encoder<'a> {
                 self.u32(*ordinal);
             }
             CodegenUnitKey::CompilerBuiltins => self.tag(1),
+            CodegenUnitKey::LinkageUnit {
+                source_identity,
+                ordinal,
+            } => {
+                self.tag(2);
+                self.builder.write_str(source_identity.normalized_path());
+                self.u32(*ordinal);
+            }
         }
     }
 
@@ -254,10 +269,19 @@ impl<'a> Encoder<'a> {
     fn artifact_target(&mut self, target: ArtifactTarget<'_>) {
         match target {
             ArtifactTarget::LlvmIr => self.tag(0),
-            ArtifactTarget::ThinLtoBitcode(identity) => {
-                self.tag(2);
-                self.builder
-                    .write_str("module-passes:mem2reg;artifact:thin-lto-prelink");
+            ArtifactTarget::LtoBitcode(mode, identity) => {
+                match mode {
+                    crate::LtoMode::Thin => {
+                        self.tag(2);
+                        self.builder
+                            .write_str("module-passes:mem2reg;artifact:thin-lto-prelink");
+                    }
+                    crate::LtoMode::Full => {
+                        self.tag(3);
+                        self.builder
+                            .write_str("module-passes:mem2reg;artifact:full-lto-prelink");
+                    }
+                }
                 write_target_identity(&mut self.builder, identity);
             }
             ArtifactTarget::NativeObject(identity) => {
@@ -273,7 +297,8 @@ impl<'a> Encoder<'a> {
     fn artifact_kind(&mut self, target: ArtifactTarget<'_>) {
         self.tag(match target {
             ArtifactTarget::LlvmIr => 0,
-            ArtifactTarget::ThinLtoBitcode(_) => 2,
+            ArtifactTarget::LtoBitcode(crate::LtoMode::Thin, _) => 2,
+            ArtifactTarget::LtoBitcode(crate::LtoMode::Full, _) => 3,
             ArtifactTarget::NativeObject(_) => 1,
         });
     }
@@ -1942,7 +1967,7 @@ impl<'a> Encoder<'a> {
     }
 }
 
-fn write_toolchain_identity(
+pub(super) fn write_toolchain_identity(
     builder: &mut QueryFingerprintBuilder,
     identity: nia_toolchain::ToolchainIdentityFingerprint,
 ) {
@@ -1951,7 +1976,10 @@ fn write_toolchain_identity(
     }
 }
 
-fn write_optimization(builder: &mut QueryFingerprintBuilder, policy: OptimizationPolicy) {
+pub(super) fn write_optimization(
+    builder: &mut QueryFingerprintBuilder,
+    policy: OptimizationPolicy,
+) {
     builder.write_u8(match policy.level {
         NiaOptimizationLevel::O0 => 0,
         NiaOptimizationLevel::O1 => 1,
@@ -3021,7 +3049,7 @@ mod tests {
             &declarations,
             &fixture.index,
             LlvmCodegenOptions::default(),
-            ArtifactTarget::ThinLtoBitcode(&target),
+            ArtifactTarget::LtoBitcode(crate::LtoMode::Thin, &target),
         )
         .expect("valid ThinLTO fingerprint fixture");
         assert_ne!(baseline.fingerprint, thin_lto.fingerprint);

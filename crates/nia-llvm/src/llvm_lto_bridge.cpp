@@ -10,6 +10,7 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/Bitcode/BitcodeWriterPass.h"
 #include "llvm/LTO/LTO.h"
 #include "llvm/LTO/LTOBackend.h"
 #include "llvm/Passes/PassBuilder.h"
@@ -55,6 +56,16 @@ struct ByteSlice {
 struct ThinInput {
   ByteSlice Name;
   ByteSlice Bitcode;
+};
+
+struct FullConfig {
+  ByteSlice CPU;
+  ByteSlice Features;
+  const ByteSlice *PreservedSymbols;
+  size_t PreservedSymbolCount;
+  uint32_t Optimization;
+  uint32_t Parallelism;
+  uint8_t Freestanding;
 };
 
 struct ThinConfig {
@@ -112,6 +123,18 @@ struct ThinResult {
   std::string Error;
   ThinTimings Timings;
   ThinCacheStats Cache;
+};
+
+struct FullObject {
+  uint32_t Task = 0;
+  std::string Bytes;
+};
+
+struct FullResult {
+  std::vector<FullObject> Objects;
+  std::vector<ThinDiagnostic> Diagnostics;
+  std::string Error;
+  uint64_t LtoNs = 0;
 };
 
 uint64_t elapsedNs(Clock::time_point Start, Clock::time_point End) {
@@ -384,6 +407,40 @@ private:
   uint32_t CacheReleaseCompatibility;
 };
 
+class FullResultStream final : public CachedFileStream {
+public:
+  static std::unique_ptr<FullResultStream>
+  create(unsigned Task, FullResult &Result, std::mutex &ResultMutex) {
+    return std::unique_ptr<FullResultStream>(new FullResultStream(
+        Task, Result, ResultMutex,
+        std::make_shared<SmallVector<char, 0>>()));
+  }
+
+  ~FullResultStream() override { OS.reset(); }
+
+  Error commit() override {
+    {
+      std::lock_guard<std::mutex> Lock(ResultMutex);
+      Result.Objects.push_back(FullObject{
+          Task, std::string(Storage->begin(), Storage->end())});
+    }
+    return CachedFileStream::commit();
+  }
+
+private:
+  FullResultStream(unsigned Task, FullResult &Result,
+                   std::mutex &ResultMutex,
+                   std::shared_ptr<SmallVector<char, 0>> Storage)
+      : CachedFileStream(std::make_unique<raw_svector_ostream>(*Storage)),
+        Storage(std::move(Storage)), Task(Task), Result(Result),
+        ResultMutex(ResultMutex) {}
+
+  std::shared_ptr<SmallVector<char, 0>> Storage;
+  unsigned Task;
+  FullResult &Result;
+  std::mutex &ResultMutex;
+};
+
 std::optional<std::string> initializeTargets() {
   static std::once_flag Once;
   static std::optional<std::string> Error;
@@ -432,6 +489,43 @@ OwnedBuffer *nia_llvm_emit_thin_lto_bitcode(LLVMModuleRef RawModule,
   ModulePassManager MPM =
       PB.buildThinLTOPreLinkDefaultPipeline(optimizationLevel(Optimization));
   MPM.addPass(ThinLTOBitcodeWriterPass(OS, nullptr));
+  MPM.run(M, MAM);
+  OS.flush();
+  return Result.release();
+}
+
+OwnedBuffer *nia_llvm_emit_full_lto_bitcode(LLVMModuleRef RawModule,
+                                            LLVMTargetMachineRef RawTarget,
+                                            uint32_t Optimization) {
+  auto Result = std::make_unique<OwnedBuffer>();
+  if (!RawModule || !RawTarget) {
+    Result->Error = "full LTO pre-link emission received a null LLVM handle";
+    return Result.release();
+  }
+  if (Optimization > 3) {
+    Result->Error = "full LTO pre-link emission received an invalid optimization level";
+    return Result.release();
+  }
+
+  Module &M = *unwrap(RawModule);
+  TargetMachine *TM = reinterpret_cast<TargetMachine *>(RawTarget);
+  LoopAnalysisManager LAM;
+  FunctionAnalysisManager FAM;
+  CGSCCAnalysisManager CGAM;
+  ModuleAnalysisManager MAM;
+  PassBuilder PB(TM);
+  PB.registerModuleAnalyses(MAM);
+  PB.registerCGSCCAnalyses(CGAM);
+  PB.registerFunctionAnalyses(FAM);
+  PB.registerLoopAnalyses(LAM);
+  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+
+  raw_string_ostream OS(Result->Bytes);
+  ModulePassManager MPM =
+      PB.buildLTOPreLinkDefaultPipeline(optimizationLevel(Optimization));
+  MPM.addPass(BitcodeWriterPass(OS, /*ShouldPreserveUseListOrder=*/false,
+                                /*EmitSummaryIndex=*/false,
+                                /*EmitModuleHash=*/true));
   MPM.run(M, MAM);
   OS.flush();
   return Result.release();
@@ -708,6 +802,146 @@ ThinResult *nia_llvm_run_thin_lto(const ThinInput *Inputs, size_t InputCount,
   return Result.release();
 }
 
+FullResult *nia_llvm_run_full_lto(const ThinInput *Inputs, size_t InputCount,
+                                  const FullConfig *InputConfig) {
+  auto Result = std::make_unique<FullResult>();
+  if (!InputConfig || (!Inputs && InputCount != 0)) {
+    Result->Error = "full LTO received invalid input pointers";
+    return Result.release();
+  }
+  if (InputCount == 0) {
+    Result->Error = "full LTO requires at least one bitcode input";
+    return Result.release();
+  }
+  if (InputConfig->Optimization > 3 || InputConfig->Parallelism == 0) {
+    Result->Error = "full LTO received an invalid configuration";
+    return Result.release();
+  }
+  if (auto Error = initializeTargets()) {
+    Result->Error = std::move(*Error);
+    return Result.release();
+  }
+
+  std::unordered_set<std::string> Preserved;
+  for (size_t I = 0; I < InputConfig->PreservedSymbolCount; ++I)
+    Preserved.insert(asStringRef(InputConfig->PreservedSymbols[I]).str());
+
+  std::vector<std::unique_ptr<MemoryBuffer>> Buffers;
+  std::vector<std::unique_ptr<lto::InputFile>> Files;
+  Buffers.reserve(InputCount);
+  Files.reserve(InputCount);
+  std::unordered_set<std::string> Names;
+  for (size_t I = 0; I < InputCount; ++I) {
+    StringRef Name = asStringRef(Inputs[I].Name);
+    StringRef Bitcode = asStringRef(Inputs[I].Bitcode);
+    if (Name.empty() || !Names.insert(Name.str()).second) {
+      Result->Error = "full LTO input module names must be non-empty and unique";
+      return Result.release();
+    }
+    Buffers.push_back(MemoryBuffer::getMemBufferCopy(Bitcode, Name));
+    auto File = lto::InputFile::create(Buffers.back()->getMemBufferRef());
+    if (!File) {
+      Result->Error = "failed to parse full LTO input `" + Name.str() +
+                      "`: " + errorText(File.takeError());
+      return Result.release();
+    }
+    Files.push_back(std::move(*File));
+  }
+
+  struct Definition {
+    size_t File;
+    bool Weak;
+  };
+  std::unordered_map<std::string, Definition> Definitions;
+  for (size_t FileIndex = 0; FileIndex < Files.size(); ++FileIndex) {
+    for (const lto::InputFile::Symbol &Symbol : Files[FileIndex]->symbols()) {
+      if (Symbol.isUndefined())
+        continue;
+      std::string Name = Symbol.getName().str();
+      auto [It, Inserted] = Definitions.emplace(
+          Name, Definition{FileIndex, Symbol.isWeak()});
+      if (Inserted)
+        continue;
+      if (!It->second.Weak && !Symbol.isWeak()) {
+        Result->Error = "multiple strong full LTO definitions for symbol `" +
+                        Name + "`";
+        return Result.release();
+      }
+      if (It->second.Weak && !Symbol.isWeak())
+        It->second = Definition{FileIndex, false};
+    }
+  }
+
+  lto::Config Config;
+  Config.CPU = asStringRef(InputConfig->CPU).str();
+  StringRef Features = asStringRef(InputConfig->Features);
+  while (!Features.empty()) {
+    auto Split = Features.split(',');
+    if (!Split.first.empty())
+      Config.MAttrs.push_back(Split.first.str());
+    Features = Split.second;
+  }
+  Config.OptLevel = InputConfig->Optimization;
+  Config.CGOptLevel = codegenOptimizationLevel(InputConfig->Optimization);
+  Config.Freestanding = InputConfig->Freestanding != 0;
+  Config.PTO.LoopVectorization = Config.OptLevel > 1;
+  Config.PTO.SLPVectorization = Config.OptLevel > 1;
+
+  std::mutex ResultMutex;
+  bool HasDiagnosticError = false;
+  Config.DiagHandler = [&](const DiagnosticInfo &Info) {
+    std::string Message;
+    raw_string_ostream OS(Message);
+    DiagnosticPrinterRawOStream Printer(OS);
+    Info.print(Printer);
+    OS.flush();
+    std::lock_guard<std::mutex> Lock(ResultMutex);
+    uint32_t Severity = diagnosticSeverity(Info.getSeverity());
+    HasDiagnosticError |= Severity == 0;
+    Result->Diagnostics.push_back(
+        ThinDiagnostic{Severity, std::move(Message)});
+  };
+
+  lto::LTO Lto(std::move(Config), lto::ThinBackend{},
+               InputConfig->Parallelism);
+  for (size_t FileIndex = 0; FileIndex < Files.size(); ++FileIndex) {
+    std::vector<lto::SymbolResolution> Resolutions;
+    Resolutions.reserve(Files[FileIndex]->symbols().size());
+    for (const lto::InputFile::Symbol &Symbol : Files[FileIndex]->symbols()) {
+      lto::SymbolResolution Resolution;
+      std::string Name = Symbol.getName().str();
+      auto Definition = Definitions.find(Name);
+      bool DefinedInUnit = Definition != Definitions.end();
+      Resolution.Prevailing = !Symbol.isUndefined() && DefinedInUnit &&
+                              Definition->second.File == FileIndex;
+      Resolution.FinalDefinitionInLinkageUnit = DefinedInUnit;
+      Resolution.VisibleToRegularObj =
+          Resolution.Prevailing && Preserved.count(Name) != 0;
+      Resolutions.push_back(Resolution);
+    }
+    if (Error Err = Lto.add(std::move(Files[FileIndex]), Resolutions)) {
+      Result->Error = errorText(std::move(Err));
+      return Result.release();
+    }
+  }
+
+  AddStreamFn AddStream = [&](unsigned Task, const Twine &)
+      -> Expected<std::unique_ptr<CachedFileStream>> {
+    return FullResultStream::create(Task, *Result, ResultMutex);
+  };
+  Clock::time_point Start = Clock::now();
+  if (Error Err = Lto.run(std::move(AddStream)))
+    Result->Error = errorText(std::move(Err));
+  Result->LtoNs = elapsedNs(Start, Clock::now());
+  std::sort(Result->Objects.begin(), Result->Objects.end(),
+            [](const FullObject &Left, const FullObject &Right) {
+              return Left.Task < Right.Task;
+            });
+  if (Result->Error.empty() && HasDiagnosticError)
+    Result->Error = "LLVM reported an error during full LTO";
+  return Result.release();
+}
+
 size_t nia_llvm_thin_result_object_count(const ThinResult *Result) {
   return Result ? Result->Objects.size() : 0;
 }
@@ -825,5 +1059,73 @@ uint64_t nia_llvm_thin_result_cache_write_errors(const ThinResult *Result) {
 }
 
 void nia_llvm_thin_result_free(ThinResult *Result) { delete Result; }
+
+size_t nia_llvm_full_result_object_count(const FullResult *Result) {
+  return Result ? Result->Objects.size() : 0;
+}
+
+uint32_t nia_llvm_full_result_object_task(const FullResult *Result,
+                                          size_t Index) {
+  return Result && Index < Result->Objects.size() ? Result->Objects[Index].Task
+                                                  : 0;
+}
+
+const uint8_t *nia_llvm_full_result_object_data(const FullResult *Result,
+                                                size_t Index) {
+  if (!Result || Index >= Result->Objects.size() ||
+      Result->Objects[Index].Bytes.empty())
+    return nullptr;
+  return reinterpret_cast<const uint8_t *>(Result->Objects[Index].Bytes.data());
+}
+
+size_t nia_llvm_full_result_object_len(const FullResult *Result,
+                                       size_t Index) {
+  return Result && Index < Result->Objects.size()
+             ? Result->Objects[Index].Bytes.size()
+             : 0;
+}
+
+size_t nia_llvm_full_result_diagnostic_count(const FullResult *Result) {
+  return Result ? Result->Diagnostics.size() : 0;
+}
+
+uint32_t nia_llvm_full_result_diagnostic_severity(const FullResult *Result,
+                                                  size_t Index) {
+  return Result && Index < Result->Diagnostics.size()
+             ? Result->Diagnostics[Index].Severity
+             : 0;
+}
+
+const uint8_t *nia_llvm_full_result_diagnostic_message(
+    const FullResult *Result, size_t Index) {
+  if (!Result || Index >= Result->Diagnostics.size() ||
+      Result->Diagnostics[Index].Message.empty())
+    return nullptr;
+  return reinterpret_cast<const uint8_t *>(
+      Result->Diagnostics[Index].Message.data());
+}
+
+size_t nia_llvm_full_result_diagnostic_message_len(const FullResult *Result,
+                                                   size_t Index) {
+  return Result && Index < Result->Diagnostics.size()
+             ? Result->Diagnostics[Index].Message.size()
+             : 0;
+}
+
+const uint8_t *nia_llvm_full_result_error(const FullResult *Result) {
+  if (!Result || Result->Error.empty())
+    return nullptr;
+  return reinterpret_cast<const uint8_t *>(Result->Error.data());
+}
+
+size_t nia_llvm_full_result_error_len(const FullResult *Result) {
+  return Result ? Result->Error.size() : 0;
+}
+
+uint64_t nia_llvm_full_result_lto_ns(const FullResult *Result) {
+  return Result ? Result->LtoNs : 0;
+}
+
+void nia_llvm_full_result_free(FullResult *Result) { delete Result; }
 
 } // extern "C"

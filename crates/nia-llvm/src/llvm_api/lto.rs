@@ -24,6 +24,15 @@ pub struct ThinLtoInput<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// One full-LTO pre-link module supplied to the regular LTO coordinator.
+pub struct FullLtoInput<'a> {
+    /// Unique module identifier within the final linkage unit.
+    pub name: &'a str,
+    /// Bitcode emitted by [`emit_full_lto_bitcode`].
+    pub bitcode: &'a [u8],
+}
+
+#[derive(Debug, Clone, Copy)]
 /// Complete target and policy inputs for one ThinLTO coordination run.
 pub struct ThinLtoConfig<'a> {
     /// Exact LLVM target identity shared by every input module.
@@ -38,6 +47,21 @@ pub struct ThinLtoConfig<'a> {
     pub preserved_symbols: &'a [&'a str],
     /// Release-isolated directory for validated LLVM backend work products.
     pub backend_cache_directory: Option<&'a Path>,
+}
+
+#[derive(Debug, Clone, Copy)]
+/// Complete target and policy inputs for one full-LTO coordination run.
+pub struct FullLtoConfig<'a> {
+    /// Exact target identity shared by every input module.
+    pub target: &'a TargetMachineIdentity,
+    /// Pre-link, whole-program optimization, and code-generation level.
+    pub optimization: OptimizationLevel,
+    /// Number of native code-generation partitions after monolithic IPO.
+    pub parallelism: usize,
+    /// Disable assumptions about hosted target-library functions.
+    pub freestanding: bool,
+    /// Definitions that must remain visible to native linker inputs.
+    pub preserved_symbols: &'a [&'a str],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,6 +146,26 @@ pub struct ThinLtoOutput {
     pub cache: ThinLtoCacheStats,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// One native partition emitted after monolithic full-LTO optimization.
+pub struct FullLtoObject {
+    /// LLVM task/partition ordinal.
+    pub task: u32,
+    /// Native object bytes copied out of LLVM's output stream.
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// Native full-LTO work products and pipeline evidence.
+pub struct FullLtoOutput {
+    /// Native partitions sorted by LLVM task identity.
+    pub objects: Vec<FullLtoObject>,
+    /// Diagnostics retained from the modern regular-LTO pipeline.
+    pub diagnostics: Vec<ThinLtoDiagnostic>,
+    /// Wall time spent merging, optimizing, and code-generating the linkage unit.
+    pub lto: Duration,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct FfiByteSlice {
@@ -159,6 +203,17 @@ struct FfiThinConfig {
 }
 
 #[repr(C)]
+struct FfiFullConfig {
+    cpu: FfiByteSlice,
+    features: FfiByteSlice,
+    preserved_symbols: *const FfiByteSlice,
+    preserved_symbol_count: usize,
+    optimization: u32,
+    parallelism: u32,
+    freestanding: u8,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy)]
 struct FfiThinTimings {
     thin_link_ns: u64,
@@ -172,9 +227,15 @@ struct FfiThinTimings {
 
 enum FfiOwnedBuffer {}
 enum FfiThinResult {}
+enum FfiFullResult {}
 
 unsafe extern "C" {
     fn nia_llvm_emit_thin_lto_bitcode(
+        module: LLVMModuleRef,
+        target: LLVMTargetMachineRef,
+        optimization: u32,
+    ) -> *mut FfiOwnedBuffer;
+    fn nia_llvm_emit_full_lto_bitcode(
         module: LLVMModuleRef,
         target: LLVMTargetMachineRef,
         optimization: u32,
@@ -223,6 +284,30 @@ unsafe extern "C" {
     fn nia_llvm_thin_result_cache_read_errors(result: *const FfiThinResult) -> u64;
     fn nia_llvm_thin_result_cache_write_errors(result: *const FfiThinResult) -> u64;
     fn nia_llvm_thin_result_free(result: *mut FfiThinResult);
+
+    fn nia_llvm_run_full_lto(
+        inputs: *const FfiThinInput,
+        input_count: usize,
+        config: *const FfiFullConfig,
+    ) -> *mut FfiFullResult;
+    fn nia_llvm_full_result_object_count(result: *const FfiFullResult) -> usize;
+    fn nia_llvm_full_result_object_task(result: *const FfiFullResult, index: usize) -> u32;
+    fn nia_llvm_full_result_object_data(result: *const FfiFullResult, index: usize) -> *const u8;
+    fn nia_llvm_full_result_object_len(result: *const FfiFullResult, index: usize) -> usize;
+    fn nia_llvm_full_result_diagnostic_count(result: *const FfiFullResult) -> usize;
+    fn nia_llvm_full_result_diagnostic_severity(result: *const FfiFullResult, index: usize) -> u32;
+    fn nia_llvm_full_result_diagnostic_message(
+        result: *const FfiFullResult,
+        index: usize,
+    ) -> *const u8;
+    fn nia_llvm_full_result_diagnostic_message_len(
+        result: *const FfiFullResult,
+        index: usize,
+    ) -> usize;
+    fn nia_llvm_full_result_error(result: *const FfiFullResult) -> *const u8;
+    fn nia_llvm_full_result_error_len(result: *const FfiFullResult) -> usize;
+    fn nia_llvm_full_result_lto_ns(result: *const FfiFullResult) -> u64;
+    fn nia_llvm_full_result_free(result: *mut FfiFullResult);
 }
 
 struct OwnedBufferHandle(NonNull<FfiOwnedBuffer>);
@@ -238,6 +323,14 @@ struct ThinResultHandle(NonNull<FfiThinResult>);
 impl Drop for ThinResultHandle {
     fn drop(&mut self) {
         unsafe { nia_llvm_thin_result_free(self.0.as_ptr()) };
+    }
+}
+
+struct FullResultHandle(NonNull<FfiFullResult>);
+
+impl Drop for FullResultHandle {
+    fn drop(&mut self) {
+        unsafe { nia_llvm_full_result_free(self.0.as_ptr()) };
     }
 }
 
@@ -269,6 +362,38 @@ pub fn emit_thin_lto_bitcode(
             nia_llvm_owned_buffer_data(result.0.as_ptr()),
             nia_llvm_owned_buffer_len(result.0.as_ptr()),
             "ThinLTO pre-link bitcode",
+        )
+    }
+}
+
+/// Runs target-aware full-LTO pre-link optimization and emits regular bitcode.
+pub fn emit_full_lto_bitcode(
+    module: &Module<'_>,
+    target: &TargetMachine,
+    optimization: OptimizationLevel,
+) -> LlvmResult<Vec<u8>> {
+    let result = unsafe {
+        nia_llvm_emit_full_lto_bitcode(module.raw, target.raw, optimization_tag(optimization))
+    };
+    let result = OwnedBufferHandle(
+        NonNull::new(result)
+            .ok_or_else(|| LlvmError::error("LLVM returned no full-LTO pre-link result"))?,
+    );
+    let error = unsafe {
+        copy_text(
+            nia_llvm_owned_buffer_error(result.0.as_ptr()),
+            nia_llvm_owned_buffer_error_len(result.0.as_ptr()),
+            "full-LTO pre-link error",
+        )?
+    };
+    if !error.is_empty() {
+        return Err(LlvmError::error(error));
+    }
+    unsafe {
+        copy_bytes(
+            nia_llvm_owned_buffer_data(result.0.as_ptr()),
+            nia_llvm_owned_buffer_len(result.0.as_ptr()),
+            "full-LTO pre-link bitcode",
         )
     }
 }
@@ -412,6 +537,102 @@ pub fn run_thin_lto(
     })
 }
 
+/// Runs a complete modern LLVM full-LTO link over ordered pre-link modules.
+pub fn run_full_lto(
+    inputs: &[FullLtoInput<'_>],
+    config: FullLtoConfig<'_>,
+) -> LlvmResult<FullLtoOutput> {
+    let parallelism = u32::try_from(config.parallelism)
+        .map_err(|_| LlvmError::error("full-LTO parallelism exceeds LLVM's supported width"))?;
+    if parallelism == 0 {
+        return Err(LlvmError::error(
+            "full LTO requires at least one code-generation partition",
+        ));
+    }
+    let ffi_inputs = inputs
+        .iter()
+        .map(|input| FfiThinInput {
+            name: FfiByteSlice::new(input.name.as_bytes()),
+            bitcode: FfiByteSlice::new(input.bitcode),
+        })
+        .collect::<Vec<_>>();
+    let preserved = config
+        .preserved_symbols
+        .iter()
+        .map(|symbol| FfiByteSlice::new(symbol.as_bytes()))
+        .collect::<Vec<_>>();
+    let ffi_config = FfiFullConfig {
+        cpu: FfiByteSlice::new(config.target.cpu.as_bytes()),
+        features: FfiByteSlice::new(config.target.features.as_bytes()),
+        preserved_symbols: preserved.as_ptr(),
+        preserved_symbol_count: preserved.len(),
+        optimization: optimization_tag(config.optimization),
+        parallelism,
+        freestanding: u8::from(config.freestanding),
+    };
+    let result =
+        unsafe { nia_llvm_run_full_lto(ffi_inputs.as_ptr(), ffi_inputs.len(), &ffi_config) };
+    let result = FullResultHandle(
+        NonNull::new(result).ok_or_else(|| LlvmError::error("LLVM returned no full-LTO result"))?,
+    );
+    let error = unsafe {
+        copy_text(
+            nia_llvm_full_result_error(result.0.as_ptr()),
+            nia_llvm_full_result_error_len(result.0.as_ptr()),
+            "full-LTO error",
+        )?
+    };
+    if !error.is_empty() {
+        return Err(LlvmError::error(error));
+    }
+
+    let object_count = unsafe { nia_llvm_full_result_object_count(result.0.as_ptr()) };
+    let mut objects = Vec::with_capacity(object_count);
+    for index in 0..object_count {
+        objects.push(FullLtoObject {
+            task: unsafe { nia_llvm_full_result_object_task(result.0.as_ptr(), index) },
+            bytes: unsafe {
+                copy_bytes(
+                    nia_llvm_full_result_object_data(result.0.as_ptr(), index),
+                    nia_llvm_full_result_object_len(result.0.as_ptr(), index),
+                    "full-LTO object",
+                )?
+            },
+        });
+    }
+
+    let diagnostic_count = unsafe { nia_llvm_full_result_diagnostic_count(result.0.as_ptr()) };
+    let mut diagnostics = Vec::with_capacity(diagnostic_count);
+    for index in 0..diagnostic_count {
+        let severity =
+            match unsafe { nia_llvm_full_result_diagnostic_severity(result.0.as_ptr(), index) } {
+                0 => ThinLtoDiagnosticSeverity::Error,
+                1 => ThinLtoDiagnosticSeverity::Warning,
+                2 => ThinLtoDiagnosticSeverity::Remark,
+                3 => ThinLtoDiagnosticSeverity::Note,
+                other => {
+                    return Err(LlvmError::error(format!(
+                        "LLVM returned unknown full-LTO diagnostic severity {other}"
+                    )));
+                }
+            };
+        let message = unsafe {
+            copy_text(
+                nia_llvm_full_result_diagnostic_message(result.0.as_ptr(), index),
+                nia_llvm_full_result_diagnostic_message_len(result.0.as_ptr(), index),
+                "full-LTO diagnostic",
+            )?
+        };
+        diagnostics.push(ThinLtoDiagnostic { severity, message });
+    }
+
+    Ok(FullLtoOutput {
+        objects,
+        diagnostics,
+        lto: Duration::from_nanos(unsafe { nia_llvm_full_result_lto_ns(result.0.as_ptr()) }),
+    })
+}
+
 fn optimization_tag(level: OptimizationLevel) -> u32 {
     match level {
         OptimizationLevel::None => 0,
@@ -475,6 +696,63 @@ mod tests {
         let bitcode = emit_thin_lto_bitcode(&module, &target, OptimizationLevel::Default)
             .expect("emit summary-bearing bitcode");
         (identity, bitcode)
+    }
+
+    fn full_bitcode(name: &str) -> (TargetMachineIdentity, Vec<u8>) {
+        let context = Context::create().expect("create context");
+        let module = context.create_module(name).expect("create module");
+        module.set_identifier(name);
+        let ty = context
+            .i32_type()
+            .fn_type(&[], false)
+            .expect("create function type");
+        let function = module
+            .add_function("entry", ty, Some(Linkage::External))
+            .expect("add entry function");
+        let block = context
+            .append_basic_block(function, "entry")
+            .expect("append block");
+        let builder = context.create_builder().expect("create builder");
+        builder.position_at_end(block);
+        let value = context.i32_type().const_int(42, false).expect("constant");
+        builder.build_return(Some(&value)).expect("return value");
+        module.verify().expect("verify source module");
+
+        let identity = TargetMachine::native_identity().expect("native target identity");
+        let target = TargetMachine::for_identity(&identity, OptimizationLevel::Default)
+            .expect("target machine");
+        target.configure_module(&module).expect("configure module");
+        let bitcode = emit_full_lto_bitcode(&module, &target, OptimizationLevel::Default)
+            .expect("emit full-LTO bitcode");
+        (identity, bitcode)
+    }
+
+    #[test]
+    fn modern_full_lto_emits_native_object_from_pre_link_bitcode() {
+        let (target, bitcode) = full_bitcode("full-unit");
+        let output = run_full_lto(
+            &[FullLtoInput {
+                name: "full-unit",
+                bitcode: &bitcode,
+            }],
+            FullLtoConfig {
+                target: &target,
+                optimization: OptimizationLevel::Default,
+                parallelism: 1,
+                freestanding: true,
+                preserved_symbols: &["entry"],
+            },
+        )
+        .expect("run modern full LTO");
+
+        assert_eq!(output.objects.len(), 1);
+        assert!(!output.objects[0].bytes.is_empty());
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity != ThinLtoDiagnosticSeverity::Error)
+        );
     }
 
     #[test]

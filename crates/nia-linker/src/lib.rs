@@ -1185,6 +1185,14 @@ fn write_codegen_unit_key(builder: &mut QueryFingerprintBuilder, key: &CodegenUn
             builder.write_u64(u64::from(*ordinal));
         }
         CodegenUnitKey::CompilerBuiltins => builder.write_u8(1),
+        CodegenUnitKey::LinkageUnit {
+            source_identity,
+            ordinal,
+        } => {
+            builder.write_u8(2);
+            builder.write_str(source_identity.normalized_path());
+            builder.write_u64(u64::from(*ordinal));
+        }
     }
 }
 
