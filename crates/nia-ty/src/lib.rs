@@ -191,6 +191,16 @@ impl TypeStore {
         self.error
     }
 
+    /// Returns the number of canonical types currently interned in this store.
+    pub fn len(&self) -> usize {
+        self.core.slots.lock().canonical.len()
+    }
+
+    /// Returns whether this store has no canonical types.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Looks up a type handle, rejecting handles from another store.
     pub fn get(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.core.get(ty)
@@ -1316,6 +1326,27 @@ fn vector_type_spelling(name: &str) -> Option<PrimitiveTypeSpelling> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nia_ids::ModuleIdAllocator;
+
+    #[test]
+    fn type_store_len_tracks_canonical_interning() {
+        let store = TypeStore::new().expect("create type store");
+        assert_eq!(store.len(), 1, "the recovery type is the initial slot");
+        let module = ModuleIdAllocator::new()
+            .expect("create module allocator")
+            .allocate()
+            .expect("allocate module");
+        let append = store.append_for_module(module);
+        let first = append
+            .primitive(PrimitiveTy::I32)
+            .expect("intern primitive type");
+        assert_eq!(store.len(), 2);
+        let duplicate = append
+            .primitive(PrimitiveTy::I32)
+            .expect("reuse primitive type");
+        assert_eq!(first, duplicate);
+        assert_eq!(store.len(), 2);
+    }
 
     fn intern(append: &TypeStoreAppend, kind: TyKind) -> InternedTyId {
         append.intern(kind).expect("intern test type")

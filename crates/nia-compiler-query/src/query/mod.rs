@@ -611,6 +611,11 @@ impl CompilerDatabase {
         self.db.session()
     }
 
+    /// Returns the session-owned canonical type store for observability.
+    pub fn type_store(&self) -> std::sync::Arc<nia_ty::TypeStore> {
+        std::sync::Arc::clone(&self.db.context().type_store)
+    }
+
     /// Returns the current loader-owned module graph snapshot.
     ///
     /// This is intentionally a read-only observability boundary. The loader
