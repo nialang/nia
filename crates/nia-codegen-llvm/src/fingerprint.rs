@@ -45,7 +45,7 @@ const TEST_EXPRESSION_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.ll
 #[derive(Clone, Copy)]
 pub(super) enum ArtifactTarget<'a> {
     LlvmIr,
-    LtoBitcode(crate::LtoMode, &'a TargetMachineIdentity),
+    LtoBitcode(crate::LtoPreLinkConfig, &'a TargetMachineIdentity),
     NativeObject(&'a TargetMachineIdentity),
 }
 
@@ -109,26 +109,27 @@ pub(super) fn compiler_builtins_lto_fingerprint(
     symbols: &CompilerBuiltinSymbols,
     options: LlvmCodegenOptions,
     target: &TargetMachineIdentity,
-    mode: crate::LtoMode,
+    pre_link: crate::LtoPreLinkConfig,
 ) -> CodegenUnitFingerprintSet {
-    compiler_builtins_fingerprint_inner(symbols, options, target, Some(mode))
+    compiler_builtins_fingerprint_inner(symbols, options, target, Some(pre_link))
 }
 
 fn compiler_builtins_fingerprint_inner(
     symbols: &CompilerBuiltinSymbols,
     options: LlvmCodegenOptions,
     target: &TargetMachineIdentity,
-    lto: Option<crate::LtoMode>,
+    lto: Option<crate::LtoPreLinkConfig>,
 ) -> CodegenUnitFingerprintSet {
     let mut policy = QueryFingerprintBuilder::new(BUILTINS_POLICY_DOMAIN);
     write_toolchain_identity(&mut policy, options.toolchain_identity);
     policy.write_u64(llvm_sys_version());
     write_optimization(&mut policy, options.optimization);
-    if let Some(mode) = lto {
-        policy.write_str(match mode {
+    if let Some(pre_link) = lto {
+        policy.write_str(match pre_link.mode {
             crate::LtoMode::Thin => "artifact:thin-lto-prelink",
             crate::LtoMode::Full => "artifact:full-lto-prelink",
         });
+        policy.write_u8(u8::from(pre_link.freestanding));
     }
 
     let mut definition = QueryFingerprintBuilder::new(BUILTINS_DEFINITION_DOMAIN);
@@ -146,11 +147,12 @@ fn compiler_builtins_fingerprint_inner(
     let declarations = QueryFingerprintBuilder::new(BUILTINS_DECLARATIONS_DOMAIN);
     let mut target_component = QueryFingerprintBuilder::new(BUILTINS_TARGET_DOMAIN);
     write_target_identity(&mut target_component, target);
-    if let Some(mode) = lto {
-        target_component.write_str(match mode {
+    if let Some(pre_link) = lto {
+        target_component.write_str(match pre_link.mode {
             crate::LtoMode::Thin => "artifact:thin-lto-prelink",
             crate::LtoMode::Full => "artifact:full-lto-prelink",
         });
+        target_component.write_u8(u8::from(pre_link.freestanding));
     }
     CodegenUnitFingerprintSet::new(CodegenUnitFingerprintComponents {
         policy: finish_builder(policy),
@@ -269,8 +271,8 @@ impl<'a> Encoder<'a> {
     fn artifact_target(&mut self, target: ArtifactTarget<'_>) {
         match target {
             ArtifactTarget::LlvmIr => self.tag(0),
-            ArtifactTarget::LtoBitcode(mode, identity) => {
-                match mode {
+            ArtifactTarget::LtoBitcode(pre_link, identity) => {
+                match pre_link.mode {
                     crate::LtoMode::Thin => {
                         self.tag(2);
                         self.builder
@@ -282,6 +284,7 @@ impl<'a> Encoder<'a> {
                             .write_str("module-passes:mem2reg;artifact:full-lto-prelink");
                     }
                 }
+                self.builder.write_u8(u8::from(pre_link.freestanding));
                 write_target_identity(&mut self.builder, identity);
             }
             ArtifactTarget::NativeObject(identity) => {
@@ -297,8 +300,20 @@ impl<'a> Encoder<'a> {
     fn artifact_kind(&mut self, target: ArtifactTarget<'_>) {
         self.tag(match target {
             ArtifactTarget::LlvmIr => 0,
-            ArtifactTarget::LtoBitcode(crate::LtoMode::Thin, _) => 2,
-            ArtifactTarget::LtoBitcode(crate::LtoMode::Full, _) => 3,
+            ArtifactTarget::LtoBitcode(
+                crate::LtoPreLinkConfig {
+                    mode: crate::LtoMode::Thin,
+                    ..
+                },
+                _,
+            ) => 2,
+            ArtifactTarget::LtoBitcode(
+                crate::LtoPreLinkConfig {
+                    mode: crate::LtoMode::Full,
+                    ..
+                },
+                _,
+            ) => 3,
             ArtifactTarget::NativeObject(_) => 1,
         });
     }
@@ -3049,10 +3064,31 @@ mod tests {
             &declarations,
             &fixture.index,
             LlvmCodegenOptions::default(),
-            ArtifactTarget::LtoBitcode(crate::LtoMode::Thin, &target),
+            ArtifactTarget::LtoBitcode(
+                crate::LtoPreLinkConfig {
+                    mode: crate::LtoMode::Thin,
+                    freestanding: false,
+                },
+                &target,
+            ),
         )
         .expect("valid ThinLTO fingerprint fixture");
+        let freestanding_thin_lto = source_unit_fingerprint(
+            &fixture.partition,
+            &declarations,
+            &fixture.index,
+            LlvmCodegenOptions::default(),
+            ArtifactTarget::LtoBitcode(
+                crate::LtoPreLinkConfig {
+                    mode: crate::LtoMode::Thin,
+                    freestanding: true,
+                },
+                &target,
+            ),
+        )
+        .expect("valid freestanding ThinLTO fingerprint fixture");
         assert_ne!(baseline.fingerprint, thin_lto.fingerprint);
+        assert_ne!(thin_lto.fingerprint, freestanding_thin_lto.fingerprint);
         assert_ne!(baseline.components.policy, thin_lto.components.policy);
         assert_ne!(baseline.components.target, thin_lto.components.target);
         assert_eq!(

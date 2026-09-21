@@ -46,7 +46,8 @@ use nia_query::{FingerprintDomain, QueryFingerprintBuilder, QuerySession};
 use nia_ty::TypeStore;
 pub use output::{
     FullLtoCodegenConfig, LlvmCodegenOptions, LlvmCodegenOutput, LlvmLtoModuleOutput,
-    LlvmModuleOutput, LlvmObjectOutput, LtoMode, LtoModule, NativeObject, ThinLtoCodegenConfig,
+    LlvmModuleOutput, LlvmObjectOutput, LtoMode, LtoModule, LtoPreLinkConfig, NativeObject,
+    ThinLtoCodegenConfig,
 };
 use program_index::ProgramIndex;
 use readiness::{
@@ -117,7 +118,7 @@ pub struct LlvmNativeObjectReadinessEmitter<'session> {
 /// set to the coordinator selected by [`LtoMode`].
 pub struct LlvmLtoReadinessEmitter<'session> {
     coordinator: CodegenReadinessCoordinator,
-    mode: LtoMode,
+    pre_link: LtoPreLinkConfig,
     options: LlvmCodegenOptions,
     cache: Option<Arc<dyn LtoModuleWorkProductCache>>,
     target_identity: Option<Arc<TargetMachineIdentity>>,
@@ -311,7 +312,7 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
         type_store: Arc<TypeStore>,
         owners: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
         options: LlvmCodegenOptions,
-        mode: LtoMode,
+        pre_link: LtoPreLinkConfig,
         cache: Option<Arc<dyn LtoModuleWorkProductCache>>,
         session: &'session QuerySession,
     ) -> nia_ice::IceResult<Self> {
@@ -321,7 +322,7 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
         };
         Ok(Self {
             coordinator: CodegenReadinessCoordinator::new(modules, type_store, owners),
-            mode,
+            pre_link,
             options,
             cache,
             target_identity,
@@ -347,14 +348,14 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
                     let key = prepared.partition.key.clone();
                     let index = Arc::clone(&self.coordinator.index);
                     let options = self.options;
-                    let mode = self.mode;
+                    let pre_link = self.pre_link;
                     let cache = self.cache.clone();
                     self.tasks.submit(move || {
                         let outcome = emit_lto_partition(
                             prepared,
                             index,
                             options,
-                            mode,
+                            pre_link,
                             &target_identity,
                             cache.as_deref(),
                         );
@@ -422,7 +423,7 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
             match emit_compiler_builtins_lto_module(
                 builtin_symbols,
                 self.options,
-                self.mode,
+                self.pre_link,
                 target_identity,
                 self.cache.as_deref(),
             ) {
@@ -460,7 +461,7 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
             self.reuse_counts.emit("lto_prelink");
         }
         Ok(LlvmLtoModuleOutput {
-            mode: self.mode,
+            pre_link: self.pre_link,
             target: self.target_identity.map(Arc::unwrap_or_clone),
             modules: self.outputs,
             linker_visible_symbols: lto_linker_visible_symbols(&index),
@@ -714,7 +715,7 @@ pub fn emit_lto_modules(
     type_store: Arc<TypeStore>,
     session: &QuerySession,
     options: LlvmCodegenOptions,
-    mode: LtoMode,
+    pre_link: LtoPreLinkConfig,
     cache: Option<Arc<dyn LtoModuleWorkProductCache>>,
 ) -> LlvmLtoModuleOutput {
     let timings = options.timings;
@@ -723,7 +724,7 @@ pub fn emit_lto_modules(
         .validate_program(&lowering.program)
     {
         return LlvmLtoModuleOutput {
-            mode,
+            pre_link,
             target: None,
             modules: Vec::new(),
             linker_visible_symbols: Vec::new(),
@@ -739,7 +740,7 @@ pub fn emit_lto_modules(
             Ok(value) => value,
             Err(ice) => {
                 return LlvmLtoModuleOutput {
-                    mode,
+                    pre_link,
                     target: None,
                     modules: Vec::new(),
                     linker_visible_symbols: Vec::new(),
@@ -751,7 +752,7 @@ pub fn emit_lto_modules(
     let program_diagnostics = validate_native_backend_program(&index, builtin_symbols);
     if !program_diagnostics.is_empty() {
         return LlvmLtoModuleOutput {
-            mode,
+            pre_link,
             target: None,
             modules: Vec::new(),
             linker_visible_symbols: Vec::new(),
@@ -765,7 +766,7 @@ pub fn emit_lto_modules(
             Ok(identity) => Arc::new(identity),
             Err(error) => {
                 return LlvmLtoModuleOutput {
-                    mode,
+                    pre_link,
                     target: None,
                     modules: Vec::new(),
                     linker_visible_symbols: Vec::new(),
@@ -799,7 +800,7 @@ pub fn emit_lto_modules(
                             prepared,
                             index,
                             options,
-                            mode,
+                            pre_link,
                             &target_identity,
                             cache.as_deref(),
                         )
@@ -814,7 +815,7 @@ pub fn emit_lto_modules(
                     LtoCodegenTask::CompilerBuiltins(symbols) => emit_compiler_builtins_lto_module(
                         symbols,
                         options,
-                        mode,
+                        pre_link,
                         &target_identity,
                         cache.as_deref(),
                     )
@@ -828,7 +829,7 @@ pub fn emit_lto_modules(
         Ok(outcomes) => outcomes,
         Err(ice) => {
             return LlvmLtoModuleOutput {
-                mode,
+                pre_link,
                 target: Some(Arc::unwrap_or_clone(target_identity)),
                 modules: Vec::new(),
                 linker_visible_symbols: lto_linker_visible_symbols(&index),
@@ -856,7 +857,7 @@ pub fn emit_lto_modules(
         reuse_counts.emit("lto_prelink");
     }
     LlvmLtoModuleOutput {
-        mode,
+        pre_link,
         target: Some(Arc::unwrap_or_clone(target_identity)),
         modules,
         linker_visible_symbols: lto_linker_visible_symbols(&index),
@@ -910,7 +911,7 @@ pub fn emit_thin_lto_objects(
     options: LlvmCodegenOptions,
     config: ThinLtoCodegenConfig<'_>,
 ) -> LlvmObjectOutput {
-    if input.mode != LtoMode::Thin {
+    if input.pre_link.mode != LtoMode::Thin {
         return LlvmObjectOutput {
             link_inputs: IncrementalLinkInputs::default(),
             diagnostics: vec![nia_diagnostic::Diagnostic::internal_error_at(
@@ -964,7 +965,7 @@ pub fn emit_thin_lto_objects(
                 target: &target,
                 optimization: llvm_optimization_level(options.optimization.level),
                 parallelism: config.parallelism,
-                freestanding: config.freestanding,
+                freestanding: input.pre_link.freestanding,
                 preserved_symbols: &preserved_symbol_refs,
                 backend_cache_directory: config.backend_cache_directory,
             },
@@ -1107,7 +1108,7 @@ pub fn emit_full_lto_objects(
     options: LlvmCodegenOptions,
     config: FullLtoCodegenConfig<'_>,
 ) -> LlvmObjectOutput {
-    if input.mode != LtoMode::Full {
+    if input.pre_link.mode != LtoMode::Full {
         return LlvmObjectOutput {
             link_inputs: IncrementalLinkInputs::default(),
             diagnostics: vec![nia_diagnostic::Diagnostic::internal_error_at(
@@ -1161,7 +1162,7 @@ pub fn emit_full_lto_objects(
                 target: &target,
                 optimization: llvm_optimization_level(options.optimization.level),
                 parallelism: config.parallelism,
-                freestanding: config.freestanding,
+                freestanding: input.pre_link.freestanding,
                 preserved_symbols: &preserved_symbol_refs,
             },
         )
@@ -1222,7 +1223,7 @@ pub fn emit_full_lto_objects(
                 &target,
                 options,
                 config.parallelism,
-                config.freestanding,
+                input.pre_link.freestanding,
                 &preserved_symbol_refs,
                 object.task,
             ),
@@ -1630,7 +1631,7 @@ fn emit_lto_partition(
     prepared: PreparedCodegenPartition,
     index: Arc<ProgramIndex>,
     options: LlvmCodegenOptions,
-    mode: LtoMode,
+    pre_link: LtoPreLinkConfig,
     target_identity: &TargetMachineIdentity,
     cache: Option<&dyn LtoModuleWorkProductCache>,
 ) -> Result<(LtoModule, WorkProductReuse), Vec<nia_diagnostic::Diagnostic>> {
@@ -1655,10 +1656,10 @@ fn emit_lto_partition(
         &declarations,
         &index,
         options,
-        fingerprint::ArtifactTarget::LtoBitcode(mode, target_identity),
+        fingerprint::ArtifactTarget::LtoBitcode(pre_link, target_identity),
     )?;
     let module_identifier = lto_module_identifier(&partition.key);
-    let miss = match load_lto_work_product(cache, mode, &partition.key, fingerprints) {
+    let miss = match load_lto_work_product(cache, pre_link.mode, &partition.key, fingerprints) {
         WorkProductReuseLookup::Hit(bitcode) => {
             return Ok((
                 LtoModule {
@@ -1700,10 +1701,11 @@ fn emit_lto_partition(
             &target,
             &module_identifier,
             llvm_optimization_level(options.optimization.level),
-            mode,
+            pre_link,
         )
         .map_err(|diagnostic| vec![diagnostic])?;
-    let write_error = publish_lto_work_product(cache, mode, &partition.key, fingerprints, &bitcode);
+    let write_error =
+        publish_lto_work_product(cache, pre_link.mode, &partition.key, fingerprints, &bitcode);
     Ok((
         LtoModule {
             unit: partition.id,
@@ -1838,29 +1840,37 @@ fn emit_native_object_partition(
 fn emit_compiler_builtins_lto_module(
     symbols: compiler_builtins::CompilerBuiltinSymbols,
     options: LlvmCodegenOptions,
-    mode: LtoMode,
+    pre_link: LtoPreLinkConfig,
     target_identity: &TargetMachineIdentity,
     cache: Option<&dyn LtoModuleWorkProductCache>,
 ) -> Result<(LtoModule, WorkProductReuse), nia_diagnostic::Diagnostic> {
-    let fingerprints =
-        fingerprint::compiler_builtins_lto_fingerprint(&symbols, options, target_identity, mode);
-    let miss =
-        match load_lto_work_product(cache, mode, &CodegenUnitKey::CompilerBuiltins, fingerprints) {
-            WorkProductReuseLookup::Hit(bitcode) => {
-                return Ok((
-                    LtoModule {
-                        unit: CodegenUnitId::CompilerBuiltins,
-                        key: CodegenUnitKey::CompilerBuiltins,
-                        fingerprint: fingerprints.fingerprint,
-                        name: "nia.compiler_builtins".to_owned(),
-                        module_identifier: "nia:cgu:compiler-builtins".to_owned(),
-                        bitcode,
-                    },
-                    WorkProductReuse::Hit,
-                ));
-            }
-            WorkProductReuseLookup::Miss(miss) => miss,
-        };
+    let fingerprints = fingerprint::compiler_builtins_lto_fingerprint(
+        &symbols,
+        options,
+        target_identity,
+        pre_link,
+    );
+    let miss = match load_lto_work_product(
+        cache,
+        pre_link.mode,
+        &CodegenUnitKey::CompilerBuiltins,
+        fingerprints,
+    ) {
+        WorkProductReuseLookup::Hit(bitcode) => {
+            return Ok((
+                LtoModule {
+                    unit: CodegenUnitId::CompilerBuiltins,
+                    key: CodegenUnitKey::CompilerBuiltins,
+                    fingerprint: fingerprints.fingerprint,
+                    name: "nia.compiler_builtins".to_owned(),
+                    module_identifier: "nia:cgu:compiler-builtins".to_owned(),
+                    bitcode,
+                },
+                WorkProductReuse::Hit,
+            ));
+        }
+        WorkProductReuseLookup::Miss(miss) => miss,
+    };
     let memory_permit =
         nia_query::acquire_llvm_memory_permit().map_err(nia_diagnostic::Diagnostic::from)?;
     record_memory_permit(options.timings, memory_permit.waited());
@@ -1875,11 +1885,11 @@ fn emit_compiler_builtins_lto_module(
         &target,
         symbols,
         llvm_optimization_level(options.optimization.level),
-        mode,
+        pre_link,
     )?;
     let write_error = publish_lto_work_product(
         cache,
-        mode,
+        pre_link.mode,
         &CodegenUnitKey::CompilerBuiltins,
         fingerprints,
         &bitcode,

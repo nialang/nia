@@ -455,13 +455,22 @@ std::optional<std::string> initializeTargets() {
   return Error;
 }
 
+void configureFreestandingPreLink(Module &M, bool Freestanding) {
+  if (!Freestanding)
+    return;
+  for (Function &F : M)
+    if (!F.isDeclaration())
+      F.addFnAttr("no-builtins");
+}
+
 } // namespace
 
 extern "C" {
 
 OwnedBuffer *nia_llvm_emit_thin_lto_bitcode(LLVMModuleRef RawModule,
                                              LLVMTargetMachineRef RawTarget,
-                                             uint32_t Optimization) {
+                                             uint32_t Optimization,
+                                             uint8_t Freestanding) {
   auto Result = std::make_unique<OwnedBuffer>();
   if (!RawModule || !RawTarget) {
     Result->Error = "ThinLTO pre-link emission received a null LLVM handle";
@@ -473,6 +482,7 @@ OwnedBuffer *nia_llvm_emit_thin_lto_bitcode(LLVMModuleRef RawModule,
   }
 
   Module &M = *unwrap(RawModule);
+  configureFreestandingPreLink(M, Freestanding != 0);
   TargetMachine *TM = reinterpret_cast<TargetMachine *>(RawTarget);
   LoopAnalysisManager LAM;
   FunctionAnalysisManager FAM;
@@ -496,7 +506,8 @@ OwnedBuffer *nia_llvm_emit_thin_lto_bitcode(LLVMModuleRef RawModule,
 
 OwnedBuffer *nia_llvm_emit_full_lto_bitcode(LLVMModuleRef RawModule,
                                             LLVMTargetMachineRef RawTarget,
-                                            uint32_t Optimization) {
+                                            uint32_t Optimization,
+                                            uint8_t Freestanding) {
   auto Result = std::make_unique<OwnedBuffer>();
   if (!RawModule || !RawTarget) {
     Result->Error = "full LTO pre-link emission received a null LLVM handle";
@@ -508,6 +519,7 @@ OwnedBuffer *nia_llvm_emit_full_lto_bitcode(LLVMModuleRef RawModule,
   }
 
   Module &M = *unwrap(RawModule);
+  configureFreestandingPreLink(M, Freestanding != 0);
   TargetMachine *TM = reinterpret_cast<TargetMachine *>(RawTarget);
   LoopAnalysisManager LAM;
   FunctionAnalysisManager FAM;

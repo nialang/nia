@@ -114,7 +114,6 @@ fn main() i32 {
         LlvmCodegenOptions::default(),
         crate::ThinLtoCodegenConfig {
             parallelism: 2,
-            freestanding: true,
             preserved_symbols: &[],
             backend_cache_directory: None,
         },
@@ -146,7 +145,6 @@ fn main() i32 {
         crate::FullLtoCodegenConfig {
             linkage_source_identity: &source_identity,
             parallelism: 2,
-            freestanding: true,
             preserved_symbols: &[],
         },
     );

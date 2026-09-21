@@ -1129,18 +1129,23 @@ impl Driver {
                                             )
                                             .map(ObjectReadinessEmitter::NoLto)
                                         }
-                                        ObjectEmissionMode::Lto { lto_mode, .. } => {
-                                            nia_codegen_llvm::LlvmLtoReadinessEmitter::new(
-                                                schedule.module_store(),
-                                                type_store,
-                                                schedule.owner_directory(),
-                                                options,
-                                                lto_mode,
-                                                lto_module_cache,
-                                                &session,
-                                            )
-                                            .map(ObjectReadinessEmitter::Lto)
-                                        }
+                                        ObjectEmissionMode::Lto {
+                                            lto_mode,
+                                            freestanding,
+                                            ..
+                                        } => nia_codegen_llvm::LlvmLtoReadinessEmitter::new(
+                                            schedule.module_store(),
+                                            type_store,
+                                            schedule.owner_directory(),
+                                            options,
+                                            nia_codegen_llvm::LtoPreLinkConfig {
+                                                mode: lto_mode,
+                                                freestanding,
+                                            },
+                                            lto_module_cache,
+                                            &session,
+                                        )
+                                        .map(ObjectReadinessEmitter::Lto),
                                     }
                                 })
                                 .map_err(|error| {
@@ -2708,8 +2713,8 @@ impl ObjectReadinessEmitter<'_> {
                     lto_mode,
                     linkage_source_identity,
                     preserved_symbols,
-                    freestanding,
                     backend_cache_directory,
+                    ..
                 },
             ) => {
                 let modules = emitter.finish()?;
@@ -2719,7 +2724,6 @@ impl ObjectReadinessEmitter<'_> {
                         options,
                         nia_codegen_llvm::ThinLtoCodegenConfig {
                             parallelism,
-                            freestanding,
                             preserved_symbols,
                             backend_cache_directory,
                         },
@@ -2730,7 +2734,6 @@ impl ObjectReadinessEmitter<'_> {
                         nia_codegen_llvm::FullLtoCodegenConfig {
                             linkage_source_identity,
                             parallelism,
-                            freestanding,
                             preserved_symbols,
                         },
                     ),
