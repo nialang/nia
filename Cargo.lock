@@ -340,6 +340,7 @@ version = "0.2.0-dev"
 dependencies = [
  "blake3",
  "libc",
+ "nia-build-plan",
  "nia-compat",
  "nia-compiler-query",
  "nia-diagnostic",
@@ -354,6 +355,13 @@ dependencies = [
  "nia-target-config",
  "nia-timing",
  "nia-toolchain",
+]
+
+[[package]]
+name = "nia-build-plan"
+version = "0.2.0-dev"
+dependencies = [
+ "nia-compat",
 ]
 
 [[package]]

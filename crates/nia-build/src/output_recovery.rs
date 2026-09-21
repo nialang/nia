@@ -24,7 +24,7 @@ use crate::{
     lock::{ProcessIdentity, ScopedFileLock, output_lock_path},
 };
 
-pub(crate) const OUTPUT_TRANSACTION_DIRECTORY: &str = ".nia-transactions";
+use nia_build_plan::OUTPUT_TRANSACTION_DIRECTORY;
 const MAX_JOURNAL_BYTES: usize = 1024 * 1024;
 const MAX_OUTPUTS: usize = 4096;
 const OUTPUT_TRANSACTION_JOURNAL_DOMAIN: FingerprintDomain =

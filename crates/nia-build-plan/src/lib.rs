@@ -11,6 +11,13 @@ use std::fmt;
 
 use nia_compat::formats::BUILD_PLAN;
 
+/// Reserved build-output directory used for atomic publication transactions.
+///
+/// The plan validator rejects user-owned outputs below this directory because
+/// the build executor owns it as an implementation detail of durable output
+/// publication.
+pub const OUTPUT_TRANSACTION_DIRECTORY: &str = ".nia-transactions";
+
 mod actions;
 mod codec;
 mod dependencies;
@@ -219,7 +226,9 @@ impl LogicalPath {
         self.components.join("/")
     }
 
-    pub(crate) fn overlaps(&self, other: &Self) -> bool {
+    /// Returns whether either path is an ancestor of the other in the same
+    /// logical namespace.
+    pub fn overlaps(&self, other: &Self) -> bool {
         self.root == other.root
             && (self.components.starts_with(&other.components)
                 || other.components.starts_with(&self.components))

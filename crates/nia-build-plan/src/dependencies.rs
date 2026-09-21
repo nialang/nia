@@ -313,9 +313,10 @@ pub(super) fn validate_output_ownership(
             let output = output.path;
             if output.is_empty()
                 || !matches!(output.root(), LogicalPathRoot::Build)
-                || output.components().first().is_some_and(|component| {
-                    component == crate::output_recovery::OUTPUT_TRANSACTION_DIRECTORY
-                })
+                || output
+                    .components()
+                    .first()
+                    .is_some_and(|component| component == crate::OUTPUT_TRANSACTION_DIRECTORY)
             {
                 return Err(PlanError::InvalidOutput {
                     action: action.key.clone(),
