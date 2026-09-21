@@ -1068,10 +1068,7 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     let id = mangled_symbol(ir, '@', "id__inst__t_i32");
-    assert!(
-        ir.contains(&format!("define linkonce_odr i32 {id}")),
-        "{ir}"
-    );
+    assert!(ir.contains(&format!("define i32 {id}")), "{ir}");
     assert!(ir.contains(&format!("call i32 {id}(i32 7)")), "{ir}");
     assert!(ir.contains("call void @log(i32 %calltmp)"), "{ir}");
     assert!(ir.contains("ret i32 %return.cleanup.value"), "{ir}");

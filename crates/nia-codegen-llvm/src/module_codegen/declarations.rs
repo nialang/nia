@@ -592,29 +592,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     .contains(&nia_backend_ir::BackendFunctionAttribute::TrackCaller),
                 span: instance.span,
             })?;
-            let is_definition =
-                self.partition
-                    .function_instance_definitions()
-                    .iter()
-                    .any(|&index| {
-                        let definition = &self.source.function_instances[index];
-                        definition.def_id == instance.def_id
-                            && definition.arg_module_id == instance.arg_module_id
-                            && self.same_optional_type(definition.self_arg, instance.self_arg)
-                            && self.same_type_args(&definition.args, &instance.args)
-                            && self.same_const_args(&definition.const_args, &instance.const_args)
-                    });
             let value = self
                 .module
-                .add_function(
-                    &instance.symbol,
-                    ty,
-                    if !is_definition || instance.linkage.is_extern() {
-                        Some(Linkage::External)
-                    } else {
-                        Some(Linkage::LinkOnceOdr)
-                    },
-                )
+                .add_function(&instance.symbol, ty, Some(Linkage::External))
                 .map_err(Self::diagnostic_from_llvm_error)?;
             self.apply_function_attributes(value, &instance.attributes)?;
             self.function_instances
@@ -659,7 +639,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             })?;
             let value = self
                 .module
-                .add_function(&entry.symbol, ty, Some(Linkage::LinkOnceOdr))
+                .add_function(&entry.symbol, ty, Some(Linkage::External))
                 .map_err(Self::diagnostic_from_llvm_error)?;
             self.closure_entries.insert(entry.key.clone(), value);
         }
@@ -726,22 +706,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .module
                 .add_global(ty, None, &global.symbol)
                 .map_err(Self::diagnostic_from_llvm_error)?;
-            let is_definition = self
-                .partition
-                .global_instance_definitions()
-                .iter()
-                .any(|&index| {
-                    let definition = &self.source.global_instances[index];
-                    definition.def_id == global.def_id
-                        && definition.arg_module_id == global.arg_module_id
-                        && self.same_type_args(&definition.args, &global.args)
-                        && self.same_const_args(&definition.const_args, &global.const_args)
-                });
-            if !is_definition {
-                value.set_linkage(Linkage::External);
-            } else {
-                value.set_linkage(Linkage::LinkOnceOdr);
-            }
+            value.set_linkage(Linkage::External);
             if global.is_let {
                 value.set_constant(true);
             }
@@ -867,7 +832,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     )
                     .map_err(Self::diagnostic_from_llvm_error)?;
                 global.set_constant(true);
-                global.set_linkage(Linkage::LinkOnceOdr);
+                global.set_linkage(Linkage::External);
             } else {
                 global.set_linkage(Linkage::External);
             }
