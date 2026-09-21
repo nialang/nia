@@ -104,6 +104,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     left: "-j, --jobs <count>",
                     right: "limit concurrent build actions",
                 },
+                LTO_ROW,
                 OPTIMIZATION_ROW,
                 PROFILE_ROW,
                 MODULE_ROW,
@@ -486,6 +487,10 @@ const OPTIMIZATION_ROW: HelpRow = HelpRow {
 const PROFILE_ROW: HelpRow = HelpRow {
     left: "--debug, --release, --profile <debug|release>",
     right: "select the build profile (default: debug)",
+};
+const LTO_ROW: HelpRow = HelpRow {
+    left: "--lto <off|thin|full>",
+    right: "select final executable link-time optimization",
 };
 const MODULE_ROW: HelpRow = HelpRow {
     left: "-M, --module <name=path>",

@@ -585,6 +585,7 @@ impl DriverActionExecutor {
                 toolchain: self.invocation.toolchain.identity(),
                 link_environment: environment,
                 link_inputs: &cache_link_inputs,
+                link_time_optimization: self.invocation.link_time_optimization,
             })
         });
         let miss_reason = match precheck_identity.as_ref() {
@@ -617,7 +618,9 @@ impl DriverActionExecutor {
         };
         let linked = driver
             .link_executable_with_source_manifest(
-                LinkExecutableRequest::new(request, output).with_link_options(link_options.clone()),
+                LinkExecutableRequest::new(request, output)
+                    .with_link_options(link_options.clone())
+                    .with_link_time_optimization(self.invocation.link_time_optimization),
             )
             .result
             .map_err(|error| CoordinatorError::Driver {
@@ -651,6 +654,7 @@ impl DriverActionExecutor {
             toolchain: self.invocation.toolchain.identity(),
             link_environment,
             link_inputs: &cache_link_inputs,
+            link_time_optimization: self.invocation.link_time_optimization,
         }) else {
             return Ok(Some(ActionCacheOutcome::Miss(
                 ActionCacheMissReason::Uncacheable,
