@@ -1295,6 +1295,13 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
     let runner = time_build_stage(invocation.timings, "build_runner_generate_source", || {
         build_runner_source(invocation)
     })?;
+    if invocation.timings.enabled() {
+        nia_timing::emit_counter("build.runner_source_bytes", runner.source.len() as u64);
+        nia_timing::emit_counter(
+            "build.runner_source_lines",
+            runner.source.lines().count() as u64,
+        );
+    }
     let cache_key = time_build_stage(invocation.timings, "build_runner_compute_cache_key", || {
         runner_cache::cache_key(invocation, &runner)
     })?;
