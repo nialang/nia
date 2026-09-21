@@ -764,6 +764,8 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
 
 static BUILD_INVOCATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const BUILD_RUNNER_SOURCE_PATH: &str = "build-package:build-runner:/root.nia";
+const BUILD_RUNNER_OPTIMIZATION: nia_driver::NiaOptimizationLevel =
+    nia_driver::NiaOptimizationLevel::O0;
 
 fn next_build_invocation_name() -> String {
     let sequence = BUILD_INVOCATION_SEQUENCE.fetch_add(1, Ordering::Relaxed);
@@ -1335,14 +1337,7 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
         .with_module_map(module_map)
         .with_profile(invocation.profile)
         .with_compilation_mode(invocation.compilation_mode)
-        .with_optimization(match invocation.optimization {
-            OptimizationMode::O0 => nia_driver::NiaOptimizationLevel::O0,
-            OptimizationMode::O1 => nia_driver::NiaOptimizationLevel::O1,
-            OptimizationMode::O2 => nia_driver::NiaOptimizationLevel::O2,
-            OptimizationMode::O3 => nia_driver::NiaOptimizationLevel::O3,
-            OptimizationMode::Os => nia_driver::NiaOptimizationLevel::Os,
-            OptimizationMode::Oz => nia_driver::NiaOptimizationLevel::Oz,
-        })
+        .with_optimization(BUILD_RUNNER_OPTIMIZATION)
         .with_timings(invocation.timings);
     let runtime = nia_toolchain::RuntimeSpec::freestanding(
         &invocation.toolchain,
@@ -1982,7 +1977,7 @@ mod tests {
     }
 
     #[test]
-    fn build_runner_compiles_for_host_and_transports_both_targets() {
+    fn build_runner_uses_host_o0_and_transports_artifact_configuration() {
         let mut artifact_target = nia_target_config::TargetConfig::host();
         artifact_target.arch = "artifact-arch".to_string();
         artifact_target.vendor = "artifact-vendor".to_string();
@@ -2006,6 +2001,10 @@ mod tests {
         let encoded = runner_config::encode(&plan).expect("encode runner configuration");
 
         assert_eq!(plan.optimization, OptimizationMode::Oz);
+        assert_eq!(
+            BUILD_RUNNER_OPTIMIZATION,
+            nia_driver::NiaOptimizationLevel::O0
+        );
         assert_eq!(config.artifact_target, *toolchain.host_target());
         assert_ne!(config.artifact_target, *toolchain.artifact_target());
         assert_eq!(&encoded[..8], RUNNER_CONFIG.magic);
