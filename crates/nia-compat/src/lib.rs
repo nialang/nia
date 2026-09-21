@@ -122,9 +122,14 @@ pub mod formats {
     pub const BUILD_PLAN: PersistedFormat = PersistedFormat::new("build-plan", b"NIA-PLN\0");
     /// Invocation-private configuration consumed by a compiled build runner.
     pub const RUNNER_CONFIG: PersistedFormat = PersistedFormat::new("runner-config", b"NIARUNCF");
+    /// Disposable generated host-runner executable cache record.
+    pub const RUNNER_EXECUTABLE_CACHE: PersistedFormat =
+        PersistedFormat::new("runner-executable-cache", b"NIARUN\0\0");
 
     /// Shared namespace for persistent frontend products.
     pub const FRONTEND_CACHE: PersistedNamespace = PersistedNamespace::new("frontend-cache");
+    /// Private namespace for generated host-runner executables.
+    pub const RUNNER_CACHE: PersistedNamespace = PersistedNamespace::new("runner-cache");
     /// Source dependency manifest for validating a frontend cache entry.
     pub const FRONTEND_DEPENDENCY_MANIFEST: PersistedFormat =
         PersistedFormat::new("frontend-dependency-manifest", b"NIAFDM\0\0");
@@ -224,6 +229,7 @@ pub mod formats {
     pub const ALL: &[PersistedFormat] = &[
         BUILD_PLAN,
         RUNNER_CONFIG,
+        RUNNER_EXECUTABLE_CACHE,
         FRONTEND_DEPENDENCY_MANIFEST,
         FRONTEND_FACADE_FACTS,
         FRONTEND_MODULE_DEPENDENCIES,
@@ -252,6 +258,7 @@ pub mod formats {
     /// Complete cache namespace registry used for version-path checks and audits.
     pub const NAMESPACES: &[PersistedNamespace] = &[
         FRONTEND_CACHE,
+        RUNNER_CACHE,
         GENERATED_FILE_CACHE,
         EXTERNAL_COMMAND_CACHE,
         COMPILER_CHECK_CACHE,

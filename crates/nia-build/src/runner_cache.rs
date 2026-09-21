@@ -7,13 +7,12 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use nia_compat::toolchain::BUILD_PROTOCOL;
+use nia_compat::{formats, toolchain::BUILD_PROTOCOL};
 use nia_query::FingerprintDomain;
 
 use crate::{BuildError, BuildInvocation, BuildRunnerSource};
 
-const CACHE_SCHEMA: &str = "v5";
-const CACHE_MAGIC: &[u8; 8] = b"NIARUN\0\0";
+const CACHE_MAGIC: &[u8; 8] = formats::RUNNER_EXECUTABLE_CACHE.magic;
 const CACHE_HEADER_BYTES: usize = CACHE_MAGIC.len() + size_of::<u64>() + blake3::OUT_LEN;
 const MAX_RUNNER_BYTES: usize = 256 * 1024 * 1024;
 const RUNNER_CACHE_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.build.runner-cache");
@@ -24,7 +23,7 @@ fn cache_path(invocation: &BuildInvocation, key: &str) -> PathBuf {
     invocation
         .cache_dir
         .join("runner")
-        .join(CACHE_SCHEMA)
+        .join(formats::RUNNER_CACHE.path_component)
         .join(format!("{key}.cache"))
 }
 
@@ -146,9 +145,8 @@ pub(super) fn cache_key(
     runner: &BuildRunnerSource,
 ) -> Result<String, BuildError> {
     let mut hasher = blake3::Hasher::new();
-    // The cache schema and identity inputs are versioned together. Bumping
-    // this domain forces a miss whenever the key construction changes,
-    // without relying on stale products from an older implementation.
+    // The registered release identity and this owner-local fingerprint domain
+    // force a miss whenever the cache contract or key construction changes.
     hasher.update(RUNNER_CACHE_DOMAIN.as_str().as_bytes());
     hasher.update(runner.source.as_bytes());
     hash_file(&mut hasher, &invocation.build_script, runner)?;
@@ -398,7 +396,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "nia-runner-cache-executable-{}-{}",
             std::process::id(),
-            CACHE_SCHEMA
+            formats::RUNNER_CACHE.path_component
         ));
         let _ = fs::remove_dir_all(&root);
         let invocation = invocation(&root);

@@ -282,8 +282,10 @@ seconds and needs its own frontend/query investigation. Conversely, an
 unchanged runner rebuild is a warm cache case and must not be conflated with
 cold compilation.
 
-Generated build runners use content-addressed `.nia-cache/runner/v5/<key>.cache`
-records. The key includes the generated source, build-script bytes, standard
+Generated build runners use content-addressed
+`.nia-cache/runner/release/<key>.cache` records. The release namespace and
+registered payload identity are owned by `nia-compat`; there is no
+runner-local schema version. The key includes the generated source, build-script bytes, standard
 library source tree, toolchain identity, host target, profile, test mode, and
 build protocol. Artifact optimization is transported through the private
 runner configuration but does not alter the runner executable: the short-lived
