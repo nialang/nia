@@ -79,6 +79,65 @@ fn main() i32 {
     assert!(definitions.len() >= 8, "{definitions:?}");
     declaration_counts.sort_unstable();
     assert_eq!(declaration_counts, vec![0, 0, 0, 7]);
+
+    let thin_output = emit_thin_lto_modules(
+        &codegen.backend_lowering,
+        &codegen.type_store,
+        LlvmCodegenOptions::default(),
+    );
+    assert!(
+        thin_output.diagnostics.is_empty(),
+        "{:?}",
+        thin_output.diagnostics
+    );
+    assert_eq!(thin_output.modules.len(), source_partitions.len());
+    let identifiers = thin_output
+        .modules
+        .iter()
+        .map(|module| module.module_identifier.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(identifiers.len(), thin_output.modules.len());
+    let ir_fingerprints = output
+        .modules
+        .iter()
+        .map(|module| (&module.key, module.fingerprint))
+        .collect::<std::collections::HashMap<_, _>>();
+    assert!(
+        thin_output.modules.iter().all(|module| {
+            ir_fingerprints.get(&module.key).copied() != Some(module.fingerprint)
+        })
+    );
+
+    let inputs = thin_output
+        .modules
+        .iter()
+        .map(|module| nia_llvm::lto::ThinLtoInput {
+            name: &module.module_identifier,
+            bitcode: &module.bitcode,
+        })
+        .collect::<Vec<_>>();
+    let target = thin_output
+        .target
+        .as_ref()
+        .expect("ThinLTO target identity");
+    let coordinated = nia_llvm::lto::run_thin_lto(
+        &inputs,
+        nia_llvm::lto::ThinLtoConfig {
+            target,
+            optimization: nia_llvm::OptimizationLevel::Default,
+            parallelism: 2,
+            freestanding: true,
+            preserved_symbols: &[],
+        },
+    )
+    .expect("coordinate generated ThinLTO modules");
+    assert_eq!(coordinated.objects.len(), thin_output.modules.len());
+    assert!(
+        coordinated
+            .objects
+            .iter()
+            .all(|object| !object.bytes.is_empty())
+    );
 }
 
 #[test]

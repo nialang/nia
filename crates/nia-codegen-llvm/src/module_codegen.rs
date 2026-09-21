@@ -26,6 +26,7 @@ use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::{TypeLayout, array_layout, range_layout, sequential_layout, tagged_union_layout};
 use nia_llvm::{
     Context, LlvmError,
+    lto::emit_thin_lto_bitcode,
     module::Linkage,
     target::{ModuleOptimization, TargetMachine},
     types::{FunctionType, StructType},
@@ -507,6 +508,32 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         time_codegen_module_stage(self.timings, "emit_object", &self.source.name, || {
             target
                 .emit_object(&self.module)
+                .map_err(Self::diagnostic_from_llvm_error)
+        })
+    }
+
+    pub(super) fn emit_thin_lto_bitcode(
+        &mut self,
+        target: &TargetMachine,
+        module_identifier: &str,
+        optimization: nia_llvm::OptimizationLevel,
+    ) -> Result<Vec<u8>, Diagnostic> {
+        time_codegen_module_stage(self.timings, "emit_module", &self.source.name, || {
+            self.emit_module()
+        })?;
+        self.module.set_identifier(module_identifier);
+        time_codegen_module_stage(
+            self.timings,
+            "run_module_optimization",
+            &self.source.name,
+            || {
+                target
+                    .run_module_optimization(&self.module, ModuleOptimization::Mem2Reg)
+                    .map_err(Self::diagnostic_from_llvm_error)
+            },
+        )?;
+        time_codegen_module_stage(self.timings, "thin_lto_prelink", &self.source.name, || {
+            emit_thin_lto_bitcode(&self.module, target, optimization)
                 .map_err(Self::diagnostic_from_llvm_error)
         })
     }
