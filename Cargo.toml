@@ -28,6 +28,7 @@ members = [
     "crates/nia-defs",
     "crates/nia-imports",
     "crates/nia-query",
+    "crates/nia-loader-contract",
     "crates/nia-compiler-query",
     "crates/nia-loader-query",
     "crates/nia-build-plan",
@@ -117,6 +118,7 @@ nia-public-surface = { path = "crates/nia-public-surface" }
 nia-defs = { path = "crates/nia-defs" }
 nia-imports = { path = "crates/nia-imports" }
 nia-query = { path = "crates/nia-query" }
+nia-loader-contract = { path = "crates/nia-loader-contract" }
 nia-compiler-query = { path = "crates/nia-compiler-query" }
 nia-loader-query = { path = "crates/nia-loader-query" }
 nia-build-plan = { path = "crates/nia-build-plan" }

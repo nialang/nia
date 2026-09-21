@@ -371,8 +371,10 @@ mod tests {
 
         let combined = first.append(&second).expect("append diagnostic bundles");
 
-        assert_eq!(combined.bundles[0].diagnostics.id(), first_bundle.id());
-        assert_eq!(combined.bundles[1].diagnostics.id(), second_bundle.id());
+        assert_eq!(
+            combined.bundle_ids().collect::<Vec<_>>(),
+            vec![first_bundle.id(), second_bundle.id()]
+        );
         assert_eq!(
             combined
                 .to_diagnostics()

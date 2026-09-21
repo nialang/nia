@@ -17,13 +17,13 @@ mod used_paths;
 #[cfg(test)]
 mod tests;
 
-use nia_compiler_query::{
+use nia_imports::{ModuleMap, StableModuleKey};
+use nia_loader_contract::{
     FrontendCacheNamespace, FrontendProgramSourceFingerprint, FrontendProviderDemandPlanCacheKey,
     LoadedProgram, LoaderFactProvider, ProviderDemand, SourceContentFingerprint,
     frontend_module_map_fingerprint_with_package_root, frontend_program_source_fingerprint,
     source_content_fingerprint,
 };
-use nia_imports::{ModuleMap, StableModuleKey};
 use nia_query::{QueryDb, QueryError, QueryResult, QueryRetirement, QuerySession};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceRevision, SourceVersion};
 use nia_symbol_table::SymbolTable;
@@ -436,7 +436,7 @@ impl LoaderDatabase {
     pub fn update_provider_demands(
         &self,
         demands: impl IntoIterator<Item = ProviderDemand>,
-    ) -> QueryResult<nia_compiler_query::ProviderGraphUpdate> {
+    ) -> QueryResult<nia_loader_contract::ProviderGraphUpdate> {
         self.replay_provider_demand_plan()?;
         self.update_provider_demands_inner(demands)
     }
@@ -444,17 +444,17 @@ impl LoaderDatabase {
     fn update_provider_demands_inner(
         &self,
         demands: impl IntoIterator<Item = ProviderDemand>,
-    ) -> QueryResult<nia_compiler_query::ProviderGraphUpdate> {
+    ) -> QueryResult<nia_loader_contract::ProviderGraphUpdate> {
         let demands = demands.into_iter().collect::<Vec<_>>();
         let all_known = self.db.context().provider_facts.contains_all(&demands);
         if all_known {
-            return Ok(nia_compiler_query::ProviderGraphUpdate::Stable);
+            return Ok(nia_loader_contract::ProviderGraphUpdate::Stable);
         }
         let previous_revision = self.db.get(ProviderDemandsQuery)?.revision();
         let previous_graph = self.db.get(graph::ModuleGraphQuery)?;
         let added = self.db.context().provider_facts.insert_new(demands)?;
         if added.is_empty() {
-            return Ok(nia_compiler_query::ProviderGraphUpdate::Stable);
+            return Ok(nia_loader_contract::ProviderGraphUpdate::Stable);
         }
         self.db.invalidate(ProviderDemandsQuery)?;
         let graph = self.db.get(graph::ModuleGraphQuery)?;
@@ -468,9 +468,9 @@ impl LoaderDatabase {
             ));
         }
         if graph == previous_graph {
-            Ok(nia_compiler_query::ProviderGraphUpdate::Stable)
+            Ok(nia_loader_contract::ProviderGraphUpdate::Stable)
         } else {
-            Ok(nia_compiler_query::ProviderGraphUpdate::Changed {
+            Ok(nia_loader_contract::ProviderGraphUpdate::Changed {
                 invalidates_resolved_body_facts: added
                     .iter()
                     .any(|demand| demand.request.invalidates_resolved_body_facts()),
@@ -583,14 +583,14 @@ impl LoaderFactProvider for LoaderDatabase {
         Some(self.query_session())
     }
 
-    fn provider_facts(&self) -> QueryResult<nia_compiler_query::ProviderFactSnapshot> {
+    fn provider_facts(&self) -> QueryResult<nia_loader_contract::ProviderFactSnapshot> {
         Ok(self.db.get(ProviderDemandsQuery)?.as_snapshot()?)
     }
 
     fn update_provider_demands(
         &self,
         demands: Vec<ProviderDemand>,
-    ) -> QueryResult<nia_compiler_query::ProviderGraphUpdate> {
+    ) -> QueryResult<nia_loader_contract::ProviderGraphUpdate> {
         LoaderDatabase::update_provider_demands(self, demands)
     }
 
@@ -642,7 +642,7 @@ impl LoaderFactProvider for LoaderDatabase {
     fn module_source_fingerprint(
         &self,
         module_id: nia_imports::ModuleId,
-    ) -> QueryResult<Option<(nia_compiler_query::SourceContentFingerprint, usize)>> {
+    ) -> QueryResult<Option<(nia_loader_contract::SourceContentFingerprint, usize)>> {
         let Some(source_id) = self.source_id_for_module(module_id)? else {
             return Ok(None);
         };
@@ -651,7 +651,7 @@ impl LoaderFactProvider for LoaderDatabase {
             return Ok(None);
         };
         Ok(Some((
-            nia_compiler_query::source_content_fingerprint(&file.text),
+            nia_loader_contract::source_content_fingerprint(&file.text),
             file.text.len(),
         )))
     }
@@ -743,7 +743,7 @@ impl LoaderFactProvider for LoaderDatabase {
     fn active_module_item_tree(
         &self,
         module_id: nia_imports::ModuleId,
-        kind: nia_compiler_query::ActiveModuleItemTreeFactKind,
+        kind: nia_loader_contract::ActiveModuleItemTreeFactKind,
     ) -> QueryResult<Option<nia_item_tree::ActiveModuleItemTree>> {
         let Some(source_id) = self.source_id_for_module(module_id)? else {
             return Ok(None);
@@ -756,7 +756,7 @@ impl LoaderFactProvider for LoaderDatabase {
         ))
     }
 
-    fn load_diagnostics(&self) -> QueryResult<nia_compiler_query::ProgramDiagnosticBundles> {
+    fn load_diagnostics(&self) -> QueryResult<nia_loader_contract::ProgramDiagnosticBundles> {
         self.db
             .get(queries::LoadDiagnosticsQuery)
             .map(|diagnostics| diagnostics.as_ref().clone())
@@ -778,7 +778,7 @@ impl LoaderFactProvider for LoaderDatabase {
         self.db.context().compilation_mode
     }
 
-    fn runtime(&self) -> nia_compiler_query::RuntimeSpec {
+    fn runtime(&self) -> nia_loader_contract::RuntimeSpec {
         self.db.context().runtime.clone()
     }
 

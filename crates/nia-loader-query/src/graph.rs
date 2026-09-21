@@ -2,7 +2,7 @@
 pub(crate) struct ModuleGraphQuery;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct ModuleGraphRevisionQuery(pub(crate) nia_compiler_query::ProviderFactRevision);
+pub(crate) struct ModuleGraphRevisionQuery(pub(crate) nia_loader_contract::ProviderFactRevision);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ModuleSourceIdQuery(pub(crate) nia_imports::ModuleId);
@@ -15,12 +15,12 @@ use crate::provider_loading::{
 use crate::queries::module_declarations_query;
 use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
 use crate::{LoaderContext, RuntimeSpec, runtime_package_root_path};
-use nia_compiler_query::{ProgramDiagnostic, ProgramDiagnosticBundles};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
     ModuleGraph, ModuleGraphError, ModuleGraphSnapshot, ModuleNode, ResolvedModuleDeclaration,
     module_declaration_visibility_allows,
 };
+use nia_loader_contract::{ProgramDiagnostic, ProgramDiagnosticBundles};
 use nia_query::{QueryDb, QueryError, QueryFingerprintPolicy, QueryKey, QueryResult};
 use nia_source::{SourceId, SourcePath};
 use nia_symbol::SymbolId;
@@ -135,7 +135,7 @@ impl QueryKey<LoaderContext> for ModuleSourceIdQuery {
 fn build_module_graph(
     db: &QueryDb<LoaderContext>,
     seed: Option<std::sync::Arc<ModuleGraphValue>>,
-    new_provider_demands: &std::collections::HashSet<nia_compiler_query::ProviderDemand>,
+    new_provider_demands: &std::collections::HashSet<nia_loader_contract::ProviderDemand>,
 ) -> QueryResult<ModuleGraphValue> {
     db.context()
         .runtime
@@ -148,14 +148,14 @@ fn build_module_graph(
             let existing_modules = graph.modules().count();
             for demand in new_provider_demands {
                 match &demand.request {
-                    nia_compiler_query::ProviderRequest::ModuleSemantic { module_path } => {
+                    nia_loader_contract::ProviderRequest::ModuleSemantic { module_path } => {
                         record_traversal_diagnostic(
                             activate_semantic_provider_module(db, &mut graph, module_path),
                             &mut fresh_diagnostics,
                             module_path,
                         )?;
                     }
-                    nia_compiler_query::ProviderRequest::ModuleBody { module_path } => {
+                    nia_loader_contract::ProviderRequest::ModuleBody { module_path } => {
                         if let Some(module_id) =
                             graph.module_id_for_source_identity(&module_path.identity())
                         {
@@ -166,8 +166,8 @@ fn build_module_graph(
                             )?;
                         }
                     }
-                    nia_compiler_query::ProviderRequest::Method { .. }
-                    | nia_compiler_query::ProviderRequest::TraitImpl { .. } => {}
+                    nia_loader_contract::ProviderRequest::Method { .. }
+                    | nia_loader_contract::ProviderRequest::TraitImpl { .. } => {}
                 }
             }
             let existing_nodes = graph
@@ -388,7 +388,7 @@ fn apply_provider_demands(
     graph: &mut ModuleGraph,
     node: &ModuleNode,
     imports: &[crate::used_paths::ExplicitUsingImport],
-    provider_demands: &std::collections::HashSet<nia_compiler_query::ProviderDemand>,
+    provider_demands: &std::collections::HashSet<nia_loader_contract::ProviderDemand>,
     diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
 ) -> QueryResult<()> {
     let mut demands = provider_demands
@@ -397,27 +397,27 @@ fn apply_provider_demands(
         .cloned()
         .collect::<Vec<_>>();
     demands.sort_unstable_by_key(|demand| match &demand.request {
-        nia_compiler_query::ProviderRequest::ModuleSemantic { .. }
-        | nia_compiler_query::ProviderRequest::ModuleBody { .. } => 0,
-        nia_compiler_query::ProviderRequest::Method {
+        nia_loader_contract::ProviderRequest::ModuleSemantic { .. }
+        | nia_loader_contract::ProviderRequest::ModuleBody { .. } => 0,
+        nia_loader_contract::ProviderRequest::Method {
             target_type_name: Some(_),
             ..
         }
-        | nia_compiler_query::ProviderRequest::TraitImpl {
+        | nia_loader_contract::ProviderRequest::TraitImpl {
             target_type_name: Some(_),
             ..
         } => 1,
-        nia_compiler_query::ProviderRequest::Method {
+        nia_loader_contract::ProviderRequest::Method {
             target_type_name: None,
             ..
         }
-        | nia_compiler_query::ProviderRequest::TraitImpl {
+        | nia_loader_contract::ProviderRequest::TraitImpl {
             target_type_name: None,
             ..
         } => 2,
     });
     for demand in demands {
-        if let nia_compiler_query::ProviderRequest::ModuleSemantic { module_path } = demand.request
+        if let nia_loader_contract::ProviderRequest::ModuleSemantic { module_path } = demand.request
         {
             record_traversal_diagnostic(
                 activate_semantic_provider_module(db, graph, &module_path),
@@ -428,14 +428,14 @@ fn apply_provider_demands(
         }
         for import in imports {
             let processing = match demand.request {
-                nia_compiler_query::ProviderRequest::Method {
+                nia_loader_contract::ProviderRequest::Method {
                     target_type_name,
                     method_name,
                 } => UsedModulePathProcessing::IfProvidesTraitMethod {
                     target_type_name,
                     associated_name: method_name,
                 },
-                nia_compiler_query::ProviderRequest::TraitImpl {
+                nia_loader_contract::ProviderRequest::TraitImpl {
                     target_type_name,
                     trait_name,
                     ref trait_type_argument_names,
@@ -444,8 +444,8 @@ fn apply_provider_demands(
                     trait_name,
                     trait_type_argument_names: trait_type_argument_names.clone(),
                 },
-                nia_compiler_query::ProviderRequest::ModuleSemantic { .. } => continue,
-                nia_compiler_query::ProviderRequest::ModuleBody { .. } => continue,
+                nia_loader_contract::ProviderRequest::ModuleSemantic { .. } => continue,
+                nia_loader_contract::ProviderRequest::ModuleBody { .. } => continue,
             };
             let path =
                 import
