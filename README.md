@@ -217,7 +217,7 @@ Compiler and repository contributors should use:
 
 ## Support And Status
 
-Nia 0.1.x is maintainer-tested. The supported release package targets Linux
+Nia is maintainer-tested. The supported release package targets Linux
 x86_64 on Ubuntu 24.04-class systems; the maintained development environments
 also include the current Fedora Linux x86_64 setup. Freestanding executable
 coverage currently targets Linux x86_64, with experimental i686 coverage.

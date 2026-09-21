@@ -272,15 +272,31 @@ and report that state separately, and competing tools must use the same state.
 Likewise, SDK/toolchain-cold measurements are a separate claim from the normal
 project-cold baseline.
 
-The current cold-build evidence is split into two different claims. The
-runner-only clean baseline was about 36.1 seconds before native emission reuse;
-the current implementation measures about 24.5--24.8 seconds on the same
-workload (roughly a 31% reduction). This is a material improvement to the
-build-script path, but it is not a claim that every cold Nia compilation now
-matches Rust or Zig. The older empty-build clean baseline remains about 34.0
-seconds and needs its own frontend/query investigation. Conversely, an
-unchanged runner rebuild is a warm cache case and must not be conflated with
-cold compilation.
+The current cold-build evidence is split into two different claims. On clean
+revision `8157c8d4`, five accepted runner-only samples measured 2.339 seconds
+median and 2.363 seconds p95, down by more than an order of magnitude from the
+historical 24.5--24.8 second evidence. Every sample compiled the 17,712-byte
+runner from source with one runner-cache miss, 147 native-object not-found
+misses, one link-result not-found miss, and no corresponding hits. The matching
+warm median was 25.4 milliseconds and is reported separately. The final report
+is `target/nia-build-baseline/final-0.2.0-8157c8d4.json`.
+
+The same revision's five-sample competitive matrix measured empty Nia builds
+at 2.113 seconds median in both development and release profiles. This is a
+material build-script result, not a claim that every Nia compilation matches
+Rust or Zig: the complete matrix still shows Nia behind Rust on most nontrivial
+direct and build workloads. Conversely, an unchanged runner rebuild is a warm
+cache case and must not be conflated with cold compilation.
+
+Executable LTO remains an explicit output policy rather than a cold-build
+shortcut. Seven source-cold samples on a 128-module ordinary workload measured
+1.260 seconds with LTO off, 1.530 seconds with ThinLTO, and 1.590 seconds with
+full LTO; the source-only Project Planner build measured 2.560, 2.770, and
+2.860 seconds respectively. ThinLTO's persistent pre-link and backend caches
+bring warm ordinary time close to no-LTO and reduce executable size, but do not
+meet the no-LTO source-cold acceptance criterion. LTO therefore stays off by
+default. Raw evidence is retained under
+`target/nia-perf/lto-formal-20260921-7f36ss/`.
 
 Generated build runners use content-addressed
 `.nia-cache/runner/release/<key>.cache` records. The release namespace and

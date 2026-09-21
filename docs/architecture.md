@@ -723,6 +723,28 @@ rebuild the same interned type graph.
 Module-codegen uses whole-program indexes for layout queries and signature type building.
 One `Arc<ProgramIndex>` is built before validation and shared by all unit tasks.
 
+Executable codegen has three explicit final-link policies: no LTO, ThinLTO,
+and full LTO. No LTO emits the existing native object products. Thin and full
+LTO instead emit summary-bearing or regular pre-link bitcode products keyed by
+the owner-qualified `CodegenUnitKey`; compiler-builtins participate in the same
+linkage unit. The pre-link product owns both the LTO mode and the freestanding
+policy, so a later coordinator cannot reinterpret already optimized IR.
+
+`nia-llvm` owns the modern `llvm::lto::LTO` coordination boundary. It builds the
+combined index, applies symbol resolutions, runs ThinLTO imports and parallel
+backends or the full-LTO backend, and returns native objects plus separate
+stage timings. This does not use LLVM's legacy ThinLTO C API or delegate the
+index to a linker plugin. Nia persists pre-link modules under its normal
+release/toolchain identity and persists ThinLTO backend objects under LLVM's
+complete cache key, which includes the combined-index import/export and target
+decisions. Neither cache defines an independent schema or release version.
+
+LTO is executable-only because object sets and static archives do not own a
+complete final linkage unit. The no-LTO path remains the default: current
+source-cold evidence finds ThinLTO faster than full LTO but slower than no LTO.
+Warm cache reuse and smaller optimized artifacts are tracked as separate
+results, not reported as cold compiler throughput.
+
 ### `nia-linker`
 
 Invokes the system linker to produce executables. Handles linker selection (lld, system
