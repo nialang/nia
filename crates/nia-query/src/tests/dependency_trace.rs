@@ -10,7 +10,27 @@ fn records_query_dependencies() {
     let trace = db.query_trace().expect("query trace");
     assert_eq!(trace.dependencies.len(), 1);
     assert_eq!(trace.dependencies[0].from.name, "double_twice");
-    assert_eq!(trace.dependencies[0].to.description, "double(7)");
+    assert_eq!(trace.dependencies[0].to.description.as_ref(), "double(7)");
+}
+
+#[test]
+fn cloned_query_frames_share_identity_text() {
+    let db = QueryDb::new_for_test(TestContext {
+        executions: AtomicUsize::new(0),
+    });
+
+    assert_eq!(*db.expect_get(DoubleTwice(7)), 28);
+    let frame = db
+        .query_trace()
+        .expect("query trace")
+        .queries
+        .into_iter()
+        .find(|query| query.frame.name == "double_twice")
+        .expect("double_twice frame")
+        .frame;
+    let clone = frame.clone();
+    assert!(Arc::ptr_eq(&frame.key, &clone.key));
+    assert!(Arc::ptr_eq(&frame.description, &clone.description));
 }
 
 #[test]
@@ -25,7 +45,7 @@ fn records_query_execution_and_cache_hit_stats() {
     let stats = trace
         .queries
         .iter()
-        .find(|query| query.frame.description == "double(21)")
+        .find(|query| query.frame.description.as_ref() == "double(21)")
         .map(|query| {
             assert_eq!(query.frame.stats_category, Some("arithmetic"));
             &query.stats
@@ -47,10 +67,10 @@ fn records_get_many_dependencies_from_parent_query() {
     let trace = db.query_trace().expect("query trace");
 
     assert!(trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "double_many" && dependency.to.description == "double(2)"
+        dependency.from.name == "double_many" && dependency.to.description.as_ref() == "double(2)"
     }));
     assert!(trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "double_many" && dependency.to.description == "double(5)"
+        dependency.from.name == "double_many" && dependency.to.description.as_ref() == "double(5)"
     }));
 }
 
@@ -64,14 +84,15 @@ fn records_single_item_get_many_dependencies_from_parent_query() {
     let trace = db.query_trace().expect("query trace");
 
     assert!(trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "single_double_many" && dependency.to.description == "double(2)"
+        dependency.from.name == "single_double_many"
+            && dependency.to.description.as_ref() == "double(2)"
     }));
 
     let invalidation = db.invalidate(Double(2)).expect("invalidate query");
     let invalidated = invalidation
         .invalidated
         .iter()
-        .map(|frame| frame.description.as_str())
+        .map(|frame| frame.description.to_string())
         .collect::<Vec<_>>();
     assert_eq!(invalidated, vec!["double(2)", "single_double_many(2)"]);
 }

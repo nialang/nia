@@ -127,7 +127,7 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
     let invalidated = invalidation
         .invalidated
         .iter()
-        .map(|frame| frame.description.as_str())
+        .map(|frame| frame.description.as_ref())
         .collect::<Vec<_>>();
     let source_description = format!("source_text({source_id:?})");
     assert!(

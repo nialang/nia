@@ -1279,10 +1279,10 @@ impl<C> QueryDb<C> {
         // Traversal order has no semantic effect. Keep the changed root first and make the
         // diagnostic portion deterministic without formatting keys for every dependency edge.
         frames[1..].sort_by(|left, right| {
-            (left.name, left.key.as_str(), left.description.as_str()).cmp(&(
+            (left.name, left.key.as_ref(), left.description.as_ref()).cmp(&(
                 right.name,
-                right.key.as_str(),
-                right.description.as_str(),
+                right.key.as_ref(),
+                right.description.as_ref(),
             ))
         });
 
@@ -1407,7 +1407,7 @@ impl<C> QueryDb<C> {
             })
             .collect::<Vec<_>>();
         queries.sort_by(|lhs, rhs| {
-            (lhs.frame.name, lhs.frame.key.as_str()).cmp(&(rhs.frame.name, rhs.frame.key.as_str()))
+            (lhs.frame.name, lhs.frame.key.as_ref()).cmp(&(rhs.frame.name, rhs.frame.key.as_ref()))
         });
         queries
     }

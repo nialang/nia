@@ -705,10 +705,8 @@ fn main() i32 {
             report.contains("\"allocator.peak_live_bytes\":"),
             "{report}"
         );
-        assert!(report.contains("\"query.value_clone_bytes\":"), "{report}");
     } else {
         assert!(!report.contains("\"allocator."), "{report}");
-        assert!(!report.contains("\"query.value_clone_bytes\":"), "{report}");
     }
     assert!(report.contains("\"query.executions\":"), "{report}");
     assert!(

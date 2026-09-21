@@ -2020,10 +2020,10 @@ fn emit_compilation_counters(
             .map(|trace| trace.dependencies.len() as u64)
             .sum(),
     );
-    let mut dependency_fanout = std::collections::HashMap::<String, u64>::new();
+    let mut dependency_fanout = std::collections::HashMap::<&str, u64>::new();
     for dependency in traces.iter().flat_map(|trace| trace.dependencies.iter()) {
         *dependency_fanout
-            .entry(dependency.from.description.clone())
+            .entry(dependency.from.description.as_ref())
             .or_default() += 1;
     }
     nia_timing::emit_counter(

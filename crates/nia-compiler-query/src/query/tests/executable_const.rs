@@ -38,7 +38,8 @@ explicit + inferred
         .queries
         .iter()
         .find(|query| {
-            query.frame.name == "visible_extensions" && query.frame.key == visible_extensions_key
+            query.frame.name == "visible_extensions"
+                && query.frame.key.as_ref() == visible_extensions_key
         })
         .expect("executable facts should build the entry module extension index");
     assert_eq!(
@@ -100,7 +101,8 @@ values[0] as i32
         .queries
         .iter()
         .find(|query| {
-            query.frame.name == "visible_extensions" && query.frame.key == visible_extensions_key
+            query.frame.name == "visible_extensions"
+                && query.frame.key.as_ref() == visible_extensions_key
         })
         .expect("extension method resolution should build the entry module extension index");
     assert!(

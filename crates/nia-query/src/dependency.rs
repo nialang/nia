@@ -41,16 +41,16 @@ impl QueryDependencyGraph {
         failures.sort_by(|left, right| {
             (
                 left.query.name,
-                left.query.key.as_str(),
+                left.query.key.as_ref(),
                 left.dependency.name,
-                left.dependency.key.as_str(),
+                left.dependency.key.as_ref(),
                 left.reason,
             )
                 .cmp(&(
                     right.query.name,
-                    right.query.key.as_str(),
+                    right.query.key.as_ref(),
                     right.dependency.name,
-                    right.dependency.key.as_str(),
+                    right.dependency.key.as_ref(),
                     right.reason,
                 ))
         });
@@ -92,15 +92,15 @@ impl QueryDependencyGraph {
         dependencies.sort_by(|left, right| {
             (
                 left.from.name,
-                left.from.key.as_str(),
+                left.from.key.as_ref(),
                 left.to.name,
-                left.to.key.as_str(),
+                left.to.key.as_ref(),
             )
                 .cmp(&(
                     right.from.name,
-                    right.from.key.as_str(),
+                    right.from.key.as_ref(),
                     right.to.name,
-                    right.to.key.as_str(),
+                    right.to.key.as_ref(),
                 ))
         });
         Ok(dependencies)
@@ -187,8 +187,8 @@ where
     QueryFrame {
         name: K::name(),
         stats_category: key.stats_category(),
-        key: format!("{key:?}"),
-        description: key.description(),
+        key: format!("{key:?}").into(),
+        description: key.description().into(),
     }
 }
 
@@ -197,8 +197,8 @@ fn retired_query_frame(node_id: QueryNodeId) -> QueryFrame {
     QueryFrame {
         name: "<retired-query>",
         stats_category: None,
-        description: format!("retired query node {key}"),
-        key,
+        description: format!("retired query node {key}").into(),
+        key: key.into(),
     }
 }
 
