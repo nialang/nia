@@ -183,7 +183,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     right: "reuse compiler artifacts from this directory",
                 },
                 HelpRow {
-                    left: "--lto <off|thin>",
+                    left: "--lto <off|thin|full>",
                     right: "select final executable link-time optimization",
                 },
                 OPTIMIZATION_ROW,

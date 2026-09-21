@@ -2120,8 +2120,9 @@ fn parse_link_time_optimization(value: &str) -> Result<nia_driver::LinkTimeOptim
     match value {
         "off" => Ok(nia_driver::LinkTimeOptimization::Off),
         "thin" => Ok(nia_driver::LinkTimeOptimization::Thin),
+        "full" => Ok(nia_driver::LinkTimeOptimization::Full),
         _ => Err(format!(
-            "unknown LTO mode `{value}`; expected `off` or `thin`"
+            "unknown LTO mode `{value}`; expected `off`, `thin`, or `full`"
         )),
     }
 }
@@ -2174,7 +2175,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn emit_exe_parses_explicit_thin_lto_policy() {
+    fn emit_exe_parses_explicit_lto_policies() {
         let options = parse_emit_exe_options(
             "main.nia",
             vec!["--lto=thin".to_owned(), "-o".to_owned(), "main".to_owned()],
@@ -2186,10 +2187,20 @@ mod tests {
         );
         assert_eq!(options.output, PathBuf::from("main"));
 
-        let error = parse_emit_exe_options("main.nia", vec!["--lto=full".to_owned()])
+        let options = parse_emit_exe_options("main.nia", vec!["--lto=full".to_owned()])
+            .expect("parse full-LTO executable options");
+        assert_eq!(
+            options.link_time_optimization,
+            nia_driver::LinkTimeOptimization::Full
+        );
+
+        let error = parse_emit_exe_options("main.nia", vec!["--lto=fat".to_owned()])
             .err()
-            .expect("unsupported LTO modes must be rejected");
-        assert!(error.contains("expected `off` or `thin`"), "{error}");
+            .expect("unknown LTO modes must be rejected");
+        assert!(
+            error.contains("expected `off`, `thin`, or `full`"),
+            "{error}"
+        );
     }
 
     #[test]

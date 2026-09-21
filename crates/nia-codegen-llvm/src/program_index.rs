@@ -298,7 +298,7 @@ impl ProgramIndex {
     ) -> Option<&nia_backend_ir::BackendModule> {
         let (module_id, ordinal) = match partition.id {
             CodegenUnitId::SourceModule { module_id, ordinal } => (module_id, ordinal),
-            CodegenUnitId::CompilerBuiltins => return None,
+            CodegenUnitId::CompilerBuiltins | CodegenUnitId::LinkageUnit { .. } => return None,
         };
         if !self.is_published(module_id) {
             return None;

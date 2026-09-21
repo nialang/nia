@@ -33,8 +33,9 @@ pub mod module {
 /// Modern LLVM LTO input, coordination, diagnostics, and output APIs.
 pub mod lto {
     pub use crate::llvm_api::{
-        ThinLtoConfig, ThinLtoDiagnostic, ThinLtoDiagnosticSeverity, ThinLtoInput, ThinLtoObject,
-        ThinLtoOutput, ThinLtoTimings, emit_thin_lto_bitcode, run_thin_lto,
+        FullLtoConfig, FullLtoInput, FullLtoObject, FullLtoOutput, ThinLtoConfig,
+        ThinLtoDiagnostic, ThinLtoDiagnosticSeverity, ThinLtoInput, ThinLtoObject, ThinLtoOutput,
+        ThinLtoTimings, emit_full_lto_bitcode, emit_thin_lto_bitcode, run_full_lto, run_thin_lto,
     };
 }
 

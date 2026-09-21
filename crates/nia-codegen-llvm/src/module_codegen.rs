@@ -26,7 +26,7 @@ use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::{TypeLayout, array_layout, range_layout, sequential_layout, tagged_union_layout};
 use nia_llvm::{
     Context, LlvmError,
-    lto::emit_thin_lto_bitcode,
+    lto::{emit_full_lto_bitcode, emit_thin_lto_bitcode},
     module::Linkage,
     target::{ModuleOptimization, TargetMachine},
     types::{FunctionType, StructType},
@@ -512,11 +512,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         })
     }
 
-    pub(super) fn emit_thin_lto_bitcode(
+    pub(super) fn emit_lto_bitcode(
         &mut self,
         target: &TargetMachine,
         module_identifier: &str,
         optimization: nia_llvm::OptimizationLevel,
+        mode: crate::LtoMode,
     ) -> Result<Vec<u8>, Diagnostic> {
         time_codegen_module_stage(self.timings, "emit_module", &self.source.name, || {
             self.emit_module()
@@ -532,9 +533,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     .map_err(Self::diagnostic_from_llvm_error)
             },
         )?;
-        time_codegen_module_stage(self.timings, "thin_lto_prelink", &self.source.name, || {
-            emit_thin_lto_bitcode(&self.module, target, optimization)
-                .map_err(Self::diagnostic_from_llvm_error)
+        let stage = match mode {
+            crate::LtoMode::Thin => "thin_lto_prelink",
+            crate::LtoMode::Full => "full_lto_prelink",
+        };
+        time_codegen_module_stage(self.timings, stage, &self.source.name, || {
+            match mode {
+                crate::LtoMode::Thin => emit_thin_lto_bitcode(&self.module, target, optimization),
+                crate::LtoMode::Full => emit_full_lto_bitcode(&self.module, target, optimization),
+            }
+            .map_err(Self::diagnostic_from_llvm_error)
         })
     }
 

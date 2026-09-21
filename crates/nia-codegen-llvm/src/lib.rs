@@ -45,8 +45,8 @@ use nia_opt::NiaOptimizationLevel;
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder, QuerySession};
 use nia_ty::TypeStore;
 pub use output::{
-    LlvmCodegenOptions, LlvmCodegenOutput, LlvmModuleOutput, LlvmObjectOutput,
-    LlvmThinLtoModuleOutput, NativeObject, ThinLtoCodegenConfig, ThinLtoModule,
+    FullLtoCodegenConfig, LlvmCodegenOptions, LlvmCodegenOutput, LlvmLtoModuleOutput,
+    LlvmModuleOutput, LlvmObjectOutput, LtoMode, LtoModule, NativeObject, ThinLtoCodegenConfig,
 };
 use program_index::ProgramIndex;
 use readiness::{
@@ -65,13 +65,15 @@ type LlvmNativeObjectReadinessOutcome = (
     CodegenUnitKey,
     Result<(IncrementalLinkInput<NativeObject>, ObjectReuse), Vec<nia_diagnostic::Diagnostic>>,
 );
-type LlvmThinLtoReadinessOutcome = (
+type LlvmLtoReadinessOutcome = (
     CodegenUnitKey,
-    Result<ThinLtoModule, Vec<nia_diagnostic::Diagnostic>>,
+    Result<LtoModule, Vec<nia_diagnostic::Diagnostic>>,
 );
 
 const THIN_LTO_BACKEND_FINGERPRINT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.llvm.thin-lto-backend");
+const FULL_LTO_BACKEND_FINGERPRINT_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.llvm.full-lto-backend");
 
 /// Incrementally emits textual LLVM IR from finalized backend modules.
 ///
@@ -108,20 +110,21 @@ pub struct LlvmNativeObjectReadinessEmitter<'session> {
     tasks: nia_query::QueryTaskPool<'session, LlvmNativeObjectReadinessOutcome>,
 }
 
-/// Incrementally emits summary-bearing ThinLTO modules from finalized backend modules.
+/// Incrementally emits LTO pre-link modules from finalized backend modules.
 ///
 /// This preserves the native-object readiness contract while stopping before
-/// whole-program index construction. Callers must submit the complete returned
-/// module set to one ThinLTO coordinator.
-pub struct LlvmThinLtoReadinessEmitter<'session> {
+/// whole-program coordination. Callers must submit the complete returned module
+/// set to the coordinator selected by [`LtoMode`].
+pub struct LlvmLtoReadinessEmitter<'session> {
     coordinator: CodegenReadinessCoordinator,
+    mode: LtoMode,
     options: LlvmCodegenOptions,
     target_identity: Option<Arc<TargetMachineIdentity>>,
-    outputs: Vec<ThinLtoModule>,
+    outputs: Vec<LtoModule>,
     partition_diagnostics: Vec<(CodegenUnitKey, Vec<nia_diagnostic::Diagnostic>)>,
     internal_diagnostics: Vec<nia_diagnostic::Diagnostic>,
     partition_count: usize,
-    tasks: nia_query::QueryTaskPool<'session, LlvmThinLtoReadinessOutcome>,
+    tasks: nia_query::QueryTaskPool<'session, LlvmLtoReadinessOutcome>,
 }
 
 impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
@@ -299,13 +302,14 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
     }
 }
 
-impl<'session> LlvmThinLtoReadinessEmitter<'session> {
-    /// Starts ThinLTO pre-link emission for a module store and its owner index.
+impl<'session> LlvmLtoReadinessEmitter<'session> {
+    /// Starts LTO pre-link emission for a module store and its owner index.
     pub fn new(
         modules: Arc<nia_backend_ir::BackendModuleStore>,
         type_store: Arc<TypeStore>,
         owners: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
         options: LlvmCodegenOptions,
+        mode: LtoMode,
         session: &'session QuerySession,
     ) -> nia_ice::IceResult<Self> {
         let (target_identity, internal_diagnostics) = match TargetMachine::native_identity() {
@@ -314,6 +318,7 @@ impl<'session> LlvmThinLtoReadinessEmitter<'session> {
         };
         Ok(Self {
             coordinator: CodegenReadinessCoordinator::new(modules, type_store, owners),
+            mode,
             options,
             target_identity,
             outputs: Vec::new(),
@@ -337,9 +342,10 @@ impl<'session> LlvmThinLtoReadinessEmitter<'session> {
                     let key = prepared.partition.key.clone();
                     let index = Arc::clone(&self.coordinator.index);
                     let options = self.options;
+                    let mode = self.mode;
                     self.tasks.submit(move || {
                         let outcome =
-                            emit_thin_lto_partition(prepared, index, options, &target_identity);
+                            emit_lto_partition(prepared, index, options, mode, &target_identity);
                         Ok((key, outcome))
                     })?;
                 }
@@ -355,7 +361,7 @@ impl<'session> LlvmThinLtoReadinessEmitter<'session> {
     }
 
     /// Waits for pre-link work and returns modules in stable codegen-unit order.
-    pub fn finish(mut self) -> nia_ice::IceResult<LlvmThinLtoModuleOutput> {
+    pub fn finish(mut self) -> nia_ice::IceResult<LlvmLtoModuleOutput> {
         let index = time_codegen_stage(self.options.timings, "llvm_finish.coordinator", || {
             self.coordinator.finish()
         })?;
@@ -398,9 +404,10 @@ impl<'session> LlvmThinLtoReadinessEmitter<'session> {
             && builtin_symbols.any()
             && let Some(target_identity) = self.target_identity.as_deref()
         {
-            match emit_compiler_builtins_thin_lto_module(
+            match emit_compiler_builtins_lto_module(
                 builtin_symbols,
                 self.options,
+                self.mode,
                 target_identity,
             ) {
                 Ok(output) => self.outputs.push(output),
@@ -432,10 +439,11 @@ impl<'session> LlvmThinLtoReadinessEmitter<'session> {
             );
             nia_timing::emit_counter("llvm.ready_task_submissions", self.partition_count as u64);
         }
-        Ok(LlvmThinLtoModuleOutput {
+        Ok(LlvmLtoModuleOutput {
+            mode: self.mode,
             target: self.target_identity.map(Arc::unwrap_or_clone),
             modules: self.outputs,
-            linker_visible_symbols: thin_lto_linker_visible_symbols(&index),
+            linker_visible_symbols: lto_linker_visible_symbols(&index),
             diagnostics,
         })
     }
@@ -676,23 +684,25 @@ fn emit_llvm_ir_with_options_inner(
     }
 }
 
-/// Validates backend IR and emits summary-bearing ThinLTO pre-link modules.
+/// Validates backend IR and emits LTO pre-link modules.
 ///
 /// This does not build a combined index or emit native objects. The returned
 /// modules are an explicit intermediate product for a later whole-program
-/// ThinLTO coordination step.
-pub fn emit_thin_lto_modules(
+/// coordination step selected by `mode`.
+pub fn emit_lto_modules(
     lowering: Arc<BackendLowering>,
     type_store: Arc<TypeStore>,
     session: &QuerySession,
     options: LlvmCodegenOptions,
-) -> LlvmThinLtoModuleOutput {
+    mode: LtoMode,
+) -> LlvmLtoModuleOutput {
     let timings = options.timings;
     if let Err(ice) = lowering
         .codegen_partitions
         .validate_program(&lowering.program)
     {
-        return LlvmThinLtoModuleOutput {
+        return LlvmLtoModuleOutput {
+            mode,
             target: None,
             modules: Vec::new(),
             linker_visible_symbols: Vec::new(),
@@ -707,7 +717,8 @@ pub fn emit_thin_lto_modules(
         }) {
             Ok(value) => value,
             Err(ice) => {
-                return LlvmThinLtoModuleOutput {
+                return LlvmLtoModuleOutput {
+                    mode,
                     target: None,
                     modules: Vec::new(),
                     linker_visible_symbols: Vec::new(),
@@ -718,7 +729,8 @@ pub fn emit_thin_lto_modules(
     let builtin_symbols = compiler_builtins::required_symbols(&index);
     let program_diagnostics = validate_native_backend_program(&index, builtin_symbols);
     if !program_diagnostics.is_empty() {
-        return LlvmThinLtoModuleOutput {
+        return LlvmLtoModuleOutput {
+            mode,
             target: None,
             modules: Vec::new(),
             linker_visible_symbols: Vec::new(),
@@ -731,7 +743,8 @@ pub fn emit_thin_lto_modules(
         }) {
             Ok(identity) => Arc::new(identity),
             Err(error) => {
-                return LlvmThinLtoModuleOutput {
+                return LlvmLtoModuleOutput {
+                    mode,
                     target: None,
                     modules: Vec::new(),
                     linker_visible_symbols: Vec::new(),
@@ -742,15 +755,15 @@ pub fn emit_thin_lto_modules(
     let has_partitions = !preparations.is_empty();
     let mut tasks = preparations
         .into_iter()
-        .map(|preparation| ThinLtoCodegenTask::Partition(Box::new(preparation)))
+        .map(|preparation| LtoCodegenTask::Partition(Box::new(preparation)))
         .collect::<Vec<_>>();
     tasks.extend(
         declaration_only_modules(&index, has_partitions)
             .into_iter()
-            .map(ThinLtoCodegenTask::DeclarationModule),
+            .map(LtoCodegenTask::DeclarationModule),
     );
     if builtin_symbols.any() {
-        tasks.push(ThinLtoCodegenTask::CompilerBuiltins(builtin_symbols));
+        tasks.push(LtoCodegenTask::CompilerBuiltins(builtin_symbols));
     }
     let worker_lanes = codegen_worker_lanes(session, tasks.len());
     let outcomes = match session.run_tasks_bounded(
@@ -759,20 +772,20 @@ pub fn emit_thin_lto_modules(
             let target_identity = Arc::clone(&target_identity);
             move || {
                 Ok(match task {
-                    ThinLtoCodegenTask::Partition(preparation) => match *preparation {
+                    LtoCodegenTask::Partition(preparation) => match *preparation {
                         CodegenPartitionPreparation::Ready(prepared) => {
-                            emit_thin_lto_partition(prepared, index, options, &target_identity)
+                            emit_lto_partition(prepared, index, options, mode, &target_identity)
                                 .map(Some)
                         }
                         CodegenPartitionPreparation::Invalid { diagnostics, .. } => {
                             Err(diagnostics)
                         }
                     },
-                    ThinLtoCodegenTask::DeclarationModule(module_id) => {
+                    LtoCodegenTask::DeclarationModule(module_id) => {
                         validate_declaration_module(module_id, &index).map(|()| None)
                     }
-                    ThinLtoCodegenTask::CompilerBuiltins(symbols) => {
-                        emit_compiler_builtins_thin_lto_module(symbols, options, &target_identity)
+                    LtoCodegenTask::CompilerBuiltins(symbols) => {
+                        emit_compiler_builtins_lto_module(symbols, options, mode, &target_identity)
                             .map(Some)
                             .map_err(|diagnostic| vec![diagnostic])
                     }
@@ -783,10 +796,11 @@ pub fn emit_thin_lto_modules(
     ) {
         Ok(outcomes) => outcomes,
         Err(ice) => {
-            return LlvmThinLtoModuleOutput {
+            return LlvmLtoModuleOutput {
+                mode,
                 target: Some(Arc::unwrap_or_clone(target_identity)),
                 modules: Vec::new(),
-                linker_visible_symbols: thin_lto_linker_visible_symbols(&index),
+                linker_visible_symbols: lto_linker_visible_symbols(&index),
                 diagnostics: vec![nia_diagnostic::Diagnostic::from(ice)],
             };
         }
@@ -805,15 +819,16 @@ pub fn emit_thin_lto_modules(
         nia_timing::emit_counter("llvm.units", modules.len() as u64);
         nia_timing::emit_counter("llvm.worker_lanes", worker_lanes as u64);
     }
-    LlvmThinLtoModuleOutput {
+    LlvmLtoModuleOutput {
+        mode,
         target: Some(Arc::unwrap_or_clone(target_identity)),
         modules,
-        linker_visible_symbols: thin_lto_linker_visible_symbols(&index),
+        linker_visible_symbols: lto_linker_visible_symbols(&index),
         diagnostics,
     }
 }
 
-fn thin_lto_linker_visible_symbols(index: &ProgramIndex) -> Vec<String> {
+fn lto_linker_visible_symbols(index: &ProgramIndex) -> Vec<String> {
     let mut symbols = Vec::new();
     for module_id in index.module_ids() {
         let Some(module) = index.module(*module_id) else {
@@ -855,10 +870,20 @@ fn thin_lto_linker_visible_symbols(index: &ProgramIndex) -> Vec<String> {
 /// compiler-provided module in the linkage unit, and `preserved_symbols` must
 /// name definitions observed by regular native linker inputs.
 pub fn emit_thin_lto_objects(
-    input: LlvmThinLtoModuleOutput,
+    input: LlvmLtoModuleOutput,
     options: LlvmCodegenOptions,
     config: ThinLtoCodegenConfig<'_>,
 ) -> LlvmObjectOutput {
+    if input.mode != LtoMode::Thin {
+        return LlvmObjectOutput {
+            link_inputs: IncrementalLinkInputs::default(),
+            diagnostics: vec![nia_diagnostic::Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                nia_span::Span::default(),
+                "ThinLTO coordinator received full-LTO pre-link modules",
+            )],
+        };
+    }
     if !input.diagnostics.is_empty() {
         return LlvmObjectOutput {
             link_inputs: IncrementalLinkInputs::default(),
@@ -1036,6 +1061,191 @@ fn thin_lto_backend_fingerprint(
     CodegenUnitFingerprint::from_parts(builder.finish().parts())
 }
 
+/// Coordinates a complete set of regular-LTO modules and emits native partitions.
+///
+/// The returned objects belong to the final linkage unit rather than any source
+/// codegen unit. Their stable keys are therefore owned by the logical entry
+/// source supplied in `config` and qualified by LLVM's partition ordinal.
+pub fn emit_full_lto_objects(
+    input: LlvmLtoModuleOutput,
+    options: LlvmCodegenOptions,
+    config: FullLtoCodegenConfig<'_>,
+) -> LlvmObjectOutput {
+    if input.mode != LtoMode::Full {
+        return LlvmObjectOutput {
+            link_inputs: IncrementalLinkInputs::default(),
+            diagnostics: vec![nia_diagnostic::Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                nia_span::Span::default(),
+                "full-LTO coordinator received ThinLTO pre-link modules",
+            )],
+        };
+    }
+    if !input.diagnostics.is_empty() {
+        return LlvmObjectOutput {
+            link_inputs: IncrementalLinkInputs::default(),
+            diagnostics: input.diagnostics,
+        };
+    }
+    let Some(target) = input.target else {
+        return LlvmObjectOutput {
+            link_inputs: IncrementalLinkInputs::default(),
+            diagnostics: vec![nia_diagnostic::Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                nia_span::Span::default(),
+                "full-LTO module output is missing its target identity",
+            )],
+        };
+    };
+    let llvm_inputs = input
+        .modules
+        .iter()
+        .map(|module| nia_llvm::lto::FullLtoInput {
+            name: &module.module_identifier,
+            bitcode: &module.bitcode,
+        })
+        .collect::<Vec<_>>();
+    let mut preserved_symbols = input.linker_visible_symbols;
+    preserved_symbols.extend(
+        config
+            .preserved_symbols
+            .iter()
+            .map(|symbol| (*symbol).to_owned()),
+    );
+    preserved_symbols.sort_unstable();
+    preserved_symbols.dedup();
+    let preserved_symbol_refs = preserved_symbols
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let coordinated = match time_codegen_stage(options.timings, "llvm_full_lto.coordinate", || {
+        nia_llvm::lto::run_full_lto(
+            &llvm_inputs,
+            nia_llvm::lto::FullLtoConfig {
+                target: &target,
+                optimization: llvm_optimization_level(options.optimization.level),
+                parallelism: config.parallelism,
+                freestanding: config.freestanding,
+                preserved_symbols: &preserved_symbol_refs,
+            },
+        )
+    }) {
+        Ok(output) => output,
+        Err(error) => {
+            return LlvmObjectOutput {
+                link_inputs: IncrementalLinkInputs::default(),
+                diagnostics: vec![error.diagnostic()],
+            };
+        }
+    };
+    if let Some(error) = coordinated
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.severity == nia_llvm::lto::ThinLtoDiagnosticSeverity::Error)
+    {
+        return LlvmObjectOutput {
+            link_inputs: IncrementalLinkInputs::default(),
+            diagnostics: vec![
+                nia_diagnostic::Diagnostic::internal_error(
+                    nia_diagnostic::codes::INTERNAL_LLVM_API,
+                    format!("full-LTO backend reported an error: {}", error.message),
+                )
+                .finish(),
+            ],
+        };
+    }
+    if coordinated.objects.is_empty() {
+        return LlvmObjectOutput {
+            link_inputs: IncrementalLinkInputs::default(),
+            diagnostics: vec![nia_diagnostic::Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INTERNAL_LLVM_API,
+                nia_span::Span::default(),
+                "full-LTO completed without emitting a native partition",
+            )],
+        };
+    }
+    if options.timings.enabled() {
+        nia_timing::emit_timing("llvm_full_lto.total", coordinated.lto);
+        nia_timing::emit_counter("llvm_full_lto.modules", input.modules.len() as u64);
+        nia_timing::emit_counter("llvm_full_lto.partitions", coordinated.objects.len() as u64);
+        nia_timing::emit_counter(
+            "llvm_full_lto.diagnostics",
+            coordinated.diagnostics.len() as u64,
+        );
+    }
+
+    let mut outputs = Vec::with_capacity(coordinated.objects.len());
+    for object in coordinated.objects {
+        let key = CodegenUnitKey::LinkageUnit {
+            source_identity: config.linkage_source_identity.clone(),
+            ordinal: object.task,
+        };
+        outputs.push(IncrementalLinkInput {
+            fingerprint: full_lto_backend_fingerprint(
+                &input.modules,
+                &target,
+                options,
+                config.parallelism,
+                config.freestanding,
+                &preserved_symbol_refs,
+                object.task,
+            ),
+            key,
+            object: NativeObject {
+                unit: CodegenUnitId::LinkageUnit {
+                    ordinal: object.task,
+                },
+                name: format!("nia_full_lto_{}", object.task),
+                bytes: object.bytes,
+            },
+        });
+    }
+    outputs.sort_unstable_by(|left, right| left.key.cmp(&right.key));
+    match IncrementalLinkInputs::new(outputs) {
+        Ok(link_inputs) => LlvmObjectOutput {
+            link_inputs,
+            diagnostics: Vec::new(),
+        },
+        Err(ice) => LlvmObjectOutput {
+            link_inputs: IncrementalLinkInputs::default(),
+            diagnostics: vec![nia_diagnostic::Diagnostic::from(ice)],
+        },
+    }
+}
+
+fn full_lto_backend_fingerprint(
+    modules: &[LtoModule],
+    target: &TargetMachineIdentity,
+    options: LlvmCodegenOptions,
+    parallelism: usize,
+    freestanding: bool,
+    preserved_symbols: &[&str],
+    ordinal: u32,
+) -> CodegenUnitFingerprint {
+    let mut builder = QueryFingerprintBuilder::new(FULL_LTO_BACKEND_FINGERPRINT_DOMAIN);
+    builder.write_str("regular-lto:monolithic-ipo-and-partitioned-codegen");
+    builder.write_u64(modules.len() as u64);
+    for module in modules {
+        builder.write_str(&module.module_identifier);
+        for part in module.fingerprint.parts() {
+            builder.write_u64(part);
+        }
+    }
+    builder.write_str(&target.triple);
+    builder.write_str(&target.cpu);
+    builder.write_str(&target.features);
+    fingerprint::write_toolchain_identity(&mut builder, options.toolchain_identity);
+    fingerprint::write_optimization(&mut builder, options.optimization);
+    builder.write_u64(parallelism as u64);
+    builder.write_u8(u8::from(freestanding));
+    builder.write_u64(preserved_symbols.len() as u64);
+    for symbol in preserved_symbols {
+        builder.write_str(symbol);
+    }
+    builder.write_u64(u64::from(ordinal));
+    CodegenUnitFingerprint::from_parts(builder.finish().parts())
+}
+
 /// Validates backend IR and emits linkable native object work products.
 ///
 /// When `cache` is present, lookup uses the complete policy, definition,
@@ -1189,7 +1399,7 @@ enum NativeCodegenTask {
     CompilerBuiltins(compiler_builtins::CompilerBuiltinSymbols),
 }
 
-enum ThinLtoCodegenTask {
+enum LtoCodegenTask {
     Partition(Box<CodegenPartitionPreparation>),
     DeclarationModule(ModuleId),
     CompilerBuiltins(compiler_builtins::CompilerBuiltinSymbols),
@@ -1366,12 +1576,13 @@ fn emit_llvm_ir_partition(
     })
 }
 
-fn emit_thin_lto_partition(
+fn emit_lto_partition(
     prepared: PreparedCodegenPartition,
     index: Arc<ProgramIndex>,
     options: LlvmCodegenOptions,
+    mode: LtoMode,
     target_identity: &TargetMachineIdentity,
-) -> Result<ThinLtoModule, Vec<nia_diagnostic::Diagnostic>> {
+) -> Result<LtoModule, Vec<nia_diagnostic::Diagnostic>> {
     let PreparedCodegenPartition {
         partition,
         declarations,
@@ -1393,7 +1604,7 @@ fn emit_thin_lto_partition(
         &declarations,
         &index,
         options,
-        fingerprint::ArtifactTarget::ThinLtoBitcode(target_identity),
+        fingerprint::ArtifactTarget::LtoBitcode(mode, target_identity),
     )?;
     let memory_permit = nia_query::acquire_llvm_memory_permit()
         .map_err(|ice| vec![nia_diagnostic::Diagnostic::from(ice)])?;
@@ -1416,15 +1627,16 @@ fn emit_thin_lto_partition(
     target
         .configure_module(&codegen.module)
         .map_err(|error| vec![error.diagnostic()])?;
-    let module_identifier = thin_lto_module_identifier(&partition.key);
+    let module_identifier = lto_module_identifier(&partition.key);
     let bitcode = codegen
-        .emit_thin_lto_bitcode(
+        .emit_lto_bitcode(
             &target,
             &module_identifier,
             llvm_optimization_level(options.optimization.level),
+            mode,
         )
         .map_err(|diagnostic| vec![diagnostic])?;
-    Ok(ThinLtoModule {
+    Ok(LtoModule {
         unit: partition.id,
         key: partition.key,
         fingerprint: fingerprints.fingerprint,
@@ -1434,7 +1646,7 @@ fn emit_thin_lto_partition(
     })
 }
 
-fn thin_lto_module_identifier(key: &CodegenUnitKey) -> String {
+fn lto_module_identifier(key: &CodegenUnitKey) -> String {
     match key {
         CodegenUnitKey::SourceModule {
             source_identity,
@@ -1444,6 +1656,13 @@ fn thin_lto_module_identifier(key: &CodegenUnitKey) -> String {
             format!("nia:cgu:{}:{path}:{ordinal}", path.len())
         }
         CodegenUnitKey::CompilerBuiltins => "nia:cgu:compiler-builtins".to_owned(),
+        CodegenUnitKey::LinkageUnit {
+            source_identity,
+            ordinal,
+        } => {
+            let path = source_identity.normalized_path();
+            format!("nia:linkage-unit:{}:{path}:{ordinal}", path.len())
+        }
     }
 }
 
@@ -1538,13 +1757,14 @@ fn emit_native_object_partition(
     ))
 }
 
-fn emit_compiler_builtins_thin_lto_module(
+fn emit_compiler_builtins_lto_module(
     symbols: compiler_builtins::CompilerBuiltinSymbols,
     options: LlvmCodegenOptions,
+    mode: LtoMode,
     target_identity: &TargetMachineIdentity,
-) -> Result<ThinLtoModule, nia_diagnostic::Diagnostic> {
+) -> Result<LtoModule, nia_diagnostic::Diagnostic> {
     let fingerprints =
-        fingerprint::compiler_builtins_thin_lto_fingerprint(&symbols, options, target_identity);
+        fingerprint::compiler_builtins_lto_fingerprint(&symbols, options, target_identity, mode);
     let memory_permit =
         nia_query::acquire_llvm_memory_permit().map_err(nia_diagnostic::Diagnostic::from)?;
     record_memory_permit(options.timings, memory_permit.waited());
@@ -1555,12 +1775,13 @@ fn emit_compiler_builtins_thin_lto_module(
         )
     })
     .map_err(|error| error.diagnostic())?;
-    let bitcode = compiler_builtins::emit_thin_lto_bitcode(
+    let bitcode = compiler_builtins::emit_lto_bitcode(
         &target,
         symbols,
         llvm_optimization_level(options.optimization.level),
+        mode,
     )?;
-    Ok(ThinLtoModule {
+    Ok(LtoModule {
         unit: CodegenUnitId::CompilerBuiltins,
         key: CodegenUnitKey::CompilerBuiltins,
         fingerprint: fingerprints.fingerprint,

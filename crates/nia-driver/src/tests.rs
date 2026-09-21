@@ -76,8 +76,8 @@ fn driver_exposes_loader_owned_recursive_source_manifest() {
 
 #[test]
 #[cfg(unix)]
-fn thin_lto_links_and_runs_a_freestanding_executable() {
-    let root = common::temp_dir("thin-lto-freestanding-executable");
+fn lto_modes_link_and_run_a_freestanding_executable() {
+    let root = common::temp_dir("lto-freestanding-executable");
     let source = root.join("main.nia");
     common::write(
         &source,
@@ -103,22 +103,28 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 "#,
     );
-    let output = root.join("thin-runner");
-    let artifact = common::test_driver()
-        .link_executable(
-            crate::LinkExecutableRequest::new(
-                crate::CheckRequest::new(source.to_string_lossy().into_owned()),
-                &output,
+    let driver = common::test_driver();
+    for (name, policy) in [
+        ("thin", crate::LinkTimeOptimization::Thin),
+        ("full", crate::LinkTimeOptimization::Full),
+    ] {
+        let output = root.join(format!("{name}-runner"));
+        let artifact = driver
+            .link_executable(
+                crate::LinkExecutableRequest::new(
+                    crate::CheckRequest::new(source.to_string_lossy().into_owned()),
+                    &output,
+                )
+                .with_link_time_optimization(policy),
             )
-            .with_link_time_optimization(crate::LinkTimeOptimization::Thin),
-        )
-        .result
-        .unwrap_or_else(|error| panic!("ThinLTO executable link failed: {error:?}"));
+            .result
+            .unwrap_or_else(|error| panic!("{name} LTO executable link failed: {error:?}"));
 
-    let status = std::process::Command::new(&artifact.path)
-        .status()
-        .expect("run ThinLTO executable");
-    assert_eq!(status.code(), Some(0));
+        let status = std::process::Command::new(&artifact.path)
+            .status()
+            .unwrap_or_else(|error| panic!("run {name} LTO executable: {error}"));
+        assert_eq!(status.code(), Some(0), "{name} LTO executable failed");
+    }
 }
 
 #[test]

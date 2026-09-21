@@ -505,6 +505,16 @@ fn encode_unit_key(key: &CodegenUnitKey) -> Vec<u8> {
             encoded.extend_from_slice(&ordinal.to_le_bytes());
         }
         CodegenUnitKey::CompilerBuiltins => encoded.push(1),
+        CodegenUnitKey::LinkageUnit {
+            source_identity,
+            ordinal,
+        } => {
+            encoded.push(2);
+            let path = source_identity.normalized_path().as_bytes();
+            encoded.extend_from_slice(&(path.len() as u64).to_le_bytes());
+            encoded.extend_from_slice(path);
+            encoded.extend_from_slice(&ordinal.to_le_bytes());
+        }
     }
     encoded
 }

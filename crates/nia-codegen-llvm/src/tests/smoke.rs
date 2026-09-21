@@ -128,6 +128,48 @@ fn main() i32 {
             .iter()
             .all(|input| !input.object.bytes.is_empty())
     );
+
+    let full_output = emit_full_lto_modules(
+        &codegen.backend_lowering,
+        &codegen.type_store,
+        LlvmCodegenOptions::default(),
+    );
+    assert!(
+        full_output.diagnostics.is_empty(),
+        "{:?}",
+        full_output.diagnostics
+    );
+    assert_eq!(full_output.modules.len(), source_partitions.len());
+    let full_objects = crate::emit_full_lto_objects(
+        full_output,
+        LlvmCodegenOptions::default(),
+        crate::FullLtoCodegenConfig {
+            linkage_source_identity: &source_identity,
+            parallelism: 2,
+            freestanding: true,
+            preserved_symbols: &[],
+        },
+    );
+    assert!(
+        full_objects.diagnostics.is_empty(),
+        "{:?}",
+        full_objects.diagnostics
+    );
+    assert!(!full_objects.link_inputs.is_empty());
+    assert!(full_objects.link_inputs.as_slice().iter().all(|input| {
+        matches!(
+            (&input.key, input.object.unit),
+            (
+                CodegenUnitKey::LinkageUnit {
+                    source_identity: owner,
+                    ordinal: key_ordinal,
+                },
+                CodegenUnitId::LinkageUnit {
+                    ordinal: unit_ordinal,
+                }
+            ) if owner == &source_identity && *key_ordinal == unit_ordinal
+        ) && !input.object.bytes.is_empty()
+    }));
 }
 
 #[test]
@@ -160,7 +202,7 @@ fn main() i64 {{
                 CodegenUnitKey::SourceModule { ordinal, .. } => {
                     Some((*ordinal, module.fingerprint))
                 }
-                CodegenUnitKey::CompilerBuiltins => None,
+                CodegenUnitKey::CompilerBuiltins | CodegenUnitKey::LinkageUnit { .. } => None,
             })
             .collect()
     }

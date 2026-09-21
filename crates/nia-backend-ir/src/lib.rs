@@ -88,6 +88,11 @@ impl BackendProgram {
                     "compiler builtins partition has no backend module",
                 ));
             }
+            CodegenUnitId::LinkageUnit { .. } => {
+                return Err(nia_ice::Ice::new(
+                    "final linkage-unit partition has no backend source module",
+                ));
+            }
         };
         let module = self.modules.store.get(module_id).ok_or_else(|| {
             nia_ice::Ice::new(format!(
@@ -658,6 +663,11 @@ pub enum CodegenUnitId {
     },
     /// Runtime/compiler support unit outside source modules.
     CompilerBuiltins,
+    /// Native partition produced from a complete final linkage unit.
+    LinkageUnit {
+        /// Deterministic LLVM partition ordinal for this invocation.
+        ordinal: u32,
+    },
 }
 
 impl CodegenUnitId {
@@ -682,6 +692,13 @@ pub enum CodegenUnitKey {
     },
     /// Stable identity for compiler-provided support code.
     CompilerBuiltins,
+    /// Stable final-link partition identity owned by the logical entry source.
+    LinkageUnit {
+        /// Logical entry source defining the linkage-unit boundary.
+        source_identity: SourceIdentity,
+        /// Deterministic LLVM partition ordinal.
+        ordinal: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

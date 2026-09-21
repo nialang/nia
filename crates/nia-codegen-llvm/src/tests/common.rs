@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pub(super) use crate::{
-    LlvmCodegenOptions, LlvmCodegenOutput, LlvmObjectOutput, LlvmThinLtoModuleOutput,
+    LlvmCodegenOptions, LlvmCodegenOutput, LlvmLtoModuleOutput, LlvmObjectOutput,
 };
 pub(super) use nia_backend_ir::{
     BackendConstFacts, BackendEnum, BackendEnumVariant, BackendField, BackendFunction,
@@ -202,12 +202,27 @@ pub(super) fn emit_thin_lto_modules(
     lowering: &Arc<nia_backend_lower::BackendLowering>,
     type_store: &Arc<nia_ty::TypeStore>,
     options: LlvmCodegenOptions,
-) -> LlvmThinLtoModuleOutput {
-    crate::emit_thin_lto_modules(
+) -> LlvmLtoModuleOutput {
+    crate::emit_lto_modules(
         Arc::clone(lowering),
         Arc::clone(type_store),
         &nia_query::QuerySession::new().expect("create query session"),
         options,
+        crate::LtoMode::Thin,
+    )
+}
+
+pub(super) fn emit_full_lto_modules(
+    lowering: &Arc<nia_backend_lower::BackendLowering>,
+    type_store: &Arc<nia_ty::TypeStore>,
+    options: LlvmCodegenOptions,
+) -> LlvmLtoModuleOutput {
+    crate::emit_lto_modules(
+        Arc::clone(lowering),
+        Arc::clone(type_store),
+        &nia_query::QuerySession::new().expect("create query session"),
+        options,
+        crate::LtoMode::Full,
     )
 }
 

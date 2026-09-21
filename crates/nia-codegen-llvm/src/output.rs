@@ -5,6 +5,7 @@ use nia_backend_ir::{
 use nia_diagnostic::Diagnostic;
 use nia_llvm::target::TargetMachineIdentity;
 use nia_opt::OptimizationPolicy;
+use nia_source::SourceIdentity;
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -34,12 +35,14 @@ pub struct LlvmModuleOutput {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-/// Summary-bearing LLVM modules ready for a ThinLTO coordination run.
-pub struct LlvmThinLtoModuleOutput {
+/// LLVM pre-link modules ready for one whole-program coordination run.
+pub struct LlvmLtoModuleOutput {
+    /// Pre-link pipeline used to produce every module in this linkage unit.
+    pub mode: LtoMode,
     /// Exact target identity shared by every successfully emitted module.
     pub target: Option<TargetMachineIdentity>,
-    /// Deterministically ordered ThinLTO pre-link inputs.
-    pub modules: Vec<ThinLtoModule>,
+    /// Deterministically ordered LTO pre-link inputs.
+    pub modules: Vec<LtoModule>,
     /// External definitions that must remain visible to regular linker inputs.
     pub linker_visible_symbols: Vec<String>,
     /// Validation, LLVM construction, or target failures from omitted units.
@@ -47,8 +50,8 @@ pub struct LlvmThinLtoModuleOutput {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-/// Summary-bearing pre-link bitcode for one stable incremental codegen unit.
-pub struct ThinLtoModule {
+/// Pre-link bitcode for one stable incremental codegen unit.
+pub struct LtoModule {
     /// Per-build numeric identity used by the backend partition plan.
     pub unit: CodegenUnitId,
     /// Stable identity used for deterministic ordering and cache ownership.
@@ -59,8 +62,17 @@ pub struct ThinLtoModule {
     pub name: String,
     /// Unique stable identifier used by LLVM's combined summary index.
     pub module_identifier: String,
-    /// Target-configured bitcode containing a ThinLTO module summary.
+    /// Target-configured bitcode for the selected LTO pipeline.
     pub bitcode: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// LLVM whole-program optimization model selected for final linking.
+pub enum LtoMode {
+    /// Summary-index analysis with parallel per-module importing backends.
+    Thin,
+    /// Monolithic IR merge and whole-program optimization.
+    Full,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -74,6 +86,19 @@ pub struct ThinLtoCodegenConfig<'a> {
     pub preserved_symbols: &'a [&'a str],
     /// Release-isolated persistent cache for LLVM ThinLTO backend objects.
     pub backend_cache_directory: Option<&'a Path>,
+}
+
+#[derive(Debug, Clone, Copy)]
+/// Whole-program policy for coordinating full-LTO modules.
+pub struct FullLtoCodegenConfig<'a> {
+    /// Stable logical entry source owning the final linkage unit.
+    pub linkage_source_identity: &'a SourceIdentity,
+    /// Number of native partitions after monolithic optimization.
+    pub parallelism: usize,
+    /// Disable assumptions about hosted target-library functions.
+    pub freestanding: bool,
+    /// Definitions that must remain visible to regular native linker inputs.
+    pub preserved_symbols: &'a [&'a str],
 }
 
 #[derive(Debug, Clone, PartialEq)]

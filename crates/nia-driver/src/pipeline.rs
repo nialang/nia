@@ -26,7 +26,7 @@ use nia_linker::{
 use nia_loader_query::{LoadRequest, LoaderDatabase, SourceInputManifest};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_package_metadata::PackageId;
-use nia_source::{SourceDatabase, SourcePath};
+use nia_source::{SourceDatabase, SourceIdentity, SourcePath};
 use nia_target_config::{BuildProfile, TargetConfig};
 use nia_toolchain::{RuntimeSpec, ToolchainLayout};
 
@@ -1094,7 +1094,7 @@ impl Driver {
         let cache = self.object_cache.as_ref().map(|cache| {
             cache.clone() as std::sync::Arc<dyn nia_codegen_llvm::ObjectWorkProductCache>
         });
-        let thin_lto_parallelism = session
+        let lto_parallelism = session
             .executor_parallelism()
             .min(nia_query::llvm_memory_task_capacity())
             .max(1);
@@ -1118,15 +1118,16 @@ impl Driver {
                                             )
                                             .map(ObjectReadinessEmitter::NoLto)
                                         }
-                                        ObjectEmissionMode::ThinLto { .. } => {
-                                            nia_codegen_llvm::LlvmThinLtoReadinessEmitter::new(
+                                        ObjectEmissionMode::Lto { lto_mode, .. } => {
+                                            nia_codegen_llvm::LlvmLtoReadinessEmitter::new(
                                                 schedule.module_store(),
                                                 type_store,
                                                 schedule.owner_directory(),
                                                 options,
+                                                lto_mode,
                                                 &session,
                                             )
-                                            .map(ObjectReadinessEmitter::ThinLto)
+                                            .map(ObjectReadinessEmitter::Lto)
                                         }
                                     }
                                 })
@@ -1167,7 +1168,7 @@ impl Driver {
                             let backend_module_count = lowering.program.modules.len();
                             Ok((
                                 time_detail_stage(timings, mode.llvm_finish_stage(), || {
-                                    emitter.finish(mode, options, thin_lto_parallelism)
+                                    emitter.finish(mode, options, lto_parallelism)
                                 })
                                 .map_err(|error| {
                                     DriverError::InternalDiagnostic(Diagnostic::from(error))
@@ -1397,17 +1398,28 @@ impl Driver {
                 .as_deref()
                 .into_iter()
                 .collect::<Vec<_>>();
+            let linkage_source_identity = request.check.entry_path.identity();
             let emission_mode = match request.link_time_optimization {
                 LinkTimeOptimization::Off => ObjectEmissionMode::NoLto,
-                LinkTimeOptimization::Thin => ObjectEmissionMode::ThinLto {
+                LinkTimeOptimization::Thin => ObjectEmissionMode::Lto {
+                    lto_mode: nia_codegen_llvm::LtoMode::Thin,
+                    linkage_source_identity: &linkage_source_identity,
                     preserved_symbols: &preserved_symbols,
                     freestanding: true,
                     backend_cache_directory: self.thin_lto_backend_cache_directory.as_deref(),
+                },
+                LinkTimeOptimization::Full => ObjectEmissionMode::Lto {
+                    lto_mode: nia_codegen_llvm::LtoMode::Full,
+                    linkage_source_identity: &linkage_source_identity,
+                    preserved_symbols: &preserved_symbols,
+                    freestanding: true,
+                    backend_cache_directory: None,
                 },
             };
             let emission_stage = match request.link_time_optimization {
                 LinkTimeOptimization::Off => "emit_native_objects",
                 LinkTimeOptimization::Thin => "emit_thin_lto_objects",
+                LinkTimeOptimization::Full => "emit_full_lto_objects",
             };
             let output = nia_timing::time_stage(
                 timings,
@@ -2462,6 +2474,8 @@ pub enum LinkTimeOptimization {
     Off,
     /// Build a ThinLTO summary index and run parallel importing backends.
     Thin,
+    /// Merge regular-LTO modules and optimize the complete linkage unit.
+    Full,
 }
 
 impl LinkExecutableRequest {
@@ -2537,7 +2551,9 @@ struct NativeDatabaseEmission {
 #[derive(Clone, Copy)]
 enum ObjectEmissionMode<'a> {
     NoLto,
-    ThinLto {
+    Lto {
+        lto_mode: nia_codegen_llvm::LtoMode,
+        linkage_source_identity: &'a SourceIdentity,
         preserved_symbols: &'a [&'a str],
         freestanding: bool,
         backend_cache_directory: Option<&'a Path>,
@@ -2545,10 +2561,22 @@ enum ObjectEmissionMode<'a> {
 }
 
 impl ObjectEmissionMode<'_> {
-    fn select(self, no_lto: &'static str, thin_lto: &'static str) -> &'static str {
+    fn select(
+        self,
+        no_lto: &'static str,
+        thin_lto: &'static str,
+        full_lto: &'static str,
+    ) -> &'static str {
         match self {
             Self::NoLto => no_lto,
-            Self::ThinLto { .. } => thin_lto,
+            Self::Lto {
+                lto_mode: nia_codegen_llvm::LtoMode::Thin,
+                ..
+            } => thin_lto,
+            Self::Lto {
+                lto_mode: nia_codegen_llvm::LtoMode::Full,
+                ..
+            } => full_lto,
         }
     }
 
@@ -2556,60 +2584,101 @@ impl ObjectEmissionMode<'_> {
         self.select(
             "native_prepare_compilation_database",
             "thin_lto_prepare_compilation_database",
+            "full_lto_prepare_compilation_database",
         )
     }
 
     fn emit_objects_stage(self) -> &'static str {
-        self.select("native_emit_objects", "thin_lto_emit_objects")
+        self.select(
+            "native_emit_objects",
+            "thin_lto_emit_objects",
+            "full_lto_emit_objects",
+        )
     }
 
     fn loader_trace_stage(self) -> &'static str {
-        self.select("native_loader_query_trace", "thin_lto_loader_query_trace")
+        self.select(
+            "native_loader_query_trace",
+            "thin_lto_loader_query_trace",
+            "full_lto_loader_query_trace",
+        )
     }
 
     fn emit_counters_stage(self) -> &'static str {
-        self.select("native_emit_counters", "thin_lto_emit_counters")
+        self.select(
+            "native_emit_counters",
+            "thin_lto_emit_counters",
+            "full_lto_emit_counters",
+        )
     }
 
     fn source_manifest_stage(self) -> &'static str {
-        self.select("native_source_manifest", "thin_lto_source_manifest")
+        self.select(
+            "native_source_manifest",
+            "thin_lto_source_manifest",
+            "full_lto_source_manifest",
+        )
     }
 
     fn codegen_preparation_stage(self) -> &'static str {
-        self.select("native_codegen_preparation", "thin_lto_codegen_preparation")
+        self.select(
+            "native_codegen_preparation",
+            "thin_lto_codegen_preparation",
+            "full_lto_codegen_preparation",
+        )
     }
 
     fn emitter_create_stage(self) -> &'static str {
-        self.select("native_llvm_emitter_create", "thin_lto_llvm_emitter_create")
+        self.select(
+            "native_llvm_emitter_create",
+            "thin_lto_llvm_emitter_create",
+            "full_lto_llvm_emitter_create",
+        )
     }
 
     fn backend_wait_stage(self) -> &'static str {
-        self.select("native_backend_wait_ready", "thin_lto_backend_wait_ready")
+        self.select(
+            "native_backend_wait_ready",
+            "thin_lto_backend_wait_ready",
+            "full_lto_backend_wait_ready",
+        )
     }
 
     fn publish_ready_stage(self) -> &'static str {
-        self.select("native_llvm_publish_ready", "thin_lto_llvm_publish_ready")
+        self.select(
+            "native_llvm_publish_ready",
+            "thin_lto_llvm_publish_ready",
+            "full_lto_llvm_publish_ready",
+        )
     }
 
     fn backend_finish_stage(self) -> &'static str {
-        self.select("native_backend_finish", "thin_lto_backend_finish")
+        self.select(
+            "native_backend_finish",
+            "thin_lto_backend_finish",
+            "full_lto_backend_finish",
+        )
     }
 
     fn llvm_finish_stage(self) -> &'static str {
-        self.select("native_llvm_finish", "thin_lto_llvm_finish")
+        self.select(
+            "native_llvm_finish",
+            "thin_lto_llvm_finish",
+            "full_lto_llvm_finish",
+        )
     }
 }
 
 enum ObjectReadinessEmitter<'session> {
     NoLto(nia_codegen_llvm::LlvmNativeObjectReadinessEmitter<'session>),
-    ThinLto(nia_codegen_llvm::LlvmThinLtoReadinessEmitter<'session>),
+    Lto(nia_codegen_llvm::LlvmLtoReadinessEmitter<'session>),
 }
 
 impl ObjectReadinessEmitter<'_> {
     fn publish(&mut self, ready: nia_codegen_llvm::BackendModuleReady) -> nia_ice::IceResult<()> {
         match self {
             Self::NoLto(emitter) => emitter.publish(ready),
-            Self::ThinLto(emitter) => emitter.publish(ready),
+            Self::Lto(emitter) => emitter.publish(ready),
         }
     }
 
@@ -2622,22 +2691,39 @@ impl ObjectReadinessEmitter<'_> {
         match (self, mode) {
             (Self::NoLto(emitter), ObjectEmissionMode::NoLto) => emitter.finish(),
             (
-                Self::ThinLto(emitter),
-                ObjectEmissionMode::ThinLto {
+                Self::Lto(emitter),
+                ObjectEmissionMode::Lto {
+                    lto_mode,
+                    linkage_source_identity,
                     preserved_symbols,
                     freestanding,
                     backend_cache_directory,
                 },
-            ) => Ok(nia_codegen_llvm::emit_thin_lto_objects(
-                emitter.finish()?,
-                options,
-                nia_codegen_llvm::ThinLtoCodegenConfig {
-                    parallelism,
-                    freestanding,
-                    preserved_symbols,
-                    backend_cache_directory,
-                },
-            )),
+            ) => {
+                let modules = emitter.finish()?;
+                Ok(match lto_mode {
+                    nia_codegen_llvm::LtoMode::Thin => nia_codegen_llvm::emit_thin_lto_objects(
+                        modules,
+                        options,
+                        nia_codegen_llvm::ThinLtoCodegenConfig {
+                            parallelism,
+                            freestanding,
+                            preserved_symbols,
+                            backend_cache_directory,
+                        },
+                    ),
+                    nia_codegen_llvm::LtoMode::Full => nia_codegen_llvm::emit_full_lto_objects(
+                        modules,
+                        options,
+                        nia_codegen_llvm::FullLtoCodegenConfig {
+                            linkage_source_identity,
+                            parallelism,
+                            freestanding,
+                            preserved_symbols,
+                        },
+                    ),
+                })
+            }
             _ => Err(nia_ice::Ice::new(
                 "object readiness emitter does not match its emission mode",
             )),
@@ -2879,6 +2965,9 @@ fn archive_member_file_name(index: usize, key: &nia_codegen_llvm::CodegenUnitKey
             source_identity, ..
         } => source_identity.normalized_path(),
         nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins => "nia_compiler_builtins",
+        nia_codegen_llvm::CodegenUnitKey::LinkageUnit {
+            source_identity, ..
+        } => source_identity.normalized_path(),
     };
     object_file_name(index, stable_name)
 }
