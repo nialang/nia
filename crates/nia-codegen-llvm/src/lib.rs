@@ -53,8 +53,8 @@ use readiness::{
     CodegenPartitionPreparation, CodegenReadinessCoordinator, PreparedCodegenPartition,
 };
 pub use work_product::{
-    CodegenUnitFingerprintComponents, CodegenUnitFingerprintSet, ObjectWorkProductCache,
-    ObjectWorkProductInvalidation, ObjectWorkProductLookup,
+    CodegenUnitFingerprintComponents, CodegenUnitFingerprintSet, CodegenWorkProductInvalidation,
+    CodegenWorkProductLookup, LtoModuleWorkProductCache, ObjectWorkProductCache,
 };
 
 type LlvmIrReadinessOutcome = (
@@ -63,11 +63,11 @@ type LlvmIrReadinessOutcome = (
 );
 type LlvmNativeObjectReadinessOutcome = (
     CodegenUnitKey,
-    Result<(IncrementalLinkInput<NativeObject>, ObjectReuse), Vec<nia_diagnostic::Diagnostic>>,
+    Result<(IncrementalLinkInput<NativeObject>, WorkProductReuse), Vec<nia_diagnostic::Diagnostic>>,
 );
 type LlvmLtoReadinessOutcome = (
     CodegenUnitKey,
-    Result<LtoModule, Vec<nia_diagnostic::Diagnostic>>,
+    Result<(LtoModule, WorkProductReuse), Vec<nia_diagnostic::Diagnostic>>,
 );
 
 const THIN_LTO_BACKEND_FINGERPRINT_DOMAIN: FingerprintDomain =
@@ -105,7 +105,7 @@ pub struct LlvmNativeObjectReadinessEmitter<'session> {
     outputs: Vec<IncrementalLinkInput<NativeObject>>,
     partition_diagnostics: Vec<(CodegenUnitKey, Vec<nia_diagnostic::Diagnostic>)>,
     internal_diagnostics: Vec<nia_diagnostic::Diagnostic>,
-    reuse_counts: ObjectReuseCounts,
+    reuse_counts: WorkProductReuseCounts,
     partition_count: usize,
     tasks: nia_query::QueryTaskPool<'session, LlvmNativeObjectReadinessOutcome>,
 }
@@ -119,10 +119,12 @@ pub struct LlvmLtoReadinessEmitter<'session> {
     coordinator: CodegenReadinessCoordinator,
     mode: LtoMode,
     options: LlvmCodegenOptions,
+    cache: Option<Arc<dyn LtoModuleWorkProductCache>>,
     target_identity: Option<Arc<TargetMachineIdentity>>,
     outputs: Vec<LtoModule>,
     partition_diagnostics: Vec<(CodegenUnitKey, Vec<nia_diagnostic::Diagnostic>)>,
     internal_diagnostics: Vec<nia_diagnostic::Diagnostic>,
+    reuse_counts: WorkProductReuseCounts,
     partition_count: usize,
     tasks: nia_query::QueryTaskPool<'session, LlvmLtoReadinessOutcome>,
 }
@@ -147,7 +149,7 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
             outputs: Vec::new(),
             partition_diagnostics: Vec::new(),
             internal_diagnostics: Vec::new(),
-            reuse_counts: ObjectReuseCounts::default(),
+            reuse_counts: WorkProductReuseCounts::default(),
             partition_count: 0,
             tasks: session.task_pool(nia_query::llvm_memory_task_capacity())?,
         })
@@ -293,7 +295,7 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
                 worker_lanes.max(usize::from(!index.module_ids().is_empty())) as u64,
             );
             nia_timing::emit_counter("llvm.ready_task_submissions", self.partition_count as u64);
-            self.reuse_counts.emit();
+            self.reuse_counts.emit("object");
         }
         Ok(LlvmObjectOutput {
             link_inputs: IncrementalLinkInputs::new(self.outputs)?,
@@ -310,6 +312,7 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
         owners: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
         options: LlvmCodegenOptions,
         mode: LtoMode,
+        cache: Option<Arc<dyn LtoModuleWorkProductCache>>,
         session: &'session QuerySession,
     ) -> nia_ice::IceResult<Self> {
         let (target_identity, internal_diagnostics) = match TargetMachine::native_identity() {
@@ -320,10 +323,12 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
             coordinator: CodegenReadinessCoordinator::new(modules, type_store, owners),
             mode,
             options,
+            cache,
             target_identity,
             outputs: Vec::new(),
             partition_diagnostics: Vec::new(),
             internal_diagnostics,
+            reuse_counts: WorkProductReuseCounts::default(),
             partition_count: 0,
             tasks: session.task_pool(nia_query::llvm_memory_task_capacity())?,
         })
@@ -343,9 +348,16 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
                     let index = Arc::clone(&self.coordinator.index);
                     let options = self.options;
                     let mode = self.mode;
+                    let cache = self.cache.clone();
                     self.tasks.submit(move || {
-                        let outcome =
-                            emit_lto_partition(prepared, index, options, mode, &target_identity);
+                        let outcome = emit_lto_partition(
+                            prepared,
+                            index,
+                            options,
+                            mode,
+                            &target_identity,
+                            cache.as_deref(),
+                        );
                         Ok((key, outcome))
                     })?;
                 }
@@ -388,7 +400,10 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
             };
         for (key, outcome) in task_outcomes {
             match outcome {
-                Ok(output) => self.outputs.push(output),
+                Ok((output, reuse)) => {
+                    self.reuse_counts.record(reuse);
+                    self.outputs.push(output);
+                }
                 Err(diagnostics) => self.partition_diagnostics.push((key, diagnostics)),
             }
         }
@@ -409,8 +424,12 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
                 self.options,
                 self.mode,
                 target_identity,
+                self.cache.as_deref(),
             ) {
-                Ok(output) => self.outputs.push(output),
+                Ok((output, reuse)) => {
+                    self.reuse_counts.record(reuse);
+                    self.outputs.push(output);
+                }
                 Err(diagnostic) => self
                     .partition_diagnostics
                     .push((CodegenUnitKey::CompilerBuiltins, vec![diagnostic])),
@@ -438,6 +457,7 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
                 worker_lanes.max(usize::from(!index.module_ids().is_empty())) as u64,
             );
             nia_timing::emit_counter("llvm.ready_task_submissions", self.partition_count as u64);
+            self.reuse_counts.emit("lto_prelink");
         }
         Ok(LlvmLtoModuleOutput {
             mode: self.mode,
@@ -695,6 +715,7 @@ pub fn emit_lto_modules(
     session: &QuerySession,
     options: LlvmCodegenOptions,
     mode: LtoMode,
+    cache: Option<Arc<dyn LtoModuleWorkProductCache>>,
 ) -> LlvmLtoModuleOutput {
     let timings = options.timings;
     if let Err(ice) = lowering
@@ -770,13 +791,19 @@ pub fn emit_lto_modules(
         tasks.into_iter().map(|task| {
             let index = Arc::clone(&index);
             let target_identity = Arc::clone(&target_identity);
+            let cache = cache.clone();
             move || {
                 Ok(match task {
                     LtoCodegenTask::Partition(preparation) => match *preparation {
-                        CodegenPartitionPreparation::Ready(prepared) => {
-                            emit_lto_partition(prepared, index, options, mode, &target_identity)
-                                .map(Some)
-                        }
+                        CodegenPartitionPreparation::Ready(prepared) => emit_lto_partition(
+                            prepared,
+                            index,
+                            options,
+                            mode,
+                            &target_identity,
+                            cache.as_deref(),
+                        )
+                        .map(Some),
                         CodegenPartitionPreparation::Invalid { diagnostics, .. } => {
                             Err(diagnostics)
                         }
@@ -784,11 +811,15 @@ pub fn emit_lto_modules(
                     LtoCodegenTask::DeclarationModule(module_id) => {
                         validate_declaration_module(module_id, &index).map(|()| None)
                     }
-                    LtoCodegenTask::CompilerBuiltins(symbols) => {
-                        emit_compiler_builtins_lto_module(symbols, options, mode, &target_identity)
-                            .map(Some)
-                            .map_err(|diagnostic| vec![diagnostic])
-                    }
+                    LtoCodegenTask::CompilerBuiltins(symbols) => emit_compiler_builtins_lto_module(
+                        symbols,
+                        options,
+                        mode,
+                        &target_identity,
+                        cache.as_deref(),
+                    )
+                    .map(Some)
+                    .map_err(|diagnostic| vec![diagnostic]),
                 })
             }
         }),
@@ -807,9 +838,13 @@ pub fn emit_lto_modules(
     };
     let mut modules = Vec::with_capacity(outcomes.len());
     let mut diagnostics = Vec::new();
+    let mut reuse_counts = WorkProductReuseCounts::default();
     for outcome in outcomes {
         match outcome {
-            Ok(Some(module)) => modules.push(module),
+            Ok(Some((module, reuse))) => {
+                reuse_counts.record(reuse);
+                modules.push(module);
+            }
             Ok(None) => {}
             Err(task_diagnostics) => diagnostics.extend(task_diagnostics),
         }
@@ -818,6 +853,7 @@ pub fn emit_lto_modules(
     if timings.enabled() {
         nia_timing::emit_counter("llvm.units", modules.len() as u64);
         nia_timing::emit_counter("llvm.worker_lanes", worker_lanes as u64);
+        reuse_counts.emit("lto_prelink");
     }
     LlvmLtoModuleOutput {
         mode,
@@ -1362,7 +1398,7 @@ fn emit_native_objects_inner(
     };
     let mut outputs = Vec::with_capacity(outcomes.len());
     let mut diagnostics = Vec::new();
-    let mut reuse_counts = ObjectReuseCounts::default();
+    let mut reuse_counts = WorkProductReuseCounts::default();
     for outcome in outcomes {
         match outcome {
             Ok(Some((output, reuse))) => {
@@ -1376,7 +1412,7 @@ fn emit_native_objects_inner(
     if timings.enabled() {
         nia_timing::emit_counter("llvm.units", outputs.len() as u64);
         nia_timing::emit_counter("llvm.worker_lanes", worker_lanes as u64);
-        reuse_counts.emit();
+        reuse_counts.emit("object");
     }
     match IncrementalLinkInputs::new(outputs) {
         Ok(link_inputs) => LlvmObjectOutput {
@@ -1458,22 +1494,25 @@ fn codegen_worker_lanes(session: &QuerySession, task_count: usize) -> usize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ObjectReuse {
+enum WorkProductReuse {
     Hit,
-    Miss(ObjectReuseMiss),
+    Miss {
+        reason: WorkProductReuseMiss,
+        write_error: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ObjectReuseMiss {
+enum WorkProductReuseMiss {
     Disabled,
     NotFound,
-    Invalidated(ObjectWorkProductInvalidation),
+    Invalidated(CodegenWorkProductInvalidation),
     Corrupt,
     ReadError,
 }
 
 #[derive(Debug, Default)]
-struct ObjectReuseCounts {
+struct WorkProductReuseCounts {
     hits: u64,
     disabled: u64,
     not_found: u64,
@@ -1484,46 +1523,57 @@ struct ObjectReuseCounts {
     invalidated_target: u64,
     corrupt: u64,
     read_error: u64,
+    write_error: u64,
 }
 
-impl ObjectReuseCounts {
-    fn record(&mut self, reuse: ObjectReuse) {
+impl WorkProductReuseCounts {
+    fn record(&mut self, reuse: WorkProductReuse) {
         match reuse {
-            ObjectReuse::Hit => self.hits += 1,
-            ObjectReuse::Miss(ObjectReuseMiss::Disabled) => self.disabled += 1,
-            ObjectReuse::Miss(ObjectReuseMiss::NotFound) => self.not_found += 1,
-            ObjectReuse::Miss(ObjectReuseMiss::Invalidated(reasons)) => {
-                self.invalidated += 1;
-                self.invalidated_policy += u64::from(reasons.policy);
-                self.invalidated_definition += u64::from(reasons.definition);
-                self.invalidated_declarations += u64::from(reasons.declarations);
-                self.invalidated_target += u64::from(reasons.target);
+            WorkProductReuse::Hit => self.hits += 1,
+            WorkProductReuse::Miss {
+                reason,
+                write_error,
+            } => {
+                self.write_error += u64::from(write_error);
+                match reason {
+                    WorkProductReuseMiss::Disabled => self.disabled += 1,
+                    WorkProductReuseMiss::NotFound => self.not_found += 1,
+                    WorkProductReuseMiss::Invalidated(reasons) => {
+                        self.invalidated += 1;
+                        self.invalidated_policy += u64::from(reasons.policy);
+                        self.invalidated_definition += u64::from(reasons.definition);
+                        self.invalidated_declarations += u64::from(reasons.declarations);
+                        self.invalidated_target += u64::from(reasons.target);
+                    }
+                    WorkProductReuseMiss::Corrupt => self.corrupt += 1,
+                    WorkProductReuseMiss::ReadError => self.read_error += 1,
+                }
             }
-            ObjectReuse::Miss(ObjectReuseMiss::Corrupt) => self.corrupt += 1,
-            ObjectReuse::Miss(ObjectReuseMiss::ReadError) => self.read_error += 1,
         }
     }
 
-    fn emit(&self) {
+    fn emit(&self, product: &str) {
         let misses =
             self.disabled + self.not_found + self.invalidated + self.corrupt + self.read_error;
-        nia_timing::emit_counter("llvm.object_reuse_hits", self.hits);
-        nia_timing::emit_counter("llvm.object_reuse_misses", misses);
-        nia_timing::emit_counter("llvm.object_reuse_miss_disabled", self.disabled);
-        nia_timing::emit_counter("llvm.object_reuse_miss_not_found", self.not_found);
-        nia_timing::emit_counter("llvm.object_reuse_miss_invalidated", self.invalidated);
-        nia_timing::emit_counter("llvm.object_invalidation_policy", self.invalidated_policy);
+        let counter = |suffix| format!("llvm.{product}_{suffix}");
+        nia_timing::emit_counter(counter("reuse_hits"), self.hits);
+        nia_timing::emit_counter(counter("reuse_misses"), misses);
+        nia_timing::emit_counter(counter("reuse_miss_disabled"), self.disabled);
+        nia_timing::emit_counter(counter("reuse_miss_not_found"), self.not_found);
+        nia_timing::emit_counter(counter("reuse_miss_invalidated"), self.invalidated);
+        nia_timing::emit_counter(counter("invalidation_policy"), self.invalidated_policy);
         nia_timing::emit_counter(
-            "llvm.object_invalidation_definition",
+            counter("invalidation_definition"),
             self.invalidated_definition,
         );
         nia_timing::emit_counter(
-            "llvm.object_invalidation_declarations",
+            counter("invalidation_declarations"),
             self.invalidated_declarations,
         );
-        nia_timing::emit_counter("llvm.object_invalidation_target", self.invalidated_target);
-        nia_timing::emit_counter("llvm.object_reuse_miss_corrupt", self.corrupt);
-        nia_timing::emit_counter("llvm.object_reuse_miss_read_error", self.read_error);
+        nia_timing::emit_counter(counter("invalidation_target"), self.invalidated_target);
+        nia_timing::emit_counter(counter("reuse_miss_corrupt"), self.corrupt);
+        nia_timing::emit_counter(counter("reuse_miss_read_error"), self.read_error);
+        nia_timing::emit_counter(counter("reuse_write_errors"), self.write_error);
     }
 }
 
@@ -1582,7 +1632,8 @@ fn emit_lto_partition(
     options: LlvmCodegenOptions,
     mode: LtoMode,
     target_identity: &TargetMachineIdentity,
-) -> Result<LtoModule, Vec<nia_diagnostic::Diagnostic>> {
+    cache: Option<&dyn LtoModuleWorkProductCache>,
+) -> Result<(LtoModule, WorkProductReuse), Vec<nia_diagnostic::Diagnostic>> {
     let PreparedCodegenPartition {
         partition,
         declarations,
@@ -1606,6 +1657,23 @@ fn emit_lto_partition(
         options,
         fingerprint::ArtifactTarget::LtoBitcode(mode, target_identity),
     )?;
+    let module_identifier = lto_module_identifier(&partition.key);
+    let miss = match load_lto_work_product(cache, mode, &partition.key, fingerprints) {
+        WorkProductReuseLookup::Hit(bitcode) => {
+            return Ok((
+                LtoModule {
+                    unit: partition.id,
+                    key: partition.key,
+                    fingerprint: fingerprints.fingerprint,
+                    name: module.name.clone(),
+                    module_identifier,
+                    bitcode,
+                },
+                WorkProductReuse::Hit,
+            ));
+        }
+        WorkProductReuseLookup::Miss(miss) => miss,
+    };
     let memory_permit = nia_query::acquire_llvm_memory_permit()
         .map_err(|ice| vec![nia_diagnostic::Diagnostic::from(ice)])?;
     record_memory_permit(options.timings, memory_permit.waited());
@@ -1627,7 +1695,6 @@ fn emit_lto_partition(
     target
         .configure_module(&codegen.module)
         .map_err(|error| vec![error.diagnostic()])?;
-    let module_identifier = lto_module_identifier(&partition.key);
     let bitcode = codegen
         .emit_lto_bitcode(
             &target,
@@ -1636,14 +1703,21 @@ fn emit_lto_partition(
             mode,
         )
         .map_err(|diagnostic| vec![diagnostic])?;
-    Ok(LtoModule {
-        unit: partition.id,
-        key: partition.key,
-        fingerprint: fingerprints.fingerprint,
-        name: module.name.clone(),
-        module_identifier,
-        bitcode,
-    })
+    let write_error = publish_lto_work_product(cache, mode, &partition.key, fingerprints, &bitcode);
+    Ok((
+        LtoModule {
+            unit: partition.id,
+            key: partition.key,
+            fingerprint: fingerprints.fingerprint,
+            name: module.name.clone(),
+            module_identifier,
+            bitcode,
+        },
+        WorkProductReuse::Miss {
+            reason: miss,
+            write_error,
+        },
+    ))
 }
 
 fn lto_module_identifier(key: &CodegenUnitKey) -> String {
@@ -1671,7 +1745,8 @@ fn emit_native_object_partition(
     index: Arc<ProgramIndex>,
     options: LlvmCodegenOptions,
     cache: Option<&dyn ObjectWorkProductCache>,
-) -> Result<(IncrementalLinkInput<NativeObject>, ObjectReuse), Vec<nia_diagnostic::Diagnostic>> {
+) -> Result<(IncrementalLinkInput<NativeObject>, WorkProductReuse), Vec<nia_diagnostic::Diagnostic>>
+{
     let PreparedCodegenPartition {
         partition,
         declarations,
@@ -1702,7 +1777,7 @@ fn emit_native_object_partition(
         fingerprint::ArtifactTarget::NativeObject(&target_identity),
     )?;
     let miss = match load_object_work_product(cache, &partition.key, fingerprints) {
-        ObjectReuseLookup::Hit(bytes) => {
+        WorkProductReuseLookup::Hit(bytes) => {
             return Ok((
                 IncrementalLinkInput {
                     key: partition.key,
@@ -1713,10 +1788,10 @@ fn emit_native_object_partition(
                         bytes,
                     },
                 },
-                ObjectReuse::Hit,
+                WorkProductReuse::Hit,
             ));
         }
-        ObjectReuseLookup::Miss(miss) => miss,
+        WorkProductReuseLookup::Miss(miss) => miss,
     };
     let memory_permit = nia_query::acquire_llvm_memory_permit()
         .map_err(|ice| vec![nia_diagnostic::Diagnostic::from(ice)])?;
@@ -1742,7 +1817,7 @@ fn emit_native_object_partition(
     let bytes = codegen
         .emit_object(&target)
         .map_err(|diagnostic| vec![diagnostic])?;
-    publish_object_work_product(cache, &partition.key, fingerprints, &bytes);
+    let write_error = publish_object_work_product(cache, &partition.key, fingerprints, &bytes);
     Ok((
         IncrementalLinkInput {
             key: partition.key,
@@ -1753,7 +1828,10 @@ fn emit_native_object_partition(
                 bytes,
             },
         },
-        ObjectReuse::Miss(miss),
+        WorkProductReuse::Miss {
+            reason: miss,
+            write_error,
+        },
     ))
 }
 
@@ -1762,9 +1840,27 @@ fn emit_compiler_builtins_lto_module(
     options: LlvmCodegenOptions,
     mode: LtoMode,
     target_identity: &TargetMachineIdentity,
-) -> Result<LtoModule, nia_diagnostic::Diagnostic> {
+    cache: Option<&dyn LtoModuleWorkProductCache>,
+) -> Result<(LtoModule, WorkProductReuse), nia_diagnostic::Diagnostic> {
     let fingerprints =
         fingerprint::compiler_builtins_lto_fingerprint(&symbols, options, target_identity, mode);
+    let miss =
+        match load_lto_work_product(cache, mode, &CodegenUnitKey::CompilerBuiltins, fingerprints) {
+            WorkProductReuseLookup::Hit(bitcode) => {
+                return Ok((
+                    LtoModule {
+                        unit: CodegenUnitId::CompilerBuiltins,
+                        key: CodegenUnitKey::CompilerBuiltins,
+                        fingerprint: fingerprints.fingerprint,
+                        name: "nia.compiler_builtins".to_owned(),
+                        module_identifier: "nia:cgu:compiler-builtins".to_owned(),
+                        bitcode,
+                    },
+                    WorkProductReuse::Hit,
+                ));
+            }
+            WorkProductReuseLookup::Miss(miss) => miss,
+        };
     let memory_permit =
         nia_query::acquire_llvm_memory_permit().map_err(nia_diagnostic::Diagnostic::from)?;
     record_memory_permit(options.timings, memory_permit.waited());
@@ -1781,21 +1877,34 @@ fn emit_compiler_builtins_lto_module(
         llvm_optimization_level(options.optimization.level),
         mode,
     )?;
-    Ok(LtoModule {
-        unit: CodegenUnitId::CompilerBuiltins,
-        key: CodegenUnitKey::CompilerBuiltins,
-        fingerprint: fingerprints.fingerprint,
-        name: "nia.compiler_builtins".to_owned(),
-        module_identifier: "nia:cgu:compiler-builtins".to_owned(),
-        bitcode,
-    })
+    let write_error = publish_lto_work_product(
+        cache,
+        mode,
+        &CodegenUnitKey::CompilerBuiltins,
+        fingerprints,
+        &bitcode,
+    );
+    Ok((
+        LtoModule {
+            unit: CodegenUnitId::CompilerBuiltins,
+            key: CodegenUnitKey::CompilerBuiltins,
+            fingerprint: fingerprints.fingerprint,
+            name: "nia.compiler_builtins".to_owned(),
+            module_identifier: "nia:cgu:compiler-builtins".to_owned(),
+            bitcode,
+        },
+        WorkProductReuse::Miss {
+            reason: miss,
+            write_error,
+        },
+    ))
 }
 
 fn emit_compiler_builtins_object(
     symbols: compiler_builtins::CompilerBuiltinSymbols,
     options: LlvmCodegenOptions,
     cache: Option<&dyn ObjectWorkProductCache>,
-) -> Result<(IncrementalLinkInput<NativeObject>, ObjectReuse), nia_diagnostic::Diagnostic> {
+) -> Result<(IncrementalLinkInput<NativeObject>, WorkProductReuse), nia_diagnostic::Diagnostic> {
     let target_identity = time_codegen_stage(
         options.timings,
         "llvm_codegen.native_target_identity",
@@ -1806,7 +1915,7 @@ fn emit_compiler_builtins_object(
         fingerprint::compiler_builtins_fingerprint(&symbols, options, &target_identity);
     let miss =
         match load_object_work_product(cache, &CodegenUnitKey::CompilerBuiltins, fingerprints) {
-            ObjectReuseLookup::Hit(bytes) => {
+            WorkProductReuseLookup::Hit(bytes) => {
                 return Ok((
                     IncrementalLinkInput {
                         key: CodegenUnitKey::CompilerBuiltins,
@@ -1817,10 +1926,10 @@ fn emit_compiler_builtins_object(
                             bytes,
                         },
                     },
-                    ObjectReuse::Hit,
+                    WorkProductReuse::Hit,
                 ));
             }
-            ObjectReuseLookup::Miss(miss) => miss,
+            WorkProductReuseLookup::Miss(miss) => miss,
         };
     let memory_permit =
         nia_query::acquire_llvm_memory_permit().map_err(nia_diagnostic::Diagnostic::from)?;
@@ -1833,7 +1942,7 @@ fn emit_compiler_builtins_object(
     })
     .map_err(|error| error.diagnostic())?;
     let bytes = compiler_builtins::emit_object(&target, symbols)?;
-    publish_object_work_product(
+    let write_error = publish_object_work_product(
         cache,
         &CodegenUnitKey::CompilerBuiltins,
         fingerprints,
@@ -1849,31 +1958,62 @@ fn emit_compiler_builtins_object(
                 bytes,
             },
         },
-        ObjectReuse::Miss(miss),
+        WorkProductReuse::Miss {
+            reason: miss,
+            write_error,
+        },
     ))
 }
 
-enum ObjectReuseLookup {
+enum WorkProductReuseLookup {
     Hit(Vec<u8>),
-    Miss(ObjectReuseMiss),
+    Miss(WorkProductReuseMiss),
 }
 
 fn load_object_work_product(
     cache: Option<&dyn ObjectWorkProductCache>,
     key: &CodegenUnitKey,
     fingerprints: CodegenUnitFingerprintSet,
-) -> ObjectReuseLookup {
+) -> WorkProductReuseLookup {
     let Some(cache) = cache else {
-        return ObjectReuseLookup::Miss(ObjectReuseMiss::Disabled);
+        return WorkProductReuseLookup::Miss(WorkProductReuseMiss::Disabled);
     };
     match cache.load(key, fingerprints) {
-        Ok(ObjectWorkProductLookup::Hit(bytes)) => ObjectReuseLookup::Hit(bytes),
-        Ok(ObjectWorkProductLookup::NotFound) => ObjectReuseLookup::Miss(ObjectReuseMiss::NotFound),
-        Ok(ObjectWorkProductLookup::Invalidated(reasons)) => {
-            ObjectReuseLookup::Miss(ObjectReuseMiss::Invalidated(reasons))
+        Ok(CodegenWorkProductLookup::Hit(bytes)) => WorkProductReuseLookup::Hit(bytes),
+        Ok(CodegenWorkProductLookup::NotFound) => {
+            WorkProductReuseLookup::Miss(WorkProductReuseMiss::NotFound)
         }
-        Ok(ObjectWorkProductLookup::Corrupt) => ObjectReuseLookup::Miss(ObjectReuseMiss::Corrupt),
-        Err(_) => ObjectReuseLookup::Miss(ObjectReuseMiss::ReadError),
+        Ok(CodegenWorkProductLookup::Invalidated(reasons)) => {
+            WorkProductReuseLookup::Miss(WorkProductReuseMiss::Invalidated(reasons))
+        }
+        Ok(CodegenWorkProductLookup::Corrupt) => {
+            WorkProductReuseLookup::Miss(WorkProductReuseMiss::Corrupt)
+        }
+        Err(_) => WorkProductReuseLookup::Miss(WorkProductReuseMiss::ReadError),
+    }
+}
+
+fn load_lto_work_product(
+    cache: Option<&dyn LtoModuleWorkProductCache>,
+    mode: LtoMode,
+    key: &CodegenUnitKey,
+    fingerprints: CodegenUnitFingerprintSet,
+) -> WorkProductReuseLookup {
+    let Some(cache) = cache else {
+        return WorkProductReuseLookup::Miss(WorkProductReuseMiss::Disabled);
+    };
+    match cache.load(mode, key, fingerprints) {
+        Ok(CodegenWorkProductLookup::Hit(bytes)) => WorkProductReuseLookup::Hit(bytes),
+        Ok(CodegenWorkProductLookup::NotFound) => {
+            WorkProductReuseLookup::Miss(WorkProductReuseMiss::NotFound)
+        }
+        Ok(CodegenWorkProductLookup::Invalidated(reasons)) => {
+            WorkProductReuseLookup::Miss(WorkProductReuseMiss::Invalidated(reasons))
+        }
+        Ok(CodegenWorkProductLookup::Corrupt) => {
+            WorkProductReuseLookup::Miss(WorkProductReuseMiss::Corrupt)
+        }
+        Err(_) => WorkProductReuseLookup::Miss(WorkProductReuseMiss::ReadError),
     }
 }
 
@@ -1882,10 +2022,18 @@ fn publish_object_work_product(
     key: &CodegenUnitKey,
     fingerprints: CodegenUnitFingerprintSet,
     bytes: &[u8],
-) {
-    if let Some(cache) = cache {
-        let _ = cache.publish(key, fingerprints, bytes);
-    }
+) -> bool {
+    cache.is_some_and(|cache| cache.publish(key, fingerprints, bytes).is_err())
+}
+
+fn publish_lto_work_product(
+    cache: Option<&dyn LtoModuleWorkProductCache>,
+    mode: LtoMode,
+    key: &CodegenUnitKey,
+    fingerprints: CodegenUnitFingerprintSet,
+    bytes: &[u8],
+) -> bool {
+    cache.is_some_and(|cache| cache.publish(mode, key, fingerprints, bytes).is_err())
 }
 
 pub(crate) fn time_codegen_stage<T>(

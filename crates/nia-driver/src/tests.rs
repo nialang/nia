@@ -101,6 +101,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
     !()
 }
+
 "#,
     );
     let driver = common::test_driver();
@@ -125,6 +126,118 @@ pub fn main(init: process::Init) process::ExitCode!() {
             .unwrap_or_else(|error| panic!("run {name} LTO executable: {error}"));
         assert_eq!(status.code(), Some(0), "{name} LTO executable failed");
     }
+}
+
+#[test]
+#[cfg(unix)]
+fn lto_prelink_cache_reuses_and_recovers_corrupt_modules() {
+    fn files_under(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+        fn visit(path: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(path).expect("read cache directory") {
+                let path = entry.expect("read cache entry").path();
+                if path.is_dir() {
+                    visit(&path, files);
+                } else {
+                    files.push(path);
+                }
+            }
+        }
+
+        let mut files = Vec::new();
+        visit(root, &mut files);
+        files.sort_unstable();
+        files
+    }
+
+    let root = common::temp_dir("lto-prelink-cache");
+    let source = root.join("main.nia");
+    common::write(
+        &source,
+        r#"
+using std::process;
+
+fn helper(value: i32) i32 { value + 1 }
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if helper(41) != 42 { return process::ExitCode(1)!; }
+    !()
+}
+"#,
+    );
+    let cache_root = root.join("cache");
+    let driver = crate::Driver::with_config(crate::DriverConfig {
+        artifact_cache_dir: Some(cache_root.clone()),
+        ..crate::DriverConfig::new(common::test_toolchain_layout())
+    });
+    let build = |name: &str, policy| {
+        driver
+            .link_executable(
+                crate::LinkExecutableRequest::new(
+                    crate::CheckRequest::new(source.to_string_lossy().into_owned()),
+                    root.join(name),
+                )
+                .with_link_time_optimization(policy),
+            )
+            .result
+            .unwrap_or_else(|error| panic!("link {name}: {error:?}"))
+    };
+
+    let first = build("thin-first", crate::LinkTimeOptimization::Thin);
+    let thin_cache = cache_root.join("artifacts/thin-lto-modules/release");
+    let thin_modules = files_under(&thin_cache)
+        .into_iter()
+        .filter(|path| path.extension().is_some_and(|extension| extension == "bc"))
+        .collect::<Vec<_>>();
+    assert!(!thin_modules.is_empty(), "missing ThinLTO pre-link cache");
+    let cached = thin_modules
+        .iter()
+        .map(|path| {
+            (
+                path.clone(),
+                std::fs::read(path).expect("read cached module"),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let second = build("thin-second", crate::LinkTimeOptimization::Thin);
+    assert_eq!(
+        std::fs::read(&first.path).expect("read first ThinLTO executable"),
+        std::fs::read(&second.path).expect("read second ThinLTO executable")
+    );
+    for (path, bytes) in &cached {
+        assert_eq!(&std::fs::read(path).expect("read reused module"), bytes);
+    }
+
+    let (corrupt_path, original) = &cached[0];
+    let mut corrupt = original.clone();
+    *corrupt.last_mut().expect("cached payload byte") ^= 0xff;
+    std::fs::write(corrupt_path, corrupt).expect("corrupt cached module");
+    let third = build("thin-third", crate::LinkTimeOptimization::Thin);
+    assert_eq!(
+        std::fs::read(corrupt_path).expect("read regenerated module"),
+        *original
+    );
+    assert_eq!(
+        std::fs::read(&first.path).expect("read first executable"),
+        std::fs::read(&third.path).expect("read recovered executable")
+    );
+
+    let full = build("full", crate::LinkTimeOptimization::Full);
+    assert_eq!(
+        std::process::Command::new(full.path)
+            .status()
+            .expect("run full-LTO executable")
+            .code(),
+        Some(0)
+    );
+    let full_cache = cache_root.join("artifacts/full-lto-modules/release");
+    assert!(
+        files_under(&full_cache)
+            .iter()
+            .any(|path| path.extension().is_some_and(|extension| extension == "bc")),
+        "missing full-LTO pre-link cache"
+    );
 }
 
 #[test]

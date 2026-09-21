@@ -8,7 +8,7 @@ const FINGERPRINT_SET_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.llvm.codegen-unit-components");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// Independently attributable inputs to one object work-product fingerprint.
+/// Independently attributable inputs to one codegen work-product fingerprint.
 ///
 /// Keeping the components separate lets cache diagnostics distinguish policy
 /// changes from definition, declaration-surface, and target changes.
@@ -54,8 +54,8 @@ impl CodegenUnitFingerprintSet {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// Component-wise reason that a cached object cannot be reused.
-pub struct ObjectWorkProductInvalidation {
+/// Component-wise reason that a cached codegen product cannot be reused.
+pub struct CodegenWorkProductInvalidation {
     /// Optimization or codegen policy changed.
     pub policy: bool,
     /// Definitions owned by the unit changed.
@@ -66,7 +66,7 @@ pub struct ObjectWorkProductInvalidation {
     pub target: bool,
 }
 
-impl ObjectWorkProductInvalidation {
+impl CodegenWorkProductInvalidation {
     /// Compares cached and expected component fingerprints.
     pub fn between(
         cached: CodegenUnitFingerprintComponents,
@@ -90,14 +90,14 @@ impl ObjectWorkProductInvalidation {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-/// Result of looking up a native object work product.
-pub enum ObjectWorkProductLookup {
-    /// Exact fingerprint match with reusable object bytes.
+/// Result of looking up a codegen work product.
+pub enum CodegenWorkProductLookup {
+    /// Exact fingerprint match with reusable payload bytes.
     Hit(Vec<u8>),
     /// No cache entry exists for the stable unit key.
     NotFound,
     /// An entry exists but one or more fingerprint components changed.
-    Invalidated(ObjectWorkProductInvalidation),
+    Invalidated(CodegenWorkProductInvalidation),
     /// The entry could not be decoded or failed integrity validation.
     Corrupt,
 }
@@ -106,18 +106,42 @@ pub enum ObjectWorkProductLookup {
 ///
 /// Implementations own storage synchronization and atomic publication. A cache
 /// hit must correspond exactly to the supplied stable key and fingerprint set;
-/// corrupt or stale bytes must never be returned as [`ObjectWorkProductLookup::Hit`].
+/// corrupt or stale bytes must never be returned as [`CodegenWorkProductLookup::Hit`].
 pub trait ObjectWorkProductCache: Send + Sync {
     /// Loads and validates an object for `key` against `fingerprints`.
     fn load(
         &self,
         key: &CodegenUnitKey,
         fingerprints: CodegenUnitFingerprintSet,
-    ) -> io::Result<ObjectWorkProductLookup>;
+    ) -> io::Result<CodegenWorkProductLookup>;
 
     /// Atomically publishes verified object bytes for the exact fingerprint set.
     fn publish(
         &self,
+        key: &CodegenUnitKey,
+        fingerprints: CodegenUnitFingerprintSet,
+        bytes: &[u8],
+    ) -> io::Result<()>;
+}
+
+/// Persistent cache boundary for LTO pre-link bitcode work products.
+///
+/// Implementations must keep ThinLTO and full-LTO formats distinct and own
+/// storage synchronization plus atomic publication. A hit must exactly match
+/// the requested mode, stable key, and fingerprint set.
+pub trait LtoModuleWorkProductCache: Send + Sync {
+    /// Loads and validates pre-link bitcode for `key` and `mode`.
+    fn load(
+        &self,
+        mode: crate::LtoMode,
+        key: &CodegenUnitKey,
+        fingerprints: CodegenUnitFingerprintSet,
+    ) -> io::Result<CodegenWorkProductLookup>;
+
+    /// Atomically publishes verified pre-link bitcode for the exact identity.
+    fn publish(
+        &self,
+        mode: crate::LtoMode,
         key: &CodegenUnitKey,
         fingerprints: CodegenUnitFingerprintSet,
         bytes: &[u8],
