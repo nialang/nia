@@ -108,6 +108,7 @@ fn method_provider_change_removes_only_affected_function_diagnostics() {
     let (affected_function, unaffected_function) = {
         let session = database.db.context().executable_fact_session.lock();
         let state = session.modules.get(&entry_id).expect("entry facts");
+        assert!(session.caches.fact_layouts.borrow().contains_key(&entry_id));
         assert!(!state.diagnostics.is_empty());
         let affected = *state
             .provider_demands_by_function
@@ -166,6 +167,7 @@ fn method_provider_change_removes_only_affected_function_diagnostics() {
     assert!(state.checked_functions.contains(&unaffected_function));
     assert!(state.diagnostics.is_empty(), "{:?}", state.diagnostics);
     assert_eq!(state.diagnostic_owners.len(), state.diagnostics.len());
+    assert!(!session.caches.fact_layouts.borrow().contains_key(&entry_id));
     assert!(
         session
             .caches
