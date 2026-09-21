@@ -50,10 +50,10 @@ impl<'a> BodyChecker<'a> {
         {
             return true;
         }
-        if let Some(summary) = &self.flow_summary {
-            if let Some(falls_through) = summary.get(&std::ptr::from_ref(block)) {
-                return !falls_through;
-            }
+        if let Some(summary) = &self.flow_summary
+            && let Some(falls_through) = summary.get(&std::ptr::from_ref(block))
+        {
+            return !falls_through;
         }
         !nia_flow_check::block_falls_through(block)
     }
