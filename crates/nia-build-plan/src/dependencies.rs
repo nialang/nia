@@ -5,9 +5,11 @@
 //! identity. These validators connect each read to a unique output owner and
 //! require that owner in every consumer step's transitive dependency closure.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use super::*;
 
-pub(super) fn validate_artifact_dependencies(
+pub(crate) fn validate_artifact_dependencies(
     actions: &[PlanAction],
     steps: &[PlanStep],
 ) -> Result<(), PlanError> {
@@ -96,7 +98,7 @@ pub(super) fn validate_artifact_dependencies(
     Ok(())
 }
 
-pub(super) fn dependency_action_closure(
+pub(crate) fn dependency_action_closure(
     step: &PlanStep,
     step_by_key: &BTreeMap<&StepKey, &PlanStep>,
 ) -> Result<BTreeSet<ActionKey>, PlanError> {
@@ -119,7 +121,7 @@ pub(super) fn dependency_action_closure(
     Ok(actions)
 }
 
-pub(super) fn validate_build_input_dependencies(draft: &BuildPlanDraft) -> Result<(), PlanError> {
+pub(crate) fn validate_build_input_dependencies(draft: &BuildPlanDraft) -> Result<(), PlanError> {
     let artifacts: BTreeMap<_, _> = draft
         .artifacts
         .iter()
@@ -209,7 +211,7 @@ pub(super) fn validate_build_input_dependencies(draft: &BuildPlanDraft) -> Resul
     Ok(())
 }
 
-pub(super) fn validate_generated_source_dependencies(
+pub(crate) fn validate_generated_source_dependencies(
     draft: &BuildPlanDraft,
 ) -> Result<(), PlanError> {
     let modules: BTreeMap<_, _> = draft
@@ -299,7 +301,7 @@ pub(super) fn validate_generated_source_dependencies(
     Ok(())
 }
 
-pub(super) fn validate_output_ownership(
+pub(crate) fn validate_output_ownership(
     actions: &[PlanAction],
     artifacts: &[PlanArtifact],
 ) -> Result<(), PlanError> {

@@ -4,9 +4,12 @@
 //! This module validates relationships contained within action declarations.
 //! Cross-step scheduling edges and output ownership remain in `dependencies`.
 
+use std::collections::{BTreeMap, BTreeSet};
+
+use super::validation::reject_duplicate_by;
 use super::*;
 
-pub(super) fn canonicalize_actions(
+pub(crate) fn canonicalize_actions(
     actions: &mut [PlanAction],
     modules: &[PlanModule],
     artifacts: &[PlanArtifact],
