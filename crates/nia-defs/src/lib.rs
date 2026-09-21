@@ -707,16 +707,18 @@ impl DefIdentity {
         }
     }
 
-    fn child(&self, kind: DefKind, name: &SymbolId) -> Self {
+    fn child(&self, kind: DefKind, name: &SymbolId) -> nia_ice::IceResult<Self> {
         let DefIdentityRepr::Structural(parent_segments) = &self.repr else {
-            unreachable!("cannot derive a child from a rehydrated definition identity");
+            return Err(nia_ice::Ice::new(
+                "cannot derive a child from a rehydrated definition identity",
+            ));
         };
         let mut segments = Vec::with_capacity(parent_segments.len() + 1);
         segments.extend_from_slice(parent_segments);
         segments.push(DefIdentitySegment::Member { kind, name: *name });
-        Self {
+        Ok(Self {
             repr: DefIdentityRepr::Structural(segments.into_boxed_slice()),
-        }
+        })
     }
 
     fn extension(extend: &ExtendItem) -> Self {
@@ -733,16 +735,18 @@ impl DefIdentity {
         }
     }
 
-    fn duplicate(&self, ordinal: u32) -> Self {
+    fn duplicate(&self, ordinal: u32) -> nia_ice::IceResult<Self> {
         let DefIdentityRepr::Structural(base_segments) = &self.repr else {
-            unreachable!("cannot disambiguate a rehydrated definition identity");
+            return Err(nia_ice::Ice::new(
+                "cannot disambiguate a rehydrated definition identity",
+            ));
         };
         let mut segments = Vec::with_capacity(base_segments.len() + 1);
         segments.extend_from_slice(base_segments);
         segments.push(DefIdentitySegment::Duplicate { ordinal });
-        Self {
+        Ok(Self {
             repr: DefIdentityRepr::Structural(segments.into_boxed_slice()),
-        }
+        })
     }
 
     fn display(&self) -> String {
@@ -1181,7 +1185,7 @@ impl<'a> Collector<'a> {
         let mut members = MemberScope::default();
         for field in &item_struct.fields {
             let field_id = self.push_member_def(
-                identity.child(DefKind::StructField, &field.name),
+                identity.child(DefKind::StructField, &field.name)?,
                 Some(struct_id),
                 field.name,
                 DefKind::StructField,
@@ -1219,7 +1223,7 @@ impl<'a> Collector<'a> {
         let mut members = MemberScope::default();
         for field in &item_union.fields {
             let field_id = self.push_member_def(
-                identity.child(DefKind::UnionField, &field.name),
+                identity.child(DefKind::UnionField, &field.name)?,
                 Some(union_id),
                 field.name,
                 DefKind::UnionField,
@@ -1306,7 +1310,7 @@ impl<'a> Collector<'a> {
         associated_type: &TraitAssociatedType,
     ) -> nia_ice::IceResult<()> {
         let associated_type_id = self.push_member_def(
-            owner_identity.child(DefKind::TraitAssociatedType, &associated_type.name),
+            owner_identity.child(DefKind::TraitAssociatedType, &associated_type.name)?,
             parent,
             associated_type.name,
             DefKind::TraitAssociatedType,
@@ -1333,7 +1337,7 @@ impl<'a> Collector<'a> {
         associated_value: &TraitAssociatedValue,
     ) -> nia_ice::IceResult<()> {
         let value_id = self.push_member_def(
-            owner_identity.child(DefKind::Const, &associated_value.name),
+            owner_identity.child(DefKind::Const, &associated_value.name)?,
             parent,
             associated_value.name,
             DefKind::Const,
@@ -1360,7 +1364,7 @@ impl<'a> Collector<'a> {
         associated_type: &ExtendAssociatedType,
     ) -> nia_ice::IceResult<()> {
         let associated_type_id = self.push_member_def(
-            owner_identity.child(DefKind::TraitAssociatedType, &associated_type.name),
+            owner_identity.child(DefKind::TraitAssociatedType, &associated_type.name)?,
             parent,
             associated_type.name,
             DefKind::TraitAssociatedType,
@@ -1388,7 +1392,7 @@ impl<'a> Collector<'a> {
     ) -> nia_ice::IceResult<()> {
         let binding = &associated_value.binding;
         let value_id = self.push_associated_value_def(
-            owner_identity.child(DefKind::Const, &binding.name),
+            owner_identity.child(DefKind::Const, &binding.name)?,
             parent,
             binding,
             associated_value.vis,
@@ -1413,8 +1417,9 @@ impl<'a> Collector<'a> {
         method: &FunctionItem,
     ) -> nia_ice::IceResult<()> {
         self.check_duplicate_generics(&method.generics, method.span);
+        let method_identity = owner_identity.child(DefKind::TraitMethod, &method.name)?;
         let method_id = self.push_member_def_with_generics(MemberDefInput {
-            identity: owner_identity.child(DefKind::TraitMethod, &method.name),
+            identity: method_identity.clone(),
             parent,
             name: method.name,
             kind: DefKind::TraitMethod,
@@ -1431,7 +1436,7 @@ impl<'a> Collector<'a> {
             "duplicate trait method",
         );
         self.collect_function_local_static_bindings(
-            &owner_identity.child(DefKind::TraitMethod, &method.name),
+            &method_identity,
             method_id,
             method,
             Visibility::Private,
@@ -1447,8 +1452,9 @@ impl<'a> Collector<'a> {
         visibility: Visibility,
     ) -> nia_ice::IceResult<()> {
         self.check_duplicate_generics(&method.generics, method.span);
+        let method_identity = owner_identity.child(DefKind::Method, &method.name)?;
         let method_id = self.push_member_def_with_generics(MemberDefInput {
-            identity: owner_identity.child(DefKind::Method, &method.name),
+            identity: method_identity.clone(),
             parent,
             name: method.name,
             kind: DefKind::Method,
@@ -1465,7 +1471,7 @@ impl<'a> Collector<'a> {
             "duplicate struct method",
         );
         self.collect_function_local_static_bindings(
-            &owner_identity.child(DefKind::Method, &method.name),
+            &method_identity,
             method_id,
             method,
             Visibility::Private,
@@ -1500,8 +1506,15 @@ impl<'a> Collector<'a> {
             let StmtKind::Static(binding) = &stmt.kind else {
                 return;
             };
+            let identity = match owner_identity.child(DefKind::Global, &binding.name) {
+                Ok(identity) => identity,
+                Err(error) => {
+                    failure = Some(error);
+                    return;
+                }
+            };
             let def_id = match self.push_member_def(
-                owner_identity.child(DefKind::Global, &binding.name),
+                identity,
                 Some(parent),
                 binding.name,
                 DefKind::Global,
@@ -1553,7 +1566,7 @@ impl<'a> Collector<'a> {
         )?;
         let mut members = EnumScope::default();
         for variant in &item_enum.variants {
-            let variant_identity = identity.child(DefKind::EnumVariant, &variant.name);
+            let variant_identity = identity.child(DefKind::EnumVariant, &variant.name)?;
             let variant_id = self.push_member_def(
                 variant_identity.clone(),
                 Some(enum_id),
@@ -1574,7 +1587,7 @@ impl<'a> Collector<'a> {
                 let mut field_names = NameTable::default();
                 for field in fields {
                     let field_id = self.push_member_def(
-                        variant_identity.child(DefKind::EnumVariantField, &field.name),
+                        variant_identity.child(DefKind::EnumVariantField, &field.name)?,
                         Some(variant_id),
                         field.name,
                         DefKind::EnumVariantField,
@@ -1759,7 +1772,7 @@ impl<'a> Collector<'a> {
         let resolved = if *ordinal == 0 {
             identity
         } else {
-            identity.duplicate(*ordinal)
+            identity.duplicate(*ordinal)?
         };
         *ordinal = ordinal.checked_add(1).ok_or_else(|| {
             nia_ice::Ice::new(format!(
