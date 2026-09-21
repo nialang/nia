@@ -28,10 +28,14 @@ fn json_lines(stderr: &str) -> Vec<Map<String, Value>> {
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .filter_map(|value| match value {
-            Value::Object(report)
-                if report.get("release_compatibility").and_then(Value::as_u64)
-                    == Some(u64::from(nia_compat::RELEASE_COMPATIBILITY)) =>
+            Value::Object(mut report)
+                if report.get("process").is_some_and(Value::is_object)
+                    && report.get("timings").is_some_and(Value::is_array)
+                    && report.get("counters").is_some_and(Value::is_object) =>
             {
+                // The compiler owns the protocol identity. Maintain consumes
+                // the timing payload but does not create a second version axis.
+                report.remove("release_compatibility");
                 Some(report)
             }
             _ => None,

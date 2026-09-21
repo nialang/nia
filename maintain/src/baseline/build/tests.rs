@@ -10,7 +10,6 @@ use crate::test_support::TestDirectory;
 
 fn timing_report(wall: f64, rss: i64, counters: Value) -> Value {
     json!({
-        "release_compatibility": nia_compat::RELEASE_COMPATIBILITY,
         "process": {"wall_seconds": wall, "max_rss_bytes": rss},
         "timings": BUILD_STAGE_NAMES.iter().enumerate().map(|(index, name)| json!({
             "kind": "stage",
@@ -252,14 +251,26 @@ fn extracts_outer_build_measurement() {
 }
 
 #[test]
+fn parsed_measurement_does_not_retain_compiler_release_identity() {
+    let mut report = timing_report(1.0, 2048, json!({"build.runner_executions": 1}));
+    report
+        .as_object_mut()
+        .expect("timing report object")
+        .insert("release_compatibility".to_owned(), json!(999));
+
+    let parsed = parse_build_reports(&report.to_string(), true).unwrap();
+    assert!(parsed.outer_timing.get("release_compatibility").is_none());
+}
+
+#[test]
 fn rejects_missing_or_malformed_timing_entries() {
-    let missing = json!({"release_compatibility":nia_compat::RELEASE_COMPATIBILITY,"process":{},"timings":[],"counters":{"build.runner_executions":1}});
+    let missing = json!({"process":{},"timings":[],"counters":{"build.runner_executions":1}});
     assert!(
         parse_build_reports(&missing.to_string(), true)
             .unwrap_err()
             .contains("build_resolve_invocation")
     );
-    let malformed = json!({"release_compatibility":nia_compat::RELEASE_COMPATIBILITY,"process":{},"timings":[1],"counters":{"build.runner_executions":1}});
+    let malformed = json!({"process":{},"timings":[1],"counters":{"build.runner_executions":1}});
     assert!(
         parse_build_reports(&malformed.to_string(), true)
             .unwrap_err()
