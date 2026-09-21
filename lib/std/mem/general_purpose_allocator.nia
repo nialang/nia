@@ -110,68 +110,50 @@ extend GeneralPurposeAllocator {
     pub fn capacity(&self) usize {
         let mut total: usize = 0;
         let mut page = self.smallPages;
-        while true {
-            match page {
-                ?item => {
-                    total = saturatingAdd(total, item.block.size());
-                    page = item.next;
-                },
-                null => {
-                    break;
-                },
+        loop {
+            if page is ?item {
+                total = saturatingAdd(total, item.block.size());
+                page = item.next;
+            } else {
+                break;
             }
         }
 
         let mut large = self.largeAllocations;
-        while true {
-            match large {
-                ?item => {
-                    total = saturatingAdd(total, item.backing.size());
-                    large = item.next;
-                },
-                null => {
-                    match self.pendingFree {
-                        ?block => {
-                            return saturatingAdd(total, block.size());
-                        },
-                        null => {
-                            return total;
-                        },
-                    }
-                },
+        loop {
+            if large is ?item {
+                total = saturatingAdd(total, item.backing.size());
+                large = item.next;
+                continue;
             }
+            if self.pendingFree is ?block {
+                return saturatingAdd(total, block.size());
+            }
+            return total;
         }
-        total
     }
 
     pub fn used(&self) usize {
         let mut total: usize = 0;
         let mut page = self.smallPages;
-        while true {
-            match page {
-                ?item => {
-                    total = saturatingAdd(total, item.usedBytes);
-                    page = item.next;
-                },
-                null => {
-                    break;
-                },
+        loop {
+            if page is ?item {
+                total = saturatingAdd(total, item.usedBytes);
+                page = item.next;
+            } else {
+                break;
             }
         }
 
         let mut large = self.largeAllocations;
-        while true {
-            match large {
-                ?item => {
-                    total = saturatingAdd(total, item.userLayout.size());
-                    large = item.next;
-                },
-                null => {
-                    return total;
-                },
+        loop {
+            if large is ?item {
+                total = saturatingAdd(total, item.userLayout.size());
+                large = item.next;
+            } else {
+                return total;
             }
         }
-        total
     }
 
     pub fn isEmpty(&self) bool {
@@ -440,35 +422,28 @@ extend GeneralPurposeAllocator {
     fn releaseEmptySmallPage(&mut self, page: &mut SmallPage) Error!() {
         let mut current = self.smallPages;
         let mut previous: ?&mut SmallPage = null;
-        while true {
-            match current {
-                mut ?item => {
-                    let next = item.next;
-                    if item as usize == page as usize {
-                        match previous {
-                            mut ?prev => {
-                                prev.next = next;
-                            },
-                            null => {
-                                self.smallPages = next;
-                            },
-                        }
-                        if self.child.free(item.block) is err! {
-                            item.next = self.smallPages;
-                            self.smallPages = ?item;
-                            return err!;
-                        }
-                        return !();
+        loop {
+            if current is mut ?item {
+                let next = item.next;
+                if item as usize == page as usize {
+                    if previous is mut ?prev {
+                        prev.next = next;
+                    } else {
+                        self.smallPages = next;
                     }
-                    previous = ?item;
-                    current = next;
-                },
-                null => {
-                    return .Invalid!;
-                },
+                    if self.child.free(item.block) is err! {
+                        item.next = self.smallPages;
+                        self.smallPages = ?item;
+                        return err!;
+                    }
+                    return !();
+                }
+                previous = ?item;
+                current = next;
+            } else {
+                return .Invalid!;
             }
         }
-        !()
     }
 
     fn allocLarge(&mut self, layout: Layout) Error!Block {
@@ -526,108 +501,84 @@ extend GeneralPurposeAllocator {
     fn freeLarge(&mut self, block: Block) Error!() {
         let mut current = self.largeAllocations;
         let mut previous: ?&mut LargeHeader = null;
-        while true {
-            match current {
-                mut ?header => {
-                    let next = header.next;
-                    let userPtr = match largeHeaderUserPtr(header) {
-                        ?value => value,
-                        null => return .Invalid!,
-                    };
-                    if userPtr as usize == block.ptr() as usize {
-                        if header.magic != largeMagic {
-                            return .Invalid!;
-                        }
-                        if header.userLayout.size() != block.size() or header.userLayout.align() != block.align() {
-                            return .Invalid!;
-                        }
-                        match previous {
-                            mut ?prev => {
-                                prev.next = next;
-                            },
-                            null => {
-                                self.largeAllocations = next;
-                            },
-                        }
-                        if self.child.free(header.backing) is err! {
-                            header.next = self.largeAllocations;
-                            self.largeAllocations = ?header;
-                            return err!;
-                        }
-                        return !();
+        loop {
+            if current is mut ?header {
+                let next = header.next;
+                let userPtr = match largeHeaderUserPtr(header) {
+                    ?value => value,
+                    null => return .Invalid!,
+                };
+                if userPtr as usize == block.ptr() as usize {
+                    if header.magic != largeMagic {
+                        return .Invalid!;
                     }
-                    previous = ?header;
-                    current = next;
-                },
-                null => {
-                    return .Invalid!;
-                },
+                    if header.userLayout.size() != block.size() or header.userLayout.align() != block.align() {
+                        return .Invalid!;
+                    }
+                    if previous is mut ?prev {
+                        prev.next = next;
+                    } else {
+                        self.largeAllocations = next;
+                    }
+                    if self.child.free(header.backing) is err! {
+                        header.next = self.largeAllocations;
+                        self.largeAllocations = ?header;
+                        return err!;
+                    }
+                    return !();
+                }
+                previous = ?header;
+                current = next;
+            } else {
+                return .Invalid!;
             }
         }
-        !()
     }
 
     fn findPageWithFreeSlot(&mut self, slotSize: usize) ?&mut SmallPage {
         let mut current = self.smallPages;
-        while true {
-            match current {
-                ?page => {
-                    if page.slotSize == slotSize {
-                        if page.freeList is ?_ {
-                            return ?page;
-                        }
-                    }
-                    current = page.next;
-                },
-                null => {
-                    return null;
-                },
+        loop {
+            if current is ?page {
+                if page.slotSize == slotSize and page.freeList is ?_ {
+                    return ?page;
+                }
+                current = page.next;
+            } else {
+                return null;
             }
         }
-        null
     }
 
     fn findSmallPage(&mut self, block: Block) ?&mut SmallPage {
         let mut current = self.smallPages;
-        while true {
-            match current {
-                ?page => {
-                    if smallPageContainsPtr(page, block.ptr()) {
-                        return ?page;
-                    }
-                    current = page.next;
-                },
-                null => {
-                    return null;
-                },
+        loop {
+            if current is ?page {
+                if smallPageContainsPtr(page, block.ptr()) {
+                    return ?page;
+                }
+                current = page.next;
+            } else {
+                return null;
             }
         }
-        null
     }
 
     fn findLargeHeader(&mut self, ptr: &mut u8) ?&mut LargeHeader {
         let mut current = self.largeAllocations;
-        while true {
-            match current {
-                ?header => {
-                    match largeHeaderUserPtr(header) {
-                        ?userPtr => {
-                            if userPtr as usize == ptr as usize {
-                                return ?header;
-                            }
-                        },
-                        null => {
-                            return null;
-                        },
+        loop {
+            if current is ?header {
+                if largeHeaderUserPtr(header) is ?userPtr {
+                    if userPtr as usize == ptr as usize {
+                        return ?header;
                     }
-                    current = header.next;
-                },
-                null => {
+                } else {
                     return null;
-                },
+                }
+                current = header.next;
+            } else {
+                return null;
             }
         }
-        null
     }
 
     fn releaseOrRetain(&mut self, block: Block) () {
@@ -645,49 +596,42 @@ extend GeneralPurposeAllocator {
         let mut cleanup: error::CleanupAccumulator[Error] = .init();
 
         let mut page = small;
-        while true {
-            match page {
-                mut ?item => {
-                    let next = item.next;
-                    item.next = null;
-                    if self.child.free(item.block) is err! {
-                        item.next = self.smallPages;
-                        self.smallPages = ?item;
-                        cleanup.attempt(err!);
-                    }
-                    page = next;
-                },
-                null => {
-                    break;
-                },
+        loop {
+            if page is mut ?item {
+                let next = item.next;
+                item.next = null;
+                if self.child.free(item.block) is err! {
+                    item.next = self.smallPages;
+                    self.smallPages = ?item;
+                    cleanup.attempt(err!);
+                }
+                page = next;
+            } else {
+                break;
             }
         }
 
         let mut header = large;
-        while true {
-            match header {
-                mut ?item => {
-                    let next = item.next;
-                    item.next = null;
-                    if self.child.free(item.backing) is err! {
-                        item.next = self.largeAllocations;
-                        self.largeAllocations = ?item;
-                        cleanup.attempt(err!);
-                    }
-                    header = next;
-                },
-                null => {
-                    if pending is ?block {
-                        if self.child.free(block) is err! {
-                            self.pendingFree = ?block;
-                            cleanup.attempt(err!);
-                        }
-                    }
-                    return cleanup.finish();
-                },
+        loop {
+            if header is mut ?item {
+                let next = item.next;
+                item.next = null;
+                if self.child.free(item.backing) is err! {
+                    item.next = self.largeAllocations;
+                    self.largeAllocations = ?item;
+                    cleanup.attempt(err!);
+                }
+                header = next;
+                continue;
             }
+            if pending is ?block {
+                if self.child.free(block) is err! {
+                    self.pendingFree = ?block;
+                    cleanup.attempt(err!);
+                }
+            }
+            return cleanup.finish();
         }
-        !()
     }
 }
 
