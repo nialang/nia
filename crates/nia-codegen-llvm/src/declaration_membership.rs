@@ -191,7 +191,9 @@ impl<'a> MembershipBuilder<'a> {
                 if let Some(function) = self.index.function(*def_id) {
                     self.add_function(function);
                 } else {
-                    self.wait_for_owner(self.owners.item_owner(*def_id), "closure function");
+                    self.wait_for_owner(self.owners.item_owner(*def_id), || {
+                        "closure function".to_owned()
+                    });
                 }
             }
             nia_backend_ir::BackendClosureEntryOwner::FunctionInstance(key) => {
@@ -204,10 +206,9 @@ impl<'a> MembershipBuilder<'a> {
                 ) {
                     self.add_function_instance(function);
                 } else {
-                    self.wait_for_owner(
-                        self.owners.function_instance_owner(key),
-                        "closure function instance",
-                    );
+                    self.wait_for_owner(self.owners.function_instance_owner(key), || {
+                        "closure function instance".to_owned()
+                    });
                 }
             }
         }
@@ -252,10 +253,9 @@ impl<'a> MembershipBuilder<'a> {
 
     fn add_function(&mut self, item: &BackendFunction) {
         if self.functions.insert(item.def_id) {
-            self.add_dependency(
-                self.index.function_owner(item.def_id),
-                &format!("function {:?}", item.def_id),
-            );
+            self.add_dependency_lazy(self.index.function_owner(item.def_id), || {
+                format!("function {:?}", item.def_id)
+            });
             self.add_function_signature(&item.params, item.return_type);
         }
     }
@@ -308,17 +308,16 @@ impl<'a> MembershipBuilder<'a> {
             if let Some(item) = self.index.function(def_id) {
                 self.add_function(item);
             } else {
-                self.wait_for_owner(
-                    self.owners.item_owner(def_id),
-                    &format!("function {def_id:?}"),
-                );
+                self.wait_for_owner(self.owners.item_owner(def_id), || {
+                    format!("function {def_id:?}")
+                });
             }
         }
         for def_id in refs.globals {
             if let Some(item) = self.index.global(def_id) {
                 self.add_global(item);
             } else {
-                self.wait_for_owner(self.owners.item_owner(def_id), "global");
+                self.wait_for_owner(self.owners.item_owner(def_id), || "global".to_owned());
             }
         }
         for reference in refs.function_instances {
@@ -333,10 +332,9 @@ impl<'a> MembershipBuilder<'a> {
             ) {
                 self.add_function_instance(item);
             } else {
-                self.wait_for_owner(
-                    self.owners.function_instance_owner(&key),
-                    &format!("function instance {key:?}"),
-                );
+                self.wait_for_owner(self.owners.function_instance_owner(&key), || {
+                    format!("function instance {key:?}")
+                });
             }
         }
         for reference in refs.global_instances {
@@ -355,7 +353,9 @@ impl<'a> MembershipBuilder<'a> {
             ) {
                 self.add_global_instance(item);
             } else {
-                self.wait_for_owner(self.owners.global_instance_owner(&key), "global instance");
+                self.wait_for_owner(self.owners.global_instance_owner(&key), || {
+                    "global instance".to_owned()
+                });
             }
         }
         self.add_types(refs.types);
@@ -375,7 +375,9 @@ impl<'a> MembershipBuilder<'a> {
         if let Some(item) = self.index.trait_object_vtable(&key) {
             self.add_vtable(item);
         } else {
-            self.wait_for_owner(self.owners.vtable_owner(&key), "trait-object vtable");
+            self.wait_for_owner(self.owners.vtable_owner(&key), || {
+                "trait-object vtable".to_owned()
+            });
         }
     }
 
@@ -394,7 +396,9 @@ impl<'a> MembershipBuilder<'a> {
             if let Some(item) = self.index.trait_object_vtable(&key) {
                 self.add_vtable(item);
             } else {
-                self.wait_for_owner(self.owners.vtable_owner(&key), "trait-object vtable");
+                self.wait_for_owner(self.owners.vtable_owner(&key), || {
+                    "trait-object vtable".to_owned()
+                });
             }
         }
     }
@@ -426,7 +430,9 @@ impl<'a> MembershipBuilder<'a> {
                     if let Some(function) = self.index.function(*def_id) {
                         self.add_function(function);
                     } else {
-                        self.wait_for_owner(self.owners.item_owner(*def_id), "vtable function");
+                        self.wait_for_owner(self.owners.item_owner(*def_id), || {
+                            "vtable function".to_owned()
+                        });
                     }
                 }
                 BackendTraitObjectVtableFunction::FunctionInstance {
@@ -453,10 +459,9 @@ impl<'a> MembershipBuilder<'a> {
                     ) {
                         self.add_function_instance(function);
                     } else {
-                        self.wait_for_owner(
-                            self.owners.function_instance_owner(&key),
-                            &format!("vtable function instance {key:?}"),
-                        );
+                        self.wait_for_owner(self.owners.function_instance_owner(&key), || {
+                            format!("vtable function instance {key:?}")
+                        });
                     }
                 }
             }
@@ -473,10 +478,21 @@ impl<'a> MembershipBuilder<'a> {
         }
     }
 
-    fn add_dependency(&mut self, owner: Option<ModuleId>, item: &str) {
+    fn add_dependency(&mut self, owner: Option<ModuleId>, item: &'static str) {
         let Some(owner) = owner else {
             self.invalid(format!(
                 "declaration closure references missing {item} owner"
+            ));
+            return;
+        };
+        self.dependency_modules.insert(owner);
+    }
+
+    fn add_dependency_lazy(&mut self, owner: Option<ModuleId>, item: impl FnOnce() -> String) {
+        let Some(owner) = owner else {
+            self.invalid(format!(
+                "declaration closure references missing {} owner",
+                item()
             ));
             return;
         };
@@ -490,17 +506,19 @@ impl<'a> MembershipBuilder<'a> {
         }
     }
 
-    fn wait_for_owner(&mut self, owner: Option<ModuleId>, item: &str) {
+    fn wait_for_owner(&mut self, owner: Option<ModuleId>, item: impl FnOnce() -> String) {
         let Some(owner) = owner else {
             self.invalid(format!(
-                "declaration closure references missing {item} owner"
+                "declaration closure references missing {} owner",
+                item()
             ));
             return;
         };
         self.dependency_modules.insert(owner);
         if self.index.is_published(owner) {
             self.invalid(format!(
-                "declaration closure references missing {item} in published module {owner:?}"
+                "declaration closure references missing {} in published module {owner:?}",
+                item()
             ));
             return;
         }
@@ -620,10 +638,9 @@ impl<'a> MembershipBuilder<'a> {
                         self.add_types(item.fields.iter().map(|field| field.ty));
                     }
                 } else if !args.is_empty() || !const_args.is_empty() {
-                    self.wait_for_owner(
-                        self.owners.struct_instance_owner(&key),
-                        &format!("struct instance {key:?}"),
-                    );
+                    self.wait_for_owner(self.owners.struct_instance_owner(&key), || {
+                        format!("struct instance {key:?}")
+                    });
                 }
             } else if let Some(item) = self.index.union_item(*def_id) {
                 if item.generics.is_empty() && args.is_empty() && const_args.is_empty() {
@@ -632,10 +649,9 @@ impl<'a> MembershipBuilder<'a> {
                         self.add_types(item.fields.iter().map(|field| field.ty));
                     }
                 } else if !args.is_empty() || !const_args.is_empty() {
-                    self.wait_for_owner(
-                        self.owners.union_instance_owner(&key),
-                        &format!("union instance {key:?}"),
-                    );
+                    self.wait_for_owner(self.owners.union_instance_owner(&key), || {
+                        format!("union instance {key:?}")
+                    });
                 }
             } else if self.index.enum_item(*def_id).is_none() {
                 let owner = self
@@ -643,7 +659,7 @@ impl<'a> MembershipBuilder<'a> {
                     .struct_instance_owner(&key)
                     .or_else(|| self.owners.union_instance_owner(&key))
                     .or_else(|| self.owners.item_owner(*def_id));
-                self.wait_for_owner(owner, &format!("nominal type {key:?}"));
+                self.wait_for_owner(owner, || format!("nominal type {key:?}"));
             } else {
                 self.add_dependency(self.owners.item_owner(*def_id), "enum");
             }
