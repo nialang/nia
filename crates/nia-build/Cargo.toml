@@ -19,7 +19,6 @@ nia-driver = { workspace = true, default-features = false }
 nia-build-plan.workspace = true
 nia-imports.workspace = true
 nia-ice.workspace = true
-nia-loader-query.workspace = true
 nia-package-metadata.workspace = true
 nia-linker.workspace = true
 nia-query.workspace = true
