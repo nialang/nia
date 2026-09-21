@@ -915,7 +915,10 @@ impl Parser {
 
     fn parse_if_expr(&mut self) -> Option<Expr> {
         let start = self.expect(TokenKind::If, "expected `if`")?.start;
-        let target = self.parse_expr_until_tokens(&[TokenKind::Is, TokenKind::LBrace])?;
+        let condition_checkpoint = self.checkpoint();
+        let errors_len = self.errors.len();
+        let target =
+            self.parse_expr_until_tokens(&[TokenKind::Is, TokenKind::And, TokenKind::LBrace])?;
         if self.eat(TokenKind::Is).is_some() {
             if matches!(
                 &target.kind,
@@ -932,7 +935,26 @@ impl Parser {
             }
             return self.parse_if_pattern_expr(start, target);
         }
-        let cond = target;
+        let cond = if self.at(TokenKind::And) {
+            match self.parse_condition_first_if_pattern_expr(start, target)? {
+                Some(expr) => return Some(expr),
+                None => {
+                    self.rewind(condition_checkpoint);
+                    self.errors.truncate(errors_len);
+                    let condition =
+                        self.parse_expr_until_tokens(&[TokenKind::Is, TokenKind::LBrace])?;
+                    if self.at(TokenKind::Is) {
+                        self.error_here(
+                            "pattern conditions do not support `or`; use `match` for alternatives",
+                        );
+                        return None;
+                    }
+                    condition
+                }
+            }
+        } else {
+            target
+        };
         let then_branch = self.parse_block()?;
         let else_branch = if self.eat(TokenKind::Else).is_some() {
             if self.at(TokenKind::If) {
@@ -961,7 +983,7 @@ impl Parser {
         // Parse this dedicated grammar after the first `is`.  In particular,
         // the `and` tokens here are chain separators, not binary operators in
         // a target expression.
-        let mut clauses = vec![IfChainClause::Pattern {
+        let clauses = vec![IfChainClause::Pattern {
             target,
             pattern: self.parse_binding_pattern_until_tokens(&[
                 TokenKind::And,
@@ -969,6 +991,57 @@ impl Parser {
                 TokenKind::LBrace,
             ])?,
         }];
+        self.parse_if_pattern_chain_expr(start, clauses)
+    }
+
+    fn parse_condition_first_if_pattern_expr(
+        &mut self,
+        start: usize,
+        first: Expr,
+    ) -> Option<Option<Expr>> {
+        let mut clauses = vec![IfChainClause::Expr(first)];
+        while self.eat(TokenKind::And).is_some() {
+            if self.at(TokenKind::Or) {
+                return Some(None);
+            }
+            let target = self.parse_expr_until_tokens(&[
+                TokenKind::Is,
+                TokenKind::And,
+                TokenKind::Or,
+                TokenKind::LBrace,
+            ])?;
+            if self.eat(TokenKind::Is).is_some() {
+                if matches!(
+                    &target.kind,
+                    ExprKind::Unary {
+                        op: UnaryOp::Not,
+                        ..
+                    }
+                ) {
+                    self.error_at(
+                        target.span,
+                        "`not value is pattern` is not a valid pattern condition",
+                    );
+                    return None;
+                }
+                let pattern = self.parse_binding_pattern_until_tokens(&[
+                    TokenKind::And,
+                    TokenKind::Or,
+                    TokenKind::LBrace,
+                ])?;
+                clauses.push(IfChainClause::Pattern { target, pattern });
+                return self.parse_if_pattern_chain_expr(start, clauses).map(Some);
+            }
+            clauses.push(IfChainClause::Expr(target));
+        }
+        Some(None)
+    }
+
+    fn parse_if_pattern_chain_expr(
+        &mut self,
+        start: usize,
+        mut clauses: Vec<IfChainClause>,
+    ) -> Option<Expr> {
         while self.eat(TokenKind::And).is_some() {
             if self.at(TokenKind::Or) {
                 self.error_here(

@@ -421,6 +421,79 @@ fn main() {
 }
 
 #[test]
+fn parses_boolean_clauses_before_first_if_pattern() {
+    let (module, errors) = parse_module(
+        r#"
+fn main(enabled: bool, pageReady: bool, first: ?i32, second: ?i32) {
+    if enabled and pageReady and first is ?a and a > 0 and second is ?b and b > a {}
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let expr = function
+        .body
+        .as_ref()
+        .unwrap()
+        .tail
+        .as_ref()
+        .expect("expected tail");
+    let ExprKind::IfPatternChain(chain) = &expr.kind else {
+        panic!("expected pattern chain");
+    };
+    assert_eq!(chain.clauses.len(), 6);
+    assert!(matches!(
+        chain.clauses[0],
+        nia_ast::IfPatternChainClause::Condition(_)
+    ));
+    assert!(matches!(
+        chain.clauses[1],
+        nia_ast::IfPatternChainClause::Condition(_)
+    ));
+    assert!(matches!(
+        chain.clauses[2],
+        nia_ast::IfPatternChainClause::Pattern { .. }
+    ));
+    assert!(matches!(
+        chain.clauses[3],
+        nia_ast::IfPatternChainClause::Condition(_)
+    ));
+    assert!(matches!(
+        chain.clauses[4],
+        nia_ast::IfPatternChainClause::Pattern { .. }
+    ));
+    assert!(matches!(
+        chain.clauses[5],
+        nia_ast::IfPatternChainClause::Condition(_)
+    ));
+}
+
+#[test]
+fn keeps_plain_boolean_and_condition_as_an_if_expression() {
+    let (module, errors) = parse_module(
+        r#"
+fn main(first: bool, second: bool) {
+    if first and second {}
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let expr = function
+        .body
+        .as_ref()
+        .unwrap()
+        .tail
+        .as_ref()
+        .expect("expected tail");
+    assert!(matches!(expr.kind, ExprKind::If { .. }));
+}
+
+#[test]
 fn rejects_or_in_if_pattern_condition_chain() {
     let (_module, errors) = parse_module(
         r#"
@@ -435,6 +508,40 @@ fn main() {
             .any(|error| error.message.contains("use `match`")),
         "{errors:?}"
     );
+}
+
+#[test]
+fn parses_boolean_or_clause_before_first_if_pattern() {
+    let (module, errors) = parse_module(
+        r#"
+fn main(enabled: bool, fallback: bool, value: ?i32) {
+    if enabled or fallback and value is ?item {}
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let expr = function
+        .body
+        .as_ref()
+        .unwrap()
+        .tail
+        .as_ref()
+        .expect("expected tail");
+    let ExprKind::IfPatternChain(chain) = &expr.kind else {
+        panic!("expected pattern chain");
+    };
+    assert_eq!(chain.clauses.len(), 2);
+    assert!(matches!(
+        chain.clauses[0],
+        nia_ast::IfPatternChainClause::Condition(_)
+    ));
+    assert!(matches!(
+        chain.clauses[1],
+        nia_ast::IfPatternChainClause::Pattern { .. }
+    ));
 }
 
 #[test]
