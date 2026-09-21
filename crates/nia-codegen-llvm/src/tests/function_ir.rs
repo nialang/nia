@@ -44,7 +44,6 @@ pub(super) fn single_module_program(
     }
 }
 
-
 // Function declarations, instances, and calling-convention contracts.
 mod function_abi;
 // Target layouts, generated symbols, and static aggregate contracts.
