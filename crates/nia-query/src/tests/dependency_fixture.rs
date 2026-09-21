@@ -64,6 +64,40 @@ impl QueryKey<TestContext> for SingleDoubleMany {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct DuplicateDouble(usize);
+
+impl QueryKey<TestContext> for DuplicateDouble {
+    type Value = usize;
+
+    fn name() -> &'static str {
+        "duplicate_double"
+    }
+
+    fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+        Ok(*db.get(Double(self.0))? + *db.get(Double(self.0))?)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct WideDoubleMany([usize; 10]);
+
+impl QueryKey<TestContext> for WideDoubleMany {
+    type Value = usize;
+
+    fn name() -> &'static str {
+        "wide_double_many"
+    }
+
+    fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+        Ok(db
+            .get_many(self.0.map(Double))?
+            .into_iter()
+            .map(|value| *value)
+            .sum())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct ParallelRecursive;
 
 impl QueryKey<TestContext> for ParallelRecursive {

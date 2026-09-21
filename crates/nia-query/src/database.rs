@@ -873,7 +873,7 @@ impl<C> QueryDb<C> {
         O: Send + 'static,
     {
         let _activity = self.inner.session.enter_activity();
-        let parent_stack = current_query_stack();
+        let parent_stack = query_stack_task_snapshot();
         let records_fingerprints = parent_stack
             .last()
             .is_some_and(|entry| entry.dependency_fingerprints.is_some());
@@ -924,7 +924,7 @@ impl<C> QueryDb<C> {
         O: Send + 'static,
     {
         let _activity = self.inner.session.enter_activity();
-        let parent_stack = current_query_stack();
+        let parent_stack = query_stack_task_snapshot();
         let records_fingerprints = parent_stack
             .last()
             .is_some_and(|entry| entry.dependency_fingerprints.is_some());

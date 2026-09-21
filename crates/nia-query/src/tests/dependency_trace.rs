@@ -96,3 +96,72 @@ fn records_single_item_get_many_dependencies_from_parent_query() {
         .collect::<Vec<_>>();
     assert_eq!(invalidated, vec!["double(2)", "single_double_many(2)"]);
 }
+
+#[test]
+fn repeated_dependency_reads_publish_one_edge() {
+    let db = QueryDb::new_for_test(TestContext {
+        executions: AtomicUsize::new(0),
+    });
+
+    assert_eq!(*db.expect_get(DuplicateDouble(3)), 12);
+    let dependencies = db
+        .query_trace()
+        .expect("query trace")
+        .dependencies
+        .into_iter()
+        .filter(|dependency| dependency.from.name == "duplicate_double")
+        .collect::<Vec<_>>();
+
+    assert_eq!(dependencies.len(), 1);
+    assert_eq!(dependencies[0].to.description.as_ref(), "double(3)");
+}
+
+#[test]
+fn duplicate_task_dependencies_publish_one_edge() {
+    let db = QueryDb::new_for_test(TestContext {
+        executions: AtomicUsize::new(0),
+    });
+
+    assert_eq!(*db.expect_get(DoubleMany([3, 3])), 12);
+    let dependencies = db
+        .query_trace()
+        .expect("query trace")
+        .dependencies
+        .into_iter()
+        .filter(|dependency| dependency.from.name == "double_many")
+        .collect::<Vec<_>>();
+
+    assert_eq!(dependencies.len(), 1);
+    assert_eq!(dependencies[0].to.description.as_ref(), "double(3)");
+}
+
+#[test]
+fn wide_task_dependencies_promote_without_losing_invalidation_edges() {
+    let db = QueryDb::new_for_test(TestContext {
+        executions: AtomicUsize::new(0),
+    });
+
+    assert_eq!(
+        *db.expect_get(WideDoubleMany([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])),
+        90
+    );
+    let trace = db.query_trace().expect("query trace");
+    assert_eq!(
+        trace
+            .dependencies
+            .iter()
+            .filter(|dependency| dependency.from.name == "wide_double_many")
+            .count(),
+        10
+    );
+
+    let invalidated = db
+        .invalidate(Double(8))
+        .expect("invalidate dependency")
+        .invalidated;
+    assert!(
+        invalidated
+            .iter()
+            .any(|frame| frame.name == "wide_double_many")
+    );
+}
