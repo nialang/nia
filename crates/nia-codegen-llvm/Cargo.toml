@@ -6,8 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [features]
-default = ["llvm-dynamic"]
-llvm-dynamic = ["nia-llvm/llvm-dynamic"]
+llvm-dynamic = ["nia-llvm/llvm-dynamic", "nia-llvm/default"]
 llvm-static = ["nia-llvm/llvm-static"]
 
 [dependencies]

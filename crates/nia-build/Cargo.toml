@@ -6,7 +6,6 @@ authors.workspace = true
 license.workspace = true
 
 [features]
-default = ["llvm-dynamic"]
 llvm-dynamic = ["nia-driver/llvm-dynamic"]
 llvm-static = ["nia-driver/llvm-static"]
 
