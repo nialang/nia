@@ -1503,9 +1503,8 @@ impl CompilerDatabase {
                     return false;
                 };
                 new_graph
-                    .modules()
-                    .find(|module| new_graph.stable_key(module.id) == Some(key))
-                    .is_none_or(|new| new.id != old.id)
+                    .module_id_for_stable_key(key)
+                    .is_none_or(|new| new != old.id)
             })
         };
         let new_inputs = CompilerInputs::new(request);
