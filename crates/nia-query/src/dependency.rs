@@ -314,8 +314,23 @@ impl Drop for QueryStackInstallGuard {
     }
 }
 
-pub(super) fn current_query_stack() -> Vec<QueryStackEntry> {
-    QUERY_STACK.with(|stack| stack.borrow().clone())
+pub(super) fn query_stack_task_snapshot() -> Vec<QueryStackEntry> {
+    QUERY_STACK.with(|stack| {
+        stack
+            .borrow()
+            .iter()
+            .map(|entry| QueryStackEntry {
+                session_id: entry.session_id,
+                node_id: entry.node_id,
+                identity: Arc::clone(&entry.identity),
+                dependencies: FastHashSet::default(),
+                dependency_fingerprints: entry
+                    .dependency_fingerprints
+                    .as_ref()
+                    .map(|_| DependencyFingerprints::default()),
+            })
+            .collect()
+    })
 }
 
 pub(super) fn current_query_entry() -> Option<(QueryNodeId, Arc<QuerySlotIdentity>)> {
@@ -449,8 +464,9 @@ pub(super) fn merge_dependencies_into_current_stack(dependencies: RecordedDepend
 }
 
 pub(super) fn install_query_stack(stack_snapshot: Vec<QueryStackEntry>) -> QueryStackInstallGuard {
-    // Executor tasks receive an owned snapshot: dependency recording stays thread-local while
-    // preserving the logical parent chain. The guard restores any worker-local outer stack.
+    // Executor tasks receive identities for recursion checks and empty dependency deltas. Facts
+    // recorded before the fork belong to the parent, not every child task. The guard restores any
+    // worker-local outer stack when the task completes.
     QUERY_STACK.with(|stack| QueryStackInstallGuard {
         previous: std::mem::replace(&mut *stack.borrow_mut(), stack_snapshot),
     })
