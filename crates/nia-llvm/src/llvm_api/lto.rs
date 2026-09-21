@@ -2,6 +2,7 @@
 //! Safe ownership boundary for LLVM's modern resolution-based ThinLTO API.
 
 use std::ffi::c_void;
+use std::path::Path;
 use std::ptr::NonNull;
 use std::slice;
 use std::time::Duration;
@@ -35,6 +36,8 @@ pub struct ThinLtoConfig<'a> {
     pub freestanding: bool,
     /// Definitions that must remain visible to native linker inputs.
     pub preserved_symbols: &'a [&'a str],
+    /// Release-isolated directory for validated LLVM backend work products.
+    pub backend_cache_directory: Option<&'a Path>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +94,21 @@ pub struct ThinLtoTimings {
     pub codegen: Duration,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Persistent backend cache activity for one ThinLTO coordination run.
+pub struct ThinLtoCacheStats {
+    /// Backend tasks restored without optimization or code generation.
+    pub hits: u64,
+    /// Backend tasks that had to produce a fresh native object.
+    pub misses: u64,
+    /// Invalid checksummed records retired and regenerated in the same run.
+    pub corrupt: u64,
+    /// Cache reads that failed for reasons other than absence.
+    pub read_errors: u64,
+    /// Fresh objects that could not be published to the disposable cache.
+    pub write_errors: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Native ThinLTO work products and pipeline evidence.
 pub struct ThinLtoOutput {
@@ -100,6 +118,8 @@ pub struct ThinLtoOutput {
     pub diagnostics: Vec<ThinLtoDiagnostic>,
     /// Separately measured global and per-task stages.
     pub timings: ThinLtoTimings,
+    /// Persistent backend cache outcomes.
+    pub cache: ThinLtoCacheStats,
 }
 
 #[repr(C)]
@@ -133,6 +153,9 @@ struct FfiThinConfig {
     optimization: u32,
     parallelism: u32,
     freestanding: u8,
+    cache_directory: FfiByteSlice,
+    cache_magic: FfiByteSlice,
+    cache_release_compatibility: u32,
 }
 
 #[repr(C)]
@@ -194,6 +217,11 @@ unsafe extern "C" {
     fn nia_llvm_thin_result_error(result: *const FfiThinResult) -> *const u8;
     fn nia_llvm_thin_result_error_len(result: *const FfiThinResult) -> usize;
     fn nia_llvm_thin_result_timings(result: *const FfiThinResult) -> FfiThinTimings;
+    fn nia_llvm_thin_result_cache_hits(result: *const FfiThinResult) -> u64;
+    fn nia_llvm_thin_result_cache_misses(result: *const FfiThinResult) -> u64;
+    fn nia_llvm_thin_result_cache_corrupt(result: *const FfiThinResult) -> u64;
+    fn nia_llvm_thin_result_cache_read_errors(result: *const FfiThinResult) -> u64;
+    fn nia_llvm_thin_result_cache_write_errors(result: *const FfiThinResult) -> u64;
     fn nia_llvm_thin_result_free(result: *mut FfiThinResult);
 }
 
@@ -269,6 +297,13 @@ pub fn run_thin_lto(
         .iter()
         .map(|symbol| FfiByteSlice::new(symbol.as_bytes()))
         .collect::<Vec<_>>();
+    let cache_directory = match config.backend_cache_directory {
+        Some(path) => path.to_str().ok_or_else(|| {
+            LlvmError::error("ThinLTO backend cache directory is not valid UTF-8")
+        })?,
+        None => "",
+    };
+    let cache_format = nia_compat::formats::THIN_LTO_BACKEND_OBJECT;
     let ffi_config = FfiThinConfig {
         cpu: FfiByteSlice::new(config.target.cpu.as_bytes()),
         features: FfiByteSlice::new(config.target.features.as_bytes()),
@@ -277,6 +312,9 @@ pub fn run_thin_lto(
         optimization: optimization_tag(config.optimization),
         parallelism,
         freestanding: u8::from(config.freestanding),
+        cache_directory: FfiByteSlice::new(cache_directory.as_bytes()),
+        cache_magic: FfiByteSlice::new(cache_format.magic),
+        cache_release_compatibility: cache_format.release_compatibility,
     };
     let result =
         unsafe { nia_llvm_run_thin_lto(ffi_inputs.as_ptr(), ffi_inputs.len(), &ffi_config) };
@@ -364,6 +402,13 @@ pub fn run_thin_lto(
             optimization: Duration::from_nanos(timings.optimization_ns),
             codegen: Duration::from_nanos(timings.codegen_ns),
         },
+        cache: ThinLtoCacheStats {
+            hits: unsafe { nia_llvm_thin_result_cache_hits(result.0.as_ptr()) },
+            misses: unsafe { nia_llvm_thin_result_cache_misses(result.0.as_ptr()) },
+            corrupt: unsafe { nia_llvm_thin_result_cache_corrupt(result.0.as_ptr()) },
+            read_errors: unsafe { nia_llvm_thin_result_cache_read_errors(result.0.as_ptr()) },
+            write_errors: unsafe { nia_llvm_thin_result_cache_write_errors(result.0.as_ptr()) },
+        },
     })
 }
 
@@ -446,6 +491,7 @@ mod tests {
                 parallelism: 1,
                 freestanding: true,
                 preserved_symbols: &["entry"],
+                backend_cache_directory: None,
             },
         )
         .expect("run modern ThinLTO");
@@ -459,6 +505,59 @@ mod tests {
                 .iter()
                 .all(|diagnostic| { diagnostic.severity != ThinLtoDiagnosticSeverity::Error })
         );
+    }
+
+    #[test]
+    fn thin_lto_backend_cache_hits_and_recovers_corruption() {
+        let (target, bitcode) = summary_bitcode("thin-cache-unit");
+        let cache = std::env::temp_dir().join(format!(
+            "nia-thin-lto-cache-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let run = || {
+            run_thin_lto(
+                &[ThinLtoInput {
+                    name: "thin-cache-unit",
+                    bitcode: &bitcode,
+                }],
+                ThinLtoConfig {
+                    target: &target,
+                    optimization: OptimizationLevel::Default,
+                    parallelism: 1,
+                    freestanding: true,
+                    preserved_symbols: &["entry"],
+                    backend_cache_directory: Some(&cache),
+                },
+            )
+            .expect("run cached ThinLTO")
+        };
+
+        let first = run();
+        assert_eq!(first.cache.hits, 0);
+        assert_eq!(first.cache.misses, 1);
+        assert_eq!(first.cache.write_errors, 0);
+        let second = run();
+        assert_eq!(second.cache.hits, 1);
+        assert_eq!(second.cache.misses, 0);
+        assert_eq!(second.objects[0].bytes, first.objects[0].bytes);
+
+        let entry = std::fs::read_dir(&cache)
+            .expect("read ThinLTO cache")
+            .next()
+            .expect("one ThinLTO cache entry")
+            .expect("read ThinLTO cache entry")
+            .path();
+        std::fs::write(&entry, b"corrupt").expect("corrupt ThinLTO cache entry");
+        let recovered = run();
+        assert_eq!(recovered.cache.hits, 0);
+        assert_eq!(recovered.cache.misses, 1);
+        assert_eq!(recovered.cache.corrupt, 1);
+        assert_eq!(recovered.objects[0].bytes, first.objects[0].bytes);
+        std::fs::remove_dir_all(cache).expect("remove ThinLTO cache directory");
     }
 
     #[test]
@@ -559,6 +658,7 @@ mod tests {
                 parallelism: 2,
                 freestanding: true,
                 preserved_symbols: &["entry"],
+                backend_cache_directory: None,
             },
         )
         .expect("run cross-module ThinLTO");
@@ -596,6 +696,7 @@ mod tests {
                 parallelism: 1,
                 freestanding: true,
                 preserved_symbols: &[],
+                backend_cache_directory: None,
             },
         )
         .expect_err("ordinary bitcode must not enter the ThinLTO coordinator");
@@ -624,6 +725,7 @@ mod tests {
                 parallelism: 1,
                 freestanding: true,
                 preserved_symbols: &[],
+                backend_cache_directory: None,
             },
         )
         .expect_err("duplicate names must be rejected");

@@ -215,6 +215,12 @@ pub mod formats {
     /// Persisted object work product and validation metadata.
     pub const OBJECT_WORK_PRODUCT: PersistedFormat =
         PersistedFormat::new("object-work-product", b"NIAOBJ\0\0");
+    /// Driver namespace for LLVM ThinLTO backend objects.
+    pub const THIN_LTO_BACKEND_CACHE: PersistedNamespace =
+        PersistedNamespace::new("thin-lto-backend-cache");
+    /// Checksummed native object emitted by one LLVM ThinLTO backend task.
+    pub const THIN_LTO_BACKEND_OBJECT: PersistedFormat =
+        PersistedFormat::new("thin-lto-backend-object", b"NIATLTO\0");
     /// Driver namespace for executable link results.
     pub const LINK_RESULT_CACHE: PersistedNamespace = PersistedNamespace::new("link-result-cache");
     /// Persisted executable link result and component fingerprints.
@@ -251,6 +257,7 @@ pub mod formats {
         OUTPUT_TRANSACTION_JOURNAL,
         OUTPUT_TRANSACTION_PREPARED,
         OBJECT_WORK_PRODUCT,
+        THIN_LTO_BACKEND_OBJECT,
         LINK_RESULT,
         ARCHIVE_RESULT,
     ];
@@ -265,6 +272,7 @@ pub mod formats {
         COMPILER_EMIT_CACHE,
         OUTPUT_TRANSACTION,
         OBJECT_WORK_PRODUCT_CACHE,
+        THIN_LTO_BACKEND_CACHE,
         LINK_RESULT_CACHE,
         ARCHIVE_RESULT_CACHE,
     ];

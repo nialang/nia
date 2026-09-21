@@ -328,6 +328,7 @@ pub struct Driver {
     loader: std::sync::Arc<Mutex<Option<SessionLoader>>>,
     compiler: std::sync::Arc<Mutex<Option<SessionCompiler>>>,
     object_cache: Option<std::sync::Arc<crate::object_cache::PersistentObjectWorkProductCache>>,
+    thin_lto_backend_cache_directory: Option<PathBuf>,
     link_cache: Option<std::sync::Arc<crate::executable_cache::PersistentLinkResultCache>>,
     archive_cache: Option<std::sync::Arc<crate::archive_cache::PersistentArchiveCache>>,
     #[cfg(test)]
@@ -424,6 +425,13 @@ impl Driver {
                 path.clone(),
             ))
         });
+        let thin_lto_backend_cache_directory = config.artifact_cache_dir.as_ref().map(|path| {
+            let [first, second] = nia_toolchain::ToolchainIdentityFingerprint::current().parts();
+            path.join("artifacts")
+                .join("thin-lto-backends")
+                .join(nia_compat::formats::THIN_LTO_BACKEND_CACHE.path_component)
+                .join(format!("{first:016x}{second:016x}"))
+        });
         let link_cache = config.artifact_cache_dir.as_ref().map(|path| {
             std::sync::Arc::new(crate::executable_cache::PersistentLinkResultCache::new(
                 path.clone(),
@@ -440,6 +448,7 @@ impl Driver {
             loader: std::sync::Arc::new(Mutex::new(None)),
             compiler: std::sync::Arc::new(Mutex::new(None)),
             object_cache,
+            thin_lto_backend_cache_directory,
             link_cache,
             archive_cache,
             #[cfg(test)]
@@ -1393,6 +1402,7 @@ impl Driver {
                 LinkTimeOptimization::Thin => ObjectEmissionMode::ThinLto {
                     preserved_symbols: &preserved_symbols,
                     freestanding: true,
+                    backend_cache_directory: self.thin_lto_backend_cache_directory.as_deref(),
                 },
             };
             let emission_stage = match request.link_time_optimization {
@@ -2530,6 +2540,7 @@ enum ObjectEmissionMode<'a> {
     ThinLto {
         preserved_symbols: &'a [&'a str],
         freestanding: bool,
+        backend_cache_directory: Option<&'a Path>,
     },
 }
 
@@ -2615,6 +2626,7 @@ impl ObjectReadinessEmitter<'_> {
                 ObjectEmissionMode::ThinLto {
                     preserved_symbols,
                     freestanding,
+                    backend_cache_directory,
                 },
             ) => Ok(nia_codegen_llvm::emit_thin_lto_objects(
                 emitter.finish()?,
@@ -2623,6 +2635,7 @@ impl ObjectReadinessEmitter<'_> {
                     parallelism,
                     freestanding,
                     preserved_symbols,
+                    backend_cache_directory,
                 },
             )),
             _ => Err(nia_ice::Ice::new(

@@ -905,6 +905,7 @@ pub fn emit_thin_lto_objects(
                 parallelism: config.parallelism,
                 freestanding: config.freestanding,
                 preserved_symbols: &preserved_symbol_refs,
+                backend_cache_directory: config.backend_cache_directory,
             },
         )
     }) {
@@ -950,6 +951,17 @@ pub fn emit_thin_lto_objects(
         nia_timing::emit_counter(
             "llvm_thin_lto.diagnostics",
             coordinated.diagnostics.len() as u64,
+        );
+        nia_timing::emit_counter("llvm_thin_lto.cache_hits", coordinated.cache.hits);
+        nia_timing::emit_counter("llvm_thin_lto.cache_misses", coordinated.cache.misses);
+        nia_timing::emit_counter("llvm_thin_lto.cache_corrupt", coordinated.cache.corrupt);
+        nia_timing::emit_counter(
+            "llvm_thin_lto.cache_read_errors",
+            coordinated.cache.read_errors,
+        );
+        nia_timing::emit_counter(
+            "llvm_thin_lto.cache_write_errors",
+            coordinated.cache.write_errors,
         );
     }
 
