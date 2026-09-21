@@ -1435,38 +1435,43 @@ impl Driver {
                 });
             }
             let temp = TempDir::new("nia_emit_exe");
-            if let Err(error) = fs::create_dir_all(temp.path()) {
-                return DriverOutput::from_error(DriverError::Io {
-                    path: temp.path().to_path_buf(),
-                    operation: "create temporary object directory",
-                    error,
-                });
-            }
-            let mut link_inputs = Vec::new();
-            for (index, input) in objects.link_inputs.as_slice().iter().enumerate() {
-                let object_path = temp
-                    .path()
-                    .join(object_file_name(index, &input.object.name));
-                if let Err(error) = write_output_file(&object_path, &input.object.bytes) {
-                    return DriverOutput::from_error(DriverError::Io {
-                        path: object_path,
-                        operation: "write temporary object file",
-                        error,
-                    });
-                }
-                link_inputs.push(nia_codegen_llvm::IncrementalLinkInput {
-                    key: input.key.clone(),
-                    fingerprint: input.fingerprint,
-                    object: object_path,
-                });
-            }
-            let link_inputs = match nia_codegen_llvm::IncrementalLinkInputs::new(link_inputs) {
+            let link_inputs = nia_timing::time_stage(
+                timings,
+                nia_timing::TimingLevel::Summary,
+                "link_prepare_inputs",
+                || {
+                    if let Err(error) = fs::create_dir_all(temp.path()) {
+                        return Err(DriverError::Io {
+                            path: temp.path().to_path_buf(),
+                            operation: "create temporary object directory",
+                            error,
+                        });
+                    }
+                    let mut link_inputs = Vec::with_capacity(objects.link_inputs.len());
+                    for (index, input) in objects.link_inputs.as_slice().iter().enumerate() {
+                        let object_path = temp
+                            .path()
+                            .join(object_file_name(index, &input.object.name));
+                        if let Err(error) = write_output_file(&object_path, &input.object.bytes) {
+                            return Err(DriverError::Io {
+                                path: object_path,
+                                operation: "write temporary object file",
+                                error,
+                            });
+                        }
+                        link_inputs.push(nia_codegen_llvm::IncrementalLinkInput {
+                            key: input.key.clone(),
+                            fingerprint: input.fingerprint,
+                            object: object_path,
+                        });
+                    }
+                    nia_codegen_llvm::IncrementalLinkInputs::new(link_inputs)
+                        .map_err(|error| DriverError::InternalDiagnostic(Diagnostic::from(error)))
+                },
+            );
+            let link_inputs = match link_inputs {
                 Ok(inputs) => inputs,
-                Err(error) => {
-                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
-                        Diagnostic::from(error),
-                    ));
-                }
+                Err(error) => return DriverOutput::from_error(error),
             };
             if let Some(parent) = output.parent()
                 && !parent.as_os_str().is_empty()
@@ -1483,25 +1488,40 @@ impl Driver {
                 Ok(invocation) => invocation,
                 Err(error) => return DriverOutput::from_error(DriverError::LinkerConfig(error)),
             };
-            match Command::new(&invocation.program)
-                .args(&invocation.args)
-                .status()
-            {
+            let linker_status = nia_timing::time_stage(
+                timings,
+                nia_timing::TimingLevel::Summary,
+                "link_invoke",
+                || {
+                    Command::new(&invocation.program)
+                        .args(&invocation.args)
+                        .status()
+                },
+            );
+            match linker_status {
                 Ok(status) if status.success() => {
-                    let cache_reference = if let (Some(cache), Some(fingerprint)) =
-                        (&self.link_cache, link_fingerprint)
-                    {
-                        let publish_error = cache.publish(fingerprint, &output).is_err();
-                        if timings.enabled() {
-                            nia_timing::emit_counter(
-                                "link.result_cache_publish_errors",
-                                u64::from(publish_error),
-                            );
-                        }
-                        (!publish_error).then(|| ExecutableCacheReference::from(fingerprint))
-                    } else {
-                        None
-                    };
+                    let cache_reference = nia_timing::time_stage(
+                        timings,
+                        nia_timing::TimingLevel::Summary,
+                        "link_publish_result",
+                        || {
+                            if let (Some(cache), Some(fingerprint)) =
+                                (&self.link_cache, link_fingerprint)
+                            {
+                                let publish_error = cache.publish(fingerprint, &output).is_err();
+                                if timings.enabled() {
+                                    nia_timing::emit_counter(
+                                        "link.result_cache_publish_errors",
+                                        u64::from(publish_error),
+                                    );
+                                }
+                                (!publish_error)
+                                    .then(|| ExecutableCacheReference::from(fingerprint))
+                            } else {
+                                None
+                            }
+                        },
+                    );
                     DriverOutput::success(ExecutableArtifact {
                         path: output,
                         optimization: objects.optimization,
