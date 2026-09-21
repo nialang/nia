@@ -16,7 +16,9 @@ use std::{
 
 use nia_compat::formats::{COMPILER_EMIT_CACHE, COMPILER_EMIT_ENTRY};
 use nia_compiler_query::SourceContentFingerprint;
-use nia_driver::{ExecutableCacheEnvironment, ExecutableCacheReference, SourceInputManifest};
+use nia_driver::{
+    ExecutableCacheEnvironment, ExecutableCacheReference, LinkTimeOptimization, SourceInputManifest,
+};
 use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_source::SourceIdentity;
 use nia_target_config::BuildProfile;
@@ -157,6 +159,7 @@ pub(crate) struct CompilerEmitCacheIdentityInput<'a> {
     pub(crate) toolchain: &'a ToolchainIdentity,
     pub(crate) link_environment: ExecutableCacheEnvironment,
     pub(crate) link_inputs: &'a [CompilerEmitCacheLinkInput],
+    pub(crate) link_time_optimization: LinkTimeOptimization,
 }
 
 impl CompilerEmitCacheIdentity {
@@ -173,7 +176,7 @@ impl CompilerEmitCacheIdentity {
             toolchain: input.toolchain,
         })?;
         let output = logical_path_identity(&input.artifact.output);
-        let artifact = artifact_identity(input.artifact);
+        let artifact = artifact_identity(input.artifact, input.link_time_optimization);
         let link_environment = input.link_environment.encode().to_vec();
         let link_inputs = link_inputs_identity(input.link_inputs);
         let components = EmitFingerprintComponents {
@@ -736,7 +739,10 @@ fn invalidations(
     reasons
 }
 
-fn artifact_identity(artifact: &PlanArtifact) -> Vec<u8> {
+fn artifact_identity(
+    artifact: &PlanArtifact,
+    link_time_optimization: LinkTimeOptimization,
+) -> Vec<u8> {
     let mut encoded = Vec::new();
     write_text(&mut encoded, artifact.key.package().as_str());
     write_text(&mut encoded, artifact.key.name());
@@ -750,6 +756,11 @@ fn artifact_identity(artifact: &PlanArtifact) -> Vec<u8> {
     encoded.push(match artifact.runtime {
         crate::Runtime::Bare => 0,
         crate::Runtime::Freestanding => 1,
+    });
+    encoded.push(match link_time_optimization {
+        LinkTimeOptimization::Off => 0,
+        LinkTimeOptimization::Thin => 1,
+        LinkTimeOptimization::Full => 2,
     });
     encoded
 }
@@ -830,6 +841,28 @@ mod tests {
 
     fn link_artifact() -> crate::ArtifactKey {
         crate::ArtifactKey::new(crate::PackageKey::new("root").unwrap(), "support").unwrap()
+    }
+
+    fn executable_artifact() -> PlanArtifact {
+        let package = crate::PackageKey::new("root").unwrap();
+        PlanArtifact {
+            key: crate::ArtifactKey::new(package.clone(), "app").unwrap(),
+            root_module: crate::ModuleKey::new(package, "main").unwrap(),
+            kind: crate::PlanArtifactKind::Executable,
+            output: crate::LogicalPath::new(crate::LogicalPathRoot::Build, "app").unwrap(),
+            runtime: crate::Runtime::Freestanding,
+        }
+    }
+
+    #[test]
+    fn executable_artifact_identity_includes_lto_policy() {
+        let artifact = executable_artifact();
+        let off = artifact_identity(&artifact, LinkTimeOptimization::Off);
+        let thin = artifact_identity(&artifact, LinkTimeOptimization::Thin);
+        let full = artifact_identity(&artifact, LinkTimeOptimization::Full);
+        assert_ne!(off, thin);
+        assert_ne!(thin, full);
+        assert_ne!(off, full);
     }
 
     #[test]

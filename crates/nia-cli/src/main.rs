@@ -101,6 +101,7 @@ enum CliCommand {
         root: Option<PathBuf>,
         step: Option<String>,
         jobs: Option<NonZeroUsize>,
+        link_time_optimization: nia_driver::LinkTimeOptimization,
     },
     Test {
         root: Option<PathBuf>,
@@ -209,10 +210,16 @@ fn run_cli(cli: Cli) -> ExitCode {
     };
     let timing_format = cli.timing_format;
     match cli.command {
-        CliCommand::Build { root, step, jobs } => run_build(BuildContext {
+        CliCommand::Build {
             root,
             step,
             jobs,
+            link_time_optimization,
+        } => run_build(BuildContext {
+            root,
+            step,
+            jobs,
+            link_time_optimization,
             optimization: cli.optimization,
             profile: cli.profile,
             timings: cli.timings,
@@ -756,6 +763,7 @@ fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     let mut root = None::<PathBuf>;
     let mut step = None::<String>;
     let mut jobs = None::<NonZeroUsize>;
+    let mut link_time_optimization = nia_driver::LinkTimeOptimization::Off;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         if let Some(value) = arg.strip_prefix("--root=") {
@@ -767,6 +775,11 @@ fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
         }
         if let Some(value) = arg.strip_prefix("--jobs=") {
             jobs = Some(parse_build_jobs(value)?);
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--lto=") {
+            link_time_optimization = parse_link_time_optimization(value)
+                .map_err(|message| CliError::new(message, HelpTopic::Build))?;
             continue;
         }
         if let Some(value) = arg.strip_prefix("-j").filter(|value| !value.is_empty()) {
@@ -792,6 +805,16 @@ fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                 };
                 jobs = Some(parse_build_jobs(&value)?);
             }
+            "--lto" => {
+                let Some(value) = iter.next() else {
+                    return Err(CliError::new(
+                        "missing mode after `--lto`",
+                        HelpTopic::Build,
+                    ));
+                };
+                link_time_optimization = parse_link_time_optimization(&value)
+                    .map_err(|message| CliError::new(message, HelpTopic::Build))?;
+            }
             _ if arg.starts_with('-') => {
                 return Err(CliError::new(
                     format!("unknown `nia build` option `{arg}`"),
@@ -813,7 +836,12 @@ fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
             }
         }
     }
-    Ok(CliCommand::Build { root, step, jobs })
+    Ok(CliCommand::Build {
+        root,
+        step,
+        jobs,
+        link_time_optimization,
+    })
 }
 
 fn looks_like_path_argument(arg: &str) -> bool {
@@ -1520,6 +1548,7 @@ struct BuildContext {
     root: Option<PathBuf>,
     step: Option<String>,
     jobs: Option<NonZeroUsize>,
+    link_time_optimization: nia_driver::LinkTimeOptimization,
     optimization: NiaOptimizationLevel,
     profile: BuildProfile,
     timings: nia_driver::TimingMode,
@@ -1532,6 +1561,7 @@ fn run_build(context: BuildContext) -> ExitCode {
         root,
         step,
         jobs,
+        link_time_optimization,
         optimization,
         profile,
         timings,
@@ -1551,6 +1581,7 @@ fn run_build(context: BuildContext) -> ExitCode {
     request = request
         .with_optimization(build_optimization(optimization))
         .with_profile(profile)
+        .with_link_time_optimization(link_time_optimization)
         .with_timings(timings)
         .with_timing_format(timing_format);
     match nia_build::run_build(request) {
@@ -2420,6 +2451,40 @@ mod tests {
             )
             .expect_err("invalid build jobs must fail");
             assert!(error.message.contains(expected), "{}", error.message);
+        }
+    }
+
+    #[test]
+    fn build_lto_accepts_typed_modes_and_rejects_invalid_values() {
+        for (args, expected) in [
+            (vec!["--lto=off"], nia_driver::LinkTimeOptimization::Off),
+            (
+                vec!["--lto", "thin"],
+                nia_driver::LinkTimeOptimization::Thin,
+            ),
+            (vec!["--lto=full"], nia_driver::LinkTimeOptimization::Full),
+        ] {
+            let command = parse_build_command(
+                args.into_iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap_or_else(|error| panic!("parse build LTO: {}", error.message));
+            assert!(matches!(
+                command,
+                CliCommand::Build { link_time_optimization, .. }
+                    if link_time_optimization == expected
+            ));
+        }
+
+        for args in [vec!["--lto"], vec!["--lto=invalid"]] {
+            let error = parse_build_command(
+                args.into_iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            )
+            .expect_err("invalid build LTO must fail");
+            assert!(error.message.contains("lto") || error.message.contains("LTO"));
         }
     }
 

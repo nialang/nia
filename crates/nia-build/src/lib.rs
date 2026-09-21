@@ -22,7 +22,10 @@ use std::{
 };
 
 use nia_compat::formats::RUNNER_CONFIG;
-use nia_driver::{CheckRequest, Driver, DriverConfig, DriverError, EmitObjectRequest, TimingMode};
+use nia_driver::{
+    CheckRequest, Driver, DriverConfig, DriverError, EmitObjectRequest, LinkExecutableRequest,
+    LinkTimeOptimization, TimingMode,
+};
 use nia_imports::ModuleMap;
 use nia_source::SourcePath;
 use nia_target_config::{BuildProfile, CompilationMode};
@@ -75,6 +78,8 @@ pub struct BuildRequest {
     pub optimization: OptimizationMode,
     /// Profile used for profile-conditional source selection.
     pub profile: BuildProfile,
+    /// Cross-module optimization used for final executable products.
+    pub link_time_optimization: LinkTimeOptimization,
     /// Select test executable actions instead of the declared default step.
     pub test_mode: bool,
     /// Optional substring filter applied to test step names.
@@ -97,6 +102,7 @@ impl BuildRequest {
             max_parallel_actions: None,
             optimization: OptimizationMode::O0,
             profile: BuildProfile::Debug,
+            link_time_optimization: LinkTimeOptimization::Off,
             test_mode: false,
             test_filter: None,
             test_list: false,
@@ -143,6 +149,12 @@ impl BuildRequest {
     /// Selects the profile used for conditional source selection.
     pub fn with_profile(mut self, profile: BuildProfile) -> Self {
         self.profile = profile;
+        self
+    }
+
+    /// Selects cross-module optimization for runners and executable actions.
+    pub fn with_link_time_optimization(mut self, policy: LinkTimeOptimization) -> Self {
+        self.link_time_optimization = policy;
         self
     }
 
@@ -212,6 +224,8 @@ pub struct BuildInvocation {
     pub optimization: OptimizationMode,
     /// Build profile inherited from the request.
     pub profile: BuildProfile,
+    /// Cross-module optimization inherited from the request.
+    pub link_time_optimization: LinkTimeOptimization,
     /// Conditional-compilation mode inherited from the selected workflow.
     pub compilation_mode: CompilationMode,
 }
@@ -758,6 +772,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         max_parallel_actions: request.max_parallel_actions,
         optimization: request.optimization,
         profile: request.profile,
+        link_time_optimization: request.link_time_optimization,
         compilation_mode,
     })
 }
@@ -1358,27 +1373,37 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
     let check = check
         .with_runtime(runtime)
         .with_current_package(runner_cache::package_id(&cache_key));
-    let objects = time_build_stage(
-        invocation.timings,
-        "build_runner_emit_native_objects",
-        || driver.emit_native_objects(EmitObjectRequest::new(check)),
-    );
-    let objects = objects.result.map_err(|error| BuildError::CompileRunner {
-        path: runner.path.clone(),
-        source: runner.source.clone(),
-        error: Box::new(error),
-    })?;
-    let output = time_build_stage(invocation.timings, "build_runner_link_executable", || {
-        driver.link_executable_from_objects(
-            &objects,
-            invocation.runner_executable.clone(),
-            nia_linker::LinkOptions {
-                entry: Some("_start".to_string()),
-                ..nia_linker::LinkOptions::default()
-            },
-            invocation.timings,
-        )
-    });
+    let output = match invocation.link_time_optimization {
+        LinkTimeOptimization::Off => {
+            let objects = time_build_stage(
+                invocation.timings,
+                "build_runner_emit_native_objects",
+                || driver.emit_native_objects(EmitObjectRequest::new(check)),
+            );
+            let objects = objects.result.map_err(|error| BuildError::CompileRunner {
+                path: runner.path.clone(),
+                source: runner.source.clone(),
+                error: Box::new(error),
+            })?;
+            time_build_stage(invocation.timings, "build_runner_link_executable", || {
+                driver.link_executable_from_objects(
+                    &objects,
+                    invocation.runner_executable.clone(),
+                    nia_linker::LinkOptions {
+                        entry: Some("_start".to_string()),
+                        ..nia_linker::LinkOptions::default()
+                    },
+                    invocation.timings,
+                )
+            })
+        }
+        policy => time_build_stage(invocation.timings, "build_runner_link_executable", || {
+            driver.link_executable(
+                LinkExecutableRequest::new(check, invocation.runner_executable.clone())
+                    .with_link_time_optimization(policy),
+            )
+        }),
+    };
     output.result.map_err(|error| BuildError::CompileRunner {
         path: runner.path.clone(),
         source: runner.source.clone(),
