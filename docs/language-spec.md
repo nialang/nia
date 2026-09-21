@@ -2016,15 +2016,16 @@ requires `else`; an effect-only if-pattern may omit it.
 Pattern conditions may be chained with `and`:
 
 ```nia
-if acquire() is ?resource and resource.isReady() and not resource.hidden {
+if enabled and acquire() is ?resource and resource.isReady() and not resource.hidden {
     use(resource);
 }
 ```
 
 Clauses are evaluated strictly left to right and short-circuit on the first
 failure. Bindings introduced by a successful pattern are visible to later
-clauses and the then branch, but never to `else`. Later clauses may be another
-`is` pattern or an ordinary boolean condition. Binding-producing `or` chains,
+clauses and the then branch, but never to `else`. Ordinary boolean clauses may
+also precede the first pattern, and later clauses may be another `is` pattern
+or an ordinary boolean condition. Binding-producing `or` chains,
 `not value is pattern`, and parenthesized subchains are rejected; use `match`
 for alternatives. Each target is evaluated at most once and follows the same
 temporary and cleanup rules as a standalone if-pattern.
@@ -2138,7 +2139,10 @@ loop {
 
 `break` exits the nearest loop. `continue` starts the next iteration.
 
-Loops are statements and do not produce values.
+Loops are statements and do not produce values. An unconditional `loop` with
+no reachable exit is diverging, so a block that ends with it has type `never`.
+A `break` performed by a registered `defer` is a reachable loop exit; nested
+loops and closure bodies do not contribute exits to an enclosing loop.
 
 ### 8.4 Defer
 

@@ -1610,6 +1610,7 @@ impl<'a> BodyChecker<'a> {
             const_call_locals: Vec::new(),
             const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
             body_filter: self.body_filter.clone(),
+            flow_summary: None,
             product: self.product,
             checked_functions: self.checked_functions.clone(),
             pending_functions: self.pending_functions.clone(),

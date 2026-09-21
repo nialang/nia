@@ -15,6 +15,7 @@ nia-const-ir.workspace = true
 nia-defs.workspace = true
 nia-diagnostic.workspace = true
 nia-function-ir.workspace = true
+nia-flow-check.workspace = true
 nia-hash.workspace = true
 nia-ids.workspace = true
 nia-ice.workspace = true

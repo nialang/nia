@@ -695,6 +695,32 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_diverging_loop_for_non_unit_function() {
+    let root = temp_dir("emits_diverging_loop_for_non_unit_function");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn spin() i32 {
+    loop {}
+}
+
+fn main() i32 {
+    spin()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert!(output.modules[0].ir.contains("unreachable"));
+}
+
+#[test]
 fn emits_deferred_try_propagation() {
     let root = temp_dir("emits_deferred_try_propagation");
     let main = root.join("main.nia");

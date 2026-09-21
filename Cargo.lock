@@ -283,6 +283,7 @@ dependencies = [
  "nia-const-ir",
  "nia-defs",
  "nia-diagnostic",
+ "nia-flow-check",
  "nia-function-ir",
  "nia-hash",
  "nia-ice",

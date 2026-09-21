@@ -901,7 +901,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
     ) -> Result<(), Diagnostic> {
         let Some(value) = value else {
-            if self.is_unit(self.function.return_type) {
+            if self.is_never(body.ty) {
+                self.builder
+                    .build_unreachable()
+                    .map_err(|_| self.error(span, "failed to build diverging body unreachable"))?;
+            } else if self.is_unit(self.function.return_type) {
                 if self.queue_function_return_cleanup(body, block, span, None)? {
                     return Ok(());
                 }

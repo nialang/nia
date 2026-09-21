@@ -114,12 +114,23 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn lower_body(&mut self, block: &Block) -> TypedBody {
-        self.lower_body_with_expected_tail(block, None)
+        let owns_flow_summary = self.flow_summary.is_none();
+        if owns_flow_summary {
+            self.flow_summary = Some(nia_flow_check::block_flow_summary(block));
+        }
+        let body = self.lower_body_with_expected_tail(block, None);
+        if owns_flow_summary {
+            self.flow_summary = None;
+        }
+        body
     }
 
     fn lower_closure_body(&mut self, body: &Expr) -> TypedBody {
         if let ExprKind::Block(block) = &body.kind {
-            return self.lower_body(block);
+            let outer_flow_summary = self.flow_summary.take();
+            let closure_body = self.lower_body(block);
+            self.flow_summary = outer_flow_summary;
+            return closure_body;
         }
         let tail = self.lower_expr(body);
         TypedBody {
@@ -153,7 +164,7 @@ impl<'a> BodyChecker<'a> {
         let ty = tail
             .as_ref()
             .map(|tail| tail.ty)
-            .or_else(|| self.block_terminating_never_ty(block))
+            .or_else(|| self.block_is_diverging(block).then(|| self.never()))
             .unwrap_or_else(|| self.unit());
         TypedBody {
             span: block.span,
@@ -161,17 +172,6 @@ impl<'a> BodyChecker<'a> {
             stmts,
             tail,
             ty,
-        }
-    }
-
-    fn block_terminating_never_ty(&mut self, block: &Block) -> Option<nia_ids::InternedTyId> {
-        let stmt = block.stmts.last()?;
-        match &stmt.kind {
-            StmtKind::Return(_) | StmtKind::Break | StmtKind::Continue => Some(self.never()),
-            StmtKind::Expr(expr) if self.expr_ty(expr).is_some_and(|ty| self.is_never(ty)) => {
-                Some(self.never())
-            }
-            _ => None,
         }
     }
 

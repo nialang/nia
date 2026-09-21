@@ -62,6 +62,80 @@ impl FlowCheckFilter<'_> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Flow {
     falls_through: bool,
+    returns: bool,
+    breaks_loop: bool,
+    continues_loop: bool,
+}
+
+impl Flow {
+    const NONE: Self = Self {
+        falls_through: false,
+        returns: false,
+        breaks_loop: false,
+        continues_loop: false,
+    };
+    const NEXT: Self = Self {
+        falls_through: true,
+        ..Self::NONE
+    };
+    const RETURN: Self = Self {
+        returns: true,
+        ..Self::NONE
+    };
+    const BREAK: Self = Self {
+        breaks_loop: true,
+        ..Self::NONE
+    };
+    const CONTINUE: Self = Self {
+        continues_loop: true,
+        ..Self::NONE
+    };
+
+    fn union(self, other: Self) -> Self {
+        Self {
+            falls_through: self.falls_through || other.falls_through,
+            returns: self.returns || other.returns,
+            breaks_loop: self.breaks_loop || other.breaks_loop,
+            continues_loop: self.continues_loop || other.continues_loop,
+        }
+    }
+
+    /// Runs `next` on every normally completing path while retaining exits
+    /// already taken by `self`.
+    fn then(self, next: Self) -> Self {
+        Self {
+            falls_through: self.falls_through && next.falls_through,
+            returns: self.returns || self.falls_through && next.returns,
+            breaks_loop: self.breaks_loop || self.falls_through && next.breaks_loop,
+            continues_loop: self.continues_loop || self.falls_through && next.continues_loop,
+        }
+    }
+
+    fn without_fallthrough(self) -> Self {
+        Self {
+            falls_through: false,
+            ..self
+        }
+    }
+
+    /// A deferred expression replaces the exit that invoked it when it takes
+    /// control itself; normal cleanup completion preserves the original exit.
+    fn through_defer(self, deferred: Self) -> Self {
+        deferred
+            .without_fallthrough()
+            .union(if deferred.falls_through {
+                self
+            } else {
+                Self::NONE
+            })
+    }
+
+    fn through_defers(mut self, defers: &[Self]) -> Self {
+        for deferred in defers.iter().rev() {
+            self = self.through_defer(*deferred);
+        }
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -224,9 +298,11 @@ pub fn check_active_module_flow_with_signatures_and_filter(
     filter: FlowCheckFilter<'_>,
 ) -> FlowCheck {
     let mut checker = FlowChecker {
-        type_store,
-        signatures,
-        filter,
+        function_context: Some(FunctionFlowContext {
+            type_store,
+            signatures,
+            filter,
+        }),
         diagnostics: Vec::new(),
         loop_depth: 0,
         block_flows: HashMap::new(),
@@ -238,10 +314,45 @@ pub fn check_active_module_flow_with_signatures_and_filter(
     }
 }
 
-struct FlowChecker<'a> {
+/// Returns whether control can reach the end of `block` normally.
+///
+/// Return diagnostics and body typing share this definition, including
+/// short-circuit paths, loop exits, and deferred control-flow overrides.
+pub fn block_falls_through(block: &Block) -> bool {
+    block_flow_summary(block)
+        .get(&std::ptr::from_ref(block))
+        .copied()
+        .unwrap_or(true)
+}
+
+/// Computes normal-completion facts for `block` and every nested block in one
+/// traversal. The raw pointers are only valid while the original AST remains
+/// alive; callers should consume this map within that AST operation.
+pub fn block_flow_summary(block: &Block) -> HashMap<*const Block, bool> {
+    let mut checker = FlowChecker {
+        function_context: None,
+        diagnostics: Vec::new(),
+        loop_depth: 0,
+        block_flows: HashMap::new(),
+        stmt_flows: HashMap::new(),
+    };
+    checker.check_block(block);
+    checker
+        .block_flows
+        .into_iter()
+        .map(|(block, flow)| (block, flow.falls_through))
+        .collect()
+}
+
+#[derive(Clone, Copy)]
+struct FunctionFlowContext<'a> {
     type_store: &'a TypeStore,
     signatures: FlowCheckSignatures<'a>,
     filter: FlowCheckFilter<'a>,
+}
+
+struct FlowChecker<'a> {
+    function_context: Option<FunctionFlowContext<'a>>,
     diagnostics: Vec<Diagnostic>,
     loop_depth: usize,
     block_flows: HashMap<*const Block, Flow>,
@@ -281,7 +392,9 @@ impl FlowChecker<'_> {
     fn check_function(&mut self, function: &FunctionItem) {
         let signature = self.signature_for_function(function);
         if let Some((def_id, _)) = signature
-            && !self.filter.includes(def_id)
+            && self
+                .function_context
+                .is_some_and(|context| !context.filter.includes(def_id))
         {
             return;
         }
@@ -303,10 +416,13 @@ impl FlowChecker<'_> {
     }
 
     fn function_requires_return(&self, function: &FunctionItem) -> bool {
+        let Some(context) = self.function_context else {
+            return false;
+        };
         let Some((_, signature)) = self.signature_for_function(function) else {
             return false;
         };
-        !self
+        !context
             .type_store
             .get(signature.return_type)
             .is_some_and(TyKind::is_unit)
@@ -316,7 +432,8 @@ impl FlowChecker<'_> {
         &self,
         function: &FunctionItem,
     ) -> Option<(DefId, &FunctionSignature)> {
-        self.signatures
+        self.function_context?
+            .signatures
             .functions
             .iter()
             .find_map(|(def_id, signature)| {
@@ -325,7 +442,9 @@ impl FlowChecker<'_> {
     }
 
     fn check_block(&mut self, block: &Block) -> Flow {
+        let mut exits = Flow::NONE;
         let mut falls_through = true;
+        let mut defers = Vec::new();
         for stmt in &block.stmts {
             if !falls_through {
                 self.diagnostics.push(Diagnostic::user_error_at(
@@ -339,15 +458,25 @@ impl FlowChecker<'_> {
                 self.check_stmt(stmt);
                 continue;
             }
-            falls_through = self.check_stmt(stmt).falls_through;
+            if let StmtKind::Defer(expr) = &stmt.kind {
+                defers.push(self.check_defer(expr));
+                continue;
+            }
+            let stmt_flow = self.check_stmt(stmt);
+            exits = exits.union(stmt_flow.without_fallthrough().through_defers(&defers));
+            falls_through = stmt_flow.falls_through;
         }
         if let Some(tail) = block.tail.as_deref() {
             let tail_flow = self.check_expr_flow(tail);
             if falls_through {
+                exits = exits.union(tail_flow.without_fallthrough().through_defers(&defers));
                 falls_through = tail_flow.falls_through;
             }
         }
-        let flow = Flow { falls_through };
+        if falls_through {
+            exits = exits.union(Flow::NEXT.through_defers(&defers));
+        }
+        let flow = exits;
         self.block_flows.insert(std::ptr::from_ref(block), flow);
         flow
     }
@@ -407,40 +536,27 @@ impl FlowChecker<'_> {
 
     fn check_stmt(&mut self, stmt: &Stmt) -> Flow {
         let flow = match &stmt.kind {
-            StmtKind::Binding(binding) => binding.value.as_ref().map_or(
-                Flow {
-                    falls_through: true,
-                },
-                |value| self.check_expr_flow(value),
-            ),
-            StmtKind::Static(binding) => binding.value.as_ref().map_or(
-                Flow {
-                    falls_through: true,
-                },
-                |value| self.check_expr_flow(value),
-            ),
+            StmtKind::Binding(binding) => binding
+                .value
+                .as_ref()
+                .map_or(Flow::NEXT, |value| self.check_expr_flow(value)),
+            StmtKind::Static(binding) => binding
+                .value
+                .as_ref()
+                .map_or(Flow::NEXT, |value| self.check_expr_flow(value)),
             StmtKind::Expr(expr) => self.check_expr_flow(expr),
-            StmtKind::Using(_) => Flow {
-                falls_through: true,
-            },
-            StmtKind::Defer(expr) => {
-                self.check_defer(expr);
-                Flow {
-                    falls_through: true,
-                }
-            }
+            StmtKind::Using(_) => Flow::NEXT,
+            StmtKind::Defer(expr) => self.check_defer(expr),
             StmtKind::Return(value) => {
                 // A return terminates its enclosing block, but evaluating its
                 // value still traverses nested matches, defers, and control
                 // expressions for diagnostics.
-                if let Some(value) = value {
-                    self.check_expr_flow(value);
-                }
-                Flow {
-                    falls_through: false,
-                }
+                value
+                    .as_ref()
+                    .map_or(Flow::NEXT, |value| self.check_expr_flow(value))
+                    .then(Flow::RETURN)
             }
-            StmtKind::Break | StmtKind::Continue => {
+            StmtKind::Break => {
                 if self.loop_depth == 0 {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::STATIC_CHECK,
@@ -448,37 +564,49 @@ impl FlowChecker<'_> {
                         "`break` and `continue` can only appear inside loops",
                     ));
                 }
-                Flow {
-                    falls_through: false,
+                Flow::BREAK
+            }
+            StmtKind::Continue => {
+                if self.loop_depth == 0 {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::STATIC_CHECK,
+                        stmt.span,
+                        "`break` and `continue` can only appear inside loops",
+                    ));
                 }
+                Flow::CONTINUE
             }
             StmtKind::ForIn(for_stmt) => {
                 let iter_flow = self.check_expr_flow(&for_stmt.iter);
                 self.loop_depth += 1;
-                self.check_block(&for_stmt.body);
-                self.loop_depth -= 1;
                 // A syntax-only pass cannot prove iteration or the absence of
                 // a break, so an entered loop conservatively permits exit. An
                 // iterator expression that terminates never enters it.
-                Flow {
-                    falls_through: iter_flow.falls_through,
-                }
+                let body_flow = self.check_block(&for_stmt.body);
+                self.loop_depth -= 1;
+                iter_flow.then(Flow::NEXT.union(Flow {
+                    returns: body_flow.returns,
+                    ..Flow::NONE
+                }))
             }
             StmtKind::While(while_stmt) => {
                 let cond_flow = self.check_expr_flow(&while_stmt.cond);
                 self.loop_depth += 1;
-                self.check_block(&while_stmt.body);
+                let body_flow = self.check_block(&while_stmt.body);
                 self.loop_depth -= 1;
-                Flow {
-                    falls_through: cond_flow.falls_through,
-                }
+                cond_flow.then(Flow::NEXT.union(Flow {
+                    returns: body_flow.returns,
+                    ..Flow::NONE
+                }))
             }
             StmtKind::Loop(loop_stmt) => {
                 self.loop_depth += 1;
-                self.check_block(&loop_stmt.body);
+                let body_flow = self.check_block(&loop_stmt.body);
                 self.loop_depth -= 1;
                 Flow {
-                    falls_through: true,
+                    falls_through: body_flow.breaks_loop,
+                    returns: body_flow.returns,
+                    ..Flow::NONE
                 }
             }
         };
@@ -496,33 +624,30 @@ impl FlowChecker<'_> {
             } => {
                 let cond_flow = self.check_expr_flow(cond);
                 let then_flow = self.check_block(then_branch);
-                let else_flow = else_branch.as_deref().map_or(
-                    Flow {
-                        falls_through: true,
-                    },
-                    |else_branch| self.check_expr_flow(else_branch),
-                );
-                Flow {
-                    falls_through: cond_flow.falls_through
-                        && (then_flow.falls_through || else_flow.falls_through),
-                }
+                let else_flow = else_branch
+                    .as_deref()
+                    .map_or(Flow::NEXT, |else_branch| self.check_expr_flow(else_branch));
+                cond_flow.then(then_flow.union(else_flow))
             }
             ExprKind::IfPattern(if_pattern) => {
                 let target_flow = self.check_expr_flow(&if_pattern.target);
                 self.check_pattern_flow(&if_pattern.pattern);
-                let then_falls_through = self.check_block(&if_pattern.then_branch).falls_through;
-                let mut falls_through = if_pattern.else_branch.is_none() || then_falls_through;
-                if let Some(else_branch) = &if_pattern.else_branch {
-                    falls_through |= self.check_expr_flow(else_branch).falls_through;
-                }
-                Flow {
-                    falls_through: target_flow.falls_through && falls_through,
-                }
+                let then_flow = self.check_block(&if_pattern.then_branch);
+                let else_flow = if_pattern
+                    .else_branch
+                    .as_deref()
+                    .map_or(Flow::NEXT, |else_branch| self.check_expr_flow(else_branch));
+                target_flow.then(then_flow.union(else_flow))
             }
             ExprKind::IfPatternChain(chain) => {
-                let mut clauses_flow = true;
+                let failure_flow = chain
+                    .else_branch
+                    .as_deref()
+                    .map_or(Flow::NEXT, |else_branch| self.check_expr_flow(else_branch));
+                let mut flow = Flow::NONE;
+                let mut reaches_next_clause = true;
                 for clause in &chain.clauses {
-                    let flow = match clause {
+                    let clause_flow = match clause {
                         nia_ast::IfPatternChainClause::Pattern { target, pattern } => {
                             let target_flow = self.check_expr_flow(target);
                             self.check_pattern_flow(pattern);
@@ -532,54 +657,58 @@ impl FlowChecker<'_> {
                             self.check_expr_flow(condition)
                         }
                     };
-                    clauses_flow &= flow.falls_through;
+                    if reaches_next_clause {
+                        flow = flow.union(clause_flow.without_fallthrough());
+                        if clause_flow.falls_through {
+                            flow = flow.union(failure_flow);
+                        }
+                        reaches_next_clause = clause_flow.falls_through;
+                    }
                 }
                 let then_flow = self.check_block(&chain.then_branch);
-                let failure_flow = chain
-                    .else_branch
-                    .as_deref()
-                    .is_none_or(|else_branch| self.check_expr_flow(else_branch).falls_through);
-                Flow {
-                    falls_through: clauses_flow && (then_flow.falls_through || failure_flow),
+                if reaches_next_clause {
+                    flow = flow.union(then_flow);
                 }
+                flow
             }
             ExprKind::Match(matched) => {
                 self.check_match_patterns(matched);
                 let target_flow = self.check_expr_flow(&matched.target);
                 let mut coverage = SyntacticPatternCoverage::default();
-                let mut all_arms_terminate = !matched.arms.is_empty();
+                let mut arms_flow = Flow::NONE;
                 for arm in &matched.arms {
                     for pattern in &arm.patterns {
                         coverage.record(pattern);
                         self.check_pattern_flow(pattern);
                     }
-                    all_arms_terminate &= !self.check_match_arm_flow(&arm.body).falls_through;
+                    let arm_flow = self.check_match_arm_flow(&arm.body);
+                    arms_flow = arms_flow.union(arm_flow);
                 }
-                Flow {
-                    falls_through: target_flow.falls_through
-                        && !(coverage.covers_all() && all_arms_terminate),
+                if !coverage.covers_all() {
+                    arms_flow = arms_flow.union(Flow::NEXT);
                 }
+                target_flow.then(arms_flow)
             }
             ExprKind::BracketSuffix { callee, args } => {
-                let mut falls_through = self.check_expr_flow(callee).falls_through;
+                let mut flow = self.check_expr_flow(callee);
                 for arg in args {
                     if let Some(expr) = &arg.expr {
-                        falls_through &= self.check_expr_flow(expr).falls_through;
+                        flow = flow.then(self.check_expr_flow(expr));
                     }
                 }
-                Flow { falls_through }
+                flow
             }
             ExprKind::Tuple(elems) => {
-                let mut falls_through = true;
+                let mut flow = Flow::NEXT;
                 for elem in elems {
-                    falls_through &= self.check_expr_flow(elem).falls_through;
+                    flow = flow.then(self.check_expr_flow(elem));
                 }
-                Flow { falls_through }
+                flow
             }
             ExprKind::Closure { captures, body, .. } => {
-                let mut falls_through = true;
+                let mut flow = Flow::NEXT;
                 for capture in captures {
-                    falls_through &= self.check_expr_flow(&capture.value).falls_through;
+                    flow = flow.then(self.check_expr_flow(&capture.value));
                 }
                 // A closure body is a separate function-like control-flow
                 // region. Its `break`/`continue` cannot target a loop around
@@ -589,43 +718,43 @@ impl FlowChecker<'_> {
                 self.loop_depth = 0;
                 self.check_expr_flow(body);
                 self.loop_depth = enclosing_loop_depth;
-                Flow { falls_through }
+                flow
             }
             ExprKind::ArrayLiteral { elems } => {
-                let mut falls_through = true;
+                let mut flow = Flow::NEXT;
                 match elems {
                     nia_ast::ArrayElements::List(elems) => {
                         for elem in elems {
-                            falls_through &= self.check_expr_flow(elem).falls_through;
+                            flow = flow.then(self.check_expr_flow(elem));
                         }
                     }
                     nia_ast::ArrayElements::Repeat { value, count } => {
-                        falls_through &= self.check_expr_flow(value).falls_through;
-                        falls_through &= self.check_expr_flow(count).falls_through;
+                        flow = flow.then(self.check_expr_flow(value));
+                        flow = flow.then(self.check_expr_flow(count));
                     }
                 }
-                Flow { falls_through }
+                flow
             }
             ExprKind::TypedStructLiteral { fields, .. } => {
-                let mut falls_through = true;
+                let mut flow = Flow::NEXT;
                 for field in fields {
-                    falls_through &= self.check_expr_flow(&field.value).falls_through;
+                    flow = flow.then(self.check_expr_flow(&field.value));
                 }
-                Flow { falls_through }
+                flow
             }
             ExprKind::QualifiedStructLiteral { target, fields } => {
-                let mut falls_through = self.check_expr_flow(target).falls_through;
+                let mut flow = self.check_expr_flow(target);
                 for field in fields {
-                    falls_through &= self.check_expr_flow(&field.value).falls_through;
+                    flow = flow.then(self.check_expr_flow(&field.value));
                 }
-                Flow { falls_through }
+                flow
             }
             ExprKind::OmittedAggregateLiteral { fields } => {
-                let mut falls_through = true;
+                let mut flow = Flow::NEXT;
                 for field in fields {
-                    falls_through &= self.check_expr_flow(&field.value).falls_through;
+                    flow = flow.then(self.check_expr_flow(&field.value));
                 }
-                Flow { falls_through }
+                flow
             }
             ExprKind::Unary { expr, .. }
             | ExprKind::OptionalSome { expr }
@@ -639,55 +768,53 @@ impl FlowChecker<'_> {
                 // The RHS of logical operators is conditional, so its
                 // termination cannot prove that the complete expression
                 // terminates. Every other binary operand is unconditional.
-                Flow {
-                    falls_through: lhs_flow.falls_through
-                        && (matches!(op, nia_ast::BinaryOp::And | nia_ast::BinaryOp::Or)
-                            || rhs_flow.falls_through),
+                if matches!(op, nia_ast::BinaryOp::And | nia_ast::BinaryOp::Or) {
+                    lhs_flow.then(Flow::NEXT.union(rhs_flow))
+                } else {
+                    lhs_flow.then(rhs_flow)
                 }
             }
             ExprKind::Assign { lhs, rhs, .. } => {
                 let rhs_flow = self.check_expr_flow(rhs);
                 let lhs_flow = self.check_expr_flow(lhs);
-                Flow {
-                    falls_through: rhs_flow.falls_through && lhs_flow.falls_through,
-                }
+                rhs_flow.then(lhs_flow)
             }
             ExprKind::Call { callee, args } => {
-                let mut falls_through = self.check_expr_flow(callee).falls_through;
+                let mut flow = self.check_expr_flow(callee);
                 for arg in args {
-                    falls_through &= self.check_expr_flow(arg).falls_through;
+                    flow = flow.then(self.check_expr_flow(arg));
                 }
-                Flow { falls_through }
+                flow
             }
             ExprKind::Field { lhs, .. } | ExprKind::TupleField { lhs, .. } => {
                 self.check_expr_flow(lhs)
             }
             ExprKind::Index { lhs, index } => {
-                let mut falls_through = self.check_expr_flow(lhs).falls_through;
+                let mut flow = self.check_expr_flow(lhs);
                 match index {
                     IndexArg::Expr(index) => {
-                        falls_through &= self.check_expr_flow(index).falls_through;
+                        flow = flow.then(self.check_expr_flow(index));
                     }
                     IndexArg::Range(range) => {
                         if let Some(start) = &range.start {
-                            falls_through &= self.check_expr_flow(start).falls_through;
+                            flow = flow.then(self.check_expr_flow(start));
                         }
                         if let Some(end) = &range.end {
-                            falls_through &= self.check_expr_flow(end).falls_through;
+                            flow = flow.then(self.check_expr_flow(end));
                         }
                     }
                 }
-                Flow { falls_through }
+                flow
             }
             ExprKind::Range(range) => {
-                let mut falls_through = true;
+                let mut flow = Flow::NEXT;
                 if let Some(start) = &range.start {
-                    falls_through &= self.check_expr_flow(start).falls_through;
+                    flow = flow.then(self.check_expr_flow(start));
                 }
                 if let Some(end) = &range.end {
-                    falls_through &= self.check_expr_flow(end).falls_through;
+                    flow = flow.then(self.check_expr_flow(end));
                 }
-                Flow { falls_through }
+                flow
             }
             ExprKind::Error
             | ExprKind::Integer(_)
@@ -706,9 +833,7 @@ impl FlowChecker<'_> {
             | ExprKind::TypeTarget { .. }
             | ExprKind::TraitTarget { .. }
             | ExprKind::Qualified { .. }
-            | ExprKind::OmittedMember { .. } => Flow {
-                falls_through: true,
-            },
+            | ExprKind::OmittedMember { .. } => Flow::NEXT,
         }
     }
 
@@ -720,8 +845,8 @@ impl FlowChecker<'_> {
         }
     }
 
-    fn check_defer(&mut self, expr: &Expr) {
-        self.check_expr_flow(expr);
+    fn check_defer(&mut self, expr: &Expr) -> Flow {
+        self.check_expr_flow(expr)
     }
 
     fn check_pattern_flow(&mut self, pattern: &Pattern) {
@@ -1029,6 +1154,148 @@ fn b() i32 {
                 .diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.summary.contains("unreachable statement"))
+        );
+    }
+
+    #[test]
+    fn non_breaking_loop_terminates_enclosing_control_flow() {
+        let checked = pipeline(
+            r#"
+fn spin() i32 {
+    loop {}
+}
+
+fn returnsFromLoop() i32 {
+    loop {
+        return 1;
+    }
+}
+
+fn unreachableAfterLoop() {
+    loop {
+        continue;
+    }
+    let value = 1;
+}
+"#,
+        );
+        assert!(
+            checked.diagnostics.iter().all(|diagnostic| !diagnostic
+                .summary
+                .contains("does not return on all reachable paths")),
+            "non-breaking loops must not fall through: {:?}",
+            checked.diagnostics
+        );
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains("unreachable statement")),
+            "a statement after a non-breaking loop must be unreachable: {:?}",
+            checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn reachable_break_allows_loop_to_fall_through() {
+        let checked = pipeline(
+            r#"
+fn maybeExit(flag: bool) i32 {
+    loop {
+        if flag {
+            break;
+        }
+    }
+}
+
+fn nestedBreakDoesNotExitOuter() i32 {
+    loop {
+        loop {
+            break;
+        }
+    }
+}
+
+fn unreachableBreakDoesNotExitLoop() i32 {
+    loop {
+        continue;
+        break;
+    }
+}
+"#,
+        );
+        assert_eq!(
+            checked
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic
+                    .summary
+                    .contains("does not return on all reachable paths"))
+                .count(),
+            1,
+            "only the loop with a reachable break may fall through: {:?}",
+            checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn deferred_control_flow_obeys_registration_and_lifo_override() {
+        let checked = pipeline(
+            r#"
+fn deferredBreak() i32 {
+    loop {
+        defer {
+            break;
+        };
+        continue;
+    }
+}
+
+fn deferredReturn() i32 {
+    loop {
+        defer {
+            return 1;
+        };
+        continue;
+    }
+}
+
+fn outerBreakOverridesInnerReturn() i32 {
+    loop {
+        defer {
+            break;
+        };
+        defer {
+            return 1;
+        };
+        continue;
+    }
+}
+
+fn outerReturnOverridesInnerBreak() i32 {
+    loop {
+        defer {
+            return 1;
+        };
+        defer {
+            break;
+        };
+        continue;
+    }
+}
+"#,
+        );
+        assert_eq!(
+            checked
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic
+                    .summary
+                    .contains("does not return on all reachable paths"))
+                .count(),
+            2,
+            "deferred exits must run in LIFO order and override the triggering exit: {:?}",
+            checked.diagnostics
         );
     }
 
