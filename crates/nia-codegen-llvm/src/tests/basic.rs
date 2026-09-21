@@ -1041,6 +1041,7 @@ fn signedTo64(value: i128) f64 {
             parallelism: 2,
             freestanding: true,
             preserved_symbols: &[],
+            backend_cache_directory: None,
         },
     );
     assert!(

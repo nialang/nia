@@ -116,6 +116,7 @@ fn main() i32 {
             parallelism: 2,
             freestanding: true,
             preserved_symbols: &[],
+            backend_cache_directory: None,
         },
     );
     assert!(objects.diagnostics.is_empty(), "{:?}", objects.diagnostics);

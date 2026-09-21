@@ -11,6 +11,7 @@ llvm-dynamic = ["llvm-sys/prefer-dynamic"]
 llvm-static = ["llvm-sys/force-static"]
 
 [dependencies]
+nia-compat.workspace = true
 nia-diagnostic.workspace = true
 nia-ice.workspace = true
 nia-span.workspace = true

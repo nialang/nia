@@ -5,6 +5,7 @@ use nia_backend_ir::{
 use nia_diagnostic::Diagnostic;
 use nia_llvm::target::TargetMachineIdentity;
 use nia_opt::OptimizationPolicy;
+use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq)]
 /// Textual LLVM output and diagnostics for a complete codegen request.
@@ -71,6 +72,8 @@ pub struct ThinLtoCodegenConfig<'a> {
     pub freestanding: bool,
     /// Definitions that must remain visible to regular native linker inputs.
     pub preserved_symbols: &'a [&'a str],
+    /// Release-isolated persistent cache for LLVM ThinLTO backend objects.
+    pub backend_cache_directory: Option<&'a Path>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
