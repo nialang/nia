@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use nia_compat::toolchain::BUILD_PROTOCOL;
 use nia_query::FingerprintDomain;
 
-use crate::{BuildError, BuildInvocation, BuildRunnerSource, OptimizationMode};
+use crate::{BuildError, BuildInvocation, BuildRunnerSource};
 
 const CACHE_SCHEMA: &str = "v5";
 const CACHE_MAGIC: &[u8; 8] = b"NIARUN\0\0";
@@ -178,7 +178,6 @@ pub(super) fn cache_key(
         profile_tag(invocation.profile),
         compilation_mode_tag(invocation.compilation_mode),
     ]);
-    hasher.update(&[optimization_tag(invocation.optimization)]);
     hasher.update(&BUILD_PROTOCOL.to_le_bytes());
     Ok(hasher.finalize().to_hex().to_string())
 }
@@ -277,17 +276,6 @@ fn collect_files(
     Ok(())
 }
 
-fn optimization_tag(mode: OptimizationMode) -> u8 {
-    match mode {
-        OptimizationMode::O0 => 0,
-        OptimizationMode::O1 => 1,
-        OptimizationMode::O2 => 2,
-        OptimizationMode::O3 => 3,
-        OptimizationMode::Os => 4,
-        OptimizationMode::Oz => 5,
-    }
-}
-
 fn profile_tag(profile: nia_target_config::BuildProfile) -> u8 {
     match profile {
         nia_target_config::BuildProfile::Debug => 0,
@@ -305,7 +293,7 @@ fn compilation_mode_tag(mode: nia_target_config::CompilationMode) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BuildRunnerSource, BuildStepSelection};
+    use crate::{BuildRunnerSource, BuildStepSelection, OptimizationMode};
     use nia_driver::TimingMode;
     use nia_target_config::{BuildProfile, CompilationMode};
     use nia_timing::TimingFormat;
@@ -376,6 +364,33 @@ mod tests {
         fs::write(&std_root, b"pub fn second() () {}").unwrap();
         let second = cache_key(&invocation, &runner).unwrap();
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn artifact_optimization_is_not_part_of_runner_cache_identity() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-runner-cache-artifact-optimization-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let mut invocation = invocation(&root);
+        let runner = BuildRunnerSource {
+            path: "runner.nia".into(),
+            source: "using std;".into(),
+        };
+        let unoptimized = cache_key(&invocation, &runner).unwrap();
+        invocation.optimization = OptimizationMode::Oz;
+        let optimized_artifact = cache_key(&invocation, &runner).unwrap();
+        assert_eq!(unoptimized, optimized_artifact);
+
+        invocation.profile = BuildProfile::Release;
+        let release_profile = cache_key(&invocation, &runner).unwrap();
+        assert_ne!(unoptimized, release_profile);
+
+        invocation.profile = BuildProfile::Debug;
+        invocation.compilation_mode = CompilationMode::Test;
+        let test_mode = cache_key(&invocation, &runner).unwrap();
+        assert_ne!(unoptimized, test_mode);
     }
 
     #[test]

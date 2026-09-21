@@ -278,11 +278,13 @@ cold compilation.
 
 Generated build runners use content-addressed `.nia-cache/runner/v5/<key>.cache`
 records. The key includes the generated source, build-script bytes, standard
-library source tree, toolchain identity, host target, profile, test mode,
-optimization mode, and build protocol. A hit verifies and atomically restores
-the private runner executable; the runner is still started and its plan is
-still validated and executed. Malformed or corrupted records are retired as
-misses.
+library source tree, toolchain identity, host target, profile, test mode, and
+build protocol. Artifact optimization is transported through the private
+runner configuration but does not alter the runner executable: the short-lived
+host plan constructor is always compiled at O0. A hit verifies and atomically
+restores the private runner executable; the runner is still started and its
+plan is still validated and executed. Malformed or corrupted records are
+retired as misses.
 
 Diagnostics and compiler timing records both use stderr. The baseline runner
 selects a complete structured timing record for the current toolchain rather

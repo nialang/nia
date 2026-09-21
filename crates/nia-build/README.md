@@ -23,6 +23,13 @@ values and construct a graph through `std::build`; it cannot execute graph
 actions. The decoded immutable `BuildPlan` is the coordinator's only execution
 input.
 
+The runner itself is always compiled for the host at O0. The requested
+optimization remains an explicit configuration value used by artifact actions;
+it is not the compilation policy for the short-lived plan constructor. Runner
+cache identity therefore excludes artifact optimization while retaining inputs
+that can change the runner binary, including profile, test mode, host target,
+build source, standard-library source, toolchain identity, and build protocol.
+
 ## Source Ownership
 
 - [`src/lib.rs`](src/lib.rs) owns package discovery, invocation paths, runner
