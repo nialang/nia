@@ -196,19 +196,20 @@ fn command_output(root: &Path, program: &Path, arguments: &[&str]) -> Option<Str
 
 fn timing_json(stderr: &str) -> MaintainResult<Map<String, Value>> {
     for line in stderr.lines().rev() {
-        let Ok(Value::Object(report)) = serde_json::from_str(line) else {
+        let Ok(Value::Object(mut report)) = serde_json::from_str(line) else {
             continue;
         };
-        if report.get("release_compatibility").and_then(Value::as_u64)
-            == Some(u64::from(nia_compat::RELEASE_COMPATIBILITY))
+        if report.get("process").is_some_and(Value::is_object)
+            && report.get("timings").is_some_and(Value::is_array)
+            && report.get("counters").is_some_and(Value::is_object)
         {
+            // The compiler owns the protocol identity. Maintain records the
+            // measured payload without adopting that identity as its schema.
+            report.remove("release_compatibility");
             return Ok(report);
         }
     }
-    Err(format!(
-        "compiler did not emit a release_compatibility={} timing report",
-        nia_compat::RELEASE_COMPATIBILITY
-    ))
+    Err("compiler did not emit a structured timing report".to_owned())
 }
 
 fn normalize_report_paths(value: &mut Value, root: &Path) {
@@ -591,7 +592,8 @@ mod tests {
 
     fn report(counters: Value) -> Map<String, Value> {
         serde_json::from_value(json!({
-            "release_compatibility": nia_compat::RELEASE_COMPATIBILITY,
+            "process": {},
+            "timings": [],
             "counters": counters
         }))
         .expect("report object")
@@ -615,6 +617,18 @@ mod tests {
                 "main.nia"
             ]
         );
+    }
+
+    #[test]
+    fn timing_json_discards_compiler_release_identity() {
+        let report = json!({
+            "release_compatibility": 999,
+            "process": {},
+            "timings": [],
+            "counters": {}
+        });
+        let parsed = timing_json(&report.to_string()).unwrap();
+        assert!(parsed.get("release_compatibility").is_none());
     }
 
     #[test]
