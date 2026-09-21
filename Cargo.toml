@@ -158,6 +158,8 @@ nia-abi-check = { path = "crates/nia-abi-check" }
 nia-flow-check = { path = "crates/nia-flow-check" }
 nia-opt = { path = "crates/nia-opt" }
 llvm-sys = { version = "221.0.1" }
+cc = "1.2.65"
+shlex = "2.0.1"
 
 [profile.dev]
 debug = "line-tables-only"

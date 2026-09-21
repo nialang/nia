@@ -840,10 +840,12 @@ version = "0.2.0-dev"
 name = "nia-llvm"
 version = "0.2.0-dev"
 dependencies = [
+ "cc",
  "llvm-sys",
  "nia-diagnostic",
  "nia-ice",
  "nia-span",
+ "shlex",
 ]
 
 [[package]]

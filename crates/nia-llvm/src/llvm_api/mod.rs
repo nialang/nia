@@ -9,6 +9,7 @@ mod base;
 mod builder;
 mod context;
 mod debug;
+mod lto;
 mod module;
 mod target;
 
@@ -16,5 +17,6 @@ pub use base::*;
 pub use builder::*;
 pub use context::*;
 pub use debug::*;
+pub use lto::*;
 pub use module::*;
 pub use target::*;
