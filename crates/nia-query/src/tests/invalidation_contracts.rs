@@ -9,7 +9,10 @@ fn invalidating_uncached_key_reports_root_without_allocating_slot() {
     let invalidation = db.invalidate(Double(9)).expect("invalidate query");
 
     assert_eq!(invalidation.invalidated.len(), 1);
-    assert_eq!(invalidation.invalidated[0].description, "double(9)");
+    assert_eq!(
+        invalidation.invalidated[0].description.as_ref(),
+        "double(9)"
+    );
     assert!(db.query_trace().expect("query trace").queries.is_empty());
 }
 
@@ -27,7 +30,7 @@ fn invalidates_transitive_dependents() {
     let invalidated = invalidation
         .invalidated
         .iter()
-        .map(|frame| frame.description.as_str())
+        .map(|frame| frame.description.to_string())
         .collect::<Vec<_>>();
     assert_eq!(invalidated, vec!["double(7)", "double_twice(7)"]);
 
@@ -46,7 +49,7 @@ fn invalidates_get_many_dependents_without_reordering_results() {
     let invalidated = invalidation
         .invalidated
         .iter()
-        .map(|frame| frame.description.as_str())
+        .map(|frame| frame.description.to_string())
         .collect::<Vec<_>>();
     assert_eq!(invalidated, vec!["double(2)", "double_many([2, 5])"]);
 
@@ -67,7 +70,7 @@ fn invalidation_reports_branching_dependents_in_stable_order() {
         .expect("invalidate query")
         .invalidated
         .into_iter()
-        .map(|frame| frame.description)
+        .map(|frame| frame.description.to_string())
         .collect::<Vec<_>>();
 
     assert_eq!(
@@ -128,7 +131,10 @@ fn invalidation_during_get_many_prevents_stale_cache_writeback() {
         drop(state);
 
         let invalidation = db.invalidate(SlowDouble(1)).expect("invalidate query");
-        assert_eq!(invalidation.invalidated[0].description, "slow_double(1)");
+        assert_eq!(
+            invalidation.invalidated[0].description.as_ref(),
+            "slow_double(1)"
+        );
 
         let mut state = lock.lock();
         state.release = true;

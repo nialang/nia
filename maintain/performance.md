@@ -93,9 +93,8 @@ Rust global allocator; `allocator.peak_live_bytes` starts from the process's
 already-live instrumented heap at the timing boundary and records the maximum
 thereafter. They do not include allocations performed inside LLVM or other
 native libraries, so maximum RSS remains the whole-process measure.
-`query.value_clone_bytes` is the allocator traffic observed on the cloning
-thread while owned query values are cloned, so heap-owned vectors and maps are
-counted without treating their shallow `size_of` as deep size.
+Query products are returned as shared handles or transferred owned values;
+the query engine does not clone cached semantic payloads on cache hits.
 
 The compiler baseline command selects the feature automatically. When
 `--no-build` or a custom `--compiler` is used, the runner rejects a timing report without

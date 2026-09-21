@@ -292,8 +292,8 @@ impl StableDefinitionResolver for StableDefinitionIndex {
             query: QueryFrame {
                 name: "stable_definition_index",
                 stats_category: None,
-                key: "StableDefinitionIndex".to_string(),
-                description: "stable_definition_index".to_string(),
+                key: "StableDefinitionIndex".into(),
+                description: "stable_definition_index".into(),
             },
             message: format!(
                 "compiled definition is not present in the current session: {definition:?}"

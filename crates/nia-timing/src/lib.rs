@@ -6,7 +6,7 @@
 //! registers [`CountingAllocator`] as its global allocator.
 use std::{
     alloc::{GlobalAlloc, Layout},
-    cell::{Cell, RefCell},
+    cell::RefCell,
     cmp::Reverse,
     collections::HashMap,
     sync::{
@@ -29,16 +29,11 @@ static DEALLOCATION_CALLS: AtomicU64 = AtomicU64::new(0);
 static REALLOCATION_CALLS: AtomicU64 = AtomicU64::new(0);
 static ALLOCATED_BYTES: AtomicU64 = AtomicU64::new(0);
 static DEALLOCATED_BYTES: AtomicU64 = AtomicU64::new(0);
-static QUERY_VALUE_CLONE_BYTES: AtomicU64 = AtomicU64::new(0);
 static LIVE_BYTES: AtomicU64 = AtomicU64::new(0);
 static PEAK_LIVE_BYTES: AtomicU64 = AtomicU64::new(0);
 static LIVE_WINDOW_LOCK: Mutex<()> = Mutex::new(());
 static LIVE_WINDOW_ACTIVE: AtomicBool = AtomicBool::new(false);
 static LIVE_WINDOW_PEAK_BYTES: AtomicU64 = AtomicU64::new(0);
-
-thread_local! {
-    static THREAD_ALLOCATED_BYTES: Cell<u64> = const { Cell::new(0) };
-}
 
 /// Global allocator wrapper that records allocation and live-byte counters.
 pub struct CountingAllocator<A> {
@@ -103,7 +98,6 @@ struct AllocationMeasurement {
     deallocated_bytes: u64,
     live_bytes: u64,
     peak_live_bytes: u64,
-    query_value_clone_bytes: u64,
 }
 
 /// Instantaneous process-wide live heap counters.
@@ -197,7 +191,6 @@ fn start_allocation_tracking() -> bool {
     REALLOCATION_CALLS.store(0, Ordering::Relaxed);
     ALLOCATED_BYTES.store(0, Ordering::Relaxed);
     DEALLOCATED_BYTES.store(0, Ordering::Relaxed);
-    QUERY_VALUE_CLONE_BYTES.store(0, Ordering::Relaxed);
     PEAK_LIVE_BYTES.store(LIVE_BYTES.load(Ordering::Relaxed), Ordering::Relaxed);
     ALLOCATION_TRACKING_ENABLED.store(true, Ordering::Release);
     true
@@ -214,7 +207,6 @@ fn finish_allocation_tracking() -> AllocationMeasurement {
         deallocated_bytes: DEALLOCATED_BYTES.load(Ordering::Relaxed),
         live_bytes,
         peak_live_bytes: PEAK_LIVE_BYTES.load(Ordering::Relaxed).max(live_bytes),
-        query_value_clone_bytes: QUERY_VALUE_CLONE_BYTES.load(Ordering::Relaxed),
     }
 }
 
@@ -252,7 +244,6 @@ fn record_allocation(size: usize) {
     }
     ALLOCATION_CALLS.fetch_add(1, Ordering::Relaxed);
     ALLOCATED_BYTES.fetch_add(size as u64, Ordering::Relaxed);
-    record_thread_allocated_bytes(size);
 }
 
 fn record_deallocation(size: usize) {
@@ -276,7 +267,6 @@ fn record_reallocation(old_size: usize, new_size: usize) {
     REALLOCATION_CALLS.fetch_add(1, Ordering::Relaxed);
     ALLOCATED_BYTES.fetch_add(new_size as u64, Ordering::Relaxed);
     DEALLOCATED_BYTES.fetch_add(old_size as u64, Ordering::Relaxed);
-    record_thread_allocated_bytes(new_size);
 }
 
 fn increase_live_bytes(size: u64) {
@@ -295,30 +285,6 @@ fn decrease_live_bytes(size: u64) {
     let _ = LIVE_BYTES.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |live| {
         Some(live.saturating_sub(size))
     });
-}
-
-fn record_thread_allocated_bytes(size: usize) {
-    let _ = THREAD_ALLOCATED_BYTES.try_with(|bytes| {
-        bytes.set(bytes.get().wrapping_add(size as u64));
-    });
-}
-
-fn thread_allocated_bytes() -> u64 {
-    THREAD_ALLOCATED_BYTES
-        .try_with(Cell::get)
-        .unwrap_or_default()
-}
-
-/// Runs a query-value clone and attributes its thread-local allocations.
-pub fn track_query_value_clone<T>(enabled: bool, clone: impl FnOnce() -> T) -> T {
-    if !enabled || !ALLOCATION_TRACKING_ENABLED.load(Ordering::Relaxed) {
-        return clone();
-    }
-    let allocated_before = thread_allocated_bytes();
-    let value = clone();
-    let allocated = thread_allocated_bytes().wrapping_sub(allocated_before);
-    QUERY_VALUE_CLONE_BYTES.fetch_add(allocated, Ordering::Relaxed);
-    value
 }
 
 /// Amount of compiler timing detail to collect.
@@ -1136,20 +1102,6 @@ impl TimingCollector {
 
     fn drain(&mut self) -> (TimingReport, Option<Vec<TimingEvent>>) {
         let entries = std::mem::take(&mut self.report).finish_entries();
-        let value_clones = entries
-            .iter()
-            .filter(|entry| {
-                entry.name.starts_with("query.clone.cache_hit[")
-                    || entry.name.starts_with("query.clone.store[")
-            })
-            .map(|entry| entry.count as u64)
-            .sum::<u64>();
-        if value_clones != 0 {
-            *self
-                .counters
-                .entry("query.value_clones".to_string())
-                .or_default() += value_clones;
-        }
         let mut counters = std::mem::take(&mut self.counters)
             .into_iter()
             .map(|(name, value)| TimingCounter { name, value })
@@ -1261,10 +1213,6 @@ impl TimingReport {
             TimingCounter {
                 name: "allocator.realloc_calls".to_string(),
                 value: measurement.reallocation_calls,
-            },
-            TimingCounter {
-                name: "query.value_clone_bytes".to_string(),
-                value: measurement.query_value_clone_bytes,
             },
         ]);
         self.counters
@@ -1432,13 +1380,12 @@ mod tests {
         assert!(start_allocation_tracking());
         record_allocation(16);
         record_allocation(32);
-        track_query_value_clone(true, || record_allocation(24));
         record_reallocation(32, 64);
         assert_eq!(
             allocation_live_snapshot(),
             Some(AllocationLiveSnapshot {
-                live_bytes: baseline + 204,
-                peak_live_bytes: baseline + 204,
+                live_bytes: baseline + 180,
+                peak_live_bytes: baseline + 180,
             })
         );
         record_deallocation(16);
@@ -1449,14 +1396,13 @@ mod tests {
         assert_eq!(
             measurement,
             AllocationMeasurement {
-                allocation_calls: 3,
+                allocation_calls: 2,
                 deallocation_calls: 1,
                 reallocation_calls: 1,
-                allocated_bytes: 136,
+                allocated_bytes: 112,
                 deallocated_bytes: 48,
-                live_bytes: baseline + 188,
-                peak_live_bytes: baseline + 204,
-                query_value_clone_bytes: 24,
+                live_bytes: baseline + 164,
+                peak_live_bytes: baseline + 180,
             }
         );
     }

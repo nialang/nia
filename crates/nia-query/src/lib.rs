@@ -659,9 +659,9 @@ pub struct QueryFrame {
     /// Optional stable category for grouped query statistics.
     pub stats_category: Option<&'static str>,
     /// Debug-formatted key identity.
-    pub key: String,
+    pub key: Arc<str>,
     /// Human-readable query description.
-    pub description: String,
+    pub description: Arc<str>,
 }
 
 /// Directed read edge from one query frame to another.

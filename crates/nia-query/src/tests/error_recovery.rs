@@ -106,7 +106,7 @@ fn failed_parent_query_drops_speculative_dependencies() {
         invalidation
             .invalidated
             .iter()
-            .map(|frame| frame.description.as_str())
+            .map(|frame| frame.description.as_ref())
             .collect::<Vec<_>>(),
         vec!["double(3)"]
     );

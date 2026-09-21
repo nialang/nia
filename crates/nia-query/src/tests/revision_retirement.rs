@@ -12,7 +12,10 @@ fn invalidates_direct_query_value() {
 
     let invalidation = db.invalidate(Double(9)).expect("invalidate query");
     assert_eq!(invalidation.invalidated.len(), 1);
-    assert_eq!(invalidation.invalidated[0].description, "double(9)");
+    assert_eq!(
+        invalidation.invalidated[0].description.as_ref(),
+        "double(9)"
+    );
     assert_eq!(*db.expect_get(Double(9)), 18);
     assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
 }
