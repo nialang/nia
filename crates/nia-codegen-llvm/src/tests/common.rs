@@ -209,6 +209,7 @@ pub(super) fn emit_thin_lto_modules(
         &nia_query::QuerySession::new().expect("create query session"),
         options,
         crate::LtoMode::Thin,
+        None,
     )
 }
 
@@ -223,6 +224,7 @@ pub(super) fn emit_full_lto_modules(
         &nia_query::QuerySession::new().expect("create query session"),
         options,
         crate::LtoMode::Full,
+        None,
     )
 }
 

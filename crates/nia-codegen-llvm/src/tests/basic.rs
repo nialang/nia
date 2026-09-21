@@ -14,14 +14,44 @@ struct AlwaysHitObjectCache {
     publishes: AtomicUsize,
 }
 
+struct AlwaysHitLtoModuleCache {
+    loads: AtomicUsize,
+    publishes: AtomicUsize,
+}
+
+impl crate::LtoModuleWorkProductCache for AlwaysHitLtoModuleCache {
+    fn load(
+        &self,
+        _mode: crate::LtoMode,
+        _key: &CodegenUnitKey,
+        _fingerprints: crate::CodegenUnitFingerprintSet,
+    ) -> io::Result<crate::CodegenWorkProductLookup> {
+        self.loads.fetch_add(1, Ordering::Relaxed);
+        Ok(crate::CodegenWorkProductLookup::Hit(
+            b"cached-prelink-bitcode".to_vec(),
+        ))
+    }
+
+    fn publish(
+        &self,
+        _mode: crate::LtoMode,
+        _key: &CodegenUnitKey,
+        _fingerprints: crate::CodegenUnitFingerprintSet,
+        _bytes: &[u8],
+    ) -> io::Result<()> {
+        self.publishes.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
 impl crate::ObjectWorkProductCache for AlwaysHitObjectCache {
     fn load(
         &self,
         _key: &CodegenUnitKey,
         _fingerprints: crate::CodegenUnitFingerprintSet,
-    ) -> io::Result<crate::ObjectWorkProductLookup> {
+    ) -> io::Result<crate::CodegenWorkProductLookup> {
         self.loads.fetch_add(1, Ordering::Relaxed);
-        Ok(crate::ObjectWorkProductLookup::Hit(
+        Ok(crate::CodegenWorkProductLookup::Hit(
             b"cached-object".to_vec(),
         ))
     }
@@ -63,6 +93,34 @@ fn native_object_cache_hit_skips_emission_and_publish() {
         output.link_inputs.as_slice()[0].object.bytes,
         b"cached-object"
     );
+    assert_eq!(cache.loads.load(Ordering::Relaxed), 1);
+    assert_eq!(cache.publishes.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn lto_module_cache_hit_skips_prelink_emission_and_publish() {
+    let root = temp_dir("lto_module_cache_hit_skips_prelink_emission_and_publish");
+    let main = root.join("main.nia");
+    std::fs::write(&main, "fn main() i32 { 1 }").expect("write source");
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let cache = Arc::new(AlwaysHitLtoModuleCache {
+        loads: AtomicUsize::new(0),
+        publishes: AtomicUsize::new(0),
+    });
+
+    let output = crate::emit_lto_modules(
+        Arc::clone(&codegen.backend_lowering),
+        Arc::clone(&codegen.type_store),
+        &nia_query::QuerySession::new().expect("create query session"),
+        LlvmCodegenOptions::default(),
+        crate::LtoMode::Thin,
+        Some(cache.clone()),
+    );
+
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert_eq!(output.modules.len(), 1);
+    assert_eq!(output.modules[0].bitcode, b"cached-prelink-bitcode");
     assert_eq!(cache.loads.load(Ordering::Relaxed), 1);
     assert_eq!(cache.publishes.load(Ordering::Relaxed), 0);
 }

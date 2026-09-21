@@ -328,6 +328,8 @@ pub struct Driver {
     loader: std::sync::Arc<Mutex<Option<SessionLoader>>>,
     compiler: std::sync::Arc<Mutex<Option<SessionCompiler>>>,
     object_cache: Option<std::sync::Arc<crate::object_cache::PersistentObjectWorkProductCache>>,
+    lto_module_cache:
+        Option<std::sync::Arc<crate::object_cache::PersistentLtoModuleWorkProductCache>>,
     thin_lto_backend_cache_directory: Option<PathBuf>,
     link_cache: Option<std::sync::Arc<crate::executable_cache::PersistentLinkResultCache>>,
     archive_cache: Option<std::sync::Arc<crate::archive_cache::PersistentArchiveCache>>,
@@ -425,6 +427,11 @@ impl Driver {
                 path.clone(),
             ))
         });
+        let lto_module_cache = config.artifact_cache_dir.as_ref().map(|path| {
+            std::sync::Arc::new(
+                crate::object_cache::PersistentLtoModuleWorkProductCache::new(path.clone()),
+            )
+        });
         let thin_lto_backend_cache_directory = config.artifact_cache_dir.as_ref().map(|path| {
             let [first, second] = nia_toolchain::ToolchainIdentityFingerprint::current().parts();
             path.join("artifacts")
@@ -448,6 +455,7 @@ impl Driver {
             loader: std::sync::Arc::new(Mutex::new(None)),
             compiler: std::sync::Arc::new(Mutex::new(None)),
             object_cache,
+            lto_module_cache,
             thin_lto_backend_cache_directory,
             link_cache,
             archive_cache,
@@ -1091,8 +1099,11 @@ impl Driver {
             self.config.toolchain.identity().fingerprint(),
         );
         let session = database.query_session();
-        let cache = self.object_cache.as_ref().map(|cache| {
+        let object_cache = self.object_cache.as_ref().map(|cache| {
             cache.clone() as std::sync::Arc<dyn nia_codegen_llvm::ObjectWorkProductCache>
+        });
+        let lto_module_cache = self.lto_module_cache.as_ref().map(|cache| {
+            cache.clone() as std::sync::Arc<dyn nia_codegen_llvm::LtoModuleWorkProductCache>
         });
         let lto_parallelism = session
             .executor_parallelism()
@@ -1113,7 +1124,7 @@ impl Driver {
                                                 type_store,
                                                 schedule.owner_directory(),
                                                 options,
-                                                cache,
+                                                object_cache,
                                                 &session,
                                             )
                                             .map(ObjectReadinessEmitter::NoLto)
@@ -1125,6 +1136,7 @@ impl Driver {
                                                 schedule.owner_directory(),
                                                 options,
                                                 lto_mode,
+                                                lto_module_cache,
                                                 &session,
                                             )
                                             .map(ObjectReadinessEmitter::Lto)
