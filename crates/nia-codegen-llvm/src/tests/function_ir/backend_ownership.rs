@@ -1,6 +1,5 @@
 use super::*;
 
-
 #[test]
 fn validates_backend_ir_missing_array_length_before_llvm() {
     let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");

@@ -1,6 +1,5 @@
 use super::*;
 
-
 #[test]
 fn emits_statement_if_from_function_ir_with_defer_cleanup() {
     let root = temp_dir("emits_statement_if_from_function_ir_with_defer_cleanup");

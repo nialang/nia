@@ -1,6 +1,5 @@
 use super::*;
 
-
 #[test]
 fn validates_aggregate_products_with_structurally_equal_const_args() {
     let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");

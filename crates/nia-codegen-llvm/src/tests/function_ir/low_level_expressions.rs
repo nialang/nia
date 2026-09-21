@@ -1,6 +1,5 @@
 use super::*;
 
-
 #[test]
 fn validates_atomic_contracts_before_llvm() {
     let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");

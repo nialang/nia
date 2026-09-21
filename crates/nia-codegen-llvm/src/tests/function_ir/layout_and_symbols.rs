@@ -1,6 +1,5 @@
 use super::*;
 
-
 #[test]
 fn rejects_ordinary_definition_with_foreign_module_owner_before_llvm() {
     let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
