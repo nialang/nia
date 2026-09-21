@@ -1921,11 +1921,17 @@ fn emit_compilation_counters(
     let compiler_trace = database.query_trace()?;
     let traces = [loader_trace, &compiler_trace];
     let graph = database.module_graph()?;
+    let type_store_types = database.type_store().len() as u64;
     nia_timing::emit_counter("source.paths", source_stats.path_count);
     nia_timing::emit_counter("source.child_requests", source_stats.child_requests);
     nia_timing::emit_counter("source.child_hits", source_stats.child_hits);
     nia_timing::emit_counter("source.child_misses", source_stats.child_misses);
     nia_timing::emit_counter("compiler.loaded_modules", graph.modules().count() as u64);
+    nia_timing::emit_counter("compiler.type_store_types", type_store_types);
+    nia_timing::emit_counter(
+        "compiler.type_store_growth",
+        type_store_types.saturating_sub(1),
+    );
     nia_timing::emit_counter(
         "compiler.semantic_selected_modules",
         graph
