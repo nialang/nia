@@ -1,0 +1,462 @@
+
+using std::build;
+using std::fmt;
+using std::fs;
+using std::io;
+using std::mem;
+using std::process;
+using std::string;
+using buildScript;
+
+extend[T] build::Error!T {
+    fn reportAndExit(self, init: process::Init) process::ExitCode!T {
+        match self {
+            !value => !value,
+            error! => {
+                let mut buffer: [u8; 1024] = [0; 1024];
+                let mut stderr = io::FileWriter::stderr(&mut buffer[..]);
+                match stderr.print(&"build error: {}\n", &[&error]).withBuildContext(
+                    build::ErrorOperation::Report,
+                    build::ErrorSubject::Diagnostic,
+                ) {
+                    !reported => {
+                        _ = reported;
+                    },
+                    reportError! => {
+                        return reportError.intoError()!;
+                    },
+                }
+                match stderr.flush().withBuildContext(
+                    build::ErrorOperation::Report,
+                    build::ErrorSubject::Diagnostic,
+                ) {
+                    !reported => {
+                        _ = reported;
+                    },
+                    reportError! => {
+                        return reportError.intoError()!;
+                    },
+                }
+                error.intoError()!
+            },
+        }
+    }
+}
+
+struct TargetText {
+    arch: string::String,
+    vendor: string::String,
+    os: string::String,
+    env: string::String,
+    abi: string::String,
+    endian: string::String,
+}
+
+fn rememberTargetCleanupError(
+    firstError: &mut ?build::Error,
+    result: build::Error!(),
+) () {
+    match result {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            if firstError.* is null {
+                firstError.* = ?error;
+            }
+        },
+    }
+}
+
+extend TargetText {
+    fn init() TargetText {
+        Self {
+            arch: string::String::init(),
+            vendor: string::String::init(),
+            os: string::String::init(),
+            env: string::String::init(),
+            abi: string::String::init(),
+            endian: string::String::init(),
+        }
+    }
+
+    fn deinit(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        subject: build::ErrorSubject,
+    ) build::Error!() {
+        let mut firstError: ?build::Error = null;
+        rememberTargetCleanupError(&mut firstError, self.endian.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.abi.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.env.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.os.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.vendor.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.arch.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
+        if firstError is ?error {
+            return error!;
+        }
+        !()
+    }
+}
+
+struct ConfigCursor {
+    bytes: &[u8],
+    position: usize,
+}
+
+extend ConfigCursor {
+    fn init(bytes: &[u8]) ConfigCursor {
+        Self { bytes, position: 0 }
+    }
+
+    fn remaining(&self) usize {
+        self.bytes.len() - self.position
+    }
+
+    fn take(&mut self, count: usize) build::Error!&[u8] {
+        if count > self.remaining() {
+            return build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::RunnerConfiguration,
+            }!;
+        }
+        let start = self.position;
+        self.position += count;
+        !&self.bytes[start..self.position]
+    }
+
+    fn byte(&mut self) build::Error!u8 {
+        !self.take(1).?[0]
+    }
+
+    fn u32(&mut self) build::Error!u32 {
+        let bytes = self.take(4).?;
+        !((bytes[0] as u32)
+            | ((bytes[1] as u32) << 8u32)
+            | ((bytes[2] as u32) << 16u32)
+            | ((bytes[3] as u32) << 24u32))
+    }
+
+    fn u64(&mut self) build::Error!u64 {
+        let low = self.u32().? as u64;
+        let high = self.u32().? as u64;
+        !(low | (high << 32u64))
+    }
+
+    fn textBytes(&mut self) build::Error!&[u8] {
+        let len = self.u32().? as usize;
+        self.take(len)
+    }
+}
+
+fn runnerConfigChecksum(bytes: &[u8]) u64 {
+    let mut first = 1u32;
+    let mut second = 0u32;
+    for &byte in bytes {
+        first = (first + (byte as u32)) % 65521u32;
+        second = (second + first) % 65521u32;
+    }
+    ((second as u64) << 32u64) | (first as u64)
+}
+
+fn readText(
+    cursor: &mut ConfigCursor,
+    allocator: &mut mem::Allocator,
+    storage: &mut string::String,
+    subject: build::ErrorSubject,
+) build::Error!&[char] {
+    storage.* = match string::String::fromUtf8(allocator, cursor.textBytes().?) {
+        !text => text,
+        string::TextError::InvalidUtf8(error)! => {
+            _ = error;
+            return build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: subject,
+            }!;
+        },
+        string::TextError::Allocation(error)! => {
+            return build::Error::Failure {
+                operation: build::ErrorOperation::Retain,
+                subject: subject,
+                cause: build::ErrorCause::Memory(error),
+            }!;
+        },
+    };
+    !storage.text()
+}
+
+fn readPath(
+    cursor: &mut ConfigCursor,
+    allocator: &mut mem::Allocator,
+    storage: &mut fs::Path,
+    subject: build::ErrorSubject,
+) build::Error!fs::PathView {
+    storage.* = match fs::Path::fromUtf8(allocator, cursor.textBytes().?) {
+        !path => path,
+        string::TextError::InvalidUtf8(error)! => {
+            _ = error;
+            return build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: subject,
+            }!;
+        },
+        string::TextError::Allocation(error)! => {
+            return build::Error::Failure {
+                operation: build::ErrorOperation::Retain,
+                subject: subject,
+                cause: build::ErrorCause::Memory(error),
+            }!;
+        },
+    };
+    !storage.view()
+}
+
+fn readTarget(
+    cursor: &mut ConfigCursor,
+    allocator: &mut mem::Allocator,
+    storage: &mut TargetText,
+    subject: build::ErrorSubject,
+) build::Error!build::TargetView {
+    let arch = readText(cursor, allocator, &mut storage.arch, subject).?;
+    let vendor = readText(cursor, allocator, &mut storage.vendor, subject).?;
+    let os = readText(cursor, allocator, &mut storage.os, subject).?;
+    let env = readText(cursor, allocator, &mut storage.env, subject).?;
+    let abi = readText(cursor, allocator, &mut storage.abi, subject).?;
+    let endian = readText(cursor, allocator, &mut storage.endian, subject).?;
+    let pointerWidth = cursor.u32().?;
+    !build::TargetView::init(arch, vendor, os, env, abi, endian, pointerWidth)
+}
+
+fn readOptimization(cursor: &mut ConfigCursor) build::Error!build::OptimizationMode {
+    let value = cursor.u32().?;
+    match value {
+        0 => !build::OptimizationMode::O0,
+        1 => !build::OptimizationMode::O1,
+        2 => !build::OptimizationMode::O2,
+        3 => !build::OptimizationMode::O3,
+        4 => !build::OptimizationMode::Os,
+        5 => !build::OptimizationMode::Oz,
+        _ => build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::BuildPlan,
+        }!,
+    }
+}
+
+fn configPathArg(
+    init: process::Init,
+    allocator: &mut mem::Allocator,
+    storage: &mut fs::Path,
+) build::Error!fs::PathView {
+    if init.args().len() != 3 {
+        return build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }!;
+    }
+    let flag = match init.args().get(1) {
+        ?value => value,
+        null => return build::Error::Internal(build::ErrorOperation::Initialize)!,
+    };
+    if not flag.bytes().equals(&b"--config") {
+        return build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }!;
+    }
+    let arg = match init.args().get(2) {
+        ?value => value,
+        null => return build::Error::Internal(build::ErrorOperation::Initialize)!,
+    };
+    storage.* = match fs::Path::fromUtf8(allocator, arg.bytes()) {
+        !path => path,
+        string::TextError::InvalidUtf8(error)! => {
+            _ = error;
+            return build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::RunnerConfiguration,
+            }!;
+        },
+        string::TextError::Allocation(error)! => {
+            return build::Error::Failure {
+                operation: build::ErrorOperation::Retain,
+                subject: build::ErrorSubject::RunnerConfiguration,
+                cause: build::ErrorCause::Memory(error),
+            }!;
+        },
+    };
+    !storage.view()
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    let mut pageAllocator = mem::PageAllocator::init();
+    let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
+    defer allocator.deinit().ok().?;
+
+    let mut configPathStorage = fs::Path::init();
+    defer configPathStorage.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
+    let configPath = configPathArg(init, &mut allocator, &mut configPathStorage).reportAndExit(init).?;
+    let mut configFile = fs::File::open(configPath, fs::OpenOptions::readOnly()).withBuildContext(
+        build::ErrorOperation::Initialize,
+        build::ErrorSubject::RunnerConfiguration,
+    ).reportAndExit(init).?;
+    defer configFile.close().withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
+    let configLen64 = configFile.len().withBuildContext(
+        build::ErrorOperation::Initialize,
+        build::ErrorSubject::RunnerConfiguration,
+    ).reportAndExit(init).?;
+    if configLen64 < 24u64 or configLen64 > __NIA_RUNNER_CONFIG_MAX_BYTES__u64 {
+        return build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }.intoError()!;
+    }
+    let configLen = configLen64 as usize;
+    let mut configBytes = allocator.allocSlice[u8](configLen).withBuildContext(
+        build::ErrorOperation::Retain,
+        build::ErrorSubject::RunnerConfiguration,
+    ).reportAndExit(init).?;
+    defer configBytes.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
+    let mut readBuffer: [u8; 4096] = [0; 4096];
+    let mut configReader = configFile.reader(&mut readBuffer).withBuildContext(
+        build::ErrorOperation::Initialize,
+        build::ErrorSubject::RunnerConfiguration,
+    ).reportAndExit(init).?;
+    configReader.readExact(configBytes.asMutSlice()).withBuildContext(
+        build::ErrorOperation::Initialize,
+        build::ErrorSubject::RunnerConfiguration,
+    ).reportAndExit(init).?;
+
+    let mut envelope = ConfigCursor::init(configBytes.asSlice());
+    if not envelope.take(8).reportAndExit(init).?.equals(&b"__NIA_RUNNER_CONFIG_MAGIC__")
+        or envelope.u32().reportAndExit(init).? != __NIA_RUNNER_CONFIG_COMPATIBILITY__u32
+    {
+        return build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }.intoError()!;
+    }
+    let payloadLen = envelope.u32().reportAndExit(init).? as usize;
+    let expectedChecksum = envelope.u64().reportAndExit(init).?;
+    if payloadLen != envelope.remaining() {
+        return build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }.intoError()!;
+    }
+    let payload = envelope.take(payloadLen).reportAndExit(init).?;
+    if expectedChecksum != runnerConfigChecksum(payload) {
+        return build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }.intoError()!;
+    }
+    let mut config = ConfigCursor::init(payload);
+
+    let mut packageRootPath = fs::Path::init();
+    defer packageRootPath.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::PackageRoot).reportAndExit(init).?;
+    let mut buildDirPath = fs::Path::init();
+    defer buildDirPath.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::BuildDir).reportAndExit(init).?;
+    let mut cacheDirPath = fs::Path::init();
+    defer cacheDirPath.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::CacheDir).reportAndExit(init).?;
+    let mut toolchainPath = fs::Path::init();
+    defer toolchainPath.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::ToolchainExecutable).reportAndExit(init).?;
+    let mut resourceRootPath = fs::Path::init();
+    defer resourceRootPath.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::ToolchainResourceRoot).reportAndExit(init).?;
+
+    let packageRoot = readPath(&mut config, &mut allocator, &mut packageRootPath, build::ErrorSubject::PackageRoot).reportAndExit(init).?;
+    let buildDir = readPath(&mut config, &mut allocator, &mut buildDirPath, build::ErrorSubject::BuildDir).reportAndExit(init).?;
+    let cacheDir = readPath(&mut config, &mut allocator, &mut cacheDirPath, build::ErrorSubject::CacheDir).reportAndExit(init).?;
+    let toolchainExecutable = readPath(&mut config, &mut allocator, &mut toolchainPath, build::ErrorSubject::ToolchainExecutable).reportAndExit(init).?;
+    let toolchainResourceRoot = readPath(&mut config, &mut allocator, &mut resourceRootPath, build::ErrorSubject::ToolchainResourceRoot).reportAndExit(init).?;
+    let mut hostTargetText = TargetText::init();
+    defer hostTargetText.deinit(&mut allocator, build::ErrorSubject::HostTarget).reportAndExit(init).?;
+    let hostTarget = readTarget(&mut config, &mut allocator, &mut hostTargetText, build::ErrorSubject::HostTarget).reportAndExit(init).?;
+    let mut artifactTargetText = TargetText::init();
+    defer artifactTargetText.deinit(&mut allocator, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
+    let artifactTarget = readTarget(&mut config, &mut allocator, &mut artifactTargetText, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
+    let defaultOptimization = readOptimization(&mut config).reportAndExit(init).?;
+    let mut planDraftPath = fs::Path::init();
+    defer planDraftPath.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
+    let planDraft = readPath(&mut config, &mut allocator, &mut planDraftPath, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
+    let mut requestedStepText = string::String::init();
+    defer requestedStepText.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::RequestedStep).reportAndExit(init).?;
+    let mut testMode = false;
+    let requestedStep: ?&[char] = match config.byte().reportAndExit(init).? {
+        0 => null,
+        1 => ?readText(
+            &mut config,
+            &mut allocator,
+            &mut requestedStepText,
+            build::ErrorSubject::RequestedStep,
+        ).reportAndExit(init).?,
+        2 => {
+            testMode = true;
+            null
+        },
+        _ => {
+            return build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::RunnerConfiguration,
+            }.intoError()!;
+        },
+    };
+    if config.remaining() != 0 {
+        return build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }.intoError()!;
+    }
+
+    let mut initialization = build::Build::init(
+        &mut allocator,
+        packageRoot,
+        buildDir,
+        cacheDir,
+        toolchainExecutable,
+        toolchainResourceRoot,
+        hostTarget,
+        artifactTarget,
+        defaultOptimization,
+        __NIA_BUILD_PLAN_COMPATIBILITY__u32,
+        requestedStep,
+        testMode,
+    );
+    let mut api = initialization.finish().reportAndExit(init).?;
+    defer api.deinit().reportAndExit(init).?;
+
+    match buildScript::build(&mut api) {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            match api.reportError(error) {
+                !reported => {
+                    _ = reported;
+                },
+                reportError! => {
+                    return reportError.intoError()!;
+                },
+            }
+            return error.intoError()!;
+        },
+    }
+    match api.writePlanDraft(planDraft) {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            match api.reportError(error) {
+                !reported => {
+                    _ = reported;
+                },
+                reportError! => {
+                    return reportError.intoError()!;
+                },
+            }
+            return error.intoError()!;
+        },
+    }
+    !()
+}
+
