@@ -970,18 +970,19 @@ impl Driver {
 
     /// Emits native object bytes for a checked request.
     pub fn emit_native_objects(&self, request: EmitObjectRequest) -> DriverOutput<ObjectArtifact> {
-        self.emit_native_objects_with_source_manifest(request)
+        self.emit_objects_with_source_manifest(request, ObjectEmissionMode::NoLto)
             .map(|output| output.artifact)
     }
 
-    fn emit_native_objects_with_source_manifest(
+    fn emit_objects_with_source_manifest(
         &self,
         request: EmitObjectRequest,
+        mode: ObjectEmissionMode<'_>,
     ) -> DriverOutput<ObjectArtifactWithSourceManifest> {
         {
             let timings = request.check.timings;
             let (database, loader) =
-                match time_detail_stage(timings, "native_prepare_compilation_database", || {
+                match time_detail_stage(timings, mode.prepare_database_stage(), || {
                     self.compilation_databases_with_codegen_scope(
                         &request.check,
                         CodegenScope::Entry,
@@ -994,13 +995,13 @@ impl Driver {
                         ));
                     }
                 };
-            let emission = match time_detail_stage(timings, "native_emit_objects", || {
-                self.emit_native_objects_for_database(&database, timings)
+            let emission = match time_detail_stage(timings, mode.emit_objects_stage(), || {
+                self.emit_objects_for_database(&database, timings, mode)
             }) {
                 Ok(emission) => emission,
                 Err(error) => return DriverOutput::from_error(error),
             };
-            let loader_trace = match time_detail_stage(timings, "native_loader_query_trace", || {
+            let loader_trace = match time_detail_stage(timings, mode.loader_trace_stage(), || {
                 self.loader_query_trace()
             }) {
                 Ok(trace) => trace,
@@ -1010,7 +1011,7 @@ impl Driver {
                     ));
                 }
             };
-            if let Err(error) = time_detail_stage(timings, "native_emit_counters", || {
+            if let Err(error) = time_detail_stage(timings, mode.emit_counters_stage(), || {
                 emit_compilation_counters(
                     timings,
                     &database,
@@ -1032,16 +1033,17 @@ impl Driver {
                     query_error_diagnostic(error),
                 ));
             }
-            let source_manifest = match time_detail_stage(timings, "native_source_manifest", || {
-                loader.source_input_manifest()
-            }) {
-                Ok(manifest) => manifest,
-                Err(error) => {
-                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
-                        query_error_diagnostic(error),
-                    ));
-                }
-            };
+            let source_manifest =
+                match time_detail_stage(timings, mode.source_manifest_stage(), || {
+                    loader.source_input_manifest()
+                }) {
+                    Ok(manifest) => manifest,
+                    Err(error) => {
+                        return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                            query_error_diagnostic(error),
+                        ));
+                    }
+                };
             DriverOutput::success(ObjectArtifactWithSourceManifest {
                 artifact: emission.artifact,
                 source_manifest,
@@ -1049,12 +1051,13 @@ impl Driver {
         }
     }
 
-    fn emit_native_objects_for_database(
+    fn emit_objects_for_database(
         &self,
         database: &CompilerDatabase,
         timings: TimingMode,
+        mode: ObjectEmissionMode<'_>,
     ) -> Result<NativeDatabaseEmission, DriverError> {
-        let preparation = time_detail_stage(timings, "native_codegen_preparation", || {
+        let preparation = time_detail_stage(timings, mode.codegen_preparation_stage(), || {
             database.codegen_preparation()
         })
         .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?;
@@ -1082,6 +1085,10 @@ impl Driver {
         let cache = self.object_cache.as_ref().map(|cache| {
             cache.clone() as std::sync::Arc<dyn nia_codegen_llvm::ObjectWorkProductCache>
         });
+        let thin_lto_parallelism = session
+            .executor_parallelism()
+            .min(nia_query::llvm_memory_task_capacity())
+            .max(1);
         let (output, backend_function_stats, backend_module_count, optimization_report) = database
             .with_backend_finalization_schedule(|schedule| {
                 Ok((|| -> Result<_, DriverError> {
@@ -1089,22 +1096,37 @@ impl Driver {
                         Err(lowering) => Err(DriverError::CodegenDiagnostics(lowering.diagnostics)),
                         Ok(mut schedule) => {
                             let mut emitter =
-                                time_detail_stage(timings, "native_llvm_emitter_create", || {
-                                    nia_codegen_llvm::LlvmNativeObjectReadinessEmitter::new(
-                                        schedule.module_store(),
-                                        type_store,
-                                        schedule.owner_directory(),
-                                        options,
-                                        cache,
-                                        &session,
-                                    )
+                                time_detail_stage(timings, mode.emitter_create_stage(), || {
+                                    match mode {
+                                        ObjectEmissionMode::NoLto => {
+                                            nia_codegen_llvm::LlvmNativeObjectReadinessEmitter::new(
+                                                schedule.module_store(),
+                                                type_store,
+                                                schedule.owner_directory(),
+                                                options,
+                                                cache,
+                                                &session,
+                                            )
+                                            .map(ObjectReadinessEmitter::NoLto)
+                                        }
+                                        ObjectEmissionMode::ThinLto { .. } => {
+                                            nia_codegen_llvm::LlvmThinLtoReadinessEmitter::new(
+                                                schedule.module_store(),
+                                                type_store,
+                                                schedule.owner_directory(),
+                                                options,
+                                                &session,
+                                            )
+                                            .map(ObjectReadinessEmitter::ThinLto)
+                                        }
+                                    }
                                 })
                                 .map_err(|error| {
                                     DriverError::InternalDiagnostic(Diagnostic::from(error))
                                 })?;
                             loop {
                                 let ready =
-                                    time_detail_stage(timings, "native_backend_wait_ready", || {
+                                    time_detail_stage(timings, mode.backend_wait_stage(), || {
                                         schedule.wait_next()
                                     })
                                     .map_err(|error| {
@@ -1115,7 +1137,7 @@ impl Driver {
                                 let Some(ready) = ready else {
                                     break;
                                 };
-                                time_detail_stage(timings, "native_llvm_publish_ready", || {
+                                time_detail_stage(timings, mode.publish_ready_stage(), || {
                                     emitter.publish(ready)
                                 })
                                 .map_err(|error| {
@@ -1123,7 +1145,7 @@ impl Driver {
                                 })?;
                             }
                             let lowering =
-                                time_detail_stage(timings, "native_backend_finish", || {
+                                time_detail_stage(timings, mode.backend_finish_stage(), || {
                                     schedule.finish()
                                 })
                                 .map_err(|error| {
@@ -1135,8 +1157,8 @@ impl Driver {
                             let backend_function_stats = lowering.program.function_stats();
                             let backend_module_count = lowering.program.modules.len();
                             Ok((
-                                time_detail_stage(timings, "native_llvm_finish", || {
-                                    emitter.finish()
+                                time_detail_stage(timings, mode.llvm_finish_stage(), || {
+                                    emitter.finish(mode, options, thin_lto_parallelism)
                                 })
                                 .map_err(|error| {
                                     DriverError::InternalDiagnostic(Diagnostic::from(error))
@@ -1360,14 +1382,34 @@ impl Driver {
             request.link_options.entry = runtime
                 .source()
                 .map(|runtime| runtime.entry_point().linker_symbol().to_owned());
+            let preserved_symbols = request
+                .link_options
+                .entry
+                .as_deref()
+                .into_iter()
+                .collect::<Vec<_>>();
+            let emission_mode = match request.link_time_optimization {
+                LinkTimeOptimization::Off => ObjectEmissionMode::NoLto,
+                LinkTimeOptimization::Thin => ObjectEmissionMode::ThinLto {
+                    preserved_symbols: &preserved_symbols,
+                    freestanding: true,
+                },
+            };
+            let emission_stage = match request.link_time_optimization {
+                LinkTimeOptimization::Off => "emit_native_objects",
+                LinkTimeOptimization::Thin => "emit_thin_lto_objects",
+            };
             let output = nia_timing::time_stage(
                 timings,
                 nia_timing::TimingLevel::Summary,
-                "emit_native_objects",
+                emission_stage,
                 || {
-                    self.emit_native_objects_with_source_manifest(EmitObjectRequest {
-                        check: request.check.with_runtime(runtime),
-                    })
+                    self.emit_objects_with_source_manifest(
+                        EmitObjectRequest {
+                            check: request.check.with_runtime(runtime),
+                        },
+                        emission_mode,
+                    )
                 },
             );
             let objects = match output.result {
@@ -2398,6 +2440,18 @@ pub struct LinkExecutableRequest {
     pub output: PathBuf,
     /// Linker options.
     pub link_options: LinkOptions,
+    /// Cross-module optimization applied only while producing this executable.
+    pub link_time_optimization: LinkTimeOptimization,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Final executable cross-module optimization policy.
+pub enum LinkTimeOptimization {
+    #[default]
+    /// Emit and link independent native objects.
+    Off,
+    /// Build a ThinLTO summary index and run parallel importing backends.
+    Thin,
 }
 
 impl LinkExecutableRequest {
@@ -2407,12 +2461,19 @@ impl LinkExecutableRequest {
             check,
             output: output.into(),
             link_options: LinkOptions::default(),
+            link_time_optimization: LinkTimeOptimization::Off,
         }
     }
 
     /// Replaces the linker options.
     pub fn with_link_options(mut self, link_options: LinkOptions) -> Self {
         self.link_options = link_options;
+        self
+    }
+
+    /// Selects the final executable cross-module optimization policy.
+    pub fn with_link_time_optimization(mut self, policy: LinkTimeOptimization) -> Self {
+        self.link_time_optimization = policy;
         self
     }
 }
@@ -2461,6 +2522,114 @@ struct NativeDatabaseEmission {
     checked_module_count: usize,
     monomorphized_instance_count: usize,
     backend_module_count: usize,
+}
+
+#[derive(Clone, Copy)]
+enum ObjectEmissionMode<'a> {
+    NoLto,
+    ThinLto {
+        preserved_symbols: &'a [&'a str],
+        freestanding: bool,
+    },
+}
+
+impl ObjectEmissionMode<'_> {
+    fn select(self, no_lto: &'static str, thin_lto: &'static str) -> &'static str {
+        match self {
+            Self::NoLto => no_lto,
+            Self::ThinLto { .. } => thin_lto,
+        }
+    }
+
+    fn prepare_database_stage(self) -> &'static str {
+        self.select(
+            "native_prepare_compilation_database",
+            "thin_lto_prepare_compilation_database",
+        )
+    }
+
+    fn emit_objects_stage(self) -> &'static str {
+        self.select("native_emit_objects", "thin_lto_emit_objects")
+    }
+
+    fn loader_trace_stage(self) -> &'static str {
+        self.select("native_loader_query_trace", "thin_lto_loader_query_trace")
+    }
+
+    fn emit_counters_stage(self) -> &'static str {
+        self.select("native_emit_counters", "thin_lto_emit_counters")
+    }
+
+    fn source_manifest_stage(self) -> &'static str {
+        self.select("native_source_manifest", "thin_lto_source_manifest")
+    }
+
+    fn codegen_preparation_stage(self) -> &'static str {
+        self.select("native_codegen_preparation", "thin_lto_codegen_preparation")
+    }
+
+    fn emitter_create_stage(self) -> &'static str {
+        self.select("native_llvm_emitter_create", "thin_lto_llvm_emitter_create")
+    }
+
+    fn backend_wait_stage(self) -> &'static str {
+        self.select("native_backend_wait_ready", "thin_lto_backend_wait_ready")
+    }
+
+    fn publish_ready_stage(self) -> &'static str {
+        self.select("native_llvm_publish_ready", "thin_lto_llvm_publish_ready")
+    }
+
+    fn backend_finish_stage(self) -> &'static str {
+        self.select("native_backend_finish", "thin_lto_backend_finish")
+    }
+
+    fn llvm_finish_stage(self) -> &'static str {
+        self.select("native_llvm_finish", "thin_lto_llvm_finish")
+    }
+}
+
+enum ObjectReadinessEmitter<'session> {
+    NoLto(nia_codegen_llvm::LlvmNativeObjectReadinessEmitter<'session>),
+    ThinLto(nia_codegen_llvm::LlvmThinLtoReadinessEmitter<'session>),
+}
+
+impl ObjectReadinessEmitter<'_> {
+    fn publish(&mut self, ready: nia_codegen_llvm::BackendModuleReady) -> nia_ice::IceResult<()> {
+        match self {
+            Self::NoLto(emitter) => emitter.publish(ready),
+            Self::ThinLto(emitter) => emitter.publish(ready),
+        }
+    }
+
+    fn finish(
+        self,
+        mode: ObjectEmissionMode<'_>,
+        options: nia_codegen_llvm::LlvmCodegenOptions,
+        parallelism: usize,
+    ) -> nia_ice::IceResult<nia_codegen_llvm::LlvmObjectOutput> {
+        match (self, mode) {
+            (Self::NoLto(emitter), ObjectEmissionMode::NoLto) => emitter.finish(),
+            (
+                Self::ThinLto(emitter),
+                ObjectEmissionMode::ThinLto {
+                    preserved_symbols,
+                    freestanding,
+                },
+            ) => Ok(nia_codegen_llvm::emit_thin_lto_objects(
+                emitter.finish()?,
+                options,
+                nia_codegen_llvm::ThinLtoCodegenConfig {
+                    parallelism,
+                    freestanding,
+                    preserved_symbols,
+                },
+            )),
+            _ => Err(nia_ice::Ice::new(
+                "object readiness emitter does not match its emission mode",
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

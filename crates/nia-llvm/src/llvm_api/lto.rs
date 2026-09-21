@@ -66,6 +66,8 @@ pub struct ThinLtoObject {
     pub task: u32,
     /// Input module identifier associated with this object.
     pub module_name: String,
+    /// LLVM's backend cache identity including combined-index decisions.
+    pub cache_key: String,
     /// Native object bytes copied out of the LLVM output stream.
     pub bytes: Vec<u8>,
 }
@@ -169,6 +171,14 @@ unsafe extern "C" {
     fn nia_llvm_thin_result_object_task(result: *const FfiThinResult, index: usize) -> u32;
     fn nia_llvm_thin_result_object_name(result: *const FfiThinResult, index: usize) -> *const u8;
     fn nia_llvm_thin_result_object_name_len(result: *const FfiThinResult, index: usize) -> usize;
+    fn nia_llvm_thin_result_object_cache_key(
+        result: *const FfiThinResult,
+        index: usize,
+    ) -> *const u8;
+    fn nia_llvm_thin_result_object_cache_key_len(
+        result: *const FfiThinResult,
+        index: usize,
+    ) -> usize;
     fn nia_llvm_thin_result_object_data(result: *const FfiThinResult, index: usize) -> *const u8;
     fn nia_llvm_thin_result_object_len(result: *const FfiThinResult, index: usize) -> usize;
     fn nia_llvm_thin_result_diagnostic_count(result: *const FfiThinResult) -> usize;
@@ -301,9 +311,17 @@ pub fn run_thin_lto(
                 "ThinLTO object",
             )?
         };
+        let cache_key = unsafe {
+            copy_text(
+                nia_llvm_thin_result_object_cache_key(result.0.as_ptr(), index),
+                nia_llvm_thin_result_object_cache_key_len(result.0.as_ptr(), index),
+                "ThinLTO object cache key",
+            )?
+        };
         objects.push(ThinLtoObject {
             task: unsafe { nia_llvm_thin_result_object_task(result.0.as_ptr(), index) },
             module_name,
+            cache_key,
             bytes,
         });
     }
@@ -434,6 +452,7 @@ mod tests {
 
         assert_eq!(output.objects.len(), 1);
         assert!(!output.objects[0].bytes.is_empty());
+        assert!(!output.objects[0].cache_key.is_empty());
         assert!(
             output
                 .diagnostics
@@ -546,6 +565,12 @@ mod tests {
 
         assert_eq!(output.objects.len(), 2);
         assert!(output.objects.iter().all(|object| !object.bytes.is_empty()));
+        assert!(
+            output
+                .objects
+                .iter()
+                .all(|object| !object.cache_key.is_empty())
+        );
         assert!(
             output
                 .diagnostics

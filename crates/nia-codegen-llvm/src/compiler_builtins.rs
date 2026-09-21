@@ -8,7 +8,8 @@ use nia_function_ir::{
     FunctionSliceRange, FunctionTerminator,
 };
 use nia_llvm::{
-    Context, FloatPredicate, IntPredicate, LlvmError,
+    Context, FloatPredicate, IntPredicate, LlvmError, OptimizationLevel,
+    lto::emit_thin_lto_bitcode as emit_summary_bitcode,
     module::Linkage,
     target::TargetMachine,
     values::{BasicMetadataValueEnum, BasicValueEnum, IntValue, PointerValue},
@@ -507,46 +508,73 @@ pub(crate) fn emit_object(
     target
         .configure_module(&module)
         .map_err(|error| error.diagnostic())?;
-    if symbols.u64_div_rem {
-        emit_wide_div_rem(&context, &module, 64, false)?;
-    }
-    if symbols.i64_div_rem {
-        emit_wide_div_rem(&context, &module, 64, true)?;
-    }
-    if symbols.u128_div_rem {
-        emit_wide_div_rem(&context, &module, 128, false)?;
-    }
-    if symbols.i128_div_rem {
-        emit_wide_div_rem(&context, &module, 128, true)?;
-    }
-    if symbols.u128_from_f32 {
-        emit_i128_from_float(&context, &module, PrimitiveTy::F32, false)?;
-    }
-    if symbols.u128_from_f64 {
-        emit_i128_from_float(&context, &module, PrimitiveTy::F64, false)?;
-    }
-    if symbols.i128_from_f32 {
-        emit_i128_from_float(&context, &module, PrimitiveTy::F32, true)?;
-    }
-    if symbols.i128_from_f64 {
-        emit_i128_from_float(&context, &module, PrimitiveTy::F64, true)?;
-    }
-    if symbols.f32_from_u128 {
-        emit_i128_to_float(&context, &module, PrimitiveTy::F32, false)?;
-    }
-    if symbols.f64_from_u128 {
-        emit_i128_to_float(&context, &module, PrimitiveTy::F64, false)?;
-    }
-    if symbols.f32_from_i128 {
-        emit_i128_to_float(&context, &module, PrimitiveTy::F32, true)?;
-    }
-    if symbols.f64_from_i128 {
-        emit_i128_to_float(&context, &module, PrimitiveTy::F64, true)?;
-    }
+    emit_definitions(&context, &module, symbols)?;
     module.verify().map_err(diagnostic_from_llvm_error)?;
     target
         .emit_object(&module)
         .map_err(diagnostic_from_llvm_error)
+}
+
+pub(crate) fn emit_thin_lto_bitcode(
+    target: &TargetMachine,
+    symbols: CompilerBuiltinSymbols,
+    optimization: OptimizationLevel,
+) -> Result<Vec<u8>, Diagnostic> {
+    let context = Context::create().map_err(diagnostic_from_llvm_error)?;
+    let module = context
+        .create_module("nia.compiler_builtins")
+        .map_err(diagnostic_from_llvm_error)?;
+    module.set_identifier("nia:cgu:compiler-builtins");
+    target
+        .configure_module(&module)
+        .map_err(|error| error.diagnostic())?;
+    emit_definitions(&context, &module, symbols)?;
+    module.verify().map_err(diagnostic_from_llvm_error)?;
+    emit_summary_bitcode(&module, target, optimization).map_err(diagnostic_from_llvm_error)
+}
+
+fn emit_definitions<'ctx>(
+    context: &'ctx Context,
+    module: &nia_llvm::module::Module<'ctx>,
+    symbols: CompilerBuiltinSymbols,
+) -> Result<(), Diagnostic> {
+    if symbols.u64_div_rem {
+        emit_wide_div_rem(context, module, 64, false)?;
+    }
+    if symbols.i64_div_rem {
+        emit_wide_div_rem(context, module, 64, true)?;
+    }
+    if symbols.u128_div_rem {
+        emit_wide_div_rem(context, module, 128, false)?;
+    }
+    if symbols.i128_div_rem {
+        emit_wide_div_rem(context, module, 128, true)?;
+    }
+    if symbols.u128_from_f32 {
+        emit_i128_from_float(context, module, PrimitiveTy::F32, false)?;
+    }
+    if symbols.u128_from_f64 {
+        emit_i128_from_float(context, module, PrimitiveTy::F64, false)?;
+    }
+    if symbols.i128_from_f32 {
+        emit_i128_from_float(context, module, PrimitiveTy::F32, true)?;
+    }
+    if symbols.i128_from_f64 {
+        emit_i128_from_float(context, module, PrimitiveTy::F64, true)?;
+    }
+    if symbols.f32_from_u128 {
+        emit_i128_to_float(context, module, PrimitiveTy::F32, false)?;
+    }
+    if symbols.f64_from_u128 {
+        emit_i128_to_float(context, module, PrimitiveTy::F64, false)?;
+    }
+    if symbols.f32_from_i128 {
+        emit_i128_to_float(context, module, PrimitiveTy::F32, true)?;
+    }
+    if symbols.f64_from_i128 {
+        emit_i128_to_float(context, module, PrimitiveTy::F64, true)?;
+    }
+    Ok(())
 }
 
 fn emit_i128_to_float<'ctx>(

@@ -75,6 +75,53 @@ fn driver_exposes_loader_owned_recursive_source_manifest() {
 }
 
 #[test]
+#[cfg(unix)]
+fn thin_lto_links_and_runs_a_freestanding_executable() {
+    let root = common::temp_dir("thin-lto-freestanding-executable");
+    let source = root.join("main.nia");
+    common::write(
+        &source,
+        r#"
+using std::process;
+
+fn helper0() i32 { 0 }
+fn helper1() i32 { 1 }
+fn helper2() i32 { 2 }
+fn helper3() i32 { 3 }
+fn helper4() i32 { 4 }
+fn helper5() i32 { 5 }
+fn helper6() i32 { 6 }
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if helper0() + helper1() + helper2() + helper3()
+        + helper4() + helper5() + helper6() != 21
+    {
+        return process::ExitCode(9)!;
+    }
+    !()
+}
+"#,
+    );
+    let output = root.join("thin-runner");
+    let artifact = common::test_driver()
+        .link_executable(
+            crate::LinkExecutableRequest::new(
+                crate::CheckRequest::new(source.to_string_lossy().into_owned()),
+                &output,
+            )
+            .with_link_time_optimization(crate::LinkTimeOptimization::Thin),
+        )
+        .result
+        .unwrap_or_else(|error| panic!("ThinLTO executable link failed: {error:?}"));
+
+    let status = std::process::Command::new(&artifact.path)
+        .status()
+        .expect("run ThinLTO executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn writing_native_object_preserves_incremental_link_identity() {
     use nia_backend_ir::{
         CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey, IncrementalLinkInput,

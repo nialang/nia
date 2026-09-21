@@ -39,6 +39,8 @@ pub struct LlvmThinLtoModuleOutput {
     pub target: Option<TargetMachineIdentity>,
     /// Deterministically ordered ThinLTO pre-link inputs.
     pub modules: Vec<ThinLtoModule>,
+    /// External definitions that must remain visible to regular linker inputs.
+    pub linker_visible_symbols: Vec<String>,
     /// Validation, LLVM construction, or target failures from omitted units.
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -58,6 +60,17 @@ pub struct ThinLtoModule {
     pub module_identifier: String,
     /// Target-configured bitcode containing a ThinLTO module summary.
     pub bitcode: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy)]
+/// Whole-program policy for coordinating emitted ThinLTO modules.
+pub struct ThinLtoCodegenConfig<'a> {
+    /// Maximum number of in-process ThinLTO backend workers.
+    pub parallelism: usize,
+    /// Disable assumptions about hosted target-library functions.
+    pub freestanding: bool,
+    /// Definitions that must remain visible to regular native linker inputs.
+    pub preserved_symbols: &'a [&'a str],
 }
 
 #[derive(Debug, Clone, PartialEq)]

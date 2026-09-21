@@ -37,10 +37,10 @@ pub use pipeline::{
     CheckRequest, CheckedProgramWithSourceManifest, Driver, DriverConfig, DriverError,
     DriverOutput, EmitLlvmRequest, EmitObjectRequest, ExecutableArtifact,
     ExecutableCacheEnvironment, ExecutableCacheReference, ExecutableCacheRestore,
-    LinkExecutableRequest, LinkedExecutableWithSourceManifest, LlvmIrArtifact, ObjectArtifact,
-    ObjectOutput, StaticArchiveArtifact, StaticArchiveCacheEnvironment,
-    StaticArchiveCacheReference, StaticArchiveCacheRestore, WriteObjectRequest,
-    WrittenObjectArtifact,
+    LinkExecutableRequest, LinkTimeOptimization, LinkedExecutableWithSourceManifest,
+    LlvmIrArtifact, ObjectArtifact, ObjectOutput, StaticArchiveArtifact,
+    StaticArchiveCacheEnvironment, StaticArchiveCacheReference, StaticArchiveCacheRestore,
+    WriteObjectRequest, WrittenObjectArtifact,
 };
 pub use report::{
     llvm_ir_optimization_report, object_optimization_report, optimization_report,

@@ -108,35 +108,24 @@ fn main() i32 {
         })
     );
 
-    let inputs = thin_output
-        .modules
-        .iter()
-        .map(|module| nia_llvm::lto::ThinLtoInput {
-            name: &module.module_identifier,
-            bitcode: &module.bitcode,
-        })
-        .collect::<Vec<_>>();
-    let target = thin_output
-        .target
-        .as_ref()
-        .expect("ThinLTO target identity");
-    let coordinated = nia_llvm::lto::run_thin_lto(
-        &inputs,
-        nia_llvm::lto::ThinLtoConfig {
-            target,
-            optimization: nia_llvm::OptimizationLevel::Default,
+    let module_count = thin_output.modules.len();
+    let objects = crate::emit_thin_lto_objects(
+        thin_output,
+        LlvmCodegenOptions::default(),
+        crate::ThinLtoCodegenConfig {
             parallelism: 2,
             freestanding: true,
             preserved_symbols: &[],
         },
-    )
-    .expect("coordinate generated ThinLTO modules");
-    assert_eq!(coordinated.objects.len(), thin_output.modules.len());
+    );
+    assert!(objects.diagnostics.is_empty(), "{:?}", objects.diagnostics);
+    assert_eq!(objects.link_inputs.len(), module_count);
     assert!(
-        coordinated
-            .objects
+        objects
+            .link_inputs
+            .as_slice()
             .iter()
-            .all(|object| !object.bytes.is_empty())
+            .all(|input| !input.object.bytes.is_empty())
     );
 }
 

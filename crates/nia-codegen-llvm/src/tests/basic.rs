@@ -1023,6 +1023,38 @@ fn signedTo64(value: i128) f64 {
         1,
         "signed and unsigned f32/f64 casts must share one compiler-builtins object"
     );
+
+    let thin = emit_thin_lto_modules(
+        &codegen.backend_lowering,
+        &codegen.type_store,
+        LlvmCodegenOptions::default(),
+    );
+    assert!(thin.diagnostics.is_empty(), "{:?}", thin.diagnostics);
+    assert!(thin.modules.iter().any(|module| {
+        module.key == CodegenUnitKey::CompilerBuiltins
+            && module.module_identifier == "nia:cgu:compiler-builtins"
+    }));
+    let thin_objects = crate::emit_thin_lto_objects(
+        thin,
+        LlvmCodegenOptions::default(),
+        crate::ThinLtoCodegenConfig {
+            parallelism: 2,
+            freestanding: true,
+            preserved_symbols: &[],
+        },
+    );
+    assert!(
+        thin_objects.diagnostics.is_empty(),
+        "{:?}",
+        thin_objects.diagnostics
+    );
+    assert!(
+        thin_objects
+            .link_inputs
+            .as_slice()
+            .iter()
+            .any(|input| input.key == CodegenUnitKey::CompilerBuiltins)
+    );
 }
 
 #[test]
