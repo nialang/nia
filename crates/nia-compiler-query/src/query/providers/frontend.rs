@@ -1,6 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+fn frontend_cache_program_sources(
+    db: &QueryDb<CompilerContext>,
+) -> QueryResult<Option<Arc<FrontendProgramSources>>> {
+    if db.context().signature_cache.is_none() {
+        return Ok(None);
+    }
+    if let Some(sources) = db.context().observed_frontend_program_sources() {
+        return Ok(Some(sources));
+    }
+    let sources = db.get(FrontendProgramSourcesQuery)?;
+    Ok(sources
+        .as_ref()
+        .as_ref()
+        .map(|sources| Arc::new(sources.clone())))
+}
+
 pub(super) fn provide_parse_ok_module_ids(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<StableModuleSequence> {
@@ -359,23 +375,20 @@ pub(super) fn provide_signature_type_resolution(
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<SignatureTypeResolution> {
     time_module_provider(db, "signature_type_resolution", module_id, || {
-        let program_sources = db.get(FrontendProgramSourcesQuery)?;
-        let cache_input = program_sources
-            .as_ref()
-            .as_ref()
-            .and_then(|program_sources| {
-                let source = program_sources.by_module.get(&module_id)?;
-                let namespace = db.context().frontend_cache_namespace();
-                let key = crate::FrontendSignatureTypeResolutionCacheKey::new(
-                    namespace,
-                    &source.module,
-                    set,
-                    program_sources.fingerprint,
-                );
-                Some((program_sources, source, namespace, key))
-            });
+        let program_sources = frontend_cache_program_sources(db)?;
+        let cache_input = program_sources.and_then(|program_sources| {
+            let source = program_sources.by_module.get(&module_id)?.clone();
+            let namespace = db.context().frontend_cache_namespace();
+            let key = crate::FrontendSignatureTypeResolutionCacheKey::new(
+                namespace,
+                &source.module,
+                set,
+                program_sources.fingerprint,
+            );
+            Some((program_sources, source, namespace, key))
+        });
         if !db.context().verify_frontend_cache
-            && let Some((program_sources, source, _, _)) = cache_input
+            && let Some((program_sources, source, _, _)) = cache_input.as_ref()
             && let Some(semantic) = db.context().deferred_signature_type_resolution(
                 &source.module,
                 set,
@@ -390,13 +403,13 @@ pub(super) fn provide_signature_type_resolution(
         }
         let symbols = db.context().symbols();
         let cached = if let Some(cache) = db.context().signature_cache.as_ref()
-            && let Some((program_sources, source, namespace, key)) = cache_input
+            && let Some((program_sources, source, namespace, key)) = cache_input.as_ref()
         {
             nia_timing::emit_counter("frontend.signature_type_resolution_reuse_read_attempts", 1);
             match cache.load_type_resolution(
                 crate::signature_cache::SignatureTypeResolutionIdentity {
-                    key,
-                    namespace,
+                    key: *key,
+                    namespace: *namespace,
                     module: &source.module,
                     set,
                     program_sources: program_sources.fingerprint,
@@ -452,7 +465,7 @@ pub(super) fn provide_signature_type_resolution(
         let fresh = db.get(SignatureTypeResolutionSemanticQuery(module_id, set))?;
         if resolve_diagnostic_bundle(&fresh.diagnostics).is_empty()
             && let Some(cache) = &db.context().signature_cache
-            && let Some((program_sources, source, namespace, key)) = cache_input
+            && let Some((program_sources, source, namespace, key)) = cache_input.as_ref()
         {
             let replace = matches!(
                 &cached,
@@ -460,7 +473,7 @@ pub(super) fn provide_signature_type_resolution(
                     if cached.as_ref() != fresh.semantic.as_ref()
             );
             if replace {
-                cache.remove_type_resolution(key);
+                cache.remove_type_resolution(*key);
             }
             let deferral = db.context().defer_signature_type_resolution(
                 source.module.clone(),
@@ -479,8 +492,8 @@ pub(super) fn provide_signature_type_resolution(
                 );
                 let publication = cache.publish_type_resolution(
                     crate::signature_cache::SignatureTypeResolutionIdentity {
-                        key,
-                        namespace,
+                        key: *key,
+                        namespace: *namespace,
                         module: &source.module,
                         set,
                         program_sources: program_sources.fingerprint,
@@ -654,23 +667,20 @@ pub(super) fn provide_signature_type_lowering(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<SignatureTypeLowering> {
-    let program_sources = db.get(FrontendProgramSourcesQuery)?;
-    let cache_input = program_sources
-        .as_ref()
-        .as_ref()
-        .and_then(|program_sources| {
-            let source = program_sources.by_module.get(&module_id)?;
-            let namespace = db.context().frontend_cache_namespace();
-            let key = crate::FrontendSignatureTypeLoweringCacheKey::new(
-                namespace,
-                &source.module,
-                set,
-                program_sources.fingerprint,
-            );
-            Some((program_sources, source, namespace, key))
-        });
+    let program_sources = frontend_cache_program_sources(db)?;
+    let cache_input = program_sources.and_then(|program_sources| {
+        let source = program_sources.by_module.get(&module_id)?.clone();
+        let namespace = db.context().frontend_cache_namespace();
+        let key = crate::FrontendSignatureTypeLoweringCacheKey::new(
+            namespace,
+            &source.module,
+            set,
+            program_sources.fingerprint,
+        );
+        Some((program_sources, source, namespace, key))
+    });
     if !db.context().verify_frontend_cache
-        && let Some((program_sources, source, _, _)) = cache_input
+        && let Some((program_sources, source, _, _)) = cache_input.as_ref()
         && let Some(semantic) = db.context().deferred_signature_type_lowering(
             &source.module,
             set,
@@ -685,13 +695,13 @@ pub(super) fn provide_signature_type_lowering(
     }
     let symbols = db.context().symbols();
     let cached = if let Some(cache) = db.context().signature_cache.as_ref()
-        && let Some((program_sources, source, namespace, key)) = cache_input
+        && let Some((program_sources, source, namespace, key)) = cache_input.as_ref()
     {
         nia_timing::emit_counter("frontend.signature_type_lowering_reuse_read_attempts", 1);
         match cache.load_type_lowering(
             crate::signature_cache::SignatureTypeLoweringIdentity {
-                key,
-                namespace,
+                key: *key,
+                namespace: *namespace,
                 module: &source.module,
                 set,
                 program_sources: program_sources.fingerprint,
@@ -746,7 +756,7 @@ pub(super) fn provide_signature_type_lowering(
     }
     let fresh = db.get(SignatureTypeLoweringSemanticQuery(module_id, set))?;
     if let Some(cache) = &db.context().signature_cache
-        && let Some((program_sources, source, namespace, key)) = cache_input
+        && let Some((program_sources, source, namespace, key)) = cache_input.as_ref()
     {
         let replace = matches!(
             &cached,
@@ -754,7 +764,7 @@ pub(super) fn provide_signature_type_lowering(
                 if cached.as_ref() != fresh.semantic.as_ref()
         );
         if replace {
-            cache.remove_type_lowering(key);
+            cache.remove_type_lowering(*key);
         }
         if resolve_diagnostic_bundle(&fresh.diagnostics).is_empty()
             && fresh.semantic.const_exprs.is_empty()
@@ -777,8 +787,8 @@ pub(super) fn provide_signature_type_lowering(
                 );
                 let publication = cache.publish_type_lowering(
                     crate::signature_cache::SignatureTypeLoweringIdentity {
-                        key,
-                        namespace,
+                        key: *key,
+                        namespace: *namespace,
                         module: &source.module,
                         set,
                         program_sources: program_sources.fingerprint,
@@ -899,23 +909,20 @@ pub(super) fn provide_signature_item_signatures(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> QueryResult<SignatureItemSignatures> {
-    let program_sources = db.get(FrontendProgramSourcesQuery)?;
-    let cache_input = program_sources
-        .as_ref()
-        .as_ref()
-        .and_then(|program_sources| {
-            let source = program_sources.by_module.get(&module_id)?;
-            let namespace = db.context().frontend_cache_namespace();
-            let key = crate::FrontendSignatureItemSignaturesCacheKey::new(
-                namespace,
-                &source.module,
-                set,
-                program_sources.fingerprint,
-            );
-            Some((program_sources, source, namespace, key))
-        });
+    let program_sources = frontend_cache_program_sources(db)?;
+    let cache_input = program_sources.and_then(|program_sources| {
+        let source = program_sources.by_module.get(&module_id)?.clone();
+        let namespace = db.context().frontend_cache_namespace();
+        let key = crate::FrontendSignatureItemSignaturesCacheKey::new(
+            namespace,
+            &source.module,
+            set,
+            program_sources.fingerprint,
+        );
+        Some((program_sources, source, namespace, key))
+    });
     if !db.context().verify_frontend_cache
-        && let Some((program_sources, source, _, _)) = cache_input
+        && let Some((program_sources, source, _, _)) = cache_input.as_ref()
         && let Some(semantic) = db.context().deferred_signature_item_signatures(
             &source.module,
             set,
@@ -931,13 +938,13 @@ pub(super) fn provide_signature_item_signatures(
     }
     let symbols = db.context().symbols();
     let cached = if let Some(cache) = db.context().signature_cache.as_ref()
-        && let Some((program_sources, source, namespace, key)) = cache_input
+        && let Some((program_sources, source, namespace, key)) = cache_input.as_ref()
     {
         nia_timing::emit_counter("frontend.signature_item_signatures_reuse_read_attempts", 1);
         match cache.load_item_signatures(
             crate::signature_cache::SignatureItemSignaturesIdentity {
-                key,
-                namespace,
+                key: *key,
+                namespace: *namespace,
                 module: &source.module,
                 set,
                 program_sources: program_sources.fingerprint,
@@ -995,7 +1002,7 @@ pub(super) fn provide_signature_item_signatures(
     }
     let fresh = db.get(SignatureItemSignaturesSemanticQuery(module_id, set))?;
     if let Some(cache) = &db.context().signature_cache
-        && let Some((program_sources, source, namespace, key)) = cache_input
+        && let Some((program_sources, source, namespace, key)) = cache_input.as_ref()
     {
         let replace = matches!(
             &cached,
@@ -1003,7 +1010,7 @@ pub(super) fn provide_signature_item_signatures(
                 if cached.as_ref() != fresh.semantic.as_ref()
         );
         if replace {
-            cache.remove_item_signatures(key);
+            cache.remove_item_signatures(*key);
         }
         if fresh.cacheable {
             let deferral = db.context().defer_signature_item_signatures(
@@ -1023,8 +1030,8 @@ pub(super) fn provide_signature_item_signatures(
                 );
                 let publication = cache.publish_item_signatures(
                     crate::signature_cache::SignatureItemSignaturesIdentity {
-                        key,
-                        namespace,
+                        key: *key,
+                        namespace: *namespace,
                         module: &source.module,
                         set,
                         program_sources: program_sources.fingerprint,

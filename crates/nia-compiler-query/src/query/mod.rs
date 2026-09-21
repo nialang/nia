@@ -1314,19 +1314,13 @@ impl CompilerDatabase {
         // session; concurrent top-level settlements must not mix either state.
         let _settlement = self.db.context().provider_settlement_scheduler.lock();
         self.db.context().begin_frontend_cache_publications()?;
-        if self.db.context().signature_cache.is_some()
-            && let Ok(program_sources) = self.db.get(FrontendProgramSourcesQuery)
-            && let Some(program_sources) = program_sources.as_ref().as_ref()
-        {
-            self.db
-                .context()
-                .observe_frontend_program_sources(program_sources);
-        }
+        self.refresh_frontend_program_sources_snapshot()?;
         let result = (|| {
             let mut skip_executable_discovery = false;
             let mut rounds = 0_u64;
             loop {
                 rounds += 1;
+                self.refresh_frontend_program_sources_snapshot()?;
                 if discover_executable_providers && !skip_executable_discovery {
                     let timings = self.db.context().timings();
                     let demands = nia_timing::time_query(
@@ -1380,6 +1374,18 @@ impl CompilerDatabase {
                 || self.flush_frontend_cache_publications(publications),
             );
         })
+    }
+
+    fn refresh_frontend_program_sources_snapshot(&self) -> QueryResult<()> {
+        if self.db.context().signature_cache.is_none() {
+            return Ok(());
+        }
+        if let Some(program_sources) = self.db.get(FrontendProgramSourcesQuery)?.as_ref().as_ref() {
+            self.db
+                .context()
+                .observe_frontend_program_sources(program_sources);
+        }
+        Ok(())
     }
 
     fn update_provider_demands_with_telemetry(

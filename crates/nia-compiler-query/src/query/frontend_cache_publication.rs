@@ -9,7 +9,7 @@ pub(super) enum FrontendCachePublication {
 
 #[derive(Default)]
 pub(super) struct PendingFrontendCachePublications {
-    program_sources: Option<FrontendProgramSources>,
+    program_sources: Option<Arc<FrontendProgramSources>>,
     type_resolutions: HashMap<
         (StableModuleKey, nia_item_tree::SignatureItemSet),
         PendingFrontendCacheProduct<TypeResolution>,
@@ -40,8 +40,17 @@ impl CompilerContext {
             .as_ref()
             .is_none_or(|observed| observed.fingerprint != sources.fingerprint)
         {
-            publications.program_sources = Some(sources.clone());
+            publications.program_sources = Some(Arc::new(sources.clone()));
         }
+    }
+
+    pub(super) fn observed_frontend_program_sources(&self) -> Option<Arc<FrontendProgramSources>> {
+        self.frontend_cache_publications
+            .lock()
+            .as_ref()?
+            .program_sources
+            .as_ref()
+            .map(Arc::clone)
     }
 
     pub(super) fn begin_frontend_cache_publications(&self) -> QueryResult<()> {
