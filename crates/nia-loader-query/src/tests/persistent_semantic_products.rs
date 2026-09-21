@@ -72,7 +72,8 @@ fn unwrap[T](value: Box[T]) T { value.value }
         dependency.from.name == "signature_type_lowering"
             && dependency.to.name == "signature_type_resolution"
     }));
-    assert!(second_trace.dependencies.iter().any(|dependency| {
+    assert!(query_executions(&second_trace, "frontend_program_sources") > 0);
+    assert!(!second_trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "signature_item_signatures"
             && dependency.to.name == "frontend_program_sources"
     }));
