@@ -87,6 +87,7 @@ mod program_signature_queries;
 mod providers;
 mod registry;
 mod request;
+mod settlement;
 
 mod resolve;
 mod stable_type_graph;
@@ -964,70 +965,12 @@ impl CompilerDatabase {
         compile: impl Fn(&Self) -> QueryResult<T>,
         provider_demands: impl Fn(&T) -> Vec<crate::ProviderDemand>,
     ) -> QueryResult<T> {
-        // The loader fixed point and its deferred cache publications form one
-        // session; concurrent top-level settlements must not mix either state.
-        let _settlement = self.db.context().provider_settlement_scheduler.lock();
-        self.db.context().begin_frontend_cache_publications()?;
-        self.refresh_frontend_program_sources_snapshot()?;
-        let result = (|| {
-            let mut skip_executable_discovery = false;
-            let mut rounds = 0_u64;
-            loop {
-                rounds += 1;
-                self.refresh_frontend_program_sources_snapshot()?;
-                if discover_executable_providers && !skip_executable_discovery {
-                    let timings = self.db.context().timings();
-                    let demands = nia_timing::time_query(
-                        timings,
-                        &format!("executable_provider_demands.round_{rounds}"),
-                        || self.executable_provider_demands(),
-                    )?;
-                    emit_provider_demand_batch(self.db.context().timings(), rounds, &demands);
-                    if let crate::ProviderGraphUpdate::Changed {
-                        invalidates_resolved_body_facts,
-                    } =
-                        self.update_provider_demands_with_telemetry(rounds, "discovery", demands)?
-                    {
-                        emit_provider_graph_change(
-                            self.db.context().timings(),
-                            rounds,
-                            invalidates_resolved_body_facts,
-                        );
-                        skip_executable_discovery = !invalidates_resolved_body_facts;
-                        continue;
-                    }
-                }
-                let output = compile(self)?;
-                match self.update_provider_demands_with_telemetry(
-                    rounds,
-                    "compile",
-                    provider_demands(&output),
-                )? {
-                    crate::ProviderGraphUpdate::Changed {
-                        invalidates_resolved_body_facts,
-                    } => {
-                        skip_executable_discovery =
-                            discover_executable_providers && !invalidates_resolved_body_facts;
-                    }
-                    crate::ProviderGraphUpdate::Stable => {
-                        self.db.context().loader_facts().settle_provider_demands()?;
-                        self.db
-                            .context()
-                            .provider_demand_rounds
-                            .store(rounds, std::sync::atomic::Ordering::Relaxed);
-                        return Ok(output);
-                    }
-                }
-            }
-        })();
-        let publications = self.db.context().finish_frontend_cache_publications();
-        result.inspect(|_| {
-            nia_timing::time_query(
-                self.db.context().timings(),
-                "frontend.signature_reuse_flush",
-                || self.flush_frontend_cache_publications(publications),
-            );
-        })
+        settlement::settle_provider_worklist(
+            self,
+            discover_executable_providers,
+            compile,
+            provider_demands,
+        )
     }
 
     fn refresh_frontend_program_sources_snapshot(&self) -> QueryResult<()> {
