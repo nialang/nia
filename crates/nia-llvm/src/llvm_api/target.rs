@@ -43,7 +43,7 @@ impl ModuleOptimization {
 #[derive(Debug)]
 /// Owned LLVM target machine used to configure modules and emit objects.
 pub struct TargetMachine {
-    raw: LLVMTargetMachineRef,
+    pub(super) raw: LLVMTargetMachineRef,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

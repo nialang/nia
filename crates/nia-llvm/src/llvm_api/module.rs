@@ -15,7 +15,7 @@ use llvm_sys::core::{
     LLVMAddFunction, LLVMAddGlobal, LLVMAddGlobalInAddressSpace, LLVMDisposeMemoryBuffer,
     LLVMDisposeMessage, LLVMDisposeModule, LLVMGetBufferSize, LLVMGetBufferStart,
     LLVMGetFirstFunction, LLVMGetIntrinsicDeclaration, LLVMGetNamedFunction, LLVMGetNamedGlobal,
-    LLVMGetNextFunction, LLVMSetLinkage,
+    LLVMGetNextFunction, LLVMSetLinkage, LLVMSetModuleIdentifier,
 };
 use llvm_sys::linker::LLVMLinkModules2;
 use llvm_sys::prelude::LLVMModuleRef;
@@ -92,6 +92,13 @@ impl<'ctx> Module<'ctx> {
         };
         unsafe { LLVMDisposeMemoryBuffer(buffer) };
         Ok(bytes)
+    }
+
+    /// Assigns the unique identifier used by LLVM's cross-module indexes.
+    pub fn set_identifier(&self, identifier: &str) {
+        unsafe {
+            LLVMSetModuleIdentifier(self.raw, identifier.as_ptr() as *const _, identifier.len())
+        };
     }
 
     /// Declares a function and applies an optional linkage.

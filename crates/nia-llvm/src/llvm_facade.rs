@@ -30,6 +30,14 @@ pub mod module {
     pub use crate::llvm_api::{Linkage, Module};
 }
 
+/// Modern LLVM LTO input, coordination, diagnostics, and output APIs.
+pub mod lto {
+    pub use crate::llvm_api::{
+        ThinLtoConfig, ThinLtoDiagnostic, ThinLtoDiagnosticSeverity, ThinLtoInput, ThinLtoObject,
+        ThinLtoOutput, ThinLtoTimings, emit_thin_lto_bitcode, run_thin_lto,
+    };
+}
+
 /// Native target discovery, configuration, and object emission.
 pub mod target {
     pub use crate::llvm_api::{ModuleOptimization, TargetMachine, TargetMachineIdentity};

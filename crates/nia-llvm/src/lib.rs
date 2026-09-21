@@ -15,5 +15,5 @@ pub use llvm_api::{Attribute, AttributeLoc, Context, InlineAsmDialect, InlineAsm
 pub use llvm_facade::{
     AddressSpace, AtomicOrdering, AtomicRMWBinOp, FloatPredicate, IntPredicate, LlvmError,
     LlvmResult, OptimizationLevel, attributes, basic_block, builder, context, intrinsics, llvm_sys,
-    module, target, types, values,
+    lto, module, target, types, values,
 };

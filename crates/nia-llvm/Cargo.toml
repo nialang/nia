@@ -16,5 +16,9 @@ nia-ice.workspace = true
 nia-span.workspace = true
 llvm-sys.workspace = true
 
+[build-dependencies]
+cc.workspace = true
+shlex.workspace = true
+
 [lib]
 path = "src/lib.rs"
