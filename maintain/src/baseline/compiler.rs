@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -71,10 +72,71 @@ pub fn large_codegen_source(blob_count: usize, blob_bytes: usize) -> String {
     lines.join("\n")
 }
 
+/// Generates a single-module source-volume workload. The extra declarations
+/// exercise parsing, item indexing, and signature work without adding native
+/// codegen bodies to the fixed entry point.
+fn source_volume_source(constant_count: usize) -> String {
+    let mut source = String::from("fn main() i32 {\n    0i32\n}\n\n");
+    for index in 0..constant_count {
+        writeln!(source, "const SOURCE_VOLUME_{index:05}: i64 = {index}i64;")
+            .expect("writing source-volume fixture");
+    }
+    source
+}
+
+fn source_volume_workload(name: &str) -> Option<usize> {
+    match name {
+        "source_volume_16" => Some(16),
+        "source_volume_64" => Some(64),
+        "source_volume_256" => Some(256),
+        "source_volume_1024" => Some(1024),
+        _ => None,
+    }
+}
+
+/// Generates source bytes that are lexed but do not add semantic items.
+fn source_text_volume_source(padding_bytes: usize) -> String {
+    let mut source = String::from("fn main() i32 {\n    0i32\n}\n");
+    while source.len() < padding_bytes {
+        source.push_str("// source-volume padding for lexer throughput\n");
+    }
+    source
+}
+
+fn source_text_volume_workload(name: &str) -> Option<usize> {
+    match name {
+        "source_text_1k" => Some(1_024),
+        "source_text_4k" => Some(4_096),
+        "source_text_16k" => Some(16_384),
+        "source_text_64k" => Some(65_536),
+        _ => None,
+    }
+}
+
 fn workloads(root: &Path, output: &Path) -> MaintainResult<Vec<(String, Vec<String>)>> {
     let large = output.join("codegen-buckets-large.nia");
     fs::write(&large, large_codegen_source(16, 1024 * 1024))
         .map_err(|error| format!("failed to write {}: {error}", large.display()))?;
+    let source_volume_paths = [16, 64, 256, 1024]
+        .into_iter()
+        .map(|constant_count| {
+            let path = output.join(format!("source-volume-{constant_count}.nia"));
+            if let Err(error) = fs::write(&path, source_volume_source(constant_count)) {
+                return Err(format!("failed to write {}: {error}", path.display()));
+            }
+            Ok((constant_count, path))
+        })
+        .collect::<MaintainResult<Vec<_>>>()?;
+    let source_text_paths = [1_024, 4_096, 16_384, 65_536]
+        .into_iter()
+        .map(|padding_bytes| {
+            let path = output.join(format!("source-text-{padding_bytes}.nia"));
+            if let Err(error) = fs::write(&path, source_text_volume_source(padding_bytes)) {
+                return Err(format!("failed to write {}: {error}", path.display()));
+            }
+            Ok((padding_bytes, path))
+        })
+        .collect::<MaintainResult<Vec<_>>>()?;
     let path = |relative: &str| root.join(relative).to_string_lossy().into_owned();
     let mut workloads = vec![
         (
@@ -156,6 +218,22 @@ fn workloads(root: &Path, output: &Path) -> MaintainResult<Vec<(String, Vec<Stri
             ],
         ),
     ];
+    workloads.extend(
+        source_volume_paths
+            .into_iter()
+            .map(|(constant_count, path)| {
+                (
+                    format!("source_volume_{constant_count}"),
+                    vec!["check".to_owned(), path.to_string_lossy().into_owned()],
+                )
+            }),
+    );
+    workloads.extend(source_text_paths.into_iter().map(|(padding_bytes, path)| {
+        (
+            format!("source_text_{}k", padding_bytes / 1_024),
+            vec!["check".to_owned(), path.to_string_lossy().into_owned()],
+        )
+    }));
     for module_count in [10, 50, 100, 500] {
         let source_root = output.join(format!("synthetic-{module_count}-modules"));
         let source = synthetic::generate(
@@ -414,6 +492,30 @@ fn run_workload(
     let Value::Object(mut report) = report else {
         return Err("normalized compiler timing report is not an object".to_owned());
     };
+    if let Some(constant_count) = source_volume_workload(name) {
+        let source_path = arguments
+            .last()
+            .ok_or_else(|| format!("source-volume workload {name:?} has no source path"))?;
+        let source_bytes = fs::metadata(source_path)
+            .map_err(|error| {
+                format!("failed to inspect source-volume fixture {source_path}: {error}")
+            })?
+            .len();
+        report.insert("source_volume_constants".to_owned(), json!(constant_count));
+        report.insert("source_bytes".to_owned(), json!(source_bytes));
+    }
+    if let Some(padding_bytes) = source_text_volume_workload(name) {
+        let source_path = arguments
+            .last()
+            .ok_or_else(|| format!("source-text workload {name:?} has no source path"))?;
+        let source_bytes = fs::metadata(source_path)
+            .map_err(|error| {
+                format!("failed to inspect source-text fixture {source_path}: {error}")
+            })?
+            .len();
+        report.insert("source_text_padding_bytes".to_owned(), json!(padding_bytes));
+        report.insert("source_bytes".to_owned(), json!(source_bytes));
+    }
     require_allocation_instrumentation(&report)?;
     if name == "module_backend" {
         require_module_finalization_instrumentation(&report)?;
@@ -617,6 +719,27 @@ mod tests {
                 "main.nia"
             ]
         );
+    }
+
+    #[test]
+    fn source_volume_fixture_grows_deterministically() {
+        let small = source_volume_source(16);
+        let large = source_volume_source(1024);
+        assert!(large.len() > small.len() * 40);
+        assert!(small.contains("SOURCE_VOLUME_00015"));
+        assert!(large.contains("SOURCE_VOLUME_01023"));
+        assert_eq!(source_volume_workload("source_volume_256"), Some(256));
+        assert_eq!(source_volume_workload("source_volume_unknown"), None);
+    }
+
+    #[test]
+    fn source_text_volume_fixture_has_no_extra_items() {
+        let source = source_text_volume_source(4_096);
+        assert!(source.len() >= 4_096);
+        assert_eq!(source.matches("fn main").count(), 1);
+        assert!(source.contains("source-volume padding"));
+        assert_eq!(source_text_volume_workload("source_text_16k"), Some(16_384));
+        assert_eq!(source_text_volume_workload("source_text_unknown"), None);
     }
 
     #[test]
