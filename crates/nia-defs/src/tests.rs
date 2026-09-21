@@ -336,6 +336,35 @@ fn duplicate_definition_identity_is_a_structured_internal_error() {
 }
 
 #[test]
+fn rehydrated_definition_identity_rejects_structural_derivation() {
+    let identity = DefIdentity::rehydrated(DefId(0x1234));
+
+    let child_error = identity
+        .child(DefKind::StructField, &sym("field"))
+        .expect_err("rehydrated identity must not derive a child");
+    assert!(
+        child_error
+            .message
+            .contains("cannot derive a child from a rehydrated definition identity")
+    );
+
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
+    let mut collector = Collector::new(module_id);
+    collector
+        .disambiguate_identity(identity.clone())
+        .expect("first rehydrated identity remains unchanged");
+    let duplicate_error = collector
+        .disambiguate_identity(identity)
+        .expect_err("duplicate rehydrated identity must not be disambiguated");
+    assert!(
+        duplicate_error
+            .message
+            .contains("cannot disambiguate a rehydrated definition identity")
+    );
+}
+
+#[test]
 fn member_kind_cannot_be_derived_as_a_top_level_definition() {
     let error = stable_top_level_def_id(DefKind::StructField, sym("field"))
         .expect_err("member kind must not have a top-level identity");
