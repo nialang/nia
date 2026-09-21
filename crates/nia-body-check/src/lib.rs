@@ -252,6 +252,8 @@ struct BodyChecker<'a> {
     const_call_locals: Vec<ConstCallFrame>,
     const_eval_budget: nia_const_eval::ConstEvalBudget,
     body_filter: ActiveBodyCheckFilter<'a>,
+    /// Syntax-level control-flow facts for the function currently lowered.
+    flow_summary: Option<HashMap<*const Block, bool>>,
     product: BodyCheckProduct,
     checked_functions: HashSet<GlobalDefId>,
     pending_functions: VecDeque<GlobalDefId>,

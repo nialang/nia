@@ -35,28 +35,27 @@ impl<'a> BodyChecker<'a> {
         }
         if let Some(tail) = &block.tail {
             self.check_expr_with_expected(tail, expected_tail)
-        } else if self.block_ends_with_never_stmt(block) {
+        } else if self.block_is_diverging(block) {
             self.never()
         } else {
             self.unit()
         }
     }
 
-    pub(super) fn block_ends_with_never_stmt(&mut self, block: &Block) -> bool {
-        let Some(stmt) = block.stmts.last() else {
-            return false;
-        };
-        match &stmt.kind {
-            StmtKind::Return(_) | StmtKind::Break | StmtKind::Continue => true,
-            StmtKind::Expr(expr) => self.expr_ty(expr).is_some_and(|ty| self.is_never(ty)),
-            StmtKind::Binding(_)
-            | StmtKind::Static(_)
-            | StmtKind::Using(_)
-            | StmtKind::Defer(_)
-            | StmtKind::ForIn(_)
-            | StmtKind::While(_)
-            | StmtKind::Loop(_) => false,
+    pub(super) fn block_is_diverging(&mut self, block: &Block) -> bool {
+        if block
+            .tail
+            .as_deref()
+            .is_some_and(|tail| self.expr_ty(tail).is_some_and(|ty| self.is_never(ty)))
+        {
+            return true;
         }
+        if let Some(summary) = &self.flow_summary {
+            if let Some(falls_through) = summary.get(&std::ptr::from_ref(block)) {
+                return !falls_through;
+            }
+        }
+        !nia_flow_check::block_falls_through(block)
     }
 
     pub(super) fn is_empty_struct_type(

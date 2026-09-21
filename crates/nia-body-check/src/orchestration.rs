@@ -388,6 +388,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         const_call_locals: Vec::new(),
         const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
         body_filter: ActiveBodyCheckFilter::from_filter(input.filter),
+        flow_summary: None,
         product: input.product,
         checked_functions: HashSet::new(),
         pending_functions: VecDeque::new(),
