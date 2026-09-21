@@ -45,6 +45,7 @@ const TEST_EXPRESSION_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.ll
 #[derive(Clone, Copy)]
 pub(super) enum ArtifactTarget<'a> {
     LlvmIr,
+    ThinLtoBitcode(&'a TargetMachineIdentity),
     NativeObject(&'a TargetMachineIdentity),
 }
 
@@ -230,6 +231,12 @@ impl<'a> Encoder<'a> {
     fn artifact_target(&mut self, target: ArtifactTarget<'_>) {
         match target {
             ArtifactTarget::LlvmIr => self.tag(0),
+            ArtifactTarget::ThinLtoBitcode(identity) => {
+                self.tag(2);
+                self.builder
+                    .write_str("module-passes:mem2reg;thin-lto-prelink:v1");
+                write_target_identity(&mut self.builder, identity);
+            }
             ArtifactTarget::NativeObject(identity) => {
                 self.tag(1);
                 // Native objects include the module-local LLVM cleanup pass;
@@ -243,6 +250,7 @@ impl<'a> Encoder<'a> {
     fn artifact_kind(&mut self, target: ArtifactTarget<'_>) {
         self.tag(match target {
             ArtifactTarget::LlvmIr => 0,
+            ArtifactTarget::ThinLtoBitcode(_) => 2,
             ArtifactTarget::NativeObject(_) => 1,
         });
     }
@@ -2985,6 +2993,25 @@ mod tests {
             ArtifactTarget::NativeObject(&target),
         )
         .expect("valid fingerprint fixture");
+        let thin_lto = source_unit_fingerprint(
+            &fixture.partition,
+            &declarations,
+            &fixture.index,
+            LlvmCodegenOptions::default(),
+            ArtifactTarget::ThinLtoBitcode(&target),
+        )
+        .expect("valid ThinLTO fingerprint fixture");
+        assert_ne!(baseline.fingerprint, thin_lto.fingerprint);
+        assert_ne!(baseline.components.policy, thin_lto.components.policy);
+        assert_ne!(baseline.components.target, thin_lto.components.target);
+        assert_eq!(
+            baseline.components.definition,
+            thin_lto.components.definition
+        );
+        assert_eq!(
+            baseline.components.declarations,
+            thin_lto.components.declarations
+        );
         let changed = source_unit_fingerprint(
             &fixture.partition,
             &declarations,

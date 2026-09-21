@@ -3,6 +3,7 @@ use nia_backend_ir::{
     CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey, IncrementalLinkInputs,
 };
 use nia_diagnostic::Diagnostic;
+use nia_llvm::target::TargetMachineIdentity;
 use nia_opt::OptimizationPolicy;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -29,6 +30,34 @@ pub struct LlvmModuleOutput {
     pub name: String,
     /// Verified textual LLVM IR.
     pub ir: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+/// Summary-bearing LLVM modules ready for a ThinLTO coordination run.
+pub struct LlvmThinLtoModuleOutput {
+    /// Exact target identity shared by every successfully emitted module.
+    pub target: Option<TargetMachineIdentity>,
+    /// Deterministically ordered ThinLTO pre-link inputs.
+    pub modules: Vec<ThinLtoModule>,
+    /// Validation, LLVM construction, or target failures from omitted units.
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+/// Summary-bearing pre-link bitcode for one stable incremental codegen unit.
+pub struct ThinLtoModule {
+    /// Per-build numeric identity used by the backend partition plan.
+    pub unit: CodegenUnitId,
+    /// Stable identity used for deterministic ordering and cache ownership.
+    pub key: CodegenUnitKey,
+    /// Complete content fingerprint for this pre-link product.
+    pub fingerprint: CodegenUnitFingerprint,
+    /// Human-readable source module name.
+    pub name: String,
+    /// Unique stable identifier used by LLVM's combined summary index.
+    pub module_identifier: String,
+    /// Target-configured bitcode containing a ThinLTO module summary.
+    pub bitcode: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
