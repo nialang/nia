@@ -15,6 +15,7 @@ use std::{
     sync::atomic::Ordering,
 };
 
+use nia_build_plan::{MAX_ITEMS, MAX_PLAN_BYTES};
 use nia_compat::formats::{EXTERNAL_COMMAND_CACHE, EXTERNAL_COMMAND_ENTRY};
 use nia_query::{
     FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintBytesWriter,
@@ -31,9 +32,7 @@ use super::{
 use super::{read_bytes, read_fingerprint, read_u64};
 use crate::{
     ActionKey, CommandArgument, CommandProgram, EnvironmentInput, LogicalPath, LogicalPathRoot,
-    PlanPackage,
-    lock::ScopedFileLock,
-    plan::{MAX_ITEMS, MAX_PLAN_BYTES},
+    PlanPackage, lock::ScopedFileLock,
 };
 
 const EXTERNAL_COMMAND_FINGERPRINT_DOMAIN: FingerprintDomain =

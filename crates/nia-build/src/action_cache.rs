@@ -14,16 +14,14 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use nia_build_plan::MAX_PLAN_STRING_BYTES;
 use nia_compat::formats::{GENERATED_FILE_CACHE, GENERATED_FILE_ENTRY};
 use nia_query::{
     FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintBytesWriter,
 };
 use nia_toolchain::ToolchainIdentity;
 
-use crate::{
-    ActionKey, ArtifactKey, LogicalPath, LogicalPathRoot, lock::ScopedFileLock,
-    plan::MAX_PLAN_STRING_BYTES,
-};
+use crate::{ActionKey, ArtifactKey, LogicalPath, LogicalPathRoot, lock::ScopedFileLock};
 
 mod compiler_check;
 mod compiler_emit;

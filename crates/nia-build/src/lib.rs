@@ -41,7 +41,6 @@ mod action_cache;
 mod coordinator;
 mod lock;
 mod output_recovery;
-mod plan;
 mod process_output;
 mod resources;
 mod runner_cache;
@@ -56,8 +55,8 @@ pub use action_cache::{
     ActionCacheInvalidation, ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport,
 };
 pub use coordinator::*;
+pub use nia_build_plan::*;
 pub use output_recovery::OutputRecoveryError;
-pub use plan::*;
 
 /// Inputs and policy knobs for resolving and running one build invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]

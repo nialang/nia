@@ -9,9 +9,9 @@ use std::fmt;
 
 use nia_compat::formats::BUILD_PLAN;
 
-pub(crate) const MAX_PLAN_BYTES: usize = 64 * 1024 * 1024;
-pub(crate) const MAX_ITEMS: usize = 100_000;
-pub(crate) const MAX_PLAN_STRING_BYTES: usize = 1024 * 1024;
+pub const MAX_PLAN_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_ITEMS: usize = 100_000;
+pub const MAX_PLAN_STRING_BYTES: usize = 1024 * 1024;
 
 /// Rejection reason for a non-canonical, unsupported, or invalid plan encoding.
 #[derive(Debug, Clone, PartialEq, Eq)]
