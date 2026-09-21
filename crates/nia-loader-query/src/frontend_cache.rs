@@ -11,18 +11,18 @@ use nia_compat::formats::{
     FRONTEND_MODULE_DEPENDENCIES, FRONTEND_PROVIDER_DEMAND_PLAN, FRONTEND_PROVIDER_SUMMARY,
     FRONTEND_PUBLIC_SURFACE_FACTS,
 };
-use nia_compiler_query::{
+use nia_defs::{
+    DefKind, PublicSurfaceDefFact, PublicSurfaceEnumScopeFact, PublicSurfaceModuleFacts,
+    PublicSurfaceModuleScopeFacts,
+};
+use nia_imports::{ResolvedModuleDeclaration, StableModuleKey, Visibility};
+use nia_loader_contract::{
     FrontendCacheNamespace, FrontendFacadeFactsCacheKey, FrontendModuleDependenciesCacheKey,
     FrontendModuleMapFingerprint, FrontendProviderDemandPlanCacheKey,
     FrontendProviderSummaryCacheKey, FrontendPublicSurfaceFactsCacheKey, FrontendSourceCacheKey,
     ItemSignatureFingerprint, ProviderDemand, ProviderRequest, SourceContentFingerprint,
     source_content_fingerprint,
 };
-use nia_defs::{
-    DefKind, PublicSurfaceDefFact, PublicSurfaceEnumScopeFact, PublicSurfaceModuleFacts,
-    PublicSurfaceModuleScopeFacts,
-};
-use nia_imports::{ResolvedModuleDeclaration, StableModuleKey, Visibility};
 use nia_provider_summary::{Provider, ProviderSummary, ProviderTarget, ProviderTypeRef};
 use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_source::{SourceDatabase, SourceIdentity, SourcePath};

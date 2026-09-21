@@ -9,7 +9,7 @@ use nia_span::Span;
 use nia_syntax::SyntaxTree;
 use nia_target_config::TargetConfig;
 
-use crate::RuntimeSpec;
+use nia_toolchain::RuntimeSpec;
 
 const SOURCE_CACHE_KEY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.frontend.cache-key.source");
@@ -89,7 +89,7 @@ pub enum FrontendCheckScope {
 }
 
 impl FrontendCheckScope {
-    pub(crate) const fn tag(self) -> u8 {
+    pub const fn tag(self) -> u8 {
         match self {
             Self::AllModules => 0,
             Self::Entry => 1,

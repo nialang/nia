@@ -3,7 +3,12 @@ use crate::facade_facts::ModuleFacadeFacts;
 use crate::graph::ModuleGraphQuery;
 use crate::provider_facts::ProviderDemandsQuery;
 use crate::used_paths::{ModuleDeclarations, UsedModulePath, collect_used_modules};
-use nia_compiler_query::{
+use nia_diagnostic::{Diagnostic, codes};
+use nia_imports::{
+    StableModuleKey, resolve_module_declarations_from_active_item_tree_with_symbols,
+};
+use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
+use nia_loader_contract::{
     ActiveModuleItemTreeFactKind, FrontendCacheNamespace, FrontendFacadeFactsCacheKey,
     FrontendModuleDependenciesCacheKey, FrontendProviderSummaryCacheKey,
     FrontendPublicSurfaceFactsCacheKey, FrontendSourceCacheKey, ItemSignatureFingerprint,
@@ -11,11 +16,6 @@ use nia_compiler_query::{
     SourceContentFingerprint, frontend_module_map_fingerprint_with_package_root,
     item_signature_fingerprint, source_content_fingerprint,
 };
-use nia_diagnostic::{Diagnostic, codes};
-use nia_imports::{
-    StableModuleKey, resolve_module_declarations_from_active_item_tree_with_symbols,
-};
-use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_provider_summary::ProviderSummary;
 use nia_query::{
     FingerprintDomain, QueryDb, QueryError, QueryFingerprint, QueryFingerprintBuilder,
@@ -67,7 +67,7 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LoadedProgramValue {
     pub(crate) graph: nia_imports::ModuleGraphSnapshot,
-    pub(crate) provider_fact_revision: nia_compiler_query::ProviderFactRevision,
+    pub(crate) provider_fact_revision: nia_loader_contract::ProviderFactRevision,
     pub(crate) symbols: nia_symbol_table::SymbolTable,
     pub(crate) target: nia_target_config::TargetConfig,
     pub(crate) profile: nia_target_config::BuildProfile,

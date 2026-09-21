@@ -1,5 +1,5 @@
 use crate::LoaderContext;
-use nia_compiler_query::{ProviderDemand, ProviderFactRevision, ProviderFactSnapshot};
+use nia_loader_contract::{ProviderDemand, ProviderFactRevision, ProviderFactSnapshot};
 use nia_query::{QueryDb, QueryError, QueryFingerprintPolicy, QueryKey, QueryResult};
 use parking_lot::Mutex;
 use std::{collections::HashSet, sync::Arc};
@@ -188,7 +188,7 @@ impl QueryKey<LoaderContext> for ProviderDemandsQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_compiler_query::ProviderRequest;
+    use nia_loader_contract::ProviderRequest;
     use nia_source::SourcePath;
     use nia_symbol::SymbolId;
 

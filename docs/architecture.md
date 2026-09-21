@@ -239,7 +239,7 @@ layer, but must not import a higher-level semantic or backend crate.
 +--------------------------------------------------------------+
 | Syntax: item tree, parser, AST, syntax, lexer, literals      |
 +--------------------------------------------------------------+
-| Shared foundation: query, loader, types, ids, source, spans, |
+| Shared foundation: query, loader contracts, types, ids, source, spans, |
 | symbols, diagnostics, target and compatibility               |
 +--------------------------------------------------------------+
 ```
@@ -266,6 +266,14 @@ Owns source file loading, module discovery, and module-to-source mapping. Provid
 loader facade, source manifests, and module activation. Resolves logical module
 paths to physical source files. Builds the compiler source-input manifest with
 content fingerprints.
+
+### `nia-loader-contract`
+
+Owns the stable data contract between loading and compilation: loader facts,
+provider-demand revisions, loaded module snapshots, diagnostics, and frontend
+cache identities. It depends only on shared foundation crates. Both the loader
+implementation and compiler query facade depend on this contract; the loader
+does not depend on compiler orchestration.
 
 ### `nia-compiler-query`
 
