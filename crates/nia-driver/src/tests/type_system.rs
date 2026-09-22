@@ -886,6 +886,31 @@ fn main() i32 {
         "{:?}",
         program.diagnostics
     );
+    let invalid_target = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("extend target must be an extendable value type")
+        })
+        .expect("invalid extension target diagnostic");
+    assert!(
+        invalid_target
+            .diagnostic
+            .primary_message()
+            .is_some_and(|message| message.contains("not a struct, union, or enum")),
+        "{invalid_target:?}"
+    );
+    assert!(
+        invalid_target
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("extend a nominal value type")),
+        "{invalid_target:?}"
+    );
     assert!(
         !program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
