@@ -553,15 +553,21 @@ impl<'a> BodyChecker<'a> {
         {
             return;
         }
-        self.diagnostics.push(Diagnostic::user_error_at(
-            codes::TYPE_CHECK,
-            span,
-            format!(
-                "type mismatch in {context}: expected {}, got {}",
-                self.ty_name(expected),
-                self.ty_name(actual)
-            ),
-        ));
+        let expected_name = self.ty_name(expected);
+        let actual_name = self.ty_name(actual);
+        let summary =
+            format!("type mismatch in {context}: expected {expected_name}, got {actual_name}");
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(span, summary)
+                .note(format!(
+                    "this context requires `{expected_name}`, but the expression produces `{actual_name}`"
+                ))
+                .help(
+                    "change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation",
+                )
+                .finish(),
+        );
     }
 
     pub(crate) fn expect_expr_type(
@@ -916,14 +922,17 @@ impl<'a> BodyChecker<'a> {
         if actual == self.error() || self.is_integer(actual) {
             return;
         }
-        self.diagnostics.push(Diagnostic::user_error_at(
-            codes::TYPE_CHECK,
-            span,
-            format!(
-                "type mismatch in {context}: expected integer, got {}",
-                self.ty_name(actual)
-            ),
-        ));
+        let actual_name = self.ty_name(actual);
+        let summary = format!("type mismatch in {context}: expected integer, got {actual_name}");
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(span, summary)
+                .note(format!(
+                    "the operation requires an integer value, but this expression has type `{actual_name}`"
+                ))
+                .help("convert the value to an integer type before using it here")
+                .finish(),
+        );
     }
 
     /// Checks source-level type compatibility after alias/projection

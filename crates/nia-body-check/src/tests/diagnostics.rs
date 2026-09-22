@@ -79,6 +79,23 @@ fn main(value: (), ptr: &u8) () {
         "{:?}",
         checked.diagnostics
     );
+    let pair_diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("expected Pair[i32, usize], got bool")
+        })
+        .expect("pair type mismatch diagnostic");
+    assert!(pair_diagnostic.notes.iter().any(|note| {
+        note.contains("requires `Pair[i32, usize]`") && note.contains("produces `bool`")
+    }));
+    assert!(
+        pair_diagnostic.help.iter().any(|help| {
+            help.contains("explicit conversion") && help.contains("type annotation")
+        })
+    );
 }
 
 #[test]
