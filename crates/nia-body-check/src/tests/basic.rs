@@ -561,6 +561,28 @@ fn propagate(value: SourceError!i32) TargetError!i32 {
         "{:?}",
         checked.diagnostics
     );
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary.contains("to implement `IntoError["))
+        .expect("missing IntoError diagnostic");
+    assert!(diagnostic.notes.iter().any(|note| {
+        note.contains("error type `SourceError`")
+            && note.contains("returns error type `TargetError`")
+    }));
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("no direct, visible `IntoError` implementation"))
+    );
+    assert!(
+        diagnostic
+            .help
+            .iter()
+            .any(|help| { help.contains("implement `IntoError[TargetError]` for `SourceError`") })
+    );
+    assert!(diagnostic.labels.len() >= 2, "{:?}", diagnostic.labels);
     assert!(
         checked.provider_demands.iter().any(|demand| {
             matches!(
@@ -632,6 +654,59 @@ fn bad() i32 {
         "{:?}",
         checked.diagnostics
     );
+}
+
+#[test]
+fn explains_try_propagation_return_boundary_and_operand_type() {
+    let checked = pipeline(
+        r#"
+fn optional_boundary(value: ?i32) i32 {
+    value.?
+}
+
+fn invalid_operand(value: i32) i32 {
+    value.?
+}
+"#,
+    );
+    let optional = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("optional propagation requires an optional function return type")
+        })
+        .expect("optional propagation boundary diagnostic");
+    assert!(
+        optional
+            .notes
+            .iter()
+            .any(|note| { note.contains("enclosing function returns `i32`") })
+    );
+    assert!(
+        optional
+            .help
+            .iter()
+            .any(|help| { help.contains("handle the empty case") })
+    );
+
+    let invalid = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("requires optional or error union operand")
+        })
+        .expect("invalid propagation operand diagnostic");
+    assert!(invalid.labels.iter().any(|label| {
+        label
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("non-propagatable type `i32`"))
+    }));
+    assert!(invalid.help.iter().any(|help| help.contains("remove `.?`")));
 }
 
 #[test]
