@@ -407,11 +407,18 @@ impl FlowChecker<'_> {
             .as_deref()
             .is_some_and(|tail| self.tail_expr_returns_on_all_paths(tail));
         if self.function_requires_return(function) && flow.falls_through && !tail_returns {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
-                body.span,
-                "non-unit function does not return on all reachable paths",
-            ));
+            let summary = "non-unit function does not return on all reachable paths";
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::STATIC_CHECK, summary)
+                    .primary(body.span, "this function body can reach its end without a value")
+                    .secondary(
+                        function.span,
+                        "the function declaration requires a return value",
+                    )
+                    .note("every reachable path must return a value of the declared return type")
+                    .help("add a return value on the missing paths, or change the function return type to `()`")
+                    .finish(),
+            );
         }
     }
 
@@ -1158,6 +1165,28 @@ fn b() i32 {
                 .summary
                 .contains("does not return on all reachable paths")
         }));
+        let missing_return = checked
+            .diagnostics
+            .iter()
+            .find(|diagnostic| {
+                diagnostic
+                    .summary
+                    .contains("does not return on all reachable paths")
+            })
+            .expect("missing return diagnostic");
+        assert!(missing_return.labels.iter().any(|label| {
+            label.style == nia_diagnostic::LabelStyle::Secondary
+                && label
+                    .message
+                    .as_deref()
+                    .is_some_and(|message| message.contains("function declaration"))
+        }));
+        assert!(
+            missing_return
+                .help
+                .iter()
+                .any(|help| help.contains("change the function return type to `()`"))
+        );
         assert!(
             checked
                 .diagnostics
