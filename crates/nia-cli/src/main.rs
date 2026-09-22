@@ -75,6 +75,20 @@ fn report_cli_error(message: &str, help: HelpTopic) {
     eprint!("{}", error_help_text(help, HelpStyle::for_stderr()));
 }
 
+fn render_cli_boundary_error(message: &str, format: DiagnosticsFormat) -> String {
+    match format {
+        DiagnosticsFormat::Text => format!("error: {message}\n"),
+        DiagnosticsFormat::Json => nia_diagnostic::render_diagnostics_json(
+            &[nia_diagnostic::Diagnostic::user_error(
+                nia_diagnostic::codes::TARGET_CONFIG,
+                message,
+            )
+            .finish()],
+            nia_diagnostic::DiagnosticReportConfig::default(),
+        ),
+    }
+}
+
 #[derive(Debug)]
 struct Cli {
     resource_root: Option<PathBuf>,
@@ -208,10 +222,14 @@ impl CliError {
 }
 
 fn run_cli(cli: Cli) -> ExitCode {
+    let diagnostics_format = cli.diagnostics_format;
     let toolchain = match resolve_toolchain_layout(cli.resource_root) {
         Ok(toolchain) => toolchain,
         Err(message) => {
-            eprintln!("error: {message}");
+            eprint!(
+                "{}",
+                render_cli_boundary_error(&message, diagnostics_format)
+            );
             return ExitCode::FAILURE;
         }
     };
@@ -262,21 +280,30 @@ fn run_cli(cli: Cli) -> ExitCode {
             let path = match resolve_source_entry(&path) {
                 Ok(path) => path,
                 Err(message) => {
-                    eprintln!("error: {message}");
+                    eprint!(
+                        "{}",
+                        render_cli_boundary_error(&message, diagnostics_format)
+                    );
                     return ExitCode::FAILURE;
                 }
             };
             let source = match read_source(&path) {
                 Ok(source) => source,
                 Err(message) => {
-                    eprintln!("error: {message}");
+                    eprint!(
+                        "{}",
+                        render_cli_boundary_error(&message, diagnostics_format)
+                    );
                     return ExitCode::FAILURE;
                 }
             };
             let package_root = match discover_package_root(&path) {
                 Ok(package_root) => package_root,
                 Err(message) => {
-                    eprintln!("error: {message}");
+                    eprint!(
+                        "{}",
+                        render_cli_boundary_error(&message, diagnostics_format)
+                    );
                     return ExitCode::FAILURE;
                 }
             };
@@ -305,21 +332,30 @@ fn run_cli(cli: Cli) -> ExitCode {
             let path = match resolve_source_entry(&path) {
                 Ok(path) => path,
                 Err(message) => {
-                    eprintln!("error: {message}");
+                    eprint!(
+                        "{}",
+                        render_cli_boundary_error(&message, diagnostics_format)
+                    );
                     return ExitCode::FAILURE;
                 }
             };
             let source = match read_source(&path) {
                 Ok(source) => source,
                 Err(message) => {
-                    eprintln!("error: {message}");
+                    eprint!(
+                        "{}",
+                        render_cli_boundary_error(&message, diagnostics_format)
+                    );
                     return ExitCode::FAILURE;
                 }
             };
             let package_root = match discover_package_root(&path) {
                 Ok(package_root) => package_root,
                 Err(message) => {
-                    eprintln!("error: {message}");
+                    eprint!(
+                        "{}",
+                        render_cli_boundary_error(&message, diagnostics_format)
+                    );
                     return ExitCode::FAILURE;
                 }
             };
@@ -1920,7 +1956,10 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
     let options = match parse_emit_obj_options(path, args) {
         Ok(options) => options,
         Err(message) => {
-            report_cli_error(&message, HelpTopic::EmitObj);
+            eprint!(
+                "{}",
+                render_cli_boundary_error(&message, context.diagnostics_format)
+            );
             return ExitCode::FAILURE;
         }
     };
@@ -1990,7 +2029,10 @@ fn run_emit_exe(path: &str, source: &str, args: Vec<String>, context: EmitContex
     let options = match parse_emit_exe_options(path, args) {
         Ok(options) => options,
         Err(message) => {
-            report_cli_error(&message, HelpTopic::EmitExe);
+            eprint!(
+                "{}",
+                render_cli_boundary_error(&message, context.diagnostics_format)
+            );
             return ExitCode::FAILURE;
         }
     };
