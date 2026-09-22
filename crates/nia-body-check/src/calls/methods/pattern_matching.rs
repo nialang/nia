@@ -520,8 +520,8 @@ impl<'a> BodyChecker<'a> {
         }
         // Method matching only needs a yes/no answer here. Invalid symbolic
         // lengths are diagnosed where the array type is constructed or checked.
-        let expected = self.array_len_value(Span::default(), expected).ok();
-        let actual = self.array_len_value(Span::default(), actual).ok();
+        let expected = self.array_len_value(expected).ok();
+        let actual = self.array_len_value(actual).ok();
         expected.is_some() && expected == actual
     }
 
@@ -644,13 +644,9 @@ impl<'a> BodyChecker<'a> {
             ArrayLenTy::ConstExpr(id) => self.array_len_const_expr_value(*id).map(|value| {
                 nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into()))
             }),
-            ArrayLenTy::Builtin { .. } => {
-                self.array_len_value(Span::default(), len)
-                    .ok()
-                    .map(|value| {
-                        nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into()))
-                    })
-            }
+            ArrayLenTy::Builtin { .. } => self.array_len_value(len).ok().map(|value| {
+                nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into()))
+            }),
             ArrayLenTy::GenericParam(name) => Some(nia_ty::ConstGenericValue::GenericParam(*name)),
             ArrayLenTy::Infer => None,
         }

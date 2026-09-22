@@ -204,7 +204,7 @@ impl<'a> BodyChecker<'a> {
                         if let nia_ast::ArrayElements::Repeat { count, .. } = elems {
                             self.record_array_repeat_count(count, actual);
                         }
-                        match self.array_len_value(span, &expected) {
+                        match self.array_len_value(&expected) {
                             Ok(expected_value) => match check_array_literal_len(
                                 Some(expected.clone()),
                                 Some(expected_value),
