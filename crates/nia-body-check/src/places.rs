@@ -594,13 +594,20 @@ impl<'a> BodyChecker<'a> {
             }
             IndexLiteralExpectedType::Ambiguous => {
                 self.check_expr(index);
-                self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
-                    index.span,
-                    format!(
-                        "ambiguous index literal type for {}; add a literal suffix or type annotation",
-                        self.builtin_trait_ty_name(trait_id, &[])
-                    ),
-                ));
+                let trait_name = self.builtin_trait_ty_name(trait_id, &[]);
+                let summary = format!(
+                    "ambiguous index literal type for {trait_name}; add a literal suffix or type annotation"
+                );
+                self.diagnostics.push(
+                    Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                        .primary(index.span, summary)
+                        .note(format!(
+                            "the receiver has type `{}` and more than one integer index type is available",
+                            self.ty_name(lhs_ty)
+                        ))
+                        .help("add an index suffix such as `0usize`, or annotate the index expression with the intended integer type")
+                        .finish(),
+                );
                 self.error()
             }
             IndexLiteralExpectedType::Unknown => self.check_expr(index),
