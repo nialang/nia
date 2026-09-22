@@ -520,11 +520,14 @@ impl<'a> BodyChecker<'a> {
         let fields = resolved.signature.fields.clone();
         let Some(field) = fields.iter().find(|field| &field.name == name) else {
             let name = self.symbol_name(*name);
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                format!("unknown struct field `{name}`"),
-            ));
+            let summary = format!("unknown struct field `{name}`");
+            let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(span, summary)
+                .note(format!("the receiver has type `{}`", self.ty_name(lhs_ty)));
+            if let Some((note, help)) = available_field_context(self, &fields) {
+                diagnostic = diagnostic.note(note).help(help);
+            }
+            self.diagnostics.push(diagnostic.finish());
             return self.error();
         };
         let (substitutions, const_substitutions) =
@@ -551,11 +554,17 @@ impl<'a> BodyChecker<'a> {
         let fields = resolved.signature.fields.clone();
         let Some(field) = fields.iter().find(|field| &field.name == name) else {
             let name = self.symbol_name(*name);
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                format!("unknown union field `{name}`"),
-            ));
+            let summary = format!("unknown union field `{name}`");
+            let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(span, summary)
+                .note(format!(
+                    "the receiver has type `{}`",
+                    self.nominal_ty_name(def_id, args)
+                ));
+            if let Some((note, help)) = available_field_context(self, &fields) {
+                diagnostic = diagnostic.note(note).help(help);
+            }
+            self.diagnostics.push(diagnostic.finish());
             return self.error();
         };
         let (substitutions, const_substitutions) =
@@ -2008,6 +2017,34 @@ impl<'a> BodyChecker<'a> {
             .get(&def_id)
             .cloned()
     }
+}
+
+fn available_field_context(
+    checker: &BodyChecker<'_>,
+    fields: &[nia_item_signatures::FieldSignature],
+) -> Option<(String, String)> {
+    if fields.is_empty() {
+        return None;
+    }
+    const MAX_FIELDS: usize = 8;
+    let shown = fields
+        .iter()
+        .take(MAX_FIELDS)
+        .map(|field| format!("`{}`", checker.symbol_name(field.name)))
+        .collect::<Vec<_>>();
+    let omitted = fields.len().saturating_sub(shown.len());
+    let note = if omitted == 0 {
+        format!("available fields: {}", shown.join(", "))
+    } else {
+        format!(
+            "available fields: {}; {omitted} more omitted",
+            shown.join(", ")
+        )
+    };
+    Some((
+        note,
+        "check the field spelling or use one of the available fields".to_string(),
+    ))
 }
 
 fn array_literal_values(elems: &nia_ast::ArrayElements) -> Vec<&Expr> {

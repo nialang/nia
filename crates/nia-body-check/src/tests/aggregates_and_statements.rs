@@ -29,6 +29,29 @@ fn main() i32 {
             .iter()
             .any(|diagnostic| diagnostic.summary.contains("unknown struct field"))
     );
+    let field_diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary.contains("unknown struct field"))
+        .expect("unknown field diagnostic");
+    assert!(
+        field_diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("receiver has type `Pair[i32]`"))
+    );
+    assert!(
+        field_diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("available fields") && note.contains("`left`"))
+    );
+    assert!(
+        field_diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("field spelling"))
+    );
     assert!(
         checked
             .diagnostics
