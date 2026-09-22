@@ -370,6 +370,7 @@ dependencies = [
  "libc",
  "nia-build",
  "nia-compat",
+ "nia-diagnostic",
  "nia-driver",
  "nia-linker",
  "nia-loader-query",

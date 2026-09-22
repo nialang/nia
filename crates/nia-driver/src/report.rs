@@ -164,6 +164,20 @@ pub fn render_program_warnings(
     render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
 }
 
+/// Renders only checked-program warnings as deterministic JSON.
+pub fn render_program_warnings_json(program: &CheckedProgram) -> String {
+    let diagnostics = program
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.is_warning())
+        .map(|diagnostic| ProgramDiagnosticReportItem {
+            path: diagnostic.path.as_str(),
+            diagnostic: &diagnostic.diagnostic,
+        })
+        .collect::<Vec<_>>();
+    render_diagnostics_json(&diagnostics, DiagnosticReportConfig::default())
+}
+
 /// Renders only warnings attached to an LLVM artifact.
 pub fn render_llvm_ir_warnings(
     artifact: &LlvmIrArtifact,
@@ -259,6 +273,20 @@ pub fn render_codegen_program_warnings(
         .cloned()
         .collect::<Vec<_>>();
     render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
+}
+
+/// Renders only codegen-program warnings as deterministic JSON.
+pub fn render_codegen_program_warnings_json(program: &CodegenProgram) -> String {
+    let diagnostics = program
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.is_warning())
+        .map(|diagnostic| ProgramDiagnosticReportItem {
+            path: diagnostic.path.as_str(),
+            diagnostic: &diagnostic.diagnostic,
+        })
+        .collect::<Vec<_>>();
+    render_diagnostics_json(&diagnostics, DiagnosticReportConfig::default())
 }
 
 /// Renders a driver failure, preserving structured diagnostic details.
@@ -484,6 +512,99 @@ pub fn render_codegen_diagnostics(
 /// Renders backend/codegen diagnostics as deterministic JSON.
 pub fn render_codegen_diagnostics_json(diagnostics: &[Diagnostic]) -> String {
     render_diagnostics_json(diagnostics, DiagnosticReportConfig::default())
+}
+
+/// Renders any driver failure as deterministic structured JSON.
+pub fn render_driver_error_json(error: &DriverError) -> String {
+    let diagnostics = driver_error_diagnostics(error);
+    render_diagnostics_json(&diagnostics, DiagnosticReportConfig::default())
+}
+
+fn driver_error_diagnostics(error: &DriverError) -> Vec<Diagnostic> {
+    match error {
+        DriverError::CheckDiagnostics(program) => program
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.diagnostic.clone())
+            .collect(),
+        DriverError::CodegenProgramDiagnostics(program) => program
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.diagnostic.clone())
+            .collect(),
+        DriverError::CodegenPreparationDiagnostics(diagnostics) => diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.diagnostic.clone())
+            .collect(),
+        DriverError::CodegenDiagnostics(diagnostics) => diagnostics.clone(),
+        DriverError::InternalDiagnostic(diagnostic) => vec![diagnostic.clone()],
+        DriverError::InvalidArtifactRequest(message) => vec![
+            Diagnostic::user_error(nia_diagnostic::codes::TARGET_CONFIG, message)
+                .help("choose a supported artifact mode and output combination")
+                .finish(),
+        ],
+        DriverError::Runtime(error) => vec![
+            Diagnostic::user_error(
+                nia_diagnostic::codes::TARGET_CONFIG,
+                "invalid runtime configuration",
+            )
+            .note(error.to_string())
+            .help("select a runtime supported by the artifact target")
+            .finish(),
+        ],
+        DriverError::Io {
+            path,
+            operation,
+            error,
+        } => vec![
+            Diagnostic::user_error(
+                nia_diagnostic::codes::ARTIFACT_IO,
+                format!("could not {operation}"),
+            )
+            .note(format!("path `{}`: {error}", path.display()))
+            .help("check the output directory, permissions, and available disk space")
+            .finish(),
+        ],
+        DriverError::LinkerStatus {
+            program,
+            status,
+            stderr,
+        }
+        | DriverError::ArchiveStatus {
+            program,
+            status,
+            stderr,
+        } => vec![
+            Diagnostic::user_error(
+                nia_diagnostic::codes::LINKER,
+                format!("external tool `{program}` failed"),
+            )
+            .note(format!("the tool exited with status {status}"))
+            .note(format!("tool output:\n{stderr}"))
+            .help("inspect the linker inputs and native dependencies")
+            .finish(),
+        ],
+        DriverError::LinkerIo { program, error } | DriverError::ArchiveIo { program, error } => {
+            vec![
+                Diagnostic::user_error(
+                    nia_diagnostic::codes::LINKER,
+                    format!("could not start external tool `{program}`"),
+                )
+                .note(format!("the operating system reported: {error}"))
+                .help("install the required native tool or select a different tool")
+                .finish(),
+            ]
+        }
+        DriverError::LinkerConfig(error) | DriverError::ArchiveConfig(error) => vec![
+            Diagnostic::user_error(
+                nia_diagnostic::codes::LINKER,
+                "invalid external tool configuration",
+            )
+            .note(error.to_string())
+            .help("check the linker, archive, and target options")
+            .finish(),
+        ],
+    }
 }
 
 fn render_diagnostics_with_title(
@@ -720,5 +841,22 @@ mod tests {
         assert!(json.contains("\"code\":\"E0301\""), "{json}");
         assert!(json.contains("\"start\":2,\"end\":4"), "{json}");
         assert!(json.contains("\"suppressed\""), "{json}");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn driver_error_json_does_not_embed_terminal_formatting() {
+        let status = std::process::Command::new("sh")
+            .args(["-c", "exit 9"])
+            .status()
+            .expect("run shell");
+        let json = render_driver_error_json(&DriverError::LinkerStatus {
+            program: "ld".to_string(),
+            status,
+            stderr: "missing symbol".to_string(),
+        });
+        assert!(json.starts_with('{'), "{json}");
+        assert!(json.contains("\"code\":\"E0701\""), "{json}");
+        assert!(!json.contains("error[E0701]"), "{json}");
     }
 }
