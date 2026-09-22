@@ -854,7 +854,17 @@ pub enum MetadataError {
 }
 impl std::fmt::Display for MetadataError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "stable metadata error: {self:?}")
+        let message = match self {
+            Self::BadMagic => "invalid stable metadata header",
+            Self::Schema(_) => "unsupported stable metadata schema",
+            Self::TooLarge => "stable metadata exceeds the size limit",
+            Self::TooManyItems => "stable metadata contains too many items",
+            Self::Truncated => "stable metadata is truncated",
+            Self::InvalidString => "stable metadata contains invalid text",
+            Self::InvalidManifest => "stable metadata manifest is invalid",
+            Self::Io => "could not read stable metadata",
+        };
+        f.write_str(message)
     }
 }
 impl std::error::Error for MetadataError {}
@@ -1202,6 +1212,23 @@ fn read_exact(cursor: &mut Cursor<&[u8]>, bytes: &mut [u8]) -> Result<(), Metada
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn metadata_errors_use_semantic_messages() {
+        assert_eq!(
+            MetadataError::BadMagic.to_string(),
+            "invalid stable metadata header"
+        );
+        assert_eq!(
+            MetadataError::Schema(99).to_string(),
+            "unsupported stable metadata schema"
+        );
+        assert_eq!(
+            MetadataError::InvalidManifest.to_string(),
+            "stable metadata manifest is invalid"
+        );
+        assert!(!MetadataError::Schema(99).to_string().contains("Schema("));
+    }
 
     fn package() -> PackageId {
         PackageId {

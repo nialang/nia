@@ -138,11 +138,10 @@ impl std::fmt::Display for SourceIdentityError {
         match self {
             Self::IdentitySpaceExhausted => f.write_str("source identity space exhausted"),
             Self::RevisionSpaceExhausted => f.write_str("source revision space exhausted"),
-            Self::ForeignSource { expected, actual } => write!(
-                f,
-                "source handle belongs to store {actual:?}, expected store {expected:?}"
-            ),
-            Self::UnknownSource(id) => write!(f, "unknown source handle {id:?}"),
+            Self::ForeignSource { .. } => {
+                f.write_str("source handle belongs to a different source store")
+            }
+            Self::UnknownSource(_) => f.write_str("source handle does not refer to a known source"),
         }
     }
 }
@@ -662,6 +661,31 @@ mod tests {
     #[test]
     fn source_revision_advances_monotonically() {
         assert_eq!(SourceRevision::INITIAL.next(), Some(SourceRevision(1)));
+    }
+
+    #[test]
+    fn source_identity_errors_do_not_expose_internal_handles() {
+        let table = SourceTable::new();
+        let foreign = SourceTable::new();
+        let foreign_error = SourceIdentityError::ForeignSource {
+            expected: table.id(),
+            actual: foreign.id(),
+        };
+        let unknown_error = SourceIdentityError::UnknownSource(SourceId {
+            store_id: table.id(),
+            index: SourceIndex(u32::MAX),
+        });
+
+        assert_eq!(
+            foreign_error.to_string(),
+            "source handle belongs to a different source store"
+        );
+        assert_eq!(
+            unknown_error.to_string(),
+            "source handle does not refer to a known source"
+        );
+        assert!(!foreign_error.to_string().contains("SourceStoreId"));
+        assert!(!unknown_error.to_string().contains("SourceId"));
     }
 
     #[test]
