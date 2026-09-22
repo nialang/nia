@@ -1460,7 +1460,7 @@ fn render_driver_failure(
 ) -> String {
     match format {
         DiagnosticsFormat::Text => nia_driver::render_driver_error(error, path, source),
-        DiagnosticsFormat::Json => nia_driver::render_driver_error_json(error),
+        DiagnosticsFormat::Json => nia_driver::render_driver_error_json_at(error, path),
     }
 }
 
