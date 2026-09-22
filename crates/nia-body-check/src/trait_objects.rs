@@ -850,7 +850,7 @@ impl<'a> BodyChecker<'a> {
     ) -> bool {
         let nia_ty::TraitId::Source(source_trait_id) = trait_id else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+                codes::OBJECT_SAFETY,
                 span,
                 "builtin trait objects are not supported yet",
             ));
@@ -858,7 +858,7 @@ impl<'a> BodyChecker<'a> {
         };
         let Some(trait_signature) = self.resolved_trait_signature(source_trait_id) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+                codes::OBJECT_SAFETY,
                 span,
                 "trait object refers to unknown trait",
             ));
@@ -1053,7 +1053,7 @@ impl<'a> BodyChecker<'a> {
             .push((trait_id, trait_args.to_vec(), trait_const_args.to_vec()));
         for associated_value in &trait_signature.associated_values {
             self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+                codes::OBJECT_SAFETY,
                 check.span,
                 format!(
                     "trait `{}` is not object safe because associated value `{}` has no vtable contract",
@@ -1072,7 +1072,7 @@ impl<'a> BodyChecker<'a> {
             {
                 let method_name = self.symbol_name(method.name);
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
+                    codes::OBJECT_SAFETY,
                     check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` has no receiver",
@@ -1085,7 +1085,7 @@ impl<'a> BodyChecker<'a> {
             if !method.signature.generics.is_empty() {
                 let method_name = self.symbol_name(method.name);
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
+                    codes::OBJECT_SAFETY,
                     check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` has method generics",
@@ -1103,7 +1103,7 @@ impl<'a> BodyChecker<'a> {
             {
                 let method_name = self.symbol_name(method.name);
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
+                    codes::OBJECT_SAFETY,
                     check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` takes `self` by value",
@@ -1124,7 +1124,7 @@ impl<'a> BodyChecker<'a> {
                 let ty = self.object_safe_ty(check, ty);
                 if self.type_mentions_self(ty, check.self_ty) {
                     let method_name = self.symbol_name(method.name);
-                    self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
+                    self.diagnostics.push(Diagnostic::user_error_at(codes::OBJECT_SAFETY,
                         check.span,
                         format!(
                             "trait `{}` is not object safe because method `{}` mentions `Self` outside the receiver",
@@ -1144,7 +1144,7 @@ impl<'a> BodyChecker<'a> {
             if self.type_mentions_self(return_type, check.self_ty) {
                 let method_name = self.symbol_name(method.name);
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
+                    codes::OBJECT_SAFETY,
                     check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` returns `Self`",
@@ -1188,7 +1188,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 if builtin_trait_id == nia_ty::BuiltinTrait::Sized {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
+                        codes::OBJECT_SAFETY,
                         check.span,
                         format!(
                             "trait `{}` is not object safe because it has `Sized` as a supertrait",
@@ -1197,7 +1197,7 @@ impl<'a> BodyChecker<'a> {
                     ));
                 } else {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
+                        codes::OBJECT_SAFETY,
                         check.span,
                         format!(
                             "trait `{}` is not object safe because builtin supertrait `{}` is not supported by trait objects",

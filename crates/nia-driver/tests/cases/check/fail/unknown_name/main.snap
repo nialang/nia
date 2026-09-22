@@ -2,3 +2,4 @@ path: fail/unknown_name/main.nia
 code: E0301
 summary: name is unresolved
 label: 16..23 Primary Source name is unresolved
+help: check the spelling, import the name, or define it in this module

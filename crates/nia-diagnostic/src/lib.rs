@@ -208,6 +208,13 @@ pub mod codes {
         "local-resolution",
         "local binding resolution failed",
     );
+    /// Trait-object object-safety rule failure.
+    pub const OBJECT_SAFETY: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0303",
+        DiagnosticStage::TypeCheck,
+        "object-safety",
+        "a trait cannot be used as a trait object under its object-safety rules",
+    );
     /// Compile-time evaluation failure.
     pub const CONST: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0401",
@@ -300,6 +307,7 @@ pub mod codes {
         ITEM_SIGNATURE,
         TYPE_CHECK,
         LOCAL_RESOLUTION,
+        OBJECT_SAFETY,
         CONST,
         STATIC_CHECK,
         LLVM_CODEGEN,

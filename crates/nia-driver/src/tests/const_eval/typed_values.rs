@@ -681,7 +681,7 @@ const value: bool = id(1usize == true);
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("matching operand types")),
+            .contains("incompatible operand types")),
         "{:?}",
         program.diagnostics
     );
@@ -703,10 +703,10 @@ const value: bool = id(true and 1usize);
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
-        program
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("bool")),
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("incompatible operand types")),
         "{:?}",
         program.diagnostics
     );
@@ -788,7 +788,7 @@ const selected: u8 = config.values[1];
             diagnostic
                 .diagnostic
                 .summary
-                .contains("out of range for u8")
+                .contains("const array literal element does not match its expected type")
         })
         .count();
     assert!(count >= 2, "{:?}", program.diagnostics);
@@ -817,7 +817,7 @@ const packet: Packet[u8] = Packet[u8]{tag: 1u16, payload: 300u16};
             diagnostic
                 .diagnostic
                 .summary
-                .contains("out of range for u8")
+                .contains("const struct literal field does not match its expected type")
         })
         .count();
     assert!(count >= 1, "{:?}", program.diagnostics);
@@ -852,7 +852,7 @@ const selected: u8 = config::packet.payload;
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("out of range for u8")),
+            .contains("const struct literal field does not match its expected type")),
         "{:?}",
         program.diagnostics
     );
