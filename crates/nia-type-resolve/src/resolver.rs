@@ -103,6 +103,23 @@ struct TypeResolver<'a> {
 }
 
 impl TypeResolver<'_> {
+    fn imported_value_as_type_diagnostic(
+        &self,
+        span: Span,
+        name: &str,
+        entry: nia_defs::UsingEntry,
+    ) -> Diagnostic {
+        Diagnostic::user_error(
+            codes::NAME_RESOLUTION,
+            format!("value `{name}` cannot be used as a type"),
+        )
+        .primary(span, "this name resolves to a value, not a type")
+        .related(entry.name_span, "the imported value is selected here")
+        .related(entry.directive_span, "the `using` directive is here")
+        .help("use this name in an expression, or import a type instead")
+        .finish()
+    }
+
     fn unresolved_using_type_diagnostic(
         &self,
         span: Span,
@@ -973,6 +990,14 @@ impl<'a> TypeResolver<'a> {
                 def_id: entry.target_def_id,
             }));
         }
+        if let Some(scope) = self.using_scope
+            && let Some(entry) = scope.using_value(type_segment_name(segment)?)
+        {
+            let name = self.symbol_name(*type_segment_name(segment)?);
+            self.diagnostics
+                .push(self.imported_value_as_type_diagnostic(segment.span, &name, entry));
+            return None;
+        }
         let name = self.symbol_name(*type_segment_name(segment)?);
         self.diagnostics.push(
             Diagnostic::user_error(
@@ -1246,6 +1271,15 @@ impl<'a> TypeResolver<'a> {
             self.node_qualified_type_names
                 .insert(node_key.site().clone(), global);
             return TypeNameResolution::External(global);
+        }
+        if let Some(scope) = self.using_scope
+            && let Some(entry) = scope.using_value(&name)
+            && entry.namespace == PublicNamespace::Value
+        {
+            let display_name = self.symbol_name(name);
+            self.diagnostics
+                .push(self.imported_value_as_type_diagnostic(span, &display_name, entry));
+            return TypeNameResolution::Error;
         }
         if let Some(failure) = self
             .using_scope
