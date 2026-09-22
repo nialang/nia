@@ -23,7 +23,7 @@ use nia_timing::{TimingFormat, TimingOptions, TimingTrace};
 
 mod help;
 
-use help::{HelpStyle, error_help_text, help_text};
+use help::{HelpStyle, error_help_command, error_help_text, help_text};
 
 #[cfg(feature = "perf-alloc")]
 #[global_allocator]
@@ -33,7 +33,9 @@ static GLOBAL_ALLOCATOR: nia_timing::CountingAllocator<System> =
 fn main() -> ExitCode {
     #[cfg(feature = "perf-alloc")]
     nia_timing::register_allocation_instrumentation();
-    match parse_cli(env::args().skip(1).collect()) {
+    let args = env::args().skip(1).collect::<Vec<_>>();
+    let diagnostics_format = requested_diagnostics_format(&args);
+    match parse_cli(args) {
         Ok(CliAction::Help(topic)) => write_stdout(format_args!(
             "{}",
             help_text(topic, HelpStyle::for_stdout())
@@ -52,7 +54,7 @@ fn main() -> ExitCode {
                     help_text(error.help, HelpStyle::for_stdout())
                 ));
             }
-            report_cli_error(&error.message, error.help);
+            report_cli_error(&error.message, error.help, diagnostics_format);
             ExitCode::FAILURE
         }
     }
@@ -69,10 +71,50 @@ fn write_stdout(args: fmt::Arguments<'_>) -> ExitCode {
     }
 }
 
-fn report_cli_error(message: &str, help: HelpTopic) {
-    eprintln!("error: {message}");
-    eprintln!();
-    eprint!("{}", error_help_text(help, HelpStyle::for_stderr()));
+fn report_cli_error(message: &str, help: HelpTopic, diagnostics_format: DiagnosticsFormat) {
+    let rendered = render_cli_invocation_error(message, help, diagnostics_format);
+    eprint!("{rendered}");
+    if diagnostics_format == DiagnosticsFormat::Text {
+        eprintln!();
+        eprint!("{}", error_help_text(help, HelpStyle::for_stderr()));
+    }
+}
+
+fn requested_diagnostics_format(args: &[String]) -> DiagnosticsFormat {
+    args.iter()
+        .find_map(|arg| arg.strip_prefix("--diagnostics-format="))
+        .map_or(DiagnosticsFormat::Text, |value| {
+            if value == "json" {
+                DiagnosticsFormat::Json
+            } else {
+                DiagnosticsFormat::Text
+            }
+        })
+}
+
+fn render_cli_invocation_error(
+    message: &str,
+    help_topic: HelpTopic,
+    format: DiagnosticsFormat,
+) -> String {
+    let help = format!(
+        "for more information, run `{}`",
+        error_help_command(help_topic)
+    );
+    let diagnostic =
+        nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::CLI_USAGE, message)
+            .help(help)
+            .finish();
+    match format {
+        DiagnosticsFormat::Text => {
+            nia_diagnostic::render_diagnostic("<command line>", "", &diagnostic)
+        }
+        DiagnosticsFormat::Json => nia_diagnostic::render_diagnostics_json_at(
+            "<command line>",
+            &[diagnostic],
+            nia_diagnostic::DiagnosticReportConfig::default(),
+        ),
+    }
 }
 
 fn render_cli_boundary_error(
@@ -2830,5 +2872,27 @@ mod tests {
         );
         assert!(json.contains("\"code\":\"E0104\""), "{json}");
         assert!(json.contains("check the Nia installation"), "{json}");
+    }
+
+    #[test]
+    fn cli_invocation_diagnostics_keep_code_help_and_format() {
+        let text = render_cli_invocation_error(
+            "unknown command `frobnicate`",
+            HelpTopic::Main,
+            DiagnosticsFormat::Text,
+        );
+        assert!(
+            text.contains("error[E0105]: unknown command `frobnicate`"),
+            "{text}"
+        );
+        assert!(text.contains("run `nia help`"), "{text}");
+
+        let json = render_cli_invocation_error(
+            "unknown command `frobnicate`",
+            HelpTopic::Main,
+            DiagnosticsFormat::Json,
+        );
+        assert!(json.contains("\"code\":\"E0105\""), "{json}");
+        assert!(json.contains("run `nia help`"), "{json}");
     }
 }

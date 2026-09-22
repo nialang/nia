@@ -41,6 +41,10 @@ pub(crate) fn error_help_text(topic: HelpTopic, style: HelpStyle) -> String {
     out
 }
 
+pub(crate) fn error_help_command(topic: HelpTopic) -> &'static str {
+    help_command(topic)
+}
+
 struct HelpDoc {
     title: &'static str,
     about: &'static str,

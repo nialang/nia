@@ -166,6 +166,13 @@ pub mod codes {
         "toolchain",
         "the Nia toolchain could not be resolved or loaded",
     );
+    /// Invalid command-line invocation.
+    pub const CLI_USAGE: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0105",
+        DiagnosticStage::Compiler,
+        "cli-usage",
+        "the Nia compiler command-line invocation is invalid",
+    );
     /// Name or item resolution failure.
     pub const NAME_RESOLUTION: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0201",
@@ -287,6 +294,7 @@ pub mod codes {
         LOAD,
         TARGET_CONFIG,
         TOOLCHAIN,
+        CLI_USAGE,
         NAME_RESOLUTION,
         TYPE_NORMALIZATION,
         ITEM_SIGNATURE,

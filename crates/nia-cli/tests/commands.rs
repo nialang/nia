@@ -527,13 +527,22 @@ fn cli_errors_point_to_the_closest_help_topic() {
     assert!(!unknown.status.success());
     let stderr = String::from_utf8_lossy(&unknown.stderr);
     assert!(
-        stderr.contains("error: unknown command `frobnicate`"),
+        stderr.contains("error[E0105]: unknown command `frobnicate`"),
         "{stderr}"
     );
     assert!(stderr.contains("Usage:\n  nia <command>"), "{stderr}");
     assert!(stderr.contains("run `nia help`"), "{stderr}");
     assert!(!stderr.contains("Commands:"), "{stderr}");
     assert!(!stderr.contains("Examples:"), "{stderr}");
+
+    let unknown_json = support::nia_command()
+        .args(["--diagnostics-format=json", "frobnicate"])
+        .output_timeout_for_runtime("run unknown nia command as JSON");
+    assert!(!unknown_json.status.success());
+    let json_stderr = String::from_utf8_lossy(&unknown_json.stderr);
+    assert!(json_stderr.contains("\"code\":\"E0105\""), "{json_stderr}");
+    assert!(json_stderr.contains("run `nia help`"), "{json_stderr}");
+    assert!(!json_stderr.contains("Usage:"), "{json_stderr}");
 
     let build_path = support::nia_command()
         .args(["build", "."])
