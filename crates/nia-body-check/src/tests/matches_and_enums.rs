@@ -1302,6 +1302,33 @@ fn wrong(point: Point) i32 {
             checked.diagnostics
         );
     }
+    let unknown = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("unknown struct pattern field `z`")
+        })
+        .expect("unknown struct pattern field diagnostic");
+    assert!(
+        unknown
+            .notes
+            .iter()
+            .any(|note| note.contains("pattern targets a value of type `Point`"))
+    );
+    assert!(
+        unknown
+            .notes
+            .iter()
+            .any(|note| note.contains("available pattern fields") && note.contains("`x`"))
+    );
+    assert!(
+        unknown
+            .help
+            .iter()
+            .any(|help| help.contains("pattern field spelling"))
+    );
 }
 
 #[test]

@@ -630,14 +630,18 @@ impl<'a> BodyChecker<'a> {
             ));
         }
         for field in &field_set.unknown_fields {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                field.span,
-                format!(
-                    "unknown struct pattern field `{}`",
-                    self.symbol_name(field.name)
-                ),
-            ));
+            let name = self.symbol_name(field.name);
+            let summary = format!("unknown struct pattern field `{name}`");
+            let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(field.span, summary)
+                .note(format!(
+                    "the pattern targets a value of type `{}`",
+                    self.ty_name(target_ty)
+                ));
+            if let Some((note, help)) = pattern_available_field_context(self, &expected) {
+                diagnostic = diagnostic.note(note).help(help);
+            }
+            self.diagnostics.push(diagnostic.finish());
         }
         if rest.is_none() {
             for name in &field_set.missing_fields {
@@ -802,14 +806,18 @@ impl<'a> BodyChecker<'a> {
                     ));
                 }
                 for field in field_set.unknown_fields {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        field.span,
-                        format!(
-                            "unknown payload pattern field `{}`",
-                            self.symbol_name(field.name)
-                        ),
-                    ));
+                    let name = self.symbol_name(field.name);
+                    let summary = format!("unknown payload pattern field `{name}`");
+                    let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                        .primary(field.span, summary)
+                        .note(format!(
+                            "the variant payload belongs to `{}`",
+                            self.ty_name(target_ty)
+                        ));
+                    if let Some((note, help)) = pattern_available_field_context(self, expected) {
+                        diagnostic = diagnostic.note(note).help(help);
+                    }
+                    self.diagnostics.push(diagnostic.finish());
                 }
                 if rest.is_none() {
                     for name in field_set.missing_fields {
@@ -1213,4 +1221,32 @@ impl<'a> BodyChecker<'a> {
             }
         }
     }
+}
+
+fn pattern_available_field_context(
+    checker: &BodyChecker<'_>,
+    fields: &[nia_item_signatures::FieldSignature],
+) -> Option<(String, String)> {
+    if fields.is_empty() {
+        return None;
+    }
+    const MAX_FIELDS: usize = 8;
+    let shown = fields
+        .iter()
+        .take(MAX_FIELDS)
+        .map(|field| format!("`{}`", checker.symbol_name(field.name)))
+        .collect::<Vec<_>>();
+    let omitted = fields.len().saturating_sub(shown.len());
+    let note = if omitted == 0 {
+        format!("available pattern fields: {}", shown.join(", "))
+    } else {
+        format!(
+            "available pattern fields: {}; {omitted} more omitted",
+            shown.join(", ")
+        )
+    };
+    Some((
+        note,
+        "check the pattern field spelling or use one of the available fields".to_string(),
+    ))
 }
