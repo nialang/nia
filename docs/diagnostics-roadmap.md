@@ -1,0 +1,95 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+# Diagnostics Roadmap
+
+Nia's terminal diagnostics are a compiler product, not a last-mile string
+formatter. A useful report must answer four questions in order:
+
+1. What source construct is wrong?
+2. Which compiler rule rejected it?
+3. What other location or declaration explains the rule?
+4. What can the user change to continue?
+
+The implementation is being upgraded in bounded stages. Each stage must keep
+the existing source spans and diagnostic codes stable unless the old contract
+was actively misleading.
+
+## Invariants
+
+- A user-facing error has a source-owned primary label whenever the compiler
+  has a source location. Generated code and fallback locations are never shown
+  as the primary location when the originating source location is known.
+- A diagnostic has one root cause. Later phases may retain context internally,
+  but they must not publish errors that only describe an invalid recovery value
+  created by an earlier phase.
+- Independent modules may continue checking after one module fails. Within one
+  module, downstream checks suppress only diagnostics whose codes describe
+  recovery products poisoned by an earlier root; independent resolution and
+  constraint errors remain visible.
+- Diagnostics are structured until the CLI boundary. Formatting, suppression,
+  color, and terminal layout do not belong in semantic or query providers.
+- Every diagnostic shown to a user has a stable code, a precise primary span,
+  and either a useful label, note, or help action. Internal diagnostics are
+  clearly separated from source errors.
+
+## Stages
+
+### 1. Cascade control
+
+The query facade now gates per-module diagnostic collection by root diagnostic
+code. Unresolved names and invalid signatures suppress only downstream type,
+const, layout, and code-generation products while independent resolution and
+constraint errors remain visible. Build-runner compilation performs a source
+check first and publishes `build.nia` diagnostics instead of generated-wrapper
+recovery errors when both are present.
+
+Regression coverage includes incremental supertrait constraints, generated
+runner ownership, and unresolved build-script values.
+
+### 2. Source ownership and related locations
+
+Introduce an explicit diagnostic origin/relationship model. A generated call
+site may be retained as a secondary location, while the declaration or source
+expression that caused it becomes primary. This is required for build runners,
+macro-like generated code, imported declarations, and cross-module trait
+resolution.
+
+### 3. Semantic diagnostic contracts
+
+Replace generic summaries such as `name is unresolved` and broad `type-check`
+messages with rule-specific constructors. Each constructor owns:
+
+- the diagnostic code;
+- the primary and secondary labels;
+- the expected/actual type rendering;
+- optional candidate lists;
+- a concrete help action.
+
+The first targets are name lookup, qualified values, imports, error-union
+propagation, callable resolution, and visibility.
+
+### 4. Report organization
+
+Make the report explicitly hierarchical: root errors first, related context
+under each root, then independent errors. Suppression must say whether entries
+were duplicates, downstream consequences, or a display limit. The report must
+never present a generated wrapper before the source error that invalidated it.
+
+### 5. CLI interaction contract
+
+Add stable text and machine-readable output modes, explicit summary counts, and
+consistent exit status behavior for check, emit, build, and test. Terminal
+rendering should provide color and compact context when interactive, while
+non-interactive output remains deterministic and snapshot-friendly.
+
+### 6. Regression and quality gates
+
+Every new diagnostic rule requires a source fixture and a snapshot containing:
+
+- code and severity;
+- primary path, line, and column;
+- source excerpt and label;
+- notes/help/related locations;
+- suppression summary when applicable.
+
+The broad workspace test, clippy, formatting, and CLI case suites remain
+mandatory for each stage.
