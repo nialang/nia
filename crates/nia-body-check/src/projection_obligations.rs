@@ -508,34 +508,26 @@ impl<'a> BodyChecker<'a> {
                         &trait_const_args,
                         &binding.name,
                     ) else {
-                        self.diagnostics
-                            .push(nia_diagnostic::Diagnostic::user_error_at(
-                                nia_diagnostic::codes::TYPE_CHECK,
-                                span,
-                                format!(
-                                    "associated type binding not satisfied: {}::{} could not be resolved",
-                                    self.trait_ty_name(trait_id, &trait_args),
-                                    self.symbol_name(binding.name)
-                                ),
-                            ));
+                        self.report_associated_type_binding_unresolved(
+                            span,
+                            trait_id,
+                            &trait_args,
+                            binding.name,
+                        );
                         continue;
                     };
                     let expected_ty = self.normalize_projection(binding.ty);
                     let actual_ty = self.normalize_projection(actual_ty);
                     if !self.types_equivalent_without_projection_resolution(expected_ty, actual_ty)
                     {
-                        self.diagnostics
-                            .push(nia_diagnostic::Diagnostic::user_error_at(
-                                nia_diagnostic::codes::TYPE_CHECK,
-                                span,
-                                format!(
-                                    "associated type binding not satisfied: {}::{} expected {}, got {}",
-                                    self.trait_ty_name(trait_id, &trait_args),
-                                    self.symbol_name(binding.name),
-                                    self.ty_name(expected_ty),
-                                    self.ty_name(actual_ty)
-                                ),
-                            ));
+                        self.report_associated_type_binding_mismatch(
+                            span,
+                            trait_id,
+                            &trait_args,
+                            binding.name,
+                            expected_ty,
+                            actual_ty,
+                        );
                     }
                 }
             }

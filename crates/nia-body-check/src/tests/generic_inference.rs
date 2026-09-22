@@ -1004,6 +1004,24 @@ fn main(good: Good, bad: Bad) () {
     assert!(checked.diagnostics.iter().any(|diagnostic| {
         diagnostic.summary.contains("Item") && diagnostic.summary.contains("expected i32, got bool")
     }));
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("Source::Item expected i32, got bool")
+        })
+        .expect("associated type mismatch diagnostic");
+    assert!(diagnostic.notes.iter().any(|note| {
+        note.contains("resolves `Source::Item` as `bool`") && note.contains("requires `i32`")
+    }));
+    assert!(
+        diagnostic
+            .help
+            .iter()
+            .any(|help| { help.contains("change the associated type definition") })
+    );
 }
 
 #[test]
