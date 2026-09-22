@@ -241,11 +241,18 @@ pub fn collect_extension_method_diagnostics_for_module(
         }
         let target_ty = module.normalization.normalize(impl_signature.target_ty);
         if !is_extendable_target(module.type_store, target_ty) {
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                impl_signature.span,
-                "extend target must be an extendable value type",
-            ));
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    "extend target must be an extendable value type",
+                )
+                .primary(
+                    impl_signature.span,
+                    "this extension target is not a struct, union, or enum value type",
+                )
+                .help("extend a nominal value type, or move trait-only items into a trait")
+                .finish(),
+            );
             continue;
         }
         let trait_id = impl_trait_id(module, impl_signature, input.trait_defs, &mut diagnostics);
@@ -441,11 +448,18 @@ pub fn collect_extension_associated_value_index_for_module(
         let target_ty = module.normalization.normalize(impl_signature.target_ty);
         let trait_id = impl_trait_id_for_index(module, impl_signature, trait_defs);
         if !is_extendable_target(module.type_store, target_ty) {
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                impl_signature.span,
-                "extend target must be an extendable value type",
-            ));
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    "extend target must be an extendable value type",
+                )
+                .primary(
+                    impl_signature.span,
+                    "this extension target is not a struct, union, or enum value type",
+                )
+                .help("extend a nominal value type, or move trait-only items into a trait")
+                .finish(),
+            );
             continue;
         }
         for associated_value in &impl_signature.associated_values {
@@ -481,22 +495,30 @@ fn impl_trait_id(
     match module.type_store.get(ty).cloned() {
         Some(TyKind::Nominal { def_id, .. }) => {
             if !trait_defs.contains(&def_id) {
-                diagnostics.push(Diagnostic::user_error_at(
-                    codes::NAME_RESOLUTION,
-                    span,
-                    "trait implementation target must be a trait",
-                ));
+                diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::NAME_RESOLUTION,
+                        "trait implementation target must be a trait",
+                    )
+                    .primary(span, "this type is not a trait")
+                    .help("name a trait after `:` or declare the intended trait before implementing it")
+                    .finish(),
+                );
                 return None;
             }
             Some(TraitId::Source(def_id))
         }
         Some(TyKind::BuiltinTrait { trait_id, .. }) => Some(TraitId::Builtin(trait_id)),
         _ => {
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                span,
-                "trait implementation target must be a trait",
-            ));
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    "trait implementation target must be a trait",
+                )
+                .primary(span, "this type cannot be implemented as a trait")
+                .help("name a trait after `:` or declare the intended trait before implementing it")
+                .finish(),
+            );
             None
         }
     }
@@ -718,22 +740,30 @@ fn supertrait_id(
     match module.type_store.get(ty).cloned() {
         Some(TyKind::Nominal { def_id, .. }) => {
             if !trait_defs.contains(&def_id) {
-                diagnostics.push(Diagnostic::user_error_at(
-                    codes::NAME_RESOLUTION,
-                    span,
-                    "trait implementation target must be a trait",
-                ));
+                diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::NAME_RESOLUTION,
+                        "trait implementation target must be a trait",
+                    )
+                    .primary(span, "this supertrait bound names a non-trait type")
+                    .help("use a trait in the supertrait list")
+                    .finish(),
+                );
                 return None;
             }
             Some(TraitId::Source(def_id))
         }
         Some(TyKind::BuiltinTrait { trait_id, .. }) => Some(TraitId::Builtin(trait_id)),
         _ => {
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                span,
-                "trait implementation target must be a trait",
-            ));
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    "trait implementation target must be a trait",
+                )
+                .primary(span, "this supertrait bound is not a trait")
+                .help("use a trait in the supertrait list")
+                .finish(),
+            );
             None
         }
     }
