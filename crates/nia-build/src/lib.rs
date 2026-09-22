@@ -24,7 +24,7 @@ use std::{
 use nia_compat::formats::RUNNER_CONFIG;
 use nia_driver::{
     CheckRequest, Driver, DriverConfig, DriverError, EmitObjectRequest, LinkExecutableRequest,
-    LinkTimeOptimization, TimingMode,
+    LinkTimeOptimization, ProgramDiagnostic, TimingMode,
 };
 use nia_imports::ModuleMap;
 use nia_source::SourcePath;
@@ -905,6 +905,18 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
     let check = check
         .with_runtime(runtime)
         .with_current_package(runner_cache::package_id(&cache_key));
+    // Check the user-owned build script before lowering the generated wrapper.
+    // A bad build script otherwise poisons the wrapper's recovery values and
+    // produces a long list of diagnostics at synthetic runner locations.
+    let build_script_path = SourcePath::new(invocation.build_script.to_string_lossy().into_owned());
+    if let Err(error) = driver.check_entry(check.clone()).result {
+        let error = focus_build_script_diagnostics(error, &build_script_path);
+        return Err(BuildError::CompileRunner {
+            path: runner.path.clone(),
+            source: runner.source.clone(),
+            error: Box::new(error),
+        });
+    }
     let output = match invocation.link_time_optimization {
         LinkTimeOptimization::Off => {
             let objects = time_build_stage(
@@ -948,6 +960,33 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
         nia_timing::emit_counter("build.runner_cache_publish_failures", 1);
     }
     Ok(invocation.runner_executable.clone())
+}
+
+fn focus_build_script_diagnostics(error: DriverError, build_script: &SourcePath) -> DriverError {
+    match error {
+        DriverError::CheckDiagnostics(mut program) => {
+            focus_program_diagnostics(&mut program.diagnostics, build_script);
+            DriverError::CheckDiagnostics(program)
+        }
+        DriverError::CodegenProgramDiagnostics(mut program) => {
+            focus_program_diagnostics(&mut program.diagnostics, build_script);
+            DriverError::CodegenProgramDiagnostics(program)
+        }
+        DriverError::CodegenPreparationDiagnostics(mut diagnostics) => {
+            focus_program_diagnostics(&mut diagnostics, build_script);
+            DriverError::CodegenPreparationDiagnostics(diagnostics)
+        }
+        error => error,
+    }
+}
+
+fn focus_program_diagnostics(diagnostics: &mut Vec<ProgramDiagnostic>, build_script: &SourcePath) {
+    let has_build_script_error = diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.is_error() && diagnostic.path == *build_script);
+    if has_build_script_error {
+        diagnostics.retain(|diagnostic| diagnostic.path == *build_script);
+    }
 }
 
 fn build_runner_driver_config(invocation: &BuildInvocation) -> DriverConfig {
@@ -1254,6 +1293,36 @@ mod tests {
                 .expect("development toolchain layout"),
             )
         }))
+    }
+
+    #[test]
+    fn build_script_errors_hide_generated_runner_cascade() {
+        let build_script = PathBuf::from("/workspace/build.nia");
+        let mut diagnostics = vec![
+            ProgramDiagnostic {
+                path: SourcePath::new(build_script.to_string_lossy().into_owned()),
+                diagnostic: nia_diagnostic::Diagnostic::user_error(
+                    nia_diagnostic::codes::NAME_RESOLUTION,
+                    "unknown value `exit`",
+                )
+                .finish(),
+            },
+            ProgramDiagnostic {
+                path: SourcePath::new("build-package:build-runner:/root.nia"),
+                diagnostic: nia_diagnostic::Diagnostic::user_error(
+                    nia_diagnostic::codes::TYPE_CHECK,
+                    "derived wrapper error",
+                )
+                .finish(),
+            },
+        ];
+
+        let build_script_path = SourcePath::new(build_script.to_string_lossy().into_owned());
+        focus_program_diagnostics(&mut diagnostics, &build_script_path);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].path.as_str(), "/workspace/build.nia");
+        assert!(diagnostics[0].diagnostic.summary.contains("unknown value"));
     }
 
     pub(crate) fn test_toolchain_layout_for(
