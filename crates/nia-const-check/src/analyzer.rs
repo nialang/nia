@@ -677,7 +677,7 @@ impl Analyzer<'_> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::CONST,
                     variant.span(),
-                    format!("enum variant value {value:?} is out of range for backing type"),
+                    format!("enum variant value {value} is out of range for backing type"),
                 ));
             }
             let variant_id = variant.def_id();
@@ -1246,7 +1246,7 @@ impl Analyzer<'_> {
                         codes::CONST,
                         span,
                         format!(
-                            "const integer value {value:?} is out of range for {}",
+                            "const integer value {value} is out of range for {}",
                             primitive.name()
                         ),
                     ));

@@ -404,6 +404,16 @@ enum Packet {
         "{:?}",
         fixture.checked.diagnostics
     );
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .all(|diagnostic| !diagnostic.summary.contains("bits:")
+                && !diagnostic.summary.contains("signed:")),
+        "integer storage details must not leak into user diagnostics: {:?}",
+        fixture.checked.diagnostics
+    );
 }
 
 #[test]
