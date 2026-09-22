@@ -395,7 +395,10 @@ fn external_command_diagnostic(details: &ExternalCommandError) -> Diagnostic {
             stdout,
             stderr,
         } => {
-            let reason = format!("command timed out after {timeout:?}");
+            let reason = format!(
+                "command timed out after {}",
+                crate::coordinator::display_duration(*timeout)
+            );
             diagnostic.notes.push(reason);
             append_output_note(&mut diagnostic, "stdout", stdout);
             append_output_note(&mut diagnostic, "stderr", stderr);
@@ -594,6 +597,37 @@ mod tests {
         assert!(json.contains("expected x86_64-unknown-linux-gnu- (64-bit little), found aarch64-unknown-linux-gnu- (64-bit little)"));
         assert!(!json.contains("TargetSpec {"));
         assert!(!json.contains("pointer_width:"));
+    }
+
+    #[test]
+    fn external_command_timeout_uses_semantic_duration_everywhere() {
+        let details = ExternalCommandError {
+            action: crate::ActionKey::new(crate::PackageKey::root(), "compile").unwrap(),
+            program: "cc".to_string(),
+            arguments: Vec::new(),
+            working_directory: std::path::PathBuf::from("/tmp/project"),
+            failure: ExternalCommandFailure::TimedOut {
+                timeout: std::time::Duration::from_secs(420),
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            },
+        };
+
+        let diagnostic = external_command_diagnostic(&details);
+        assert!(
+            diagnostic
+                .notes
+                .iter()
+                .any(|note| note == "command timed out after 7m")
+        );
+        let rendered = render_diagnostic_list("build diagnostics:", &[diagnostic], None, None);
+        assert!(rendered.contains("command timed out after 7m"));
+
+        let coordinator = CoordinatorError::ExternalCommand(Box::new(details));
+        let displayed = coordinator.to_string();
+        assert!(displayed.contains("run `cc`"));
+        assert!(displayed.contains("timed out after 7m"));
+        assert!(!displayed.contains("420s"));
     }
 
     #[cfg(unix)]

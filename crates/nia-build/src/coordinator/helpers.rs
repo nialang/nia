@@ -136,3 +136,21 @@ pub(crate) fn display_target(target: &TargetSpec) -> String {
         target.endian
     )
 }
+
+pub(crate) fn display_duration(duration: Duration) -> String {
+    let millis = duration.as_millis();
+    if millis < 1_000 {
+        return format!("{millis}ms");
+    }
+    let seconds = millis / 1_000;
+    if seconds < 60 {
+        return format!("{seconds}s");
+    }
+    let minutes = seconds / 60;
+    let remaining_seconds = seconds % 60;
+    if remaining_seconds == 0 {
+        format!("{minutes}m")
+    } else {
+        format!("{minutes}m {remaining_seconds}s")
+    }
+}
