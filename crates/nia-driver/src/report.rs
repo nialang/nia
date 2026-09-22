@@ -299,19 +299,36 @@ pub fn render_driver_error(
             primary_source,
         ),
         DriverError::InvalidArtifactRequest(message) => {
-            let mut out = String::new();
-            out.push_str(message);
-            out.push('\n');
-            out
+            let diagnostic = Diagnostic::user_error(nia_diagnostic::codes::TARGET_CONFIG, message)
+                .help("choose a supported artifact mode and output combination")
+                .finish();
+            render_diagnostics_with_title(
+                "driver diagnostics:",
+                std::slice::from_ref(&diagnostic),
+                primary_path,
+                primary_source,
+            )
         }
-        DriverError::Runtime(error) => format!("invalid runtime configuration: {error}\n"),
+        DriverError::Runtime(error) => {
+            let diagnostic = Diagnostic::user_error(
+                nia_diagnostic::codes::TARGET_CONFIG,
+                "invalid runtime configuration",
+            )
+            .note(error.to_string())
+            .help("select a runtime supported by the artifact target")
+            .finish();
+            render_diagnostics_with_title(
+                "driver diagnostics:",
+                std::slice::from_ref(&diagnostic),
+                primary_path,
+                primary_source,
+            )
+        }
         DriverError::Io {
             path,
-            operation: _,
+            operation,
             error,
-        } => {
-            format!("failed to write `{}`: {error}\n", path.display())
-        }
+        } => render_artifact_io_diagnostic(path, operation, error, primary_path, primary_source),
         DriverError::LinkerStatus {
             program,
             status,
@@ -409,6 +426,28 @@ fn render_linker_config_diagnostic(
     .finish();
     render_diagnostics_with_title(
         "linker diagnostics:",
+        std::slice::from_ref(&diagnostic),
+        primary_path,
+        primary_source,
+    )
+}
+
+fn render_artifact_io_diagnostic(
+    path: &std::path::Path,
+    operation: &str,
+    error: &std::io::Error,
+    primary_path: Option<&str>,
+    primary_source: Option<&str>,
+) -> String {
+    let diagnostic = Diagnostic::user_error(
+        nia_diagnostic::codes::ARTIFACT_IO,
+        format!("could not {operation}"),
+    )
+    .note(format!("path `{}`: {error}", path.display()))
+    .help("check the output directory, permissions, and available disk space")
+    .finish();
+    render_diagnostics_with_title(
+        "driver diagnostics:",
         std::slice::from_ref(&diagnostic),
         primary_path,
         primary_source,
