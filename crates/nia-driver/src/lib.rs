@@ -47,9 +47,9 @@ pub use report::{
     optimization_report_from_parts, optimization_report_lines, render_codegen_diagnostics,
     render_codegen_diagnostics_json, render_codegen_program_warnings,
     render_codegen_program_warnings_json, render_driver_error, render_driver_error_json,
-    render_executable_warnings, render_llvm_ir_warnings, render_object_warnings,
-    render_parse_errors, render_program_diagnostics, render_program_diagnostics_json,
-    render_program_warnings, render_program_warnings_json,
+    render_driver_error_json_at, render_executable_warnings, render_llvm_ir_warnings,
+    render_object_warnings, render_parse_errors, render_program_diagnostics,
+    render_program_diagnostics_json, render_program_warnings, render_program_warnings_json,
 };
 
 #[cfg(test)]

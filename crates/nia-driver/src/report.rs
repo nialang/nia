@@ -5,7 +5,7 @@ use crate::{
 };
 use nia_diagnostic::{
     Diagnostic, DiagnosticReportConfig, DiagnosticReportItem, build_diagnostic_report,
-    render_diagnostic, render_diagnostics_json,
+    render_diagnostic, render_diagnostics_json, render_diagnostics_json_at,
 };
 use nia_opt::{InlineThreshold, OptimizationDepth, SpecializationPolicy};
 
@@ -516,6 +516,12 @@ pub fn render_codegen_diagnostics_json(diagnostics: &[Diagnostic]) -> String {
 
 /// Renders any driver failure as deterministic structured JSON.
 pub fn render_driver_error_json(error: &DriverError) -> String {
+    render_driver_error_json_at(error, None)
+}
+
+/// Renders a driver failure as JSON, using `primary_path` for diagnostics that
+/// are not wrapped in a source-manifest product.
+pub fn render_driver_error_json_at(error: &DriverError, primary_path: Option<&str>) -> String {
     match error {
         DriverError::CheckDiagnostics(program) => {
             return render_program_diagnostics_json_items(&program.diagnostics);
@@ -529,7 +535,12 @@ pub fn render_driver_error_json(error: &DriverError) -> String {
         _ => {}
     }
     let diagnostics = driver_error_diagnostics(error);
-    render_diagnostics_json(&diagnostics, DiagnosticReportConfig::default())
+    match primary_path {
+        Some(path) => {
+            render_diagnostics_json_at(path, &diagnostics, DiagnosticReportConfig::default())
+        }
+        None => render_diagnostics_json(&diagnostics, DiagnosticReportConfig::default()),
+    }
 }
 
 fn render_program_diagnostics_json_items(diagnostics: &[crate::ProgramDiagnostic]) -> String {
@@ -881,5 +892,19 @@ mod tests {
         assert!(json.starts_with('{'), "{json}");
         assert!(json.contains("\"code\":\"E0701\""), "{json}");
         assert!(!json.contains("error[E0701]"), "{json}");
+    }
+
+    #[test]
+    fn raw_codegen_json_uses_the_callers_source_path() {
+        let diagnostics = vec![Diagnostic::user_error_at(
+            codes::TYPE_CHECK,
+            Span::new(1, 2),
+            "invalid expression",
+        )];
+        let json = render_driver_error_json_at(
+            &DriverError::CodegenDiagnostics(diagnostics),
+            Some("main.nia"),
+        );
+        assert!(json.contains("\"path\":\"main.nia\""), "{json}");
     }
 }
