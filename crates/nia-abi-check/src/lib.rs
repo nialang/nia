@@ -440,6 +440,19 @@ impl ExternTyContext {
     }
 }
 
+fn extern_type_diagnostic(
+    span: Span,
+    summary: String,
+    note: impl Into<String>,
+    help: impl Into<String>,
+) -> Diagnostic {
+    Diagnostic::user_error(codes::STATIC_CHECK, summary.clone())
+        .primary(span, summary)
+        .note(note)
+        .help(help)
+        .finish()
+}
+
 impl AbiChecker<'_> {
     fn substitute_ty(
         &mut self,
@@ -577,76 +590,88 @@ impl AbiChecker<'_> {
         let context_desc = context.description();
         match self.type_store.get(ty) {
             Some(TyKind::Primitive(PrimitiveTy::Bool)) => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::STATIC_CHECK,
+                self.diagnostics.push(extern_type_diagnostic(
                     span,
                     format!("{context_desc} cannot use `bool` directly"),
+                    "the C ABI does not define Nia's boolean representation as a direct foreign scalar",
+                    "use an integer type such as `u8` or `i32`, then convert at the Nia boundary",
                 ))
             }
             Some(TyKind::Primitive(PrimitiveTy::Char)) => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::STATIC_CHECK,
+                self.diagnostics.push(extern_type_diagnostic(
                     span,
                     format!("{context_desc} cannot use `char` directly"),
+                    "Nia `char` is a Unicode scalar, while the C ABI requires an explicit integer representation",
+                    "use a fixed-width integer type and convert the scalar explicitly",
                 ))
             }
             Some(TyKind::Primitive(PrimitiveTy::Never)) => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::STATIC_CHECK,
+                self.diagnostics.push(extern_type_diagnostic(
                     span,
                     format!("{context_desc} cannot use `never` directly"),
+                    "a C function boundary must have a returning result type",
+                    "use `()` for a returning function, or remove the foreign declaration for a diverging function",
                 ))
             }
             Some(TyKind::Primitive(_))
             | Some(TyKind::Pointer { .. })
             | Some(TyKind::VolatilePointer { .. }) => {}
-            Some(TyKind::Opaque) => self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
+            Some(TyKind::Opaque) => self.diagnostics.push(extern_type_diagnostic(
                 span,
                 format!("{context_desc} cannot use incomplete `opaque` directly"),
+                "an incomplete type has no size or alignment contract at the foreign boundary",
+                "pass a pointer to the opaque value instead of passing it by value",
             )),
-            Some(TyKind::Tuple(_)) => self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
+            Some(TyKind::Tuple(_)) => self.diagnostics.push(extern_type_diagnostic(
                 span,
                 format!("{context_desc} cannot use tuple by value"),
+                "tuple layout is a Nia representation and is not a stable C ABI aggregate",
+                "declare an `extern struct` with an explicit field layout, or pass a pointer",
             )),
-            Some(TyKind::Vector { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
+            Some(TyKind::Vector { .. }) => self.diagnostics.push(extern_type_diagnostic(
                 span,
                 format!("{context_desc} cannot use SIMD vector by value"),
+                "SIMD vector calling conventions vary by target and are not part of this C ABI contract",
+                "pass a pointer to the vector or expose a scalar-compatible representation",
             )),
-            Some(TyKind::Slice { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
+            Some(TyKind::Slice { .. }) => self.diagnostics.push(extern_type_diagnostic(
                 span,
                 format!("{context_desc} cannot use nia slice directly"),
+                "a Nia slice is a fat pointer with language-specific metadata",
+                "pass a pointer and an explicit length using C-compatible integer types",
             )),
-            Some(TyKind::SlicePointee { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
+            Some(TyKind::SlicePointee { .. }) => self.diagnostics.push(extern_type_diagnostic(
                 span,
                 format!("{context_desc} cannot use unsized slice pointee directly"),
+                "an unsized slice pointee cannot be represented as one C value",
+                "pass a pointer to the element type together with an explicit length",
             )),
-            Some(TyKind::TraitObject { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
+            Some(TyKind::TraitObject { .. }) => self.diagnostics.push(extern_type_diagnostic(
                 span,
                 format!("{context_desc} cannot use nia trait object directly"),
+                "a Nia trait object carries a data pointer and vtable metadata",
+                "define an explicit C-compatible handle or pass a pointer to a concrete extern type",
             )),
             Some(TyKind::TraitObjectPointee { .. }) => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::STATIC_CHECK,
+                self.diagnostics.push(extern_type_diagnostic(
                     span,
                     format!("{context_desc} cannot use unsized trait object pointee directly"),
+                    "an unsized trait object pointee has no standalone C representation",
+                    "pass a pointer to an explicit opaque handle or concrete extern type",
                 ))
             }
-            Some(TyKind::Callable { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
+            Some(TyKind::Callable { .. }) => self.diagnostics.push(extern_type_diagnostic(
                 span,
                 format!("{context_desc} cannot use nia callable view directly"),
+                "a Nia callable view includes closure/environment metadata beyond a C function pointer",
+                "use a thin `&fn(...)` pointer without captures, or pass an explicit context pointer",
             )),
             Some(TyKind::CallablePointee { .. }) => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::STATIC_CHECK,
+                self.diagnostics.push(extern_type_diagnostic(
                     span,
                     format!("{context_desc} cannot use unsized callable interface directly"),
+                    "an unsized callable interface requires language-specific invocation metadata",
+                    "use a compatible thin function pointer and pass captured state explicitly",
                 ))
             }
             Some(TyKind::FunctionPointer {
@@ -655,10 +680,11 @@ impl AbiChecker<'_> {
                 is_variadic,
             }) => {
                 if *is_variadic {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::STATIC_CHECK,
+                    self.diagnostics.push(extern_type_diagnostic(
                         span,
                         format!("{context_desc} cannot use variadic function pointer"),
+                        "variadic function-pointer values do not carry a stable C prototype in Nia's type system",
+                        "declare the variadic function directly as `extern fn` instead of passing it as a value",
                     ));
                 }
                 for param in params {
@@ -1013,6 +1039,34 @@ extern fn bad_callable_pointee(callback: Fn(i32) i32);
                 checked.diagnostics
             );
         }
+        let bool_diagnostic = checked
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.summary.contains("cannot use `bool` directly"))
+            .expect("extern bool ABI diagnostic");
+        assert!(
+            bool_diagnostic
+                .notes
+                .iter()
+                .any(|note| note.contains("does not define Nia's boolean representation"))
+        );
+        assert!(
+            bool_diagnostic
+                .help
+                .iter()
+                .any(|help| help.contains("use an integer type"))
+        );
+        let tuple_diagnostic = checked
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.summary.contains("cannot use tuple by value"))
+            .expect("extern tuple ABI diagnostic");
+        assert!(
+            tuple_diagnostic
+                .help
+                .iter()
+                .any(|help| help.contains("extern struct") && help.contains("pointer"))
+        );
     }
 
     #[test]
