@@ -1013,11 +1013,19 @@ fn divrem(value: u128, by: u128) u128 {
     );
     assert!(output.link_inputs.is_empty());
     for expected in [
-        "extern function reuses `__udivti3` already owned by compiler builtin",
-        "extern global reuses `__umodti3` already owned by compiler builtin",
+        "extern function external symbol `__udivti3` is reserved for compiler runtime support",
+        "extern global external symbol `__umodti3` is reserved for compiler runtime support",
     ] {
         assert!(
-            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            output.diagnostics.iter().any(|diagnostic| {
+                diagnostic.category == nia_diagnostic::DiagnosticCategory::User
+                    && diagnostic.code.as_str() == codes::LLVM_CODEGEN.as_str()
+                    && diagnostic.summary.contains(expected)
+                    && diagnostic
+                        .help
+                        .iter()
+                        .any(|help| help.contains("different external symbol"))
+            }),
             "missing `{expected}` in {:?}",
             output.diagnostics
         );
