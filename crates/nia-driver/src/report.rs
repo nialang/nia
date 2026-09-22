@@ -516,8 +516,31 @@ pub fn render_codegen_diagnostics_json(diagnostics: &[Diagnostic]) -> String {
 
 /// Renders any driver failure as deterministic structured JSON.
 pub fn render_driver_error_json(error: &DriverError) -> String {
+    match error {
+        DriverError::CheckDiagnostics(program) => {
+            return render_program_diagnostics_json_items(&program.diagnostics);
+        }
+        DriverError::CodegenProgramDiagnostics(program) => {
+            return render_program_diagnostics_json_items(&program.diagnostics);
+        }
+        DriverError::CodegenPreparationDiagnostics(diagnostics) => {
+            return render_program_diagnostics_json_items(diagnostics);
+        }
+        _ => {}
+    }
     let diagnostics = driver_error_diagnostics(error);
     render_diagnostics_json(&diagnostics, DiagnosticReportConfig::default())
+}
+
+fn render_program_diagnostics_json_items(diagnostics: &[crate::ProgramDiagnostic]) -> String {
+    let items = diagnostics
+        .iter()
+        .map(|diagnostic| ProgramDiagnosticReportItem {
+            path: diagnostic.path.as_str(),
+            diagnostic: &diagnostic.diagnostic,
+        })
+        .collect::<Vec<_>>();
+    render_diagnostics_json(&items, DiagnosticReportConfig::default())
 }
 
 fn driver_error_diagnostics(error: &DriverError) -> Vec<Diagnostic> {
