@@ -58,6 +58,18 @@ fn unresolved_array_lengths_in_symbols_are_diagnostic_not_panic() {
             .contains("was not evaluated before monomorphization")
     );
     assert_eq!(mono.diagnostics[0].primary_span(), Some(Span::new(10, 12)));
+    assert!(
+        mono.diagnostics[0]
+            .notes
+            .iter()
+            .any(|note| note.contains("concrete element count"))
+    );
+    assert!(
+        mono.diagnostics[0]
+            .help
+            .iter()
+            .any(|help| help.contains("compile-time constant"))
+    );
 }
 
 #[test]

@@ -1801,13 +1801,19 @@ fn array_len(
             .and_then(|summaries| summaries.get(&id))
             .map(|summary| summary.span)
             .unwrap_or_default();
-        diagnostics.push(Diagnostic::user_error_at(
-            codes::LLVM_CODEGEN,
-            span,
-            format!(
-                "array length {id:?} was not evaluated before monomorphization symbol generation"
-            ),
-        ));
+        diagnostics.push(
+            Diagnostic::user_error(
+                codes::LLVM_CODEGEN,
+                "array length was not evaluated before monomorphization symbol generation",
+            )
+            .primary(span, "array length expression has no evaluated value")
+            .note(
+                "monomorphization needs the concrete element count to produce a stable instance symbol",
+            )
+            .help("make the length expression a valid compile-time constant")
+            .debug("const_expr", id)
+            .finish(),
+        );
     }
     value
 }
