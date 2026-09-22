@@ -1041,6 +1041,30 @@ fn main(flag: bool) i32 {
         "{:?}",
         checked.diagnostics
     );
+    let generic_count = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("generic argument count mismatch for method")
+        })
+        .expect("method generic argument count diagnostic");
+    assert!(
+        generic_count
+            .primary_span()
+            .is_some_and(|span| span.start > 0),
+        "method generic argument diagnostics must point at the call, not Span::default(): {generic_count:?}"
+    );
+    assert!(generic_count.notes.iter().any(|note| {
+        note.contains("method declares 0 generic parameter(s)") && note.contains("call supplies 1")
+    }));
+    assert!(
+        generic_count
+            .help
+            .iter()
+            .any(|help| help.contains("remove the extra type or const arguments"))
+    );
     assert_eq!(
         checked
             .diagnostics
