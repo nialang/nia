@@ -158,6 +158,13 @@ pub mod codes {
         "target-config",
         "target configuration is invalid",
     );
+    /// Toolchain installation or resource resolution failure.
+    pub const TOOLCHAIN: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0104",
+        DiagnosticStage::Compiler,
+        "toolchain",
+        "the Nia toolchain could not be resolved or loaded",
+    );
     /// Name or item resolution failure.
     pub const NAME_RESOLUTION: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0201",
@@ -278,6 +285,7 @@ pub mod codes {
         PARSE,
         LOAD,
         TARGET_CONFIG,
+        TOOLCHAIN,
         NAME_RESOLUTION,
         TYPE_NORMALIZATION,
         ITEM_SIGNATURE,

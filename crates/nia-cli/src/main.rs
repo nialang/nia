@@ -75,15 +75,15 @@ fn report_cli_error(message: &str, help: HelpTopic) {
     eprint!("{}", error_help_text(help, HelpStyle::for_stderr()));
 }
 
-fn render_cli_boundary_error(message: &str, format: DiagnosticsFormat) -> String {
+fn render_cli_boundary_error(
+    code: nia_diagnostic::codes::DiagnosticCodeDef,
+    message: &str,
+    format: DiagnosticsFormat,
+) -> String {
     match format {
         DiagnosticsFormat::Text => format!("error: {message}\n"),
         DiagnosticsFormat::Json => nia_diagnostic::render_diagnostics_json(
-            &[nia_diagnostic::Diagnostic::user_error(
-                nia_diagnostic::codes::TARGET_CONFIG,
-                message,
-            )
-            .finish()],
+            &[nia_diagnostic::Diagnostic::user_error(code, message).finish()],
             nia_diagnostic::DiagnosticReportConfig::default(),
         ),
     }
@@ -228,7 +228,11 @@ fn run_cli(cli: Cli) -> ExitCode {
         Err(message) => {
             eprint!(
                 "{}",
-                render_cli_boundary_error(&message, diagnostics_format)
+                render_cli_boundary_error(
+                    nia_diagnostic::codes::TOOLCHAIN,
+                    &message,
+                    diagnostics_format,
+                )
             );
             return ExitCode::FAILURE;
         }
@@ -282,7 +286,11 @@ fn run_cli(cli: Cli) -> ExitCode {
                 Err(message) => {
                     eprint!(
                         "{}",
-                        render_cli_boundary_error(&message, diagnostics_format)
+                        render_cli_boundary_error(
+                            nia_diagnostic::codes::LOAD,
+                            &message,
+                            diagnostics_format,
+                        )
                     );
                     return ExitCode::FAILURE;
                 }
@@ -292,7 +300,11 @@ fn run_cli(cli: Cli) -> ExitCode {
                 Err(message) => {
                     eprint!(
                         "{}",
-                        render_cli_boundary_error(&message, diagnostics_format)
+                        render_cli_boundary_error(
+                            nia_diagnostic::codes::LOAD,
+                            &message,
+                            diagnostics_format,
+                        )
                     );
                     return ExitCode::FAILURE;
                 }
@@ -302,7 +314,11 @@ fn run_cli(cli: Cli) -> ExitCode {
                 Err(message) => {
                     eprint!(
                         "{}",
-                        render_cli_boundary_error(&message, diagnostics_format)
+                        render_cli_boundary_error(
+                            nia_diagnostic::codes::LOAD,
+                            &message,
+                            diagnostics_format,
+                        )
                     );
                     return ExitCode::FAILURE;
                 }
@@ -334,7 +350,11 @@ fn run_cli(cli: Cli) -> ExitCode {
                 Err(message) => {
                     eprint!(
                         "{}",
-                        render_cli_boundary_error(&message, diagnostics_format)
+                        render_cli_boundary_error(
+                            nia_diagnostic::codes::LOAD,
+                            &message,
+                            diagnostics_format,
+                        )
                     );
                     return ExitCode::FAILURE;
                 }
@@ -344,7 +364,11 @@ fn run_cli(cli: Cli) -> ExitCode {
                 Err(message) => {
                     eprint!(
                         "{}",
-                        render_cli_boundary_error(&message, diagnostics_format)
+                        render_cli_boundary_error(
+                            nia_diagnostic::codes::LOAD,
+                            &message,
+                            diagnostics_format,
+                        )
                     );
                     return ExitCode::FAILURE;
                 }
@@ -354,7 +378,11 @@ fn run_cli(cli: Cli) -> ExitCode {
                 Err(message) => {
                     eprint!(
                         "{}",
-                        render_cli_boundary_error(&message, diagnostics_format)
+                        render_cli_boundary_error(
+                            nia_diagnostic::codes::LOAD,
+                            &message,
+                            diagnostics_format,
+                        )
                     );
                     return ExitCode::FAILURE;
                 }
@@ -1959,7 +1987,11 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
         Err(message) => {
             eprint!(
                 "{}",
-                render_cli_boundary_error(&message, context.diagnostics_format)
+                render_cli_boundary_error(
+                    nia_diagnostic::codes::TARGET_CONFIG,
+                    &message,
+                    context.diagnostics_format,
+                )
             );
             return ExitCode::FAILURE;
         }
@@ -2032,7 +2064,11 @@ fn run_emit_exe(path: &str, source: &str, args: Vec<String>, context: EmitContex
         Err(message) => {
             eprint!(
                 "{}",
-                render_cli_boundary_error(&message, context.diagnostics_format)
+                render_cli_boundary_error(
+                    nia_diagnostic::codes::TARGET_CONFIG,
+                    &message,
+                    context.diagnostics_format,
+                )
             );
             return ExitCode::FAILURE;
         }
