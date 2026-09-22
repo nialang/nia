@@ -204,6 +204,34 @@ pub enum UnresolvedUsingReason {
     NamespaceNotVisible,
 }
 
+impl UnresolvedUsingReason {
+    /// Returns the user-facing explanation and remediation for an imported name.
+    pub fn diagnostic_parts(self, name: &str) -> (String, String) {
+        match self {
+            Self::UnknownName => (
+                format!(
+                    "name `{name}` is unavailable because its `using` directive did not find it"
+                ),
+                format!("check the imported module path and make sure `{name}` is declared there"),
+            ),
+            Self::Private => (
+                format!("name `{name}` is unavailable because the imported item is private"),
+                format!(
+                    "make `{name}` public in its defining module, or use it from an allowed scope"
+                ),
+            ),
+            Self::NotPublic => (
+                format!("name `{name}` is unavailable because the imported item is not public"),
+                format!("add `pub` to `{name}` in its defining module"),
+            ),
+            Self::NamespaceNotVisible => (
+                format!("name `{name}` is unavailable because its module is not visible here"),
+                "make the module declaration visible from this module".to_string(),
+            ),
+        }
+    }
+}
+
 /// Source evidence retained for one failed `using` name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnresolvedUsing {

@@ -1573,7 +1573,7 @@ fn main() usize {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("qualified access is not a value expression")),
+            .contains("unknown namespace `io`")),
         "{:?}",
         program.diagnostics
     );
@@ -2995,6 +2995,14 @@ fn main() () {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.diagnostic.summary == "name is unresolved"),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary == "type `MissingType` is unavailable"),
         "{:?}",
         program.diagnostics
     );

@@ -592,6 +592,24 @@ struct ValueResolver<'a> {
 }
 
 impl ValueResolver<'_> {
+    fn unresolved_using_path_diagnostic(
+        &self,
+        segment: PathSegment<'_>,
+        failure: UnresolvedUsing,
+    ) -> Diagnostic {
+        let name = segment
+            .name()
+            .map(|name| self.symbol_name(name))
+            .unwrap_or_else(|| "this name".to_string());
+        let (summary, help) = failure.reason.diagnostic_parts(&name);
+        Diagnostic::user_error(codes::NAME_RESOLUTION, summary)
+            .primary(segment.span, "unresolved imported namespace")
+            .related(failure.name_span, "the imported name is selected here")
+            .related(failure.directive_span, "the `using` directive is here")
+            .help(help)
+            .finish()
+    }
+
     fn new<'a>(inputs: ValueResolveInputs<'a>) -> ValueResolver<'a> {
         ValueResolver {
             defs: inputs.defs,
@@ -995,9 +1013,27 @@ impl<'a> ValueResolver<'a> {
             self.insert_qualified_type_prefix(segment.node_key, type_id);
             return Some(ResolvedNamespace::Type(type_id));
         }
+        if let Some(failure) = self
+            .using_scope
+            .and_then(|scope| scope.unresolved_using(&name))
+        {
+            self.diagnostics
+                .push(self.unresolved_using_path_diagnostic(segment, failure));
+            return None;
+        }
         if let Some(primitive) = primitive_for_symbol(name) {
             return Some(ResolvedNamespace::Primitive(primitive));
         }
+        let name = self.symbol_name(name);
+        self.diagnostics.push(
+            Diagnostic::user_error(
+                codes::NAME_RESOLUTION,
+                format!("unknown namespace `{name}`"),
+            )
+            .primary(segment.span, format!("unknown namespace `{name}`"))
+            .help("check the path spelling and make sure the module or type is in scope")
+            .finish(),
+        );
         None
     }
 
@@ -1047,11 +1083,18 @@ impl<'a> ValueResolver<'a> {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
                     let name = self.symbol_name(name);
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::NAME_RESOLUTION,
-                        segment.span,
-                        format!("module namespace `{}` is private", name),
-                    ));
+                    self.diagnostics.push(
+                        Diagnostic::user_error(
+                            codes::NAME_RESOLUTION,
+                            format!("module namespace `{name}` is private"),
+                        )
+                        .primary(
+                            segment.span,
+                            format!("module namespace `{name}` is private"),
+                        )
+                        .help("make the module declaration public or use an allowed module path")
+                        .finish(),
+                    );
                     return None;
                 }
                 match self.direct_type_member(module_id, &name) {
@@ -1062,20 +1105,25 @@ impl<'a> ValueResolver<'a> {
                     }
                     DirectMember::Private => {
                         let name = self.symbol_name(name);
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::NAME_RESOLUTION,
-                            segment.span,
-                            format!("type `{}` is private", name),
-                        ));
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::NAME_RESOLUTION,
+                                format!("type `{name}` is private"),
+                            )
+                            .primary(segment.span, format!("type `{name}` is private"))
+                            .help("make the type public or use it from an allowed scope")
+                            .finish(),
+                        );
                         None
                     }
                     DirectMember::Missing => {
                         let name = self.symbol_name(name);
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::NAME_RESOLUTION,
-                            segment.span,
-                            format!("unknown namespace `{}`", name),
-                        ));
+                        self.diagnostics.push(
+                            Diagnostic::user_error(codes::NAME_RESOLUTION, format!("unknown namespace `{name}`"))
+                                .primary(segment.span, format!("unknown namespace `{name}`"))
+                                .help("check the path spelling and make sure the module or type is in scope")
+                                .finish(),
+                        );
                         None
                     }
                     DirectMember::Unloaded => {

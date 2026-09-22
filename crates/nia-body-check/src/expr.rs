@@ -2,7 +2,7 @@
 use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
-use nia_defs::{DefId, DefKind, UnresolvedUsingReason, VisibleExtensionAssociatedValue};
+use nia_defs::{DefId, DefKind, VisibleExtensionAssociatedValue};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ice::Ice;
 use nia_ids::{BuiltinAssociatedConst, GlobalDefId, InternedTyId};
@@ -1977,28 +1977,7 @@ impl<'a> BodyChecker<'a> {
         let name = expr_ident_name(expr)
             .map(|name| self.symbol_name(*name))
             .unwrap_or_else(|| "this name".to_string());
-        let (summary, help) = match failure.reason {
-            UnresolvedUsingReason::UnknownName => (
-                format!(
-                    "name `{name}` is unavailable because its `using` directive did not find it"
-                ),
-                format!("check the imported module path and make sure `{name}` is declared there"),
-            ),
-            UnresolvedUsingReason::Private => (
-                format!("name `{name}` is unavailable because the imported item is private"),
-                format!(
-                    "make `{name}` public in its defining module, or use it from an allowed scope"
-                ),
-            ),
-            UnresolvedUsingReason::NotPublic => (
-                format!("name `{name}` is unavailable because the imported item is not public"),
-                format!("add `pub` to `{name}` in its defining module"),
-            ),
-            UnresolvedUsingReason::NamespaceNotVisible => (
-                format!("name `{name}` is unavailable because its module is not visible here"),
-                "make the module declaration visible from this module".to_string(),
-            ),
-        };
+        let (summary, help) = failure.reason.diagnostic_parts(&name);
         Diagnostic::user_error(codes::NAME_RESOLUTION, summary)
             .primary(expr.span, "call to unresolved imported name")
             .related(failure.name_span, "the imported name is selected here")
