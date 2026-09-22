@@ -49,10 +49,22 @@ impl<'a> BodyChecker<'a> {
             ArityRequirement::Exact(expected) => expected.to_string(),
             ArityRequirement::AtLeast(expected) => format!("at least {expected}"),
         };
-        self.diagnostics.push(Diagnostic::user_error_at(
-            codes::TYPE_CHECK,
-            span,
-            format!("argument count mismatch: expected {expected}, got {actual}"),
-        ));
+        let summary = format!("argument count mismatch: expected {expected}, got {actual}");
+        let help = match requirement {
+            ArityRequirement::Exact(expected) if actual < expected => {
+                "add the missing arguments to match the call signature"
+            }
+            ArityRequirement::Exact(_) => "remove the extra arguments to match the call signature",
+            ArityRequirement::AtLeast(_) => "add arguments until the call meets the minimum arity",
+        };
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(span, summary)
+                .note(format!(
+                    "this call accepts {expected} argument(s), but received {actual}"
+                ))
+                .help(help)
+                .finish(),
+        );
     }
 }

@@ -938,6 +938,21 @@ fn main(flag: bool) i32 {
             .iter()
             .any(|diagnostic| diagnostic.summary.contains("argument count mismatch"))
     );
+    let arity = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary.contains("argument count mismatch"))
+        .expect("call arity diagnostic");
+    assert!(arity.primary_span().is_some_and(|span| span.start > 0));
+    assert!(arity.notes.iter().any(|note| {
+        note.contains("this call accepts 2 argument(s)") && note.contains("received 1")
+    }));
+    assert!(
+        arity
+            .help
+            .iter()
+            .any(|help| help.contains("add the missing arguments"))
+    );
 }
 
 #[test]
