@@ -847,13 +847,26 @@ fn validate_trait_impl(
             .and_then(|signature| signature.explicit_type)
         else {
             let name = symbol_name(input.symbols, associated_value.name);
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                associated_value.span,
-                format!(
-                    "associated const `{name}` requires an explicit type to satisfy the trait requirement"
-                ),
-            ));
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!(
+                        "associated const `{name}` requires an explicit type to satisfy the trait requirement"
+                    ),
+                )
+                .primary(
+                    associated_value.span,
+                    format!("associated const `{name}` has no explicit type"),
+                )
+                .related(
+                    required.span,
+                    format!("the trait requires `{name}` with this type"),
+                )
+                .help(format!(
+                    "add an explicit type to associated const `{name}` matching the trait"
+                ))
+                .finish(),
+            );
             continue;
         };
         if !trait_associated_const_type_matches(TraitAssociatedConstTypeMatch {
@@ -869,13 +882,26 @@ fn validate_trait_impl(
             impl_signature,
         })? {
             let name = symbol_name(input.symbols, associated_value.name);
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                associated_value.span,
-                format!(
-                    "implementation of associated const `{name}` does not match the trait requirement"
-                ),
-            ));
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!(
+                        "implementation of associated const `{name}` does not match the trait requirement"
+                    ),
+                )
+                .primary(
+                    associated_value.span,
+                    format!("associated const `{name}` has a different type"),
+                )
+                .related(
+                    required.span,
+                    format!("the trait requires `{name}` with this type"),
+                )
+                .help(format!(
+                    "change the type of associated const `{name}` to match the trait"
+                ))
+                .finish(),
+            );
         }
     }
     for required in &trait_signature.signature.associated_types {
