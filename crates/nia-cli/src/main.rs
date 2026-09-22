@@ -84,7 +84,14 @@ struct Cli {
     timings: nia_driver::TimingMode,
     timing_trace: TimingTrace,
     timing_format: TimingFormat,
+    diagnostics_format: DiagnosticsFormat,
     command: CliCommand,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DiagnosticsFormat {
+    Text,
+    Json,
 }
 
 impl Cli {
@@ -224,6 +231,7 @@ fn run_cli(cli: Cli) -> ExitCode {
             profile: cli.profile,
             timings: cli.timings,
             timing_format,
+            diagnostics_format: cli.diagnostics_format,
             toolchain,
         }),
         CliCommand::Test {
@@ -242,6 +250,7 @@ fn run_cli(cli: Cli) -> ExitCode {
             profile: cli.profile,
             timings: cli.timings,
             timing_format,
+            diagnostics_format: cli.diagnostics_format,
             toolchain,
         }),
         CliCommand::Check {
@@ -283,6 +292,7 @@ fn run_cli(cli: Cli) -> ExitCode {
                     runtime,
                     cache_dir,
                     package_root,
+                    diagnostics_format: cli.diagnostics_format,
                 },
                 toolchain,
             )
@@ -325,6 +335,7 @@ fn run_cli(cli: Cli) -> ExitCode {
                     opt_report,
                     package_root,
                     toolchain,
+                    diagnostics_format: cli.diagnostics_format,
                 },
             )
         }
@@ -449,6 +460,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
             timings: global_options.timings,
             timing_trace: global_options.timing_trace,
             timing_format: global_options.timing_format,
+            diagnostics_format: global_options.diagnostics_format,
             command,
         })),
     }
@@ -462,6 +474,7 @@ struct GlobalOptions {
     timings: nia_driver::TimingMode,
     timing_trace: TimingTrace,
     timing_format: TimingFormat,
+    diagnostics_format: DiagnosticsFormat,
 }
 
 fn extract_global_options(
@@ -475,6 +488,7 @@ fn extract_global_options(
     let mut timings = nia_driver::TimingMode::Off;
     let mut timing_trace = TimingTrace::Off;
     let mut timing_format = TimingFormat::Text;
+    let mut diagnostics_format = DiagnosticsFormat::Text;
     let mut remaining = Vec::new();
     let mut iter = args.into_iter();
     let mut preserve_next = false;
@@ -559,6 +573,10 @@ fn extract_global_options(
             timing_format = format.map_err(|message| CliError::new(message, help))?;
             continue;
         }
+        if let Some(format) = parse_diagnostics_format_flag(&arg) {
+            diagnostics_format = format.map_err(|message| CliError::new(message, help))?;
+            continue;
+        }
         remaining.push(arg);
     }
     Ok((
@@ -571,6 +589,7 @@ fn extract_global_options(
             timings,
             timing_trace,
             timing_format,
+            diagnostics_format,
         },
     ))
 }
@@ -705,6 +724,17 @@ fn parse_timing_format_flag(arg: &str) -> Option<Result<TimingFormat, String>> {
         "json" => Ok(TimingFormat::Json),
         _ => Err(format!(
             "unknown timings format `{value}`; expected text or json"
+        )),
+    })
+}
+
+fn parse_diagnostics_format_flag(arg: &str) -> Option<Result<DiagnosticsFormat, String>> {
+    let value = arg.strip_prefix("--diagnostics-format=")?;
+    Some(match value {
+        "text" => Ok(DiagnosticsFormat::Text),
+        "json" => Ok(DiagnosticsFormat::Json),
+        _ => Err(format!(
+            "unknown diagnostics format `{value}`; expected text or json"
         )),
     })
 }
@@ -1327,7 +1357,7 @@ fn run_lex(source: &str) -> ExitCode {
     ))
 }
 
-fn run_parse(path: &str, source: &str) -> ExitCode {
+fn run_parse(path: &str, source: &str, diagnostics_format: DiagnosticsFormat) -> ExitCode {
     let inspection = nia_driver::ast_inspection(source);
     let status = write_stdout(format_args!("{}", inspection.text));
     if status != ExitCode::SUCCESS {
@@ -1336,11 +1366,50 @@ fn run_parse(path: &str, source: &str) -> ExitCode {
     if !inspection.parse_errors.is_empty() {
         eprint!(
             "{}",
-            nia_driver::render_parse_errors(path, source, &inspection.parse_errors)
+            render_parse_failure(path, source, &inspection.parse_errors, diagnostics_format)
         );
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
+}
+
+fn render_driver_failure(
+    error: &nia_driver::DriverError,
+    path: Option<&str>,
+    source: Option<&str>,
+    format: DiagnosticsFormat,
+) -> String {
+    match format {
+        DiagnosticsFormat::Text => nia_driver::render_driver_error(error, path, source),
+        DiagnosticsFormat::Json => nia_driver::render_driver_error_json(error),
+    }
+}
+
+fn render_parse_failure(
+    path: &str,
+    source: &str,
+    errors: &[nia_driver::ParseError],
+    format: DiagnosticsFormat,
+) -> String {
+    match format {
+        DiagnosticsFormat::Text => nia_driver::render_parse_errors(path, source, errors),
+        DiagnosticsFormat::Json => {
+            let diagnostics = errors
+                .iter()
+                .map(|error| {
+                    nia_diagnostic::Diagnostic::user_error_at(
+                        nia_diagnostic::codes::PARSE,
+                        error.span,
+                        error.message.clone(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            nia_diagnostic::render_diagnostics_json(
+                &diagnostics,
+                nia_diagnostic::DiagnosticReportConfig::default(),
+            )
+        }
+    }
 }
 
 struct CheckRunOptions {
@@ -1351,6 +1420,7 @@ struct CheckRunOptions {
     runtime: RuntimeMode,
     cache_dir: Option<PathBuf>,
     package_root: Option<SourcePath>,
+    diagnostics_format: DiagnosticsFormat,
 }
 
 struct DriverCheckOptions {
@@ -1374,10 +1444,11 @@ fn run_check(
         Err(error) => {
             eprint!(
                 "{}",
-                nia_driver::render_driver_error(
+                render_driver_failure(
                     &nia_driver::DriverError::Runtime(error),
                     Some(path),
                     Some(source),
+                    options.diagnostics_format,
                 )
             );
             return ExitCode::FAILURE;
@@ -1397,7 +1468,7 @@ fn run_check(
                 .with_runtime(runtime.clone()),
         )
     });
-    match checked_program_from_output(output, path, source) {
+    match checked_program_from_output(output, path, source, options.diagnostics_format) {
         Ok(_) => {}
         Err(code) => return code,
     }
@@ -1416,10 +1487,11 @@ fn run_check(
                 },
             )
         });
-        let codegen = match codegen_program_from_output(output, path, source) {
-            Ok(program) => program,
-            Err(code) => return code,
-        };
+        let codegen =
+            match codegen_program_from_output(output, path, source, options.diagnostics_format) {
+                Ok(program) => program,
+                Err(code) => return code,
+            };
         return print_optimization_report(&codegen);
     }
     ExitCode::SUCCESS
@@ -1452,16 +1524,17 @@ fn checked_program_from_output(
     output: nia_driver::DriverOutput<nia_driver::CheckedProgram>,
     path: &str,
     source: &str,
+    diagnostics_format: DiagnosticsFormat,
 ) -> Result<nia_driver::CheckedProgram, ExitCode> {
     match output.result {
         Ok(program) => {
-            print_check_warnings(&program, path, source);
+            print_check_warnings(&program, path, source, diagnostics_format);
             Ok(program)
         }
         Err(error) => {
             eprint!(
                 "{}",
-                nia_driver::render_driver_error(&error, Some(path), Some(source))
+                render_driver_failure(&error, Some(path), Some(source), diagnostics_format,)
             );
             Err(ExitCode::FAILURE)
         }
@@ -1487,45 +1560,62 @@ fn codegen_program_from_output(
     output: nia_driver::DriverOutput<nia_driver::CodegenProgram>,
     path: &str,
     source: &str,
+    diagnostics_format: DiagnosticsFormat,
 ) -> Result<nia_driver::CodegenProgram, ExitCode> {
     match output.result {
         Ok(program) => {
-            print_codegen_warnings(&program, path, source);
+            print_codegen_warnings(&program, path, source, diagnostics_format);
             Ok(program)
         }
         Err(error) => {
             eprint!(
                 "{}",
-                nia_driver::render_driver_error(&error, Some(path), Some(source))
+                render_driver_failure(&error, Some(path), Some(source), diagnostics_format,)
             );
             Err(ExitCode::FAILURE)
         }
     }
 }
 
-fn print_check_warnings(program: &nia_driver::CheckedProgram, path: &str, source: &str) {
+fn print_check_warnings(
+    program: &nia_driver::CheckedProgram,
+    path: &str,
+    source: &str,
+    diagnostics_format: DiagnosticsFormat,
+) {
     if program
         .diagnostics
         .iter()
         .any(nia_driver::ProgramDiagnostic::is_warning)
     {
-        eprint!(
-            "{}",
-            nia_driver::render_program_warnings(program, Some(path), Some(source))
-        );
+        let rendered = match diagnostics_format {
+            DiagnosticsFormat::Text => {
+                nia_driver::render_program_warnings(program, Some(path), Some(source))
+            }
+            DiagnosticsFormat::Json => nia_driver::render_program_warnings_json(program),
+        };
+        eprint!("{rendered}");
     }
 }
 
-fn print_codegen_warnings(program: &nia_driver::CodegenProgram, path: &str, source: &str) {
+fn print_codegen_warnings(
+    program: &nia_driver::CodegenProgram,
+    path: &str,
+    source: &str,
+    diagnostics_format: DiagnosticsFormat,
+) {
     if program
         .diagnostics
         .iter()
         .any(nia_driver::ProgramDiagnostic::is_warning)
     {
-        eprint!(
-            "{}",
-            nia_driver::render_codegen_program_warnings(program, Some(path), Some(source))
-        );
+        let rendered = match diagnostics_format {
+            DiagnosticsFormat::Text => {
+                nia_driver::render_codegen_program_warnings(program, Some(path), Some(source))
+            }
+            DiagnosticsFormat::Json => nia_driver::render_codegen_program_warnings_json(program),
+        };
+        eprint!("{rendered}");
     }
 }
 
@@ -1537,12 +1627,15 @@ struct EmitContext {
     timings: nia_driver::TimingMode,
     opt_report: bool,
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
+    diagnostics_format: DiagnosticsFormat,
 }
 
 fn run_emit(path: &str, source: &str, target: EmitTarget, context: EmitContext) -> ExitCode {
     match target {
         EmitTarget::Tokens => time_summary_stage(context.timings, "lex", || run_lex(source)),
-        EmitTarget::Ast => time_summary_stage(context.timings, "parse", || run_parse(path, source)),
+        EmitTarget::Ast => time_summary_stage(context.timings, "parse", || {
+            run_parse(path, source, context.diagnostics_format)
+        }),
         EmitTarget::Checked { runtime } => run_emit_checked(path, source, runtime, context),
         EmitTarget::Backend { runtime } => run_emit_backend(path, source, runtime, context),
         EmitTarget::Llvm { runtime } => run_emit_llvm(path, source, runtime, context),
@@ -1560,6 +1653,7 @@ struct BuildContext {
     profile: BuildProfile,
     timings: nia_driver::TimingMode,
     timing_format: TimingFormat,
+    diagnostics_format: DiagnosticsFormat,
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
 }
 
@@ -1573,6 +1667,7 @@ fn run_build(context: BuildContext) -> ExitCode {
         profile,
         timings,
         timing_format,
+        diagnostics_format,
         toolchain,
     } = context;
     let mut request = nia_build::BuildRequest::new(toolchain);
@@ -1594,7 +1689,11 @@ fn run_build(context: BuildContext) -> ExitCode {
     match nia_build::run_build(request) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprint!("{}", nia_build::render_build_error(&error, None, None));
+            let rendered = match diagnostics_format {
+                DiagnosticsFormat::Text => nia_build::render_build_error(&error, None, None),
+                DiagnosticsFormat::Json => nia_build::render_build_error_json(&error),
+            };
+            eprint!("{rendered}");
             ExitCode::FAILURE
         }
     }
@@ -1610,6 +1709,7 @@ struct TestContext {
     profile: BuildProfile,
     timings: nia_driver::TimingMode,
     timing_format: TimingFormat,
+    diagnostics_format: DiagnosticsFormat,
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
 }
 
@@ -1624,6 +1724,7 @@ fn run_test(context: TestContext) -> ExitCode {
         profile,
         timings,
         timing_format,
+        diagnostics_format,
         toolchain,
     } = context;
     let mut request = nia_build::BuildRequest::new(toolchain).with_test_mode(true);
@@ -1646,7 +1747,11 @@ fn run_test(context: TestContext) -> ExitCode {
     match nia_build::run_build(request) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprint!("{}", nia_build::render_build_error(&error, None, None));
+            let rendered = match diagnostics_format {
+                DiagnosticsFormat::Text => nia_build::render_build_error(&error, None, None),
+                DiagnosticsFormat::Json => nia_build::render_build_error_json(&error),
+            };
+            eprint!("{rendered}");
             ExitCode::FAILURE
         }
     }
@@ -1678,10 +1783,11 @@ fn run_emit_checked(
         Err(error) => {
             eprint!(
                 "{}",
-                nia_driver::render_driver_error(
+                render_driver_failure(
                     &nia_driver::DriverError::Runtime(error),
                     Some(path),
                     Some(source),
+                    context.diagnostics_format,
                 )
             );
             return ExitCode::FAILURE;
@@ -1701,10 +1807,11 @@ fn run_emit_checked(
             context.toolchain,
         )
     });
-    let program = match checked_program_from_output(output, path, source) {
-        Ok(program) => program,
-        Err(code) => return code,
-    };
+    let program =
+        match checked_program_from_output(output, path, source, context.diagnostics_format) {
+            Ok(program) => program,
+            Err(code) => return code,
+        };
     write_stdout(format_args!("{program:#?}\n"))
 }
 
@@ -1719,10 +1826,11 @@ fn run_emit_backend(
         Err(error) => {
             eprint!(
                 "{}",
-                nia_driver::render_driver_error(
+                render_driver_failure(
                     &nia_driver::DriverError::Runtime(error),
                     Some(path),
                     Some(source),
+                    context.diagnostics_format,
                 )
             );
             return ExitCode::FAILURE;
@@ -1743,10 +1851,11 @@ fn run_emit_backend(
             },
         )
     });
-    let program = match codegen_program_from_output(output, path, source) {
-        Ok(program) => program,
-        Err(code) => return code,
-    };
+    let program =
+        match codegen_program_from_output(output, path, source, context.diagnostics_format) {
+            Ok(program) => program,
+            Err(code) => return code,
+        };
     if context.opt_report {
         print_optimization_report_to_stderr(&program);
     }
@@ -1759,10 +1868,11 @@ fn run_emit_llvm(path: &str, source: &str, runtime: RuntimeMode, context: EmitCo
         Err(error) => {
             eprint!(
                 "{}",
-                nia_driver::render_driver_error(
+                render_driver_failure(
                     &nia_driver::DriverError::Runtime(error),
                     Some(path),
                     Some(source),
+                    context.diagnostics_format,
                 )
             );
             return ExitCode::FAILURE;
@@ -1799,7 +1909,7 @@ fn run_emit_llvm(path: &str, source: &str, runtime: RuntimeMode, context: EmitCo
         Err(error) => {
             eprint!(
                 "{}",
-                nia_driver::render_driver_error(&error, Some(path), Some(source))
+                render_driver_failure(&error, Some(path), Some(source), context.diagnostics_format,)
             );
             ExitCode::FAILURE
         }
@@ -1819,10 +1929,11 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
         Err(error) => {
             eprint!(
                 "{}",
-                nia_driver::render_driver_error(
+                render_driver_failure(
                     &nia_driver::DriverError::Runtime(error),
                     Some(path),
                     Some(source),
+                    context.diagnostics_format,
                 )
             );
             return ExitCode::FAILURE;
@@ -1847,7 +1958,7 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
         Err(error) => {
             eprint!(
                 "{}",
-                nia_driver::render_driver_error(&error, Some(path), Some(source))
+                render_driver_failure(&error, Some(path), Some(source), context.diagnostics_format,)
             );
             return ExitCode::FAILURE;
         }
@@ -1868,7 +1979,7 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
         Err(error) => {
             eprint!(
                 "{}",
-                nia_driver::render_driver_error(&error, Some(path), Some(source))
+                render_driver_failure(&error, Some(path), Some(source), context.diagnostics_format,)
             );
             ExitCode::FAILURE
         }
@@ -1904,7 +2015,7 @@ fn run_emit_exe(path: &str, source: &str, args: Vec<String>, context: EmitContex
         Err(error) => {
             eprint!(
                 "{}",
-                nia_driver::render_driver_error(&error, Some(path), Some(source))
+                render_driver_failure(&error, Some(path), Some(source), context.diagnostics_format,)
             );
             return ExitCode::FAILURE;
         }
@@ -2581,5 +2692,30 @@ mod tests {
                 && filter == "parser"
                 && jobs.get() == 4
         ));
+    }
+
+    #[test]
+    fn diagnostics_format_is_global_and_validated() {
+        let action = parse_cli(vec![
+            "--diagnostics-format=json".to_string(),
+            "check".to_string(),
+            "main.nia".to_string(),
+        ])
+        .expect("parse diagnostics format");
+        assert!(matches!(
+            action,
+            CliAction::Run(Cli {
+                diagnostics_format: DiagnosticsFormat::Json,
+                ..
+            })
+        ));
+
+        let error = parse_cli(vec![
+            "--diagnostics-format=xml".to_string(),
+            "check".to_string(),
+            "main.nia".to_string(),
+        ])
+        .expect_err("invalid diagnostics format must fail");
+        assert!(error.message.contains("expected text or json"));
     }
 }

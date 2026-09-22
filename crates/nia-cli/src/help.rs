@@ -110,6 +110,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 MODULE_ROW,
                 TIMINGS_ROW,
                 TIMING_FORMAT_ROW,
+                DIAGNOSTICS_FORMAT_ROW,
                 TIMING_TRACE_ROW,
                 RESOURCE_ROW,
                 HelpRow {
@@ -155,6 +156,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 MODULE_ROW,
                 TIMINGS_ROW,
                 TIMING_FORMAT_ROW,
+                DIAGNOSTICS_FORMAT_ROW,
                 TIMING_TRACE_ROW,
                 RESOURCE_ROW,
                 HelpRow {
@@ -192,6 +194,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 MODULE_ROW,
                 TIMINGS_ROW,
                 TIMING_FORMAT_ROW,
+                DIAGNOSTICS_FORMAT_ROW,
                 TIMING_TRACE_ROW,
                 RESOURCE_ROW,
                 HelpRow {
@@ -241,6 +244,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 MODULE_ROW,
                 TIMINGS_ROW,
                 TIMING_FORMAT_ROW,
+                DIAGNOSTICS_FORMAT_ROW,
                 TIMING_TRACE_ROW,
                 RESOURCE_ROW,
                 HELP_ROW,
@@ -285,6 +289,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 MODULE_ROW,
                 TIMINGS_ROW,
                 TIMING_FORMAT_ROW,
+                DIAGNOSTICS_FORMAT_ROW,
                 TIMING_TRACE_ROW,
                 RESOURCE_ROW,
                 HELP_ROW,
@@ -348,6 +353,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 MODULE_ROW,
                 TIMINGS_ROW,
                 TIMING_FORMAT_ROW,
+                DIAGNOSTICS_FORMAT_ROW,
                 TIMING_TRACE_ROW,
                 RESOURCE_ROW,
                 HELP_ROW,
@@ -378,6 +384,7 @@ fn inspection_help(
             MODULE_ROW,
             TIMINGS_ROW,
             TIMING_FORMAT_ROW,
+            DIAGNOSTICS_FORMAT_ROW,
             TIMING_TRACE_ROW,
             RESOURCE_ROW,
             HELP_ROW,
@@ -406,6 +413,7 @@ fn backend_help(
             MODULE_ROW,
             TIMINGS_ROW,
             TIMING_FORMAT_ROW,
+            DIAGNOSTICS_FORMAT_ROW,
             TIMING_TRACE_ROW,
             RESOURCE_ROW,
             HELP_ROW,
@@ -468,6 +476,7 @@ const GLOBAL_OPTIONS: &[HelpRow] = &[
     MODULE_ROW,
     TIMINGS_ROW,
     TIMING_FORMAT_ROW,
+    DIAGNOSTICS_FORMAT_ROW,
     TIMING_TRACE_ROW,
     RESOURCE_ROW,
     HelpRow {
@@ -503,6 +512,10 @@ const TIMINGS_ROW: HelpRow = HelpRow {
 const TIMING_FORMAT_ROW: HelpRow = HelpRow {
     left: "--timings-format=<text|json>",
     right: "select the timing output format",
+};
+const DIAGNOSTICS_FORMAT_ROW: HelpRow = HelpRow {
+    left: "--diagnostics-format=<text|json>",
+    right: "select human or machine-readable diagnostics",
 };
 const TIMING_TRACE_ROW: HelpRow = HelpRow {
     left: "--timing-trace <off|events>",

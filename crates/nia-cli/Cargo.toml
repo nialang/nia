@@ -15,6 +15,7 @@ llvm-static = ["nia-build/llvm-static", "nia-driver/llvm-static"]
 nia-build = { workspace = true, default-features = false }
 nia-compat.workspace = true
 nia-driver = { workspace = true, default-features = false }
+nia-diagnostic.workspace = true
 nia-loader-query.workspace = true
 nia-linker.workspace = true
 nia-source.workspace = true
