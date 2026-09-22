@@ -70,6 +70,44 @@ fn plain() () {}
             .any(|message| message.contains("noMangle")),
         "{diagnostics:?}"
     );
+    let link_direction = signatures
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("`@[linkName]` requires an `extern` function")
+        })
+        .expect("linkName direction diagnostic");
+    assert!(
+        link_direction
+            .primary_message()
+            .is_some_and(|message| message.contains("not declared `extern`")),
+        "{link_direction:?}"
+    );
+    assert!(
+        link_direction
+            .help
+            .iter()
+            .any(|help| help.contains("add `extern`")),
+        "{link_direction:?}"
+    );
+    let export_direction = signatures
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("`@[exportName]` requires an extern function definition")
+        })
+        .expect("exportName direction diagnostic");
+    assert!(
+        export_direction
+            .help
+            .iter()
+            .any(|help| help.contains("add a body")),
+        "{export_direction:?}"
+    );
 }
 
 #[test]
@@ -154,6 +192,28 @@ extern fn nul();
         diagnostics
             .iter()
             .any(|message| message.contains("contain no NUL"))
+    );
+    let invalid_name = signatures
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("external symbol name must be non-empty")
+        })
+        .expect("invalid external name diagnostic");
+    assert!(
+        invalid_name
+            .primary_message()
+            .is_some_and(|message| message.contains("invalid external symbol name")),
+        "{invalid_name:?}"
+    );
+    assert!(
+        invalid_name
+            .help
+            .iter()
+            .any(|help| help.contains("non-empty string")),
+        "{invalid_name:?}"
     );
 }
 

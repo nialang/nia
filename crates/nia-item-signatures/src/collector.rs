@@ -1035,31 +1035,57 @@ impl<'a> SignatureCollector<'a> {
             };
             let duplicate = seen;
             if duplicate {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::ITEM_SIGNATURE,
-                    attribute.span,
-                    format!("duplicate external symbol attribute on {kind}"),
-                ));
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::ITEM_SIGNATURE,
+                        format!("duplicate external symbol attribute on {kind}"),
+                    )
+                    .primary(
+                        attribute.span,
+                        format!("duplicate `@[{attribute_name}]` attribute"),
+                    )
+                    .help(format!(
+                        "keep only one external symbol attribute on this {kind}"
+                    ))
+                    .finish(),
+                );
             }
             seen = true;
             if !is_extern {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::ITEM_SIGNATURE,
-                    attribute.span,
-                    format!("`@[{attribute_name}]` requires an `extern` {kind}"),
-                ));
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::ITEM_SIGNATURE,
+                        format!("`@[{attribute_name}]` requires an `extern` {kind}"),
+                    )
+                    .primary(
+                        attribute.span,
+                        format!("this {kind} is not declared `extern`"),
+                    )
+                    .help(format!(
+                        "add `extern` to this {kind}, or remove `@[{attribute_name}]`"
+                    ))
+                    .finish(),
+                );
             } else if is_link && has_body {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::ITEM_SIGNATURE,
-                    attribute.span,
-                    format!("`@[linkName]` is only valid on an external {kind} declaration"),
-                ));
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::ITEM_SIGNATURE,
+                        format!("`@[linkName]` is only valid on an external {kind} declaration"),
+                    )
+                    .primary(attribute.span, "this declaration has a body".to_string())
+                    .help("use `@[exportName]` for a definition with a body")
+                    .finish(),
+                );
             } else if !is_link && !has_body {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::ITEM_SIGNATURE,
-                    attribute.span,
-                    format!("`@[exportName]` requires an extern {kind} definition"),
-                ));
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::ITEM_SIGNATURE,
+                        format!("`@[exportName]` requires an extern {kind} definition"),
+                    )
+                    .primary(attribute.span, "this declaration has no body".to_string())
+                    .help("add a body to define this symbol, or use `@[linkName]` for an import")
+                    .finish(),
+                );
             }
             if let Some(value) = self.parse_external_name(attribute, meta.args.as_slice())
                 && !duplicate
@@ -1085,31 +1111,46 @@ impl<'a> SignatureCollector<'a> {
                         .as_deref()
                         .is_none_or(|value| value.is_empty() || value.contains('\0'))
                     {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::ITEM_SIGNATURE,
-                            arg.span,
-                            "external symbol name must be non-empty and contain no NUL bytes",
-                        ));
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::ITEM_SIGNATURE,
+                                "external symbol name must be non-empty and contain no NUL bytes",
+                            )
+                            .primary(arg.span, "invalid external symbol name")
+                            .help("use a non-empty string without NUL bytes")
+                            .finish(),
+                        );
                         None
                     } else {
                         value
                     }
                 }
                 _ => {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::ITEM_SIGNATURE,
-                        arg.span,
-                        "external symbol attribute expects one string literal",
-                    ));
+                    self.diagnostics.push(
+                        Diagnostic::user_error(
+                            codes::ITEM_SIGNATURE,
+                            "external symbol attribute expects one string literal",
+                        )
+                        .primary(arg.span, "external symbol name is not a string literal")
+                        .help("pass exactly one string literal to this attribute")
+                        .finish(),
+                    );
                     None
                 }
             },
             _ => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::ITEM_SIGNATURE,
-                    attribute.span,
-                    "external symbol attribute expects exactly one string literal",
-                ));
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::ITEM_SIGNATURE,
+                        "external symbol attribute expects exactly one string literal",
+                    )
+                    .primary(
+                        attribute.span,
+                        "external symbol attribute arguments are invalid",
+                    )
+                    .help("pass exactly one string literal to this attribute")
+                    .finish(),
+                );
                 None
             }
         }
