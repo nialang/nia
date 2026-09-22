@@ -499,7 +499,7 @@ impl<'a> BodyChecker<'a> {
                 ));
                 StaticAddressBase::Invalid
             }
-            ExprKind::Field { lhs, name } | ExprKind::Qualified { lhs, name } => {
+            ExprKind::Field { lhs, name } | ExprKind::Qualified { lhs, name, .. } => {
                 let base = self.lower_static_place_inner(lhs, elems);
                 let lhs_ty = self.expr_ty(lhs).unwrap_or_else(|| self.error());
                 let field = self

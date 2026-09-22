@@ -781,7 +781,9 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
             write_joined(out, args, write_expr_identity);
             out.push(')');
         }
-        ExprKind::Qualified { lhs, name } => write_named_lhs_identity(out, "qualified", lhs, *name),
+        ExprKind::Qualified { lhs, name, .. } => {
+            write_named_lhs_identity(out, "qualified", lhs, *name)
+        }
         ExprKind::Field { lhs, name } => write_named_lhs_identity(out, "field", lhs, *name),
         ExprKind::TupleField { lhs, index } => {
             out.push_str("tuple_field(");

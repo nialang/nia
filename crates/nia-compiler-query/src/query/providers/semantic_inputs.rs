@@ -565,7 +565,7 @@ impl AssociatedConstProjectionCollector<'_> {
 
 impl<'ast> nia_ast_walk::Visitor<'ast> for AssociatedConstProjectionCollector<'_> {
     fn visit_expr(&mut self, expr: &'ast nia_ast::Expr) {
-        if let nia_ast::ExprKind::Qualified { lhs, name } = &expr.kind
+        if let nia_ast::ExprKind::Qualified { lhs, name, .. } = &expr.kind
             && let nia_ast::ExprKind::TraitTarget { ty, trait_ref } = &lhs.kind
         {
             self.record_projection(expr, ty, trait_ref, name);

@@ -2649,16 +2649,14 @@ extend math::Point {
 #[test]
 fn rejects_private_cross_module_items() {
     let root = temp_dir("rejects_private_cross_module_items");
-    write(
-        &root.join("main.nia"),
-        r#"
+    let source = r#"
 module math;
 using entry::math;
 fn take(p: math::Point) i32 {
     math::add(1, 2)
 }
-"#,
-    );
+"#;
+    write(&root.join("main.nia"), source);
     write(
         &root.join("math.nia"),
         r#"
@@ -2668,18 +2666,34 @@ fn add(a: i32, b: i32) i32 { a + b }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .diagnostic
-            .summary
-            .contains("type `math::Point` is private")
-    }));
-    assert!(program.diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .diagnostic
-            .summary
-            .contains("value `math::add` is private")
-    }));
+    let private_type = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("type `math::Point` is private")
+        })
+        .expect("private type diagnostic");
+    let private_value = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("value `math::add` is private")
+        })
+        .expect("private value diagnostic");
+    assert_eq!(
+        private_type.diagnostic.primary_span().unwrap().start,
+        source.find("Point").expect("Point source span")
+    );
+    assert_eq!(
+        private_value.diagnostic.primary_span().unwrap().start,
+        source.find("add").expect("add source span")
+    );
 }
 
 #[test]

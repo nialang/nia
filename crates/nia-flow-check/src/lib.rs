@@ -1024,7 +1024,7 @@ impl FlowChecker<'_> {
             ExprKind::Bool(value) => Some(ExprFingerprint::Bool(*value)),
             ExprKind::Null => Some(ExprFingerprint::Null),
             ExprKind::Ident(name) => Some(ExprFingerprint::Ident(*name)),
-            ExprKind::Qualified { lhs, name } => Some(ExprFingerprint::Qualified(
+            ExprKind::Qualified { lhs, name, .. } => Some(ExprFingerprint::Qualified(
                 Box::new(Self::expr_fingerprint(lhs)?),
                 *name,
             )),

@@ -78,7 +78,7 @@ impl<'a> BodyChecker<'a> {
         {
             return return_type;
         }
-        if let ExprKind::Qualified { lhs, name } = &callee.kind
+        if let ExprKind::Qualified { lhs, name, .. } = &callee.kind
             && let Some(return_type) = self.check_associated_call(expr, lhs, name, args, expected)
         {
             return return_type;
@@ -142,12 +142,13 @@ impl<'a> BodyChecker<'a> {
 }
 
 pub(super) fn std_builtin_function(expr: &Expr) -> Option<BuiltinFunction> {
-    let ExprKind::Qualified { lhs, name } = &expr.kind else {
+    let ExprKind::Qualified { lhs, name, .. } = &expr.kind else {
         return None;
     };
     let ExprKind::Qualified {
         lhs: std_expr,
         name: builtin_segment,
+        ..
     } = &lhs.kind
     else {
         return None;

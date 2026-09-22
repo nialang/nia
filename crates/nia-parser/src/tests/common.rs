@@ -6,6 +6,7 @@ pub(super) use nia_ast::{
 };
 pub(super) use nia_node_id::{NodePosition, NodeStore, SyntaxKind};
 pub(super) use nia_source::{SourceId, SourceRevision, SourceVersion};
+pub(super) use nia_span::Span;
 pub(super) use nia_symbol::{SymbolId, stable_hash};
 
 pub(super) fn sym(text: &str) -> SymbolId {

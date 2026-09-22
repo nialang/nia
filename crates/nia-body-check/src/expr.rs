@@ -375,7 +375,7 @@ impl<'a> BodyChecker<'a> {
                 let lhs_ty = self.check_expr(lhs);
                 self.tuple_field_type(expr.span, lhs_ty, *index)
             }
-            ExprKind::Qualified { lhs, name } => {
+            ExprKind::Qualified { lhs, name, .. } => {
                 if let Some(builtin) = crate::calls::std_builtin_function(expr) {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
