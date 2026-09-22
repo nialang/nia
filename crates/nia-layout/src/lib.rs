@@ -1068,13 +1068,8 @@ impl<'a> LayoutComputer<'a> {
             }
         };
         let Some(layout) = crate::array_layout(&elem_layout, len) else {
-            self.diagnostics.push(
-                Diagnostic::user_error(codes::STATIC_CHECK, "array layout size overflowed")
-                    .primary(span, "the array size exceeds the target layout arithmetic")
-                    .note("the element layout multiplied by the array length cannot be represented safely")
-                    .help("reduce the array length or use a smaller element type")
-                    .finish(),
-            );
+            self.diagnostics
+                .push(layout_overflow_diagnostic(span, "array"));
             return None;
         };
         Some(layout)
@@ -1640,17 +1635,27 @@ impl<'a> LayoutComputer<'a> {
 
 impl LayoutComputer<'_> {
     fn layout_overflow<T>(&mut self, span: Span, kind: &str) -> Option<T> {
-        self.diagnostics.push(Diagnostic::user_error_at(
-            codes::STATIC_CHECK,
-            span,
-            format!("{kind} layout size overflowed"),
-        ));
+        self.diagnostics
+            .push(layout_overflow_diagnostic(span, kind));
         None
     }
 
     fn normalize_ty(&self, ty_id: InternedTyId) -> InternedTyId {
         self.normalized.get(&ty_id).copied().unwrap_or(ty_id)
     }
+}
+
+fn layout_overflow_diagnostic(span: Span, kind: &str) -> Diagnostic {
+    Diagnostic::user_error(
+        codes::STATIC_CHECK,
+        format!("{kind} layout size overflowed"),
+    )
+    .primary(span, "the computed size or alignment cannot be represented")
+    .note(format!(
+        "the {kind} layout exceeds the target's representable layout arithmetic"
+    ))
+    .help("reduce the type size, alignment, or element count")
+    .finish()
 }
 
 #[cfg(test)]
@@ -1770,6 +1775,22 @@ mod tests {
         assert_eq!(
             array_layout(&TypeLayout { size: 4, align: 4 }, 3),
             Some(TypeLayout { size: 12, align: 4 })
+        );
+    }
+
+    #[test]
+    fn layout_overflow_diagnostic_explains_recovery() {
+        let diagnostic = layout_overflow_diagnostic(Span::new(4, 9), "tuple");
+        assert_eq!(diagnostic.code.as_str(), "E0501");
+        assert_eq!(diagnostic.summary, "tuple layout size overflowed");
+        assert_eq!(
+            diagnostic.labels[0].message.as_deref(),
+            Some("the computed size or alignment cannot be represented")
+        );
+        assert!(diagnostic.notes[0].contains("tuple layout exceeds"));
+        assert_eq!(
+            diagnostic.help[0],
+            "reduce the type size, alignment, or element count"
         );
     }
 
