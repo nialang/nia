@@ -1074,13 +1074,23 @@ fn validate_trait_impl(
             actual: &actual_signature,
         })? {
             let name = symbol_name(input.symbols, required.name);
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                method.span,
-                format!(
-                    "implementation of trait method `{name}` does not match the trait signature"
-                ),
-            ));
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!(
+                        "implementation of trait method `{name}` does not match the trait signature"
+                    ),
+                )
+                .primary(
+                    method.span,
+                    format!("method `{name}` has a different signature"),
+                )
+                .related(required.span, format!("the trait declares `{name}` here"))
+                .help(format!(
+                    "change method `{name}` to match the trait declaration"
+                ))
+                .finish(),
+            );
         }
     }
     Ok(diagnostics.len() == start_len)

@@ -878,6 +878,39 @@ fn main() i32 { 0 }
         "{:?}",
         program.diagnostics
     );
+    let mismatch = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("implementation of trait method `get` does not match the trait signature")
+        })
+        .expect("trait method signature diagnostic");
+    assert!(
+        mismatch
+            .diagnostic
+            .primary_message()
+            .is_some_and(|message| message.contains("has a different signature")),
+        "{mismatch:?}"
+    );
+    assert!(
+        mismatch
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message.contains("trait declares `get`")),
+        "{mismatch:?}"
+    );
+    assert!(
+        mismatch
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("change method `get`")),
+        "{mismatch:?}"
+    );
 }
 
 #[test]
