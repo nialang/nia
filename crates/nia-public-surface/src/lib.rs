@@ -113,6 +113,43 @@ fn invalid_self_name_segment(segment: &UsingPathSegment) -> Diagnostic {
     )
 }
 
+fn first_using_name(selector: &UsingSelector) -> Option<&UsingName> {
+    match selector {
+        UsingSelector::Single(name) => Some(name),
+        UsingSelector::Group(items) => items.iter().find_map(|item| match item {
+            UsingGroupItem::Name(name) => Some(name),
+            UsingGroupItem::Nested { selector, .. } => first_using_name(selector),
+        }),
+        UsingSelector::Wildcard { .. } | UsingSelector::SelfName => None,
+    }
+}
+
+fn unresolved_using_diagnostic(
+    using: &ModuleUsing,
+    reason: UnresolvedUsingReason,
+    symbols: &dyn SymbolText,
+) -> Diagnostic {
+    let selected = first_using_name(&using.selector);
+    let name = selected
+        .map(|name| symbol_text(symbols, name.alias.unwrap_or(name.name)))
+        .unwrap_or_else(|| first_path_segment_text(symbols, &using.host));
+    let host = first_path_segment_text(symbols, &using.host);
+    let (cause, help) = reason.diagnostic_parts(&name);
+    let mut diagnostic = Diagnostic::user_error(
+        codes::NAME_RESOLUTION,
+        format!("`using {host}::...` could not be resolved: {cause}"),
+    )
+    .primary(using.span, "this `using` directive could not be resolved")
+    .help(help);
+    if let Some(selected) = selected {
+        diagnostic = diagnostic.related(
+            selected.alias_span.unwrap_or(selected.name_span),
+            "the imported name is selected here",
+        );
+    }
+    diagnostic.finish()
+}
+
 /// Compute every module's exported public surface and per-module using scope.
 pub fn compute_public_surfaces<D: Borrow<DefCollection>>(
     defs_by_module: &[D],
@@ -330,7 +367,7 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
             };
             match expand_using(&context, defs, using, &local_modules) {
                 UsingExpansion::Resolved(_) | UsingExpansion::HardError(_) => {}
-                UsingExpansion::Unresolved | UsingExpansion::UnresolvedReason(_)
+                UsingExpansion::Unresolved
                     if process_used_paths
                         && !using_host_waits_on_unprocessed_module(
                             graph,
@@ -340,13 +377,24 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                 {
                     diagnostics.push((
                         defs.module_id,
-                        Diagnostic::user_error_at(codes::NAME_RESOLUTION,
-                            using.span,
-                                format!(
-                                    "`pub using {}::...` could not be resolved; possible re-export cycle or unknown name",
-                                    first_path_segment_text(symbols, &using.host)
-                                ),
+                        unresolved_using_diagnostic(
+                            using,
+                            UnresolvedUsingReason::UnknownName,
+                            symbols,
                         ),
+                    ));
+                }
+                UsingExpansion::UnresolvedReason(reason)
+                    if process_used_paths
+                        && !using_host_waits_on_unprocessed_module(
+                            graph,
+                            defs.module_id,
+                            &using.host,
+                        ) =>
+                {
+                    diagnostics.push((
+                        defs.module_id,
+                        unresolved_using_diagnostic(using, reason, symbols),
                     ));
                 }
                 UsingExpansion::Unresolved | UsingExpansion::UnresolvedReason(_) => {}
@@ -460,13 +508,10 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                     if process_used_paths && using.visibility != Visibility::Public {
                         diagnostics.push((
                             defs.module_id,
-                            Diagnostic::user_error_at(
-                                codes::NAME_RESOLUTION,
-                                using.span,
-                                format!(
-                                    "`using {}::...` could not be resolved",
-                                    first_path_segment_text(symbols, &using.host)
-                                ),
+                            unresolved_using_diagnostic(
+                                using,
+                                UnresolvedUsingReason::UnknownName,
+                                symbols,
                             ),
                         ));
                     }
@@ -477,14 +522,7 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                     if process_used_paths && using.visibility != Visibility::Public {
                         diagnostics.push((
                             defs.module_id,
-                            Diagnostic::user_error_at(
-                                codes::NAME_RESOLUTION,
-                                using.span,
-                                format!(
-                                    "`using {}::...` could not be resolved",
-                                    first_path_segment_text(symbols, &using.host)
-                                ),
-                            ),
+                            unresolved_using_diagnostic(using, reason, symbols),
                         ));
                     }
                     continue;
