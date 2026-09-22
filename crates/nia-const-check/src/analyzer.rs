@@ -1307,11 +1307,13 @@ impl Analyzer<'_> {
     }
 
     fn push_const_type_mismatch(&mut self, span: Span, expected: &str) {
-        self.diagnostics.push(Diagnostic::user_error_at(
-            codes::CONST,
-            span,
-            format!("const value does not match expected {expected} type"),
-        ));
+        let summary = format!("const value does not match expected {expected} type");
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::CONST, summary.clone())
+                .primary(span, summary)
+                .help("change the constant expression to produce the expected value type")
+                .finish(),
+        );
     }
 
     fn push_const_missing_struct_field(&mut self, span: Span, name: &SymbolId) {
@@ -1333,13 +1335,15 @@ impl Analyzer<'_> {
     }
 
     fn push_const_primitive_mismatch(&mut self, span: Span, primitive: PrimitiveTy) {
-        self.diagnostics.push(Diagnostic::user_error_at(
-            codes::CONST,
-            span,
-            format!(
-                "const value does not match primitive type {}",
-                primitive.name()
-            ),
-        ));
+        let summary = format!(
+            "const value does not match primitive type {}",
+            primitive.name()
+        );
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::CONST, summary.clone())
+                .primary(span, summary)
+                .help("change the constant expression to produce the expected primitive type")
+                .finish(),
+        );
     }
 }
