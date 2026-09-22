@@ -252,6 +252,39 @@ fn main(box: Box) bool {
         "{:?}",
         checked.diagnostics
     );
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("no matching method overload `pick`")
+        })
+        .expect("method overload diagnostic");
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("receiver has type `Box`"))
+    );
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("candidate methods"))
+    );
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| { note.contains("pick(i32)") && note.contains("pick(usize)") })
+    );
+    assert!(
+        diagnostic
+            .help
+            .iter()
+            .any(|help| { help.contains("change the receiver or argument types") })
+    );
 }
 
 #[test]
@@ -612,6 +645,26 @@ fn main(pair: Pair[i32, i32]) i32 {
         "{:?}",
         checked.diagnostics
     );
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary.contains("ambiguous method `rank`"))
+        .expect("ambiguous method diagnostic");
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("equally specific"))
+    );
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("candidate methods"))
+    );
+    assert!(diagnostic.help.iter().any(|help| {
+        help.contains("more specific") || help.contains("explicit method/type qualification")
+    }));
     assert!(
         checked.facts.iter_node_resolved_calls().next().is_none(),
         "failed probes must not publish resolved calls"
@@ -1403,6 +1456,30 @@ fn main(flag: bool) i32 {
         diagnostic
             .summary
             .contains("qualified access is not a value expression")
+    }));
+}
+
+#[test]
+fn explains_unknown_associated_function_target_and_visibility() {
+    let checked = pipeline(
+        r#"
+struct Point {}
+
+fn main() () {
+    Point::missing()
+}
+"#,
+    );
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary == "unknown associated function `missing`")
+        .expect("unknown associated function diagnostic");
+    assert!(diagnostic.notes.iter().any(|note| {
+        note.contains("target type is `Point`") && note.contains("no visible associated function")
+    }));
+    assert!(diagnostic.help.iter().any(|help| {
+        help.contains("check the type qualification") && help.contains("import the module")
     }));
 }
 
