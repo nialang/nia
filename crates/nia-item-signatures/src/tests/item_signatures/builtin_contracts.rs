@@ -65,7 +65,6 @@ fn withArgument() () {}
 fn duplicate() () {}
 "#,
     );
-
     let summaries = signatures
         .diagnostics
         .iter()
@@ -235,5 +234,54 @@ fn bodyless_non_extern_functions_require_builtin_attribute() {
             .iter()
             .any(|help| help.contains("add a function body")),
         "{bodyless:?}"
+    );
+}
+
+#[test]
+fn builtin_const_diagnostics_explain_name_and_shape() {
+    let signatures = signatures(
+        r#"
+@[builtin("target.arch")]
+const wrong: i32 = 1;
+"#,
+    );
+    let mismatch = signatures
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic.summary.contains("builtin const source item")
+                && diagnostic
+                    .summary
+                    .contains("must match descriptor item `arch`")
+        })
+        .expect("builtin const name diagnostic");
+    assert!(
+        mismatch
+            .primary_message()
+            .is_some_and(|message| message.contains("descriptor expects `arch`")),
+        "{mismatch:?}"
+    );
+    assert!(
+        mismatch
+            .help
+            .iter()
+            .any(|help| help.contains("rename this const to `arch`")),
+        "{mismatch:?}"
+    );
+    let shape = signatures
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("`@[builtin]` is only valid on bodyless non-extern const declarations")
+        })
+        .expect("builtin const shape diagnostic");
+    assert!(
+        shape
+            .help
+            .iter()
+            .any(|help| help.contains("remove `extern` and the initializer")),
+        "{shape:?}"
     );
 }
