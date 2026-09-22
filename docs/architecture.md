@@ -278,7 +278,11 @@ does not depend on compiler orchestration.
 ### `nia-compiler-query`
 
 Session-owned compiler query facade. Wraps `nia-query` with compiler-specific
-query types and manages compilation session lifecycle.
+query types and manages compilation session lifecycle. The root query module is
+only the public database facade and query registry surface. Stable identities,
+stable type graphs, fingerprints, invalidation, provider settlement, database
+ownership, and loader/context input adapters live in dedicated modules so none
+of those contracts depend on facade implementation details.
 
 ### `nia-node-id`
 
@@ -730,6 +734,24 @@ rebuild the same interned type graph.
 
 Module-codegen uses whole-program indexes for layout queries and signature type building.
 One `Arc<ProgramIndex>` is built before validation and shared by all unit tasks.
+
+Backend validation keeps function-body contracts separate from LLVM emission. The
+`function_ir` validation boundary is partitioned into call/ABI, atomic, control-flow
+and propagation, low-level builtin/SIMD, tagged-union, enum-value, callable,
+trait-object, place/assignment, operator/cast, projection/slice, range/static-pointer,
+memory-intrinsic, builtin-value, local-storage, and literal contracts. The root module
+only traverses and dispatches function IR; each validator consumes the same immutable
+`BackendValidator` index before any LLVM builder operation is issued. Whole-program
+IR, native-object, and LTO scheduling lives in the orchestration module, separate from
+the partition emission lanes and work-product cache accounting.
+
+The backend ownership review deliberately keeps fingerprint encoding and the program
+index inside `nia-codegen-llvm`: the former is one stable serialization contract and
+the latter owns one publication snapshot and its lookup tables. Likewise,
+`nia-build-plan` remains one immutable plan-model crate with internal action, codec,
+dependency, handoff, and validation modules, while `nia-llvm` remains a thin public
+facade over its private LLVM API modules. No additional crate boundary is justified by
+those ownership models.
 
 Executable codegen has three explicit final-link policies: no LTO, ThinLTO,
 and full LTO. No LTO emits the existing native object products. Thin and full

@@ -23,6 +23,13 @@ values and construct a graph through `std::build`; it cannot execute graph
 actions. The decoded immutable `BuildPlan` is the coordinator's only execution
 input.
 
+The runner wrapper remains owned by `nia-build`, rather than becoming part of
+the public `std::build` API, because it is a private protocol bootstrap: it
+binds runner-config and plan compatibility identities, cache inputs, and the
+host invocation lifecycle. Build scripts need only the stable graph-building
+types and operations exposed by `std::build`; exposing the wrapper would make
+compiler/build transport details part of the language-visible API.
+
 The runner itself is always compiled for the host at O0. The requested
 optimization remains an explicit configuration value used by artifact actions;
 it is not the compilation policy for the short-lived plan constructor. Runner
