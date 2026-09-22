@@ -743,6 +743,70 @@ fn main() i32 {
 }
 
 #[test]
+fn ambiguous_index_literal_keeps_structured_suffix_suggestion() {
+    let root = temp_dir("ambiguous_index_literal_keeps_structured_suffix_suggestion");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Cell {
+    value: i32,
+}
+
+extend Cell : Index[usize] {
+    type Output = i32;
+
+    fn index(& self, index: usize) & i32 {
+        & self.value
+    }
+}
+
+extend Cell : Index[i32] {
+    type Output = i32;
+
+    fn index(& self, index: i32) & i32 {
+        & self.value
+    }
+}
+
+fn main() i32 {
+    let cell = Cell { value: 1 };
+    cell[0]
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let diagnostic = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("ambiguous index literal type")
+        })
+        .expect("ambiguous index diagnostic");
+
+    assert_eq!(diagnostic.diagnostic.code.as_str(), "E0301");
+    assert_eq!(diagnostic.diagnostic.suggestions.len(), 1);
+    let suggestion = &diagnostic.diagnostic.suggestions[0];
+    assert_eq!(
+        suggestion.applicability,
+        nia_diagnostic::SuggestionApplicability::MaybeIncorrect
+    );
+    assert_eq!(suggestion.message, "make the index type explicit");
+    assert_eq!(suggestion.edits.len(), 1);
+    assert_eq!(suggestion.edits[0].replacement, "0usize");
+    let primary = diagnostic
+        .diagnostic
+        .labels
+        .iter()
+        .find(|label| label.style == nia_diagnostic::LabelStyle::Primary)
+        .expect("primary index label");
+    assert_eq!(suggestion.edits[0].span, primary.span);
+}
+
+#[test]
 fn mutable_builtin_place_traits_require_read_supertrait_impls() {
     let root = temp_dir("mutable_builtin_place_traits_require_read_supertrait_impls");
     write(
