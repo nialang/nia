@@ -48,6 +48,14 @@ pub fn render_build_error(
 
 /// Renders a build failure as deterministic machine-readable JSON.
 pub fn render_build_error_json(error: &BuildError) -> String {
+    if let BuildError::CompileRunner { error, .. } = error {
+        return nia_driver::render_driver_error_json(error);
+    }
+    if let BuildError::ExecuteBuildPlan { error } = error {
+        if let CoordinatorError::Driver { error, .. } = error.as_ref() {
+            return nia_driver::render_driver_error_json(error);
+        }
+    }
     let diagnostics = build_error_diagnostics(error);
     render_diagnostics_json(&diagnostics, DiagnosticReportConfig::default())
 }
