@@ -851,14 +851,16 @@ impl<'a> LocalResolver<'a> {
             return;
         }
         if self.lookup_outer_closure_local(name).is_some() {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::LOCAL_RESOLUTION,
-                span,
-                format!(
-                    "local `{}` is not captured by this closure; add it to the closure capture list",
-                    self.symbol_name(*name)
-                ),
-            ));
+            let summary = format!(
+                "local `{}` is not captured by this closure; add it to the closure capture list",
+                self.symbol_name(*name)
+            );
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::LOCAL_RESOLUTION, summary.clone())
+                    .primary(span, summary)
+                    .help("add the local to the closure capture list, or pass it as an explicit argument")
+                    .finish(),
+            );
             self.record_use(node_key, LocalUse::Unresolved);
             return;
         }
@@ -911,6 +913,7 @@ impl<'a> LocalResolver<'a> {
                 Diagnostic::user_error(codes::LOCAL_RESOLUTION, summary.clone())
                     .primary(span, summary)
                     .related(previous, "the name was already bound by this pattern")
+                    .help("rename one of the bindings so each pattern name is unique")
                     .finish(),
             );
             return None;
@@ -923,6 +926,7 @@ impl<'a> LocalResolver<'a> {
             if let Some(previous) = previous {
                 diagnostic = diagnostic.related(previous, "the name was already declared here");
             }
+            diagnostic = diagnostic.help("rename one of the parameters so each name is unique");
             self.diagnostics.push(diagnostic.finish());
             return None;
         }
@@ -932,6 +936,7 @@ impl<'a> LocalResolver<'a> {
                 Diagnostic::user_error(codes::LOCAL_RESOLUTION, summary.clone())
                     .primary(span, summary)
                     .related(existing.span, "the name was already declared here")
+                    .help("rename this binding or remove the conflicting static declaration")
                     .finish(),
             );
             return None;
@@ -994,6 +999,7 @@ impl<'a> LocalResolver<'a> {
                 Diagnostic::user_error(codes::LOCAL_RESOLUTION, summary.clone())
                     .primary(span, summary)
                     .related(existing.span, "the name was already declared here")
+                    .help("rename one of the declarations so each local name is unique")
                     .finish(),
             );
             return;
@@ -1004,6 +1010,7 @@ impl<'a> LocalResolver<'a> {
                 Diagnostic::user_error(codes::LOCAL_RESOLUTION, summary.clone())
                     .primary(span, summary)
                     .related(existing.span, "the name was already declared here")
+                    .help("rename one of the declarations so each local name is unique")
                     .finish(),
             );
             return;
