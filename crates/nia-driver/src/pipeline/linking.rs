@@ -6,6 +6,7 @@ use std::{fs, path::PathBuf, process::Command};
 use nia_linker::{ArchiveOptions, LinkOptions, LinkTarget};
 use nia_toolchain::RuntimeSpec;
 
+use super::emission::ObjectEmissionMode;
 use super::output::{
     TempDir, archive_member_file_name, install_streamed_output, object_file_name, write_output_file,
 };
