@@ -61,7 +61,35 @@ pub enum PlanCodecError {
 
 impl fmt::Display for PlanCodecError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "invalid build-plan encoding: {self:?}")
+        match self {
+            Self::TooLarge { limit, actual } => write!(
+                f,
+                "build-plan encoding is too large ({actual} bytes; limit is {limit} bytes)"
+            ),
+            Self::BadMagic => f.write_str("build-plan encoding has an invalid header"),
+            Self::UnsupportedCompatibility(version) => write!(
+                f,
+                "build-plan encoding uses unsupported compatibility version {version}"
+            ),
+            Self::Truncated { offset } => {
+                write!(f, "build-plan encoding is truncated at byte {offset}")
+            }
+            Self::TrailingData { offset } => write!(
+                f,
+                "build-plan encoding has unexpected trailing data at byte {offset}"
+            ),
+            Self::InvalidTag { kind, tag, offset } => write!(
+                f,
+                "build-plan encoding has invalid {kind} tag {tag} at byte {offset}"
+            ),
+            Self::InvalidUtf8 { offset } => write!(
+                f,
+                "build-plan encoding contains invalid UTF-8 at byte {offset}"
+            ),
+            Self::InvalidStableName(error) => write!(f, "invalid build-plan name: {error}"),
+            Self::InvalidLogicalPath(error) => write!(f, "invalid build-plan path: {error}"),
+            Self::Semantic(error) => write!(f, "build plan is semantically invalid: {error}"),
+        }
     }
 }
 
@@ -935,6 +963,26 @@ impl<'a> Reader<'a> {
 mod tests {
     use super::super::test_support::{draft, generated_source_draft, static_archive_link_draft};
     use super::*;
+
+    #[test]
+    fn codec_errors_render_offsets_and_semantic_causes() {
+        let invalid_tag = PlanCodecError::InvalidTag {
+            kind: "runtime",
+            tag: 255,
+            offset: 42,
+        };
+        assert_eq!(
+            invalid_tag.to_string(),
+            "build-plan encoding has invalid runtime tag 255 at byte 42"
+        );
+        assert!(!invalid_tag.to_string().contains("InvalidTag"));
+
+        let semantic = PlanCodecError::Semantic(Box::new(PlanError::MissingDefaultStep));
+        assert_eq!(
+            semantic.to_string(),
+            "build plan is semantically invalid: non-empty build plan has no default or selected step"
+        );
+    }
 
     fn encode_draft_without_freeze(draft: &BuildPlanDraft) -> Vec<u8> {
         let mut writer = Writer::new();
