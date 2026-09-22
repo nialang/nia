@@ -135,14 +135,15 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
             error,
             "run the build from a directory that still exists",
         ),
-        BuildError::CreateBuildDirectory { path, error }
-        | BuildError::CreateCacheDirectory { path, error }
-        | BuildError::CreateRunnerDirectory { path, error } => vec![
-            Diagnostic::user_error(codes::ARTIFACT_IO, "could not create a build directory")
-                .note(format!("path `{}`: {error}", path.display()))
-                .help("check directory permissions and available disk space")
-                .finish(),
-        ],
+        BuildError::CreateBuildDirectory { path, error } => {
+            create_directory_diagnostic("build directory", path, error)
+        }
+        BuildError::CreateCacheDirectory { path, error } => {
+            create_directory_diagnostic("build cache directory", path, error)
+        }
+        BuildError::CreateRunnerDirectory { path, error } => {
+            create_directory_diagnostic("build runner directory", path, error)
+        }
         BuildError::NonUtf8Path { role, path } => vec![
             Diagnostic::user_error(codes::BUILD_PLAN, "build path cannot be represented in Nia")
                 .note(format!(
@@ -470,6 +471,15 @@ fn io_diagnostic(
     ]
 }
 
+fn create_directory_diagnostic(role: &str, path: &Path, error: &std::io::Error) -> Vec<Diagnostic> {
+    vec![
+        Diagnostic::user_error(codes::ARTIFACT_IO, format!("could not create {role}"))
+            .note(format!("path `{}`: {error}", path.display()))
+            .help("check directory permissions and available disk space")
+            .finish(),
+    ]
+}
+
 fn io_plan_diagnostic(path: &Path, error: &std::io::Error) -> Vec<Diagnostic> {
     vec![
         Diagnostic::user_error(codes::BUILD_PLAN, "could not complete build handoff")
@@ -537,6 +547,32 @@ mod tests {
         assert!(json.contains("\"code\":\"E0704\""), "{json}");
         assert!(json.contains("\"help\":["), "{json}");
         assert!(json.contains("\"suppressed\":{"), "{json}");
+    }
+
+    #[test]
+    fn directory_failures_keep_their_resource_role() {
+        let cache = BuildError::CreateCacheDirectory {
+            path: std::path::PathBuf::from("/tmp/project/.nia-cache"),
+            error: std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+        };
+        let runner = BuildError::CreateRunnerDirectory {
+            path: std::path::PathBuf::from("/tmp/project/.nia-runner"),
+            error: std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+        };
+
+        let cache_rendered = render_build_error(&cache, None, None);
+        assert!(
+            cache_rendered.contains("could not create build cache directory"),
+            "{cache_rendered}"
+        );
+        assert!(!cache_rendered.contains("could not create a build directory"));
+
+        let runner_rendered = render_build_error_json(&runner);
+        assert!(
+            runner_rendered.contains("could not create build runner directory"),
+            "{runner_rendered}"
+        );
+        assert!(!runner_rendered.contains("could not create a build directory"));
     }
 
     #[test]
