@@ -316,7 +316,7 @@ pub fn render_driver_error(
             primary_source,
         ),
         DriverError::ArchiveConfig(error) => render_linker_config_diagnostic(
-            "archive",
+            "archive tool",
             &error.to_string(),
             primary_path,
             primary_source,
@@ -420,7 +420,7 @@ fn render_external_tool_diagnostic(
         diagnostic = diagnostic.note(format!("{tool_kind} output:\n{stderr}"));
     }
     let rendered = render_diagnostics_with_title(
-        "linker diagnostics:",
+        &format!("{tool_kind} diagnostics:"),
         std::slice::from_ref(&diagnostic.finish()),
         primary_path,
         primary_source,
@@ -445,7 +445,7 @@ fn render_external_tool_io_diagnostic(
     ))
     .finish();
     render_diagnostics_with_title(
-        "linker diagnostics:",
+        &format!("{tool_kind} diagnostics:"),
         std::slice::from_ref(&diagnostic),
         primary_path,
         primary_source,
@@ -466,7 +466,7 @@ fn render_linker_config_diagnostic(
     .help(format!("check the {tool_kind} and target options"))
     .finish();
     render_diagnostics_with_title(
-        "linker diagnostics:",
+        &format!("{tool_kind} diagnostics:"),
         std::slice::from_ref(&diagnostic),
         primary_path,
         primary_source,
@@ -603,39 +603,64 @@ fn driver_error_diagnostics(error: &DriverError) -> Vec<Diagnostic> {
             program,
             status,
             stderr,
-        }
-        | DriverError::ArchiveStatus {
+        } => vec![
+            Diagnostic::user_error(
+                nia_diagnostic::codes::LINKER,
+                format!("linker `{program}` failed"),
+            )
+            .note(format!("the linker exited with status {status}"))
+            .note(format!("linker output:\n{stderr}"))
+            .help("inspect the linker inputs and native dependencies")
+            .finish(),
+        ],
+        DriverError::ArchiveStatus {
             program,
             status,
             stderr,
         } => vec![
             Diagnostic::user_error(
                 nia_diagnostic::codes::LINKER,
-                format!("external tool `{program}` failed"),
+                format!("archive tool `{program}` failed"),
             )
-            .note(format!("the tool exited with status {status}"))
-            .note(format!("tool output:\n{stderr}"))
-            .help("inspect the linker inputs and native dependencies")
+            .note(format!("the archive tool exited with status {status}"))
+            .note(format!("archive tool output:\n{stderr}"))
+            .help("inspect the archive inputs and output path")
             .finish(),
         ],
-        DriverError::LinkerIo { program, error } | DriverError::ArchiveIo { program, error } => {
-            vec![
-                Diagnostic::user_error(
-                    nia_diagnostic::codes::LINKER,
-                    format!("could not start external tool `{program}`"),
-                )
-                .note(format!("the operating system reported: {error}"))
-                .help("install the required native tool or select a different tool")
-                .finish(),
-            ]
-        }
-        DriverError::LinkerConfig(error) | DriverError::ArchiveConfig(error) => vec![
+        DriverError::LinkerIo { program, error } => vec![
             Diagnostic::user_error(
                 nia_diagnostic::codes::LINKER,
-                "invalid external tool configuration",
+                format!("could not start linker `{program}`"),
+            )
+            .note(format!("the operating system reported: {error}"))
+            .help("install the linker, make it executable, or select a different linker")
+            .finish(),
+        ],
+        DriverError::ArchiveIo { program, error } => vec![
+            Diagnostic::user_error(
+                nia_diagnostic::codes::LINKER,
+                format!("could not start archive tool `{program}`"),
+            )
+            .note(format!("the operating system reported: {error}"))
+            .help("install the archive tool, make it executable, or select a different tool")
+            .finish(),
+        ],
+        DriverError::LinkerConfig(error) => vec![
+            Diagnostic::user_error(
+                nia_diagnostic::codes::LINKER,
+                "invalid linker configuration",
             )
             .note(error.to_string())
-            .help("check the linker, archive, and target options")
+            .help("check the linker and target options")
+            .finish(),
+        ],
+        DriverError::ArchiveConfig(error) => vec![
+            Diagnostic::user_error(
+                nia_diagnostic::codes::LINKER,
+                "invalid archive tool configuration",
+            )
+            .note(error.to_string())
+            .help("check the archive tool and output options")
             .finish(),
         ],
     }
@@ -865,6 +890,31 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
+    fn archive_tool_report_keeps_archive_ownership() {
+        let status = std::process::Command::new("sh")
+            .args(["-c", "exit 17"])
+            .status()
+            .expect("run shell");
+        let rendered = render_driver_error(
+            &DriverError::ArchiveStatus {
+                program: "ar".to_string(),
+                status,
+                stderr: "invalid archive member".to_string(),
+            },
+            Some("main.nia"),
+            Some("fn main() () {}"),
+        );
+        assert!(
+            rendered.starts_with("archive tool diagnostics:"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("archive tool `ar` failed"), "{rendered}");
+        assert!(rendered.contains("archive tool output:"), "{rendered}");
+        assert!(!rendered.contains("linker diagnostics:"), "{rendered}");
+    }
+
+    #[test]
     fn codegen_json_report_uses_the_shared_diagnostic_contract() {
         let diagnostics = vec![Diagnostic::user_error_at(
             codes::TYPE_CHECK,
@@ -892,6 +942,23 @@ mod tests {
         assert!(json.starts_with('{'), "{json}");
         assert!(json.contains("\"code\":\"E0701\""), "{json}");
         assert!(!json.contains("error[E0701]"), "{json}");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn archive_tool_json_keeps_archive_ownership() {
+        let status = std::process::Command::new("sh")
+            .args(["-c", "exit 17"])
+            .status()
+            .expect("run shell");
+        let json = render_driver_error_json(&DriverError::ArchiveStatus {
+            program: "ar".to_string(),
+            status,
+            stderr: "invalid archive member".to_string(),
+        });
+        assert!(json.contains("archive tool `ar` failed"), "{json}");
+        assert!(json.contains("archive tool output:"), "{json}");
+        assert!(!json.contains("external tool `ar` failed"), "{json}");
     }
 
     #[test]
