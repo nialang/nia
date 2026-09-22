@@ -187,6 +187,34 @@ pub struct ModuleUsingScope {
     pub types: SymbolMap<UsingEntry>,
     /// Names whose import resolution failed.
     pub unresolved_names: SymbolSet,
+    /// Source evidence for names whose `using` directive failed to resolve.
+    pub unresolved_usings: Vec<UnresolvedUsing>,
+}
+
+/// Why a `using` directive did not make a name available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnresolvedUsingReason {
+    /// The selected module or item does not contain the requested name.
+    UnknownName,
+    /// The item exists but is private to another module.
+    Private,
+    /// A public re-export requires the target item to be public.
+    NotPublic,
+    /// The selected namespace exists but is not visible from this module.
+    NamespaceNotVisible,
+}
+
+/// Source evidence retained for one failed `using` name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnresolvedUsing {
+    /// Name exposed to the local scope (including an alias).
+    pub name: SymbolId,
+    /// Span of the complete `using` directive.
+    pub directive_span: Span,
+    /// Span of the selected name or alias.
+    pub name_span: Span,
+    /// Classification of the failed lookup.
+    pub reason: UnresolvedUsingReason,
 }
 
 /// Read-only resolver for one module's using scope.
@@ -199,6 +227,8 @@ pub trait UsingScopeLookup {
     fn using_type(&self, name: &SymbolId) -> Option<UsingEntry>;
     /// Tests whether an unresolved import used `name`.
     fn has_unresolved_using_name(&self, name: &SymbolId) -> bool;
+    /// Returns source evidence for a failed `using` name.
+    fn unresolved_using(&self, name: &SymbolId) -> Option<UnresolvedUsing>;
 }
 
 impl ModuleUsingScope {
@@ -222,6 +252,15 @@ impl ModuleUsingScope {
         self.unresolved_names.contains(name)
     }
 
+    /// Returns source evidence for a failed `using` name.
+    pub fn unresolved_using(&self, name: &SymbolId) -> Option<UnresolvedUsing> {
+        self.unresolved_usings
+            .iter()
+            .rev()
+            .find(|using| using.name == *name)
+            .copied()
+    }
+
     /// Iterates imported value and type entries.
     pub fn entries(&self) -> impl Iterator<Item = (&SymbolId, &UsingEntry)> {
         self.values.iter().chain(self.types.iter())
@@ -243,5 +282,9 @@ impl UsingScopeLookup for ModuleUsingScope {
 
     fn has_unresolved_using_name(&self, name: &SymbolId) -> bool {
         self.has_unresolved_name(name)
+    }
+
+    fn unresolved_using(&self, name: &SymbolId) -> Option<UnresolvedUsing> {
+        ModuleUsingScope::unresolved_using(self, name)
     }
 }

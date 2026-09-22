@@ -5,8 +5,9 @@ use std::{borrow::Borrow, collections::HashMap};
 
 use nia_defs::{
     DefCollection, DefKind, ModulePublicSurface, ModuleUsing, ModuleUsingScope, PathSegmentKind,
-    PublicItem, PublicNamespace, PublicSource, PublicSurfaceLookup, PublicSurfaces, UsingEntry,
-    UsingGroupItem, UsingName, UsingPathSegment, UsingSelector, Visibility,
+    PublicItem, PublicNamespace, PublicSource, PublicSurfaceLookup, PublicSurfaces,
+    UnresolvedUsingReason, UsingEntry, UsingGroupItem, UsingName, UsingPathSegment, UsingSelector,
+    Visibility,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, ModuleId};
@@ -281,7 +282,7 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                         }
                         surfaces.insert(surface);
                     }
-                    UsingExpansion::Unresolved => {
+                    UsingExpansion::Unresolved | UsingExpansion::UnresolvedReason(_) => {
                         iteration_unresolved += 1;
                     }
                     UsingExpansion::HardError(_) => {}
@@ -329,7 +330,7 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
             };
             match expand_using(&context, defs, using, &local_modules) {
                 UsingExpansion::Resolved(_) | UsingExpansion::HardError(_) => {}
-                UsingExpansion::Unresolved
+                UsingExpansion::Unresolved | UsingExpansion::UnresolvedReason(_)
                     if process_used_paths
                         && !using_host_waits_on_unprocessed_module(
                             graph,
@@ -348,7 +349,7 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                         ),
                     ));
                 }
-                UsingExpansion::Unresolved => {}
+                UsingExpansion::Unresolved | UsingExpansion::UnresolvedReason(_) => {}
             }
         }
     }
@@ -451,7 +452,28 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
             let entries = match expand_using(&context, defs, using, &scope.modules) {
                 UsingExpansion::Resolved(entries) => entries,
                 UsingExpansion::Unresolved => {
-                    record_unresolved_using_names(&mut scope, using);
+                    record_unresolved_using_names(
+                        &mut scope,
+                        using,
+                        UnresolvedUsingReason::UnknownName,
+                    );
+                    if process_used_paths && using.visibility != Visibility::Public {
+                        diagnostics.push((
+                            defs.module_id,
+                            Diagnostic::user_error_at(
+                                codes::NAME_RESOLUTION,
+                                using.span,
+                                format!(
+                                    "`using {}::...` could not be resolved",
+                                    first_path_segment_text(symbols, &using.host)
+                                ),
+                            ),
+                        ));
+                    }
+                    continue;
+                }
+                UsingExpansion::UnresolvedReason(reason) => {
+                    record_unresolved_using_names(&mut scope, using, reason);
                     if process_used_paths && using.visibility != Visibility::Public {
                         diagnostics.push((
                             defs.module_id,
@@ -468,7 +490,11 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                     continue;
                 }
                 UsingExpansion::HardError(diag) => {
-                    record_unresolved_using_names(&mut scope, using);
+                    record_unresolved_using_names(
+                        &mut scope,
+                        using,
+                        UnresolvedUsingReason::UnknownName,
+                    );
                     if process_used_paths && using.visibility != Visibility::Public {
                         diagnostics.push((defs.module_id, diag));
                     }

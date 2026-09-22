@@ -1,6 +1,7 @@
 //! Namespace resolution and selector expansion for `using` declarations.
 
 use super::*;
+use nia_defs::{UnresolvedUsing, UnresolvedUsingReason};
 
 mod aliases;
 
@@ -63,6 +64,7 @@ pub(super) struct ResolvedEntry {
 pub(super) enum UsingExpansion {
     Resolved(Vec<ResolvedEntry>),
     Unresolved,
+    UnresolvedReason(UnresolvedUsingReason),
     HardError(Diagnostic),
 }
 
@@ -396,33 +398,50 @@ pub(super) fn expand_using(
     expand_namespace(namespace, &using.selector, context, source.clone())
 }
 
-pub(super) fn record_unresolved_using_names(scope: &mut ModuleUsingScope, using: &ModuleUsing) {
+pub(super) fn record_unresolved_using_names(
+    scope: &mut ModuleUsingScope,
+    using: &ModuleUsing,
+    reason: UnresolvedUsingReason,
+) {
     let mut names = Vec::new();
     collect_explicit_using_names(&using.host, &using.selector, &mut names);
-    scope.unresolved_names.extend(names);
+    for name in names {
+        scope.unresolved_names.insert(name.name);
+        scope.unresolved_usings.push(UnresolvedUsing {
+            name: name.alias.unwrap_or(name.name),
+            directive_span: using.span,
+            name_span: name.alias_span.unwrap_or(name.name_span),
+            reason,
+        });
+    }
 }
 
 fn collect_explicit_using_names(
     host: &[UsingPathSegment],
     selector: &UsingSelector,
-    names: &mut Vec<SymbolId>,
+    names: &mut Vec<UsingName>,
 ) {
     match selector {
         UsingSelector::Single(name) => {
-            names.push(name.alias.unwrap_or(name.name));
+            names.push(name.clone());
         }
         UsingSelector::SelfName => {
             if let Some(segment) = host.last()
                 && let Some(name) = path_segment_self_name(segment)
             {
-                names.push(name);
+                names.push(UsingName {
+                    name,
+                    name_span: segment.span,
+                    alias: None,
+                    alias_span: None,
+                });
             }
         }
         UsingSelector::Group(items) => {
             for item in items {
                 match item {
                     UsingGroupItem::Name(name) => {
-                        names.push(name.alias.unwrap_or(name.name));
+                        names.push(name.clone());
                     }
                     UsingGroupItem::Nested { host, selector } => {
                         collect_explicit_using_names(host, selector, names);
@@ -442,16 +461,21 @@ fn expand_root_group(
     source: PublicSource,
 ) -> UsingExpansion {
     let mut entries = Vec::new();
-    let mut any_unresolved = false;
+    let mut unresolved_reason = None;
     for item in items {
         match expand_root_group_item(context, current, local_modules, item, source.clone()) {
             UsingExpansion::Resolved(sub) => entries.extend(sub),
-            UsingExpansion::Unresolved => any_unresolved = true,
+            UsingExpansion::Unresolved => {
+                unresolved_reason.get_or_insert(UnresolvedUsingReason::UnknownName);
+            }
+            UsingExpansion::UnresolvedReason(reason) => {
+                unresolved_reason.get_or_insert(reason);
+            }
             UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
         }
     }
-    if any_unresolved {
-        UsingExpansion::Unresolved
+    if let Some(reason) = unresolved_reason {
+        UsingExpansion::UnresolvedReason(reason)
     } else {
         UsingExpansion::Resolved(entries)
     }
@@ -655,18 +679,21 @@ fn expand_module_host(
         }
         UsingSelector::Group(items) => {
             let mut entries = Vec::new();
-            let mut any_unresolved = false;
+            let mut unresolved_reason = None;
             for item in items {
                 match expand_group_item(context, target_module, item, source.clone()) {
                     UsingExpansion::Resolved(sub) => entries.extend(sub),
                     UsingExpansion::Unresolved => {
-                        any_unresolved = true;
+                        unresolved_reason.get_or_insert(UnresolvedUsingReason::UnknownName);
+                    }
+                    UsingExpansion::UnresolvedReason(reason) => {
+                        unresolved_reason.get_or_insert(reason);
                     }
                     UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
                 }
             }
-            if any_unresolved {
-                UsingExpansion::Unresolved
+            if let Some(reason) = unresolved_reason {
+                UsingExpansion::UnresolvedReason(reason)
             } else {
                 UsingExpansion::Resolved(entries)
             }
@@ -970,7 +997,30 @@ fn resolve_module_single(
         }
     }
     if entries.is_empty() {
-        return UsingExpansion::Unresolved;
+        let reason = context
+            .defs_by_module
+            .get(&target_module)
+            .and_then(|target_defs| {
+                let def_id = target_defs
+                    .module_scope
+                    .values
+                    .get(&name.name)
+                    .or_else(|| target_defs.module_scope.types.get(&name.name))?;
+                let def = target_defs.defs.get(def_id)?;
+                (!item_visibility_allows(
+                    context.mode,
+                    context.graph,
+                    target_module,
+                    context.accessing_module,
+                    def.visibility,
+                ))
+                .then_some(match context.mode {
+                    UsingLookupMode::PublicOnly => UnresolvedUsingReason::NotPublic,
+                    UsingLookupMode::Visible => UnresolvedUsingReason::Private,
+                })
+            })
+            .unwrap_or(UnresolvedUsingReason::UnknownName);
+        return UsingExpansion::UnresolvedReason(reason);
     }
     UsingExpansion::Resolved(entries)
 }
@@ -1024,7 +1074,7 @@ fn resolve_current_single(
         });
     }
     if entries.is_empty() {
-        return UsingExpansion::Unresolved;
+        return UsingExpansion::UnresolvedReason(UnresolvedUsingReason::UnknownName);
     }
     UsingExpansion::Resolved(entries)
 }
@@ -1110,7 +1160,14 @@ fn expand_enum_host(
                     source.clone(),
                 ) {
                     UsingExpansion::Resolved(sub) => entries.extend(sub),
-                    UsingExpansion::Unresolved => return UsingExpansion::Unresolved,
+                    UsingExpansion::Unresolved => {
+                        return UsingExpansion::UnresolvedReason(
+                            UnresolvedUsingReason::UnknownName,
+                        );
+                    }
+                    UsingExpansion::UnresolvedReason(reason) => {
+                        return UsingExpansion::UnresolvedReason(reason);
+                    }
                     UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
                 }
             }
