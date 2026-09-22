@@ -121,6 +121,19 @@ fn main(flag: bool) bool {
         "{:?}",
         checked.diagnostics
     );
+    assert!(
+        checked.diagnostics[0]
+            .notes
+            .iter()
+            .any(|note| { note.contains("visible implementation") && note.contains("Eq[bool]") })
+    );
+    assert!(
+        checked.diagnostics[0]
+            .help
+            .iter()
+            .any(|help| help.contains("provide an implementation")
+                || help.contains("matching implementation"))
+    );
 }
 
 #[test]

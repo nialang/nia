@@ -473,15 +473,11 @@ impl<'a> BodyChecker<'a> {
                 return self.normalize_projection(output);
             }
             if span != Span::default() {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
+                self.report_trait_bound_not_satisfied_named(
                     span,
-                    format!(
-                        "trait bound not satisfied: {}: {}",
-                        self.ty_name(lhs_ty),
-                        self.builtin_trait_ty_name(BuiltinTrait::Slice, &[range_ty])
-                    ),
-                ));
+                    lhs_ty,
+                    self.builtin_trait_ty_name(BuiltinTrait::Slice, &[range_ty]),
+                );
             }
             return self.error();
         }
@@ -505,15 +501,11 @@ impl<'a> BodyChecker<'a> {
             return self.normalize_projection(output);
         }
         if span != Span::default() {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            self.report_trait_bound_not_satisfied_named(
                 span,
-                format!(
-                    "trait bound not satisfied: {}: {}",
-                    self.ty_name(lhs_ty),
-                    self.builtin_trait_ty_name(BuiltinTrait::SliceMut, &[range_ty])
-                ),
-            ));
+                lhs_ty,
+                self.builtin_trait_ty_name(BuiltinTrait::SliceMut, &[range_ty]),
+            );
         }
         self.error()
     }
@@ -533,15 +525,11 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(BuiltinTrait::Index),
             trait_args.clone(),
         ) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            self.report_trait_bound_not_satisfied_named(
                 span,
-                format!(
-                    "trait bound not satisfied: {}: {}",
-                    self.ty_name(lhs_ty),
-                    self.builtin_trait_ty_name(BuiltinTrait::Index, &trait_args)
-                ),
-            ));
+                lhs_ty,
+                self.builtin_trait_ty_name(BuiltinTrait::Index, &trait_args),
+            );
             return self.error();
         }
         self.record_builtin_trait_method_ref(BuiltinTraitMethod::Index, lhs_ty, trait_args.clone());
@@ -570,15 +558,11 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(BuiltinTrait::IndexMut),
             trait_args.clone(),
         ) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            self.report_trait_bound_not_satisfied_named(
                 span,
-                format!(
-                    "trait bound not satisfied: {}: {}",
-                    self.ty_name(lhs_ty),
-                    self.builtin_trait_ty_name(BuiltinTrait::IndexMut, &trait_args)
-                ),
-            ));
+                lhs_ty,
+                self.builtin_trait_ty_name(BuiltinTrait::IndexMut, &trait_args),
+            );
             return self.error();
         }
         self.record_builtin_trait_method_ref(
@@ -719,15 +703,11 @@ impl<'a> BodyChecker<'a> {
                 self.normalize_projection(target)
             }
             _ => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
+                self.report_trait_bound_not_satisfied_named(
                     span,
-                    format!(
-                        "trait bound not satisfied: {}: {}",
-                        self.ty_name(ty),
-                        self.builtin_trait_ty_name(BuiltinTrait::Deref, &[])
-                    ),
-                ));
+                    ty,
+                    self.builtin_trait_ty_name(BuiltinTrait::Deref, &[]),
+                );
                 self.error()
             }
         }
