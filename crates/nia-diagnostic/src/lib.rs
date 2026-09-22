@@ -1231,6 +1231,37 @@ pub fn render_diagnostics_json<T: DiagnosticReportItem>(
     output
 }
 
+/// Renders diagnostics with one explicit source path in deterministic JSON.
+///
+/// This is useful for parser and boundary diagnostics that do not need a
+/// full program wrapper but still have a concrete source owner.
+pub fn render_diagnostics_json_at(
+    path: &str,
+    diagnostics: &[Diagnostic],
+    config: DiagnosticReportConfig,
+) -> String {
+    struct PathItem<'a> {
+        path: &'a str,
+        diagnostic: &'a Diagnostic,
+    }
+
+    impl DiagnosticReportItem for PathItem<'_> {
+        fn report_diagnostic(&self) -> &Diagnostic {
+            self.diagnostic
+        }
+
+        fn report_path(&self) -> Option<&str> {
+            Some(self.path)
+        }
+    }
+
+    let items = diagnostics
+        .iter()
+        .map(|diagnostic| PathItem { path, diagnostic })
+        .collect::<Vec<_>>();
+    render_diagnostics_json(&items, config)
+}
+
 fn push_json_string_field(output: &mut String, key: &str, value: &str, first: bool) {
     if !first {
         output.push(',');
