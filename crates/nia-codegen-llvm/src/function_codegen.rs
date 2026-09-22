@@ -1655,7 +1655,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     fn error(&self, span: Span, message: impl Into<String>) -> Diagnostic {
-        Diagnostic::user_error_at(nia_diagnostic::codes::LLVM_CODEGEN, span, message)
+        let message = message.into();
+        Diagnostic::internal_error(nia_diagnostic::codes::INTERNAL_LLVM_API, message.clone())
+            .primary(span, message)
+            .note(
+                "LLVM code generation reached an operation whose preconditions were not satisfied after semantic and backend validation",
+            )
+            .note("this indicates a compiler defect rather than a source-level type or name error")
+            .finish()
     }
 }
 
