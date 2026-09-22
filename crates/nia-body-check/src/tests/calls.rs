@@ -756,6 +756,24 @@ fn main(base: i32) i32 {
             .summary
             .contains("capturing closures cannot be converted to thin function pointers")
     }));
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("capturing closures cannot be converted to thin function pointers")
+        })
+        .expect("capturing closure diagnostic");
+    assert!(diagnostic.notes.iter().any(
+        |note| note.contains("captures 1 value(s)") && note.contains("no environment storage")
+    ));
+    assert!(
+        diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("callable view") && help.contains("&Fn(...)"))
+    );
 }
 
 #[test]

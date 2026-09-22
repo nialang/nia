@@ -186,12 +186,22 @@ impl<'a> BodyChecker<'a> {
                             self.record_expr_node_type(expr, expected);
                             return expected;
                         }
-                        crate::callable_views::ClosureFunctionPointerCoercion::Capturing => {
-                            self.diagnostics.push(Diagnostic::user_error_at(
-                                codes::TYPE_CHECK,
-                                expr.span,
-                                "capturing closures cannot be converted to thin function pointers; use `&Fn(...)`",
-                            ));
+                        crate::callable_views::ClosureFunctionPointerCoercion::Capturing {
+                            capture_count,
+                        } => {
+                            let summary =
+                                "capturing closures cannot be converted to thin function pointers";
+                            self.diagnostics.push(
+                                Diagnostic::user_error(codes::TYPE_CHECK, summary)
+                                    .primary(expr.span, summary)
+                                    .note(format!(
+                                        "this closure captures {capture_count} value(s), but a thin function pointer has no environment storage"
+                                    ))
+                                    .help(
+                                        "use a callable view such as `&Fn(...)` to retain the closure environment",
+                                    )
+                                    .finish(),
+                            );
                             return self.error();
                         }
                         crate::callable_views::ClosureFunctionPointerCoercion::Mismatch => {}
