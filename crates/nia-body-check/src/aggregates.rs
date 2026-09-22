@@ -339,11 +339,17 @@ impl<'a> BodyChecker<'a> {
         }
         for field in field_set.unknown_fields {
             let name = self.symbol_name(field.name);
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                field.span,
-                format!("unknown struct field `{name}`"),
-            ));
+            let summary = format!("unknown struct field `{name}`");
+            let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(field.span, summary)
+                .note(format!(
+                    "the constructor targets a value of type `{}`",
+                    self.ty_name(aggregate_ty)
+                ));
+            if let Some((note, help)) = available_field_context(self, &signature_fields) {
+                diagnostic = diagnostic.note(note).help(help);
+            }
+            self.diagnostics.push(diagnostic.finish());
         }
         for name in field_set.missing_fields {
             let name = self.symbol_name(name);
@@ -403,11 +409,17 @@ impl<'a> BodyChecker<'a> {
         else {
             self.check_expr(&field.value);
             let name = self.symbol_name(field.name);
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                field.span,
-                format!("unknown union field `{name}`"),
-            ));
+            let summary = format!("unknown union field `{name}`");
+            let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(field.span, summary)
+                .note(format!(
+                    "the constructor targets a value of type `{}`",
+                    self.ty_name(union_ty)
+                ));
+            if let Some((note, help)) = available_field_context(self, &signature_fields) {
+                diagnostic = diagnostic.note(note).help(help);
+            }
+            self.diagnostics.push(diagnostic.finish());
             return union_ty;
         };
         let expected = self.substitute_generics_and_consts(
