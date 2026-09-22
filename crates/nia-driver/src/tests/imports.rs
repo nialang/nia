@@ -3,6 +3,7 @@ use super::common::*;
 
 use nia_imports::{ModuleMap, SourcePath};
 use nia_loader_query::load_program;
+use nia_span::Span;
 use std::collections::BTreeSet;
 use std::{fs, path::Path, sync::Arc};
 
@@ -2996,6 +2997,58 @@ fn main() () {
             .any(|diagnostic| diagnostic.diagnostic.summary == "name is unresolved"),
         "{:?}",
         program.diagnostics
+    );
+}
+
+#[test]
+fn failed_using_call_reports_call_and_import_evidence() {
+    let root = temp_dir("failed_using_call_reports_call_and_import_evidence");
+    let source = r#"using entry::api::missing_value;
+
+fn main() i32 {
+    missing_value()
+}
+"#;
+    write(&root.join("main.nia"), source);
+    write(&root.join("api.nia"), "");
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let diagnostic = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("unavailable because its `using` directive did not find it")
+        })
+        .expect("failed using call diagnostic");
+    let call_start = source.find("missing_value()").expect("call span");
+    assert!(
+        diagnostic.diagnostic.labels.iter().any(|label| {
+            label.span == Span::new(call_start, call_start + "missing_value".len())
+        })
+    );
+    assert!(
+        diagnostic
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message == "the imported name is selected here")
+    );
+    assert!(
+        diagnostic
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message == "the `using` directive is here")
+    );
+    assert!(
+        diagnostic
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("check the imported module path"))
     );
 }
 

@@ -266,6 +266,14 @@ impl UsingScopeLookup for QueryUsingScopeLookup<'_> {
         self.unresolved.borrow_mut().insert(*name, unresolved);
         unresolved
     }
+
+    fn unresolved_using(&self, name: &SymbolId) -> Option<nia_defs::UnresolvedUsing> {
+        capture_query_failure(
+            &self.failure,
+            self.db.get(ModuleUsingScopeQuery(self.module_id)),
+        )
+        .and_then(|scope| scope.unresolved_using(name))
+    }
 }
 
 type ChildModuleLookup = HashMap<(ModuleId, SymbolId), Option<(ModuleId, nia_ids::Visibility)>>;

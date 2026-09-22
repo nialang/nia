@@ -7,7 +7,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use nia_ast::{Expr, ExprKind, Module, PathSegmentKind, TypeArg, TypeKind, TypeRef, Visibility};
 use nia_ast_walk::{Visitor, walk_expr, walk_generic_params, walk_where_clause};
-use nia_defs::{DefCollection, DefKind, PublicNamespace, PublicSurfaceLookup, UsingScopeLookup};
+use nia_defs::{
+    DefCollection, DefKind, PublicNamespace, PublicSurfaceLookup, UnresolvedUsing, UsingScopeLookup,
+};
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
@@ -29,6 +31,8 @@ use nia_ty::PrimitiveTy;
 pub struct ValueResolution {
     /// Unqualified value-name resolutions.
     pub node_names: NodeMap<ValueNameResolution>,
+    /// Evidence for names rejected because a `using` directive failed.
+    pub node_unresolved_usings: NodeMap<UnresolvedUsing>,
     /// Qualified value references resolved to global definitions.
     pub node_qualified_values: NodeMap<GlobalDefId>,
     /// Builtin associated values resolved by the semantic name.
@@ -51,6 +55,7 @@ pub struct ValueResolution {
 /// Incremental builder for a [`ValueResolution`] product.
 pub struct ValueResolutionBuilder {
     node_names: NodeMapBuilder<ValueNameResolution>,
+    node_unresolved_usings: NodeMapBuilder<UnresolvedUsing>,
     node_qualified_values: NodeMapBuilder<GlobalDefId>,
     node_builtin_associated_values: NodeMapBuilder<BuiltinAssociatedValue>,
     node_variant_enums: NodeMapBuilder<GlobalDefId>,
@@ -63,6 +68,7 @@ impl ValueResolution {
     pub fn with_store(store: &NodeStore) -> Self {
         Self {
             node_names: NodeMap::with_store(store),
+            node_unresolved_usings: NodeMap::with_store(store),
             node_qualified_values: NodeMap::with_store(store),
             node_builtin_associated_values: NodeMap::with_store(store),
             node_variant_enums: NodeMap::with_store(store),
@@ -75,6 +81,7 @@ impl ValueResolution {
     pub fn builder(store: &NodeStore) -> ValueResolutionBuilder {
         ValueResolutionBuilder {
             node_names: NodeMap::builder(store),
+            node_unresolved_usings: NodeMap::builder(store),
             node_qualified_values: NodeMap::builder(store),
             node_builtin_associated_values: NodeMap::builder(store),
             node_variant_enums: NodeMap::builder(store),
@@ -87,6 +94,7 @@ impl ValueResolution {
     pub fn into_builder(self) -> ValueResolutionBuilder {
         ValueResolutionBuilder {
             node_names: self.node_names.into_builder(),
+            node_unresolved_usings: self.node_unresolved_usings.into_builder(),
             node_qualified_values: self.node_qualified_values.into_builder(),
             node_builtin_associated_values: self.node_builtin_associated_values.into_builder(),
             node_variant_enums: self.node_variant_enums.into_builder(),
@@ -117,6 +125,8 @@ impl ValueResolutionBuilder {
     /// Merges another resolution product into this builder.
     pub fn extend(&mut self, resolution: ValueResolution) {
         self.node_names.extend_map(resolution.node_names);
+        self.node_unresolved_usings
+            .extend_map(resolution.node_unresolved_usings);
         self.node_qualified_values
             .extend_map(resolution.node_qualified_values);
         self.node_builtin_associated_values
@@ -132,6 +142,7 @@ impl ValueResolutionBuilder {
     pub fn finish(self) -> ValueResolution {
         ValueResolution {
             node_names: self.node_names.finish(),
+            node_unresolved_usings: self.node_unresolved_usings.finish(),
             node_qualified_values: self.node_qualified_values.finish(),
             node_builtin_associated_values: self.node_builtin_associated_values.finish(),
             node_variant_enums: self.node_variant_enums.finish(),
@@ -572,6 +583,7 @@ struct ValueResolver<'a> {
     associated_values: Option<&'a dyn AssociatedValueResolver>,
     symbols: Option<&'a dyn SymbolText>,
     node_names: HashMap<VersionedNodeKey, ValueNameResolution>,
+    node_unresolved_usings: HashMap<VersionedNodeKey, UnresolvedUsing>,
     node_qualified_values: HashMap<VersionedNodeKey, GlobalDefId>,
     node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
     node_variant_enums: HashMap<VersionedNodeKey, GlobalDefId>,
@@ -590,6 +602,7 @@ impl ValueResolver<'_> {
             associated_values: inputs.associated_values,
             symbols: inputs.symbols,
             node_names: HashMap::new(),
+            node_unresolved_usings: HashMap::new(),
             node_qualified_values: HashMap::new(),
             node_builtin_associated_values: HashMap::new(),
             node_variant_enums: HashMap::new(),
@@ -601,6 +614,9 @@ impl ValueResolver<'_> {
     fn finish(self, node_store: &NodeStore) -> ValueResolution {
         let mut resolution = ValueResolution::builder(node_store);
         resolution.node_names.extend(self.node_names);
+        resolution
+            .node_unresolved_usings
+            .extend(self.node_unresolved_usings);
         resolution
             .node_qualified_values
             .extend(self.node_qualified_values);
@@ -1321,10 +1337,12 @@ impl<'a> ValueResolver<'a> {
                 },
             );
         }
-        if self
+        if let Some(failure) = self
             .using_scope
-            .is_some_and(|scope| scope.has_unresolved_using_name(name))
+            .and_then(|scope| scope.unresolved_using(name))
         {
+            self.node_unresolved_usings
+                .insert(node_key.clone(), failure);
             return ValueNameResolution::Error;
         }
 

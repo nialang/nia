@@ -2,7 +2,7 @@
 use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
-use nia_defs::{DefId, DefKind, VisibleExtensionAssociatedValue};
+use nia_defs::{DefId, DefKind, UnresolvedUsingReason, VisibleExtensionAssociatedValue};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ice::Ice;
 use nia_ids::{BuiltinAssociatedConst, GlobalDefId, InternedTyId};
@@ -1969,6 +1969,44 @@ impl<'a> BodyChecker<'a> {
         self.error()
     }
 
+    fn unresolved_using_diagnostic(
+        &self,
+        expr: &Expr,
+        failure: nia_defs::UnresolvedUsing,
+    ) -> Diagnostic {
+        let name = expr_ident_name(expr)
+            .map(|name| self.symbol_name(*name))
+            .unwrap_or_else(|| "this name".to_string());
+        let (summary, help) = match failure.reason {
+            UnresolvedUsingReason::UnknownName => (
+                format!(
+                    "name `{name}` is unavailable because its `using` directive did not find it"
+                ),
+                format!("check the imported module path and make sure `{name}` is declared there"),
+            ),
+            UnresolvedUsingReason::Private => (
+                format!("name `{name}` is unavailable because the imported item is private"),
+                format!(
+                    "make `{name}` public in its defining module, or use it from an allowed scope"
+                ),
+            ),
+            UnresolvedUsingReason::NotPublic => (
+                format!("name `{name}` is unavailable because the imported item is not public"),
+                format!("add `pub` to `{name}` in its defining module"),
+            ),
+            UnresolvedUsingReason::NamespaceNotVisible => (
+                format!("name `{name}` is unavailable because its module is not visible here"),
+                "make the module declaration visible from this module".to_string(),
+            ),
+        };
+        Diagnostic::user_error(codes::NAME_RESOLUTION, summary)
+            .primary(expr.span, "call to unresolved imported name")
+            .related(failure.name_span, "the imported name is selected here")
+            .related(failure.directive_span, "the `using` directive is here")
+            .help(help)
+            .finish()
+    }
+
     fn ident_type(&mut self, expr: &Expr) -> InternedTyId {
         let span = expr.span;
         match self.local_use(expr) {
@@ -1987,6 +2025,11 @@ impl<'a> BodyChecker<'a> {
             }
             Some(LocalUse::Static(_)) => self.error(),
             Some(LocalUse::ModuleValue) => {
+                if let Some(failure) = self.values.node_unresolved_usings.get(&expr.node_key) {
+                    self.diagnostics
+                        .push(self.unresolved_using_diagnostic(expr, *failure));
+                    return self.error();
+                }
                 if let Some(enum_id) = self.values.node_variant_enums.get(&expr.node_key).copied() {
                     return self.interner.intern(TyKind::Nominal {
                         def_id: enum_id,
@@ -2017,12 +2060,19 @@ impl<'a> BodyChecker<'a> {
                 {
                     return arg.ty;
                 }
-                self.diagnostics.push(
-                    Diagnostic::user_error(codes::TYPE_CHECK, "name is unresolved")
-                        .primary(span, "name is unresolved")
-                        .help("check the spelling, import the name, or define it in this module")
-                        .finish(),
-                );
+                if let Some(failure) = self.values.node_unresolved_usings.get(&expr.node_key) {
+                    self.diagnostics
+                        .push(self.unresolved_using_diagnostic(expr, *failure));
+                } else {
+                    self.diagnostics.push(
+                        Diagnostic::user_error(codes::TYPE_CHECK, "name is unresolved")
+                            .primary(span, "name is unresolved")
+                            .help(
+                                "check the spelling, import the name, or define it in this module",
+                            )
+                            .finish(),
+                    );
+                }
                 self.error()
             }
         }
