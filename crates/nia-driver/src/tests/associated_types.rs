@@ -1266,6 +1266,97 @@ fn main() i32 {
         "{:?}",
         program.diagnostics
     );
+    let mismatch = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("does not match the trait requirement")
+        })
+        .expect("associated const mismatch diagnostic");
+    assert!(
+        mismatch
+            .diagnostic
+            .primary_message()
+            .is_some_and(|message| message.contains("has a different type")),
+        "{mismatch:?}"
+    );
+    assert!(
+        mismatch
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message.contains("trait requires `Lanes`")),
+        "{mismatch:?}"
+    );
+    assert!(
+        mismatch
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("change the type of associated const `Lanes`")),
+        "{mismatch:?}"
+    );
+}
+
+#[test]
+fn trait_impl_associated_const_requires_explicit_type() {
+    let root = temp_dir("trait_impl_associated_const_requires_explicit_type");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Simd {
+    const Lanes: usize;
+}
+
+struct Vec4 {}
+
+extend Vec4 : Simd {
+    const Lanes = 4usize;
+}
+
+fn main() i32 {
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let missing_type = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("requires an explicit type to satisfy the trait requirement")
+        })
+        .expect("associated const explicit type diagnostic");
+    assert!(
+        missing_type
+            .diagnostic
+            .primary_message()
+            .is_some_and(|message| message.contains("has no explicit type")),
+        "{missing_type:?}"
+    );
+    assert!(
+        missing_type
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message.contains("trait requires `Lanes`")),
+        "{missing_type:?}"
+    );
+    assert!(
+        missing_type
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("add an explicit type to associated const `Lanes`")),
+        "{missing_type:?}"
+    );
 }
 
 #[test]
