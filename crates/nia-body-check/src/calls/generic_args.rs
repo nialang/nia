@@ -112,7 +112,7 @@ impl<'a> BodyChecker<'a> {
     fn const_generic_value_name(&self, value: &ConstGenericValue) -> String {
         match value {
             ConstGenericValue::GenericParam(name) => self.symbol_name(*name),
-            ConstGenericValue::ConstExpr(id) => format!("constant expression {id:?}"),
+            ConstGenericValue::ConstExpr(_) => "an unevaluated constant expression".to_string(),
             ConstGenericValue::Int(value) => value
                 .as_i128()
                 .map_or_else(|| value.bits().to_string(), |value| value.to_string()),
