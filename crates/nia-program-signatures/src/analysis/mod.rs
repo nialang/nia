@@ -1169,14 +1169,21 @@ fn validate_builtin_trait_impl(
 ) -> bool {
     let start_len = diagnostics.len();
     if builtin_trait_impl_overlaps_intrinsic(module, target_ty, trait_id, impl_signature) {
-        diagnostics.push(Diagnostic::user_error_at(
-            codes::NAME_RESOLUTION,
-            impl_signature.span,
-            format!(
-                "implementation of `{}` overlaps a compiler-proven implementation",
-                trait_id.name()
-            ),
-        ));
+        let name = trait_id.name();
+        diagnostics.push(
+            Diagnostic::user_error(
+                codes::NAME_RESOLUTION,
+                format!("implementation of `{name}` overlaps a compiler-proven implementation"),
+            )
+            .primary(
+                impl_signature.span,
+                format!("this `{name}` implementation overlaps an intrinsic implementation"),
+            )
+            .help(format!(
+                "remove this implementation and use the compiler-provided `{name}` behavior"
+            ))
+            .finish(),
+        );
         return false;
     }
     for associated_type in &impl_signature.associated_types {
@@ -1186,11 +1193,20 @@ fn validate_builtin_trait_impl(
             .any(|expected| expected.symbol_id() == associated_type.name)
         {
             let name = symbol_name(symbols, associated_type.name);
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                associated_type.span,
-                format!("associated type `{name}` is not a member of implemented trait"),
-            ));
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!("associated type `{name}` is not a member of implemented trait"),
+                )
+                .primary(
+                    associated_type.span,
+                    format!("associated type `{name}` is not part of this builtin trait"),
+                )
+                .help(format!(
+                    "remove associated type `{name}` from this implementation"
+                ))
+                .finish(),
+            );
         }
     }
     for associated_type_name in trait_id.associated_types().iter().copied() {
@@ -1199,14 +1215,21 @@ fn validate_builtin_trait_impl(
             .iter()
             .any(|associated_type| associated_type.name == associated_type_name.symbol_id())
         {
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                impl_signature.span,
-                format!(
-                    "missing definition for associated type `{}`",
-                    associated_type_name.name()
-                ),
-            ));
+            let name = associated_type_name.name();
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!("missing definition for associated type `{name}`"),
+                )
+                .primary(
+                    impl_signature.span,
+                    format!("this implementation does not define `{name}`"),
+                )
+                .help(format!(
+                    "define associated type `{name}` in this implementation"
+                ))
+                .finish(),
+            );
         }
     }
     validate_builtin_supertrait_impls(
@@ -1224,11 +1247,18 @@ fn validate_builtin_trait_impl(
             .any(|expected_method| expected_method.symbol_id() == method.name)
         {
             let name = symbol_name(symbols, method.name);
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                method.span,
-                format!("method `{name}` is not a member of implemented trait"),
-            ));
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!("method `{name}` is not a member of implemented trait"),
+                )
+                .primary(
+                    method.span,
+                    format!("method `{name}` is not part of this builtin trait"),
+                )
+                .help(format!("remove method `{name}` from this implementation"))
+                .finish(),
+            );
         }
     }
     for expected_method in expected_methods {
@@ -1238,14 +1268,23 @@ fn validate_builtin_trait_impl(
             .filter(|method| method.name == expected_method.symbol_id())
             .collect::<Vec<_>>();
         match matching_methods.as_slice() {
-            [] => diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                impl_signature.span,
-                format!(
-                    "missing implementation for trait method `{}`",
-                    expected_method.name()
-                ),
-            )),
+            [] => {
+                let name = expected_method.name();
+                diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::NAME_RESOLUTION,
+                        format!("missing implementation for trait method `{name}`"),
+                    )
+                    .primary(
+                        impl_signature.span,
+                        format!("this implementation does not define `{name}`"),
+                    )
+                    .help(format!(
+                        "implement builtin trait method `{name}` in this block"
+                    ))
+                    .finish(),
+                )
+            }
             [method] => {
                 let Some(actual) = module.function_signatures.functions.get(&method.def_id) else {
                     return false;
@@ -1257,23 +1296,38 @@ fn validate_builtin_trait_impl(
                     trait_id,
                     *expected_method,
                 ) {
-                    diagnostics.push(Diagnostic::user_error_at(codes::NAME_RESOLUTION,
-                        method.span,
-                        format!(
-                            "implementation of trait method `{}` does not match the trait signature",
-                            expected_method.name()
-                        ),
-                    ));
+                    let name = expected_method.name();
+                    diagnostics.push(
+                        Diagnostic::user_error(
+                            codes::NAME_RESOLUTION,
+                            format!(
+                                "implementation of trait method `{name}` does not match the trait signature"
+                            ),
+                        )
+                        .primary(
+                            method.span,
+                            format!("method `{name}` has a different signature"),
+                        )
+                        .help(format!("change method `{name}` to match the builtin trait"))
+                        .finish(),
+                    );
                 }
             }
-            _ => diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                impl_signature.span,
-                format!(
-                    "duplicate implementation for trait method `{}`",
-                    expected_method.name()
-                ),
-            )),
+            _ => {
+                let name = expected_method.name();
+                diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::NAME_RESOLUTION,
+                        format!("duplicate implementation for trait method `{name}`"),
+                    )
+                    .primary(
+                        impl_signature.span,
+                        format!("this implementation defines `{name}` more than once"),
+                    )
+                    .help(format!("keep only one implementation of `{name}`"))
+                    .finish(),
+                )
+            }
         }
     }
     diagnostics.len() == start_len

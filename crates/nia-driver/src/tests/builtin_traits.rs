@@ -922,6 +922,31 @@ fn main() i32 { 0 }
         })
         .count();
     assert_eq!(overlap_count, 1, "{:?}", program.diagnostics);
+    let overlap = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("overlaps a compiler-proven implementation")
+        })
+        .expect("builtin overlap diagnostic");
+    assert!(
+        overlap
+            .diagnostic
+            .primary_message()
+            .is_some_and(|message| message.contains("overlaps an intrinsic implementation")),
+        "{overlap:?}"
+    );
+    assert!(
+        overlap
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("use the compiler-provided")),
+        "{overlap:?}"
+    );
 }
 
 #[test]
@@ -1307,6 +1332,31 @@ fn main() i32 { 0 }
             )),
         "{:?}",
         program.diagnostics
+    );
+    let mismatch = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("implementation of trait method `len` does not match the trait signature")
+        })
+        .expect("builtin method mismatch diagnostic");
+    assert!(
+        mismatch
+            .diagnostic
+            .primary_message()
+            .is_some_and(|message| message.contains("has a different signature")),
+        "{mismatch:?}"
+    );
+    assert!(
+        mismatch
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("change method `len`")),
+        "{mismatch:?}"
     );
 }
 
