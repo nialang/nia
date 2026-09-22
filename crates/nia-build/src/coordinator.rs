@@ -14,6 +14,7 @@ mod scheduling;
 
 use executor::DriverActionExecutor;
 use external_command::*;
+pub(crate) use helpers::display_target;
 use helpers::*;
 use publication::*;
 use scheduling::ActionCancellation;

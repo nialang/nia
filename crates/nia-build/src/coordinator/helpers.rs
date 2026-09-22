@@ -124,7 +124,7 @@ pub(super) fn target_config(target: &TargetSpec) -> TargetConfig {
     }
 }
 
-pub(super) fn display_target(target: &TargetSpec) -> String {
+pub(crate) fn display_target(target: &TargetSpec) -> String {
     format!(
         "{}-{}-{}-{}-{} ({}-bit {})",
         target.arch,
