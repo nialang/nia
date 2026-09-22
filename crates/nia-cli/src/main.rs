@@ -1440,7 +1440,8 @@ fn render_parse_failure(
                     )
                 })
                 .collect::<Vec<_>>();
-            nia_diagnostic::render_diagnostics_json(
+            nia_diagnostic::render_diagnostics_json_at(
+                path,
                 &diagnostics,
                 nia_diagnostic::DiagnosticReportConfig::default(),
             )
