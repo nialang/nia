@@ -1086,6 +1086,177 @@ pub fn render_diagnostic(path: &str, source: &str, diagnostic: &Diagnostic) -> S
     output
 }
 
+/// Renders one diagnostic as deterministic machine-readable JSON.
+///
+/// The JSON representation deliberately contains structured source spans and
+/// keeps terminal formatting out of the payload. Internal debug fields are
+/// included only for internal diagnostics so user reports do not accidentally
+/// expose compiler handles.
+pub fn render_diagnostic_json(path: &str, diagnostic: &Diagnostic) -> String {
+    let mut output = String::from("{");
+    push_json_string_field(&mut output, "path", path, true);
+    push_json_string_field(&mut output, "code", diagnostic.code.as_str(), false);
+    push_json_string_field(
+        &mut output,
+        "severity",
+        match diagnostic.severity {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+        },
+        false,
+    );
+    push_json_string_field(
+        &mut output,
+        "category",
+        match diagnostic.category {
+            DiagnosticCategory::User => "user",
+            DiagnosticCategory::Internal => "internal",
+        },
+        false,
+    );
+    push_json_string_field(&mut output, "summary", &diagnostic.summary, false);
+    output.push_str(",\"labels\":[");
+    for (index, label) in diagnostic.labels.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push('{');
+        output.push_str("\"start\":");
+        output.push_str(&label.span.start.to_string());
+        output.push_str(",\"end\":");
+        output.push_str(&label.span.end.to_string());
+        push_json_string_field(
+            &mut output,
+            "source",
+            match label.span_source {
+                SpanSource::Source => "source",
+                SpanSource::Fallback => "fallback",
+                SpanSource::Generated => "generated",
+            },
+            false,
+        );
+        push_json_string_field(
+            &mut output,
+            "style",
+            match label.style {
+                LabelStyle::Primary => "primary",
+                LabelStyle::Secondary => "secondary",
+            },
+            false,
+        );
+        output.push_str(",\"message\":");
+        push_json_optional_string(&mut output, label.message.as_deref());
+        output.push('}');
+    }
+    output.push(']');
+    push_json_string_array(&mut output, "notes", &diagnostic.notes);
+    push_json_string_array(&mut output, "help", &diagnostic.help);
+    output.push_str(",\"related\":[");
+    for (index, related) in diagnostic.related.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push('{');
+        output.push_str("\"start\":");
+        output.push_str(&related.span.start.to_string());
+        output.push_str(",\"end\":");
+        output.push_str(&related.span.end.to_string());
+        push_json_string_field(&mut output, "message", &related.message, false);
+        output.push('}');
+    }
+    output.push(']');
+    if diagnostic.category == DiagnosticCategory::Internal {
+        output.push_str(",\"debug\":[");
+        for (index, field) in diagnostic.debug.iter().enumerate() {
+            if index != 0 {
+                output.push(',');
+            }
+            output.push('{');
+            push_json_string_field(&mut output, "key", &field.key, true);
+            push_json_string_field(&mut output, "value", &field.value, false);
+            output.push('}');
+        }
+        output.push(']');
+    }
+    output.push('}');
+    output
+}
+
+/// Renders a sorted, deduplicated diagnostic report as deterministic JSON.
+pub fn render_diagnostics_json<T: DiagnosticReportItem>(
+    diagnostics: &[T],
+    config: DiagnosticReportConfig,
+) -> String {
+    let report = build_diagnostic_report(diagnostics, config);
+    let mut output = String::from("{\"diagnostics\":[");
+    for (index, entry) in report.entries().iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str(&render_diagnostic_json(
+            entry.report_path().unwrap_or("<unknown>"),
+            entry.report_diagnostic(),
+        ));
+    }
+    output.push_str("],\"suppressed\":{");
+    output.push_str("\"duplicates\":");
+    output.push_str(&report.suppressed_duplicates().to_string());
+    output.push_str(",\"limit\":");
+    output.push_str(&report.suppressed_by_limit().to_string());
+    output.push_str("}}");
+    output
+}
+
+fn push_json_string_field(output: &mut String, key: &str, value: &str, first: bool) {
+    if !first {
+        output.push(',');
+    }
+    output.push('"');
+    push_json_escaped(output, key);
+    output.push_str("\":\"");
+    push_json_escaped(output, value);
+    output.push('"');
+}
+
+fn push_json_optional_string(output: &mut String, value: Option<&str>) {
+    if let Some(value) = value {
+        output.push('"');
+        push_json_escaped(output, value);
+        output.push('"');
+    } else {
+        output.push_str("null");
+    }
+}
+
+fn push_json_string_array(output: &mut String, key: &str, values: &[String]) {
+    output.push_str(",\"");
+    push_json_escaped(output, key);
+    output.push_str("\":[");
+    for (index, value) in values.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push('"');
+        push_json_escaped(output, value);
+        output.push('"');
+    }
+    output.push(']');
+}
+
+fn push_json_escaped(output: &mut String, value: &str) {
+    for ch in value.chars() {
+        match ch {
+            '"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            ch if ch.is_control() => output.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch => output.push(ch),
+        }
+    }
+}
+
 fn render_label(
     path: &str,
     source: &str,
@@ -1399,5 +1570,23 @@ mod tests {
         assert!(rendered.contains("--> main.nia:2:1"));
         assert!(rendered.contains("2 | β();"));
         assert!(rendered.contains("| ^ call here"));
+    }
+
+    #[test]
+    fn json_report_contains_structured_locations_and_suppression_counts() {
+        let diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, "bad \"type\"")
+            .primary(Span::new(1, 3), "value\nlabel")
+            .note("expected `i32`")
+            .help("add a cast")
+            .finish();
+        let item = diagnostic.clone();
+        let json = render_diagnostics_json(
+            std::slice::from_ref(&item),
+            DiagnosticReportConfig::default(),
+        );
+        assert!(json.contains("\"code\":\"E0301\""), "{json}");
+        assert!(json.contains("\"start\":1,\"end\":3"), "{json}");
+        assert!(json.contains("value\\nlabel"), "{json}");
+        assert!(json.contains("\"suppressed\":{\"duplicates\":0"), "{json}");
     }
 }
