@@ -71,7 +71,7 @@ impl<'a> BodyChecker<'a> {
                     PlaceBase::Deref(Box::new(self.lower_expr_with_ty(expr, Some(ty))))
                 }
             }
-            ExprKind::Field { lhs, name } | ExprKind::Qualified { lhs, name } => {
+            ExprKind::Field { lhs, name } | ExprKind::Qualified { lhs, name, .. } => {
                 let base = self.lower_place_inner(lhs, elems, mutable);
                 let lhs_ty = self.expr_ty(lhs).unwrap_or_else(|| self.error());
                 let field = self

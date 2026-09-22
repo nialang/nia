@@ -1355,7 +1355,7 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
-            ExprKind::Qualified { lhs, name } => {
+            ExprKind::Qualified { lhs, name, .. } => {
                 if let Some(variant) = self
                     .qualified_enum_variant(expr)
                     .or_else(|| self.enum_variant_for_qualified(lhs, name))

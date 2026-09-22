@@ -203,7 +203,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 Some(item)
             }
-            ExprKind::Qualified { lhs, name } => {
+            ExprKind::Qualified { lhs, name, .. } => {
                 if let Some(item) = self.associated_method_item_ref(expr.span, lhs, name, expected)
                 {
                     return Some(item);
@@ -407,7 +407,7 @@ impl<'a> BodyChecker<'a> {
                 },
             );
         }
-        if let ExprKind::Qualified { lhs, name } = &callee.kind
+        if let ExprKind::Qualified { lhs, name, .. } = &callee.kind
             && let Some(return_type) = self
                 .check_explicit_generic_associated_call(expr, lhs, name, type_args, args, expected)
         {

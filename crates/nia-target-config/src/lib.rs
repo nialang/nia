@@ -578,12 +578,17 @@ impl Pruner<'_> {
                     fields: self.prune_fields(fields),
                 },
             },
-            ExprKind::Qualified { lhs, name } => Expr {
+            ExprKind::Qualified {
+                lhs,
+                name,
+                name_span,
+            } => Expr {
                 span,
                 node_key,
                 kind: ExprKind::Qualified {
                     lhs: Box::new(self.prune_expr(*lhs)),
                     name,
+                    name_span,
                 },
             },
             ExprKind::Field { lhs, name } => Expr {

@@ -167,11 +167,38 @@ fn lanes[T]() usize where T: Simd {
     };
     let body = function.body.as_ref().expect("expected body");
     let tail = body.tail.as_ref().expect("expected tail");
-    let ExprKind::Qualified { lhs, name } = &tail.kind else {
+    let ExprKind::Qualified { lhs, name, .. } = &tail.kind else {
         panic!("expected qualified projection");
     };
     assert_eq!(*name, sym("Lanes"));
     assert!(matches!(lhs.kind, ExprKind::TraitTarget { .. }));
+}
+
+#[test]
+fn retains_the_selected_name_span_in_qualified_values() {
+    let source = r#"
+fn main() i32 {
+    missing::value()
+}
+"#;
+    let (module, errors) = parse_module(source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let call = function
+        .body
+        .as_ref()
+        .and_then(|body| body.tail.as_ref())
+        .expect("expected call");
+    let ExprKind::Call { callee, .. } = &call.kind else {
+        panic!("expected call expression");
+    };
+    let ExprKind::Qualified { name_span, .. } = &callee.kind else {
+        panic!("expected qualified callee");
+    };
+    let start = source.find("value").expect("selected name source span");
+    assert_eq!(*name_span, Span::new(start, start + "value".len()));
 }
 
 #[test]

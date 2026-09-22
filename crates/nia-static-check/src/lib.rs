@@ -327,7 +327,7 @@ impl StaticChecker<'_> {
                 Some(LocalUse::Module) => Some("module namespace is not static data"),
                 Some(LocalUse::TypePrefix) => Some("type prefix is not static data"),
             },
-            ExprKind::Qualified { lhs, name: _ } => {
+            ExprKind::Qualified { lhs, name: _, .. } => {
                 if self.is_enum_variant_access(expr, lhs) {
                     None
                 } else if let Some(global_id) = self.qualified_value(expr)

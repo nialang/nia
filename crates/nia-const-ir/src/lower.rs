@@ -500,7 +500,7 @@ fn lower_call_with_context(
                 .collect::<Result<Vec<_>, _>>()?,
         });
     }
-    if let nia_ast::ExprKind::Qualified { lhs, name } = &callee.kind
+    if let nia_ast::ExprKind::Qualified { lhs, name, .. } = &callee.kind
         && context.probe_name_resolution(&callee.node_key).is_none()
     {
         let nominal_instance = match &lhs.kind {
@@ -590,12 +590,13 @@ fn std_builtin_call(callee: &nia_ast::Expr) -> Option<(SymbolId, Option<&nia_ast
         };
         return Some((name, arg.ty.as_ref(), span));
     }
-    let nia_ast::ExprKind::Qualified { lhs, name } = &callee.kind else {
+    let nia_ast::ExprKind::Qualified { lhs, name, .. } = &callee.kind else {
         return None;
     };
     let nia_ast::ExprKind::Qualified {
         lhs: std_expr,
         name: builtin_segment,
+        ..
     } = &lhs.kind
     else {
         return None;

@@ -563,6 +563,8 @@ pub enum ExprKind {
         lhs: Box<Expr>,
         /// Selected symbol.
         name: SymbolId,
+        /// Source span of the selected symbol after `::`.
+        name_span: Span,
     },
     /// Named field projection.
     Field {

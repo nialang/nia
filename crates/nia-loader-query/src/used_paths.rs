@@ -410,7 +410,7 @@ fn expr_qualified_segments(expr: &Expr) -> Option<(Option<PathSegmentKind>, Vec<
                 segments.push(*name);
                 Some(None)
             }
-            ExprKind::Qualified { lhs, name } => {
+            ExprKind::Qualified { lhs, name, .. } => {
                 let root = collect(lhs, segments)?;
                 segments.push(*name);
                 Some(root)

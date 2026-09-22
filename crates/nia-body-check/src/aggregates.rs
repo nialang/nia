@@ -1221,7 +1221,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn enum_variant_info(&mut self, expr: &Expr) -> Option<(GlobalDefId, DefId)> {
-        let ExprKind::Qualified { lhs, name } = &expr.kind else {
+        let ExprKind::Qualified { lhs, name, .. } = &expr.kind else {
             return None;
         };
         let enum_id = self.type_prefix_def_id(lhs)?;

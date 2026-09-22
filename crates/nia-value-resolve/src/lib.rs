@@ -950,7 +950,7 @@ impl<'a> ValueResolver<'a> {
         match namespace {
             ResolvedNamespace::Module(module_id) => {
                 self.resolve_module_qualified_value(
-                    expr.span,
+                    final_segment.span,
                     &expr.node_key,
                     module_id,
                     final_segment,
@@ -1487,11 +1487,15 @@ fn qualified_path_segments(expr: &Expr) -> Option<Vec<PathSegment<'_>>> {
                 });
                 Some(())
             }
-            ExprKind::Qualified { lhs, name } => {
+            ExprKind::Qualified {
+                lhs,
+                name,
+                name_span,
+            } => {
                 collect(lhs, segments)?;
                 segments.push(PathSegment {
                     kind: PathSegmentKind::Name(*name),
-                    span: expr.span,
+                    span: *name_span,
                     node_key: &expr.node_key,
                 });
                 Some(())

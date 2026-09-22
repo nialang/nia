@@ -495,6 +495,7 @@ impl Parser {
                 continue;
             }
             if self.eat(TokenKind::ColonColon).is_some() {
+                let name_start = self.peek().span.start;
                 let name = self.expect_name(TokenKind::Ident, "expected name after `::`")?;
                 let end = self.previous_end();
                 expr = self.make_expr(
@@ -502,6 +503,7 @@ impl Parser {
                     ExprKind::Qualified {
                         lhs: Box::new(expr),
                         name,
+                        name_span: Span::new(name_start, end),
                     },
                 );
                 continue;
@@ -872,12 +874,15 @@ impl Parser {
         let mut expr = self.make_expr(token.span, kind);
         let mut qualified = false;
         while self.eat(TokenKind::ColonColon).is_some() {
+            let name_start = self.peek().span.start;
             let name = self.expect_name(TokenKind::Ident, "expected name after `::`")?;
+            let name_end = self.previous_end();
             expr = self.make_expr(
-                Span::new(expr.span.start, self.previous_end()),
+                Span::new(expr.span.start, name_end),
                 ExprKind::Qualified {
                     lhs: Box::new(expr),
                     name,
+                    name_span: Span::new(name_start, name_end),
                 },
             );
             qualified = true;

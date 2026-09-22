@@ -531,12 +531,13 @@ fn layout_builtin_type_arg(expr: &Expr) -> Option<(LayoutBuiltin, &TypeRef)> {
         return None;
     };
     let type_arg = arg.ty.as_ref()?;
-    let ExprKind::Qualified { lhs, name } = &callee.kind else {
+    let ExprKind::Qualified { lhs, name, .. } = &callee.kind else {
         return None;
     };
     let ExprKind::Qualified {
         lhs: std_expr,
         name: builtin_segment,
+        ..
     } = &lhs.kind
     else {
         return None;
@@ -591,6 +592,7 @@ fn expr_from_type_path(
             kind: ExprKind::Qualified {
                 lhs: Box::new(expr),
                 name,
+                name_span: segment.span,
             },
         };
     }
