@@ -522,6 +522,18 @@ mod tests {
         assert!(rendered.contains("help: run the command inside a package"));
     }
 
+    #[test]
+    fn build_plan_json_is_machine_readable_and_stable() {
+        let error = BuildError::MissingBuildScript {
+            start: std::path::PathBuf::from("/tmp/project/src"),
+        };
+        let json = render_build_error_json(&error);
+        assert!(json.starts_with("{\"diagnostics\":["), "{json}");
+        assert!(json.contains("\"code\":\"E0704\""), "{json}");
+        assert!(json.contains("\"help\":["), "{json}");
+        assert!(json.contains("\"suppressed\":{"), "{json}");
+    }
+
     #[cfg(unix)]
     #[test]
     fn runner_failure_keeps_bounded_stream_context() {
@@ -542,5 +554,27 @@ mod tests {
         assert!(rendered.contains("stdout tail (bounded):"));
         assert!(rendered.contains("stderr tail (bounded):"));
         assert!(rendered.contains("help: fix the build.nia action"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runner_failure_json_keeps_bounded_output_notes() {
+        use std::process::Command;
+
+        let status = Command::new("sh")
+            .args(["-c", "exit 7"])
+            .status()
+            .expect("run test runner");
+        let error = BuildError::RunnerFailed {
+            path: std::path::PathBuf::from(".nia-build/runner"),
+            status,
+            stdout: b"stdout-tail".to_vec(),
+            stderr: b"stderr-tail".to_vec(),
+        };
+        let json = render_build_error_json(&error);
+        assert!(json.contains("\"code\":\"E0703\""), "{json}");
+        assert!(json.contains("stdout-tail"), "{json}");
+        assert!(json.contains("stderr-tail"), "{json}");
+        assert!(json.contains("\"suppressed\":{"), "{json}");
     }
 }
