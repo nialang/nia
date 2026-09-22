@@ -2017,11 +2017,12 @@ impl<'a> BodyChecker<'a> {
                 {
                     return arg.ty;
                 }
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    "name is unresolved",
-                ));
+                self.diagnostics.push(
+                    Diagnostic::user_error(codes::TYPE_CHECK, "name is unresolved")
+                        .primary(span, "name is unresolved")
+                        .help("check the spelling, import the name, or define it in this module")
+                        .finish(),
+                );
                 self.error()
             }
         }

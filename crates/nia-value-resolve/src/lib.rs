@@ -1171,11 +1171,15 @@ impl<'a> ValueResolver<'a> {
             }
             DirectMember::Missing => {
                 let symbol = self.symbol_name(symbol);
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::NAME_RESOLUTION,
-                    span,
-                    format!("unknown value `{}`", symbol),
-                ));
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::NAME_RESOLUTION,
+                        format!("unknown value `{}`", symbol),
+                    )
+                    .primary(span, format!("unknown value `{}`", symbol))
+                    .help("check the module path, spelling, and whether the value is public")
+                    .finish(),
+                );
                 return;
             }
             DirectMember::Unloaded => {
