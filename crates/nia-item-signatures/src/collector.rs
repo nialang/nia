@@ -912,18 +912,29 @@ impl<'a> SignatureCollector<'a> {
             match meta.path.as_slice() {
                 [name] if *name == known::NAKED => {
                     if !meta.args.is_empty() {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::ITEM_SIGNATURE,
-                            attribute.span,
-                            "`@[naked]` does not take arguments",
-                        ));
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::ITEM_SIGNATURE,
+                                "`@[naked]` does not take arguments",
+                            )
+                            .primary(attribute.span, "`naked` has unexpected arguments")
+                            .help("remove the arguments from `@[naked]`")
+                            .finish(),
+                        );
                     }
                     if !function.is_extern || function.body.is_none() {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::ITEM_SIGNATURE,
-                            attribute.span,
-                            "`@[naked]` is only valid on `extern fn` definitions",
-                        ));
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::ITEM_SIGNATURE,
+                                "`@[naked]` is only valid on `extern fn` definitions",
+                            )
+                            .primary(
+                                attribute.span,
+                                "`naked` requires an extern function with a body",
+                            )
+                            .help("declare the function `extern` and provide a body, or remove `@[naked]`")
+                            .finish(),
+                        );
                     }
                     out.push(FunctionAttribute::Naked);
                 }
@@ -934,56 +945,90 @@ impl<'a> SignatureCollector<'a> {
                         if let Some(builtin) = BuiltinFunction::from_name(builtin_name.as_str()) {
                             out.push(FunctionAttribute::Builtin(builtin));
                         } else {
-                            self.diagnostics.push(Diagnostic::user_error_at(
-                                codes::ITEM_SIGNATURE,
-                                attribute.span,
-                                format!("unknown builtin function `{builtin_name}`"),
-                            ));
+                            self.diagnostics.push(
+                                Diagnostic::user_error(
+                                    codes::ITEM_SIGNATURE,
+                                    format!("unknown builtin function `{builtin_name}`"),
+                                )
+                                .primary(
+                                    attribute.span,
+                                    format!(
+                                        "`{builtin_name}` is not a registered builtin function"
+                                    ),
+                                )
+                                .help(
+                                    "use a registered builtin function name or remove `@[builtin]`",
+                                )
+                                .finish(),
+                            );
                         }
                     }
                     if function.is_extern || function.body.is_some() {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::ITEM_SIGNATURE,
-                            attribute.span,
-                            "`@[builtin]` is only valid on bodyless non-extern function declarations",
-                        ));
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::ITEM_SIGNATURE,
+                                "`@[builtin]` is only valid on bodyless non-extern function declarations",
+                            )
+                            .primary(
+                                attribute.span,
+                                "this function has an extern marker or a body",
+                            )
+                            .help("remove `extern` and the body from a builtin declaration, or remove `@[builtin]`")
+                            .finish(),
+                        );
                     }
                 }
                 [name] if *name == known::TRACK_CALLER => {
                     if !meta.args.is_empty() {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::ITEM_SIGNATURE,
-                            attribute.span,
-                            "`@[trackCaller]` does not take arguments",
-                        ));
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::ITEM_SIGNATURE,
+                                "`@[trackCaller]` does not take arguments",
+                            )
+                            .primary(attribute.span, "`trackCaller` has unexpected arguments")
+                            .help("remove the arguments from `@[trackCaller]`")
+                            .finish(),
+                        );
                     }
                     if function.is_extern {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::ITEM_SIGNATURE,
-                            attribute.span,
-                            "`@[trackCaller]` is not valid on `extern fn`",
-                        ));
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::ITEM_SIGNATURE,
+                                "`@[trackCaller]` is not valid on `extern fn`",
+                            )
+                            .primary(attribute.span, "this function is declared `extern`")
+                            .help("remove `extern` before using `@[trackCaller]`")
+                            .finish(),
+                        );
                     }
                     if out
                         .iter()
                         .any(|attribute| matches!(attribute, FunctionAttribute::TrackCaller))
                     {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::ITEM_SIGNATURE,
-                            attribute.span,
-                            "duplicate `@[trackCaller]` function attribute",
-                        ));
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::ITEM_SIGNATURE,
+                                "duplicate `@[trackCaller]` function attribute",
+                            )
+                            .primary(attribute.span, "duplicate `trackCaller` attribute")
+                            .help("keep only one `@[trackCaller]` attribute")
+                            .finish(),
+                        );
                     } else {
                         out.push(FunctionAttribute::TrackCaller);
                     }
                 }
                 [name] if *name == known::LINK_NAME || *name == known::EXPORT_NAME => {}
                 [name] if *name == known::NO_MANGLE => {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::ITEM_SIGNATURE,
-                        attribute.span,
-                        "`@[noMangle]` is not supported; use an `extern fn` definition and optional `@[exportName]`",
-                    ));
+                    self.diagnostics.push(
+                        Diagnostic::user_error(
+                            codes::ITEM_SIGNATURE,
+                            "`@[noMangle]` is not supported; use an `extern fn` definition and optional `@[exportName]`",
+                        )
+                        .primary(attribute.span, "`noMangle` is not supported")
+                        .help("use an `extern fn` definition with optional `@[exportName]`")
+                        .finish(),
+                    );
                 }
                 _ => {
                     self.diagnostics.push(Diagnostic::user_error_at(
@@ -1004,11 +1049,15 @@ impl<'a> SignatureCollector<'a> {
                 .iter()
                 .any(|attribute| matches!(attribute, FunctionAttribute::Builtin(_)))
         {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::ITEM_SIGNATURE,
-                function.span,
-                "bodyless non-extern functions require `@[builtin]`",
-            ));
+            self.diagnostics.push(
+                Diagnostic::user_error(
+                    codes::ITEM_SIGNATURE,
+                    "bodyless non-extern functions require `@[builtin]`",
+                )
+                .primary(function.span, "this non-extern function has no body")
+                .help("add a function body, or mark the declaration with `@[builtin]`")
+                .finish(),
+            );
         }
         out
     }

@@ -74,6 +74,24 @@ fn duplicate() () {}
     assert!(summaries.contains(&"`@[trackCaller]` is not valid on `extern fn`"));
     assert!(summaries.contains(&"`@[trackCaller]` does not take arguments"));
     assert!(summaries.contains(&"duplicate `@[trackCaller]` function attribute"));
+    let extern_error = signatures
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary == "`@[trackCaller]` is not valid on `extern fn`")
+        .expect("trackCaller extern diagnostic");
+    assert!(
+        extern_error
+            .primary_message()
+            .is_some_and(|message| message.contains("declared `extern`")),
+        "{extern_error:?}"
+    );
+    assert!(
+        extern_error
+            .help
+            .iter()
+            .any(|help| help.contains("remove `extern`")),
+        "{extern_error:?}"
+    );
 }
 
 #[test]
@@ -196,4 +214,26 @@ fn bodyless_non_extern_functions_require_builtin_attribute() {
             .summary
             .contains("bodyless non-extern functions require `@[builtin]`")
     }));
+    let bodyless = signatures
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("bodyless non-extern functions require `@[builtin]`")
+        })
+        .expect("bodyless function diagnostic");
+    assert!(
+        bodyless
+            .primary_message()
+            .is_some_and(|message| message.contains("has no body")),
+        "{bodyless:?}"
+    );
+    assert!(
+        bodyless
+            .help
+            .iter()
+            .any(|help| help.contains("add a function body")),
+        "{bodyless:?}"
+    );
 }
