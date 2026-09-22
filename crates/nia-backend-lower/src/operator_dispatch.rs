@@ -722,14 +722,16 @@ impl<'a> ModuleLowerer<'a> {
                         ) {
                             let method_name = self.symbol_name(method_name);
                             self.diagnostics
-                                .push(nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::LLVM_CODEGEN,
-                                    format!(
-                                        "no visible implementation found for trait method call `{method_name}`"
-                                    ),
-                                )
-                                .primary(receiver.span, format!("no implementation matched `{method_name}` for this receiver"))
-                                .debug("trait_id", trait_id)
-                                .finish());
+                            .push(nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::LLVM_CODEGEN,
+                                format!(
+                                    "no visible implementation found for trait method call `{method_name}`"
+                                ),
+                            )
+                            .primary(receiver.span, format!("no implementation matched `{method_name}` for this receiver"))
+                            .note("the receiver became concrete during backend lowering, but no visible implementation matched the trait obligation")
+                            .help("provide a matching implementation, add the required trait bound, or fix the preceding trait-resolution diagnostic")
+                            .debug("trait_id", trait_id)
+                            .finish());
                         }
                         FunctionCallee::TraitMethod {
                             trait_id,
@@ -830,6 +832,8 @@ impl<'a> ModuleLowerer<'a> {
                                         "no visible implementation found for trait associated function call `{method_name}`"
                                     ),
                                 )
+                                .note("the concrete associated-function call has no visible implementation or usable default method")
+                                .help("provide a matching implementation, add the required trait bound, or fix the preceding trait-resolution diagnostic")
                                 .finish(),
                             );
                         }

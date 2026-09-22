@@ -644,12 +644,23 @@ impl<'a> ModuleLowerer<'a> {
                             &trait_args,
                             &[],
                         ) {
-                            self.diagnostics
-                                .push(nia_diagnostic::Diagnostic::user_error_at(
+                            self.diagnostics.push(
+                                nia_diagnostic::Diagnostic::user_error(
                                     nia_diagnostic::codes::LLVM_CODEGEN,
-                                    receiver.span,
                                     "no visible implementation found for builtin place method call",
-                                ));
+                                )
+                                .primary(
+                                    receiver.span,
+                                    "no implementation matched this place method call",
+                                )
+                                .note(
+                                    "the receiver became concrete during backend lowering, but no visible builtin implementation matched its type",
+                                )
+                                .help(
+                                    "provide a matching implementation or fix the preceding trait-resolution diagnostic",
+                                )
+                                .finish(),
+                            );
                         }
                         return FunctionExpr {
                             span,
@@ -959,6 +970,8 @@ impl<'a> ModuleLowerer<'a> {
                                 ),
                             )
                             .primary(receiver.span, format!("no implementation matched `{method_name}` for this receiver"))
+                            .note("the receiver became concrete during backend lowering, but no visible implementation matched the trait obligation")
+                            .help("provide a matching implementation, add the required trait bound, or fix the preceding trait-resolution diagnostic")
                             .debug("trait_id", trait_id)
                             .finish());
                     }
@@ -1075,11 +1088,13 @@ impl<'a> ModuleLowerer<'a> {
                     ) {
                         let method_name = self.symbol_name(method_name);
                         self.diagnostics
-                            .push(nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::LLVM_CODEGEN,
+                                .push(nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::LLVM_CODEGEN,
                                 format!(
                                     "no visible implementation found for trait associated function call `{method_name}`"
                                 ),
                             )
+                            .note("the concrete associated-function call has no visible implementation or usable default method")
+                            .help("provide a matching implementation, add the required trait bound, or fix the preceding trait-resolution diagnostic")
                             .finish());
                     }
                     FunctionCallee::TraitAssociatedFunction {
