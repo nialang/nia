@@ -13,8 +13,8 @@ use nia_compat::formats::STABLE_DIAGNOSTIC_BUNDLE;
 use nia_span::Span;
 
 use crate::{
-    DebugField, Diagnostic, DiagnosticCode, DiagnosticLabel, LabelStyle, RelatedDiagnostic,
-    SpanSource, codes,
+    DebugField, Diagnostic, DiagnosticCode, DiagnosticLabel, DiagnosticSuggestion, LabelStyle,
+    RelatedDiagnostic, SpanSource, SuggestionApplicability, SuggestionEdit, codes,
 };
 
 const MAX_BUNDLE_BYTES: usize = 64 * 1024 * 1024;
@@ -90,6 +90,19 @@ pub fn encode_stable_diagnostic_bundle(
         }
         write_strings(&mut encoded, &diagnostic.notes)?;
         write_strings(&mut encoded, &diagnostic.help)?;
+        write_len(&mut encoded, diagnostic.suggestions.len())?;
+        for suggestion in diagnostic.suggestions.iter() {
+            write_string(&mut encoded, &suggestion.message)?;
+            write_u8(
+                &mut encoded,
+                suggestion_applicability_byte(suggestion.applicability),
+            )?;
+            write_len(&mut encoded, suggestion.edits.len())?;
+            for edit in suggestion.edits.iter() {
+                write_span(&mut encoded, edit.span, source_len)?;
+                write_string(&mut encoded, &edit.replacement)?;
+            }
+        }
         write_len(&mut encoded, diagnostic.related.len())?;
         for related in diagnostic.related.iter() {
             write_span(&mut encoded, related.span, source_len)?;
@@ -146,6 +159,25 @@ pub fn decode_stable_diagnostic_bundle(
         }
         let notes = read_strings(&mut cursor)?;
         let help = read_strings(&mut cursor)?;
+        let suggestions_len = read_len(&mut cursor)?;
+        let mut suggestions = decode_vec(suggestions_len);
+        for _ in 0..suggestions_len {
+            let message = read_string(&mut cursor)?;
+            let applicability = suggestion_applicability(read_u8(&mut cursor)?)?;
+            let edits_len = read_len(&mut cursor)?;
+            let mut edits = decode_vec(edits_len);
+            for _ in 0..edits_len {
+                edits.push(SuggestionEdit {
+                    span: read_span(&mut cursor, source_len)?,
+                    replacement: read_string(&mut cursor)?,
+                });
+            }
+            suggestions.push(DiagnosticSuggestion {
+                message,
+                applicability,
+                edits: Box::new(edits),
+            });
+        }
         let related_len = read_len(&mut cursor)?;
         let mut related = decode_vec(related_len);
         for _ in 0..related_len {
@@ -170,6 +202,7 @@ pub fn decode_stable_diagnostic_bundle(
             labels: Box::new(labels),
             notes: Box::new(notes),
             help: Box::new(help),
+            suggestions: Box::new(suggestions),
             related: Box::new(related),
             debug: Box::new(debug),
         });
@@ -239,6 +272,25 @@ fn read_optional_string(cursor: &mut Cursor<&[u8]>) -> Option<Option<String>> {
     match read_u8(cursor)? {
         0 => Some(None),
         1 => read_string(cursor).map(Some),
+        _ => None,
+    }
+}
+
+fn suggestion_applicability_byte(applicability: SuggestionApplicability) -> u8 {
+    match applicability {
+        SuggestionApplicability::MachineApplicable => 0,
+        SuggestionApplicability::MaybeIncorrect => 1,
+        SuggestionApplicability::HasPlaceholders => 2,
+        SuggestionApplicability::Unspecified => 3,
+    }
+}
+
+fn suggestion_applicability(value: u8) -> Option<SuggestionApplicability> {
+    match value {
+        0 => Some(SuggestionApplicability::MachineApplicable),
+        1 => Some(SuggestionApplicability::MaybeIncorrect),
+        2 => Some(SuggestionApplicability::HasPlaceholders),
+        3 => Some(SuggestionApplicability::Unspecified),
         _ => None,
     }
 }
@@ -329,6 +381,12 @@ mod tests {
             .secondary_fallback(Span::new(0, 1), "fallback context")
             .note("note")
             .help("help")
+            .suggestion(
+                Span::new(9, 10),
+                "_unused",
+                "prefix the binding with an underscore",
+                SuggestionApplicability::MachineApplicable,
+            )
             .related(Span::new(6, 8), "related")
             .debug("owner", 7)
             .finish();

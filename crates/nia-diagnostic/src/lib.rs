@@ -4,7 +4,8 @@
 //! Producers emit registered codes with source, generated, or explicitly
 //! marked fallback spans. Reports impose deterministic presentation order and
 //! deduplicate only byte-for-byte equivalent diagnostic structure; secondary
-//! labels, notes, help, related locations, and internal debug fields are part
+//! labels, notes, help, structured suggestions, related locations, and
+//! internal debug fields are part
 //! of a diagnostic's identity.
 
 use nia_span::Span;
@@ -438,6 +439,8 @@ pub struct Diagnostic {
     pub notes: Box<Vec<String>>,
     /// Suggested remediation text.
     pub help: Box<Vec<String>>,
+    /// Bounded source edits that tooling may present or apply.
+    pub suggestions: Box<Vec<DiagnosticSuggestion>>,
     /// Related source locations and messages.
     pub related: Box<Vec<RelatedDiagnostic>>,
     /// Internal debug fields retained for diagnostics tooling.
@@ -509,6 +512,42 @@ pub struct RelatedDiagnostic {
     pub span: Span,
     /// Explanation for the related location.
     pub message: String,
+}
+
+/// Maximum number of structured suggestions retained by one diagnostic.
+pub const MAX_DIAGNOSTIC_SUGGESTIONS: usize = 8;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Confidence with which tooling may apply a diagnostic suggestion.
+pub enum SuggestionApplicability {
+    /// The edit is semantics-preserving for the diagnosed rule.
+    MachineApplicable,
+    /// The edit is plausible but requires user review.
+    MaybeIncorrect,
+    /// The replacement contains text the user must fill in.
+    HasPlaceholders,
+    /// The producer cannot make a stronger applicability claim.
+    Unspecified,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// One source-relative replacement within a structured suggestion.
+pub struct SuggestionEdit {
+    /// Source span replaced by the edit; an empty span is an insertion.
+    pub span: Span,
+    /// Replacement source text.
+    pub replacement: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// One bounded, source-owned remediation proposal.
+pub struct DiagnosticSuggestion {
+    /// User-facing explanation of the proposed change.
+    pub message: String,
+    /// Whether tooling can apply the proposal without review.
+    pub applicability: SuggestionApplicability,
+    /// Ordered edits comprising the proposal.
+    pub edits: Box<Vec<SuggestionEdit>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -659,6 +698,7 @@ impl Diagnostic {
                 labels: Box::new(Vec::new()),
                 notes: Box::new(Vec::new()),
                 help: Box::new(Vec::new()),
+                suggestions: Box::new(Vec::new()),
                 related: Box::new(Vec::new()),
                 debug: Box::new(Vec::new()),
             },
@@ -707,6 +747,7 @@ impl Diagnostic {
                 labels: Box::new(Vec::new()),
                 notes: Box::new(Vec::new()),
                 help: Box::new(Vec::new()),
+                suggestions: Box::new(Vec::new()),
                 related: Box::new(Vec::new()),
                 debug: Box::new(Vec::new()),
             },
@@ -891,6 +932,28 @@ impl DiagnosticBuilder {
     /// Appends suggested remediation text.
     pub fn help(mut self, help: impl Into<String>) -> Self {
         self.diagnostic.help.push(help.into());
+        self
+    }
+
+    /// Appends one source replacement suggestion when the diagnostic's
+    /// bounded suggestion budget has not been exhausted.
+    pub fn suggestion(
+        mut self,
+        span: Span,
+        replacement: impl Into<String>,
+        message: impl Into<String>,
+        applicability: SuggestionApplicability,
+    ) -> Self {
+        if self.diagnostic.suggestions.len() < MAX_DIAGNOSTIC_SUGGESTIONS {
+            self.diagnostic.suggestions.push(DiagnosticSuggestion {
+                message: message.into(),
+                applicability,
+                edits: Box::new(vec![SuggestionEdit {
+                    span,
+                    replacement: replacement.into(),
+                }]),
+            });
+        }
         self
     }
 
@@ -1103,6 +1166,20 @@ pub fn render_diagnostic(path: &str, source: &str, diagnostic: &Diagnostic) -> S
     for help in diagnostic.help.iter() {
         output.push_str(&format!("help: {help}\n"));
     }
+    for suggestion in diagnostic.suggestions.iter() {
+        output.push_str(&format!(
+            "suggestion ({}): {}\n",
+            suggestion_applicability_name(suggestion.applicability),
+            suggestion.message
+        ));
+        for edit in suggestion.edits.iter() {
+            let line = line_info(source, edit.span.start);
+            output.push_str(&format!(
+                "  edit: {}:{}:{} replace {}..{} with {:?}\n",
+                path, line.number, line.column, edit.span.start, edit.span.end, edit.replacement
+            ));
+        }
+    }
     for related in diagnostic.related.iter() {
         let line = line_info(source, related.span.start);
         output.push_str(&format!(
@@ -1183,6 +1260,35 @@ pub fn render_diagnostic_json(path: &str, diagnostic: &Diagnostic) -> String {
     output.push(']');
     push_json_string_array(&mut output, "notes", &diagnostic.notes);
     push_json_string_array(&mut output, "help", &diagnostic.help);
+    output.push_str(",\"suggestions\":[");
+    for (index, suggestion) in diagnostic.suggestions.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push('{');
+        push_json_string_field(&mut output, "message", &suggestion.message, true);
+        push_json_string_field(
+            &mut output,
+            "applicability",
+            suggestion_applicability_name(suggestion.applicability),
+            false,
+        );
+        output.push_str(",\"edits\":[");
+        for (edit_index, edit) in suggestion.edits.iter().enumerate() {
+            if edit_index != 0 {
+                output.push(',');
+            }
+            output.push('{');
+            output.push_str("\"start\":");
+            output.push_str(&edit.span.start.to_string());
+            output.push_str(",\"end\":");
+            output.push_str(&edit.span.end.to_string());
+            push_json_string_field(&mut output, "replacement", &edit.replacement, false);
+            output.push('}');
+        }
+        output.push_str("]}");
+    }
+    output.push(']');
     output.push_str(",\"related\":[");
     for (index, related) in diagnostic.related.iter().enumerate() {
         if index != 0 {
@@ -1408,6 +1514,15 @@ fn line_info(source: &str, offset: usize) -> LineInfo {
     }
 }
 
+fn suggestion_applicability_name(applicability: SuggestionApplicability) -> &'static str {
+    match applicability {
+        SuggestionApplicability::MachineApplicable => "machine-applicable",
+        SuggestionApplicability::MaybeIncorrect => "maybe-incorrect",
+        SuggestionApplicability::HasPlaceholders => "has-placeholders",
+        SuggestionApplicability::Unspecified => "unspecified",
+    }
+}
+
 fn underline_width(source: &str, span: Span, line: &LineInfo) -> usize {
     let start = clamp_to_char_boundary(source, span.start.min(source.len()));
     let end = clamp_to_char_boundary(source, span.end.min(source.len()));
@@ -1446,6 +1561,24 @@ mod tests {
         assert!(rendered.contains("| ^^^^^ statement starts here"));
         assert!(rendered.contains("note: parser was recovering after a missing token"));
         assert!(rendered.contains("help: insert `;` before this statement"));
+    }
+
+    #[test]
+    fn renders_structured_suggestion_without_mixing_it_into_help() {
+        let diagnostic = Diagnostic::user_error(codes::PARSE, "expected binding")
+            .primary(Span::new(0, 1), "binding")
+            .help("review the suggested spelling")
+            .suggestion(
+                Span::new(0, 1),
+                "_x",
+                "prefix the binding with an underscore",
+                SuggestionApplicability::MachineApplicable,
+            )
+            .finish();
+        let rendered = render_diagnostic("main.nia", "x", &diagnostic);
+        assert!(rendered.contains("help: review the suggested spelling"));
+        assert!(rendered.contains("suggestion (machine-applicable)"));
+        assert!(rendered.contains("replace 0..1 with \"_x\""));
     }
 
     #[test]
@@ -1641,6 +1774,12 @@ mod tests {
             .primary(Span::new(1, 3), "value\nlabel")
             .note("expected `i32`")
             .help("add a cast")
+            .suggestion(
+                Span::new(1, 3),
+                "i32",
+                "annotate the expression",
+                SuggestionApplicability::MaybeIncorrect,
+            )
             .finish();
         let item = diagnostic.clone();
         let json = render_diagnostics_json(
@@ -1650,6 +1789,28 @@ mod tests {
         assert!(json.contains("\"code\":\"E0301\""), "{json}");
         assert!(json.contains("\"start\":1,\"end\":3"), "{json}");
         assert!(json.contains("value\\nlabel"), "{json}");
+        assert!(
+            json.contains("\"applicability\":\"maybe-incorrect\""),
+            "{json}"
+        );
+        assert!(json.contains("\"replacement\":\"i32\""), "{json}");
         assert!(json.contains("\"suppressed\":{\"duplicates\":0"), "{json}");
+    }
+
+    #[test]
+    fn structured_suggestions_are_bounded() {
+        let mut builder = Diagnostic::user_error(codes::TYPE_CHECK, "many suggestions");
+        for index in 0..(MAX_DIAGNOSTIC_SUGGESTIONS + 4) {
+            builder = builder.suggestion(
+                Span::new(0, 0),
+                format!("x{index}"),
+                "candidate",
+                SuggestionApplicability::Unspecified,
+            );
+        }
+        assert_eq!(
+            builder.finish().suggestions.len(),
+            MAX_DIAGNOSTIC_SUGGESTIONS
+        );
     }
 }
