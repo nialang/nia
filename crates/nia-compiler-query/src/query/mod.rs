@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::{
-    ActiveModuleItemTreeFactKind, CheckedModule, CheckedProgram, CheckedProgramAnalysis,
-    CodegenPreparation, CodegenProgram, FrontendCheckInputFingerprint, FrontendCheckScope,
-    ProgramDiagnostic, ProgramDiagnosticBundles, RuntimeSpec, TimingMode, module_diagnostics,
-};
 #[cfg(test)]
-use crate::{LoadedModule, LoadedProgram};
+use crate::{ActiveModuleItemTreeFactKind, LoadedModule, LoadedProgram};
+use crate::{
+    CheckedModule, CheckedProgram, CheckedProgramAnalysis, CodegenPreparation, CodegenProgram,
+    FrontendCheckInputFingerprint, FrontendCheckScope, ProgramDiagnostic, ProgramDiagnosticBundles,
+    RuntimeSpec, TimingMode, module_diagnostics,
+};
 use nia_backend_lower::BackendLowerModuleInput;
 use nia_const_check::{ConstCheck, ConstModuleLowering};
 use nia_defs::{
@@ -25,6 +25,7 @@ use nia_item_signatures::{
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::MonomorphizeModuleInput;
+#[cfg(test)]
 use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_package_metadata::{
@@ -32,6 +33,7 @@ use nia_package_metadata::{
     StableAssociatedTypeBinding, StableConstArg, StableConstValue, StableTraitId, StableTypeGraph,
     StableTypeNode,
 };
+#[cfg(test)]
 use nia_parser::ParseError;
 use nia_program_signatures::{
     ExtensionMethodIndexModuleInput, ExtensionMethodValidationInput, ExtensionModuleInput,
@@ -602,256 +604,6 @@ pub(crate) fn query_error_diagnostic(err: QueryError) -> Diagnostic {
                 .finish()
         }
         QueryError::Internal(ice) => Diagnostic::from(ice),
-    }
-}
-
-fn stable_module_sequence(
-    db: &QueryDb<CompilerContext>,
-    module_ids: impl IntoIterator<Item = ModuleId>,
-) -> QueryResult<StableModuleSequence> {
-    db.context().stable_module_sequence(module_ids)
-}
-
-fn resolve_stable_module_sequence_from_current_inputs(
-    db: &QueryDb<CompilerContext>,
-    sequence: &StableModuleSequence,
-) -> QueryResult<Vec<ModuleId>> {
-    db.context().resolve_stable_module_sequence(sequence)
-}
-
-fn resolve_stable_module_sequence(
-    db: &QueryDb<CompilerContext>,
-    sequence: &StableModuleSequence,
-) -> QueryResult<Vec<ModuleId>> {
-    let _graph = db.get(ModuleGraphQuery)?;
-    db.context().resolve_stable_module_sequence(sequence)
-}
-
-impl CompilerContext {
-    fn loader_facts(&self) -> &dyn crate::LoaderFactProvider {
-        self.loader_facts.as_ref()
-    }
-
-    fn type_store(&self) -> &nia_ty::TypeStore {
-        &self.type_store
-    }
-
-    fn node_store(&self) -> &nia_node_id::NodeStore {
-        &self.node_store
-    }
-
-    fn module_path(
-        &self,
-        db: &QueryDb<CompilerContext>,
-        module_id: ModuleId,
-    ) -> QueryResult<SourcePath> {
-        self.loader_facts().module_path(module_id)?.ok_or_else(|| {
-            db.invalid_input(
-                &ModulePathQuery(module_id),
-                format!("missing loaded module {module_id:?}"),
-            )
-        })
-    }
-
-    fn module_source_version(
-        &self,
-        db: &QueryDb<CompilerContext>,
-        module_id: ModuleId,
-    ) -> QueryResult<SourceVersion> {
-        self.loader_facts()
-            .module_source_version(module_id)?
-            .ok_or_else(|| {
-                db.invalid_input(
-                    &ModuleSourceVersionQuery(module_id),
-                    format!("missing loaded module {module_id:?}"),
-                )
-            })
-    }
-
-    fn module_origins(
-        &self,
-        db: &QueryDb<CompilerContext>,
-        module_id: ModuleId,
-    ) -> QueryResult<NodeOriginTable> {
-        self.loader_facts()
-            .module_origins(module_id)?
-            .ok_or_else(|| {
-                db.invalid_input(
-                    &ModuleOriginsQuery(module_id),
-                    format!("missing loaded module {module_id:?}"),
-                )
-            })
-    }
-
-    fn module_parse_errors(
-        &self,
-        db: &QueryDb<CompilerContext>,
-        module_id: ModuleId,
-    ) -> QueryResult<Vec<ParseError>> {
-        self.loader_facts()
-            .module_parse_errors(module_id)?
-            .ok_or_else(|| {
-                db.invalid_input(
-                    &ModuleParseErrorsQuery(module_id),
-                    format!("missing loaded module {module_id:?}"),
-                )
-            })
-    }
-
-    fn module_item_tree(
-        &self,
-        db: &QueryDb<CompilerContext>,
-        module_id: ModuleId,
-    ) -> QueryResult<ModuleItemTree> {
-        self.loader_facts()
-            .module_item_tree(module_id)?
-            .ok_or_else(|| {
-                db.invalid_input(
-                    &ModuleItemTreeInputQuery(module_id),
-                    format!("missing loaded module {module_id:?}"),
-                )
-            })
-    }
-
-    fn declaration_module_item_tree(
-        &self,
-        db: &QueryDb<CompilerContext>,
-        module_id: ModuleId,
-    ) -> QueryResult<ModuleItemTree> {
-        self.loader_facts()
-            .module_item_tree(module_id)?
-            .ok_or_else(|| {
-                db.invalid_input(
-                    &DeclarationModuleItemTreeInputQuery(module_id),
-                    format!("missing loaded module {module_id:?}"),
-                )
-            })
-    }
-
-    fn full_module_item_tree(
-        &self,
-        db: &QueryDb<CompilerContext>,
-        module_id: ModuleId,
-    ) -> QueryResult<ModuleItemTree> {
-        self.loader_facts()
-            .module_item_tree(module_id)?
-            .ok_or_else(|| {
-                db.invalid_input(
-                    &FullModuleItemTreeInputQuery(module_id),
-                    format!("missing loaded module {module_id:?}"),
-                )
-            })
-    }
-
-    fn active_module_item_tree(
-        &self,
-        db: &QueryDb<CompilerContext>,
-        module_id: ModuleId,
-    ) -> QueryResult<ActiveModuleItemTree> {
-        self.loader_facts()
-            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)?
-            .ok_or_else(|| {
-                db.invalid_input(
-                    &ActiveModuleItemTreeInputQuery(module_id),
-                    format!("missing loaded module {module_id:?}"),
-                )
-            })
-    }
-
-    fn declaration_active_module_item_tree(
-        &self,
-        db: &QueryDb<CompilerContext>,
-        module_id: ModuleId,
-    ) -> QueryResult<ActiveModuleItemTree> {
-        self.loader_facts()
-            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)?
-            .ok_or_else(|| {
-                db.invalid_input(
-                    &DeclarationActiveModuleItemTreeInputQuery(module_id),
-                    format!("missing loaded module {module_id:?}"),
-                )
-            })
-    }
-
-    fn full_active_module_item_tree(
-        &self,
-        db: &QueryDb<CompilerContext>,
-        module_id: ModuleId,
-    ) -> QueryResult<ActiveModuleItemTree> {
-        self.loader_facts()
-            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)?
-            .ok_or_else(|| {
-                db.invalid_input(
-                    &FullActiveModuleItemTreeInputQuery(module_id),
-                    format!("missing loaded module {module_id:?}"),
-                )
-            })
-    }
-
-    fn signature_item_tree(
-        &self,
-        db: &QueryDb<CompilerContext>,
-        module_id: ModuleId,
-        set: nia_item_tree::SignatureItemSet,
-    ) -> QueryResult<ActiveModuleItemTree> {
-        self.loader_facts()
-            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Signature(set))?
-            .ok_or_else(|| {
-                db.invalid_input(
-                    &SignatureItemTreeQuery(module_id, set),
-                    format!("missing loaded module {module_id:?}"),
-                )
-            })
-    }
-
-    fn signature_const_item_tree(
-        &self,
-        db: &QueryDb<CompilerContext>,
-        module_id: ModuleId,
-    ) -> QueryResult<ActiveModuleItemTree> {
-        self.loader_facts()
-            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::ConstSignature)?
-            .ok_or_else(|| {
-                db.invalid_input(
-                    &SignatureConstItemTreeQuery(module_id),
-                    format!("missing loaded module {module_id:?}"),
-                )
-            })
-    }
-
-    fn module_provider_summary(
-        &self,
-        db: &QueryDb<CompilerContext>,
-        module_id: ModuleId,
-    ) -> QueryResult<nia_provider_summary::ProviderSummary> {
-        self.loader_facts()
-            .module_provider_summary(module_id)?
-            .ok_or_else(|| {
-                db.invalid_input(
-                    &ExtensionProviderSummaryQuery(module_id),
-                    format!("missing loaded module {module_id:?}"),
-                )
-            })
-    }
-
-    fn symbols(&self) -> nia_symbol_table::SymbolTable {
-        self.loader_facts().symbols()
-    }
-
-    fn provider_fact_worklist(&self) -> QueryResult<crate::ProviderFactSnapshot> {
-        self.loader_facts().provider_facts()
-    }
-
-    fn optimization(&self) -> OptimizationPolicy {
-        self.inputs.read().optimization
-    }
-
-    fn codegen_scope(&self) -> crate::CodegenScope {
-        self.inputs.read().codegen_scope
-    }
-
-    fn timings(&self) -> TimingMode {
-        self.inputs.read().timings
     }
 }
 
