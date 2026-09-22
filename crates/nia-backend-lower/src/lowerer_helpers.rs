@@ -184,13 +184,19 @@ impl ModuleLowerer<'_> {
                             .get(&id)
                             .map(|summary| summary.span)
                             .unwrap_or_default();
-                        diagnostics.push(Diagnostic::user_error_at(
-                            nia_diagnostic::codes::LLVM_CODEGEN,
-                            span,
-                            format!(
-                                "array length {id:?} was not evaluated before backend symbol generation"
-                            ),
-                        ));
+                        diagnostics.push(
+                            Diagnostic::user_error(
+                                nia_diagnostic::codes::LLVM_CODEGEN,
+                                "array length was not evaluated before backend symbol generation",
+                            )
+                            .primary(span, "array length expression has no evaluated value")
+                            .note(
+                                "backend symbol generation needs the concrete element count to produce a stable type and symbol identity",
+                            )
+                            .help("make the length expression a valid compile-time constant")
+                            .debug("const_expr", id)
+                            .finish(),
+                        );
                     }
                     value
                 },

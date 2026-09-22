@@ -130,4 +130,16 @@ fn main(value: Box[[u8; N]]) () {}
         "{:?}",
         lowering.diagnostics
     );
+    assert!(
+        lowering.diagnostics[0]
+            .notes
+            .iter()
+            .any(|note| note.contains("concrete element count"))
+    );
+    assert!(
+        lowering.diagnostics[0]
+            .help
+            .iter()
+            .any(|help| help.contains("compile-time constant"))
+    );
 }
