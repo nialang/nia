@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_span::Span;
+use std::fmt;
 
 /// Significant lexical token with a UTF-8 byte span.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -261,4 +262,23 @@ pub enum LexError {
     InvalidStringEscape,
     /// Character literal contains an invalid escape.
     InvalidCharEscape,
+}
+
+impl fmt::Display for LexError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnexpectedByte(byte) => {
+                write!(formatter, "unexpected byte 0x{byte:02x}")
+            }
+            Self::UnterminatedString => formatter.write_str("unterminated string literal"),
+            Self::UnterminatedChar => formatter.write_str("unterminated character literal"),
+            Self::EmptyChar => formatter.write_str("empty character literal"),
+            Self::InvalidByteChar => {
+                formatter.write_str("character literal is not valid as a byte literal")
+            }
+            Self::InvalidNumber => formatter.write_str("invalid numeric literal"),
+            Self::InvalidStringEscape => formatter.write_str("invalid escape in string literal"),
+            Self::InvalidCharEscape => formatter.write_str("invalid escape in character literal"),
+        }
+    }
 }

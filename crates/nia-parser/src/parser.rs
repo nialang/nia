@@ -160,7 +160,7 @@ impl Parser {
             .filter_map(|token| match &token.kind {
                 TokenKind::Error(error) => Some(ParseError {
                     span: token.span,
-                    message: format!("lex error: {error:?}"),
+                    message: format!("lexical error: {error}"),
                     node_key: token.node_key(),
                 }),
                 _ => None,
