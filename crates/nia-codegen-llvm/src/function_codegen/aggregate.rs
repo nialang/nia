@@ -1040,11 +1040,15 @@ fn initialized_promoted_byte_segment(
         .copied()
         .collect::<Option<Vec<_>>>()
         .ok_or_else(|| {
-            Diagnostic::user_error_at(
-                nia_diagnostic::codes::LLVM_CODEGEN,
-                span,
+            Diagnostic::internal_error(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 "promoted byte segment contains an uninitialized byte",
             )
+            .primary(span, "promoted storage contains an uninitialized byte")
+            .note(
+                "static promotion reached LLVM code generation without a complete byte initialization product",
+            )
+            .finish()
         })
 }
 
@@ -1057,6 +1061,11 @@ mod tests {
     fn promoted_byte_segment_rejects_uninitialized_bytes() {
         let error = initialized_promoted_byte_segment(&[Some(1), None], Span::default())
             .expect_err("uninitialized byte must be rejected");
+        assert_eq!(
+            error.code.as_str(),
+            nia_diagnostic::codes::INVALID_BACKEND_IR.as_str()
+        );
+        assert_eq!(error.category, nia_diagnostic::DiagnosticCategory::Internal);
         assert!(error.summary.contains("uninitialized byte"));
     }
 
