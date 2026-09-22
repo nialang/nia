@@ -1085,19 +1085,27 @@ impl<'a> BodyChecker<'a> {
         } else {
             end_value.checked_sub(1)
         }) else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                pattern.span,
-                format!("{context} range endpoint is out of range"),
-            ));
+            let summary = format!("{context} range endpoint is out of range");
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                    .primary(pattern.span, summary)
+                    .note("an exclusive range subtracts one from its end value, which underflowed the integer domain")
+                    .help("use an inclusive range such as `..=0`, or choose an exclusive end greater than the minimum value")
+                    .finish(),
+            );
             return;
         };
         if start_value > end_inclusive {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                pattern.span,
-                format!("{context} range is empty"),
-            ));
+            let summary = format!("{context} range is empty");
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                    .primary(pattern.span, summary)
+                    .note(format!(
+                        "the range starts at {start_value} but ends before that value"
+                    ))
+                    .help("swap the range bounds or adjust the endpoint so at least one value is included")
+                    .finish(),
+            );
             return;
         }
         self.check_match_interval_overlap(

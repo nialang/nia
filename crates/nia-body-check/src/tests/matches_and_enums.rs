@@ -828,6 +828,23 @@ fn non_constant(value: i32, start: i32) i32 {
         "{:?}",
         checked.diagnostics
     );
+    let empty_range = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary.contains("match pattern range is empty"))
+        .expect("empty range diagnostic");
+    assert!(
+        empty_range
+            .notes
+            .iter()
+            .any(|note| note.contains("starts at 3") && note.contains("ends before"))
+    );
+    assert!(
+        empty_range
+            .help
+            .iter()
+            .any(|help| help.contains("swap the range bounds"))
+    );
     assert!(
         checked
             .diagnostics
