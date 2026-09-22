@@ -994,11 +994,23 @@ impl<'a> BodyChecker<'a> {
                     self.interner.get(current_return),
                     Some(TyKind::Optional { .. })
                 ) {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        span,
-                        "optional propagation requires an optional function return type",
-                    ));
+                    let return_name = self.ty_name(current_return);
+                    self.diagnostics.push(
+                        Diagnostic::user_error(
+                            codes::TYPE_CHECK,
+                            "optional propagation requires an optional function return type",
+                        )
+                        .primary(span, "this optional value is propagated here")
+                        .secondary(
+                            inner.span,
+                            format!("this expression has optional type `{}`", self.ty_name(inner_ty)),
+                        )
+                        .note(format!(
+                            "the enclosing function returns `{return_name}`, so it cannot return the propagated empty optional"
+                        ))
+                        .help("change the function return type to an optional, or handle the empty case before using `.?`")
+                        .finish(),
+                    );
                 }
                 elem
             }
@@ -1015,42 +1027,106 @@ impl<'a> BodyChecker<'a> {
                                     );
                                 }
                                 Ok(None) => {
-                                    self.diagnostics.push(Diagnostic::user_error_at(
-                                        codes::TYPE_CHECK,
+                                    let source_name = self.ty_name(error);
+                                    let target_name = self.ty_name(return_error);
+                                    self.report_error_propagation_failure(
                                         span,
+                                        inner.span,
                                         format!(
-                                            "error propagation requires `{}` to implement `IntoError[{}]`",
-                                            self.ty_name(error),
-                                            self.ty_name(return_error)
+                                            "error propagation requires `{source_name}` to implement `IntoError[{target_name}]`"
                                         ),
-                                    ));
+                                        error,
+                                        return_error,
+                                        "no direct, visible `IntoError` implementation was found for the propagated error",
+                                        format!(
+                                            "implement `IntoError[{target_name}]` for `{source_name}`, or change the function return error type to `{source_name}`"
+                                        ),
+                                    );
                                 }
                                 Err(()) => {}
                             }
                         }
                     }
                     None => {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::TYPE_CHECK,
-                            span,
-                            "error propagation requires an error union function return type",
-                        ));
+                        let error_name = self.ty_name(error);
+                        let return_name = self.ty_name(self.current_return);
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::TYPE_CHECK,
+                                "error propagation requires an error union function return type",
+                            )
+                            .primary(span, "this error value is propagated here")
+                            .secondary(
+                                inner.span,
+                                format!("this expression can produce error `{error_name}`"),
+                            )
+                            .note(format!(
+                                "the enclosing function returns `{return_name}`, which has no error component"
+                            ))
+                            .help(format!(
+                                "change the function return type to `{error_name}!{return_name}`, or handle the error before using `.?`"
+                            ))
+                            .finish(),
+                        );
                     }
                 }
                 value
             }
             _ => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    format!(
-                        "`.?` requires optional or error union operand, found `{}`",
-                        self.ty_name(inner_ty)
-                    ),
-                ));
+                let inner_name = self.ty_name(inner_ty);
+                let summary =
+                    format!("`.?` requires optional or error union operand, found `{inner_name}`");
+                self.diagnostics.push(
+                    Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                        .primary(span, summary)
+                        .secondary(
+                            inner.span,
+                            format!("this expression has non-propagatable type `{inner_name}`"),
+                        )
+                        .help("remove `.?`, or make the operand produce an optional or error-union value")
+                        .finish(),
+                );
                 self.error()
             }
         }
+    }
+
+    fn report_error_propagation_failure(
+        &mut self,
+        span: Span,
+        source_span: Span,
+        summary: String,
+        source_ty: InternedTyId,
+        target_ty: InternedTyId,
+        note: &str,
+        help: impl Into<String>,
+    ) {
+        let source_name = self.ty_name(source_ty);
+        let target_name = self.ty_name(target_ty);
+        let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+            .primary(span, summary)
+            .note(format!(
+                "the propagated expression has error type `{source_name}`, while this function returns error type `{target_name}`"
+            ))
+            .note(note)
+            .help(help);
+        if source_span != span {
+            diagnostic = diagnostic.secondary(
+                source_span,
+                format!("propagated error value has type `{source_name}`"),
+            );
+        }
+        if let Some(def) = self
+            .current_def_id
+            .and_then(|def_id| self.defs.defs.get(def_id.def_id))
+            && def.span != Span::default()
+            && def.span != span
+            && def.span != source_span
+        {
+            diagnostic =
+                diagnostic.secondary(def.span, "function return type is the propagation boundary");
+        }
+        self.diagnostics.push(diagnostic.finish());
     }
 
     fn resolve_into_error_conversion(
@@ -1075,15 +1151,19 @@ impl<'a> BodyChecker<'a> {
                 }))
             }
             nia_trait_solve::TraitResolution::Ambiguous => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
+                let source_name = self.ty_name(source_ty);
+                let target_name = self.ty_name(target_ty);
+                self.report_error_propagation_failure(
+                    span,
                     span,
                     format!(
-                        "ambiguous error propagation conversion from `{}` to `{}`",
-                        self.ty_name(source_ty),
-                        self.ty_name(target_ty)
+                        "ambiguous error propagation conversion from `{source_name}` to `{target_name}`"
                     ),
-                ));
+                    source_ty,
+                    target_ty,
+                    "more than one visible `IntoError` implementation matches this propagation",
+                    "remove the ambiguity by keeping one conversion implementation or make the target error type explicit",
+                );
                 Err(())
             }
             nia_trait_solve::TraitResolution::Intrinsic(_) => Ok(None),
@@ -1094,15 +1174,21 @@ impl<'a> BodyChecker<'a> {
                     &trait_args,
                 );
                 if self.has_into_error_chain(source_ty, target_ty) {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
+                    let source_name = self.ty_name(source_ty);
+                    let target_name = self.ty_name(target_ty);
+                    self.report_error_propagation_failure(
+                        span,
                         span,
                         format!(
-                            "error propagation does not chain `IntoError` conversions from `{}` to `{}`",
-                            self.ty_name(source_ty),
-                            self.ty_name(target_ty)
+                            "error propagation does not chain `IntoError` conversions from `{source_name}` to `{target_name}`"
                         ),
-                    ));
+                        source_ty,
+                        target_ty,
+                        "Nia requires one direct conversion at the propagation boundary; it does not compose multiple `IntoError` conversions",
+                        format!(
+                            "add a direct `IntoError[{target_name}]` implementation for `{source_name}`, or propagate through the intermediate error type explicitly"
+                        ),
+                    );
                     Err(())
                 } else {
                     Ok(None)
