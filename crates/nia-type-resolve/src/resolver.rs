@@ -103,6 +103,22 @@ struct TypeResolver<'a> {
 }
 
 impl TypeResolver<'_> {
+    fn local_value_as_type_diagnostic(
+        &self,
+        span: Span,
+        name: &str,
+        declaration_span: Span,
+    ) -> Diagnostic {
+        Diagnostic::user_error(
+            codes::NAME_RESOLUTION,
+            format!("value `{name}` cannot be used as a type"),
+        )
+        .primary(span, "this name resolves to a value, not a type")
+        .related(declaration_span, "the value is declared here")
+        .help("use this name in an expression, or declare/import a type instead")
+        .finish()
+    }
+
     fn imported_value_as_type_diagnostic(
         &self,
         span: Span,
@@ -982,6 +998,25 @@ impl<'a> TypeResolver<'a> {
                 def_id,
             }));
         }
+        if let Some(def_id) = self
+            .defs
+            .module_scope
+            .values
+            .get(type_segment_name(segment)?)
+            && let Some(def) = self.defs.defs.get(def_id)
+            && matches!(
+                def.kind,
+                DefKind::Function | DefKind::Global | DefKind::Const
+            )
+        {
+            let name = self.symbol_name(*type_segment_name(segment)?);
+            self.diagnostics.push(self.local_value_as_type_diagnostic(
+                segment.span,
+                &name,
+                def.span,
+            ));
+            return None;
+        }
         if let Some(scope) = self.using_scope
             && let Some(entry) = scope.using_type(type_segment_name(segment)?)
         {
@@ -1256,6 +1291,21 @@ impl<'a> TypeResolver<'a> {
                 }
                 return TypeNameResolution::Def(def_id);
             }
+        }
+        if let Some(def_id) = self.defs.module_scope.values.get(&name)
+            && let Some(def) = self.defs.defs.get(def_id)
+            && matches!(
+                def.kind,
+                DefKind::Function | DefKind::Global | DefKind::Const
+            )
+        {
+            let display_name = self.symbol_name(name);
+            self.diagnostics.push(self.local_value_as_type_diagnostic(
+                span,
+                &display_name,
+                def.span,
+            ));
+            return TypeNameResolution::Error;
         }
         if let Some(scope) = self.using_scope
             && let Some(entry) = scope.using_type(&name)
