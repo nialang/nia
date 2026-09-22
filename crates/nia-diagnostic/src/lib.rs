@@ -228,6 +228,27 @@ pub mod codes {
         "artifact-io",
         "compiler could not read or write an artifact",
     );
+    /// Build runner bootstrap or execution failure.
+    pub const BUILD_RUNNER: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0703",
+        DiagnosticStage::Compiler,
+        "build-runner",
+        "the generated build runner could not be compiled or executed",
+    );
+    /// Frozen build-plan handoff or validation failure.
+    pub const BUILD_PLAN: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0704",
+        DiagnosticStage::Compiler,
+        "build-plan",
+        "the build plan could not be prepared, read, or published",
+    );
+    /// Build action orchestration or external-command failure.
+    pub const BUILD_ACTION: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0705",
+        DiagnosticStage::Compiler,
+        "build-action",
+        "a build action could not be executed or published",
+    );
     /// Unused import warning.
     pub const UNUSED_IMPORT: DiagnosticCodeDef = DiagnosticCodeDef::user_warning(
         "W0201",
@@ -267,6 +288,9 @@ pub mod codes {
         LLVM_CODEGEN,
         LINKER,
         ARTIFACT_IO,
+        BUILD_RUNNER,
+        BUILD_PLAN,
+        BUILD_ACTION,
         UNUSED_IMPORT,
     ];
 
