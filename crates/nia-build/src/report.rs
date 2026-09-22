@@ -224,7 +224,7 @@ fn coordinator_diagnostic(error: &CoordinatorError) -> Diagnostic {
         .finish(),
         CoordinatorError::TestFailures(failures) => Diagnostic::user_error(
             codes::BUILD_ACTION,
-            format!("{} test action(s) failed", failures.len()),
+            format!("{} test suite(s) failed", failures.len()),
         )
         .note(test_failure_note(failures))
         .finish(),
