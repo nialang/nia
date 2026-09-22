@@ -1372,7 +1372,14 @@ fn run_check(
     let runtime = match options.runtime.resolve(&toolchain) {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprintln!("error: invalid runtime configuration: {error}");
+            eprint!(
+                "{}",
+                nia_driver::render_driver_error(
+                    &nia_driver::DriverError::Runtime(error),
+                    Some(path),
+                    Some(source),
+                )
+            );
             return ExitCode::FAILURE;
         }
     };
@@ -1669,7 +1676,14 @@ fn run_emit_checked(
     let runtime = match runtime.resolve(&context.toolchain) {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprintln!("error: invalid runtime configuration: {error}");
+            eprint!(
+                "{}",
+                nia_driver::render_driver_error(
+                    &nia_driver::DriverError::Runtime(error),
+                    Some(path),
+                    Some(source),
+                )
+            );
             return ExitCode::FAILURE;
         }
     };
@@ -1703,7 +1717,14 @@ fn run_emit_backend(
     let runtime = match runtime.resolve(&context.toolchain) {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprintln!("error: invalid runtime configuration: {error}");
+            eprint!(
+                "{}",
+                nia_driver::render_driver_error(
+                    &nia_driver::DriverError::Runtime(error),
+                    Some(path),
+                    Some(source),
+                )
+            );
             return ExitCode::FAILURE;
         }
     };
@@ -1736,7 +1757,14 @@ fn run_emit_llvm(path: &str, source: &str, runtime: RuntimeMode, context: EmitCo
     let runtime = match runtime.resolve(&context.toolchain) {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprintln!("error: invalid runtime configuration: {error}");
+            eprint!(
+                "{}",
+                nia_driver::render_driver_error(
+                    &nia_driver::DriverError::Runtime(error),
+                    Some(path),
+                    Some(source),
+                )
+            );
             return ExitCode::FAILURE;
         }
     };
@@ -1789,7 +1817,14 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
     let runtime = match options.runtime.resolve(&context.toolchain) {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprintln!("error: invalid runtime configuration: {error}");
+            eprint!(
+                "{}",
+                nia_driver::render_driver_error(
+                    &nia_driver::DriverError::Runtime(error),
+                    Some(path),
+                    Some(source),
+                )
+            );
             return ExitCode::FAILURE;
         }
     };
