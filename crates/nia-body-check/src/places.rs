@@ -2,7 +2,7 @@
 use crate::BodyChecker;
 use nia_ast::{Expr, ExprKind, IndexArg, SliceRange, UnaryOp};
 use nia_defs::{DefId, DefKind};
-use nia_diagnostic::{Diagnostic, codes};
+use nia_diagnostic::{Diagnostic, SuggestionApplicability, codes};
 use nia_ids::{BuiltinTraitMethod, InternedTyId};
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_sema_ir::BracketSuffixResolution;
@@ -599,14 +599,35 @@ impl<'a> BodyChecker<'a> {
                     "ambiguous index literal type for {trait_name}; add a literal suffix or type annotation"
                 );
                 self.diagnostics.push(
-                    Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                    {
+                        let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
                         .primary(index.span, summary)
                         .note(format!(
                             "the receiver has type `{}` and more than one integer index type is available",
                             self.ty_name(lhs_ty)
                         ))
-                        .help("add an index suffix such as `0usize`, or annotate the index expression with the intended integer type")
-                        .finish(),
+                        .help("add an index suffix such as `0usize`, or annotate the index expression with the intended integer type");
+                        let replacement = match &index.kind {
+                            ExprKind::Integer(text) => Some(format!("{text}usize")),
+                            ExprKind::Unary {
+                                op: UnaryOp::Neg,
+                                expr,
+                            } => match &expr.kind {
+                                ExprKind::Integer(text) => Some(format!("-{text}usize")),
+                                _ => None,
+                            },
+                            _ => None,
+                        };
+                        if let Some(replacement) = replacement {
+                            diagnostic = diagnostic.suggestion(
+                                index.span,
+                                replacement,
+                                "make the index type explicit",
+                                SuggestionApplicability::MaybeIncorrect,
+                            );
+                        }
+                        diagnostic.finish()
+                    },
                 );
                 self.error()
             }
