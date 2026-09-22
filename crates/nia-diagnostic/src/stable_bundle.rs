@@ -14,7 +14,8 @@ use nia_span::Span;
 
 use crate::{
     DebugField, Diagnostic, DiagnosticCode, DiagnosticLabel, DiagnosticSuggestion, LabelStyle,
-    RelatedDiagnostic, SpanSource, SuggestionApplicability, SuggestionEdit, codes,
+    MAX_DIAGNOSTIC_SUGGESTIONS, MAX_SUGGESTION_EDITS, RelatedDiagnostic, SpanSource,
+    SuggestionApplicability, SuggestionEdit, codes,
 };
 
 const MAX_BUNDLE_BYTES: usize = 64 * 1024 * 1024;
@@ -90,6 +91,9 @@ pub fn encode_stable_diagnostic_bundle(
         }
         write_strings(&mut encoded, &diagnostic.notes)?;
         write_strings(&mut encoded, &diagnostic.help)?;
+        if diagnostic.suggestions.len() > MAX_DIAGNOSTIC_SUGGESTIONS {
+            return Err(StableDiagnosticBundleError::TooLarge);
+        }
         write_len(&mut encoded, diagnostic.suggestions.len())?;
         for suggestion in diagnostic.suggestions.iter() {
             write_string(&mut encoded, &suggestion.message)?;
@@ -97,6 +101,9 @@ pub fn encode_stable_diagnostic_bundle(
                 &mut encoded,
                 suggestion_applicability_byte(suggestion.applicability),
             )?;
+            if suggestion.edits.len() > MAX_SUGGESTION_EDITS {
+                return Err(StableDiagnosticBundleError::TooLarge);
+            }
             write_len(&mut encoded, suggestion.edits.len())?;
             for edit in suggestion.edits.iter() {
                 write_span(&mut encoded, edit.span, source_len)?;
@@ -160,11 +167,17 @@ pub fn decode_stable_diagnostic_bundle(
         let notes = read_strings(&mut cursor)?;
         let help = read_strings(&mut cursor)?;
         let suggestions_len = read_len(&mut cursor)?;
+        if suggestions_len > MAX_DIAGNOSTIC_SUGGESTIONS {
+            return None;
+        }
         let mut suggestions = decode_vec(suggestions_len);
         for _ in 0..suggestions_len {
             let message = read_string(&mut cursor)?;
             let applicability = suggestion_applicability(read_u8(&mut cursor)?)?;
             let edits_len = read_len(&mut cursor)?;
+            if edits_len > MAX_SUGGESTION_EDITS {
+                return None;
+            }
             let mut edits = decode_vec(edits_len);
             for _ in 0..edits_len {
                 edits.push(SuggestionEdit {

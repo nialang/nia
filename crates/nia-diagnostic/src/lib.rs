@@ -516,6 +516,8 @@ pub struct RelatedDiagnostic {
 
 /// Maximum number of structured suggestions retained by one diagnostic.
 pub const MAX_DIAGNOSTIC_SUGGESTIONS: usize = 8;
+/// Maximum number of replacement edits retained by one suggestion.
+pub const MAX_SUGGESTION_EDITS: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// Confidence with which tooling may apply a diagnostic suggestion.
