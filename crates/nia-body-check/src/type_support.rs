@@ -971,6 +971,60 @@ impl<'a> BodyChecker<'a> {
         );
     }
 
+    pub(crate) fn report_associated_type_binding_unresolved(
+        &mut self,
+        span: Span,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        name: SymbolId,
+    ) {
+        let trait_name = self.trait_ty_name(trait_id, trait_args);
+        let name = self.symbol_name(name);
+        let summary = format!(
+            "associated type binding not satisfied: {trait_name}::{name} could not be resolved"
+        );
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(span, summary)
+                .note(format!(
+                    "the implementation for `{trait_name}` does not expose a resolvable associated type named `{name}`"
+                ))
+                .help(format!(
+                    "define `{name}` in the implementation, use the correct associated type name, or remove the binding"
+                ))
+                .finish(),
+        );
+    }
+
+    pub(crate) fn report_associated_type_binding_mismatch(
+        &mut self,
+        span: Span,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        name: SymbolId,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) {
+        let trait_name = self.trait_ty_name(trait_id, trait_args);
+        let name = self.symbol_name(name);
+        let expected_name = self.ty_name(expected);
+        let actual_name = self.ty_name(actual);
+        let summary = format!(
+            "associated type binding not satisfied: {trait_name}::{name} expected {expected_name}, got {actual_name}"
+        );
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(span, summary)
+                .note(format!(
+                    "the implementation resolves `{trait_name}::{name}` as `{actual_name}`, but this bound requires `{expected_name}`"
+                ))
+                .help(format!(
+                    "change the associated type definition to `{expected_name}`, or update the bound to match `{actual_name}`"
+                ))
+                .finish(),
+        );
+    }
+
     /// Checks source-level type compatibility after alias/projection
     /// normalization. The result is cached by interned pair, except when an
     /// unevaluated const expression occurs anywhere in the type shape. Such a
