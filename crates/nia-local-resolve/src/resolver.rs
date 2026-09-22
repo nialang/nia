@@ -112,7 +112,7 @@ struct LocalResolver<'a> {
     self_locals: Vec<Option<ScopedLocal>>,
     /// Names already introduced by the pattern currently being resolved.
     /// Sequential bindings may shadow, but one pattern cannot bind a name twice.
-    pattern_names: Vec<HashSet<SymbolId>>,
+    pattern_names: Vec<HashMap<SymbolId, Span>>,
     definition_ids: Option<HashMap<VersionedNodeKey, LocalId>>,
 }
 
@@ -300,7 +300,7 @@ impl<'a> LocalResolver<'a> {
         } else {
             LocalKind::ImmutableBinding
         };
-        self.pattern_names.push(HashSet::new());
+        self.pattern_names.push(HashMap::new());
         self.resolve_pattern_with_span(
             &binding.pattern,
             default_kind,
@@ -675,7 +675,7 @@ impl<'a> LocalResolver<'a> {
         binding_kind: LocalKind,
         duplicate: &'static str,
     ) {
-        self.pattern_names.push(HashSet::new());
+        self.pattern_names.push(HashMap::new());
         self.resolve_pattern_with_span(pattern, binding_kind, pattern.span, duplicate);
         self.pattern_names.pop();
     }
@@ -901,31 +901,39 @@ impl<'a> LocalResolver<'a> {
             )));
             return None;
         };
-        if let Some(names) = self.pattern_names.last_mut()
-            && !names.insert(*name)
-        {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::LOCAL_RESOLUTION,
-                span,
-                format!("{duplicate_message}: `{display_name}`"),
-            ));
+        let pattern_previous = self
+            .pattern_names
+            .last_mut()
+            .and_then(|names| names.insert(*name, span));
+        if let Some(previous) = pattern_previous {
+            let summary = format!("{duplicate_message}: `{display_name}`");
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::LOCAL_RESOLUTION, summary.clone())
+                    .primary(span, summary)
+                    .related(previous, "the name was already bound by this pattern")
+                    .finish(),
+            );
             return None;
         }
         if matches!(kind, LocalKind::Param) && scope.locals.contains_key(name) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::LOCAL_RESOLUTION,
-                span,
-                format!("{duplicate_message}: `{display_name}`"),
-            ));
+            let previous = scope.locals.get(name).map(|local| local.span);
+            let summary = format!("{duplicate_message}: `{display_name}`");
+            let mut diagnostic = Diagnostic::user_error(codes::LOCAL_RESOLUTION, summary.clone())
+                .primary(span, summary);
+            if let Some(previous) = previous {
+                diagnostic = diagnostic.related(previous, "the name was already declared here");
+            }
+            self.diagnostics.push(diagnostic.finish());
             return None;
         }
         if let Some(existing) = scope.statics.get(name) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::LOCAL_RESOLUTION,
-                span,
-                format!("{duplicate_message}: `{display_name}`"),
-            ));
-            let _ = existing.span;
+            let summary = format!("{duplicate_message}: `{display_name}`");
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::LOCAL_RESOLUTION, summary.clone())
+                    .primary(span, summary)
+                    .related(existing.span, "the name was already declared here")
+                    .finish(),
+            );
             return None;
         }
         let local = ScopedLocal { id, span };
@@ -981,21 +989,23 @@ impl<'a> LocalResolver<'a> {
             return;
         };
         if let Some(existing) = scope.locals.get(name) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::LOCAL_RESOLUTION,
-                span,
-                format!("{duplicate_message}: `{display_name}`"),
-            ));
-            let _ = existing.span;
+            let summary = format!("{duplicate_message}: `{display_name}`");
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::LOCAL_RESOLUTION, summary.clone())
+                    .primary(span, summary)
+                    .related(existing.span, "the name was already declared here")
+                    .finish(),
+            );
             return;
         }
         if let Some(existing) = scope.statics.get(name) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::LOCAL_RESOLUTION,
-                span,
-                format!("{duplicate_message}: `{display_name}`"),
-            ));
-            let _ = existing.span;
+            let summary = format!("{duplicate_message}: `{display_name}`");
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::LOCAL_RESOLUTION, summary.clone())
+                    .primary(span, summary)
+                    .related(existing.span, "the name was already declared here")
+                    .finish(),
+            );
             return;
         }
         scope.statics.insert(*name, ScopedStatic { id, span });

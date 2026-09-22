@@ -170,6 +170,17 @@ x
             .iter()
             .any(|diagnostic| diagnostic.summary.contains("duplicate parameter name"))
     );
+    let duplicate_parameter = locals
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary.contains("duplicate parameter name"))
+        .expect("duplicate parameter diagnostic");
+    assert_eq!(duplicate_parameter.related.len(), 1);
+    assert!(
+        duplicate_parameter.related[0]
+            .message
+            .contains("already declared")
+    );
     assert!(
         !locals
             .diagnostics
@@ -199,6 +210,12 @@ x
         locals.diagnostics[0]
             .summary
             .contains("duplicate local binding")
+    );
+    assert_eq!(locals.diagnostics[0].related.len(), 1);
+    assert!(
+        locals.diagnostics[0].related[0]
+            .message
+            .contains("already bound by this pattern")
     );
 }
 
