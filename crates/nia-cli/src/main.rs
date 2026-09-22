@@ -1594,7 +1594,7 @@ fn run_build(context: BuildContext) -> ExitCode {
     match nia_build::run_build(request) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("error: {error}");
+            eprint!("{}", nia_build::render_build_error(&error, None, None));
             ExitCode::FAILURE
         }
     }
@@ -1646,7 +1646,7 @@ fn run_test(context: TestContext) -> ExitCode {
     match nia_build::run_build(request) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("error: {error}");
+            eprint!("{}", nia_build::render_build_error(&error, None, None));
             ExitCode::FAILURE
         }
     }
