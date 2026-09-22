@@ -38,6 +38,37 @@ fn main() i32 { 0 }
         "{:?}",
         program.diagnostics
     );
+    let missing = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("requires explicit implementation of supertrait `Same`")
+        })
+        .expect("missing supertrait diagnostic");
+    assert!(
+        missing
+            .diagnostic
+            .primary_message()
+            .is_some_and(|message| message.contains("no `Same` supertrait witness")),
+        "{missing:?}"
+    );
+    assert!(
+        missing.diagnostic.related.iter().any(|related| related
+            .message
+            .contains("implemented trait requires `Same`")),
+        "{missing:?}"
+    );
+    assert!(
+        missing
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("add an implementation of `Same`")),
+        "{missing:?}"
+    );
 }
 
 #[test]
@@ -201,6 +232,39 @@ fn main() i32 { 0 }
         }),
         "{:?}",
         program.diagnostics
+    );
+    let mismatch = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("does not satisfy associated type bindings of supertrait `Parent`")
+        })
+        .expect("supertrait associated binding diagnostic");
+    assert!(
+        mismatch
+            .diagnostic
+            .primary_message()
+            .is_some_and(|message| message.contains("associated types do not satisfy `Parent`")),
+        "{mismatch:?}"
+    );
+    assert!(
+        mismatch
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message.contains("supertrait binding for `Parent`")),
+        "{mismatch:?}"
+    );
+    assert!(
+        mismatch
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("define associated types")),
+        "{mismatch:?}"
     );
 }
 

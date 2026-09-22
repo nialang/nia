@@ -1303,14 +1303,23 @@ fn validate_builtin_supertrait_impls(
             &[],
             &trait_impls,
         ) {
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                impl_signature.span,
-                format!(
-                    "implementation of trait requires explicit implementation of supertrait `{}`",
-                    supertrait.trait_id.name()
-                ),
-            ));
+            let name = supertrait.trait_id.name();
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!(
+                        "implementation of trait requires explicit implementation of supertrait `{name}`"
+                    ),
+                )
+                .primary(
+                    impl_signature.span,
+                    format!("this implementation has no `{name}` supertrait witness"),
+                )
+                .help(format!(
+                    "add an implementation of `{name}` for this target type"
+                ))
+                .finish(),
+            );
         }
     }
 }
@@ -1561,19 +1570,32 @@ fn validate_supertrait_impls(
                 &trait_impls,
             )
         {
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                impl_signature.span,
-                format!(
-                    "implementation of trait requires explicit implementation of supertrait `{}`",
-                    match supertrait_id {
-                        TraitId::Source(supertrait_def_id) => {
-                            trait_name(module, supertrait_def_id, input.symbols).to_string()
-                        }
-                        TraitId::Builtin(supertrait_id) => supertrait_id.name().to_string(),
-                    }
-                ),
-            ));
+            let name = match supertrait_id {
+                TraitId::Source(supertrait_def_id) => {
+                    trait_name(module, supertrait_def_id, input.symbols).to_string()
+                }
+                TraitId::Builtin(supertrait_id) => supertrait_id.name().to_string(),
+            };
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!(
+                        "implementation of trait requires explicit implementation of supertrait `{name}`"
+                    ),
+                )
+                .primary(
+                    impl_signature.span,
+                    format!("this implementation has no `{name}` supertrait witness"),
+                )
+                .related(
+                    supertrait.span,
+                    format!("the implemented trait requires `{name}` here"),
+                )
+                .help(format!(
+                    "add an implementation of `{name}` for this target type"
+                ))
+                .finish(),
+            );
             continue;
         }
         let Some((substitutions, const_substitutions)) = substitutions_from_generic_params(
@@ -1616,19 +1638,32 @@ fn validate_supertrait_impls(
             &supertrait_goal,
             &bindings,
         )? {
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                impl_signature.span,
-                format!(
-                    "implementation of trait does not satisfy associated type bindings of supertrait `{}`",
-                    match supertrait_id {
-                        TraitId::Source(supertrait_def_id) => {
-                            trait_name(module, supertrait_def_id, input.symbols).to_string()
-                        }
-                        TraitId::Builtin(supertrait_id) => supertrait_id.name().to_string(),
-                    }
-                ),
-            ));
+            let name = match supertrait_id {
+                TraitId::Source(supertrait_def_id) => {
+                    trait_name(module, supertrait_def_id, input.symbols).to_string()
+                }
+                TraitId::Builtin(supertrait_id) => supertrait_id.name().to_string(),
+            };
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!(
+                        "implementation of trait does not satisfy associated type bindings of supertrait `{name}`"
+                    ),
+                )
+                .primary(
+                    impl_signature.span,
+                    format!("the implementation's associated types do not satisfy `{name}`"),
+                )
+                .related(
+                    supertrait.span,
+                    format!("the supertrait binding for `{name}` is declared here"),
+                )
+                .help(format!(
+                    "define associated types to satisfy the `{name}` binding"
+                ))
+                .finish(),
+            );
         }
     }
     Ok(())
