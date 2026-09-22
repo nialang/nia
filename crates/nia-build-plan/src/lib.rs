@@ -325,6 +325,22 @@ pub enum PackageRootError {
     InvalidPath(LogicalPathError),
 }
 
+impl fmt::Display for PackageRootError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RootPackageMustBeEmpty => {
+                f.write_str("the root package must use an empty package root")
+            }
+            Self::ExternalPackageMustBeNonempty => {
+                f.write_str("an external package must use a non-empty package root")
+            }
+            Self::InvalidPath(error) => write!(f, "invalid package root: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for PackageRootError {}
+
 /// Product kind emitted for an artifact.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PlanArtifactKind {
@@ -739,8 +755,214 @@ pub struct InvalidActionTarget {
 
 impl fmt::Display for PlanError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "invalid build plan: {self:?}")
+        match self {
+            Self::DuplicatePackage(package) => {
+                write!(
+                    f,
+                    "package `{}` is declared more than once",
+                    package.as_str()
+                )
+            }
+            Self::MissingPackage(package) => {
+                write!(
+                    f,
+                    "package `{}` is referenced but not declared",
+                    package.as_str()
+                )
+            }
+            Self::InvalidPackageRoot { package, error } => write!(
+                f,
+                "package `{}` has an invalid root: {error}",
+                package.as_str()
+            ),
+            Self::DuplicateModule(module) => write!(
+                f,
+                "module `{}` is declared more than once",
+                display_node_key(module)
+            ),
+            Self::DuplicateArtifact(artifact) => write!(
+                f,
+                "artifact `{}` is declared more than once",
+                display_node_key(artifact)
+            ),
+            Self::DuplicateAction(action) => write!(
+                f,
+                "action `{}` is declared more than once",
+                display_node_key(action)
+            ),
+            Self::DuplicateStep(step) => write!(
+                f,
+                "step `{}` is declared more than once",
+                display_node_key(step)
+            ),
+            Self::DuplicateImport { module, name } => write!(
+                f,
+                "module `{}` imports `{name}` more than once",
+                display_node_key(module)
+            ),
+            Self::MissingModule { owner, module } => write!(
+                f,
+                "{owner} references missing module `{}`",
+                display_node_key(module)
+            ),
+            Self::MissingArtifact { action, artifact } => write!(
+                f,
+                "action `{}` references missing artifact `{}`",
+                display_node_key(action),
+                display_node_key(artifact)
+            ),
+            Self::MissingAction { step, action } => write!(
+                f,
+                "step `{}` references missing action `{}`",
+                display_node_key(step),
+                display_node_key(action)
+            ),
+            Self::MissingStep { owner, step } => write!(
+                f,
+                "{owner} references missing step `{}`",
+                display_node_key(step)
+            ),
+            Self::StepCycle(steps) => write!(
+                f,
+                "build-step dependency cycle: {}",
+                steps
+                    .iter()
+                    .map(display_node_key)
+                    .collect::<Vec<_>>()
+                    .join(" -> ")
+            ),
+            Self::InvalidOutput { action, path } => write!(
+                f,
+                "action `{}` declares invalid output `{}`",
+                display_node_key(action),
+                display_logical_path(path)
+            ),
+            Self::OutputCollision(collision) => write!(
+                f,
+                "actions `{}` and `{}` claim overlapping output `{}`",
+                display_node_key(&collision.first),
+                display_node_key(&collision.second),
+                display_logical_path(&collision.path)
+            ),
+            Self::InvalidCommand { action, reason } => write!(
+                f,
+                "action `{}` has an invalid external command: {reason}",
+                display_node_key(action)
+            ),
+            Self::InvalidArtifactUse {
+                action,
+                artifact,
+                reason,
+            } => write!(
+                f,
+                "action `{}` uses artifact `{}` incorrectly: {reason}",
+                display_node_key(action),
+                display_node_key(artifact)
+            ),
+            Self::MissingBuildInputProducer { action, path } => write!(
+                f,
+                "action `{}` consumes build input `{}` without a producing action",
+                display_node_key(action.as_ref()),
+                display_logical_path(path)
+            ),
+            Self::BuildInputProducerOutsideClosure {
+                action,
+                path,
+                producer,
+            } => write!(
+                f,
+                "action `{}` consumes build input `{}` whose producer `{}` is outside its dependency closure",
+                display_node_key(action.as_ref()),
+                display_logical_path(path),
+                display_node_key(producer.as_ref())
+            ),
+            Self::MissingGeneratedSourceProducer {
+                action,
+                module,
+                path,
+            } => write!(
+                f,
+                "compiler action `{}` consumes generated module `{}` at `{}` without a producing action",
+                display_node_key(action.as_ref()),
+                display_node_key(module.as_ref()),
+                display_logical_path(path)
+            ),
+            Self::GeneratedSourceProducerOutsideClosure {
+                action,
+                module,
+                path,
+                producer,
+            } => write!(
+                f,
+                "compiler action `{}` consumes generated module `{}` at `{}` whose producer `{}` is outside its dependency closure",
+                display_node_key(action.as_ref()),
+                display_node_key(module.as_ref()),
+                display_logical_path(path),
+                display_node_key(producer.as_ref())
+            ),
+            Self::MissingDefaultStep => {
+                f.write_str("non-empty build plan has no default or selected step")
+            }
+            Self::InvalidTarget { role, reason } => write!(f, "invalid {role} target: {reason}"),
+            Self::InvalidActionTarget(details) => write!(
+                f,
+                "action `{}` requests target `{}` outside the plan's host/artifact targets",
+                display_node_key(&details.action),
+                display_target(&details.target)
+            ),
+        }
     }
+}
+
+fn display_node_key<T: NodeKeyDisplay>(key: &T) -> String {
+    format!("{}::{}", key.package_name(), key.local_name())
+}
+
+trait NodeKeyDisplay {
+    fn package_name(&self) -> &str;
+    fn local_name(&self) -> &str;
+}
+
+macro_rules! impl_node_key_display {
+    ($($ty:ty),* $(,)?) => {
+        $(
+        impl NodeKeyDisplay for $ty {
+            fn package_name(&self) -> &str { self.package().as_str() }
+            fn local_name(&self) -> &str { self.name() }
+        }
+        )*
+    };
+}
+
+impl_node_key_display!(ModuleKey, ArtifactKey, ActionKey, StepKey);
+
+fn display_logical_path(path: &LogicalPath) -> String {
+    let root = match path.root() {
+        LogicalPathRoot::Package(package) => format!("package `{}`", package.as_str()),
+        LogicalPathRoot::Build => "build".to_string(),
+        LogicalPathRoot::Cache => "cache".to_string(),
+        LogicalPathRoot::Toolchain => "toolchain".to_string(),
+        LogicalPathRoot::Artifact(artifact) => format!("artifact `{}`", display_node_key(artifact)),
+    };
+    let path = path.protocol_path();
+    if path.is_empty() {
+        root
+    } else {
+        format!("{root}/{path}")
+    }
+}
+
+fn display_target(target: &TargetSpec) -> String {
+    format!(
+        "{}-{}-{}-{}-{} ({}-bit {})",
+        target.arch,
+        target.vendor,
+        target.os,
+        target.env,
+        target.abi,
+        target.pointer_width,
+        target.endian
+    )
 }
 
 impl std::error::Error for PlanError {}
@@ -836,6 +1058,26 @@ mod tests {
 
     use super::dependencies::dependency_action_closure;
     use super::test_support::*;
+
+    #[test]
+    fn plan_errors_render_semantic_context_without_debug_fields() {
+        let duplicate = PlanError::DuplicatePackage(PackageKey::new("tools").unwrap());
+        assert_eq!(
+            duplicate.to_string(),
+            "package `tools` is declared more than once"
+        );
+        assert!(!duplicate.to_string().contains("DuplicatePackage"));
+
+        let action = ActionKey::new(PackageKey::root(), "compile").unwrap();
+        let artifact = ArtifactKey::new(PackageKey::root(), "app").unwrap();
+        let missing = PlanError::MissingArtifact { action, artifact };
+        let rendered = missing.to_string();
+        assert_eq!(
+            rendered,
+            "action `root::compile` references missing artifact `root::app`"
+        );
+        assert!(!rendered.contains("ActionKey"));
+    }
     use super::*;
 
     type TargetMutation = (&'static str, fn(&mut TargetSpec), &'static str);
