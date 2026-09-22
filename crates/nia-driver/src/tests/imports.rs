@@ -2697,6 +2697,63 @@ fn add(a: i32, b: i32) i32 { a + b }
 }
 
 #[test]
+fn reports_imported_value_used_as_type() {
+    let root = temp_dir("reports_imported_value_used_as_type");
+    let source = r#"module values;
+using entry::values::answer;
+
+fn main(value: answer) () {
+    _ = value;
+}
+"#;
+    write(&root.join("main.nia"), source);
+    write(&root.join("values.nia"), "pub const answer: i32 = 42;\n");
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let diagnostic = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("value `answer` cannot be used as a type")
+        })
+        .unwrap_or_else(|| panic!("wrong namespace diagnostic: {:?}", program.diagnostics));
+    assert_eq!(
+        diagnostic.diagnostic.primary_span().unwrap().start,
+        source.find("answer)").expect("type-use span")
+    );
+    assert!(
+        diagnostic
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message.contains("imported value")),
+        "missing imported value evidence: {:?}",
+        diagnostic.diagnostic
+    );
+    assert!(
+        diagnostic
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message.contains("using")),
+        "missing using directive evidence: {:?}",
+        diagnostic.diagnostic
+    );
+    assert!(
+        diagnostic
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("import a type")),
+        "missing namespace remediation: {:?}",
+        diagnostic.diagnostic
+    );
+}
+
+#[test]
 fn self_import_loads_child_module_by_stem_path() {
     let root = temp_dir("self_import_loads_child_module_by_stem_path");
     write(
