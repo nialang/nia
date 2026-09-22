@@ -169,6 +169,11 @@ and remove the progress log from the active contract. A completed roadmap may
 be deleted once its acceptance is closed, its architecture is documented, and
 its historical evidence remains recoverable in Git.
 
+The active diagnostic overhaul is tracked in
+[`diagnostics-roadmap.md`](diagnostics-roadmap.md). Diagnostic changes must
+follow its root-cause, source-ownership, phase-gating, and regression-fixture
+rules rather than only changing rendered wording.
+
 Build-system and standard-library work follows the same boundaries but has its
 own owners. Consult [`crates/nia-build/README.md`](../crates/nia-build/README.md),
 [`lib/README.md`](../lib/README.md), and the relevant `lib/std` or Rust module

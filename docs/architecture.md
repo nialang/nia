@@ -327,7 +327,10 @@ to the corresponding callable view.
 Diagnostics and source rendering. Owns user-facing diagnostic display but not
 semantic policy. Diagnostic codes are registry-backed schema values with severity,
 category, and stage reconstructed from registered definitions during stable-bundle
-decode.
+decode. Query providers collect diagnostics in phase order and stop publishing
+downstream diagnostics for a module after its first failing phase; the active
+root-cause and source-ownership redesign is tracked in
+[`diagnostics-roadmap.md`](diagnostics-roadmap.md).
 
 ### `nia-timing`
 
