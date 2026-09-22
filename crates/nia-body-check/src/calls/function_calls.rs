@@ -559,13 +559,24 @@ impl<'a> BodyChecker<'a> {
             }
             return self.error();
         };
-        let mut substitutions = lowered_args.type_substitutions;
-        let mut const_substitutions = lowered_args.const_substitutions;
+        // Explicit call arguments are authoritative. Substitute them into the
+        // inference patterns so only `_` parameters are inferred from values.
+        let fixed_substitutions = lowered_args.type_substitutions;
+        let fixed_const_substitutions = lowered_args.const_substitutions;
+        let fixed_is_concrete = fixed_substitutions
+            .values()
+            .all(|ty| !self.type_contains_generic_param(*ty))
+            && fixed_const_substitutions
+                .values()
+                .all(|arg| !matches!(arg.value, ConstGenericValue::GenericParam(_)));
+        let mut substitutions = fixed_substitutions.clone();
+        let mut const_substitutions = fixed_const_substitutions.clone();
         self.infer_generic_function_call_substitutions(
             span,
             signature,
             args,
             expected,
+            fixed_is_concrete.then_some((&fixed_substitutions, &fixed_const_substitutions)),
             &mut substitutions,
             &mut const_substitutions,
         );
@@ -630,6 +641,7 @@ impl<'a> BodyChecker<'a> {
             signature,
             args,
             expected,
+            None,
             &mut substitutions,
             &mut const_substitutions,
         );
@@ -685,12 +697,16 @@ impl<'a> BodyChecker<'a> {
         signature: &FunctionSignature,
         args: &[Expr],
         expected: Option<InternedTyId>,
+        fixed: Option<(&SymbolMap<InternedTyId>, &SymbolMap<ConstGenericArg>)>,
         substitutions: &mut SymbolMap<InternedTyId>,
         const_substitutions: &mut SymbolMap<ConstGenericArg>,
     ) {
         let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
         if let Some(expected) = expected.and_then(|expected| self.generic_call_expected(expected)) {
-            self.infer_generics_from_type(signature.return_type, expected, substitutions, span);
+            let pattern = fixed.map_or(signature.return_type, |(types, consts)| {
+                self.substitute_generics_and_consts(signature.return_type, types, consts)
+            });
+            self.infer_generics_from_type(pattern, expected, substitutions, span);
         }
         self.infer_generic_function_call_substitutions_from_where_predicates(
             signature,
@@ -703,15 +719,26 @@ impl<'a> BodyChecker<'a> {
                 self.check_expr(arg);
                 continue;
             };
-            let mut inferred_from_closure =
-                self.infer_generics_from_closure_signature(param, arg, substitutions, arg.span);
+            let inference_param = fixed.map_or(param, |(types, consts)| {
+                self.substitute_generics_and_consts(param, types, consts)
+            });
+            let mut inferred_from_closure = self.infer_generics_from_closure_signature(
+                inference_param,
+                arg,
+                substitutions,
+                arg.span,
+            );
             let mut substituted_param =
                 self.substitute_generics_and_consts(param, substitutions, const_substitutions);
             let closure_params_ready =
                 self.seed_closure_params_from_callable_pattern(substituted_param, arg);
             if closure_params_ready {
-                inferred_from_closure |=
-                    self.infer_generics_from_closure_signature(param, arg, substitutions, arg.span);
+                inferred_from_closure |= self.infer_generics_from_closure_signature(
+                    inference_param,
+                    arg,
+                    substitutions,
+                    arg.span,
+                );
                 substituted_param =
                     self.substitute_generics_and_consts(param, substitutions, const_substitutions);
             }
@@ -729,15 +756,20 @@ impl<'a> BodyChecker<'a> {
                 self.check_expr(arg)
             };
             let closure_shape_matches = self.inferred_closure_signature(arg).is_none()
-                || self.generic_pattern_accepts_type_shape(param, actual);
+                || self.generic_pattern_accepts_type_shape(inference_param, actual);
             if closure_shape_matches {
-                self.infer_generics_from_type(param, actual, substitutions, arg.span);
-                if self.generic_pattern_accepts_type_shape(param, actual) {
+                self.infer_generics_from_type(inference_param, actual, substitutions, arg.span);
+                if self.generic_pattern_accepts_type_shape(inference_param, actual) {
                     // Const inference is staged behind a complete structural
                     // probe. A mismatch in a later tuple field or associated
                     // binding must not leak values collected from a prefix.
                     let mut staged = const_substitutions.clone();
-                    self.infer_const_generics_from_type(param, actual, &mut staged, arg.span);
+                    self.infer_const_generics_from_type(
+                        inference_param,
+                        actual,
+                        &mut staged,
+                        arg.span,
+                    );
                     *const_substitutions = staged;
                 }
             }

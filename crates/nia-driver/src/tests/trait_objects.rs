@@ -1152,12 +1152,10 @@ fn read(bad: & Bad) i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("not object safe"))
-    );
+    assert!(program.diagnostics.iter().any(|diagnostic| {
+        diagnostic.diagnostic.code.as_str() == "E0303"
+            && diagnostic.diagnostic.summary.contains("not object safe")
+    }));
 }
 
 #[test]

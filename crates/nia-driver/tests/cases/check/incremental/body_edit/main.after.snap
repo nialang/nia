@@ -2,3 +2,5 @@ path: main.nia
 code: E0301
 summary: type mismatch in function body: expected i32, got bool
 label: 16..20 Primary Source type mismatch in function body: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation

@@ -220,7 +220,7 @@ const n: usize = width();
             diagnostic
                 .diagnostic
                 .summary
-                .contains("const struct value is missing field `enabled`")
+                .contains("missing const struct field `enabled`")
         }),
         "{:?}",
         program.diagnostics
@@ -254,7 +254,7 @@ const n: usize = width();
             diagnostic
                 .diagnostic
                 .summary
-                .contains("const struct value is missing field `y`")
+                .contains("missing const struct field `y`")
         }),
         "{:?}",
         program.diagnostics
@@ -285,7 +285,7 @@ const n: usize = width();
             diagnostic
                 .diagnostic
                 .summary
-                .contains("const struct value has extra field `enabled`")
+                .contains("unknown const struct field `enabled`")
         }),
         "{:?}",
         program.diagnostics
@@ -319,7 +319,7 @@ const n: usize = width();
             diagnostic
                 .diagnostic
                 .summary
-                .contains("const struct value has extra field `z`")
+                .contains("unknown const struct field `z`")
         }),
         "{:?}",
         program.diagnostics

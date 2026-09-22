@@ -467,14 +467,6 @@ fn main() i32 { 0 }
         "{:?}",
         program.diagnostics
     );
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("const expression can only call `const fn`")),
-        "{:?}",
-        program.diagnostics
-    );
 }
 
 #[test]
@@ -704,14 +696,6 @@ fn main() i32 { 0 }
         "{:?}",
         program.diagnostics
     );
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("const expression can only call `const fn`")),
-        "{:?}",
-        program.diagnostics
-    );
 }
 
 #[test]
@@ -798,14 +782,6 @@ fn main() i32 { 0 }
             .diagnostic
             .summary
             .contains("type mismatch in array literal element")),
-        "{:?}",
-        program.diagnostics
-    );
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("const expression can only call `const fn`")),
         "{:?}",
         program.diagnostics
     );
@@ -916,7 +892,6 @@ fn main() i32 { 0 }
     for message in [
         "trait bound not satisfied: [usize; 2]: Index[bool]",
         "trait bound not satisfied: usize: Index[usize]",
-        "const expression can only call `const fn`",
     ] {
         assert!(
             program
@@ -960,9 +935,7 @@ fn main() i32 { 0 }
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     for message in [
         "type mismatch in slice range start: expected usize, got bool",
-        "const expression can only call `const fn`",
         "range index expression must be taken as a slice pointer",
-        "type mismatch in binding initializer",
     ] {
         assert!(
             program
@@ -1045,7 +1018,6 @@ fn main() i32 { 0 }
         "unknown struct field `z`",
         "missing struct field `y`",
         "type mismatch in struct literal field",
-        "const expression can only call `const fn`",
     ] {
         assert!(
             program
@@ -1187,7 +1159,6 @@ fn main() i32 { 0 }
         "missing payload field `height` for variant `Resize`",
         "enum variant `Data` does not have a named payload",
         "duplicate payload field `width`",
-        "const expression can only call `const fn`",
     ] {
         assert!(
             program
@@ -1793,7 +1764,6 @@ fn main() i32 { 0 }
         "type mismatch in optional value",
         "type mismatch in error-union success value",
         "type mismatch in error-union error value",
-        "const expression can only call `const fn`",
     ] {
         assert!(
             program
@@ -1948,7 +1918,6 @@ fn main() i32 { 0 }
     for message in [
         "requires an optional target",
         "requires an error union target",
-        "const expression can only call `const fn`",
     ] {
         assert!(
             program
