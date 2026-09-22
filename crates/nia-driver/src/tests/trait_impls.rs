@@ -157,6 +157,32 @@ fn main() i32 {
         "{:?}",
         program.diagnostics
     );
+    let extra = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("method `debug` is not a member of implemented trait")
+        })
+        .expect("extra trait method diagnostic");
+    assert!(
+        extra
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("remove `debug`")),
+        "{extra:?}"
+    );
+    assert!(
+        extra
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message == "the implementation targets this trait"),
+        "{extra:?}"
+    );
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
@@ -164,6 +190,32 @@ fn main() i32 {
             .contains("missing implementation for trait method `size`")),
         "{:?}",
         program.diagnostics
+    );
+    let missing = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("missing implementation for trait method `size`")
+        })
+        .expect("missing trait method diagnostic");
+    assert!(
+        missing
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("implement trait method `size`")),
+        "{missing:?}"
+    );
+    assert!(
+        missing
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message.contains("trait requires `size`")),
+        "{missing:?}"
     );
 }
 

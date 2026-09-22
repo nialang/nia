@@ -904,11 +904,24 @@ fn validate_trait_impl(
             .any(|required| required.name == method.name)
         {
             let name = symbol_name(input.symbols, method.name);
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                method.span,
-                format!("method `{name}` is not a member of implemented trait"),
-            ));
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!("method `{name}` is not a member of implemented trait"),
+                )
+                .primary(
+                    method.span,
+                    format!("method `{name}` is not declared by this trait"),
+                )
+                .related(
+                    trait_signature.signature.span,
+                    "the implementation targets this trait",
+                )
+                .help(format!(
+                    "remove `{name}` or declare it in the trait before implementing it"
+                ))
+                .finish(),
+            );
         }
     }
     let trait_goal = TraitGoal {
@@ -934,11 +947,19 @@ fn validate_trait_impl(
         else {
             if !required.has_default {
                 let name = symbol_name(input.symbols, required.name);
-                diagnostics.push(Diagnostic::user_error_at(
-                    codes::NAME_RESOLUTION,
-                    impl_signature.span,
-                    format!("missing implementation for trait method `{name}`"),
-                ));
+                diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::NAME_RESOLUTION,
+                        format!("missing implementation for trait method `{name}`"),
+                    )
+                    .primary(
+                        impl_signature.span,
+                        format!("the implementation does not define `{name}`"),
+                    )
+                    .related(required.span, format!("the trait requires `{name}` here"))
+                    .help(format!("implement trait method `{name}` in this block"))
+                    .finish(),
+                );
             }
             continue;
         };
