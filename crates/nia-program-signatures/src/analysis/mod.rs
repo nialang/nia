@@ -762,11 +762,24 @@ fn validate_trait_impl(
             .any(|required| required.name == associated_type.name)
         {
             let name = symbol_name(input.symbols, associated_type.name);
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                associated_type.span,
-                format!("associated type `{name}` is not a member of implemented trait"),
-            ));
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!("associated type `{name}` is not a member of implemented trait"),
+                )
+                .primary(
+                    associated_type.span,
+                    format!("associated type `{name}` is not declared by this trait"),
+                )
+                .related(
+                    trait_signature.signature.span,
+                    "the implementation targets this trait",
+                )
+                .help(format!(
+                    "remove `{name}` or declare it in the trait before implementing it"
+                ))
+                .finish(),
+            );
         }
     }
     for associated_value in &impl_signature.associated_values {
@@ -777,11 +790,24 @@ fn validate_trait_impl(
             .find(|required| required.name == associated_value.name)
         else {
             let name = symbol_name(input.symbols, associated_value.name);
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                associated_value.span,
-                format!("associated const `{name}` is not a member of implemented trait"),
-            ));
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!("associated const `{name}` is not a member of implemented trait"),
+                )
+                .primary(
+                    associated_value.span,
+                    format!("associated const `{name}` is not declared by this trait"),
+                )
+                .related(
+                    trait_signature.signature.span,
+                    "the implementation targets this trait",
+                )
+                .help(format!(
+                    "remove `{name}` or declare it in the trait before implementing it"
+                ))
+                .finish(),
+            );
             continue;
         };
         let Some(actual_ty) = module
@@ -829,11 +855,21 @@ fn validate_trait_impl(
             .any(|associated_type| associated_type.name == required.name)
         {
             let name = symbol_name(input.symbols, required.name);
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                impl_signature.span,
-                format!("missing definition for associated type `{name}`"),
-            ));
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!("missing definition for associated type `{name}`"),
+                )
+                .primary(
+                    impl_signature.span,
+                    format!("the implementation does not define `{name}`"),
+                )
+                .related(required.span, format!("the trait requires `{name}` here"))
+                .help(format!(
+                    "define associated type `{name}` in this implementation"
+                ))
+                .finish(),
+            );
         }
     }
     for required in &trait_signature.signature.associated_values {
@@ -843,11 +879,21 @@ fn validate_trait_impl(
             .any(|associated_value| associated_value.name == required.name)
         {
             let name = symbol_name(input.symbols, required.name);
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                impl_signature.span,
-                format!("missing definition for associated const `{name}`"),
-            ));
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!("missing definition for associated const `{name}`"),
+                )
+                .primary(
+                    impl_signature.span,
+                    format!("the implementation does not define `{name}`"),
+                )
+                .related(required.span, format!("the trait requires `{name}` here"))
+                .help(format!(
+                    "define associated const `{name}` in this implementation"
+                ))
+                .finish(),
+            );
         }
     }
     for method in &impl_signature.methods {
