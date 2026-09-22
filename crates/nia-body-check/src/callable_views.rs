@@ -6,7 +6,7 @@ use nia_ty::TyKind;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ClosureFunctionPointerCoercion {
     Compatible,
-    Capturing,
+    Capturing { capture_count: usize },
     Mismatch,
 }
 
@@ -115,7 +115,9 @@ impl BodyChecker<'_> {
             return ClosureFunctionPointerCoercion::Mismatch;
         };
         if !captures.is_empty() {
-            return ClosureFunctionPointerCoercion::Capturing;
+            return ClosureFunctionPointerCoercion::Capturing {
+                capture_count: captures.len(),
+            };
         }
         if expected_params.len() == actual_params.len()
             && expected_params
