@@ -9,7 +9,7 @@ fn reports_lexer_errors_through_parser() {
     assert!(
         errors
             .iter()
-            .any(|error| error.message.contains("InvalidStringEscape"))
+            .any(|error| error.message.contains("invalid escape in string literal"))
     );
 }
 
@@ -19,7 +19,7 @@ fn reports_misplaced_numeric_separators_through_parser() {
     assert!(
         errors
             .iter()
-            .any(|error| error.message.contains("InvalidNumber")),
+            .any(|error| error.message.contains("invalid numeric literal")),
         "{errors:?}"
     );
 }
