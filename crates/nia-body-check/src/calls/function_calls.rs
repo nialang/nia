@@ -1436,8 +1436,8 @@ impl<'a> BodyChecker<'a> {
         {
             return true;
         }
-        let pattern = self.array_len_value(Span::default(), pattern).ok();
-        let actual = self.array_len_value(Span::default(), actual).ok();
+        let pattern = self.array_len_value(pattern).ok();
+        let actual = self.array_len_value(actual).ok();
         pattern.is_some() && pattern == actual
     }
 
@@ -3157,7 +3157,7 @@ impl<'a> BodyChecker<'a> {
                 .array_len_const_expr_value(id)
                 .map(|value| ConstGenericValue::Int(IntConst::unsigned(value.into()))),
             ArrayLenTy::Builtin { builtin, ty } => self
-                .array_len_value(Span::default(), &ArrayLenTy::Builtin { builtin, ty })
+                .array_len_value(&ArrayLenTy::Builtin { builtin, ty })
                 .ok()
                 .map(|value| ConstGenericValue::Int(IntConst::unsigned(value.into()))),
             ArrayLenTy::GenericParam(name) => Some(ConstGenericValue::GenericParam(name)),

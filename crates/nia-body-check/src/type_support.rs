@@ -1925,7 +1925,7 @@ impl<'a> BodyChecker<'a> {
         layouts.nominal_type_layout_with_const_args(*def_id, args, const_args)
     }
 
-    pub(crate) fn array_len_value(&self, span: Span, len: &ArrayLenTy) -> Result<u64, String> {
+    pub(crate) fn array_len_value(&self, len: &ArrayLenTy) -> Result<u64, String> {
         match len {
             ArrayLenTy::ConstValue(value) => Ok(*value),
             ArrayLenTy::ConstExpr(id) => self
@@ -1940,9 +1940,9 @@ impl<'a> BodyChecker<'a> {
                 };
                 Ok(layout.builtin_value(*builtin))
             }
-            ArrayLenTy::Infer => Err(format!("array length at {span:?} is not concrete")),
+            ArrayLenTy::Infer => Err("array length is not concrete".to_string()),
             ArrayLenTy::GenericParam(name) => Err(format!(
-                "array length const generic `{}` at {span:?} is not substituted",
+                "array length const generic `{}` is not substituted",
                 self.symbol_name(*name)
             )),
         }
@@ -1964,7 +1964,7 @@ impl<'a> BodyChecker<'a> {
                     | ConstGenericValue::ConstExpr(_) => None,
                 }
             }
-            ArrayLenTy::Builtin { .. } => self.array_len_value(Span::default(), len).ok(),
+            ArrayLenTy::Builtin { .. } => self.array_len_value(len).ok(),
             ArrayLenTy::Infer | ArrayLenTy::GenericParam(_) => None,
         }
     }
