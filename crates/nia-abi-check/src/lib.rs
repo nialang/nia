@@ -727,25 +727,29 @@ impl AbiChecker<'_> {
                     ));
                 }
             }
-            Some(TyKind::Range { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
+            Some(TyKind::Range { .. }) => self.diagnostics.push(extern_type_diagnostic(
                 span,
                 format!("{context_desc} cannot use range by value"),
+                "a range stores one or more bounds using a Nia-specific representation",
+                "expose the bounds as explicit C-compatible fields",
             )),
-            Some(TyKind::Optional { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
+            Some(TyKind::Optional { .. }) => self.diagnostics.push(extern_type_diagnostic(
                 span,
                 format!("{context_desc} cannot use optional by value"),
+                "an optional is a Nia tagged representation rather than a C scalar or declared aggregate",
+                "expose an explicit payload plus presence flag in an `extern struct`",
             )),
-            Some(TyKind::ErrorUnion { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
+            Some(TyKind::ErrorUnion { .. }) => self.diagnostics.push(extern_type_diagnostic(
                 span,
                 format!("{context_desc} cannot use error union by value"),
+                "an error union carries a Nia tag and two alternative payload representations",
+                "define a C-compatible `extern struct` with an explicit tag and payload storage",
             )),
-            Some(TyKind::ClosureState { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
+            Some(TyKind::ClosureState { .. }) => self.diagnostics.push(extern_type_diagnostic(
                 span,
                 format!("{context_desc} cannot use closure state directly"),
+                "closure state is compiler-managed environment storage, not a stable C value",
+                "use a function pointer with an explicit context pointer",
             )),
             Some(TyKind::Nominal {
                 def_id,
@@ -782,34 +786,38 @@ impl AbiChecker<'_> {
                     return;
                 }
                 if self.is_enum_def(*def_id) {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::STATIC_CHECK,
+                    self.diagnostics.push(extern_type_diagnostic(
                         span,
                         format!(
                             "{context_desc} cannot use enum directly; use its backing integer type"
                         ),
+                        "Nia enum layout and C enum layout are not assumed to have the same representation",
+                        "pass the enum's explicit backing integer type across the foreign boundary",
                     ));
                 }
                 if self.is_union_def(*def_id) {
                     // NIA-FUTURE(internal-abi): classify union by-value passing separately from C ABI.
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::STATIC_CHECK,
+                    self.diagnostics.push(extern_type_diagnostic(
                         span,
                         format!("{context_desc} cannot use union by value"),
+                        "Nia union storage does not yet have a declared C ABI contract",
+                        "use an `extern struct` with an explicit representation or pass a pointer",
                     ));
                 }
                 if let Some(signature) = self.struct_signature(*def_id).cloned() {
                     if signature.fields.is_empty() {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::STATIC_CHECK,
+                        self.diagnostics.push(extern_type_diagnostic(
                             span,
                             format!("{context_desc} cannot use empty struct by value"),
+                            "an empty aggregate has no portable C value representation",
+                            "add a represented field or pass a pointer to the object",
                         ));
                     } else if !signature.is_extern {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::STATIC_CHECK,
+                        self.diagnostics.push(extern_type_diagnostic(
                             span,
                             format!("{context_desc} cannot use normal Nia struct by value"),
+                            "ordinary Nia structs may reorder fields and are not a foreign layout contract",
+                            "declare an `extern struct` with the intended field layout or pass a pointer",
                         ));
                     } else if def_id.module_id != self.defs.module_id
                         && !nominal_stack.contains(def_id)
