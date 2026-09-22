@@ -406,13 +406,13 @@ pub(super) fn record_unresolved_using_names(
     let mut names = Vec::new();
     collect_explicit_using_names(&using.host, &using.selector, &mut names);
     for name in names {
-        scope.unresolved_names.insert(name.name);
-        scope.unresolved_usings.push(UnresolvedUsing {
+        let unresolved = UnresolvedUsing {
             name: name.alias.unwrap_or(name.name),
             directive_span: using.span,
             name_span: name.alias_span.unwrap_or(name.name_span),
             reason,
-        });
+        };
+        scope.unresolved_usings.insert(unresolved.name, unresolved);
     }
 }
 
