@@ -1580,7 +1580,10 @@ impl BackendValidator<'_> {
             TyKind::BuiltinType(builtin) => {
                 self.extern_abi_error(
                     span,
-                    format!("{description} cannot use builtin type `{builtin:?}` directly"),
+                    format!(
+                        "{description} cannot use builtin type `{}` directly",
+                        builtin.name()
+                    ),
                 );
             }
             TyKind::GenericParam(_) | TyKind::SelfParam => {
