@@ -243,8 +243,8 @@ fn check_rejects_misplaced_numeric_separators() {
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("lex error"), "{stderr}");
-    assert!(stderr.contains("InvalidNumber"), "{stderr}");
+    assert!(stderr.contains("lexical error"), "{stderr}");
+    assert!(stderr.contains("invalid numeric literal"), "{stderr}");
 }
 
 #[test]
