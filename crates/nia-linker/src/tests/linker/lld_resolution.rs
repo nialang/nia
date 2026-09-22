@@ -177,10 +177,22 @@ fn self_hosted_elf_flavor_is_reserved() {
         linker: ExecutableLinker::with_program_and_flavor("nia-link", LinkerFlavor::SelfHostedElf),
         ..LinkOptions::default()
     };
+    let error = options
+        .invocation(&link_inputs("main.o"), PathBuf::from("main"))
+        .expect_err("reserved linker flavor must be rejected");
     assert!(matches!(
-        options.invocation(&link_inputs("main.o"), PathBuf::from("main")),
-        Err(LinkerConfigError::UnsupportedFlavor(
-            LinkerFlavor::SelfHostedElf
-        ))
+        &error,
+        LinkerConfigError::UnsupportedFlavor(LinkerFlavor::SelfHostedElf)
     ));
+    assert_eq!(
+        error.to_string(),
+        "linker flavor `self-hosted-elf` is not implemented"
+    );
+}
+
+#[test]
+fn linker_flavors_have_stable_user_names() {
+    assert_eq!(LinkerFlavor::Gnu.to_string(), "gnu");
+    assert_eq!(LinkerFlavor::Lld.to_string(), "lld");
+    assert_eq!(LinkerFlavor::SelfHostedElf.to_string(), "self-hosted-elf");
 }

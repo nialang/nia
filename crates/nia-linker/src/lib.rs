@@ -203,6 +203,16 @@ pub enum LinkerFlavor {
     SelfHostedElf,
 }
 
+impl std::fmt::Display for LinkerFlavor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Gnu => "gnu",
+            Self::Lld => "lld",
+            Self::SelfHostedElf => "self-hosted-elf",
+        })
+    }
+}
+
 /// Whether an executable link is fully static or permits dynamic dependencies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkMode {
@@ -1316,13 +1326,10 @@ impl std::fmt::Display for LinkerConfigError {
             }
             Self::InvalidElf { path } => write!(f, "`{}` is not a valid ELF file", path.display()),
             Self::LinkerNotFound { flavor, program } => {
-                write!(
-                    f,
-                    "linker `{program}` for flavor `{flavor:?}` was not found"
-                )
+                write!(f, "linker `{program}` for flavor `{flavor}` was not found")
             }
             Self::UnsupportedFlavor(flavor) => {
-                write!(f, "linker flavor `{flavor:?}` is not implemented")
+                write!(f, "linker flavor `{flavor}` is not implemented")
             }
         }
     }
