@@ -50,6 +50,17 @@ using { left::*, right::* };
     assert_eq!(diagnostics.len(), 1);
     assert!(diagnostics[0].1.summary.contains("duplicate using name"));
     assert_ne!(diagnostics[0].1.primary_span(), Some(Span::default()));
+    assert_eq!(diagnostics[0].1.related.len(), 2);
+    assert!(
+        diagnostics[0].1.related[0]
+            .message
+            .contains("imported here first")
+    );
+    assert!(
+        diagnostics[0].1.related[1]
+            .message
+            .contains("earlier `using` directive")
+    );
 }
 
 #[test]

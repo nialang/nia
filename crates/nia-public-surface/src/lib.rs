@@ -577,16 +577,21 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                         if let Some(previous) = table.insert(entry.name, using_entry) {
                             diagnostics.push((
                                 defs.module_id,
-                                Diagnostic::user_error_at(
+                                Diagnostic::user_error(
                                     codes::NAME_RESOLUTION,
-                                    entry.name_span,
                                     format!(
                                         "duplicate using name `{}` in this module",
                                         symbol_text(symbols, entry.name)
                                     ),
-                                ),
+                                )
+                                .primary(entry.name_span, "this name is imported again here")
+                                .related(previous.name_span, "the name was imported here first")
+                                .related(
+                                    previous.directive_span,
+                                    "the earlier `using` directive is here",
+                                )
+                                .finish(),
                             ));
-                            let _ = previous;
                         }
                     }
                 }
