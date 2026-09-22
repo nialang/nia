@@ -1129,11 +1129,15 @@ impl<'a> ValueResolver<'a> {
                         None
                     }
                     DirectMember::Unloaded => {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::NAME_RESOLUTION,
-                            segment.span,
-                            "module namespace refers to an unloaded module",
-                        ));
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::NAME_RESOLUTION,
+                                "module namespace refers to an unloaded module",
+                            )
+                            .primary(segment.span, "this module could not be loaded")
+                            .help("check the module path and package contents")
+                            .finish(),
+                        );
                         None
                     }
                 }
@@ -1195,11 +1199,15 @@ impl<'a> ValueResolver<'a> {
                 return;
             }
             let symbol = self.symbol_name(symbol);
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                span,
-                format!("module namespace `{}` is private", symbol),
-            ));
+            self.diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!("module namespace `{symbol}` is private"),
+                )
+                .primary(span, format!("module namespace `{symbol}` is private"))
+                .help("make the module declaration public or use an allowed module path")
+                .finish(),
+            );
             return;
         }
         match self.direct_type_member(module_id, &symbol) {
@@ -1208,31 +1216,43 @@ impl<'a> ValueResolver<'a> {
                 return;
             }
             DirectMember::Private => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::NAME_RESOLUTION,
-                    span,
-                    format!("type `{path_text}` is private"),
-                ));
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::NAME_RESOLUTION,
+                        format!("type `{path_text}` is private"),
+                    )
+                    .primary(span, format!("type `{path_text}` is private"))
+                    .help("make the type public or use it from an allowed scope")
+                    .finish(),
+                );
                 return;
             }
             DirectMember::Missing => {}
             DirectMember::Unloaded => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::NAME_RESOLUTION,
-                    span,
-                    "module namespace refers to an unloaded module",
-                ));
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::NAME_RESOLUTION,
+                        "module namespace refers to an unloaded module",
+                    )
+                    .primary(span, "this module could not be loaded")
+                    .help("check the module path and package contents")
+                    .finish(),
+                );
                 return;
             }
         }
         let def_id = match self.direct_value_member(module_id, &symbol) {
             DirectMember::Visible(def_id) => def_id,
             DirectMember::Private => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::NAME_RESOLUTION,
-                    span,
-                    format!("value `{path_text}` is private"),
-                ));
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::NAME_RESOLUTION,
+                        format!("value `{path_text}` is private"),
+                    )
+                    .primary(span, format!("value `{path_text}` is private"))
+                    .help("make the value public or use it from an allowed scope")
+                    .finish(),
+                );
                 return;
             }
             DirectMember::Missing => {
@@ -1249,11 +1269,15 @@ impl<'a> ValueResolver<'a> {
                 return;
             }
             DirectMember::Unloaded => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::NAME_RESOLUTION,
-                    span,
-                    "module namespace refers to an unloaded module",
-                ));
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::NAME_RESOLUTION,
+                        "module namespace refers to an unloaded module",
+                    )
+                    .primary(span, "this module could not be loaded")
+                    .help("check the module path and package contents")
+                    .finish(),
+                );
                 return;
             }
         };
