@@ -221,6 +221,13 @@ pub mod codes {
         "linker",
         "external linker or archive tool failed",
     );
+    /// Artifact output or temporary-file I/O failure.
+    pub const ARTIFACT_IO: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0702",
+        DiagnosticStage::Compiler,
+        "artifact-io",
+        "compiler could not read or write an artifact",
+    );
     /// Unused import warning.
     pub const UNUSED_IMPORT: DiagnosticCodeDef = DiagnosticCodeDef::user_warning(
         "W0201",
@@ -259,6 +266,7 @@ pub mod codes {
         STATIC_CHECK,
         LLVM_CODEGEN,
         LINKER,
+        ARTIFACT_IO,
         UNUSED_IMPORT,
     ];
 
