@@ -637,7 +637,7 @@ pub(super) fn display_external_command_error(
 ) -> fmt::Result {
     write!(
         f,
-        "external command action `{}` in package `{}` failed to run `{:?}` with {} argument(s) in `{}`: ",
+        "external command action `{}` in package `{}` failed to run `{}` with {} argument(s) in `{}`: ",
         details.action.name(),
         details.action.package().as_str(),
         details.program,
@@ -664,7 +664,7 @@ pub(super) fn display_external_command_error(
             stdout,
             stderr,
         } => {
-            write!(f, "timed out after {timeout:?}")?;
+            write!(f, "timed out after {}", display_duration(*timeout))?;
             display_output_tails(f, stdout, stderr)
         }
         ExternalCommandFailure::Cancelled { stdout, stderr } => {
