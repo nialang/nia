@@ -1847,12 +1847,14 @@ impl<'a> BodyChecker<'a> {
             };
             if !present {
                 complete = false;
-                let name = self.symbol_name(param.name);
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
+                self.report_uninferred_generic(
                     span,
-                    format!("cannot infer generic parameter `{name}`"),
-                ));
+                    param.name,
+                    matches!(
+                        param.kind,
+                        nia_item_signatures::GenericParamSignatureKind::Const { .. }
+                    ),
+                );
             }
         }
         complete

@@ -519,11 +519,18 @@ impl<'a> BodyChecker<'a> {
                 self.error()
             }
             _ => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    "callee is not callable",
-                ));
+                let callee_name = self.ty_name(callee_ty);
+                self.diagnostics.push(
+                    Diagnostic::user_error(codes::TYPE_CHECK, "callee is not callable")
+                        .primary(span, "this expression is used as a callee")
+                        .note(format!(
+                            "the callee has type `{callee_name}`; only function pointers, closures, and callable views can be called"
+                        ))
+                        .help(
+                            "call a function or callable value, or pass this value to a callable constructor",
+                        )
+                        .finish(),
+                );
                 for arg in args {
                     self.check_expr(arg);
                 }
@@ -2225,15 +2232,7 @@ impl<'a> BodyChecker<'a> {
                     if self.generic_substitution_is_self_mapping(&name, existing) {
                         substitutions.insert(name, actual);
                     } else if !self.types_match(existing, actual) {
-                        let name = self.symbol_name(name);
-                        self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
-                            span,
-                            format!(
-                                "conflicting inferred type for generic parameter `{name}`: expected {}, got {}",
-                                self.ty_name(existing),
-                                self.ty_name(actual)
-                            ),
-                        ));
+                        self.report_conflicting_generic_type(span, name, existing, actual);
                     }
                 } else {
                     substitutions.insert(name, actual);
@@ -3142,12 +3141,7 @@ impl<'a> BodyChecker<'a> {
     ) {
         if let Some(existing) = substitutions.get(name).cloned() {
             if !self.const_generic_args_match(&existing, &arg) {
-                let name = self.symbol_name(*name);
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    format!("conflicting inferred value for const generic parameter `{name}`"),
-                ));
+                self.report_conflicting_const_generic(span, *name, &existing, &arg);
             }
         } else {
             substitutions.insert(*name, arg);

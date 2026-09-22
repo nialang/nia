@@ -28,6 +28,32 @@ fn main(base: i32) i32 {
 }
 
 #[test]
+fn explains_non_callable_callee_type_and_next_step() {
+    let checked = pipeline(
+        r#"
+fn main() i32 {
+    let value: i32 = 1;
+    value()
+}
+"#,
+    );
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary == "callee is not callable")
+        .expect("non-callable callee diagnostic");
+    assert!(diagnostic.notes.iter().any(|note| {
+        note.contains("callee has type `i32`") && note.contains("only function pointers")
+    }));
+    assert!(
+        diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("call a function or callable value"))
+    );
+}
+
+#[test]
 fn coerces_function_pointer_to_callable_view() {
     let checked = pipeline(
         r#"

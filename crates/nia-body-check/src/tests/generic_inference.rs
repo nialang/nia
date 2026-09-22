@@ -211,6 +211,98 @@ fn main() usize {
         "{:?}",
         checked.diagnostics
     );
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("cannot infer generic parameter `T`")
+        })
+        .expect("missing generic diagnostic");
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| { note.contains("not determined by the call arguments") })
+    );
+    assert!(
+        diagnostic
+            .help
+            .iter()
+            .any(|help| { help.contains("provide an explicit type argument for `T`") })
+    );
+}
+
+#[test]
+fn explains_conflicting_generic_inference_with_actionable_help() {
+    let checked = pipeline(
+        r#"
+fn choose[T](left: T, right: T) T { left }
+
+fn main() i32 {
+    choose(1, true)
+}
+"#,
+    );
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("conflicting inferred type for generic parameter `T`")
+        })
+        .expect("conflicting generic diagnostic");
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| { note.contains("already inferred as") && note.contains("requires") })
+    );
+    assert!(
+        diagnostic
+            .help
+            .iter()
+            .any(|help| { help.contains("make the arguments agree") })
+    );
+}
+
+#[test]
+fn explains_conflicting_const_generic_inference_with_values_and_help() {
+    let checked = pipeline(
+        r#"
+fn same[N: usize](left: [i32; N], right: [i32; N]) () {
+    _ = left;
+    _ = right;
+}
+
+fn main(left: [i32; 2], right: [i32; 3]) () {
+    same(left, right)
+}
+"#,
+    );
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("conflicting inferred value for const generic parameter `N`")
+        })
+        .expect("conflicting const generic diagnostic");
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| { note.contains("inferred as `2`") && note.contains("requires `3`") })
+    );
+    assert!(
+        diagnostic
+            .help
+            .iter()
+            .any(|help| { help.contains("provide an explicit const argument for `N`") })
+    );
 }
 
 #[test]

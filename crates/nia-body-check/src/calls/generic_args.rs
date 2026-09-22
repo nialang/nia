@@ -18,6 +18,109 @@ pub(crate) struct LoweredGenericArgs {
 }
 
 impl<'a> BodyChecker<'a> {
+    /// Publishes the common explanation for an incomplete generic call.
+    ///
+    /// The summary remains stable for existing consumers; the note and help
+    /// carry the actionable context that used to be lost in the one-line
+    /// diagnostic. Keeping this constructor shared prevents function and
+    /// method calls from drifting into different advice.
+    pub(crate) fn report_uninferred_generic(&mut self, span: Span, name: SymbolId, is_const: bool) {
+        let name = self.symbol_name(name);
+        let summary = if is_const {
+            format!("cannot infer const generic parameter `{name}`")
+        } else {
+            format!("cannot infer generic parameter `{name}`")
+        };
+        let (note, help) = if is_const {
+            (
+                format!(
+                    "`{name}` is not determined by the call arguments, expected result, or other generic constraints"
+                ),
+                format!(
+                    "provide an explicit const argument for `{name}` (for example `function[4](...)`), or pass an argument whose value determines it"
+                ),
+            )
+        } else {
+            (
+                format!(
+                    "`{name}` is not determined by the call arguments, expected result, or other generic constraints"
+                ),
+                format!(
+                    "provide an explicit type argument for `{name}` (for example `function[Type](...)`), or add a type annotation that determines it"
+                ),
+            )
+        };
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(span, summary)
+                .note(note)
+                .help(help)
+                .finish(),
+        );
+    }
+
+    pub(crate) fn report_conflicting_generic_type(
+        &mut self,
+        span: Span,
+        name: SymbolId,
+        existing: InternedTyId,
+        actual: InternedTyId,
+    ) {
+        let name = self.symbol_name(name);
+        let existing_name = self.ty_name(existing);
+        let actual_name = self.ty_name(actual);
+        let summary = format!(
+            "conflicting inferred type for generic parameter `{name}`: expected {existing_name}, got {actual_name}"
+        );
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(span, summary)
+                .note(format!(
+                    "the same generic parameter was already inferred as `{existing_name}`, but this argument requires `{actual_name}`"
+                ))
+                .help(format!(
+                    "make the arguments agree on one type, or provide an explicit type argument for `{name}`"
+                ))
+                .finish(),
+        );
+    }
+
+    pub(crate) fn report_conflicting_const_generic(
+        &mut self,
+        span: Span,
+        name: SymbolId,
+        existing: &ConstGenericArg,
+        actual: &ConstGenericArg,
+    ) {
+        let name = self.symbol_name(name);
+        let existing_value = self.const_generic_value_name(&existing.value);
+        let actual_value = self.const_generic_value_name(&actual.value);
+        let summary = format!("conflicting inferred value for const generic parameter `{name}`");
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(span, summary)
+                .note(format!(
+                    "`{name}` was inferred as `{existing_value}` earlier, but this argument requires `{actual_value}`"
+                ))
+                .help(format!(
+                    "make the const arguments agree, or provide an explicit const argument for `{name}`"
+                ))
+                .finish(),
+        );
+    }
+
+    fn const_generic_value_name(&self, value: &ConstGenericValue) -> String {
+        match value {
+            ConstGenericValue::GenericParam(name) => self.symbol_name(*name),
+            ConstGenericValue::ConstExpr(id) => format!("constant expression {id:?}"),
+            ConstGenericValue::Int(value) => value
+                .as_i128()
+                .map_or_else(|| value.bits().to_string(), |value| value.to_string()),
+            ConstGenericValue::Bool(value) => value.to_string(),
+            ConstGenericValue::Char(value) => format!("`{value}`"),
+        }
+    }
+
     pub(super) fn lower_bracket_type_args(
         &mut self,
         type_args: &[BracketArg],
@@ -313,12 +416,7 @@ impl<'a> BodyChecker<'a> {
         for generic in generics {
             if !substitutions.contains_key(generic) {
                 complete = false;
-                let name = self.symbol_name(*generic);
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    format!("cannot infer generic parameter `{name}`"),
-                ));
+                self.report_uninferred_generic(span, *generic, false);
             }
         }
         if !complete {
@@ -348,12 +446,7 @@ impl<'a> BodyChecker<'a> {
                 args.push(arg.clone());
             } else {
                 complete = false;
-                let name = self.symbol_name(generic.name);
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    format!("cannot infer const generic parameter `{name}`"),
-                ));
+                self.report_uninferred_generic(span, generic.name, true);
             }
         }
         complete.then_some(args)
@@ -376,12 +469,7 @@ impl<'a> BodyChecker<'a> {
                 const_args.push(arg);
             } else {
                 complete = false;
-                let name = self.symbol_name(generic);
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    format!("cannot infer generic parameter `{name}`"),
-                ));
+                self.report_uninferred_generic(span, generic, false);
             }
         }
         complete.then_some((args, const_args))
