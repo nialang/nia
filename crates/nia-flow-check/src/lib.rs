@@ -444,14 +444,20 @@ impl FlowChecker<'_> {
     fn check_block(&mut self, block: &Block) -> Flow {
         let mut exits = Flow::NONE;
         let mut falls_through = true;
+        let mut terminator_span = None;
         let mut defers = Vec::new();
         for stmt in &block.stmts {
             if !falls_through {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::STATIC_CHECK,
-                    stmt.span,
-                    "unreachable statement",
-                ));
+                let summary = "unreachable statement";
+                let mut diagnostic = Diagnostic::user_error(codes::STATIC_CHECK, summary)
+                    .primary(stmt.span, "this statement cannot be reached");
+                if let Some(terminator_span) = terminator_span {
+                    diagnostic = diagnostic.secondary(
+                        terminator_span,
+                        "control flow terminates before reaching this statement",
+                    );
+                }
+                self.diagnostics.push(diagnostic.finish());
                 // Continue walking unreachable syntax so nested invalid loop
                 // control and duplicate patterns are not hidden by the first
                 // terminating statement.
@@ -465,6 +471,9 @@ impl FlowChecker<'_> {
             let stmt_flow = self.check_stmt(stmt);
             exits = exits.union(stmt_flow.without_fallthrough().through_defers(&defers));
             falls_through = stmt_flow.falls_through;
+            if !falls_through {
+                terminator_span = Some(stmt.span);
+            }
         }
         if let Some(tail) = block.tail.as_deref() {
             let tail_flow = self.check_expr_flow(tail);
@@ -1155,6 +1164,18 @@ fn b() i32 {
                 .iter()
                 .any(|diagnostic| diagnostic.summary.contains("unreachable statement"))
         );
+        let unreachable = checked
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.summary.contains("unreachable statement"))
+            .expect("unreachable statement diagnostic");
+        assert!(unreachable.labels.iter().any(|label| {
+            label.style == nia_diagnostic::LabelStyle::Secondary
+                && label
+                    .message
+                    .as_deref()
+                    .is_some_and(|message| message.contains("terminates before"))
+        }));
     }
 
     #[test]
