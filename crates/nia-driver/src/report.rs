@@ -5,7 +5,7 @@ use crate::{
 };
 use nia_diagnostic::{
     Diagnostic, DiagnosticReportConfig, DiagnosticReportItem, build_diagnostic_report,
-    render_diagnostic,
+    render_diagnostic, render_diagnostics_json,
 };
 use nia_opt::{InlineThreshold, OptimizationDepth, SpecializationPolicy};
 
@@ -134,6 +134,19 @@ pub fn render_program_diagnostics(
     primary_source: Option<&str>,
 ) -> String {
     render_program_diagnostic_items(&program.diagnostics, primary_path, primary_source)
+}
+
+/// Renders all diagnostics attached to a checked program as deterministic JSON.
+pub fn render_program_diagnostics_json(program: &CheckedProgram) -> String {
+    let diagnostics = program
+        .diagnostics
+        .iter()
+        .map(|diagnostic| ProgramDiagnosticReportItem {
+            path: diagnostic.path.as_str(),
+            diagnostic: &diagnostic.diagnostic,
+        })
+        .collect::<Vec<_>>();
+    render_diagnostics_json(&diagnostics, DiagnosticReportConfig::default())
 }
 
 /// Renders only warnings attached to a checked program.
@@ -468,6 +481,11 @@ pub fn render_codegen_diagnostics(
     )
 }
 
+/// Renders backend/codegen diagnostics as deterministic JSON.
+pub fn render_codegen_diagnostics_json(diagnostics: &[Diagnostic]) -> String {
+    render_diagnostics_json(diagnostics, DiagnosticReportConfig::default())
+}
+
 fn render_diagnostics_with_title(
     title: &str,
     diagnostics: &[Diagnostic],
@@ -689,5 +707,18 @@ mod tests {
             "{rendered}"
         );
         assert!(rendered.contains("inspect the linker inputs"), "{rendered}");
+    }
+
+    #[test]
+    fn codegen_json_report_uses_the_shared_diagnostic_contract() {
+        let diagnostics = vec![Diagnostic::user_error_at(
+            codes::TYPE_CHECK,
+            Span::new(2, 4),
+            "type mismatch",
+        )];
+        let json = render_codegen_diagnostics_json(&diagnostics);
+        assert!(json.contains("\"code\":\"E0301\""), "{json}");
+        assert!(json.contains("\"start\":2,\"end\":4"), "{json}");
+        assert!(json.contains("\"suppressed\""), "{json}");
     }
 }
