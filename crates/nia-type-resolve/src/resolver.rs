@@ -103,6 +103,25 @@ struct TypeResolver<'a> {
 }
 
 impl TypeResolver<'_> {
+    fn unresolved_using_type_diagnostic(
+        &self,
+        span: Span,
+        segment: &TypePathSegment,
+        failure: nia_defs::UnresolvedUsing,
+    ) -> Diagnostic {
+        let name = self.symbol_name(type_segment_name(segment).copied().unwrap_or(failure.name));
+        let (summary, help) = failure.reason.diagnostic_parts(&name);
+        Diagnostic::user_error(
+            codes::NAME_RESOLUTION,
+            format!("type `{name}` is unavailable"),
+        )
+        .primary(span, summary)
+        .related(failure.name_span, "the imported type is selected here")
+        .related(failure.directive_span, "the `using` directive is here")
+        .help(help)
+        .finish()
+    }
+
     fn primitive_type_spelling_for_symbol(&self, name: &SymbolId) -> Option<PrimitiveTypeSpelling> {
         primitive_type_spelling_for_known_symbol(name).or_else(|| {
             let text = self.symbols?.symbol_text(*name)?;
@@ -1205,10 +1224,12 @@ impl<'a> TypeResolver<'a> {
                 .insert(node_key.site().clone(), global);
             return TypeNameResolution::External(global);
         }
-        if self
+        if let Some(failure) = self
             .using_scope
-            .is_some_and(|scope| scope.has_unresolved_using_name(&name))
+            .and_then(|scope| scope.unresolved_using(&name))
         {
+            self.diagnostics
+                .push(self.unresolved_using_type_diagnostic(span, segment, failure));
             return TypeNameResolution::Error;
         }
         if let Some(trait_id) = builtin_trait_for_unqualified_symbol(&name) {
