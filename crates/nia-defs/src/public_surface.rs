@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 use crate::DefId;
 use nia_ids::ModuleId;
 use nia_span::Span;
-use nia_symbol::{SymbolId, SymbolMap, SymbolSet};
+use nia_symbol::{SymbolId, SymbolMap};
 
 /// Public item namespace used by import and re-export lookup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -185,10 +185,9 @@ pub struct ModuleUsingScope {
     pub values: SymbolMap<UsingEntry>,
     /// Imported types by local name.
     pub types: SymbolMap<UsingEntry>,
-    /// Names whose import resolution failed.
-    pub unresolved_names: SymbolSet,
-    /// Source evidence for names whose `using` directive failed to resolve.
-    pub unresolved_usings: Vec<UnresolvedUsing>,
+    /// Source evidence for names whose `using` directive failed to resolve,
+    /// indexed by the name exposed to the local scope.
+    pub unresolved_usings: SymbolMap<UnresolvedUsing>,
 }
 
 /// Why a `using` directive did not make a name available.
@@ -277,16 +276,12 @@ impl ModuleUsingScope {
 
     /// Tests whether resolution failed for `name`.
     pub fn has_unresolved_name(&self, name: &SymbolId) -> bool {
-        self.unresolved_names.contains(name)
+        self.unresolved_usings.contains_key(name)
     }
 
     /// Returns source evidence for a failed `using` name.
     pub fn unresolved_using(&self, name: &SymbolId) -> Option<UnresolvedUsing> {
-        self.unresolved_usings
-            .iter()
-            .rev()
-            .find(|using| using.name == *name)
-            .copied()
+        self.unresolved_usings.get(name).copied()
     }
 
     /// Iterates imported value and type entries.
