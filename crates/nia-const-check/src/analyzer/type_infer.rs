@@ -932,19 +932,25 @@ impl Analyzer<'_> {
                     TraitId::Builtin(nia_ids::BuiltinTrait::IntoError),
                     &[target_error],
                 );
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::CONST,
+                self.report_const_into_error_failure(
                     span,
+                    source_error,
+                    target_error,
                     "automatic `IntoError` conversion during const evaluation requires a unique concrete trait witness",
-                ));
+                    "no unique visible const conversion was found for this propagated error",
+                    "provide one `const fn intoError` implementation for the source and target error types, or handle the error before constant evaluation",
+                );
                 return;
             }
             ResolvedConstCalleeSelection::Ambiguous => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::CONST,
+                self.report_const_into_error_failure(
                     span,
+                    source_error,
+                    target_error,
                     "ambiguous automatic `IntoError` conversion during const evaluation",
-                ));
+                    "more than one visible const conversion matches this propagation",
+                    "remove the duplicate conversion or make the target error type unambiguous",
+                );
                 return;
             }
         };
@@ -959,15 +965,59 @@ impl Analyzer<'_> {
             })
             .unwrap_or(false);
         if !is_const {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::CONST,
+            self.report_const_into_error_failure(
                 span,
+                source_error,
+                target_error,
                 "automatic `IntoError` conversion during const evaluation requires `intoError` to be declared `const fn`",
-            ));
+                "the matching conversion exists, but its `intoError` implementation is runtime-only",
+                "declare `intoError` as `const fn`, or avoid propagating this error during constant evaluation",
+            );
             return;
         }
         if let Some(frame) = self.call_locals.last_mut() {
             frame.try_error_conversions.insert(span, callee);
+        }
+    }
+
+    fn report_const_into_error_failure(
+        &mut self,
+        span: Span,
+        source_error: InternedTyId,
+        target_error: InternedTyId,
+        summary: &str,
+        note: &str,
+        help: &str,
+    ) {
+        let source_name = self.const_type_name(source_error);
+        let target_name = self.const_type_name(target_error);
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::CONST, summary)
+                .primary(span, summary)
+                .note(format!(
+                    "const evaluation is propagating `{source_name}` into the function's `{target_name}` error type"
+                ))
+                .note(note)
+                .help(help)
+                .finish(),
+        );
+    }
+
+    fn const_type_name(&mut self, ty: InternedTyId) -> String {
+        match self.ty_kind(ty) {
+            Some(TyKind::Primitive(primitive)) => {
+                symbol_text_or_unresolved(self.input.symbols, primitive.symbol_id())
+            }
+            Some(TyKind::Nominal { def_id, .. }) => self
+                .global_defs(def_id.module_id)
+                .and_then(|defs| {
+                    defs.as_ref()
+                        .defs
+                        .get(def_id.def_id)
+                        .map(|def| symbol_text_or_unresolved(self.input.symbols, def.name))
+                })
+                .unwrap_or_else(|| "<const type>".to_string()),
+            _ => "<const error type>".to_string(),
         }
     }
 
