@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::{fs, io, path::PathBuf, sync::Mutex};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 
-use nia_compiler_query::{TimingMode, has_error_diagnostics, query_error_diagnostic};
+use nia_compiler_query::{
+    BackendFunctionStats, CodegenScope, CompileRequest, CompilerDatabase, TimingMode,
+    has_error_diagnostics, query_error_diagnostic,
+};
 use nia_diagnostic::Diagnostic;
 use nia_loader_query::{LoadRequest, LoaderDatabase, SourceInputManifest};
 use nia_opt::OptimizationPolicy;
-use nia_source::SourceDatabase;
+use nia_source::{SourceDatabase, SourceIdentity, SourcePath};
 use nia_toolchain::ToolchainLayout;
 
 use crate::{CheckedProgram, CodegenProgram, ProgramDiagnostic};
