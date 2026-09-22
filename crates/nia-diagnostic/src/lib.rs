@@ -214,6 +214,13 @@ pub mod codes {
         "llvm-codegen",
         "LLVM code generation failed",
     );
+    /// External linker or archive tool failure.
+    pub const LINKER: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0701",
+        DiagnosticStage::Linker,
+        "linker",
+        "external linker or archive tool failed",
+    );
     /// Unused import warning.
     pub const UNUSED_IMPORT: DiagnosticCodeDef = DiagnosticCodeDef::user_warning(
         "W0201",
@@ -251,6 +258,7 @@ pub mod codes {
         CONST,
         STATIC_CHECK,
         LLVM_CODEGEN,
+        LINKER,
         UNUSED_IMPORT,
     ];
 
@@ -362,6 +370,8 @@ pub mod codes {
         BackendIr,
         /// LLVM lowering and code generation.
         Llvm,
+        /// External linker and archive tool invocation.
+        Linker,
     }
 
     impl From<DiagnosticCodeDef> for DiagnosticCode {

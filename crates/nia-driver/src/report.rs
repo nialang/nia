@@ -255,15 +255,31 @@ pub fn render_driver_error(
     primary_source: Option<&str>,
 ) -> String {
     match error {
-        DriverError::ArchiveStatus { program, status } => {
-            format!("archive tool `{program}` failed with status {status}\n")
-        }
-        DriverError::ArchiveIo { program, error } => {
-            format!("failed to run archive tool `{program}`: {error}\n")
-        }
-        DriverError::ArchiveConfig(error) => {
-            format!("invalid archive configuration: {error}\n")
-        }
+        DriverError::ArchiveStatus {
+            program,
+            status,
+            stderr,
+        } => render_external_tool_diagnostic(
+            "archive tool",
+            program,
+            *status,
+            stderr,
+            primary_path,
+            primary_source,
+        ),
+        DriverError::ArchiveIo { program, error } => render_external_tool_io_diagnostic(
+            "archive tool",
+            program,
+            error,
+            primary_path,
+            primary_source,
+        ),
+        DriverError::ArchiveConfig(error) => render_linker_config_diagnostic(
+            "archive",
+            &error.to_string(),
+            primary_path,
+            primary_source,
+        ),
         DriverError::CheckDiagnostics(program) => {
             render_program_diagnostics(program, primary_path, primary_source)
         }
@@ -296,14 +312,107 @@ pub fn render_driver_error(
         } => {
             format!("failed to write `{}`: {error}\n", path.display())
         }
-        DriverError::LinkerStatus { program, status } => {
-            format!("linker `{program}` failed with status {status}\n")
-        }
-        DriverError::LinkerIo { program, error } => {
-            format!("failed to run linker `{program}`: {error}\n")
-        }
-        DriverError::LinkerConfig(error) => format!("invalid linker configuration: {error}\n"),
+        DriverError::LinkerStatus {
+            program,
+            status,
+            stderr,
+        } => render_external_tool_diagnostic(
+            "linker",
+            program,
+            *status,
+            stderr,
+            primary_path,
+            primary_source,
+        ),
+        DriverError::LinkerIo { program, error } => render_external_tool_io_diagnostic(
+            "linker",
+            program,
+            error,
+            primary_path,
+            primary_source,
+        ),
+        DriverError::LinkerConfig(error) => render_linker_config_diagnostic(
+            "linker",
+            &error.to_string(),
+            primary_path,
+            primary_source,
+        ),
     }
+}
+
+fn render_external_tool_diagnostic(
+    tool_kind: &str,
+    program: &str,
+    status: std::process::ExitStatus,
+    stderr: &str,
+    primary_path: Option<&str>,
+    primary_source: Option<&str>,
+) -> String {
+    let mut diagnostic = Diagnostic::user_error(
+        nia_diagnostic::codes::LINKER,
+        format!("{tool_kind} `{program}` failed"),
+    )
+    .note(format!("the {tool_kind} exited with status {status}"))
+    .help(format!(
+        "inspect the {tool_kind} inputs and the tool output below, then fix the missing or conflicting native dependency"
+    ))
+    .debug("program", program)
+    .debug("exit_status", status);
+    if !stderr.is_empty() {
+        diagnostic = diagnostic.note(format!("{tool_kind} output:\n{stderr}"));
+    }
+    let rendered = render_diagnostics_with_title(
+        "linker diagnostics:",
+        std::slice::from_ref(&diagnostic.finish()),
+        primary_path,
+        primary_source,
+    );
+    rendered
+}
+
+fn render_external_tool_io_diagnostic(
+    tool_kind: &str,
+    program: &str,
+    error: &std::io::Error,
+    primary_path: Option<&str>,
+    primary_source: Option<&str>,
+) -> String {
+    let diagnostic = Diagnostic::user_error(
+        nia_diagnostic::codes::LINKER,
+        format!("could not start {tool_kind} `{program}`"),
+    )
+    .note(format!("the operating system reported: {error}"))
+    .help(format!(
+        "install the {tool_kind}, make it executable, or select a different tool"
+    ))
+    .finish();
+    render_diagnostics_with_title(
+        "linker diagnostics:",
+        std::slice::from_ref(&diagnostic),
+        primary_path,
+        primary_source,
+    )
+}
+
+fn render_linker_config_diagnostic(
+    tool_kind: &str,
+    error: &str,
+    primary_path: Option<&str>,
+    primary_source: Option<&str>,
+) -> String {
+    let diagnostic = Diagnostic::user_error(
+        nia_diagnostic::codes::LINKER,
+        format!("invalid {tool_kind} configuration"),
+    )
+    .note(error)
+    .help(format!("check the {tool_kind} and target options"))
+    .finish();
+    render_diagnostics_with_title(
+        "linker diagnostics:",
+        std::slice::from_ref(&diagnostic),
+        primary_path,
+        primary_source,
+    )
 }
 
 /// Renders backend/codegen diagnostics with a stable title.
@@ -517,5 +626,29 @@ mod tests {
         let rendered = render_parse_errors("main.nia", "?", &errors);
 
         assert!(rendered.contains("error[E0101]"), "{rendered}");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn external_tool_report_keeps_bounded_stderr_as_structured_note() {
+        let status = std::process::Command::new("sh")
+            .args(["-c", "exit 23"])
+            .status()
+            .expect("run shell");
+        let rendered = render_driver_error(
+            &DriverError::LinkerStatus {
+                program: "ld".to_string(),
+                status,
+                stderr: "undefined reference to `missing`".to_string(),
+            },
+            Some("main.nia"),
+            Some("fn main() () {}"),
+        );
+        assert!(rendered.contains("error[E0701]"), "{rendered}");
+        assert!(
+            rendered.contains("undefined reference to `missing`"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("inspect the linker inputs"), "{rendered}");
     }
 }

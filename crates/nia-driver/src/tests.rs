@@ -410,7 +410,10 @@ fn static_archive_failure_preserves_existing_output() {
 
     let root = common::temp_dir("static_archive_failure_preserves_existing_output");
     let tool = root.join("archive.sh");
-    write_static_archive_test_tool(&tool, "#!/bin/sh\nexit 23\n");
+    write_static_archive_test_tool(
+        &tool,
+        "#!/bin/sh\nprintf 'archive input is invalid\\n' >&2\nexit 23\n",
+    );
     let objects = static_archive_test_objects([1, 2]);
     let output = root.join("libsample.a");
     std::fs::write(&output, b"existing-archive").expect("seed existing archive");
@@ -426,7 +429,11 @@ fn static_archive_failure_preserves_existing_output() {
 
     assert!(matches!(
         error,
-        crate::DriverError::ArchiveStatus { status, .. } if status.code() == Some(23)
+        crate::DriverError::ArchiveStatus {
+            status,
+            stderr,
+            ..
+        } if status.code() == Some(23) && stderr.contains("archive input is invalid")
     ));
     assert_eq!(std::fs::read(output).unwrap(), b"existing-archive");
 }
