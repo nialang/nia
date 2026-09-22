@@ -8,6 +8,7 @@ use nia_ids::{
 use nia_span::Span;
 use nia_symbol::SymbolId;
 use parking_lot::Mutex;
+use std::fmt;
 use std::sync::{Arc, OnceLock};
 
 mod substitution;
@@ -700,6 +701,16 @@ impl From<i128> for IntConst {
     }
 }
 
+impl fmt::Display for IntConst {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.signed {
+            write!(formatter, "{}", self.bits as i128)
+        } else {
+            write!(formatter, "{}", self.bits)
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// Typed argument supplied to a const-generic parameter.
 pub struct ConstGenericArg {
@@ -1368,6 +1379,16 @@ mod tests {
         assert!(!IntConst::unsigned(u64::MAX.into()).fits_primitive_int(PrimitiveTy::Usize, 32));
         assert!(!IntConst::unsigned(0).fits_primitive_int(PrimitiveTy::Usize, 0));
         assert!(!IntConst::unsigned(0).fits_primitive_int(PrimitiveTy::Usize, 129));
+    }
+
+    #[test]
+    fn integer_display_uses_source_semantics_not_storage_debug() {
+        assert_eq!(IntConst::signed(-7).to_string(), "-7");
+        assert_eq!(IntConst::unsigned(7).to_string(), "7");
+        assert_eq!(
+            IntConst::unsigned(u128::MAX).to_string(),
+            u128::MAX.to_string()
+        );
     }
 
     struct DualStoreEquivalence<'a> {
