@@ -1002,20 +1002,30 @@ impl<'a> LayoutComputer<'a> {
         let elem_layout = self.layout_ty(elem, span)?;
         let len = match len {
             ArrayLenTy::Infer => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::STATIC_CHECK,
-                    span,
-                    "array layout requires a concrete length",
-                ));
+                self.diagnostics.push(
+                    Diagnostic::user_error(codes::STATIC_CHECK, "array layout requires a concrete length")
+                        .primary(span, "the array length is still inferred here")
+                        .note("layout computation needs one concrete element count before it can determine size and alignment")
+                        .help("add an explicit array length or provide a context that resolves the length")
+                        .finish(),
+                );
                 return None;
             }
             ArrayLenTy::GenericParam(name) => {
                 let name = self.symbol_name(name);
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::STATIC_CHECK,
-                    span,
-                    format!("array layout requires concrete value for const generic `{name}`"),
-                ));
+                let summary =
+                    format!("array layout requires concrete value for const generic `{name}`");
+                self.diagnostics.push(
+                    Diagnostic::user_error(codes::STATIC_CHECK, summary.clone())
+                        .primary(span, summary)
+                        .note(format!(
+                            "the const generic `{name}` has no value in this layout instance"
+                        ))
+                        .help(format!(
+                            "instantiate the type with an explicit value for `{name}`"
+                        ))
+                        .finish(),
+                );
                 return None;
             }
             ArrayLenTy::ConstValue(value) => value,
@@ -1028,36 +1038,43 @@ impl<'a> LayoutComputer<'a> {
                         .and_then(|array_lengths| array_lengths(id))
                 };
                 let Some(value) = value else {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::STATIC_CHECK,
-                        span,
-                        "array length was not evaluated by const",
-                    ));
+                    self.diagnostics.push(
+                        Diagnostic::user_error(codes::STATIC_CHECK, "array length was not evaluated by const")
+                            .primary(span, "the array length has no evaluated const value")
+                            .note("layout computation cannot use an unevaluated const expression as a storage size")
+                            .help("make the length expression a valid compile-time constant")
+                            .finish(),
+                    );
                     return None;
                 };
                 value
             }
             ArrayLenTy::Builtin { builtin, ty } => {
                 let Some(layout) = self.layout_ty(ty, span) else {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::STATIC_CHECK,
-                        span,
-                        format!(
-                            "cannot compute layout for array length builtin `@{}`",
-                            builtin.name()
-                        ),
-                    ));
+                    let summary = format!(
+                        "cannot compute layout for array length builtin `@{}`",
+                        builtin.name()
+                    );
+                    self.diagnostics.push(
+                        Diagnostic::user_error(codes::STATIC_CHECK, summary.clone())
+                            .primary(span, summary)
+                            .note("the layout builtin depends on a type whose size or alignment is invalid")
+                            .help("use a concrete, finite-sized type as the builtin operand")
+                            .finish(),
+                    );
                     return None;
                 };
                 layout.builtin_value(builtin)
             }
         };
         let Some(layout) = crate::array_layout(&elem_layout, len) else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
-                span,
-                "array layout size overflowed",
-            ));
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::STATIC_CHECK, "array layout size overflowed")
+                    .primary(span, "the array size exceeds the target layout arithmetic")
+                    .note("the element layout multiplied by the array length cannot be represented safely")
+                    .help("reduce the array length or use a smaller element type")
+                    .finish(),
+            );
             return None;
         };
         Some(layout)
