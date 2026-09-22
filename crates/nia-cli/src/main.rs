@@ -80,10 +80,25 @@ fn render_cli_boundary_error(
     message: &str,
     format: DiagnosticsFormat,
 ) -> String {
+    let help = match code {
+        nia_diagnostic::codes::TOOLCHAIN => {
+            "check the Nia installation, resource root, and toolchain manifest"
+        }
+        nia_diagnostic::codes::LOAD => {
+            "check the source path, package layout, and filesystem permissions"
+        }
+        _ => "check the command options and target configuration",
+    };
+    let diagnostic = nia_diagnostic::Diagnostic::user_error(code, message)
+        .help(help)
+        .finish();
     match format {
-        DiagnosticsFormat::Text => format!("error: {message}\n"),
-        DiagnosticsFormat::Json => nia_diagnostic::render_diagnostics_json(
-            &[nia_diagnostic::Diagnostic::user_error(code, message).finish()],
+        DiagnosticsFormat::Text => {
+            nia_diagnostic::render_diagnostic("<command line>", "", &diagnostic)
+        }
+        DiagnosticsFormat::Json => nia_diagnostic::render_diagnostics_json_at(
+            "<command line>",
+            &[diagnostic],
             nia_diagnostic::DiagnosticReportConfig::default(),
         ),
     }
@@ -2796,5 +2811,24 @@ mod tests {
         ])
         .expect_err("invalid diagnostics format must fail");
         assert!(error.message.contains("expected text or json"));
+    }
+
+    #[test]
+    fn cli_boundary_diagnostics_keep_code_and_help_in_both_formats() {
+        let text = render_cli_boundary_error(
+            nia_diagnostic::codes::TOOLCHAIN,
+            "invalid toolchain layout",
+            DiagnosticsFormat::Text,
+        );
+        assert!(text.contains("error[E0104]"), "{text}");
+        assert!(text.contains("help: check the Nia installation"), "{text}");
+
+        let json = render_cli_boundary_error(
+            nia_diagnostic::codes::TOOLCHAIN,
+            "invalid toolchain layout",
+            DiagnosticsFormat::Json,
+        );
+        assert!(json.contains("\"code\":\"E0104\""), "{json}");
+        assert!(json.contains("check the Nia installation"), "{json}");
     }
 }
