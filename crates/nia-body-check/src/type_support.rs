@@ -814,15 +814,26 @@ impl<'a> BodyChecker<'a> {
             return false;
         }
         if !value.fits_primitive_int(*primitive, self.target.pointer_width) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                expr.span,
-                format!(
-                    "integer literal {} is out of range for {} in {context}",
-                    value.display(),
-                    self.ty_name(expected)
-                ),
-            ));
+            let value_name = value.display();
+            let target_name = self.ty_name(expected);
+            let summary = format!(
+                "integer literal {value_name} is out of range for {target_name} in {context}"
+            );
+            let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(expr.span, summary)
+                .note(format!(
+                    "the literal value `{value_name}` cannot be represented by `{target_name}`"
+                ));
+            if let Some(wider) = wider_integer_type(*primitive) {
+                diagnostic = diagnostic.help(format!(
+                    "use a value representable by `{target_name}`, or change the literal type to `{wider}`"
+                ));
+            } else {
+                diagnostic = diagnostic.help(format!(
+                    "use a value representable by `{target_name}` or adjust the literal value"
+                ));
+            }
+            self.diagnostics.push(diagnostic.finish());
         }
         true
     }
@@ -854,15 +865,27 @@ impl<'a> BodyChecker<'a> {
             return false;
         }
         if !value.fits_primitive_int(*primitive, self.target.pointer_width) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                expr.span,
-                format!(
-                    "integer literal {} is out of range for {} backing type in {context}",
-                    value.display(),
-                    self.ty_name(expected_enum)
-                ),
-            ));
+            let value_name = value.display();
+            let enum_name = self.ty_name(expected_enum);
+            let backing_name = self.ty_name(backing_type);
+            let summary = format!(
+                "integer literal {value_name} is out of range for {enum_name} backing type in {context}"
+            );
+            let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(expr.span, summary)
+                .note(format!(
+                    "`{enum_name}` uses `{backing_name}` as its backing type, which cannot represent `{value_name}`"
+                ));
+            if let Some(wider) = wider_integer_type(*primitive) {
+                diagnostic = diagnostic.help(format!(
+                    "use a value representable by `{backing_name}` or widen the enum backing type to `{wider}`"
+                ));
+            } else {
+                diagnostic = diagnostic.help(format!(
+                    "use a value representable by the `{backing_name}` backing type"
+                ));
+            }
+            self.diagnostics.push(diagnostic.finish());
         }
         true
     }
@@ -883,21 +906,43 @@ impl<'a> BodyChecker<'a> {
         match primitive {
             PrimitiveTy::F32 => {
                 if !parse_float_literal::<f32>(text) {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        expr.span,
-                        format!("float literal `{text}` is out of range for F32 in {context}"),
-                    ));
+                    let summary =
+                        format!("float literal `{text}` is out of range for F32 in {context}");
+                    let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                        .primary(expr.span, summary)
+                        .note(format!(
+                            "the literal is not finite or cannot be represented by `{}`",
+                            self.ty_name(expected)
+                        ));
+                    if parse_float_literal::<f64>(text) {
+                        diagnostic = diagnostic.help(
+                            "use an `f64` literal suffix or an `f64` target when the additional range is intended",
+                        );
+                    } else {
+                        diagnostic = diagnostic.help(
+                            "reduce the literal magnitude or use a representable finite value",
+                        );
+                    }
+                    self.diagnostics.push(diagnostic.finish());
                 }
                 true
             }
             PrimitiveTy::F64 => {
                 if !parse_float_literal::<f64>(text) {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        expr.span,
-                        format!("float literal `{text}` is out of range for F64 in {context}"),
-                    ));
+                    let summary =
+                        format!("float literal `{text}` is out of range for F64 in {context}");
+                    self.diagnostics.push(
+                        Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                            .primary(expr.span, summary)
+                            .note(format!(
+                                "the literal is not finite or cannot be represented by `{}`",
+                                self.ty_name(expected)
+                            ))
+                            .help(
+                                "reduce the literal magnitude or use a representable finite value",
+                            )
+                            .finish(),
+                    );
                 }
                 true
             }
@@ -911,11 +956,23 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn report_invalid_numeric_literal_suffix(&mut self, expr: &Expr, kind: &str) {
         let suffix = numeric_literal_suffix_for_expr(expr).unwrap_or("<missing suffix>");
-        self.diagnostics.push(Diagnostic::user_error_at(
-            codes::TYPE_CHECK,
-            expr.span,
-            format!("invalid {kind} literal suffix `{suffix}`"),
-        ));
+        let summary = format!("invalid {kind} literal suffix `{suffix}`");
+        let valid_suffixes = if kind == "integer" {
+            "i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, or usize"
+        } else {
+            "f32 or f64"
+        };
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(expr.span, summary)
+                .note(format!(
+                    "`{suffix}` is not a valid {kind} suffix; this literal accepts {valid_suffixes}"
+                ))
+                .help(format!(
+                    "replace `{suffix}` with a supported suffix, or remove the suffix and let the context determine the type"
+                ))
+                .finish(),
+        );
     }
 
     pub(crate) fn expect_integer(&mut self, span: Span, actual: InternedTyId, context: &str) {
@@ -2513,6 +2570,23 @@ fn numeric_literal_suffix_for_expr(expr: &Expr) -> Option<&str> {
         } => numeric_literal_suffix_for_expr(expr),
         _ => None,
     }
+}
+
+fn wider_integer_type(primitive: PrimitiveTy) -> Option<&'static str> {
+    Some(match primitive {
+        PrimitiveTy::I8 => "i16",
+        PrimitiveTy::I16 => "i32",
+        PrimitiveTy::I32 => "i64",
+        PrimitiveTy::I64 => "i128",
+        PrimitiveTy::Isize => "i128",
+        PrimitiveTy::U8 => "u16",
+        PrimitiveTy::U16 => "u32",
+        PrimitiveTy::U32 => "u64",
+        PrimitiveTy::U64 => "u128",
+        PrimitiveTy::Usize => "u128",
+        PrimitiveTy::I128 | PrimitiveTy::U128 => return None,
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
