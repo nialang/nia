@@ -740,11 +740,14 @@ impl<'a> LayoutComputer<'a> {
             return Some(layout);
         }
         if !self.visiting.insert(ty_id) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
-                span,
-                "recursive type layout is not supported",
-            ));
+            let summary = "recursive type layout is not supported";
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::STATIC_CHECK, summary)
+                    .primary(span, "this value would contain itself by value")
+                    .note("a by-value recursive layout has no finite size or alignment")
+                    .help("break the cycle with a pointer or another indirection")
+                    .finish(),
+            );
             return None;
         }
         let layout = match self.type_context.get(ty_id).cloned() {
@@ -1420,11 +1423,18 @@ impl<'a> LayoutComputer<'a> {
         let (substitutions, const_substitutions) =
             generic_argument_substitutions(&signature.generic_params, args, const_args)?;
         if !self.visiting_structs.insert(key.clone()) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
-                span,
-                "recursive struct layout is not supported",
-            ));
+            let summary = "recursive struct layout is not supported";
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::STATIC_CHECK, summary)
+                    .primary(span, "this struct is reached again through a by-value field")
+                    .secondary(
+                        signature.span,
+                        "the struct declaration participates in the recursive layout",
+                    )
+                    .note("a struct cannot contain an instance of itself directly because its size would be infinite")
+                    .help("store the recursive member behind a pointer or another indirection")
+                    .finish(),
+            );
             return None;
         }
         let struct_layout = if signature.is_extern {
@@ -1468,11 +1478,18 @@ impl<'a> LayoutComputer<'a> {
             return None;
         }
         if !self.visiting_unions.insert(key.clone()) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
-                span,
-                "recursive union layout is not supported",
-            ));
+            let summary = "recursive union layout is not supported";
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::STATIC_CHECK, summary)
+                    .primary(span, "this union is reached again through a by-value field")
+                    .secondary(
+                        signature.span,
+                        "the union declaration participates in the recursive layout",
+                    )
+                    .note("a union cannot contain an instance of itself directly because its storage would be infinite")
+                    .help("store the recursive member behind a pointer or another indirection")
+                    .finish(),
+            );
             return None;
         }
         let union_layout =

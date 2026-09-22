@@ -268,12 +268,31 @@ fn layouts_separate_semantic_value_from_diagnostics() {
 
     let layouts = db.expect_get(LayoutsQuery(module_id));
     assert!(layouts.semantic.diagnostics.is_empty());
-    assert!(
-        resolve_diagnostic_bundle(&layouts.diagnostics)
-            .iter()
-            .any(|diagnostic| diagnostic
+    let diagnostic = resolve_diagnostic_bundle(&layouts.diagnostics)
+        .into_iter()
+        .find(|diagnostic| {
+            diagnostic
                 .summary
-                .contains("recursive struct layout is not supported"))
+                .contains("recursive struct layout is not supported")
+        })
+        .expect("recursive layout diagnostic");
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("size would be infinite"))
+    );
+    assert!(
+        diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("pointer") && help.contains("indirection"))
+    );
+    assert!(
+        diagnostic
+            .labels
+            .iter()
+            .any(|label| label.style == nia_diagnostic::LabelStyle::Secondary)
     );
 }
 
