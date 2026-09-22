@@ -370,11 +370,14 @@ impl<'a> BodyChecker<'a> {
         }
         if viable_candidates.is_empty() && candidates.len() > 1 {
             let name = self.symbol_name(*call.name);
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            self.report_method_candidates(
                 call.span,
                 format!("no matching method overload `{name}`"),
-            ));
+                "none of the available method signatures accepts these arguments",
+                "change the receiver or argument types to match one of the candidates, or call the method with explicit generic arguments",
+                receiver_ty,
+                &candidates,
+            );
             for arg in call.args {
                 self.check_expr(arg);
             }
@@ -580,6 +583,44 @@ impl<'a> BodyChecker<'a> {
             let return_type = this.normalize_projection(return_type);
             Some(this.normalize_aliases_in_type(return_type))
         })
+    }
+
+    pub(in crate::calls) fn report_method_candidates(
+        &mut self,
+        span: Span,
+        summary: String,
+        note: &str,
+        help: &str,
+        receiver_ty: InternedTyId,
+        candidates: &[MethodCandidate],
+    ) {
+        let receiver_name = self.ty_name(receiver_ty);
+        let mut signatures = candidates
+            .iter()
+            .take(8)
+            .filter_map(|candidate| self.method_candidate_signature(candidate))
+            .collect::<Vec<_>>();
+        signatures.sort();
+        signatures.dedup();
+        let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+            .primary(span, summary)
+            .note(format!("the receiver has type `{receiver_name}`; {note}"))
+            .help(help);
+        if !signatures.is_empty() {
+            let list = signatures
+                .iter()
+                .map(|signature| format!("  - {signature}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            diagnostic = diagnostic.note(format!("candidate methods:\n{list}"));
+        }
+        if candidates.len() > signatures.len() {
+            diagnostic = diagnostic.note(format!(
+                "{} additional candidate(s) omitted",
+                candidates.len().saturating_sub(signatures.len())
+            ));
+        }
+        self.diagnostics.push(diagnostic.finish());
     }
 
     fn check_builtin_range_method(

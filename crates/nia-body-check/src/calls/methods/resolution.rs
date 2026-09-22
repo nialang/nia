@@ -1407,11 +1407,18 @@ impl<'a> BodyChecker<'a> {
                 continue;
             }
             let name = self.symbol_name(*name);
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            let receiver_ty = selected
+                .as_ref()
+                .map(|candidate| candidate.self_ty)
+                .unwrap_or_else(|| self.error());
+            self.report_method_candidates(
                 span,
                 format!("ambiguous method `{name}`"),
-            ));
+                "more than one candidate is equally specific for this receiver",
+                "make the receiver type or argument types more specific, or use an explicit method/type qualification",
+                receiver_ty,
+                candidates,
+            );
             return None;
         }
         selected
@@ -1472,6 +1479,43 @@ impl<'a> BodyChecker<'a> {
                 )
             })
             .collect()
+    }
+
+    /// Renders a bounded, source-facing method signature for candidate
+    /// diagnostics. This deliberately uses canonical type names rather than
+    /// definition ids or debug representations, and never performs another
+    /// candidate search.
+    pub(in crate::calls) fn method_candidate_signature(
+        &mut self,
+        candidate: &MethodCandidate,
+    ) -> Option<String> {
+        let signature = self
+            .resolved_function_signature(candidate.method.def_id)
+            .map(|resolved| resolved.signature)?;
+        let params = self.method_candidate_param_types(candidate, &signature);
+        let params = params
+            .iter()
+            .map(|param| self.ty_name(*param))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let generics = if signature.generic_params.is_empty() {
+            String::new()
+        } else {
+            let names = signature
+                .generic_params
+                .iter()
+                .map(|param| self.symbol_name(param.name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("[{names}]")
+        };
+        Some(format!(
+            "{}{}({}) -> {}",
+            self.symbol_name(candidate.method.name),
+            generics,
+            params,
+            self.ty_name(signature.return_type)
+        ))
     }
 
     pub(in crate::calls::methods) fn viable_method_candidates(

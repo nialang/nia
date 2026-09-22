@@ -109,13 +109,21 @@ impl<'a> BodyChecker<'a> {
         let Some(candidate) = self.single_method_candidate(span, name, &candidates) else {
             if candidates.is_empty() && trait_candidates.is_empty() {
                 self.record_method_provider_demand(target_ty, *name);
+                let name = self.symbol_name(*name);
+                let target_name = self.ty_name(target_ty);
+                let summary = format!("unknown associated function `{name}`");
+                self.diagnostics.push(
+                    Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                        .primary(span, summary)
+                        .note(format!(
+                            "the target type is `{target_name}`, and no visible associated function named `{name}` was found"
+                        ))
+                        .help(format!(
+                            "check the type qualification, import the module that defines `{name}`, or use a function available for `{target_name}`"
+                        ))
+                        .finish(),
+                );
             }
-            let name = self.symbol_name(*name);
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                format!("unknown associated function `{name}`"),
-            ));
             return Some(self.error());
         };
         let method_id = candidate.method.def_id;
