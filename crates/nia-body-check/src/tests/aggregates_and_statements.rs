@@ -29,6 +29,29 @@ fn main() i32 {
             .iter()
             .any(|diagnostic| diagnostic.summary.contains("unknown struct field"))
     );
+    let unknown = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary.contains("unknown struct field"))
+        .expect("unknown struct literal field diagnostic");
+    assert!(
+        unknown
+            .notes
+            .iter()
+            .any(|note| note.contains("constructor targets a value of type `Pair`"))
+    );
+    assert!(
+        unknown
+            .notes
+            .iter()
+            .any(|note| note.contains("available fields") && note.contains("`left`"))
+    );
+    assert!(
+        unknown
+            .help
+            .iter()
+            .any(|help| help.contains("field spelling"))
+    );
     assert!(
         checked
             .diagnostics
