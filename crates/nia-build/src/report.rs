@@ -15,8 +15,7 @@ use nia_diagnostic::{
 };
 
 use crate::{
-    BuildError, CoordinatorError, ExternalCommandError, ExternalCommandFailure, TargetSpec,
-    TestFailure,
+    BuildError, CoordinatorError, ExternalCommandError, ExternalCommandFailure, TestFailure,
 };
 
 /// Renders one build failure using the canonical diagnostic layout.
@@ -516,6 +515,7 @@ fn coordinator_summary(error: &CoordinatorError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TargetSpec;
 
     #[test]
     fn missing_script_uses_stable_build_plan_code_and_help() {
