@@ -1024,16 +1024,18 @@ impl<'a> ValueResolver<'a> {
         if let Some(primitive) = primitive_for_symbol(name) {
             return Some(ResolvedNamespace::Primitive(primitive));
         }
-        let name = self.symbol_name(name);
-        self.diagnostics.push(
-            Diagnostic::user_error(
-                codes::NAME_RESOLUTION,
-                format!("unknown namespace `{name}`"),
-            )
-            .primary(segment.span, format!("unknown namespace `{name}`"))
-            .help("check the path spelling and make sure the module or type is in scope")
-            .finish(),
-        );
+        if self.symbols.is_some() {
+            let name = self.symbol_name(name);
+            self.diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!("unknown namespace `{name}`"),
+                )
+                .primary(segment.span, format!("unknown namespace `{name}`"))
+                .help("check the path spelling and make sure the module or type is in scope")
+                .finish(),
+            );
+        }
         None
     }
 

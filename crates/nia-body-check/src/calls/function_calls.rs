@@ -1943,7 +1943,12 @@ impl<'a> BodyChecker<'a> {
         for (index, arg) in args.iter().enumerate() {
             if let Some(expected) = instantiated_params.get(index).copied() {
                 let actual = self.check_expr_with_expected(arg, Some(expected));
-                self.expect_expr_type(arg, expected, actual, "call argument");
+                self.expect_expr_type(
+                    arg,
+                    expected,
+                    actual,
+                    &format!("call argument {}", index + 1),
+                );
             }
         }
     }

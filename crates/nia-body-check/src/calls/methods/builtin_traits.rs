@@ -499,7 +499,7 @@ impl<'a> BodyChecker<'a> {
                     .or_else(|| self.is_numeric_literal_expr(rhs).then_some(self_ty));
                 let rhs_ty = self.check_expr_with_expected(rhs, rhs_expected);
                 if let Some(expected) = rhs_expected {
-                    self.expect_expr_type(rhs, expected, rhs_ty, "call argument");
+                    self.expect_expr_type(rhs, expected, rhs_ty, "call argument 1");
                 }
                 let rhs_ty = self.expr_ty(rhs).unwrap_or(rhs_ty);
                 Some(vec![rhs_ty])
