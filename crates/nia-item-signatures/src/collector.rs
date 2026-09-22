@@ -788,37 +788,64 @@ impl<'a> SignatureCollector<'a> {
                     if let Some(builtin_name) = builtin_name {
                         if let Some(builtin) = BuiltinConstValue::from_name(builtin_name.as_str()) {
                             if out.replace(builtin).is_some() {
-                                self.diagnostics.push(Diagnostic::user_error_at(
-                                    codes::ITEM_SIGNATURE,
-                                    attribute.span,
-                                    "duplicate `@[builtin]` const attribute",
-                                ));
+                                self.diagnostics.push(
+                                    Diagnostic::user_error(
+                                        codes::ITEM_SIGNATURE,
+                                        "duplicate `@[builtin]` const attribute",
+                                    )
+                                    .primary(attribute.span, "duplicate builtin const attribute")
+                                    .help("keep only one `@[builtin]` attribute on this const")
+                                    .finish(),
+                                );
                             }
                             if builtin_const_item_symbol(builtin) != binding.name {
-                                self.diagnostics.push(Diagnostic::user_error_at(
-                                    codes::ITEM_SIGNATURE,
-                                    attribute.span,
-                                    format!(
-                                        "builtin const source item `{}` must match descriptor item `{}`",
-                                        self.symbol_debug_text(binding.name),
-                                        builtin.item_name()
-                                    ),
-                                ));
+                                let source_name = self.symbol_debug_text(binding.name);
+                                let expected_name = builtin.item_name();
+                                self.diagnostics.push(
+                                    Diagnostic::user_error(
+                                        codes::ITEM_SIGNATURE,
+                                        format!(
+                                            "builtin const source item `{source_name}` must match descriptor item `{expected_name}`"
+                                        ),
+                                    )
+                                    .primary(
+                                        attribute.span,
+                                        format!("builtin descriptor expects `{expected_name}`"),
+                                    )
+                                    .help(format!(
+                                        "rename this const to `{expected_name}` or use the matching builtin name"
+                                    ))
+                                    .finish(),
+                                );
                             }
                         } else {
-                            self.diagnostics.push(Diagnostic::user_error_at(
-                                codes::ITEM_SIGNATURE,
-                                attribute.span,
-                                format!("unknown builtin const `{builtin_name}`"),
-                            ));
+                            self.diagnostics.push(
+                                Diagnostic::user_error(
+                                    codes::ITEM_SIGNATURE,
+                                    format!("unknown builtin const `{builtin_name}`"),
+                                )
+                                .primary(
+                                    attribute.span,
+                                    format!("`{builtin_name}` is not a registered builtin const"),
+                                )
+                                .help("use a registered builtin const name or remove `@[builtin]`")
+                                .finish(),
+                            );
                         }
                     }
                     if binding.is_extern() || binding.value.is_some() || binding.ty.is_none() {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::ITEM_SIGNATURE,
-                            attribute.span,
-                            "`@[builtin]` is only valid on bodyless non-extern const declarations with an explicit type",
-                        ));
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::ITEM_SIGNATURE,
+                                "`@[builtin]` is only valid on bodyless non-extern const declarations with an explicit type",
+                            )
+                            .primary(
+                                attribute.span,
+                                "this builtin const has an invalid declaration shape",
+                            )
+                            .help("remove `extern` and the initializer, then add an explicit type")
+                            .finish(),
+                        );
                     }
                 }
                 _ => {
