@@ -129,7 +129,7 @@ fn run_build_case(name: &str) {
             manifest.finish();
             assert!(!output.status.success());
             let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(stderr.contains("failed to find `build.nia`"), "{stderr}");
+            assert!(stderr.contains("could not find `build.nia`"), "{stderr}");
             assert!(
                 stderr.contains(workspace.to_string_lossy().as_ref()),
                 "{stderr}"
