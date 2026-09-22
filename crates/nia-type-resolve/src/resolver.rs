@@ -975,14 +975,16 @@ impl<'a> TypeResolver<'a> {
                 def_id: entry.target_def_id,
             }));
         }
-        self.diagnostics.push(Diagnostic::user_error_at(
-            codes::NAME_RESOLUTION,
-            path_span,
-            format!(
-                "unknown namespace `{}`",
-                self.symbol_name(*type_segment_name(segment)?)
-            ),
-        ));
+        let name = self.symbol_name(*type_segment_name(segment)?);
+        self.diagnostics.push(
+            Diagnostic::user_error(
+                codes::NAME_RESOLUTION,
+                format!("unknown namespace `{name}`"),
+            )
+            .primary(path_span, format!("unknown namespace `{name}`"))
+            .help("check the path spelling and make sure the module or type is in scope")
+            .finish(),
+        );
         None
     }
 
@@ -1022,14 +1024,16 @@ impl<'a> TypeResolver<'a> {
                     if self.module_declaration_visible(module_id, visibility) {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::NAME_RESOLUTION,
-                        path_span,
-                        format!(
-                            "module namespace `{}` is private",
-                            self.symbol_name(*type_segment_name(segment)?)
-                        ),
-                    ));
+                    let name = self.symbol_name(*type_segment_name(segment)?);
+                    self.diagnostics.push(
+                        Diagnostic::user_error(
+                            codes::NAME_RESOLUTION,
+                            format!("module namespace `{name}` is private"),
+                        )
+                        .primary(path_span, format!("module namespace `{name}` is private"))
+                        .help("make the module declaration public or use an allowed module path")
+                        .finish(),
+                    );
                     return None;
                 }
                 match self.direct_type_member(module_id, type_segment_name(segment)?) {
@@ -1037,33 +1041,41 @@ impl<'a> TypeResolver<'a> {
                         Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
                     }
                     DirectMember::Private => {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::NAME_RESOLUTION,
-                            path_span,
-                            format!(
-                                "type `{}` is private",
-                                self.symbol_name(*type_segment_name(segment)?)
-                            ),
-                        ));
+                        let name = self.symbol_name(*type_segment_name(segment)?);
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::NAME_RESOLUTION,
+                                format!("type `{name}` is private"),
+                            )
+                            .primary(path_span, format!("type `{name}` is private"))
+                            .help("make the type public or use it from an allowed scope")
+                            .finish(),
+                        );
                         None
                     }
                     DirectMember::Missing => {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::NAME_RESOLUTION,
-                            path_span,
-                            format!(
-                                "unknown namespace `{}`",
-                                self.symbol_name(*type_segment_name(segment)?)
-                            ),
-                        ));
+                        let name = self.symbol_name(*type_segment_name(segment)?);
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::NAME_RESOLUTION,
+                                format!("unknown namespace `{name}`"),
+                            )
+                            .primary(path_span, format!("unknown namespace `{name}`"))
+                            .help("check the path spelling and make sure the module or type is in scope")
+                            .finish(),
+                        );
                         None
                     }
                     DirectMember::Unloaded => {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::NAME_RESOLUTION,
-                            path_span,
-                            "module namespace refers to an unloaded module",
-                        ));
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::NAME_RESOLUTION,
+                                "module namespace refers to an unloaded module",
+                            )
+                            .primary(path_span, "this module could not be loaded")
+                            .help("check the module path and package contents")
+                            .finish(),
+                        );
                         None
                     }
                 }
@@ -1108,27 +1120,40 @@ impl<'a> TypeResolver<'a> {
         let def_id = match self.direct_type_member(module_id, &name) {
             DirectMember::Visible(def_id) => def_id,
             DirectMember::Private => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::NAME_RESOLUTION,
-                    span,
-                    format!("type `{path_text}` is private"),
-                ));
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::NAME_RESOLUTION,
+                        format!("type `{path_text}` is private"),
+                    )
+                    .primary(span, format!("type `{path_text}` is private"))
+                    .help("make the type public or use it from an allowed scope")
+                    .finish(),
+                );
                 return TypeNameResolution::Error;
             }
             DirectMember::Missing => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::NAME_RESOLUTION,
-                    span,
-                    format!("unknown type `{}`", self.symbol_name(name)),
-                ));
+                let name = self.symbol_name(name);
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::NAME_RESOLUTION,
+                        format!("unknown type `{name}`"),
+                    )
+                    .primary(span, format!("unknown type `{name}`"))
+                    .help("check the type name, module path, and whether the type is public")
+                    .finish(),
+                );
                 return TypeNameResolution::Error;
             }
             DirectMember::Unloaded => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::NAME_RESOLUTION,
-                    span,
-                    "module namespace refers to an unloaded module",
-                ));
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::NAME_RESOLUTION,
+                        "module namespace refers to an unloaded module",
+                    )
+                    .primary(span, "this module could not be loaded")
+                    .help("check the module path and package contents")
+                    .finish(),
+                );
                 return TypeNameResolution::Error;
             }
         };
@@ -1235,11 +1260,13 @@ impl<'a> TypeResolver<'a> {
         if let Some(trait_id) = builtin_trait_for_unqualified_symbol(&name) {
             return TypeNameResolution::BuiltinTrait(trait_id);
         }
-        self.diagnostics.push(Diagnostic::user_error_at(
-            codes::NAME_RESOLUTION,
-            span,
-            format!("unknown type `{}`", self.symbol_name(name)),
-        ));
+        let name = self.symbol_name(name);
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::NAME_RESOLUTION, format!("unknown type `{name}`"))
+                .primary(span, format!("unknown type `{name}`"))
+                .help("check the type name, module path, and whether the type is public")
+                .finish(),
+        );
         TypeNameResolution::Error
     }
 
