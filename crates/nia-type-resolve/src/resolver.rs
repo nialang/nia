@@ -576,7 +576,7 @@ impl<'a> TypeResolver<'a> {
             return;
         };
         if segments.len() > 1 {
-            let resolution = self.resolve_qualified_type_path(ty.span, &ty.node_key, segments);
+            let resolution = self.resolve_qualified_type_path(&ty.node_key, segments);
             self.node_type_names
                 .insert(ty.node_key.site().clone(), resolution);
             self.visit_type_path_args(segments);
@@ -904,25 +904,24 @@ impl<'a> TypeResolver<'a> {
 
     fn resolve_qualified_type_path(
         &mut self,
-        span: Span,
         node_key: &VersionedNodeKey,
         segments: &[TypePathSegment],
     ) -> TypeNameResolution {
         let Some((last, prefix)) = segments.split_last() else {
             return TypeNameResolution::Error;
         };
-        let Some(namespace) = self.resolve_namespace_path(span, prefix) else {
+        let Some(namespace) = self.resolve_namespace_path(prefix) else {
             return TypeNameResolution::Error;
         };
         match namespace {
             ResolvedNamespace::Module(module_id) => {
                 let path_text = self.type_path_text(segments);
-                self.resolve_module_type(span, node_key, module_id, last, &path_text)
+                self.resolve_module_type(last.span, node_key, module_id, last, &path_text)
             }
             ResolvedNamespace::Type(_) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::NAME_RESOLUTION,
-                    span,
+                    last.span,
                     "type namespaces do not contain nested types",
                 ));
                 TypeNameResolution::Error
@@ -932,13 +931,12 @@ impl<'a> TypeResolver<'a> {
 
     fn resolve_namespace_path(
         &mut self,
-        path_span: Span,
         segments: &[TypePathSegment],
     ) -> Option<ResolvedNamespace> {
         let first = segments.first()?;
-        let mut namespace = self.resolve_root_namespace(path_span, first)?;
+        let mut namespace = self.resolve_root_namespace(first.span, first)?;
         for segment in &segments[1..] {
-            namespace = self.resolve_child_namespace(path_span, namespace, segment)?;
+            namespace = self.resolve_child_namespace(segment.span, namespace, segment)?;
         }
         Some(namespace)
     }

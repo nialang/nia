@@ -394,7 +394,7 @@ impl Parser {
     ) -> Option<Vec<TypePathSegment>> {
         let mut segments = Vec::new();
         loop {
-            let (kind, _) = self.expect_type_path_segment_kind("expected type path segment")?;
+            let (kind, span) = self.expect_type_path_segment_kind("expected type path segment")?;
             let args_checkpoint = self.checkpoint();
             let args_errors_len = self.errors.len();
             let args = self.parse_type_args();
@@ -407,10 +407,11 @@ impl Parser {
                 self.errors.truncate(args_errors_len);
                 segments.push(TypePathSegment {
                     kind,
+                    span,
                     args: Vec::new(),
                 });
             } else {
-                segments.push(TypePathSegment { kind, args });
+                segments.push(TypePathSegment { kind, span, args });
             }
             if self.eat(TokenKind::ColonColon).is_none() {
                 break;

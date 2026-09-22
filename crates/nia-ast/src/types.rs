@@ -146,6 +146,8 @@ pub enum TypeKind {
 pub struct TypePathSegment {
     /// Segment kind.
     pub kind: PathSegmentKind,
+    /// Source span of the segment name or root marker.
+    pub span: Span,
     /// Generic arguments attached to the segment.
     pub args: Vec<TypeArg>,
 }

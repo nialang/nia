@@ -185,23 +185,25 @@ let mut value = MissingValue;
 }
 
 #[test]
-fn reports_qualified_namespace_errors_on_type_path_span() {
-    let resolved = resolve_source(
-        r#"
+fn reports_qualified_namespace_errors_on_the_failing_segment() {
+    let source = r#"
 fn main() Missing::Type {
 0
 }
-"#,
-    );
+"#;
+    let resolved = resolve_source(source);
     assert_eq!(resolved.diagnostics.len(), 1);
     assert!(
         resolved.diagnostics[0]
             .summary
             .contains("unknown namespace `Missing`")
     );
-    assert_ne!(
+    let start = source
+        .find("Missing")
+        .expect("missing namespace source span");
+    assert_eq!(
         resolved.diagnostics[0].primary_span(),
-        Some(Span::default())
+        Some(Span::new(start, start + "Missing".len()))
     );
 }
 

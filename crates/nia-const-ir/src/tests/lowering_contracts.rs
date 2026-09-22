@@ -184,6 +184,7 @@ fn resolved_lowering_requires_type_ids() {
                 kind: nia_ast::TypeKind::Path {
                     segments: vec![nia_ast::TypePathSegment {
                         kind: nia_ast::PathSegmentKind::Name(sym("i32")),
+                        span: span(),
                         args: Vec::new(),
                     }],
                 },
@@ -233,6 +234,7 @@ fn generic_call_lowering_uses_semantic_facts_to_distinguish_type_and_const_args(
                             kind: nia_ast::TypeKind::Path {
                                 segments: vec![nia_ast::TypePathSegment {
                                     kind: nia_ast::PathSegmentKind::Name(generic_name),
+                                    span: other_span(),
                                     args: Vec::new(),
                                 }],
                             },
