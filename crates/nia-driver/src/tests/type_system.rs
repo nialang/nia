@@ -4,6 +4,41 @@ use crate::{CheckRequest, DriverError, DriverOutput, NiaOptimizationLevel};
 use nia_mangle::{MangleModuleId, MangleSymbolKind, demangle_stable_symbol};
 use nia_symbol::{SymbolId, known, stable_hash};
 
+#[test]
+fn duplicate_parameter_diagnostic_keeps_previous_declaration() {
+    let root = temp_dir("duplicate_parameter_diagnostic_keeps_previous_declaration");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main(value: i32, value: i32) i32 {
+    value
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let diagnostic = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("duplicate parameter name")
+        })
+        .expect("duplicate parameter diagnostic");
+    assert_eq!(diagnostic.diagnostic.related.len(), 1);
+    assert!(
+        diagnostic.diagnostic.related[0]
+            .message
+            .contains("already declared")
+    );
+    assert!(
+        diagnostic.diagnostic.related[0].span.start
+            < diagnostic.diagnostic.primary_span().unwrap().start
+    );
+}
+
 fn test_symbol(text: &str) -> SymbolId {
     SymbolId::from_stable_hash(stable_hash(text))
 }
