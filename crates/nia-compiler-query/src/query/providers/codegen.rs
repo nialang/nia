@@ -778,6 +778,7 @@ pub(super) fn checked_module_diagnostics(
 #[derive(Default)]
 struct DiagnosticGate {
     root_codes: HashSet<String>,
+    seen_error_sites: HashSet<(String, nia_span::Span)>,
 }
 
 impl DiagnosticGate {
@@ -793,6 +794,14 @@ impl DiagnosticGate {
                     .root_codes
                     .iter()
                     .any(|root| suppresses_downstream(root, diagnostic.code.as_str()))
+            {
+                continue;
+            }
+            if diagnostic.severity == nia_diagnostic::Severity::Error
+                && let Some(span) = diagnostic.primary_span()
+                && !self
+                    .seen_error_sites
+                    .insert((diagnostic.code.as_str().to_string(), span))
             {
                 continue;
             }
@@ -1017,5 +1026,46 @@ mod tests {
         assert!(suppresses_downstream("E0201", "E0301"));
         assert!(!suppresses_downstream("E0301", "E0201"));
         assert_eq!(diagnostics[1].diagnostic.severity, Severity::Error);
+    }
+
+    #[test]
+    fn phase_gate_deduplicates_same_error_site_but_keeps_distinct_sites() {
+        let path = SourcePath::new("main.nia");
+        let mut diagnostics = Vec::new();
+        let mut gate = DiagnosticGate::default();
+        gate.append(
+            &mut diagnostics,
+            &path,
+            &[Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                Span::new(8, 12),
+                "type mismatch from body checking",
+            )],
+        );
+        gate.append(
+            &mut diagnostics,
+            &path,
+            &[
+                Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    Span::new(8, 12),
+                    "type mismatch from const checking",
+                ),
+                Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    Span::new(20, 24),
+                    "independent type mismatch",
+                ),
+            ],
+        );
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics[0].diagnostic.primary_span(),
+            Some(Span::new(8, 12))
+        );
+        assert_eq!(
+            diagnostics[1].diagnostic.primary_span(),
+            Some(Span::new(20, 24))
+        );
     }
 }
