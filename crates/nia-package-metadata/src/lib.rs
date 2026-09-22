@@ -854,9 +854,12 @@ pub enum MetadataError {
 }
 impl std::fmt::Display for MetadataError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Self::Schema(schema) = self {
+            return write!(f, "unsupported stable metadata schema version {schema}");
+        }
         let message = match self {
             Self::BadMagic => "invalid stable metadata header",
-            Self::Schema(_) => "unsupported stable metadata schema",
+            Self::Schema(_) => unreachable!("schema errors are formatted above"),
             Self::TooLarge => "stable metadata exceeds the size limit",
             Self::TooManyItems => "stable metadata contains too many items",
             Self::Truncated => "stable metadata is truncated",
@@ -1221,7 +1224,7 @@ mod tests {
         );
         assert_eq!(
             MetadataError::Schema(99).to_string(),
-            "unsupported stable metadata schema"
+            "unsupported stable metadata schema version 99"
         );
         assert_eq!(
             MetadataError::InvalidManifest.to_string(),
