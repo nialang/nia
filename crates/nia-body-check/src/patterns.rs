@@ -940,11 +940,12 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn report_pattern_overlap(&mut self, span: Span, previous: Span) {
-        self.diagnostics.push(Diagnostic::user_error_at(
-            codes::TYPE_CHECK,
-            span,
-            format!("pattern overlaps previous pattern at {previous:?}"),
-        ));
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::TYPE_CHECK, "pattern overlaps a previous pattern")
+                .primary(span, "this pattern overlaps a previous pattern")
+                .related(previous, "previous pattern covers the same value")
+                .finish(),
+        );
     }
 
     fn pattern_coverage_covers_type(
@@ -1026,11 +1027,18 @@ impl<'a> BodyChecker<'a> {
             && variant_enum == expected_enum
         {
             if let Some(previous) = covered_enum_variants.insert(variant_id, pattern.span) {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    pattern.span,
-                    format!("{context} overlaps previous pattern at {previous:?}"),
-                ));
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::TYPE_CHECK,
+                        format!("{context} overlaps a previous pattern"),
+                    )
+                    .primary(
+                        pattern.span,
+                        format!("{context} overlaps a previous pattern"),
+                    )
+                    .related(previous, "previous pattern covers the same enum variant")
+                    .finish(),
+                );
             }
             return;
         }
@@ -1159,14 +1167,18 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .find(|previous| interval.start <= previous.end && previous.start <= interval.end)
         {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                interval.span,
-                format!(
-                    "match pattern overlaps previous pattern at {:?}",
-                    previous.span
-                ),
-            ));
+            self.diagnostics.push(
+                Diagnostic::user_error(
+                    codes::TYPE_CHECK,
+                    "match pattern overlaps a previous pattern",
+                )
+                .primary(
+                    interval.span,
+                    "this match pattern overlaps a previous pattern",
+                )
+                .related(previous.span, "previous pattern covers part of this range")
+                .finish(),
+            );
         }
         covered_intervals.push(interval);
     }
