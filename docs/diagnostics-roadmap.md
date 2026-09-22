@@ -53,6 +53,13 @@ expression that caused it becomes primary. This is required for build runners,
 macro-like generated code, imported declarations, and cross-module trait
 resolution.
 
+The first source-evidence chain is now implemented for failed `using` lookups:
+the using scope retains the exposed name, selected-name span, directive span,
+and a classified cause (`unknown`, private, not-public, or invisible namespace).
+Value and type resolution consume that evidence at the actual use site, while
+the using directive remains available as related context. The evidence is
+indexed by local name so repeated lookups do not scan the complete import list.
+
 ### 3. Semantic diagnostic contracts
 
 Replace generic summaries such as `name is unresolved` and broad `type-check`
@@ -66,6 +73,12 @@ messages with rule-specific constructors. Each constructor owns:
 
 The first targets are name lookup, qualified values, imports, error-union
 propagation, callable resolution, and visibility.
+
+Name lookup, qualified namespace lookup, and failed using directives now use
+rule-specific summaries with primary labels, related source locations, and
+actionable help. Assignment/place checking also reuses the same import
+evidence, preventing syntax-specific fallbacks such as `module value is
+unresolved` from hiding the original import failure.
 
 ### 4. Report organization
 
