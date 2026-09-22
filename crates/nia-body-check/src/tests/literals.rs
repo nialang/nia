@@ -32,6 +32,23 @@ fn main() u8 {
         .filter(|diagnostic| diagnostic.summary.contains("out of range for u8"))
         .count();
     assert_eq!(range_errors, 6, "{:?}", checked.diagnostics);
+    let range_diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary.contains("out of range for u8"))
+        .expect("integer range diagnostic");
+    assert!(
+        range_diagnostic
+            .notes
+            .iter()
+            .any(|note| { note.contains("cannot be represented by `u8`") })
+    );
+    assert!(
+        range_diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("change the literal type to `u16`"))
+    );
     assert!(
         !checked
             .diagnostics
@@ -105,6 +122,23 @@ fn main() f64 {
             .any(|diagnostic| diagnostic.summary.contains("call argument")),
         "{:?}",
         checked.diagnostics
+    );
+    let float_diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary.contains("out of range for F32"))
+        .expect("float range diagnostic");
+    assert!(
+        float_diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("cannot be represented by `f32`"))
+    );
+    assert!(
+        float_diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("`f64` target"))
     );
 }
 
@@ -332,6 +366,27 @@ fn main() usize {
             .contains("invalid float literal suffix `usize`")),
         "{:?}",
         checked.diagnostics
+    );
+    let suffix_diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("invalid integer literal suffix `foo`")
+        })
+        .expect("invalid suffix diagnostic");
+    assert!(
+        suffix_diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("i8, i16, i32"))
+    );
+    assert!(
+        suffix_diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("remove the suffix"))
     );
 }
 

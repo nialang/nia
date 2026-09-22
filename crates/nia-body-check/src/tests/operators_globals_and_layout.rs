@@ -462,6 +462,27 @@ fn closed_integer_pattern(closed: Closed) i32 {
         "{:?}",
         checked.diagnostics
     );
+    let backing_diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("out of range for Flag backing type")
+        })
+        .expect("enum backing range diagnostic");
+    assert!(
+        backing_diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("uses `u8` as its backing type"))
+    );
+    assert!(
+        backing_diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("widen the enum backing type to `u16`"))
+    );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
