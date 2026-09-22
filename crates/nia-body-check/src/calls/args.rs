@@ -19,7 +19,12 @@ impl<'a> BodyChecker<'a> {
         for (index, arg) in args.iter().enumerate() {
             if let Some(expected) = params.get(index).copied() {
                 let arg_ty = self.check_expr_with_expected(arg, Some(expected));
-                self.expect_expr_type(arg, expected, arg_ty, "call argument");
+                self.expect_expr_type(
+                    arg,
+                    expected,
+                    arg_ty,
+                    &format!("call argument {}", index + 1),
+                );
             } else {
                 self.check_expr(arg);
             }

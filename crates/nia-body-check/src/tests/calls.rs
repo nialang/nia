@@ -883,12 +883,11 @@ fn main(flag: bool) i32 {
 }
 "#,
     );
-    assert!(
-        checked
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.summary.contains("call argument"))
-    );
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("type mismatch in call argument 1")
+    }));
     assert!(
         checked
             .diagnostics
