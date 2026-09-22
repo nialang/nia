@@ -54,6 +54,14 @@ fn main() i32 {
         missing_captures[0].primary_span(),
         missing_captures[1].primary_span()
     );
+    assert!(
+        missing_captures.iter().all(|diagnostic| diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("capture list"))),
+        "missing capture diagnostics should explain the fix: {:?}",
+        missing_captures
+    );
 }
 
 #[test]

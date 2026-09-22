@@ -37,6 +37,15 @@ fn main(value: i32, value: i32) i32 {
         diagnostic.diagnostic.related[0].span.start
             < diagnostic.diagnostic.primary_span().unwrap().start
     );
+    assert!(
+        diagnostic
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("rename")),
+        "duplicate bindings should include rename help: {:?}",
+        diagnostic.diagnostic
+    );
 }
 
 fn test_symbol(text: &str) -> SymbolId {
