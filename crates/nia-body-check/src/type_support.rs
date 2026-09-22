@@ -48,48 +48,60 @@ impl<'a> BodyChecker<'a> {
             .cloned()
         {
             Some(TyKind::Tuple(elems)) => elems.get(index).copied().unwrap_or_else(|| {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    format!(
-                        "tuple field index {index} is out of bounds for tuple of arity {}",
-                        elems.len()
-                    ),
-                ));
+                let arity = elems.len();
+                let summary = format!(
+                    "tuple field index {index} is out of bounds for tuple of arity {arity}"
+                );
+                let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                    .primary(span, summary)
+                    .note(format!(
+                        "this tuple has {arity} field(s), indexed from zero"
+                    ));
+                diagnostic = diagnostic.help(tuple_index_help(arity));
+                self.diagnostics.push(diagnostic.finish());
                 self.error()
             }),
             Some(TyKind::Nominal { def_id, .. }) => {
                 let Some(resolved) = self.resolved_struct_signature(def_id) else {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        span,
-                        format!(
-                            "cannot project tuple field .{index} from {}",
-                            self.ty_name(lhs_ty)
-                        ),
-                    ));
+                    let summary = format!(
+                        "cannot project tuple field .{index} from {}",
+                        self.ty_name(lhs_ty)
+                    );
+                    self.diagnostics.push(
+                        Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                            .primary(span, summary)
+                            .note("the receiver is not a resolved tuple-struct type")
+                            .help("use a named field, or access a tuple-struct field within its declaration")
+                            .finish(),
+                    );
                     return self.error();
                 };
                 if !resolved.signature.is_tuple {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        span,
-                        format!(
-                            "cannot project tuple field .{index} from {}",
-                            self.ty_name(lhs_ty)
-                        ),
-                    ));
+                    let summary = format!(
+                        "cannot project tuple field .{index} from {}",
+                        self.ty_name(lhs_ty)
+                    );
+                    self.diagnostics.push(
+                        Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                            .primary(span, summary)
+                            .note("the receiver is a named-field struct, not a tuple struct")
+                            .help("use the struct's named field instead of a numeric tuple index")
+                            .finish(),
+                    );
                     return self.error();
                 }
                 let arity = resolved.signature.fields.len();
                 let Some(field) = resolved.signature.fields.get(index) else {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        span,
-                        format!(
-                            "tuple field index {index} is out of bounds for tuple struct of arity {arity}"
-                        ),
-                    ));
+                    let summary = format!(
+                        "tuple field index {index} is out of bounds for tuple struct of arity {arity}"
+                    );
+                    let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                        .primary(span, summary)
+                        .note(format!(
+                            "this tuple struct has {arity} field(s), indexed from zero"
+                        ));
+                    diagnostic = diagnostic.help(tuple_index_help(arity));
+                    self.diagnostics.push(diagnostic.finish());
                     return self.error();
                 };
                 self.field_ty_for_aggregate_ty(lhs_ty, &field.name)
@@ -97,14 +109,17 @@ impl<'a> BodyChecker<'a> {
             }
             Some(TyKind::Error) => self.error(),
             _ => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    format!(
-                        "cannot project tuple field .{index} from {}",
-                        self.ty_name(lhs_ty)
-                    ),
-                ));
+                let summary = format!(
+                    "cannot project tuple field .{index} from {}",
+                    self.ty_name(lhs_ty)
+                );
+                self.diagnostics.push(
+                    Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                        .primary(span, summary)
+                        .note("numeric tuple projection requires a tuple or tuple-struct value")
+                        .help("use a named field or change the receiver to a tuple value")
+                        .finish(),
+                );
                 self.error()
             }
         }
@@ -2587,6 +2602,17 @@ fn wider_integer_type(primitive: PrimitiveTy) -> Option<&'static str> {
         PrimitiveTy::I128 | PrimitiveTy::U128 => return None,
         _ => return None,
     })
+}
+
+fn tuple_index_help(arity: usize) -> String {
+    match arity {
+        0 => "use a tuple with at least one field before applying a numeric projection".to_string(),
+        1 => "use tuple field `.0`; tuple indices start at zero".to_string(),
+        arity => format!(
+            "use a tuple field from `.0` through `.{}`; tuple indices start at zero",
+            arity - 1
+        ),
+    }
 }
 
 #[cfg(test)]

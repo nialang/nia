@@ -211,6 +211,44 @@ fn invalid(pair: (i32, bool), scalar: i32) {
             checked.diagnostics
         );
     }
+    let bounds_diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("tuple field index 2 is out of bounds")
+        })
+        .expect("tuple bounds diagnostic");
+    assert!(
+        bounds_diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("2 field(s), indexed from zero"))
+    );
+    assert!(
+        bounds_diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("`.0` through `.1`"))
+    );
+    let target_diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary.contains("from i32"))
+        .expect("tuple target diagnostic");
+    assert!(
+        target_diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("requires a tuple or tuple-struct"))
+    );
+    assert!(
+        target_diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("named field"))
+    );
 }
 
 #[test]
