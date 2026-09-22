@@ -1,4 +1,5 @@
 path: main.nia
 code: E0201
 summary: extend target must be an extendable value type
-label: 7..8 Primary Source extend target must be an extendable value type
+label: 7..8 Primary Source this extension target is not a struct, union, or enum value type
+help: extend a nominal value type, or move trait-only items into a trait
