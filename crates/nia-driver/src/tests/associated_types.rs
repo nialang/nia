@@ -523,6 +523,32 @@ fn main() i32 { 0 }
         "{:?}",
         program.diagnostics
     );
+    let missing = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("missing definition for associated type `B`")
+        })
+        .expect("missing associated type diagnostic");
+    assert!(
+        missing
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("define associated type `B`")),
+        "{missing:?}"
+    );
+    assert!(
+        missing
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message.contains("trait requires `B`")),
+        "{missing:?}"
+    );
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
@@ -530,6 +556,32 @@ fn main() i32 { 0 }
             .contains("associated type `Extra` is not a member")),
         "{:?}",
         program.diagnostics
+    );
+    let extra = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("associated type `Extra` is not a member")
+        })
+        .expect("extra associated type diagnostic");
+    assert!(
+        extra
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("remove `Extra`")),
+        "{extra:?}"
+    );
+    assert!(
+        extra
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message == "the implementation targets this trait"),
+        "{extra:?}"
     );
 }
 
@@ -564,6 +616,32 @@ fn main() i32 { 0 }
         "{:?}",
         program.diagnostics
     );
+    let missing = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("missing definition for associated const `Lanes`")
+        })
+        .expect("missing associated const diagnostic");
+    assert!(
+        missing
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("define associated const `Lanes`")),
+        "{missing:?}"
+    );
+    assert!(
+        missing
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message.contains("trait requires `Lanes`")),
+        "{missing:?}"
+    );
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
@@ -571,6 +649,32 @@ fn main() i32 { 0 }
             .contains("associated const `Extra` is not a member")),
         "{:?}",
         program.diagnostics
+    );
+    let extra = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("associated const `Extra` is not a member")
+        })
+        .expect("extra associated const diagnostic");
+    assert!(
+        extra
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("remove `Extra`")),
+        "{extra:?}"
+    );
+    assert!(
+        extra
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message == "the implementation targets this trait"),
+        "{extra:?}"
     );
 }
 
