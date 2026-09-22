@@ -804,6 +804,32 @@ fn main(ro: & Box[i32], rw: &mut Box[i32]) i32 {
 }
 
 #[test]
+fn builtin_trait_method_failures_explain_the_missing_obligation() {
+    let checked = pipeline(
+        r#"
+fn main(flag: bool) bool {
+    flag.add(flag)
+}
+"#,
+    );
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary == "trait bound not satisfied: bool: Add[bool]")
+        .expect("builtin trait method obligation diagnostic");
+    assert!(diagnostic.primary_span().is_some_and(|span| span.start > 0));
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| { note.contains("visible implementation") && note.contains("Add[bool]") })
+    );
+    assert!(diagnostic.help.iter().any(|help| {
+        help.contains("provide an implementation") && help.contains("matching implementation")
+    }));
+}
+
+#[test]
 fn lowers_current_module_extension_self_fields_without_visible_extension_seed() {
     let checked = pipeline_without_visible_extensions(
         r#"

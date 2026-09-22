@@ -73,15 +73,12 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(trait_id),
             trait_args.clone(),
         ) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            self.report_trait_bound_not_satisfied(
                 call.span,
-                format!(
-                    "trait bound not satisfied: {}: {}",
-                    self.ty_name(call.receiver_ty),
-                    self.builtin_trait_ty_name(trait_id, &trait_args)
-                ),
-            ));
+                call.receiver_ty,
+                TraitId::Builtin(trait_id),
+                &trait_args,
+            );
             return Some(self.error());
         }
         let output =
@@ -205,15 +202,12 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(trait_id),
             trait_args.clone(),
         ) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            self.report_trait_bound_not_satisfied(
                 span,
-                format!(
-                    "trait bound not satisfied: {}: {}",
-                    self.ty_name(target_ty),
-                    self.builtin_trait_ty_name(trait_id, &trait_args)
-                ),
-            ));
+                target_ty,
+                TraitId::Builtin(trait_id),
+                &trait_args,
+            );
         }
         let output = self.builtin_trait_method_output(target_ty, trait_id, trait_args.clone());
         if let Some(expected) = expected {
@@ -256,15 +250,12 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(trait_id),
             trait_args.clone(),
         ) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            self.report_trait_bound_not_satisfied(
                 call.span,
-                format!(
-                    "trait bound not satisfied: {}: {}",
-                    self.ty_name(call.receiver_ty),
-                    self.builtin_trait_ty_name(trait_id, &trait_args)
-                ),
-            ));
+                call.receiver_ty,
+                TraitId::Builtin(trait_id),
+                &trait_args,
+            );
             return Some(self.error());
         }
         let output = self.builtin_trait_method_output(call.receiver_ty, trait_id, trait_args);
@@ -315,15 +306,12 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(trait_id),
             trait_args.clone(),
         ) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            self.report_trait_bound_not_satisfied(
                 call.span,
-                format!(
-                    "trait bound not satisfied: {}: {}",
-                    self.ty_name(call.target_ty),
-                    self.builtin_trait_ty_name(trait_id, &trait_args)
-                ),
-            ));
+                call.target_ty,
+                TraitId::Builtin(trait_id),
+                &trait_args,
+            );
         }
         let output = self.builtin_trait_method_output(call.target_ty, trait_id, trait_args);
         if let Some(expected) = call.expected {
