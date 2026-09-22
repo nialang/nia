@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::collections::HashSet;
+
 use super::*;
 
 fn symbol_package_identities(
@@ -720,66 +722,103 @@ pub(super) fn checked_module_diagnostics(
 ) -> QueryResult<Vec<ProgramDiagnostic>> {
     let mut diagnostics = Vec::new();
     for checked in checked_modules {
-        diagnostics.extend(module_diagnostics(
+        // Diagnostics after the first failing phase are usually observations
+        // of the same invalid semantic state (for example an unresolved value
+        // later appearing as an invalid error conversion). Keep the complete
+        // first failing phase, but do not let downstream recovery placeholders
+        // turn one source mistake into an error cascade.
+        let mut gate = DiagnosticGate::default();
+        gate.append(
+            &mut diagnostics,
             &checked.path,
             resolve_diagnostic_bundle(&checked.definition_diagnostics),
-        ));
+        );
         for bundle in &checked.frontend_diagnostics {
-            diagnostics.extend(module_diagnostics(
+            gate.append(
+                &mut diagnostics,
                 &checked.path,
                 resolve_diagnostic_bundle(bundle),
-            ));
+            );
         }
         for bundle in &checked.resolution_diagnostics {
-            diagnostics.extend(module_diagnostics(
+            gate.append(
+                &mut diagnostics,
                 &checked.path,
                 resolve_diagnostic_bundle(bundle),
-            ));
+            );
         }
-        diagnostics.extend(module_diagnostics(
-            &checked.path,
+        let remaining = [
             resolve_diagnostic_bundle(&checked.item_diagnostics),
-        ));
-        diagnostics.extend(module_diagnostics(
-            &checked.path,
             resolve_diagnostic_bundle(&checked.const_diagnostics),
-        ));
-        diagnostics.extend(module_diagnostics(
-            &checked.path,
             resolve_diagnostic_bundle(&checked.static_diagnostics),
-        ));
-        diagnostics.extend(module_diagnostics(
-            &checked.path,
             resolve_diagnostic_bundle(&checked.layout_diagnostics),
-        ));
-        diagnostics.extend(module_diagnostics(
-            &checked.path,
             resolve_diagnostic_bundle(&checked.abi_diagnostics),
-        ));
-        diagnostics.extend(module_diagnostics(
-            &checked.path,
             resolve_diagnostic_bundle(&checked.flow_diagnostics),
-        ));
-        diagnostics.extend(module_diagnostics(
-            &checked.path,
             resolve_diagnostic_bundle(&checked.body_diagnostics),
-        ));
+        ];
+        for bundle in remaining {
+            gate.append(&mut diagnostics, &checked.path, bundle);
+        }
         let extension_validation = db.get(ExtensionProviderValidationFactsQuery(checked.id))?;
-        let extension_validation_diagnostics =
-            resolve_diagnostic_bundle(&extension_validation.diagnostics);
-        diagnostics.extend(module_diagnostics(
+        gate.append(
+            &mut diagnostics,
             &checked.path,
-            extension_validation_diagnostics,
-        ));
+            resolve_diagnostic_bundle(&extension_validation.diagnostics),
+        );
         let extension_provider = db.get(ExtensionProviderModuleFactsQuery(checked.id))?;
-        let associated_value_diagnostics =
-            resolve_diagnostic_bundle(&extension_provider.associated_value_diagnostics);
-        diagnostics.extend(module_diagnostics(
+        gate.append(
+            &mut diagnostics,
             &checked.path,
-            associated_value_diagnostics,
-        ));
+            resolve_diagnostic_bundle(&extension_provider.associated_value_diagnostics),
+        );
     }
     Ok(diagnostics)
+}
+
+#[derive(Default)]
+struct DiagnosticGate {
+    root_codes: HashSet<String>,
+}
+
+impl DiagnosticGate {
+    fn append(
+        &mut self,
+        diagnostics: &mut Vec<ProgramDiagnostic>,
+        path: &nia_source::SourcePath,
+        bundle: &[Diagnostic],
+    ) {
+        for diagnostic in bundle {
+            if diagnostic.severity == nia_diagnostic::Severity::Error
+                && self
+                    .root_codes
+                    .iter()
+                    .any(|root| suppresses_downstream(root, diagnostic.code.as_str()))
+            {
+                continue;
+            }
+            if diagnostic.severity == nia_diagnostic::Severity::Error {
+                self.root_codes.insert(diagnostic.code.as_str().to_string());
+            }
+            diagnostics.push(ProgramDiagnostic {
+                path: path.clone(),
+                diagnostic: diagnostic.clone(),
+            });
+        }
+    }
+}
+
+fn suppresses_downstream(root: &str, candidate: &str) -> bool {
+    const DERIVED: &[&str] = &["E0301", "E0302", "E0401", "E0501", "E0601"];
+    match root {
+        // Resolution and signature failures poison later semantic products.
+        "E0101" | "E0102" | "E0201" | "E0202" | "E0203" => DERIVED.contains(&candidate),
+        // Keep independent resolution/signature diagnostics, but suppress
+        // products which consume an already-invalid checked body.
+        "E0301" | "E0302" => matches!(candidate, "E0401" | "E0501" | "E0601"),
+        "E0401" => matches!(candidate, "E0501" | "E0601"),
+        "E0501" => candidate == "E0601",
+        _ => false,
+    }
 }
 
 pub(super) fn closure_safety_diagnostics(
@@ -939,4 +978,44 @@ pub(super) fn backend_lowering_diagnostics(
             diagnostic,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DiagnosticGate, suppresses_downstream};
+    use nia_diagnostic::{Diagnostic, Severity, codes};
+    use nia_source::SourcePath;
+    use nia_span::Span;
+
+    #[test]
+    fn phase_gate_suppresses_derived_errors_but_keeps_independent_roots() {
+        let path = SourcePath::new("main.nia");
+        let mut diagnostics = Vec::new();
+        let mut gate = DiagnosticGate::default();
+        gate.append(
+            &mut diagnostics,
+            &path,
+            &[Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                Span::new(0, 1),
+                "unknown name",
+            )],
+        );
+        gate.append(
+            &mut diagnostics,
+            &path,
+            &[
+                Diagnostic::user_error_at(codes::TYPE_CHECK, Span::new(2, 3), "derived type error"),
+                Diagnostic::user_error_at(
+                    codes::NAME_RESOLUTION,
+                    Span::new(4, 5),
+                    "independent constraint error",
+                ),
+            ],
+        );
+        assert_eq!(diagnostics.len(), 2);
+        assert!(suppresses_downstream("E0201", "E0301"));
+        assert!(!suppresses_downstream("E0301", "E0201"));
+        assert_eq!(diagnostics[1].diagnostic.severity, Severity::Error);
+    }
 }
