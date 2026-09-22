@@ -411,6 +411,8 @@ pub enum DriverError {
         program: String,
         /// Process exit status.
         status: std::process::ExitStatus,
+        /// Bounded stderr captured from the tool.
+        stderr: String,
     },
     /// Archive tool could not be started or read.
     ArchiveIo {
@@ -450,6 +452,8 @@ pub enum DriverError {
         program: String,
         /// Process exit status.
         status: std::process::ExitStatus,
+        /// Bounded stderr captured from the tool.
+        stderr: String,
     },
     /// Linker could not be started or read.
     LinkerIo {

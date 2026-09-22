@@ -12,6 +12,18 @@ use super::output::{
 };
 use super::*;
 
+const MAX_TOOL_STDERR_BYTES: usize = 16 * 1024;
+
+fn bounded_tool_stderr(bytes: &[u8]) -> String {
+    let truncated = bytes.len() > MAX_TOOL_STDERR_BYTES;
+    let end = bytes.len().min(MAX_TOOL_STDERR_BYTES);
+    let mut output = String::from_utf8_lossy(&bytes[..end]).trim().to_owned();
+    if truncated {
+        output.push_str("\n[tool output truncated]");
+    }
+    output
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LinkResultReuse {
     Hit,
@@ -283,18 +295,18 @@ impl Driver {
             Ok(invocation) => invocation,
             Err(error) => return DriverOutput::from_error(DriverError::LinkerConfig(error)),
         };
-        let linker_status = nia_timing::time_stage(
+        let linker_output = nia_timing::time_stage(
             timings,
             nia_timing::TimingLevel::Summary,
             "link_invoke",
             || {
                 Command::new(&invocation.program)
                     .args(&invocation.args)
-                    .status()
+                    .output()
             },
         );
-        match linker_status {
-            Ok(status) if status.success() => {
+        match linker_output {
+            Ok(process) if process.status.success() => {
                 let cache_reference = nia_timing::time_stage(
                     timings,
                     nia_timing::TimingLevel::Summary,
@@ -324,9 +336,10 @@ impl Driver {
                     cache_reference,
                 })
             }
-            Ok(status) => DriverOutput::from_error(DriverError::LinkerStatus {
+            Ok(process) => DriverOutput::from_error(DriverError::LinkerStatus {
                 program: invocation.program,
-                status,
+                status: process.status,
+                stderr: bounded_tool_stderr(&process.stderr),
             }),
             Err(error) => DriverOutput::from_error(DriverError::LinkerIo {
                 program: invocation.program,
@@ -393,9 +406,9 @@ impl Driver {
         };
         match Command::new(&invocation.program)
             .args(&invocation.args)
-            .status()
+            .output()
         {
-            Ok(status) if status.success() => {
+            Ok(process) if process.status.success() => {
                 if let Err(error) = install_streamed_output(&temporary_archive, &output) {
                     return DriverOutput::from_error(DriverError::Io {
                         path: output,
@@ -417,9 +430,10 @@ impl Driver {
                     cache_reference,
                 })
             }
-            Ok(status) => DriverOutput::from_error(DriverError::ArchiveStatus {
+            Ok(process) => DriverOutput::from_error(DriverError::ArchiveStatus {
                 program: invocation.program,
-                status,
+                status: process.status,
+                stderr: bounded_tool_stderr(&process.stderr),
             }),
             Err(error) => DriverOutput::from_error(DriverError::ArchiveIo {
                 program: invocation.program,
