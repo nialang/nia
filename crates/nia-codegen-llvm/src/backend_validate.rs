@@ -150,11 +150,19 @@ pub(super) fn validate_native_backend_program(
                 && symbol == "_start"
                 && module.symbol_package_identity != runtime_identity
             {
-                diagnostics.push(Diagnostic::user_error_at(
+                diagnostics.push(Diagnostic::user_error(
                     nia_diagnostic::codes::LLVM_CODEGEN,
-                    function.span,
                     "external export `_start` is reserved for the compiler-provided runtime",
-                ));
+                )
+                .primary(
+                    function.span,
+                    "external export `_start` is reserved",
+                )
+                .note(
+                    "the runtime owns the `_start` entry symbol so it can initialize the program before calling Nia code",
+                ).help(
+                    "remove this export or choose a different external symbol name",
+                ).finish());
             }
         }
     }
@@ -166,13 +174,16 @@ fn compiler_builtin_collision_diagnostic(
     symbol: &str,
     span: nia_span::Span,
 ) -> Diagnostic {
-    Diagnostic::internal_error_at(
-        nia_diagnostic::codes::INVALID_BACKEND_IR,
-        span,
-        format!(
-            "backend IR external symbol collision: {kind} reuses `{symbol}` already owned by compiler builtin"
-        ),
+    Diagnostic::user_error(
+        nia_diagnostic::codes::LLVM_CODEGEN,
+        format!("{kind} external symbol `{symbol}` is reserved for compiler runtime support"),
     )
+    .primary(span, format!("external symbol `{symbol}` is reserved"))
+    .note(format!(
+        "the compiler emits `{symbol}` for runtime support and cannot provide a second definition"
+    ))
+    .help("choose a different external symbol name")
+    .finish()
 }
 
 fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagnostic>) {
@@ -2555,12 +2566,31 @@ mod owner_tests {
         }
 
         let user_diagnostics = diagnostics_for("user/package@0");
-        assert!(user_diagnostics.iter().any(|diagnostic| {
-            diagnostic.category == nia_diagnostic::DiagnosticCategory::User
-                && diagnostic.summary.contains(
-                    "external export `_start` is reserved for the compiler-provided runtime",
-                )
-        }));
+        let start_diagnostic = user_diagnostics
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.category == nia_diagnostic::DiagnosticCategory::User
+                    && diagnostic.summary.contains(
+                        "external export `_start` is reserved for the compiler-provided runtime",
+                    )
+            })
+            .expect("reserved _start must be a user diagnostic");
+        assert_eq!(
+            start_diagnostic.code.as_str(),
+            nia_diagnostic::codes::LLVM_CODEGEN.as_str()
+        );
+        assert!(
+            start_diagnostic
+                .notes
+                .iter()
+                .any(|note| note.contains("runtime owns the `_start` entry symbol"))
+        );
+        assert!(
+            start_diagnostic
+                .help
+                .iter()
+                .any(|help| help.contains("different external symbol"))
+        );
 
         let runtime_identity = nia_toolchain::runtime_symbol_package_identity();
         let runtime_diagnostics = diagnostics_for(&runtime_identity);
