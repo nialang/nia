@@ -363,11 +363,12 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn push_const_type_error(&mut self, span: Span, message: &str) {
-        self.diagnostics.push(Diagnostic::user_error_at(
-            codes::TYPE_CHECK,
-            span,
-            message.to_string(),
-        ));
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::TYPE_CHECK, message)
+                .primary(span, message)
+                .help("adjust the constant expression to match the expected type")
+                .finish(),
+        );
     }
 
     pub(super) fn const_equality_types_are_compatible(

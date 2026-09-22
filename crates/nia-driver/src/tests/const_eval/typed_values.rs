@@ -792,6 +792,15 @@ const selected: u8 = config.values[1];
         })
         .count();
     assert!(count >= 2, "{:?}", program.diagnostics);
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("expected type"))),
+        "const type mismatch should include recovery help: {:?}",
+        program.diagnostics
+    );
 }
 
 #[test]
