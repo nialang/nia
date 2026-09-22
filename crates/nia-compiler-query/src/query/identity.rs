@@ -147,6 +147,172 @@ where
     }
 }
 
+impl CompilerDatabase {
+    /// Builds the session remap table for all loaded definitions. Package
+    /// ownership is supplied by the caller; it must not be inferred from
+    /// source paths or declaration names.
+    pub fn stable_definition_index(
+        &self,
+        resolver: &dyn StableDefinitionPackageResolver,
+    ) -> QueryResult<StableDefinitionIndex> {
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let symbols = self.db.context().loader_facts().symbols();
+        let mut definitions = BTreeMap::new();
+        let mut modules = StableModuleIndex::new();
+        let mut module_owners = HashMap::<ModuleId, PackageId>::new();
+        for module in graph.modules() {
+            let Some(stable_key) = graph.stable_key(module.id) else {
+                continue;
+            };
+            let module_path = stable_key.source_identity().normalized_path().to_owned();
+            let facts = self.db.get(FullModuleDefsQuery(module.id))?;
+            for (def_id, def) in facts.semantic.defs.iter() {
+                // The remap index includes private definitions as well: public
+                // aggregate layout and enum payloads may depend on them.
+                let Some(name) = symbols.resolve(def.name) else {
+                    continue;
+                };
+                let package = resolver.package_for_definition(GlobalDefId {
+                    module_id: module.id,
+                    def_id,
+                })?;
+                let mut owner_chain = Vec::new();
+                let mut parent = def.parent;
+                while let Some(parent_id) = parent {
+                    let parent_def = facts.semantic.defs.get(parent_id).ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "definition parent is missing from module facts".to_string(),
+                        )
+                    })?;
+                    let parent_name = symbols.resolve(parent_def.name).ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "definition parent has no resolvable symbol".to_string(),
+                        )
+                    })?;
+                    owner_chain.push((
+                        parent_name.to_string(),
+                        def_kind_tag(parent_def.kind),
+                        parent_id.0,
+                    ));
+                    parent = parent_def.parent;
+                }
+                let mut owner_identity = None;
+                for (owner_name, owner_kind, owner_disambiguator) in owner_chain.into_iter().rev() {
+                    owner_identity = Some(Box::new(DefinitionId {
+                        module: StableModuleId {
+                            package: package.clone(),
+                            path: module_path.clone(),
+                        },
+                        name: owner_name,
+                        kind: owner_kind,
+                        disambiguator: owner_disambiguator,
+                        owner: owner_identity,
+                    }));
+                }
+                let identity = DefinitionId {
+                    module: StableModuleId {
+                        package,
+                        path: module_path.clone(),
+                    },
+                    name: name.to_string(),
+                    kind: def_kind_tag(def.kind),
+                    disambiguator: def_id.0,
+                    owner: owner_identity,
+                };
+                let global = GlobalDefId {
+                    module_id: module.id,
+                    def_id,
+                };
+                let module_identity = identity.module.clone();
+                if let Some(previous_package) =
+                    module_owners.insert(module.id, identity.module.package.clone())
+                    && previous_package != identity.module.package
+                {
+                    return Err(self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        format!(
+                            "stable module identity resolves to multiple packages: module {:?}, packages {:?} and {:?}",
+                            module.id, previous_package, identity.module.package
+                        ),
+                    ));
+                }
+                if let Some(previous) = modules.insert(module_identity.clone(), module.id)
+                    && previous != module.id
+                {
+                    return Err(self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        format!(
+                            "stable module identity resolves to multiple session modules: {:?}",
+                            module_identity
+                        ),
+                    ));
+                }
+                if definitions.insert(identity, global).is_some() {
+                    return Err(self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        "duplicate stable definition identity in current session".to_string(),
+                    ));
+                }
+            }
+        }
+        Ok(StableDefinitionIndex {
+            definitions,
+            modules,
+        })
+    }
+
+    /// Builds a stable package/module remap table for every loaded module.
+    ///
+    /// Package ownership is supplied explicitly by the loader boundary. The
+    /// compiler never infers it from source paths, package-root symbols, or
+    /// declaration names. Duplicate stable identities are rejected instead of
+    /// silently selecting one session handle.
+    pub fn stable_module_index(
+        &self,
+        resolver: &dyn StableModulePackageResolver,
+    ) -> QueryResult<StableModuleIndex> {
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let mut index = StableModuleIndex::new();
+        for module in graph.modules() {
+            let Some(stable_key) = graph.stable_key(module.id) else {
+                continue;
+            };
+            let identity = StableModuleId {
+                package: resolver.package_for_module(module.id)?,
+                path: stable_key.source_identity().normalized_path().to_owned(),
+            };
+            if let Some(previous) = index.insert(identity.clone(), module.id)
+                && previous != module.id
+            {
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    format!(
+                        "stable module identity resolves to multiple session modules: {:?}",
+                        identity
+                    ),
+                ));
+            }
+        }
+        Ok(index)
+    }
+
+    /// Resolves a stable definition identity against the currently loaded
+    /// source graph, validating module, name, and declaration kind together.
+    ///
+    /// This helper intentionally only resolves definitions present in the
+    /// current graph. External package identities must be supplied by a
+    /// compiled-interface installation layer rather than guessed from paths.
+    pub fn resolve_loaded_definition(
+        &self,
+        definition: &DefinitionId,
+        package: &PackageId,
+    ) -> QueryResult<GlobalDefId> {
+        resolve_loaded_definition_in_query(&self.db, definition, package)
+    }
+}
+
 /// Resolves one loaded source definition through the query graph.
 pub(in crate::query) fn resolve_loaded_definition_in_query(
     db: &QueryDb<CompilerContext>,
