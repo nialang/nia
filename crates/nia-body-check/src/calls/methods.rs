@@ -441,9 +441,9 @@ impl<'a> BodyChecker<'a> {
         }
         self.check_receiver_match(call.receiver, call.actual_receiver_ty, receiver_kind);
 
-        let Some((method_instantiation_args, method_const_args)) = self
-            .profile_stage("body_check.profile.method.lower_type_args", |this| {
-                this.lowered_method_type_args(call.type_args, &signature.generic_params)
+        let Some((method_instantiation_args, method_const_args)) =
+            self.profile_stage("body_check.profile.method.lower_type_args", |this| {
+                this.lowered_method_type_args(call.span, call.type_args, &signature.generic_params)
             })
         else {
             for arg in call.args {

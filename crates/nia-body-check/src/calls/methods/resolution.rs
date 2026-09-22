@@ -141,8 +141,11 @@ impl<'a> BodyChecker<'a> {
         impl_signature: &nia_item_signatures::ProgramTraitImplSignature,
     ) -> Option<InternedTyId> {
         trait_method.signature.params.first()?.receiver?;
-        let (lowered_type_args, lowered_const_args) =
-            self.lowered_method_type_args(call.type_args, &trait_method.signature.generic_params)?;
+        let (lowered_type_args, lowered_const_args) = self.lowered_method_type_args(
+            call.expr.span,
+            call.type_args,
+            &trait_method.signature.generic_params,
+        )?;
         let (trait_substitutions, trait_const_substitutions) = self
             .generic_substitutions_and_consts_for_def(
                 trait_id,
@@ -288,8 +291,11 @@ impl<'a> BodyChecker<'a> {
             .resolved_function_signature(method.method.def_id)?
             .signature;
         signature.params.first()?.receiver?;
-        let (lowered_type_args, lowered_const_args) =
-            self.lowered_method_type_args(call.type_args, &signature.generic_params)?;
+        let (lowered_type_args, lowered_const_args) = self.lowered_method_type_args(
+            call.expr.span,
+            call.type_args,
+            &signature.generic_params,
+        )?;
         let mut substitutions = SymbolMap::default();
         let mut const_substitutions = SymbolMap::default();
         if call.type_args.is_some() {
@@ -1567,7 +1573,7 @@ impl<'a> BodyChecker<'a> {
             return false;
         };
         let Some((method_args, method_const_args)) =
-            self.lowered_method_type_args(call.type_args, &signature.generic_params)
+            self.lowered_method_type_args(call.span, call.type_args, &signature.generic_params)
         else {
             return false;
         };
@@ -1629,24 +1635,35 @@ impl<'a> BodyChecker<'a> {
 
     pub(in crate::calls::methods) fn lowered_method_type_args(
         &mut self,
+        span: Span,
         type_args: Option<&[BracketArg]>,
         params: &[nia_item_signatures::GenericParamSignature],
     ) -> Option<(Vec<InternedTyId>, Vec<ConstGenericArg>)> {
         type_args
             .map(|args| {
                 if args.len() != params.len() {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        Span::default(),
-                        format!(
-                            "generic argument count mismatch for method: expected {}, got {}",
-                            params.len(),
-                            args.len()
-                        ),
-                    ));
+                    let expected = params.len();
+                    let actual = args.len();
+                    let summary = format!(
+                        "generic argument count mismatch for method: expected {expected}, got {actual}"
+                    );
+                    let action = if actual < expected {
+                        "add the missing type or const arguments to match the method signature"
+                    } else {
+                        "remove the extra type or const arguments to match the method signature"
+                    };
+                    self.diagnostics.push(
+                        Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                            .primary(span, summary)
+                            .note(format!(
+                                "the method declares {expected} generic parameter(s), but this call supplies {actual}"
+                            ))
+                            .help(action)
+                            .finish(),
+                    );
                     return None;
                 }
-                self.lower_bracket_args_for_generic_params(Span::default(), params, args)
+                self.lower_bracket_args_for_generic_params(span, params, args)
                     .map(|lowered| (lowered.type_args, lowered.const_args))
             })
             .unwrap_or(Some((Vec::new(), Vec::new())))

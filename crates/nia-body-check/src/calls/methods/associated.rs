@@ -140,7 +140,7 @@ impl<'a> BodyChecker<'a> {
             return Some(self.error());
         };
         let Some((method_instantiation_args, method_const_args)) =
-            self.lowered_method_type_args(method_type_args, &signature.generic_params)
+            self.lowered_method_type_args(span, method_type_args, &signature.generic_params)
         else {
             for arg in args {
                 self.check_expr(arg);
@@ -336,9 +336,11 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         }
-        let Some((method_instantiation_args, method_const_args)) =
-            self.lowered_method_type_args(method_type_args, &candidate.signature.generic_params)
-        else {
+        let Some((method_instantiation_args, method_const_args)) = self.lowered_method_type_args(
+            expr.span,
+            method_type_args,
+            &candidate.signature.generic_params,
+        ) else {
             for arg in args {
                 self.check_expr(arg);
             }
