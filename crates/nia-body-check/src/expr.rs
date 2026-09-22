@@ -1979,7 +1979,7 @@ impl<'a> BodyChecker<'a> {
             .unwrap_or_else(|| "this name".to_string());
         let (summary, help) = failure.reason.diagnostic_parts(&name);
         Diagnostic::user_error(codes::NAME_RESOLUTION, summary)
-            .primary(expr.span, "call to unresolved imported name")
+            .primary(expr.span, "use of unresolved imported name")
             .related(failure.name_span, "the imported name is selected here")
             .related(failure.directive_span, "the `using` directive is here")
             .help(help)
