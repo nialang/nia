@@ -492,16 +492,12 @@ impl<'a> BodyChecker<'a> {
                     trait_args.clone(),
                     trait_const_args.clone(),
                 ) {
-                    self.diagnostics
-                        .push(nia_diagnostic::Diagnostic::user_error_at(
-                            nia_diagnostic::codes::TYPE_CHECK,
-                            span,
-                            format!(
-                                "trait bound not satisfied: {}: {}",
-                                self.ty_name(predicate.ty),
-                                self.trait_ty_name(trait_id, &trait_args)
-                            ),
-                        ));
+                    self.report_trait_bound_not_satisfied(
+                        span,
+                        predicate.ty,
+                        trait_id,
+                        &trait_args,
+                    );
                     continue;
                 }
                 for binding in &bound.associated_type_bindings {
@@ -1708,16 +1704,12 @@ impl<'a> BodyChecker<'a> {
                     associated_type_bindings: Vec::new(),
                 };
                 if !self.proves_trait_obligation(obligations, &required) {
-                    self.diagnostics
-                        .push(nia_diagnostic::Diagnostic::user_error_at(
-                            nia_diagnostic::codes::TYPE_CHECK,
-                            span,
-                            format!(
-                                "trait bound not satisfied: {}: {}",
-                                self.ty_name(required.self_ty),
-                                self.trait_ty_name(required.trait_id, &required.trait_args)
-                            ),
-                        ));
+                    self.report_trait_bound_not_satisfied(
+                        span,
+                        required.self_ty,
+                        required.trait_id,
+                        &required.trait_args,
+                    );
                 }
             }
             Some(
@@ -1803,16 +1795,12 @@ impl<'a> BodyChecker<'a> {
             associated_type_bindings: Vec::new(),
         };
         if !self.proves_trait_obligation(obligations, &required) {
-            self.diagnostics
-                .push(nia_diagnostic::Diagnostic::user_error_at(
-                    nia_diagnostic::codes::TYPE_CHECK,
-                    span,
-                    format!(
-                        "trait bound not satisfied: {}: {}",
-                        self.ty_name(required.self_ty),
-                        self.trait_ty_name(required.trait_id, &required.trait_args)
-                    ),
-                ));
+            self.report_trait_bound_not_satisfied(
+                span,
+                required.self_ty,
+                required.trait_id,
+                &required.trait_args,
+            );
         }
     }
 
@@ -1875,16 +1863,12 @@ impl<'a> BodyChecker<'a> {
                         .collect(),
                 };
                 if !self.proves_trait_obligation(obligations, &required) {
-                    self.diagnostics
-                        .push(nia_diagnostic::Diagnostic::user_error_at(
-                            nia_diagnostic::codes::TYPE_CHECK,
-                            span,
-                            format!(
-                                "trait bound not satisfied: {}: {}",
-                                self.ty_name(required.self_ty),
-                                self.trait_ty_name(required.trait_id, &required.trait_args)
-                            ),
-                        ));
+                    self.report_trait_bound_not_satisfied(
+                        span,
+                        required.self_ty,
+                        required.trait_id,
+                        &required.trait_args,
+                    );
                 }
             }
         }

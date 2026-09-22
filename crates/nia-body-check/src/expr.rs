@@ -685,15 +685,7 @@ impl<'a> BodyChecker<'a> {
             trait_args.clone(),
             trait_const_args.clone(),
         ) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                expr.span,
-                format!(
-                    "trait bound not satisfied: {}: {}",
-                    self.ty_name(target_ty),
-                    self.trait_ty_name(trait_id, &trait_args)
-                ),
-            ));
+            self.report_trait_bound_not_satisfied(expr.span, target_ty, trait_id, &trait_args);
         }
         let trait_def_id = match trait_id {
             TraitId::Source(trait_def_id) => trait_def_id,
@@ -1556,15 +1548,11 @@ impl<'a> BodyChecker<'a> {
             trait_args.clone(),
         );
         if !trait_is_satisfied {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            self.report_trait_bound_not_satisfied_named(
                 span,
-                format!(
-                    "trait bound not satisfied: {}: {}",
-                    self.ty_name(lhs_ty),
-                    self.builtin_trait_ty_name(trait_id, &trait_args)
-                ),
-            ));
+                lhs_ty,
+                self.builtin_trait_ty_name(trait_id, &trait_args),
+            );
             return;
         }
 
@@ -1618,15 +1606,11 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(trait_id),
             vec![rhs_ty],
         ) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            self.report_trait_bound_not_satisfied_named(
                 span,
-                format!(
-                    "trait bound not satisfied: {}: {}",
-                    self.ty_name(lhs_ty),
-                    self.builtin_trait_ty_name(trait_id, &[rhs_ty])
-                ),
-            ));
+                lhs_ty,
+                self.builtin_trait_ty_name(trait_id, &[rhs_ty]),
+            );
         }
         if let Some(expected) = expected {
             self.expect_type(span, expected, lhs_ty, "binary operator");
@@ -1744,15 +1728,11 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(finish.trait_id),
             trait_args.clone(),
         ) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            self.report_trait_bound_not_satisfied_named(
                 finish.span,
-                format!(
-                    "trait bound not satisfied: {}: {}",
-                    self.ty_name(lhs_ty),
-                    self.builtin_trait_ty_name(finish.trait_id, &trait_args)
-                ),
-            ));
+                lhs_ty,
+                self.builtin_trait_ty_name(finish.trait_id, &trait_args),
+            );
         }
         self.record_builtin_operator_method(finish.op, lhs_ty, trait_args.clone());
 
@@ -1790,15 +1770,11 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(trait_id),
             Vec::new(),
         ) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            self.report_trait_bound_not_satisfied_named(
                 span,
-                format!(
-                    "trait bound not satisfied: {}: {}",
-                    self.ty_name(inner_ty),
-                    self.builtin_trait_ty_name(trait_id, &[])
-                ),
-            ));
+                inner_ty,
+                self.builtin_trait_ty_name(trait_id, &[]),
+            );
         }
         self.record_builtin_operator_method(BuiltinOperatorOp::Unary(op), inner_ty, Vec::new());
         if builtin_trait_output_is_boolean(trait_id) {

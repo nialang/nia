@@ -935,6 +935,42 @@ impl<'a> BodyChecker<'a> {
         );
     }
 
+    /// Reports a failed trait obligation with the semantic context needed to
+    /// repair it. The summary stays compact; the note and help distinguish a
+    /// missing implementation from an ordinary type mismatch at the callsite.
+    pub(crate) fn report_trait_bound_not_satisfied(
+        &mut self,
+        span: Span,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+    ) {
+        let trait_name = self.trait_ty_name(trait_id, trait_args);
+        self.report_trait_bound_not_satisfied_named(span, self_ty, trait_name);
+    }
+
+    pub(crate) fn report_trait_bound_not_satisfied_named(
+        &mut self,
+        span: Span,
+        self_ty: InternedTyId,
+        trait_name: impl Into<String>,
+    ) {
+        let self_name = self.ty_name(self_ty);
+        let trait_name = trait_name.into();
+        let summary = format!("trait bound not satisfied: {self_name}: {trait_name}");
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(span, summary)
+                .note(format!(
+                    "the compiler could not find a visible implementation of `{trait_name}` for `{self_name}`"
+                ))
+                .help(format!(
+                    "provide an implementation of `{trait_name}` for `{self_name}`, import the module that defines it, or use a type with a matching implementation"
+                ))
+                .finish(),
+        );
+    }
+
     /// Checks source-level type compatibility after alias/projection
     /// normalization. The result is cached by interned pair, except when an
     /// unevaluated const expression occurs anywhere in the type shape. Such a
