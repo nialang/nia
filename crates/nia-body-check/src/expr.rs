@@ -1969,7 +1969,7 @@ impl<'a> BodyChecker<'a> {
         self.error()
     }
 
-    fn unresolved_using_diagnostic(
+    pub(crate) fn unresolved_using_diagnostic(
         &self,
         expr: &Expr,
         failure: nia_defs::UnresolvedUsing,

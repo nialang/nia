@@ -3061,6 +3061,31 @@ fn main() i32 {
 }
 
 #[test]
+fn failed_using_assignment_reports_import_evidence() {
+    let root = temp_dir("failed_using_assignment_reports_import_evidence");
+    let source = r#"using entry::api::missing_value;
+
+fn main() () {
+    missing_value = 1;
+}
+"#;
+    write(&root.join("main.nia"), source);
+    write(&root.join("api.nia"), "");
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("unavailable because its `using` directive did not find it")
+        }),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn pub_package_extension_methods_are_visible_only_inside_package() {
     let root = temp_dir("pub_package_extension_methods_are_visible_only_inside_package");
     let dep_root = root.join("dep.nia");

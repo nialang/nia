@@ -140,6 +140,11 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn check_assignable(&mut self, expr: &Expr, context: &str) {
         if let Some(reason) = self.not_assignable_reason(expr) {
+            if let Some(failure) = self.values.node_unresolved_usings.get(&expr.node_key) {
+                self.diagnostics
+                    .push(self.unresolved_using_diagnostic(expr, *failure));
+                return;
+            }
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 expr.span,
@@ -170,6 +175,11 @@ impl<'a> BodyChecker<'a> {
             self.not_materializable_reason(ty)
         };
         if let Some(reason) = reason {
+            if let Some(failure) = self.values.node_unresolved_usings.get(&expr.node_key) {
+                self.diagnostics
+                    .push(self.unresolved_using_diagnostic(expr, *failure));
+                return;
+            }
             let property = if is_readonly {
                 "addressable"
             } else {
