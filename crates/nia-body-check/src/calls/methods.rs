@@ -376,52 +376,11 @@ impl<'a> BodyChecker<'a> {
             && candidates.is_empty()
             && !inaccessible_candidates.is_empty()
         {
-            let candidate = inaccessible_candidates
-                .iter()
-                .min_by_key(|candidate| candidate.method.def_id)
-                .expect("inaccessible extension candidate exists");
-            let visibility = candidate
-                .inaccessible_visibility
-                .expect("candidate partition preserves inaccessible visibility");
-            let name = self.symbol_name(*call.name);
-            let (summary, help) = match visibility {
-                Visibility::Private => (
-                    format!("method `{name}` is private"),
-                    "make the method public or use it from an allowed scope".to_string(),
-                ),
-                Visibility::PublicSuper => (
-                    format!("method `{name}` is restricted to its parent module and descendants"),
-                    "make the method public or move this use into its permitted scope".to_string(),
-                ),
-                Visibility::PublicPkg => (
-                    format!("method `{name}` is restricted to its package"),
-                    "make the method public or use it from the defining package".to_string(),
-                ),
-                Visibility::Public => (
-                    format!("method `{name}` is not visible from this module"),
-                    "check the module path and declaration visibility".to_string(),
-                ),
-            };
-            let method_id = candidate.method.def_id;
-            let mut diagnostic = Diagnostic::user_error(codes::NAME_RESOLUTION, summary)
-                .primary(call.span, "this method is not visible from this module");
-            let declaration_span = self
-                .program
-                .defs
-                .and_then(|defs| defs(method_id.module_id))
-                .and_then(|defs| defs.defs.get(method_id.def_id).map(|def| def.span));
-            let source_path = self
-                .program
-                .module_source_path
-                .and_then(|source_path| source_path(method_id.module_id));
-            if let (Some(path), Some(span)) = (source_path, declaration_span) {
-                diagnostic = diagnostic.related_at(
-                    path.as_str(),
-                    span,
-                    "the restricted method is declared here",
-                );
-            }
-            self.diagnostics.push(diagnostic.help(help).finish());
+            self.report_inaccessible_extension_method(
+                call.span,
+                call.name,
+                &inaccessible_candidates,
+            );
             for arg in call.args {
                 self.check_expr(arg);
             }
@@ -642,6 +601,62 @@ impl<'a> BodyChecker<'a> {
             let return_type = this.normalize_projection(return_type);
             Some(this.normalize_aliases_in_type(return_type))
         })
+    }
+
+    pub(in crate::calls::methods) fn report_inaccessible_extension_method(
+        &mut self,
+        span: Span,
+        method_name: &SymbolId,
+        candidates: &[MethodCandidate],
+    ) {
+        let Some(candidate) = candidates
+            .iter()
+            .min_by_key(|candidate| candidate.method.def_id)
+        else {
+            return;
+        };
+        let visibility = candidate
+            .inaccessible_visibility
+            .expect("candidate is inaccessible");
+        let name = self.symbol_name(*method_name);
+        let (summary, help) = match visibility {
+            Visibility::Private => (
+                format!("method `{name}` is private"),
+                "make the method public or use it from an allowed scope".to_string(),
+            ),
+            Visibility::PublicSuper => (
+                format!("method `{name}` is restricted to its parent module and descendants"),
+                "make the method public or move this use into its permitted scope".to_string(),
+            ),
+            Visibility::PublicPkg => (
+                format!("method `{name}` is restricted to its package"),
+                "make the method public or use it from the defining package".to_string(),
+            ),
+            Visibility::Public => (
+                format!("method `{name}` is not visible from this module"),
+                "check the module path and declaration visibility".to_string(),
+            ),
+        };
+        let method_id = candidate.method.def_id;
+        let mut diagnostic = Diagnostic::user_error(codes::NAME_RESOLUTION, summary)
+            .primary(span, "this method is not visible from this module");
+        let declaration_span = self
+            .program
+            .defs
+            .and_then(|defs| defs(method_id.module_id))
+            .and_then(|defs| defs.defs.get(method_id.def_id).map(|def| def.span));
+        let source_path = self
+            .program
+            .module_source_path
+            .and_then(|source_path| source_path(method_id.module_id));
+        if let (Some(path), Some(span)) = (source_path, declaration_span) {
+            diagnostic = diagnostic.related_at(
+                path.as_str(),
+                span,
+                "the restricted method is declared here",
+            );
+        }
+        self.diagnostics.push(diagnostic.help(help).finish());
     }
 
     pub(in crate::calls) fn report_method_candidates(

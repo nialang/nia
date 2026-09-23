@@ -101,8 +101,8 @@ import failure.
 
 This coverage is still incremental: qualified visibility cases beyond private
 values/types and restricted module visibility beyond `pub(super)`, restricted
-associated functions and values, qualified callable cases beyond unknown
-members, error-union propagation failure variants beyond the current boundary,
+associated values, qualified callable cases beyond unknown members,
+error-union propagation failure variants beyond the current boundary,
 invalid-operand, and missing-conversion cases, and other recovery-derived
 semantic rules need equivalent rule-specific contracts and source fixtures.
 
@@ -178,8 +178,9 @@ as private. Restricted module namespaces now report their actual scope and
 point to the module declaration for both value and type paths. Directly
 qualified `pub(pkg)` values and types now have dependency-backed snapshots for
 package-scope errors and related declaration locations. A package-restricted
-receiver-style extension method now reports its visibility and dependency
-declaration instead of falling through to an unknown-field error.
+receiver-style or associated extension function now reports its visibility and
+dependency declaration instead of falling through to an unrelated field or
+unknown-function error.
 The complete diagnostic rule set still needs equivalent fixture/snapshot
 coverage.
 

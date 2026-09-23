@@ -1,5 +1,9 @@
 using dep::model;
 
-fn main() i32 {
-    model::Value::init(41).package_score()
+fn make() model::Value {
+    model::Value::package_make(41)
+}
+
+fn score(value: model::Value) i32 {
+    value.package_score()
 }
