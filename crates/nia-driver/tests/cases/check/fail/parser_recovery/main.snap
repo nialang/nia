@@ -34,6 +34,17 @@ summary: expected `)` after parameters; found `{`
 label: 226..227 Primary Source expected `)` after parameters; found `{`
 help: check that the surrounding delimiters are balanced
 
+path: fail/parser_recovery/main.nia
+code: E0101
+summary: expected function name; found `(`
+label: 249..250 Primary Source expected function name; found `(`
+help: use an identifier in this position
+
+path: fail/parser_recovery/main.nia
+code: E0101
+summary: lexical error: unexpected byte 0x24
+label: 298..299 Primary Source lexical error: unexpected byte 0x24
+
 report:
 diagnostics:
 root diagnostic:
@@ -84,4 +95,19 @@ error[E0101]: expected `)` after parameters; found `{`
    |                                 ^ expected `)` after parameters; found `{`
 help: check that the surrounding delimiters are balanced
 
-summary: 6 errors, 0 warnings
+root diagnostic:
+error[E0101]: expected function name; found `(`
+   --> fail/parser_recovery/main.nia:24:4
+   |
+24 | fn () {}
+   |    ^ expected function name; found `(`
+help: use an identifier in this position
+
+root diagnostic:
+error[E0101]: lexical error: unexpected byte 0x24
+   --> fail/parser_recovery/main.nia:27:19
+   |
+27 |     let value = 1 $;
+   |                   ^ lexical error: unexpected byte 0x24
+
+summary: 8 errors, 0 warnings

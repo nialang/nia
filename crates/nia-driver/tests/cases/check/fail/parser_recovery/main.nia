@@ -20,3 +20,9 @@ fn missing_binding() () {
 fn missing_delimiter(value: i32 {
     _ = value;
 }
+
+fn () {}
+
+fn lexical_error() () {
+    let value = 1 $;
+}
