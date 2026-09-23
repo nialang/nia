@@ -29,12 +29,12 @@ pub fn render_build_error(
         // locations. Do not wrap them in a synthetic runner diagnostic.
         return nia_driver::render_driver_error(error, Some(path), primary_source);
     }
-    if let BuildError::ExecuteBuildPlan { error } = error {
-        if let CoordinatorError::Driver { error, .. } = error.as_ref() {
-            // Action diagnostics carry their own source paths. Preserve that
-            // ownership instead of rendering them as a generic build error.
-            return nia_driver::render_driver_error(error, primary_path, primary_source);
-        }
+    if let BuildError::ExecuteBuildPlan { error } = error
+        && let CoordinatorError::Driver { error, .. } = error.as_ref()
+    {
+        // Action diagnostics carry their own source paths. Preserve that
+        // ownership instead of rendering them as a generic build error.
+        return nia_driver::render_driver_error(error, primary_path, primary_source);
     }
 
     let diagnostics = build_error_diagnostics(error);
@@ -51,10 +51,10 @@ pub fn render_build_error_json(error: &BuildError) -> String {
     if let BuildError::CompileRunner { error, .. } = error {
         return nia_driver::render_driver_error_json(error);
     }
-    if let BuildError::ExecuteBuildPlan { error } = error {
-        if let CoordinatorError::Driver { error, .. } = error.as_ref() {
-            return nia_driver::render_driver_error_json(error);
-        }
+    if let BuildError::ExecuteBuildPlan { error } = error
+        && let CoordinatorError::Driver { error, .. } = error.as_ref()
+    {
+        return nia_driver::render_driver_error_json(error);
     }
     let diagnostics = build_error_diagnostics(error);
     render_diagnostics_json(&diagnostics, DiagnosticReportConfig::default())
