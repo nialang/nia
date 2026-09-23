@@ -697,6 +697,9 @@ impl Parser {
     }
 
     fn error_here_as(&mut self, kind: ParseErrorKind, message: impl Into<String>) {
+        if self.at_lexical_error() {
+            return;
+        }
         self.errors.push(ParseError {
             span: self.peek().span,
             kind,
@@ -716,6 +719,9 @@ impl Parser {
     }
 
     fn error_at_as(&mut self, kind: ParseErrorKind, span: Span, message: impl Into<String>) {
+        if self.at_lexical_error() && span == self.peek().span && kind != ParseErrorKind::Lexical {
+            return;
+        }
         self.errors.push(ParseError {
             span,
             kind,
@@ -725,8 +731,15 @@ impl Parser {
     }
 
     fn error_at_end_as(&mut self, kind: ParseErrorKind, span: Span, message: impl Into<String>) {
+        if self.at_lexical_error() && kind != ParseErrorKind::Lexical {
+            return;
+        }
         let start = span.end.saturating_sub(1).max(span.start);
         self.error_at_as(kind, Span::new(start, span.end), message);
+    }
+
+    fn at_lexical_error(&self) -> bool {
+        matches!(self.peek().kind, TokenKind::Error(_))
     }
 
     fn recover_to_item_boundary(&mut self) {
