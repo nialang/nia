@@ -94,9 +94,11 @@ checked/codegen products and frontend check-certificate cache reuse. The full
 root/related/independent hierarchy is now ordered explicitly when diagnostics
 carry an unambiguous source-owned cause identity. That cause identity is retained
 in stable diagnostic bundles. Failed `using` lookups now carry their emitted
-root identity through value, type, and body resolution, so later use-site
-diagnostics are grouped under the import failure. Other recovery-derived
-diagnostics still need explicit provenance before this stage is complete.
+root identity through value, type, and body resolution, so later value and type
+use-site diagnostics are grouped under the import failure. A source fixture now
+covers repeated use of the failed import in a function parameter and return
+type, and snapshots the shared root identity. Other recovery-derived diagnostics
+still need explicit provenance before this stage is complete.
 
 ### 5. CLI interaction contract
 
@@ -109,8 +111,10 @@ Text and JSON reports now expose the same retained error/warning summary and
 duplicate/display-limit counts. Interactive text diagnostics are colorized at
 the CLI boundary, while captured and JSON output remains deterministic and
 free of ANSI control sequences. CLI cases now assert exact success and failure
-statuses for check, emit, build, and test. The complete interactive terminal
-contract still needs end-to-end coverage.
+statuses for check, emit, build, and test. A Linux pseudo-terminal integration
+test verifies color on interactive text output and ANSI-free JSON output on the
+same terminal. Other terminal platforms and broader output snapshot coverage
+remain to be verified.
 
 ### 6. Regression and quality gates
 
@@ -121,6 +125,10 @@ Every new diagnostic rule requires a source fixture and a snapshot containing:
 - source excerpt and label;
 - notes/help/related locations;
 - suppression summary when applicable.
+
+The failed-using provenance chain now has a source fixture and snapshot,
+including the cause identity of repeated signature type diagnostics. The
+complete diagnostic rule set still needs equivalent fixture/snapshot coverage.
 
 The broad workspace test, clippy, formatting, and CLI case suites remain
 mandatory for each stage.

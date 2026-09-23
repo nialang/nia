@@ -88,6 +88,19 @@ pub(super) fn diagnostic_snapshot(diagnostics: &[crate::ProgramDiagnostic], root
                 related.span.start, related.span.end, related.message
             );
         }
+        if let Some(cause) = &diagnostic.diagnostic.cause {
+            let cause_path = Path::new(&cause.source_path)
+                .strip_prefix(root)
+                .unwrap_or_else(|_| Path::new(&cause.source_path));
+            let _ = writeln!(
+                record,
+                "cause: {} {} {}..{}",
+                cause_path.display(),
+                cause.code,
+                cause.span.start,
+                cause.span.end
+            );
+        }
         for field in diagnostic.diagnostic.debug.iter() {
             let _ = writeln!(record, "debug: {}={}", field.key, field.value);
         }

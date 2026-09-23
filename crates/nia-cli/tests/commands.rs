@@ -4,6 +4,9 @@ use std::{
     process::{Command, Stdio},
 };
 
+#[cfg(target_os = "linux")]
+use std::{os::fd::FromRawFd, thread};
+
 mod support;
 
 use support::{CommandExt, CommandStatusExt, temp_dir};
@@ -305,6 +308,87 @@ fn main() i32 {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stderr.contains("This is a compiler bug"), "{stderr}");
     assert!(!stderr.contains("Broken pipe"), "{stderr}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn interactive_terminal_reports_color_text_without_coloring_json() {
+    let root = temp_dir("interactive_terminal_reports_color_text_without_coloring_json");
+    let main = root.join("main.nia");
+    std::fs::write(&main, "using entry::missing;\nfn main() i32 { 0 }\n")
+        .expect("write invalid import source");
+    std::fs::write(root.join("entry.nia"), "").expect("write imported module");
+
+    let mut text_command = support::nia_command();
+    text_command.arg("check").arg(&main).stdout(Stdio::null());
+    let (text_status, text_stderr) = run_with_terminal_stderr(text_command);
+    assert_eq!(text_status.code(), Some(1));
+    let text_stderr = String::from_utf8(text_stderr).expect("terminal text is UTF-8");
+    assert!(
+        text_stderr.contains("\x1b[1;31merror[E0201]"),
+        "{text_stderr}"
+    );
+    assert!(text_stderr.contains("\x1b[36m  -->"), "{text_stderr}");
+    assert!(text_stderr.contains("\x1b[0m"), "{text_stderr}");
+
+    let mut json_command = support::nia_command();
+    json_command
+        .arg("check")
+        .arg("--diagnostics-format=json")
+        .arg(&main)
+        .stdout(Stdio::null());
+    let (json_status, json_stderr) = run_with_terminal_stderr(json_command);
+    assert_eq!(json_status.code(), Some(1));
+    let json_stderr = String::from_utf8(json_stderr).expect("terminal JSON is UTF-8");
+    assert!(
+        json_stderr.trim_start().starts_with("{\"diagnostics\":"),
+        "{json_stderr}"
+    );
+    assert!(!json_stderr.contains('\x1b'), "{json_stderr}");
+    assert!(json_stderr.contains("\"code\":\"E0201\""), "{json_stderr}");
+}
+
+#[cfg(target_os = "linux")]
+fn run_with_terminal_stderr(mut command: Command) -> (std::process::ExitStatus, Vec<u8>) {
+    let mut master = -1;
+    let mut slave = -1;
+    let result = unsafe {
+        libc::openpty(
+            &mut master,
+            &mut slave,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    };
+    assert_eq!(
+        result,
+        0,
+        "openpty failed: {}",
+        std::io::Error::last_os_error()
+    );
+
+    let slave = unsafe { std::fs::File::from_raw_fd(slave) };
+    command.stderr(Stdio::from(slave));
+    let mut child = command.spawn().expect("spawn nia with terminal stderr");
+    drop(command);
+    let reader = thread::spawn(move || {
+        let mut master = unsafe { std::fs::File::from_raw_fd(master) };
+        let mut stderr = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        loop {
+            match master.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read) => stderr.extend_from_slice(&buffer[..read]),
+                Err(error) if error.raw_os_error() == Some(libc::EIO) => break,
+                Err(error) => panic!("read terminal stderr: {error}"),
+            }
+        }
+        stderr
+    });
+    let status = child.wait().expect("wait for nia");
+    let stderr = reader.join().expect("join terminal stderr reader");
+    (status, stderr)
 }
 
 #[test]
