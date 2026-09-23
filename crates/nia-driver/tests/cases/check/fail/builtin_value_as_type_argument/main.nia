@@ -1,0 +1,6 @@
+const LANE: usize = 1;
+
+fn invalid() usize {
+    _ = std::builtin::ctz[LANE](0usize);
+    0
+}

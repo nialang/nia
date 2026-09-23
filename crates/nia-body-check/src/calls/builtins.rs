@@ -421,6 +421,9 @@ impl<'a> BodyChecker<'a> {
                     ));
                     return None;
                 }
+                if self.is_error_ty(lowered[0]) {
+                    return None;
+                }
                 Some(CheckedBuiltinTypeArg {
                     ty: lowered[0],
                     span: args.first().map_or(span, |arg| arg.span),
@@ -486,6 +489,9 @@ impl<'a> BodyChecker<'a> {
                         span,
                         format!("builtin `{name}` takes at most one type argument"),
                     ));
+                    return None;
+                }
+                if self.is_error_ty(lowered[0]) {
                     return None;
                 }
                 Some(CheckedBuiltinTypeArg {
@@ -774,6 +780,7 @@ impl<'a> BodyChecker<'a> {
         }
         let vector_ty = self.check_expr(&args[0]);
         match self.interner.get(vector_ty).cloned() {
+            Some(TyKind::Error) => {}
             Some(TyKind::Vector {
                 elem: PrimitiveTy::Bool,
                 lanes,
@@ -925,6 +932,7 @@ impl<'a> BodyChecker<'a> {
     fn vector_lane_ty(&mut self, span: Span, name: &str, vector_ty: InternedTyId) -> InternedTyId {
         match self.interner.get(vector_ty).cloned() {
             Some(TyKind::Vector { elem, .. }) => self.primitive(elem),
+            Some(TyKind::Error) => self.error(),
             Some(_) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,

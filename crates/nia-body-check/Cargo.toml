@@ -43,13 +43,13 @@ nia-trait-solve.workspace = true
 nia-ty.workspace = true
 nia-type-lower.workspace = true
 nia-type-normalize.workspace = true
+nia-type-resolve.workspace = true
 nia-value-resolve.workspace = true
 
 [dev-dependencies]
 nia-parser.workspace = true
 nia-syntax.workspace = true
 nia-target-config.workspace = true
-nia-type-resolve.workspace = true
 
 [lib]
 path = "src/lib.rs"

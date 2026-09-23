@@ -36,6 +36,7 @@ pub fn check_module_bodies(
     };
     let source_path = SourcePath::new("main.nia");
     let symbols = SymbolTable::new();
+    let type_resolution = nia_type_resolve::resolve_module_types(module, defs);
     let item_tree = ModuleItemTree::from_module(module);
     let active_item_tree = item_tree.all_items_active();
     let semantic_uses = semantic_use_table_for_body_input(
@@ -57,6 +58,7 @@ pub fn check_module_bodies(
         values,
         locals,
         semantic_uses: &semantic_uses,
+        type_resolution: &type_resolution,
         lowered,
         signatures: BodyLocalSignatures::from_item_signatures(signatures),
         const_signatures: signatures,
@@ -125,6 +127,7 @@ pub fn check_module_bodies_with_program_signatures(
         values: input.values,
         locals: input.locals,
         semantic_uses: input.semantic_uses,
+        type_resolution: input.type_resolution,
         lowered: input.lowered,
         signatures: BodyLocalSignatures::from_item_signatures(input.signatures),
         const_signatures: input.signatures,
@@ -319,6 +322,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         values: input.values,
         locals: input.locals,
         semantic_uses: input.semantic_uses,
+        type_resolution: input.type_resolution,
         interner: types,
         type_lowering: input.lowered,
         signatures: input.signatures,

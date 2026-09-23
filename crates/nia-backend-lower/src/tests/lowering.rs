@@ -248,6 +248,7 @@ fn main() i32 {
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        type_resolution: &type_resolved,
         lowered: &type_lowering,
         signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
         const_signatures: &signatures,

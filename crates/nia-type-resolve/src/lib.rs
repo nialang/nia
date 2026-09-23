@@ -43,6 +43,11 @@ pub struct TypeResolution {
     pub node_type_names: FastHashMap<NodeSite, TypeNameResolution>,
     /// Qualified type references resolved to global definitions.
     pub node_qualified_type_names: FastHashMap<NodeSite, GlobalDefId>,
+    /// Type-shaped interpretations of ambiguous bracket arguments that did not resolve.
+    ///
+    /// These are not diagnosed during name resolution because the same syntax may
+    /// be a const argument. A later semantic context can require the type reading.
+    pub unresolved_type_candidates: nia_hash::FastHashSet<NodeSite>,
     /// Const-generic parameter names keyed by versioned node identity.
     pub node_const_generic_names: NodeMap<SymbolId>,
     /// Diagnostics emitted while resolving the module.

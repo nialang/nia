@@ -164,6 +164,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        type_resolution: &type_resolved,
         lowered: &type_lowering,
         signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
         const_signatures: &signatures,

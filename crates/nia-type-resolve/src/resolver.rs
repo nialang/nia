@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use nia_hash::FastHashSet;
+
 use super::*;
 
 pub(super) fn resolve_module_types_from_item_tree_inner(
@@ -59,6 +61,7 @@ pub(super) fn resolve_module_types_from_items_with_mode(
         symbols,
         node_type_names: FastHashMap::default(),
         node_qualified_type_names: FastHashMap::default(),
+        unresolved_type_candidates: FastHashSet::default(),
         node_const_generic_names: HashMap::new(),
         diagnostics: Vec::new(),
         generic_stack: Vec::new(),
@@ -74,6 +77,7 @@ pub(super) fn resolve_module_types_from_items_with_mode(
     TypeResolution {
         node_type_names: resolver.node_type_names,
         node_qualified_type_names: resolver.node_qualified_type_names,
+        unresolved_type_candidates: resolver.unresolved_type_candidates,
         node_const_generic_names: node_const_generic_names.finish(),
         diagnostics: resolver.diagnostics,
     }
@@ -94,6 +98,7 @@ struct TypeResolver<'a> {
     symbols: Option<&'a dyn SymbolText>,
     node_type_names: FastHashMap<NodeSite, TypeNameResolution>,
     node_qualified_type_names: FastHashMap<NodeSite, GlobalDefId>,
+    unresolved_type_candidates: FastHashSet<NodeSite>,
     node_const_generic_names: HashMap<VersionedNodeKey, SymbolId>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<GenericParam>>,
@@ -709,6 +714,8 @@ impl<'a> TypeResolver<'a> {
         match &ty.kind {
             TypeKind::Path { segments } => {
                 let Some(resolution) = self.try_resolve_type_path(ty, segments) else {
+                    self.unresolved_type_candidates
+                        .insert(ty.node_key.site().clone());
                     return;
                 };
                 self.node_type_names

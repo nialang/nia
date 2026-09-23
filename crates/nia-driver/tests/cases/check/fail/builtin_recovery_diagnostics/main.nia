@@ -1,0 +1,7 @@
+fn invalid() usize {
+    _ = std::builtin::extract(missing, 0usize);
+    _ = std::builtin::bitmask(missing);
+    _ = std::builtin::splat[MissingVector](1u8);
+    _ = std::builtin::ctz[MissingInteger](0usize);
+    0
+}

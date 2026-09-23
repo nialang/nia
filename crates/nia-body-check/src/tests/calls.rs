@@ -1247,6 +1247,70 @@ fn invalid(v: u8x16) () {
 }
 
 #[test]
+fn simd_builtins_do_not_reject_error_recovery_types() {
+    let checked = pipeline(
+        r#"
+fn invalid() usize {
+    _ = std::builtin::extract(missing, 0usize);
+    _ = std::builtin::bitmask(missing);
+    _ = std::builtin::splat[MissingVector](1u8);
+    _ = std::builtin::ctz[MissingInteger](0usize);
+    0
+}
+"#,
+    );
+
+    assert!(
+        checked.diagnostics.iter().all(|diagnostic| {
+            !diagnostic.summary.contains("SIMD")
+                && !diagnostic.summary.contains("integer type argument")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| { diagnostic.summary.contains("unknown value `missing`") })
+            .count(),
+        2,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| { diagnostic.summary.contains("unknown type `Missing") })
+            .count(),
+        2,
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn simd_builtin_type_argument_rejects_a_resolved_const_value() {
+    let checked = pipeline(
+        r#"
+const LANE: usize = 1;
+
+fn invalid() usize {
+    _ = std::builtin::ctz[LANE](0usize);
+    0
+}
+"#,
+    );
+
+    assert_eq!(checked.diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert_eq!(
+        checked.diagnostics[0].summary,
+        "generic argument resolved as a value; expected a type"
+    );
+}
+
+#[test]
 fn checks_atomic_builtin_ordering_rules() {
     let checked = pipeline(
         r#"

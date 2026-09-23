@@ -461,6 +461,7 @@ fn pipeline_with_options_and_trait_impls(
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        type_resolution: &type_resolved,
         lowered: &lowered,
         signatures: BodyLocalSignatures::from_item_signatures(&signatures),
         const_signatures: &signatures,
