@@ -558,6 +558,78 @@ fn using_private_item_reports_declaration_evidence() {
 }
 
 #[test]
+fn qualified_unknown_value_offers_bounded_spelling_help() {
+    let root = temp_dir("qualified_unknown_value_offers_bounded_spelling_help");
+    write(
+        &root.join("main.nia"),
+        "module api;\nusing entry::api;\nfn main() () { api::pront(); }\n",
+    );
+    write(&root.join("api.nia"), "pub fn print() () {}\n");
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let diagnostic = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("unknown value `pront`")
+        })
+        .expect("unknown qualified value diagnostic");
+    assert!(
+        diagnostic
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("did you mean `print`")),
+        "missing spelling help: {:?}",
+        diagnostic.diagnostic
+    );
+    assert_eq!(diagnostic.diagnostic.suggestions.len(), 1);
+    assert_eq!(
+        diagnostic.diagnostic.suggestions[0].edits[0].replacement,
+        "print"
+    );
+}
+
+#[test]
+fn qualified_unknown_type_offers_bounded_spelling_help() {
+    let root = temp_dir("qualified_unknown_type_offers_bounded_spelling_help");
+    write(
+        &root.join("main.nia"),
+        "module api;\nusing entry::api;\nfn main() api::Pint { api::Pint {} }\n",
+    );
+    write(&root.join("api.nia"), "pub struct Point {}\n");
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let diagnostic = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("unknown type `Pint`")
+        })
+        .expect("unknown qualified type diagnostic");
+    assert!(
+        diagnostic
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("did you mean `Point`")),
+        "missing type spelling help: {:?}",
+        diagnostic.diagnostic
+    );
+    assert_eq!(diagnostic.diagnostic.suggestions.len(), 1);
+    assert_eq!(
+        diagnostic.diagnostic.suggestions[0].edits[0].replacement,
+        "Point"
+    );
+}
+
+#[test]
 fn pub_using_module_path_reexports_module_namespace() {
     let root = temp_dir("pub_using_module_path_reexports_module_namespace");
     write(

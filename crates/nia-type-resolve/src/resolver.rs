@@ -1213,16 +1213,32 @@ impl<'a> TypeResolver<'a> {
                 return TypeNameResolution::Error;
             }
             DirectMember::Missing => {
-                let name = self.symbol_name(name);
-                self.diagnostics.push(
-                    Diagnostic::user_error(
-                        codes::NAME_RESOLUTION,
-                        format!("unknown type `{name}`"),
-                    )
-                    .primary(span, format!("unknown type `{name}`"))
-                    .help("check the type name, module path, and whether the type is public")
-                    .finish(),
-                );
+                let name_text = self.symbol_name(name);
+                let mut diagnostic = Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!("unknown type `{name_text}`"),
+                )
+                .primary(span, format!("unknown type `{name_text}`"))
+                .help("check the type name, module path, and whether the type is public");
+                if let Some(target_defs) = self.defs_for_module(module_id) {
+                    let candidates = target_defs
+                        .as_ref()
+                        .module_scope
+                        .types
+                        .entries()
+                        .map(|(candidate, _)| self.symbol_name(*candidate));
+                    if let Some(candidate) = closest_text_candidate(&name_text, candidates) {
+                        diagnostic = diagnostic
+                            .help(format!("did you mean `{candidate}`?"))
+                            .suggestion(
+                                span,
+                                candidate,
+                                "replace the unknown type with this spelling",
+                                SuggestionApplicability::MaybeIncorrect,
+                            );
+                    }
+                }
+                self.diagnostics.push(diagnostic.finish());
                 return TypeNameResolution::Error;
             }
             DirectMember::Unloaded => {

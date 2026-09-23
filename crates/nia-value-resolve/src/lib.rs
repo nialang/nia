@@ -10,7 +10,7 @@ use nia_ast_walk::{Visitor, walk_expr, walk_generic_params, walk_where_clause};
 use nia_defs::{
     DefCollection, DefKind, PublicNamespace, PublicSurfaceLookup, UnresolvedUsing, UsingScopeLookup,
 };
-use nia_diagnostic::{Diagnostic, codes};
+use nia_diagnostic::{Diagnostic, SuggestionApplicability, codes};
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::{
@@ -23,7 +23,9 @@ use nia_item_tree::{
 use nia_node_id::{NodeMap, NodeMapBuilder, NodeStore, VersionedNodeKey};
 use nia_sema_ir::{BuiltinAssociatedValue, PrimitiveIntLimit, supports_primitive_int_limit};
 use nia_span::Span;
-use nia_symbol::{SymbolId, SymbolText, known, symbol_text_from_optional_resolver};
+use nia_symbol::{
+    SymbolId, SymbolText, closest_text_candidate, known, symbol_text_from_optional_resolver,
+};
 use nia_ty::PrimitiveTy;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1316,16 +1318,40 @@ impl<'a> ValueResolver<'a> {
                 return;
             }
             DirectMember::Missing => {
-                let symbol = self.symbol_name(symbol);
-                self.diagnostics.push(
-                    Diagnostic::user_error(
-                        codes::NAME_RESOLUTION,
-                        format!("unknown value `{}`", symbol),
-                    )
-                    .primary(span, format!("unknown value `{}`", symbol))
-                    .help("check the module path, spelling, and whether the value is public")
-                    .finish(),
-                );
+                let symbol_text = self.symbol_name(symbol);
+                let mut diagnostic = Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!("unknown value `{symbol_text}`"),
+                )
+                .primary(span, format!("unknown value `{symbol_text}`"))
+                .help("check the module path, spelling, and whether the value is public");
+                if let Some(target_defs) = self.defs_for_module(module_id) {
+                    let candidates = target_defs
+                        .as_ref()
+                        .module_scope
+                        .values
+                        .entries()
+                        .map(|(candidate, _)| self.symbol_name(*candidate))
+                        .chain(
+                            target_defs
+                                .as_ref()
+                                .module_scope
+                                .types
+                                .entries()
+                                .map(|(candidate, _)| self.symbol_name(*candidate)),
+                        );
+                    if let Some(candidate) = closest_text_candidate(&symbol_text, candidates) {
+                        diagnostic = diagnostic
+                            .help(format!("did you mean `{candidate}`?"))
+                            .suggestion(
+                                span,
+                                candidate,
+                                "replace the unknown member with this spelling",
+                                SuggestionApplicability::MaybeIncorrect,
+                            );
+                    }
+                }
+                self.diagnostics.push(diagnostic.finish());
                 return;
             }
             DirectMember::Unloaded => {
