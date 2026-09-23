@@ -10,7 +10,7 @@ root diagnostic:
 error[E0101]: expected expression
   --> fail/control_flow_statement_parser_recovery/main.nia:2:8
   |
-2 |     if {
+2 |     if + {
   |        ^ expected expression
 help: provide an expression here, such as a literal, name, or call
 

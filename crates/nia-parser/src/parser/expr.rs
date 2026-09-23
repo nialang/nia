@@ -544,10 +544,6 @@ impl Parser {
     }
 
     pub(super) fn parse_expr_until_tokens(&mut self, stops: &[TokenKind]) -> Option<Expr> {
-        if stops.iter().any(|kind| self.at(kind.clone())) {
-            self.error_here_as(ParseErrorKind::ExpectedExpression, "expected expression");
-            return None;
-        }
         let checkpoint = self.checkpoint();
         let errors_len = self.errors.len();
         let expr = self.parse_assignment_until(stops)?;

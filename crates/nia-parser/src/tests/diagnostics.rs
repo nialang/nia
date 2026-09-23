@@ -133,7 +133,7 @@ fn failed_control_flow_recovery_keeps_later_statements_and_items() {
     let (module, errors) = parse_module(
         r#"
 fn main() () {
-    if {
+    if + {
         discarded();
     }
     retained();
