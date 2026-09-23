@@ -24,7 +24,7 @@ mod using_expansion;
 
 pub use index::TypeExposureIndex;
 use using_expansion::{
-    ResolvedEntryKind, UsingExpansion, UsingExpansionContext, UsingLookupMode,
+    ResolvedEntryKind, UsingExpansionContext, UsingFailure, UsingFailureCause, UsingLookupMode,
     collect_module_aliases, entry_already_present, expand_using, insert_into_surface,
     namespace_for, record_unresolved_using_names, root_module_for_segment,
 };
@@ -113,22 +113,15 @@ fn invalid_self_name_segment(segment: &UsingPathSegment) -> Diagnostic {
     )
 }
 
-fn first_using_name(selector: &UsingSelector) -> Option<&UsingName> {
-    match selector {
-        UsingSelector::Single(name) => Some(name),
-        UsingSelector::Group(items) => items.iter().find_map(|item| match item {
-            UsingGroupItem::Name(name) => Some(name),
-            UsingGroupItem::Nested { selector, .. } => first_using_name(selector),
-        }),
-        UsingSelector::Wildcard { .. } | UsingSelector::SelfName => None,
-    }
-}
-
-fn using_failure_span(using: &ModuleUsing, failure_span: Option<Span>) -> (Span, &'static str) {
+fn using_failure_span(
+    using: &ModuleUsing,
+    selected: Option<&UsingName>,
+    failure_span: Option<Span>,
+) -> (Span, &'static str) {
     if let Some(span) = failure_span {
         return (span, "this imported name could not be resolved");
     }
-    if let Some(selected) = first_using_name(&using.selector) {
+    if let Some(selected) = selected {
         let span = selected.alias_span.unwrap_or(selected.name_span);
         return (span, "this imported name could not be resolved");
     }
@@ -141,21 +134,33 @@ fn using_failure_span(using: &ModuleUsing, failure_span: Option<Span>) -> (Span,
     (using.span, "this using directive could not be resolved")
 }
 
-fn unresolved_using_diagnostic(
+/// Builds the root diagnostic for one failed selector of `using`.
+fn using_failure_diagnostic(
     using: &ModuleUsing,
-    reason: UnresolvedUsingReason,
-    failure_span: Option<Span>,
-    declaration_span: Option<Span>,
-    declaration_path: Option<&str>,
+    failure: &UsingFailure,
     symbols: &dyn SymbolText,
 ) -> Diagnostic {
-    let selected = first_using_name(&using.selector);
+    let (reason, failure_span, declaration_span, declaration_path) = match &failure.cause {
+        UsingFailureCause::Invalid(diagnostic) => return diagnostic.clone(),
+        UsingFailureCause::Unresolved {
+            reason,
+            span,
+            declaration_span,
+            declaration_path,
+        } => (
+            *reason,
+            *span,
+            *declaration_span,
+            declaration_path.as_deref(),
+        ),
+    };
+    let selected = failure.names.first();
     let name = selected
         .map(|name| symbol_text(symbols, name.alias.unwrap_or(name.name)))
         .unwrap_or_else(|| first_path_segment_text(symbols, &using.host));
     let host = first_path_segment_text(symbols, &using.host);
     let (cause, help) = reason.diagnostic_parts(&name);
-    let (primary_span, primary_message) = using_failure_span(using, failure_span);
+    let (primary_span, primary_message) = using_failure_span(using, selected, failure_span);
     let mut diagnostic = Diagnostic::user_error(
         codes::NAME_RESOLUTION,
         format!("`using {host}::...` could not be resolved: {cause}"),
@@ -322,41 +327,35 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                     symbols,
                     mode: UsingLookupMode::PublicOnly,
                 };
-                match expand_using(&context, defs, using, &local_modules) {
-                    UsingExpansion::Resolved(entries) => {
-                        let surface = surfaces
-                            .get(defs.module_id)
-                            .cloned()
-                            .unwrap_or_else(|| ModulePublicSurface::new(defs.module_id));
-                        let mut surface = surface;
-                        for entry in entries {
-                            match entry.kind {
-                                ResolvedEntryKind::Module(target_module) => {
-                                    if surface.modules.contains_key(&entry.name) {
-                                        continue;
-                                    }
-                                    iteration_changed = true;
-                                    surface.modules.insert(entry.name, target_module);
-                                }
-                                ResolvedEntryKind::Item(item) => {
-                                    if entry_already_present(&surface, &entry.name, item.namespace)
-                                    {
-                                        continue;
-                                    }
-                                    iteration_changed = true;
-                                    insert_into_surface(&mut surface, &entry.name, item);
-                                }
+                let expansion = expand_using(&context, defs, using, &local_modules);
+                iteration_unresolved += expansion
+                    .failures
+                    .iter()
+                    .filter(|failure| matches!(failure.cause, UsingFailureCause::Unresolved { .. }))
+                    .count();
+                let mut surface = surfaces
+                    .get(defs.module_id)
+                    .cloned()
+                    .unwrap_or_else(|| ModulePublicSurface::new(defs.module_id));
+                for entry in expansion.entries {
+                    match entry.kind {
+                        ResolvedEntryKind::Module(target_module) => {
+                            if surface.modules.contains_key(&entry.name) {
+                                continue;
                             }
+                            iteration_changed = true;
+                            surface.modules.insert(entry.name, target_module);
                         }
-                        surfaces.insert(surface);
+                        ResolvedEntryKind::Item(item) => {
+                            if entry_already_present(&surface, &entry.name, item.namespace) {
+                                continue;
+                            }
+                            iteration_changed = true;
+                            insert_into_surface(&mut surface, &entry.name, item);
+                        }
                     }
-                    UsingExpansion::Unresolved
-                    | UsingExpansion::UnresolvedReason(_)
-                    | UsingExpansion::UnresolvedReasonAt(_, _, _, _) => {
-                        iteration_unresolved += 1;
-                    }
-                    UsingExpansion::HardError(_) => {}
                 }
+                surfaces.insert(surface);
             }
         }
         if !iteration_changed {
@@ -398,68 +397,25 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                 symbols,
                 mode: UsingLookupMode::PublicOnly,
             };
-            match expand_using(&context, defs, using, &local_modules) {
-                UsingExpansion::Resolved(_) | UsingExpansion::HardError(_) => {}
-                UsingExpansion::Unresolved
-                    if process_used_paths
-                        && !using_host_waits_on_unprocessed_module(
-                            graph,
-                            defs.module_id,
-                            &using.host,
-                        ) =>
-                {
+            let expansion = expand_using(&context, defs, using, &local_modules);
+            if expansion.failures.is_empty() {
+                continue;
+            }
+            // Name lookups in a module whose surface is not processed yet
+            // may still be incomplete; structural path errors are final.
+            let lookup_final = process_used_paths
+                && !using_host_waits_on_unprocessed_module(graph, defs.module_id, &using.host);
+            for failure in &expansion.failures {
+                let report = match failure.cause {
+                    UsingFailureCause::Unresolved { .. } => lookup_final,
+                    UsingFailureCause::Invalid(_) => process_used_paths,
+                };
+                if report {
                     diagnostics.push((
                         defs.module_id,
-                        unresolved_using_diagnostic(
-                            using,
-                            UnresolvedUsingReason::UnknownName,
-                            None,
-                            None,
-                            None,
-                            symbols,
-                        ),
+                        using_failure_diagnostic(using, failure, symbols),
                     ));
                 }
-                UsingExpansion::UnresolvedReason(reason)
-                    if process_used_paths
-                        && !using_host_waits_on_unprocessed_module(
-                            graph,
-                            defs.module_id,
-                            &using.host,
-                        ) =>
-                {
-                    diagnostics.push((
-                        defs.module_id,
-                        unresolved_using_diagnostic(using, reason, None, None, None, symbols),
-                    ));
-                }
-                UsingExpansion::UnresolvedReasonAt(
-                    reason,
-                    span,
-                    declaration_span,
-                    declaration_path,
-                ) if process_used_paths
-                    && !using_host_waits_on_unprocessed_module(
-                        graph,
-                        defs.module_id,
-                        &using.host,
-                    ) =>
-                {
-                    diagnostics.push((
-                        defs.module_id,
-                        unresolved_using_diagnostic(
-                            using,
-                            reason,
-                            Some(span),
-                            declaration_span,
-                            declaration_path.as_deref(),
-                            symbols,
-                        ),
-                    ));
-                }
-                UsingExpansion::Unresolved
-                | UsingExpansion::UnresolvedReason(_)
-                | UsingExpansion::UnresolvedReasonAt(_, _, _, _) => {}
             }
         }
     }
@@ -559,84 +515,19 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                 symbols,
                 mode,
             };
-            let entries = match expand_using(&context, defs, using, &scope.modules) {
-                UsingExpansion::Resolved(entries) => entries,
-                UsingExpansion::Unresolved => {
-                    record_unresolved_using_names(
-                        &mut scope,
-                        using,
-                        UnresolvedUsingReason::UnknownName,
-                        None,
-                        None,
-                    );
-                    if process_used_paths && using.visibility != Visibility::Public {
-                        diagnostics.push((
-                            defs.module_id,
-                            unresolved_using_diagnostic(
-                                using,
-                                UnresolvedUsingReason::UnknownName,
-                                None,
-                                None,
-                                None,
-                                symbols,
-                            ),
-                        ));
-                    }
-                    continue;
+            let expansion = expand_using(&context, defs, using, &scope.modules);
+            for failure in &expansion.failures {
+                record_unresolved_using_names(&mut scope, using, failure);
+                // Public re-export failures are reported once by the
+                // public-surface pass.
+                if process_used_paths && using.visibility != Visibility::Public {
+                    diagnostics.push((
+                        defs.module_id,
+                        using_failure_diagnostic(using, failure, symbols),
+                    ));
                 }
-                UsingExpansion::UnresolvedReason(reason) => {
-                    record_unresolved_using_names(&mut scope, using, reason, None, None);
-                    if process_used_paths && using.visibility != Visibility::Public {
-                        diagnostics.push((
-                            defs.module_id,
-                            unresolved_using_diagnostic(using, reason, None, None, None, symbols),
-                        ));
-                    }
-                    continue;
-                }
-                UsingExpansion::UnresolvedReasonAt(
-                    reason,
-                    span,
-                    declaration_span,
-                    declaration_path,
-                ) => {
-                    record_unresolved_using_names(
-                        &mut scope,
-                        using,
-                        reason,
-                        declaration_span,
-                        declaration_path.clone(),
-                    );
-                    if process_used_paths && using.visibility != Visibility::Public {
-                        diagnostics.push((
-                            defs.module_id,
-                            unresolved_using_diagnostic(
-                                using,
-                                reason,
-                                Some(span),
-                                declaration_span,
-                                declaration_path.as_deref(),
-                                symbols,
-                            ),
-                        ));
-                    }
-                    continue;
-                }
-                UsingExpansion::HardError(diag) => {
-                    record_unresolved_using_names(
-                        &mut scope,
-                        using,
-                        UnresolvedUsingReason::UnknownName,
-                        None,
-                        None,
-                    );
-                    if process_used_paths && using.visibility != Visibility::Public {
-                        diagnostics.push((defs.module_id, diag));
-                    }
-                    continue;
-                }
-            };
-            for entry in entries {
+            }
+            for entry in expansion.entries {
                 match entry.kind {
                     ResolvedEntryKind::Module(target_module) => {
                         if let Some(previous) = scope.modules.get(&entry.name).copied() {

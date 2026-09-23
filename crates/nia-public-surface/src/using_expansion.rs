@@ -61,12 +61,94 @@ pub(super) struct ResolvedEntry {
     pub(super) kind: ResolvedEntryKind,
 }
 
-pub(super) enum UsingExpansion {
-    Resolved(Vec<ResolvedEntry>),
-    Unresolved,
-    UnresolvedReason(UnresolvedUsingReason),
-    UnresolvedReasonAt(UnresolvedUsingReason, Span, Option<Span>, Option<String>),
-    HardError(Diagnostic),
+/// Outcome of expanding one `using` directive.
+///
+/// Every selector resolves or fails on its own: a failed name never hides its
+/// resolved siblings, and each failure owns only the names it would expose.
+#[derive(Default)]
+pub(super) struct UsingExpansion {
+    pub(super) entries: Vec<ResolvedEntry>,
+    pub(super) failures: Vec<UsingFailure>,
+}
+
+/// One selector, or one host path, that could not be expanded.
+pub(super) struct UsingFailure {
+    /// Local names the failed selector would have exposed.
+    pub(super) names: Vec<UsingName>,
+    pub(super) cause: UsingFailureCause,
+}
+
+pub(super) enum UsingFailureCause {
+    /// Lookup found no visible item for the selected name.
+    Unresolved {
+        reason: UnresolvedUsingReason,
+        /// Span of the failing selector, when narrower than its owner names.
+        span: Option<Span>,
+        /// Hidden target declaration that explains a visibility failure.
+        declaration_span: Option<Span>,
+        declaration_path: Option<String>,
+    },
+    /// Structurally invalid path; the diagnostic already explains it.
+    Invalid(Diagnostic),
+}
+
+impl UsingExpansion {
+    fn resolved(entries: Vec<ResolvedEntry>) -> Self {
+        Self {
+            entries,
+            failures: Vec::new(),
+        }
+    }
+
+    fn failed(cause: UsingFailureCause) -> Self {
+        Self {
+            entries: Vec::new(),
+            failures: vec![UsingFailure {
+                names: Vec::new(),
+                cause,
+            }],
+        }
+    }
+
+    fn unknown() -> Self {
+        Self::unresolved(UnresolvedUsingReason::UnknownName, None, None, None)
+    }
+
+    fn unresolved(
+        reason: UnresolvedUsingReason,
+        span: Option<Span>,
+        declaration_span: Option<Span>,
+        declaration_path: Option<String>,
+    ) -> Self {
+        Self::failed(UsingFailureCause::Unresolved {
+            reason,
+            span,
+            declaration_span,
+            declaration_path,
+        })
+    }
+
+    fn invalid(diagnostic: Diagnostic) -> Self {
+        Self::failed(UsingFailureCause::Invalid(diagnostic))
+    }
+
+    fn extend(&mut self, other: Self) {
+        self.entries.extend(other.entries);
+        self.failures.extend(other.failures);
+    }
+
+    /// Attributes failures that have no owner yet to the selector's names.
+    fn owned_by(mut self, names: impl FnOnce() -> Vec<UsingName>) -> Self {
+        if self.failures.iter().any(|failure| failure.names.is_empty()) {
+            let names = names();
+            for failure in &mut self.failures {
+                if failure.names.is_empty() {
+                    failure.names = names.clone();
+                }
+            }
+        }
+        self
+    }
 }
 
 pub(super) struct UsingExpansionContext<'a> {
@@ -377,39 +459,63 @@ pub(super) fn expand_using(
     let source = PublicSource::PubUsing {
         directive_span: using.span,
     };
+    expand_directive(context, current, local_modules, using, source)
+        .owned_by(|| using_names(&using.host, &using.selector))
+}
+
+fn expand_directive(
+    context: &UsingExpansionContext<'_>,
+    current: &DefCollection,
+    local_modules: &SymbolMap<ModuleId>,
+    using: &ModuleUsing,
+    source: PublicSource,
+) -> UsingExpansion {
     if using.host.is_empty() {
         let UsingSelector::Group(items) = &using.selector else {
-            return UsingExpansion::Unresolved;
+            return UsingExpansion::unknown();
         };
-        return expand_root_group(context, current, local_modules, items, source.clone());
+        return expand_root_group(context, current, local_modules, items, source);
     }
     let namespace = match resolve_namespace_path(context, current, local_modules, &using.host) {
         Ok(namespace) => namespace,
-        Err(diag) => return UsingExpansion::HardError(diag),
+        Err(diag) => return UsingExpansion::invalid(diag),
     };
     if matches!(using.selector, UsingSelector::SelfName) {
         let Some(name) = using.host.last() else {
-            return UsingExpansion::Unresolved;
+            return UsingExpansion::unknown();
         };
         let Some(name_symbol) = path_segment_self_name(name) else {
-            return UsingExpansion::HardError(invalid_self_name_segment(name));
+            return UsingExpansion::invalid(invalid_self_name_segment(name));
         };
-        return expand_self_namespace(name_symbol, name.span, namespace, source.clone());
+        return expand_self_namespace(name_symbol, name.span, namespace, source);
     }
-    expand_namespace(namespace, &using.selector, context, source.clone())
+    expand_namespace(namespace, &using.selector, context, source)
 }
 
+/// Records the names a failed selector would have exposed in the local scope.
+///
+/// Later lookups of these names report the failed `using` as their cause
+/// instead of an unrelated unresolved-name error.
 pub(super) fn record_unresolved_using_names(
     scope: &mut ModuleUsingScope,
     using: &ModuleUsing,
-    reason: UnresolvedUsingReason,
-    declaration_span: Option<Span>,
-    declaration_path: Option<String>,
+    failure: &UsingFailure,
 ) {
-    let mut names = Vec::new();
-    collect_explicit_using_names(&using.host, &using.selector, &mut names);
-    let declaration_span = (names.len() == 1).then_some(declaration_span).flatten();
-    for name in names {
+    let (reason, declaration_span, declaration_path) = match &failure.cause {
+        UsingFailureCause::Unresolved {
+            reason,
+            declaration_span,
+            declaration_path,
+            ..
+        } => (*reason, *declaration_span, declaration_path.clone()),
+        UsingFailureCause::Invalid(_) => (UnresolvedUsingReason::UnknownName, None, None),
+    };
+    // A hidden declaration explains one selected name; a failed host path
+    // covering several names has no single declaration to point at.
+    let declaration_span = (failure.names.len() == 1)
+        .then_some(declaration_span)
+        .flatten();
+    for name in &failure.names {
         let unresolved = UnresolvedUsing {
             name: name.alias.unwrap_or(name.name),
             directive_span: using.span,
@@ -419,6 +525,20 @@ pub(super) fn record_unresolved_using_names(
             reason,
         };
         scope.unresolved_usings.insert(unresolved.name, unresolved);
+    }
+}
+
+/// Names a selector exposes to the local scope, in source order.
+pub(super) fn using_names(host: &[UsingPathSegment], selector: &UsingSelector) -> Vec<UsingName> {
+    let mut names = Vec::new();
+    collect_explicit_using_names(host, selector, &mut names);
+    names
+}
+
+fn group_item_names(item: &UsingGroupItem) -> Vec<UsingName> {
+    match item {
+        UsingGroupItem::Name(name) => vec![name.clone()],
+        UsingGroupItem::Nested { host, selector } => using_names(host, selector),
     }
 }
 
@@ -466,54 +586,14 @@ fn expand_root_group(
     items: &[UsingGroupItem],
     source: PublicSource,
 ) -> UsingExpansion {
-    let mut entries = Vec::new();
-    let mut unresolved_reason = None;
-    let mut failed_span = None;
-    let mut failed_declaration_span = None;
-    let mut failed_declaration_path = None;
-    let mut failure_count = 0;
+    let mut expansion = UsingExpansion::default();
     for item in items {
-        match expand_root_group_item(context, current, local_modules, item, source.clone()) {
-            UsingExpansion::Resolved(sub) => entries.extend(sub),
-            UsingExpansion::Unresolved => {
-                failure_count += 1;
-                unresolved_reason.get_or_insert(UnresolvedUsingReason::UnknownName);
-            }
-            UsingExpansion::UnresolvedReason(reason) => {
-                failure_count += 1;
-                unresolved_reason.get_or_insert(reason);
-            }
-            UsingExpansion::UnresolvedReasonAt(
-                reason,
-                span,
-                declaration_span,
-                declaration_path,
-            ) => {
-                failure_count += 1;
-                unresolved_reason.get_or_insert(reason);
-                failed_span.get_or_insert(span);
-                failed_declaration_span.get_or_insert(declaration_span);
-                failed_declaration_path.get_or_insert(declaration_path);
-            }
-            UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
-        }
+        expansion.extend(
+            expand_root_group_item(context, current, local_modules, item, source.clone())
+                .owned_by(|| group_item_names(item)),
+        );
     }
-    if let Some(reason) = unresolved_reason {
-        failed_span.map_or(UsingExpansion::UnresolvedReason(reason), |span| {
-            UsingExpansion::UnresolvedReasonAt(
-                reason,
-                span,
-                (failure_count == 1)
-                    .then_some(failed_declaration_span.flatten())
-                    .flatten(),
-                (failure_count == 1)
-                    .then_some(failed_declaration_path.flatten())
-                    .flatten(),
-            )
-        })
-    } else {
-        UsingExpansion::Resolved(entries)
-    }
+    expansion
 }
 
 fn expand_root_group_item(
@@ -533,7 +613,7 @@ fn expand_root_group_item(
                     span: name.name_span,
                 },
             ) {
-                return UsingExpansion::Resolved(vec![ResolvedEntry {
+                return UsingExpansion::resolved(vec![ResolvedEntry {
                     name: name.alias.unwrap_or(name.name),
                     name_span: name.alias_span.unwrap_or(name.name_span),
                     kind: ResolvedEntryKind::Module(module_id),
@@ -542,14 +622,14 @@ fn expand_root_group_item(
             if let Some(module_id) =
                 visible_child_module_for_mode(context, current.module_id, &name.name)
             {
-                return UsingExpansion::Resolved(vec![ResolvedEntry {
+                return UsingExpansion::resolved(vec![ResolvedEntry {
                     name: name.alias.unwrap_or(name.name),
                     name_span: name.alias_span.unwrap_or(name.name_span),
                     kind: ResolvedEntryKind::Module(module_id),
                 }]);
             }
             if let Some(module_id) = local_modules.get(&name.name).copied() {
-                return UsingExpansion::Resolved(vec![ResolvedEntry {
+                return UsingExpansion::resolved(vec![ResolvedEntry {
                     name: name.alias.unwrap_or(name.name),
                     name_span: name.alias_span.unwrap_or(name.name_span),
                     kind: ResolvedEntryKind::Module(module_id),
@@ -560,14 +640,14 @@ fn expand_root_group_item(
         UsingGroupItem::Nested { host, selector } => {
             let namespace = match resolve_namespace_path(context, current, local_modules, host) {
                 Ok(namespace) => namespace,
-                Err(diag) => return UsingExpansion::HardError(diag),
+                Err(diag) => return UsingExpansion::invalid(diag),
             };
             if matches!(selector.as_ref(), UsingSelector::SelfName) {
                 let Some(name) = host.last() else {
-                    return UsingExpansion::Unresolved;
+                    return UsingExpansion::unknown();
                 };
                 let Some(name_symbol) = path_segment_self_name(name) else {
-                    return UsingExpansion::HardError(invalid_self_name_segment(name));
+                    return UsingExpansion::invalid(invalid_self_name_segment(name));
                 };
                 return expand_self_namespace(name_symbol, name.span, namespace, source.clone());
             }
@@ -604,10 +684,10 @@ fn expand_module_host(
     source: PublicSource,
 ) -> UsingExpansion {
     let Some(target_surface) = context.surfaces.get(target_module) else {
-        return UsingExpansion::Unresolved;
+        return UsingExpansion::unknown();
     };
     match selector {
-        UsingSelector::SelfName => UsingExpansion::Unresolved,
+        UsingSelector::SelfName => UsingExpansion::unknown(),
         UsingSelector::Wildcard { .. } => {
             // Wildcard expansion merges declarations from the graph with the
             // already-computed surface. The graph preserves source spans for
@@ -695,7 +775,7 @@ fn expand_module_host(
                     }
                 }
             }
-            UsingExpansion::Resolved(entries)
+            UsingExpansion::resolved(entries)
         }
         UsingSelector::Single(name) => {
             if let Some(module_id) = visible_child_module(
@@ -704,7 +784,7 @@ fn expand_module_host(
                 target_module,
                 &name.name,
             ) {
-                return UsingExpansion::Resolved(vec![ResolvedEntry {
+                return UsingExpansion::resolved(vec![ResolvedEntry {
                     name: name.alias.unwrap_or(name.name),
                     name_span: name.alias_span.unwrap_or(name.name_span),
                     kind: ResolvedEntryKind::Module(module_id),
@@ -713,54 +793,14 @@ fn expand_module_host(
             resolve_module_single(context, target_surface, target_module, name, source.clone())
         }
         UsingSelector::Group(items) => {
-            let mut entries = Vec::new();
-            let mut unresolved_reason = None;
-            let mut failed_span = None;
-            let mut failed_declaration_span = None;
-            let mut failed_declaration_path = None;
-            let mut failure_count = 0;
+            let mut expansion = UsingExpansion::default();
             for item in items {
-                match expand_group_item(context, target_module, item, source.clone()) {
-                    UsingExpansion::Resolved(sub) => entries.extend(sub),
-                    UsingExpansion::Unresolved => {
-                        failure_count += 1;
-                        unresolved_reason.get_or_insert(UnresolvedUsingReason::UnknownName);
-                    }
-                    UsingExpansion::UnresolvedReason(reason) => {
-                        failure_count += 1;
-                        unresolved_reason.get_or_insert(reason);
-                    }
-                    UsingExpansion::UnresolvedReasonAt(
-                        reason,
-                        span,
-                        declaration_span,
-                        declaration_path,
-                    ) => {
-                        failure_count += 1;
-                        unresolved_reason.get_or_insert(reason);
-                        failed_span.get_or_insert(span);
-                        failed_declaration_span.get_or_insert(declaration_span);
-                        failed_declaration_path.get_or_insert(declaration_path);
-                    }
-                    UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
-                }
+                expansion.extend(
+                    expand_group_item(context, target_module, item, source.clone())
+                        .owned_by(|| group_item_names(item)),
+                );
             }
-            if let Some(reason) = unresolved_reason {
-                failed_span.map_or(UsingExpansion::UnresolvedReason(reason), |span| {
-                    UsingExpansion::UnresolvedReasonAt(
-                        reason,
-                        span,
-                        (failure_count == 1)
-                            .then_some(failed_declaration_span.flatten())
-                            .flatten(),
-                        (failure_count == 1)
-                            .then_some(failed_declaration_path.flatten())
-                            .flatten(),
-                    )
-                })
-            } else {
-                UsingExpansion::Resolved(entries)
-            }
+            expansion
         }
     }
 }
@@ -779,28 +819,28 @@ fn expand_group_item(
                 current_module,
                 &name.name,
             ) {
-                return UsingExpansion::Resolved(vec![ResolvedEntry {
+                return UsingExpansion::resolved(vec![ResolvedEntry {
                     name: name.alias.unwrap_or(name.name),
                     name_span: name.alias_span.unwrap_or(name.name_span),
                     kind: ResolvedEntryKind::Module(module_id),
                 }]);
             }
             let Some(surface) = context.surfaces.get(current_module) else {
-                return UsingExpansion::Unresolved;
+                return UsingExpansion::unknown();
             };
             resolve_module_single(context, surface, current_module, name, source.clone())
         }
         UsingGroupItem::Nested { host, selector } => {
             let namespace = match resolve_public_namespace_path(context, current_module, host) {
                 Ok(namespace) => namespace,
-                Err(diag) => return UsingExpansion::HardError(diag),
+                Err(diag) => return UsingExpansion::invalid(diag),
             };
             if matches!(selector.as_ref(), UsingSelector::SelfName) {
                 let Some(name) = host.last() else {
-                    return UsingExpansion::Unresolved;
+                    return UsingExpansion::unknown();
                 };
                 let Some(name_symbol) = path_segment_self_name(name) else {
-                    return UsingExpansion::HardError(invalid_self_name_segment(name));
+                    return UsingExpansion::invalid(invalid_self_name_segment(name));
                 };
                 return expand_self_namespace(name_symbol, name.span, namespace, source.clone());
             }
@@ -816,12 +856,12 @@ fn expand_self_namespace(
     source: PublicSource,
 ) -> UsingExpansion {
     match namespace {
-        ResolvedNamespace::Module(module_id) => UsingExpansion::Resolved(vec![ResolvedEntry {
+        ResolvedNamespace::Module(module_id) => UsingExpansion::resolved(vec![ResolvedEntry {
             name,
             name_span,
             kind: ResolvedEntryKind::Module(module_id),
         }]),
-        ResolvedNamespace::Enum(enum_id) => UsingExpansion::Resolved(vec![ResolvedEntry {
+        ResolvedNamespace::Enum(enum_id) => UsingExpansion::resolved(vec![ResolvedEntry {
             name,
             name_span,
             kind: ResolvedEntryKind::Item(PublicItem {
@@ -1093,14 +1133,14 @@ fn resolve_module_single(
                 .get(target_module)
                 .map(|module| module.path.as_str().to_owned())
         });
-        return UsingExpansion::UnresolvedReasonAt(
+        return UsingExpansion::unresolved(
             reason,
-            local_span,
+            Some(local_span),
             declaration_span,
             declaration_path,
         );
     }
-    UsingExpansion::Resolved(entries)
+    UsingExpansion::resolved(entries)
 }
 
 fn resolve_current_single(
@@ -1152,14 +1192,14 @@ fn resolve_current_single(
         });
     }
     if entries.is_empty() {
-        return UsingExpansion::UnresolvedReasonAt(
+        return UsingExpansion::unresolved(
             UnresolvedUsingReason::UnknownName,
-            local_span,
+            Some(local_span),
             None,
             None,
         );
     }
-    UsingExpansion::Resolved(entries)
+    UsingExpansion::resolved(entries)
 }
 
 fn expand_enum_host(
@@ -1171,10 +1211,10 @@ fn expand_enum_host(
     source: PublicSource,
 ) -> UsingExpansion {
     let Some(target_defs) = defs_by_module.get(&enum_id.module_id).copied() else {
-        return UsingExpansion::Unresolved;
+        return UsingExpansion::unknown();
     };
     let Some(enum_scope) = target_defs.scopes.enum_members.get(&enum_id.def_id) else {
-        return UsingExpansion::Unresolved;
+        return UsingExpansion::unknown();
     };
     // Enum wildcard selectors import variants as values; the enum itself is
     // imported only through `self`. Nested hosts are rejected because enum
@@ -1182,9 +1222,9 @@ fn expand_enum_host(
     match selector {
         UsingSelector::SelfName => {
             let Some(def) = target_defs.defs.get(enum_id.def_id) else {
-                return UsingExpansion::Unresolved;
+                return UsingExpansion::unknown();
             };
-            UsingExpansion::Resolved(vec![ResolvedEntry {
+            UsingExpansion::resolved(vec![ResolvedEntry {
                 name: def.name,
                 name_span: def.span,
                 kind: ResolvedEntryKind::Item(PublicItem {
@@ -1221,7 +1261,7 @@ fn expand_enum_host(
                     }),
                 });
             }
-            UsingExpansion::Resolved(entries)
+            UsingExpansion::resolved(entries)
         }
         UsingSelector::Single(name) => resolve_enum_single(
             symbols,
@@ -1232,42 +1272,21 @@ fn expand_enum_host(
             source.clone(),
         ),
         UsingSelector::Group(items) => {
-            let mut entries = Vec::new();
+            let mut expansion = UsingExpansion::default();
             for item in items {
-                match expand_enum_group_item(
-                    symbols,
-                    enum_id,
-                    target_defs,
-                    enum_scope,
-                    item,
-                    source.clone(),
-                ) {
-                    UsingExpansion::Resolved(sub) => entries.extend(sub),
-                    UsingExpansion::Unresolved => {
-                        return UsingExpansion::UnresolvedReason(
-                            UnresolvedUsingReason::UnknownName,
-                        );
-                    }
-                    UsingExpansion::UnresolvedReason(reason) => {
-                        return UsingExpansion::UnresolvedReason(reason);
-                    }
-                    UsingExpansion::UnresolvedReasonAt(
-                        reason,
-                        span,
-                        declaration_span,
-                        declaration_path,
-                    ) => {
-                        return UsingExpansion::UnresolvedReasonAt(
-                            reason,
-                            span,
-                            declaration_span,
-                            declaration_path,
-                        );
-                    }
-                    UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
-                }
+                expansion.extend(
+                    expand_enum_group_item(
+                        symbols,
+                        enum_id,
+                        target_defs,
+                        enum_scope,
+                        item,
+                        source.clone(),
+                    )
+                    .owned_by(|| group_item_names(item)),
+                );
             }
-            UsingExpansion::Resolved(entries)
+            expansion
         }
     }
 }
@@ -1291,7 +1310,7 @@ fn expand_enum_group_item(
         ),
         UsingGroupItem::Nested { host, .. } => {
             let span = host.first().map(|segment| segment.span).unwrap_or_default();
-            UsingExpansion::HardError(Diagnostic::user_error_at(
+            UsingExpansion::invalid(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 span,
                 "nested `using` group hosts are only valid under a module host",
@@ -1311,14 +1330,14 @@ fn resolve_enum_single(
     let local_name = name.alias.unwrap_or(name.name);
     let local_span = name.alias_span.unwrap_or(name.name_span);
     let Some(variant_def_id) = enum_scope.variants.get(&name.name) else {
-        return UsingExpansion::HardError(Diagnostic::user_error_at(
+        return UsingExpansion::invalid(Diagnostic::user_error_at(
             codes::NAME_RESOLUTION,
             name.name_span,
             format!("unknown enum variant `{}`", symbol_text(symbols, name.name)),
         ));
     };
     let _ = target_defs;
-    UsingExpansion::Resolved(vec![ResolvedEntry {
+    UsingExpansion::resolved(vec![ResolvedEntry {
         name: local_name,
         name_span: local_span,
         kind: ResolvedEntryKind::Item(PublicItem {
