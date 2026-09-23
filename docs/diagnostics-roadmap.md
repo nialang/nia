@@ -119,6 +119,8 @@ Atomic builtins now stop type-dependent checks on that recovery sentinel while
 retaining independent pointer-shape and operation-code errors. Invalid RMW
 operation codes have a dedicated diagnostic code so an earlier type-resolution
 failure does not hide them in per-module phase gating.
+The unaligned-load builtin also ignores an Error recovery pointer instead of
+reporting a secondary byte-pointer mismatch.
 
 ### 4. Report organization
 
@@ -198,7 +200,8 @@ secondary shape diagnostics, and that an unresolved type candidate or a const
 value passed where a type is required receives the correct root diagnostic.
 Atomic builtin recovery has a snapshot proving invalid RMW operation codes stay
 visible alongside unknown type arguments while type-dependent atomic errors are
-suppressed.
+suppressed. An unaligned-load recovery snapshot proves an unresolved pointer
+keeps only its name-resolution root.
 Directly qualified private values and types now retain the owning dependency
 source path for their declaration locations instead of rendering those spans
 against the use-site file. The module graph exposes each module's source path

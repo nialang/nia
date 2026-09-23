@@ -1563,3 +1563,23 @@ fn invalid_ptr(ptr: &u16) u8x8 {
         checked.diagnostics
     );
 }
+
+#[test]
+fn load_unaligned_does_not_reject_error_recovery_pointers() {
+    let checked = pipeline(
+        r#"
+fn invalid() u8x8 {
+    std::builtin::loadUnaligned[u8x8](missing)
+}
+"#,
+    );
+
+    assert_eq!(checked.diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        checked.diagnostics[0]
+            .summary
+            .contains("unknown value `missing`"),
+        "{:?}",
+        checked.diagnostics
+    );
+}

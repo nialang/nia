@@ -1,0 +1,3 @@
+fn invalid() u8x8 {
+    std::builtin::loadUnaligned[u8x8](missing)
+}
