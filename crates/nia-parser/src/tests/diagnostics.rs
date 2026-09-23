@@ -130,6 +130,40 @@ fn member_recovery_keeps_later_fields_after_a_missing_type() {
 }
 
 #[test]
+fn tuple_payload_recovery_keeps_later_types_and_declarations() {
+    let (module, errors) =
+        parse_module("struct Pair(, i32); enum Value { Broken(, bool), Kept } fn later() {}");
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected type"))
+            .count(),
+        2,
+        "{errors:?}"
+    );
+
+    let ItemKind::Struct(pair) = &module.items[0].kind else {
+        panic!("expected recovered tuple struct");
+    };
+    assert_eq!(pair.fields.len(), 1);
+
+    let ItemKind::Enum(value) = &module.items[1].kind else {
+        panic!("expected recovered enum");
+    };
+    assert_eq!(value.variants.len(), 2);
+    let nia_ast::EnumVariantPayload::Tuple(payload) = &value.variants[0].payload else {
+        panic!("expected tuple payload");
+    };
+    assert_eq!(payload.len(), 1);
+    assert_eq!(value.variants[1].name, sym("Kept"));
+
+    let ItemKind::Function(later) = &module.items[2].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn classifies_parse_errors_by_grammar_rule_not_message_text() {
     let cases = [
         (

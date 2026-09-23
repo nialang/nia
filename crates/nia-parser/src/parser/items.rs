@@ -328,7 +328,12 @@ impl Parser {
             let mut fields = Vec::new();
             while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
                 let start = self.peek().span.start;
-                let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])?;
+                let Some(ty) = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen]) else {
+                    if self.eat(TokenKind::Comma).is_some() {
+                        continue;
+                    }
+                    break;
+                };
                 let index = fields.len();
                 let field_name = match self.symbols.intern(&index.to_string()) {
                     Ok(symbol) => symbol,
@@ -733,7 +738,14 @@ impl Parser {
             let payload = if self.eat(TokenKind::LParen).is_some() {
                 let mut fields = Vec::new();
                 while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
-                    fields.push(self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])?);
+                    let Some(ty) = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])
+                    else {
+                        if self.eat(TokenKind::Comma).is_some() {
+                            continue;
+                        }
+                        break;
+                    };
+                    fields.push(ty);
                     if self.eat(TokenKind::Comma).is_none() {
                         break;
                     }
