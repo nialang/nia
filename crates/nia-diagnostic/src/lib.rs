@@ -1369,7 +1369,8 @@ pub fn render_diagnostic(path: &str, source: &str, diagnostic: &Diagnostic) -> S
 }
 
 /// Renders one diagnostic while resolving source text for cross-file related
-/// locations. The primary source remains the fallback for legacy locations.
+/// locations. Locations without an explicit path use the primary source;
+/// unavailable external sources retain byte spans instead of guessed line numbers.
 pub fn render_diagnostic_with_sources<'a>(
     path: &str,
     source: &'a str,
@@ -1416,11 +1417,18 @@ pub fn render_diagnostic_with_sources<'a>(
     }
     for related in diagnostic.related.iter() {
         let related_path = related.source_path.as_deref().unwrap_or(path);
-        let related_source = related
-            .source_path
-            .as_deref()
-            .and_then(|path| sources.get(path).map(String::as_str))
-            .unwrap_or(source);
+        let related_source = if related_path == path {
+            Some(source)
+        } else {
+            sources.get(related_path).map(String::as_str)
+        };
+        let Some(related_source) = related_source else {
+            output.push_str(&format!(
+                "related: {}:bytes {}..{}: {}\n",
+                related_path, related.span.start, related.span.end, related.message
+            ));
+            continue;
+        };
         let line = line_info(related_source, related.span.start);
         output.push_str(&format!(
             "related: {}:{}:{}: {}\n",
@@ -1876,6 +1884,18 @@ mod tests {
         assert!(rendered.contains("related: api.nia:1:5: declared here"));
         let json = render_diagnostic_json("main.nia", &diagnostic);
         assert!(json.contains("\"path\":\"api.nia\""));
+    }
+
+    #[test]
+    fn related_locations_do_not_borrow_line_numbers_from_another_file() {
+        let diagnostic = Diagnostic::user_error(codes::NAME_RESOLUTION, "hidden import")
+            .primary(Span::new(0, 1), "use here")
+            .related_at("api.nia", Span::new(4, 7), "declared here")
+            .related_at("main.nia", Span::new(4, 5), "selected here")
+            .finish();
+        let rendered = render_diagnostic("main.nia", "a\nb\nc\n", &diagnostic);
+        assert!(rendered.contains("related: api.nia:bytes 4..7: declared here"));
+        assert!(rendered.contains("related: main.nia:3:1: selected here"));
     }
 
     #[test]

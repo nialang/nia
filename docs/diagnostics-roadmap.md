@@ -13,6 +13,11 @@ The implementation is being upgraded in bounded stages. Each stage must keep
 the existing source spans and diagnostic codes stable unless the old contract
 was actively misleading.
 
+Status: in progress. The implemented paths below are incremental coverage, not
+completion of the whole roadmap. Remaining work includes broader source-origin
+and recovery provenance, rule-specific semantic diagnostics, terminal-platform
+validation, and fixture/snapshot coverage for the complete diagnostic rule set.
+
 ## Invariants
 
 - A user-facing error has a source-owned primary label whenever the compiler
@@ -60,6 +65,11 @@ Value and type resolution consume that evidence at the actual use site, while
 the using directive remains available as related context. The evidence is
 indexed by local name so repeated lookups do not scan the complete import list.
 
+Text reports load source text for explicit related paths, including dependencies
+with no diagnostics of their own. Related locations use their owning file's
+line and column; unavailable external sources retain byte spans instead of
+borrowing the primary file's line numbers.
+
 ### 3. Semantic diagnostic contracts
 
 Replace generic summaries such as `name is unresolved` and broad `type-check`
@@ -79,6 +89,10 @@ rule-specific summaries with primary labels, related source locations, and
 actionable help. Assignment/place checking also reuses the same import
 evidence, preventing syntax-specific fallbacks such as `module value is
 unresolved` from hiding the original import failure.
+
+This coverage is not yet universal: ordinary unresolved body names still use
+the generic `name is unresolved` summary. The remaining semantic rules above
+need equivalent rule-specific contracts and source fixtures.
 
 ### 4. Report organization
 
@@ -127,8 +141,15 @@ Every new diagnostic rule requires a source fixture and a snapshot containing:
 - suppression summary when applicable.
 
 The failed-using provenance chain now has a source fixture and snapshot,
-including the cause identity of repeated signature type diagnostics. The
-complete diagnostic rule set still needs equivalent fixture/snapshot coverage.
+including the cause identity of repeated signature type diagnostics. Check-case
+snapshots now include the rendered text report as well as structured fields,
+covering severity, line/column, source excerpts, related locations, hierarchy,
+and summary counts. This also covers reports after an incremental body edit.
+A private-using fixture verifies related locations in a clean dependency whose
+declaration is on a different line from the primary use site. Renderer tests
+cover available and unavailable related sources and explicit same-file paths.
+The complete diagnostic rule set still needs equivalent fixture/snapshot
+coverage.
 
 The broad workspace test, clippy, formatting, and CLI case suites remain
 mandatory for each stage.

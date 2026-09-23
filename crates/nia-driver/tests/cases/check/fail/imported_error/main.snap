@@ -4,3 +4,16 @@ summary: type mismatch in function body: expected i32, got bool
 label: 22..26 Primary Source type mismatch in function body: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+report:
+diagnostics:
+root diagnostic:
+error[E0301]: type mismatch in function body: expected i32, got bool
+  --> fail/imported_error/math.nia:1:23
+  |
+1 | pub fn answer() i32 { true }
+  |                       ^^^^ type mismatch in function body: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+summary: 1 error, 0 warnings

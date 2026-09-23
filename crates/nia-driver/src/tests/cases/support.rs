@@ -33,8 +33,14 @@ pub(super) fn assert_check_case(
     );
     let expected = fs::read_to_string(snapshot_path)
         .unwrap_or_else(|error| panic!("read {}: {error}", snapshot_path.display()));
+    let mut snapshot = diagnostic_snapshot(&program.diagnostics, root);
+    if !program.diagnostics.is_empty() {
+        snapshot.push_str("\nreport:\n");
+        let report = crate::render_program_diagnostics(&program, None, None);
+        snapshot.push_str(&report.replace(&format!("{}/", root.display()), ""));
+    }
     assert_eq!(
-        diagnostic_snapshot(&program.diagnostics, root),
+        snapshot,
         expected,
         "{} diagnostic snapshot changed",
         source.display()

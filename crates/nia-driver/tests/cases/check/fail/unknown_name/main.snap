@@ -3,3 +3,15 @@ code: E0301
 summary: name is unresolved
 label: 16..23 Primary Source name is unresolved
 help: check the spelling, import the name, or define it in this module
+
+report:
+diagnostics:
+root diagnostic:
+error[E0301]: name is unresolved
+  --> fail/unknown_name/main.nia:1:17
+  |
+1 | fn main() i32 { missing() }
+  |                 ^^^^^^^ name is unresolved
+help: check the spelling, import the name, or define it in this module
+
+summary: 1 error, 0 warnings
