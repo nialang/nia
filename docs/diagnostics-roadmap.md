@@ -44,10 +44,12 @@ deferred to the 0.3.0 multi-platform port and is not a gate for this roadmap.
 The query facade now gates per-module diagnostic collection by root diagnostic
 code. Unresolved names and invalid signatures suppress only downstream type,
 const, layout, and code-generation products while independent resolution and
-constraint errors remain visible. The gate now also scopes function-local roots
-to their enclosing function or method, preserving independent type errors in a
-different function in the same module. Build-runner compilation performs a
-source check first and publishes `build.nia` diagnostics instead of
+constraint errors remain visible. The gate scopes function-local roots to their
+enclosing function or method and requires one downstream primary span to contain
+the other (or carry an exact source/code/span cause identity). This preserves
+independent type errors elsewhere in the same function as well as in a different
+function in the same module. Build-runner compilation performs a source check
+first and publishes `build.nia` diagnostics instead of
 generated-wrapper recovery errors when both are present.
 
 Regression coverage includes incremental supertrait constraints, generated
