@@ -445,16 +445,14 @@ pub fn g(a: i32) i32 { a + 3 }
 #[test]
 fn using_unknown_name_reports_diagnostic() {
     let root = temp_dir("using_unknown_name_reports_diagnostic");
-    write(
-        &root.join("main.nia"),
-        r#"
+    let source = r#"
 module math;
 using entry::math;
 using math::missing;
 
 fn main() i32 { 0 }
-"#,
-    );
+"#;
+    write(&root.join("main.nia"), source);
     write(
         &root.join("math.nia"),
         r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
@@ -470,6 +468,59 @@ fn main() i32 { 0 }
         }),
         "{:?}",
         program.diagnostics
+    );
+    let diagnostic = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("could not be resolved")
+        })
+        .expect("unresolved using diagnostic");
+    assert_eq!(
+        diagnostic.diagnostic.primary_span().unwrap().start,
+        source.find("missing").expect("selected import name")
+    );
+    assert!(
+        diagnostic
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message == "the `using` directive is here"),
+        "missing using directive evidence: {:?}",
+        diagnostic.diagnostic
+    );
+}
+
+#[test]
+fn using_group_error_highlights_failed_selector() {
+    let root = temp_dir("using_group_error_highlights_failed_selector");
+    let source = r#"
+module api;
+using entry::api;
+using entry::api::{present, missing_value};
+
+fn main() () {}
+"#;
+    write(&root.join("main.nia"), source);
+    write(&root.join("api.nia"), "pub fn present() () {}");
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let diagnostic = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("could not be resolved")
+        })
+        .expect("group using diagnostic");
+    assert_eq!(
+        diagnostic.diagnostic.primary_span().unwrap().start,
+        source.find("missing_value").expect("failed selector span")
     );
 }
 
