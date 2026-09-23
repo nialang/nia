@@ -1,0 +1,9 @@
+fn runtimeWidth(value: usize) usize {
+    value * 2
+}
+
+const arrayLen: usize = runtimeWidth(5);
+
+fn main() i32 {
+    0
+}

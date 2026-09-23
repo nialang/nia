@@ -1,0 +1,14 @@
+struct Box {
+    value: i32,
+}
+
+extend Box {
+    fn run(self) i32 {
+        let callback = \z: i32 -> self.value + z;
+        callback(1)
+    }
+}
+
+fn main(value: Box) i32 {
+    value.run()
+}

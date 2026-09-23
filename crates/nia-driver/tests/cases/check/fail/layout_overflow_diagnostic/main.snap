@@ -1,0 +1,19 @@
+path: fail/layout_overflow_diagnostic/main.nia
+code: E0501
+summary: array layout size overflowed
+label: 18..52 Primary Source the computed size or alignment cannot be represented
+note: the array layout exceeds the target's representable layout arithmetic
+help: reduce the type size, alignment, or element count
+
+report:
+diagnostics:
+root diagnostic:
+error[E0501]: array layout size overflowed
+  --> fail/layout_overflow_diagnostic/main.nia:2:5
+  |
+2 |     values: [u64; 2305843009213693952],
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the computed size or alignment cannot be represented
+note: the array layout exceeds the target's representable layout arithmetic
+help: reduce the type size, alignment, or element count
+
+summary: 1 error, 0 warnings

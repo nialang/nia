@@ -1,0 +1,5 @@
+type Recursive = Recursive;
+
+fn main(value: Recursive) () {
+    _ = value;
+}

@@ -1,0 +1,8 @@
+trait Bad {
+    fn id[T](& self, value: T) T;
+}
+
+fn read(bad: & Bad) i32 {
+    _ = bad;
+    0
+}

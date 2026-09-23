@@ -1,0 +1,7 @@
+struct Huge {
+    values: [u64; 2305843009213693952],
+}
+
+fn main(value: Huge) () {
+    _ = value;
+}

@@ -1,0 +1,15 @@
+path: fail/object_safety_diagnostic/main.nia
+code: E0303
+summary: trait `Bad` is not object safe because method `id` has method generics
+label: 57..67 Primary Source trait `Bad` is not object safe because method `id` has method generics
+
+report:
+diagnostics:
+root diagnostic:
+error[E0303]: trait `Bad` is not object safe because method `id` has method generics
+  --> fail/object_safety_diagnostic/main.nia:5:9
+  |
+5 | fn read(bad: & Bad) i32 {
+  |         ^^^^^^^^^^ trait `Bad` is not object safe because method `id` has method generics
+
+summary: 1 error, 0 warnings
