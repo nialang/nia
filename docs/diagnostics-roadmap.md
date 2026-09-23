@@ -98,6 +98,11 @@ Assignment/place checking reuses the same import evidence and avoids publishing
 secondary place errors after an unresolved expression, preventing syntax-
 specific fallbacks such as `module value is unresolved` from hiding the original
 import failure.
+Unknown receiver-method calls on non-aggregate types now identify the missing
+method and receiver type instead of falling through to an unrelated aggregate
+field error. Callable fields on structs and unions still use the ordinary
+field and callable checks; range-bound methods report when the requested bound
+is absent.
 
 This coverage is still incremental: qualified visibility cases beyond private
 values/types and restricted module visibility beyond `pub(super)`, qualified
@@ -171,6 +176,10 @@ conversion help.
 An unknown qualified callable member now has an end-to-end snapshot for the
 name-resolution code, typo suggestion, edit range, and suppressed downstream
 consequence.
+An unknown receiver method now has a complete snapshot for its method name,
+receiver type, and corrective help. Regression tests preserve field-call
+fallback; a separate snapshot covers ranges missing the requested start or end
+bound.
 Directly qualified private values and types now retain the owning dependency
 source path for their declaration locations instead of rendering those spans
 against the use-site file. The module graph exposes each module's source path

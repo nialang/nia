@@ -1,0 +1,7 @@
+fn main() usize {
+    let from = 1usize..;
+    let to = ..2usize;
+    _ = from.end();
+    _ = to.start();
+    0usize
+}

@@ -518,7 +518,7 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("field access base is not a struct or union value or pointer")),
+            .contains("unknown method `ptr`")),
         "{:?}",
         program.diagnostics
     );
@@ -1230,10 +1230,7 @@ fn main() usize {
         program
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic
-                .diagnostic
-                .summary
-                .contains("field access base is not a struct or union value or pointer"))
+            .filter(|diagnostic| diagnostic.diagnostic.summary.contains("range method"))
             .count(),
         2,
         "{:?}",

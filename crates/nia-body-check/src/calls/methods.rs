@@ -401,6 +401,30 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         }
+        if viable_candidates.is_empty()
+            && candidates.is_empty()
+            && receiver_ty != self.error()
+            && !matches!(self.interner.get(receiver_ty), Some(TyKind::ConstOnly))
+            && !self.supports_field_access(receiver_ty)
+        {
+            self.record_method_provider_demand(receiver_ty, *call.name);
+            let name = self.symbol_name(*call.name);
+            let receiver_name = self.ty_name(receiver_ty);
+            let summary = format!("unknown method `{name}`");
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::NAME_RESOLUTION, summary.clone())
+                    .primary(call.span, format!("no method named `{name}` is available here"))
+                    .note(format!("the receiver has type `{receiver_name}`"))
+                    .help(format!(
+                        "check the method name, import a trait that provides `{name}`, or use a field access"
+                    ))
+                    .finish(),
+            );
+            for arg in call.args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        }
         if viable_candidates.is_empty() {
             self.record_method_provider_demand(receiver_ty, *call.name);
         }
@@ -710,10 +734,7 @@ impl<'a> BodyChecker<'a> {
         let mut self_ty = self.normalization.normalize(receiver_ty);
         let (kind, bound) = loop {
             match self.interner.get(self_ty).cloned()? {
-                TyKind::Range {
-                    kind,
-                    bound: Some(bound),
-                } => break (kind, bound),
+                TyKind::Range { kind, bound } => break (kind, bound),
                 TyKind::Pointer { elem, .. } => {
                     self_ty = self.normalization.normalize(elem);
                 }
@@ -729,8 +750,33 @@ impl<'a> BodyChecker<'a> {
             | BuiltinMethod::Iter => false,
         };
         if !has_bound {
-            return None;
+            let name = self.symbol_name(*call.name);
+            let (boundary, article) = match method {
+                BuiltinMethod::Start => ("start", "a"),
+                BuiltinMethod::End => ("end", "an"),
+                _ => return None,
+            };
+            let summary = format!(
+                "range method `{name}` is unavailable because this range has no {boundary} bound"
+            );
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                    .primary(call.span, summary)
+                    .note(format!(
+                        "the receiver has type `{}`",
+                        self.ty_name(receiver_ty)
+                    ))
+                    .help(format!(
+                        "use `{name}()` only on ranges with {article} {boundary} bound"
+                    ))
+                    .finish(),
+            );
+            for arg in call.args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
         }
+        let bound = bound?;
         if call.type_args.is_some_and(|args| !args.is_empty()) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
