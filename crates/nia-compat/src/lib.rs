@@ -169,7 +169,7 @@ pub mod formats {
         PersistedFormat::new("check-certificate", b"NIACC\0\0\0");
     /// Path-independent stable diagnostic bundle for one module.
     pub const STABLE_DIAGNOSTIC_BUNDLE: PersistedFormat =
-        PersistedFormat::new("stable-diagnostic-bundle", b"NIADB2\0\0");
+        PersistedFormat::new("stable-diagnostic-bundle", b"NIADB3\0\0");
     /// Path-independent stable diagnostic bundle for a program.
     pub const STABLE_PROGRAM_DIAGNOSTIC_BUNDLE: PersistedFormat =
         PersistedFormat::new("stable-program-diagnostic-bundle", b"NIAPD\0\0\0");

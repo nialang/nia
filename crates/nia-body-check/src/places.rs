@@ -142,7 +142,7 @@ impl<'a> BodyChecker<'a> {
         if let Some(reason) = self.not_assignable_reason(expr) {
             if let Some(failure) = self.values.node_unresolved_usings.get(&expr.node_key) {
                 self.diagnostics
-                    .push(self.unresolved_using_diagnostic(expr, *failure));
+                    .push(self.unresolved_using_diagnostic(expr, failure.clone()));
                 return;
             }
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -177,7 +177,7 @@ impl<'a> BodyChecker<'a> {
         if let Some(reason) = reason {
             if let Some(failure) = self.values.node_unresolved_usings.get(&expr.node_key) {
                 self.diagnostics
-                    .push(self.unresolved_using_diagnostic(expr, *failure));
+                    .push(self.unresolved_using_diagnostic(expr, failure.clone()));
                 return;
             }
             let property = if is_readonly {

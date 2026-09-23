@@ -65,7 +65,7 @@ pub(super) enum UsingExpansion {
     Resolved(Vec<ResolvedEntry>),
     Unresolved,
     UnresolvedReason(UnresolvedUsingReason),
-    UnresolvedReasonAt(UnresolvedUsingReason, Span, Option<Span>),
+    UnresolvedReasonAt(UnresolvedUsingReason, Span, Option<Span>, Option<String>),
     HardError(Diagnostic),
 }
 
@@ -404,6 +404,7 @@ pub(super) fn record_unresolved_using_names(
     using: &ModuleUsing,
     reason: UnresolvedUsingReason,
     declaration_span: Option<Span>,
+    declaration_path: Option<String>,
 ) {
     let mut names = Vec::new();
     collect_explicit_using_names(&using.host, &using.selector, &mut names);
@@ -414,6 +415,7 @@ pub(super) fn record_unresolved_using_names(
             directive_span: using.span,
             name_span: name.alias_span.unwrap_or(name.name_span),
             declaration_span,
+            declaration_path: declaration_path.clone(),
             reason,
         };
         scope.unresolved_usings.insert(unresolved.name, unresolved);
@@ -468,6 +470,7 @@ fn expand_root_group(
     let mut unresolved_reason = None;
     let mut failed_span = None;
     let mut failed_declaration_span = None;
+    let mut failed_declaration_path = None;
     let mut failure_count = 0;
     for item in items {
         match expand_root_group_item(context, current, local_modules, item, source.clone()) {
@@ -480,11 +483,17 @@ fn expand_root_group(
                 failure_count += 1;
                 unresolved_reason.get_or_insert(reason);
             }
-            UsingExpansion::UnresolvedReasonAt(reason, span, declaration_span) => {
+            UsingExpansion::UnresolvedReasonAt(
+                reason,
+                span,
+                declaration_span,
+                declaration_path,
+            ) => {
                 failure_count += 1;
                 unresolved_reason.get_or_insert(reason);
                 failed_span.get_or_insert(span);
                 failed_declaration_span.get_or_insert(declaration_span);
+                failed_declaration_path.get_or_insert(declaration_path);
             }
             UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
         }
@@ -496,6 +505,9 @@ fn expand_root_group(
                 span,
                 (failure_count == 1)
                     .then_some(failed_declaration_span.flatten())
+                    .flatten(),
+                (failure_count == 1)
+                    .then_some(failed_declaration_path.flatten())
                     .flatten(),
             )
         })
@@ -705,6 +717,7 @@ fn expand_module_host(
             let mut unresolved_reason = None;
             let mut failed_span = None;
             let mut failed_declaration_span = None;
+            let mut failed_declaration_path = None;
             let mut failure_count = 0;
             for item in items {
                 match expand_group_item(context, target_module, item, source.clone()) {
@@ -717,11 +730,17 @@ fn expand_module_host(
                         failure_count += 1;
                         unresolved_reason.get_or_insert(reason);
                     }
-                    UsingExpansion::UnresolvedReasonAt(reason, span, declaration_span) => {
+                    UsingExpansion::UnresolvedReasonAt(
+                        reason,
+                        span,
+                        declaration_span,
+                        declaration_path,
+                    ) => {
                         failure_count += 1;
                         unresolved_reason.get_or_insert(reason);
                         failed_span.get_or_insert(span);
                         failed_declaration_span.get_or_insert(declaration_span);
+                        failed_declaration_path.get_or_insert(declaration_path);
                     }
                     UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
                 }
@@ -733,6 +752,9 @@ fn expand_module_host(
                         span,
                         (failure_count == 1)
                             .then_some(failed_declaration_span.flatten())
+                            .flatten(),
+                        (failure_count == 1)
+                            .then_some(failed_declaration_path.flatten())
                             .flatten(),
                     )
                 })
@@ -1065,7 +1087,18 @@ fn resolve_module_single(
                 ))
             })
             .unwrap_or((UnresolvedUsingReason::UnknownName, None));
-        return UsingExpansion::UnresolvedReasonAt(reason, local_span, declaration_span);
+        let declaration_path = declaration_span.and_then(|_| {
+            context
+                .graph
+                .get(target_module)
+                .map(|module| module.path.as_str().to_owned())
+        });
+        return UsingExpansion::UnresolvedReasonAt(
+            reason,
+            local_span,
+            declaration_span,
+            declaration_path,
+        );
     }
     UsingExpansion::Resolved(entries)
 }
@@ -1122,6 +1155,7 @@ fn resolve_current_single(
         return UsingExpansion::UnresolvedReasonAt(
             UnresolvedUsingReason::UnknownName,
             local_span,
+            None,
             None,
         );
     }
@@ -1217,8 +1251,18 @@ fn expand_enum_host(
                     UsingExpansion::UnresolvedReason(reason) => {
                         return UsingExpansion::UnresolvedReason(reason);
                     }
-                    UsingExpansion::UnresolvedReasonAt(reason, span, declaration_span) => {
-                        return UsingExpansion::UnresolvedReasonAt(reason, span, declaration_span);
+                    UsingExpansion::UnresolvedReasonAt(
+                        reason,
+                        span,
+                        declaration_span,
+                        declaration_path,
+                    ) => {
+                        return UsingExpansion::UnresolvedReasonAt(
+                            reason,
+                            span,
+                            declaration_span,
+                            declaration_path,
+                        );
                     }
                     UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
                 }
