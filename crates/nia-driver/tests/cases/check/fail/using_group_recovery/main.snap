@@ -1,0 +1,17 @@
+path: fail/using_group_recovery/main.nia
+code: E0101
+summary: expected name in `using`
+label: 13..14 Primary Source expected name in `using`
+help: use an identifier in this position
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected name in `using`
+  --> fail/using_group_recovery/main.nia:1:14
+  |
+1 | using {kept, , later as alias};
+  |              ^ expected name in `using`
+help: use an identifier in this position
+
+summary: 1 error, 0 warnings

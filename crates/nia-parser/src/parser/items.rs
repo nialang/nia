@@ -178,7 +178,13 @@ impl Parser {
         if self.eat(TokenKind::LBrace).is_some() {
             let mut items = Vec::new();
             while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
-                items.push(self.parse_using_group_item()?);
+                let checkpoint = self.checkpoint();
+                if let Some(item) = self.parse_using_group_item() {
+                    items.push(item);
+                } else {
+                    self.recover_to_comma_or_rbrace_with_progress(checkpoint);
+                    continue;
+                }
                 if self.eat(TokenKind::Comma).is_none() {
                     break;
                 }
@@ -231,7 +237,13 @@ impl Parser {
         } else if self.eat(TokenKind::LBrace).is_some() {
             let mut items = Vec::new();
             while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
-                items.push(self.parse_using_group_item()?);
+                let checkpoint = self.checkpoint();
+                if let Some(item) = self.parse_using_group_item() {
+                    items.push(item);
+                } else {
+                    self.recover_to_comma_or_rbrace_with_progress(checkpoint);
+                    continue;
+                }
                 if self.eat(TokenKind::Comma).is_none() {
                     break;
                 }
@@ -272,7 +284,13 @@ impl Parser {
             } else if self.eat(TokenKind::LBrace).is_some() {
                 let mut items = Vec::new();
                 while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
-                    items.push(self.parse_using_group_item()?);
+                    let checkpoint = self.checkpoint();
+                    if let Some(item) = self.parse_using_group_item() {
+                        items.push(item);
+                    } else {
+                        self.recover_to_comma_or_rbrace_with_progress(checkpoint);
+                        continue;
+                    }
                     if self.eat(TokenKind::Comma).is_none() {
                         break;
                     }
