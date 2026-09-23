@@ -147,11 +147,26 @@ using entry::missing; fn main() {}"#,
         test_toolchain_layout(),
     )
     .expect("test program load");
+    let diagnostic = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.diagnostic.code.as_str() == "E0102")
+        .unwrap_or_else(|| panic!("missing load error: {:?}", program.diagnostics));
+    assert_eq!(
+        diagnostic.diagnostic.summary,
+        "module `missing` has no readable source file"
+    );
+    assert_eq!(
+        diagnostic.diagnostic.primary_span(),
+        Some(nia_span::Span::new(0, "module missing;".len()))
+    );
     assert!(
-        program
-            .diagnostics
+        diagnostic
+            .diagnostic
+            .notes
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("failed to read"))
+            .any(|note| note.contains("failed to read")),
+        "{diagnostic:?}"
     );
 }
 

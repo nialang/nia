@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn loader_diagnostic_queries_reuse_session_payload_handles() {
+fn unreadable_entry_reports_one_load_error_without_a_loaded_module() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("missing.nia");
     let db = registered_query_db(test_loader_context(
@@ -12,26 +12,19 @@ fn loader_diagnostic_queries_reuse_session_payload_handles() {
 
     let parsed = db.expect_get(parsed_module_query(&db, &main));
     let declarations = db.expect_get(module_declarations_query(&db, &main));
+    let load_diagnostics = db
+        .expect_get(crate::queries::LoadDiagnosticsQuery)
+        .to_diagnostics();
+    let program = db.expect_get(crate::queries::LoadedProgramQuery);
 
-    assert!(!parsed.read_diagnostics.is_empty());
-    assert_eq!(declarations.diagnostics.len(), 1);
-    assert_eq!(
-        parsed.read_diagnostics.id(),
-        declarations.diagnostics[0].id()
-    );
-    assert!(
-        db.context()
-            .diagnostic_store
-            .diagnostics(&parsed.read_diagnostics)
-            .is_some_and(|diagnostics| diagnostics.len() == 1)
-    );
-    let load_diagnostics = db.expect_get(crate::queries::LoadDiagnosticsQuery);
-    assert!(
-        load_diagnostics.to_diagnostics()[0]
-            .diagnostic
-            .summary
-            .contains("failed to read")
-    );
+    assert!(parsed.read_error.is_some());
+    assert!(declarations.diagnostics.is_empty());
+    let [diagnostic] = load_diagnostics.as_slice() else {
+        panic!("expected one load error: {load_diagnostics:?}");
+    };
+    assert_eq!(diagnostic.diagnostic.code.as_str(), "E0102");
+    assert!(diagnostic.diagnostic.summary.contains("failed to read"));
+    assert!(program.modules.is_empty(), "{:?}", program.modules);
 }
 
 #[test]
