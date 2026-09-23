@@ -2,10 +2,13 @@ fn add(left: i32, right: i32) i32 {
     left + right
 }
 
+fn pair[T](left: T, right: T) () {}
+
 fn main() i32 {
     add(true);
     let value: i32 = 1;
     value(false);
     add(missing, true);
+    pair[i32](missing, true);
     0
 }
