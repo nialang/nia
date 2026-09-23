@@ -670,6 +670,8 @@ impl Default for DiagnosticReportConfig {
 /// Sorted, deduplicated diagnostic report with suppression counts.
 pub struct DiagnosticReport<'a, T> {
     entries: Vec<&'a T>,
+    error_count: usize,
+    warning_count: usize,
     suppressed_duplicates: usize,
     suppressed_by_limit: usize,
 }
@@ -678,6 +680,16 @@ impl<'a, T> DiagnosticReport<'a, T> {
     /// Returns selected report entries in presentation order.
     pub fn entries(&self) -> &[&'a T] {
         &self.entries
+    }
+
+    /// Returns the number of errors retained in the report.
+    pub fn error_count(&self) -> usize {
+        self.error_count
+    }
+
+    /// Returns the number of warnings retained in the report.
+    pub fn warning_count(&self) -> usize {
+        self.warning_count
     }
 
     /// Returns the number of exact duplicates removed.
@@ -1047,8 +1059,19 @@ pub fn build_diagnostic_report<T: DiagnosticReportItem>(
         selected.push(entry);
     }
 
+    let error_count = selected
+        .iter()
+        .filter(|entry| entry.report_diagnostic().severity == Severity::Error)
+        .count();
+    let warning_count = selected
+        .iter()
+        .filter(|entry| entry.report_diagnostic().severity == Severity::Warning)
+        .count();
+
     DiagnosticReport {
         entries: selected,
+        error_count,
+        warning_count,
         suppressed_duplicates,
         suppressed_by_limit,
     }
@@ -1059,13 +1082,13 @@ fn compare_report_items<T: DiagnosticReportItem>(left: &T, right: &T) -> Orderin
     let right_diagnostic = right.report_diagnostic();
     diagnostic_priority(left_diagnostic)
         .cmp(&diagnostic_priority(right_diagnostic))
-        .then_with(|| left.report_path().cmp(&right.report_path()))
         .then_with(|| {
             left_diagnostic
                 .uses_unregistered_code()
                 .cmp(&right_diagnostic.uses_unregistered_code())
         })
         .then_with(|| span_source_rank(left_diagnostic).cmp(&span_source_rank(right_diagnostic)))
+        .then_with(|| left.report_path().cmp(&right.report_path()))
         .then_with(|| {
             left_diagnostic
                 .primary_span()
@@ -1392,7 +1415,12 @@ pub fn render_diagnostics_json<T: DiagnosticReportItem>(
             entry.report_diagnostic(),
         ));
     }
-    output.push_str("],\"suppressed\":{");
+    output.push_str("],\"summary\":{");
+    output.push_str("\"errors\":");
+    output.push_str(&report.error_count().to_string());
+    output.push_str(",\"warnings\":");
+    output.push_str(&report.warning_count().to_string());
+    output.push_str("},\"suppressed\":{");
     output.push_str("\"duplicates\":");
     output.push_str(&report.suppressed_duplicates().to_string());
     output.push_str(",\"limit\":");
@@ -1710,7 +1738,22 @@ mod tests {
 
         assert_eq!(report.entries().len(), 2);
         assert_eq!(report.entries()[0].code.as_str(), "I0001");
+        assert_eq!(report.error_count(), 2);
+        assert_eq!(report.warning_count(), 0);
         assert_eq!(report.suppressed_by_limit(), 1);
+    }
+
+    #[test]
+    fn report_counts_retained_errors_and_warnings() {
+        let diagnostics = vec![
+            Diagnostic::user_error_at(codes::PARSE, Span::new(0, 1), "error"),
+            Diagnostic::user_warning(codes::UNUSED_IMPORT, "warning").finish(),
+        ];
+
+        let report = build_diagnostic_report(&diagnostics, DiagnosticReportConfig::default());
+
+        assert_eq!(report.error_count(), 1);
+        assert_eq!(report.warning_count(), 1);
     }
 
     #[test]
@@ -1743,6 +1786,49 @@ mod tests {
 
         assert_eq!(report.entries().len(), 2);
         assert_eq!(report.suppressed_duplicates(), 0);
+    }
+
+    #[test]
+    fn report_prioritizes_source_owned_roots_over_generated_wrappers() {
+        struct Item<'a> {
+            path: &'a str,
+            diagnostic: &'a Diagnostic,
+        }
+
+        impl DiagnosticReportItem for Item<'_> {
+            fn report_diagnostic(&self) -> &Diagnostic {
+                self.diagnostic
+            }
+
+            fn report_path(&self) -> Option<&str> {
+                Some(self.path)
+            }
+        }
+
+        let source = Diagnostic::user_error(codes::NAME_RESOLUTION, "source root")
+            .primary(Span::new(0, 1), "source root")
+            .finish();
+        let mut generated = Diagnostic::user_error(codes::TYPE_CHECK, "generated wrapper")
+            .primary(Span::new(0, 1), "generated wrapper")
+            .finish();
+        generated.labels[0].span_source = SpanSource::Generated;
+        let items = vec![
+            Item {
+                path: "a-generated.nia",
+                diagnostic: &generated,
+            },
+            Item {
+                path: "z-source.nia",
+                diagnostic: &source,
+            },
+        ];
+
+        let report = build_diagnostic_report(&items, DiagnosticReportConfig::default());
+
+        assert_eq!(
+            report.entries()[0].report_diagnostic().summary,
+            "source root"
+        );
     }
 
     #[test]
@@ -1864,6 +1950,10 @@ mod tests {
             "{json}"
         );
         assert!(json.contains("\"replacement\":\"i32\""), "{json}");
+        assert!(
+            json.contains("\"summary\":{\"errors\":1,\"warnings\":0}"),
+            "{json}"
+        );
         assert!(json.contains("\"suppressed\":{\"duplicates\":0"), "{json}");
     }
 
