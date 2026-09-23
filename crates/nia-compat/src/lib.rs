@@ -166,7 +166,7 @@ pub mod formats {
         PersistedFormat::new("executable-value-ref-edges", b"NIAER\0\0\0");
     /// Certificate proving that cached frontend checks covered their inputs.
     pub const CHECK_CERTIFICATE: PersistedFormat =
-        PersistedFormat::new("check-certificate", b"NIACC\0\0\0");
+        PersistedFormat::new("check-certificate", b"NIACC\0\0\x01");
     /// Path-independent stable diagnostic bundle for one module.
     pub const STABLE_DIAGNOSTIC_BUNDLE: PersistedFormat =
         PersistedFormat::new("stable-diagnostic-bundle", b"NIADB3\0\0");

@@ -25,9 +25,10 @@ impl Driver {
                 }
             };
             if has_error_diagnostics(&preparation.diagnostics) {
-                return DriverOutput::from_error(DriverError::CodegenPreparationDiagnostics(
-                    preparation.diagnostics,
-                ));
+                return DriverOutput::from_error(DriverError::CodegenPreparationDiagnostics {
+                    diagnostics: preparation.diagnostics,
+                    suppressed_downstream: preparation.suppressed_downstream,
+                });
             }
             let checked_body_count = preparation
                 .modules
@@ -280,9 +281,10 @@ impl Driver {
         })
         .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?;
         if has_error_diagnostics(&preparation.diagnostics) {
-            return Err(DriverError::CodegenPreparationDiagnostics(
-                preparation.diagnostics,
-            ));
+            return Err(DriverError::CodegenPreparationDiagnostics {
+                diagnostics: preparation.diagnostics,
+                suppressed_downstream: preparation.suppressed_downstream,
+            });
         }
         let checked_body_count = preparation
             .modules

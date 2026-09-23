@@ -727,8 +727,9 @@ pub(super) fn early_program_diagnostics(
 pub(super) fn checked_module_diagnostics(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
-) -> QueryResult<Vec<ProgramDiagnostic>> {
+) -> QueryResult<(Vec<ProgramDiagnostic>, usize)> {
     let mut diagnostics = Vec::new();
+    let mut suppressed_downstream = 0;
     for checked in checked_modules {
         // Diagnostics after the first failing phase are usually observations
         // of the same invalid semantic state (for example an unresolved value
@@ -779,14 +780,16 @@ pub(super) fn checked_module_diagnostics(
             &checked.path,
             resolve_diagnostic_bundle(&extension_provider.associated_value_diagnostics),
         );
+        suppressed_downstream += gate.suppressed_downstream;
     }
-    Ok(diagnostics)
+    Ok((diagnostics, suppressed_downstream))
 }
 
 #[derive(Default)]
 struct DiagnosticGate {
     root_codes: HashSet<String>,
     seen_error_sites: HashSet<(String, nia_span::Span)>,
+    suppressed_downstream: usize,
 }
 
 impl DiagnosticGate {
@@ -803,6 +806,7 @@ impl DiagnosticGate {
                     .iter()
                     .any(|root| suppresses_downstream(root, diagnostic.code.as_str()))
             {
+                self.suppressed_downstream += 1;
                 continue;
             }
             if diagnostic.severity == nia_diagnostic::Severity::Error

@@ -428,7 +428,10 @@ pub enum DriverError {
     /// Codegen preparation retained a checked program with diagnostics.
     CodegenProgramDiagnostics(Box<CodegenProgram>),
     /// Codegen preparation diagnostics without a codegen product.
-    CodegenPreparationDiagnostics(Vec<nia_compiler_query::ProgramDiagnostic>),
+    CodegenPreparationDiagnostics {
+        diagnostics: Vec<nia_compiler_query::ProgramDiagnostic>,
+        suppressed_downstream: usize,
+    },
     /// Backend codegen diagnostics.
     CodegenDiagnostics(Vec<Diagnostic>),
     /// Internal compiler diagnostic or ICE conversion.

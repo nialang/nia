@@ -135,7 +135,12 @@ pub fn render_program_diagnostics(
     primary_path: Option<&str>,
     primary_source: Option<&str>,
 ) -> String {
-    render_program_diagnostic_items(&program.diagnostics, primary_path, primary_source)
+    render_program_diagnostic_items(
+        &program.diagnostics,
+        program.suppressed_downstream,
+        primary_path,
+        primary_source,
+    )
 }
 
 /// Renders all diagnostics attached to a checked program as deterministic JSON.
@@ -148,7 +153,11 @@ pub fn render_program_diagnostics_json(program: &CheckedProgram) -> String {
             diagnostic: &diagnostic.diagnostic,
         })
         .collect::<Vec<_>>();
-    render_diagnostics_json(&diagnostics, DiagnosticReportConfig::default())
+    nia_diagnostic::render_diagnostics_json_with_downstream(
+        &diagnostics,
+        DiagnosticReportConfig::default(),
+        program.suppressed_downstream,
+    )
 }
 
 /// Renders only warnings attached to a checked program.
@@ -163,7 +172,7 @@ pub fn render_program_warnings(
         .filter(|diagnostic| diagnostic.is_warning())
         .cloned()
         .collect::<Vec<_>>();
-    render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
+    render_program_diagnostic_items(&diagnostics, 0, primary_path, primary_source)
 }
 
 /// Renders only checked-program warnings as deterministic JSON.
@@ -192,7 +201,7 @@ pub fn render_llvm_ir_warnings(
         .filter(|diagnostic| diagnostic.is_warning())
         .cloned()
         .collect::<Vec<_>>();
-    render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
+    render_program_diagnostic_items(&diagnostics, 0, primary_path, primary_source)
 }
 
 /// Renders only warnings attached to an object artifact.
@@ -207,7 +216,7 @@ pub fn render_object_warnings(
         .filter(|diagnostic| diagnostic.is_warning())
         .cloned()
         .collect::<Vec<_>>();
-    render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
+    render_program_diagnostic_items(&diagnostics, 0, primary_path, primary_source)
 }
 
 /// Renders only warnings attached to a linked executable artifact.
@@ -222,11 +231,12 @@ pub fn render_executable_warnings(
         .filter(|diagnostic| diagnostic.is_warning())
         .cloned()
         .collect::<Vec<_>>();
-    render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
+    render_program_diagnostic_items(&diagnostics, 0, primary_path, primary_source)
 }
 
 fn render_program_diagnostic_items(
     diagnostics: &[crate::ProgramDiagnostic],
+    suppressed_downstream: usize,
     primary_path: Option<&str>,
     primary_source: Option<&str>,
 ) -> String {
@@ -245,7 +255,11 @@ fn render_program_diagnostic_items(
             diagnostic: &diagnostic.diagnostic,
         })
         .collect::<Vec<_>>();
-    let report = build_diagnostic_report(&diagnostics, DiagnosticReportConfig::default());
+    let report = nia_diagnostic::build_diagnostic_report_with_downstream(
+        &diagnostics,
+        DiagnosticReportConfig::default(),
+        suppressed_downstream,
+    );
     let mut out = String::new();
     out.push_str("diagnostics:\n");
     for entry in report.entries() {
@@ -268,7 +282,12 @@ pub fn render_codegen_program_diagnostics(
     primary_path: Option<&str>,
     primary_source: Option<&str>,
 ) -> String {
-    render_program_diagnostic_items(&program.diagnostics, primary_path, primary_source)
+    render_program_diagnostic_items(
+        &program.diagnostics,
+        program.suppressed_downstream,
+        primary_path,
+        primary_source,
+    )
 }
 
 /// Renders warnings attached to a codegen program.
@@ -283,7 +302,7 @@ pub fn render_codegen_program_warnings(
         .filter(|diagnostic| diagnostic.is_warning())
         .cloned()
         .collect::<Vec<_>>();
-    render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
+    render_program_diagnostic_items(&diagnostics, 0, primary_path, primary_source)
 }
 
 /// Renders only codegen-program warnings as deterministic JSON.
@@ -338,9 +357,15 @@ pub fn render_driver_error(
         DriverError::CodegenProgramDiagnostics(program) => {
             render_codegen_program_diagnostics(program, primary_path, primary_source)
         }
-        DriverError::CodegenPreparationDiagnostics(diagnostics) => {
-            render_program_diagnostic_items(diagnostics, primary_path, primary_source)
-        }
+        DriverError::CodegenPreparationDiagnostics {
+            diagnostics,
+            suppressed_downstream,
+        } => render_program_diagnostic_items(
+            diagnostics,
+            *suppressed_downstream,
+            primary_path,
+            primary_source,
+        ),
         DriverError::CodegenDiagnostics(diagnostics) => {
             render_codegen_diagnostics(diagnostics, primary_path, primary_source)
         }
@@ -534,13 +559,22 @@ pub fn render_driver_error_json(error: &DriverError) -> String {
 pub fn render_driver_error_json_at(error: &DriverError, primary_path: Option<&str>) -> String {
     match error {
         DriverError::CheckDiagnostics(program) => {
-            return render_program_diagnostics_json_items(&program.diagnostics);
+            return render_program_diagnostics_json_items(
+                &program.diagnostics,
+                program.suppressed_downstream,
+            );
         }
         DriverError::CodegenProgramDiagnostics(program) => {
-            return render_program_diagnostics_json_items(&program.diagnostics);
+            return render_program_diagnostics_json_items(
+                &program.diagnostics,
+                program.suppressed_downstream,
+            );
         }
-        DriverError::CodegenPreparationDiagnostics(diagnostics) => {
-            return render_program_diagnostics_json_items(diagnostics);
+        DriverError::CodegenPreparationDiagnostics {
+            diagnostics,
+            suppressed_downstream,
+        } => {
+            return render_program_diagnostics_json_items(diagnostics, *suppressed_downstream);
         }
         _ => {}
     }
@@ -553,7 +587,10 @@ pub fn render_driver_error_json_at(error: &DriverError, primary_path: Option<&st
     }
 }
 
-fn render_program_diagnostics_json_items(diagnostics: &[crate::ProgramDiagnostic]) -> String {
+fn render_program_diagnostics_json_items(
+    diagnostics: &[crate::ProgramDiagnostic],
+    suppressed_downstream: usize,
+) -> String {
     let items = diagnostics
         .iter()
         .map(|diagnostic| ProgramDiagnosticReportItem {
@@ -561,7 +598,11 @@ fn render_program_diagnostics_json_items(diagnostics: &[crate::ProgramDiagnostic
             diagnostic: &diagnostic.diagnostic,
         })
         .collect::<Vec<_>>();
-    render_diagnostics_json(&items, DiagnosticReportConfig::default())
+    nia_diagnostic::render_diagnostics_json_with_downstream(
+        &items,
+        DiagnosticReportConfig::default(),
+        suppressed_downstream,
+    )
 }
 
 fn driver_error_diagnostics(error: &DriverError) -> Vec<Diagnostic> {
@@ -576,7 +617,7 @@ fn driver_error_diagnostics(error: &DriverError) -> Vec<Diagnostic> {
             .iter()
             .map(|diagnostic| diagnostic.diagnostic.clone())
             .collect(),
-        DriverError::CodegenPreparationDiagnostics(diagnostics) => diagnostics
+        DriverError::CodegenPreparationDiagnostics { diagnostics, .. } => diagnostics
             .iter()
             .map(|diagnostic| diagnostic.diagnostic.clone())
             .collect(),
@@ -762,13 +803,14 @@ fn push_report_summary<T: DiagnosticReportItem>(
     ));
 
     let duplicates = report.suppressed_duplicates();
+    let downstream = report.suppressed_downstream();
     let by_limit = report.suppressed_by_limit();
-    if duplicates == 0 && by_limit == 0 {
+    if duplicates == 0 && downstream == 0 && by_limit == 0 {
         return;
     }
     out.push_str(&format!(
-        "note: suppressed {total} diagnostic(s) ({duplicates} duplicate(s), {by_limit} over limit)\n",
-        total = duplicates + by_limit
+        "note: suppressed {total} diagnostic(s) ({duplicates} duplicate(s), {downstream} downstream consequence(s), {by_limit} over limit)\n",
+        total = duplicates + downstream + by_limit
     ));
 }
 

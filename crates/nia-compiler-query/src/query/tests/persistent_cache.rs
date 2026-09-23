@@ -158,6 +158,7 @@ fn persistent_check_certificate_reuses_diagnostics_and_verifies_fresh() {
             crate::signature_cache::CachedCheckCertificate {
                 checked_body_count: 1,
                 reachable_body_count: 1,
+                suppressed_downstream: 0,
                 diagnostics: Vec::new(),
             },
             true,

@@ -673,6 +673,7 @@ pub struct DiagnosticReport<'a, T> {
     error_count: usize,
     warning_count: usize,
     suppressed_duplicates: usize,
+    suppressed_downstream: usize,
     suppressed_by_limit: usize,
 }
 
@@ -695,6 +696,12 @@ impl<'a, T> DiagnosticReport<'a, T> {
     /// Returns the number of exact duplicates removed.
     pub fn suppressed_duplicates(&self) -> usize {
         self.suppressed_duplicates
+    }
+
+    /// Returns the number of downstream recovery diagnostics omitted by the
+    /// semantic cascade gate before this report was built.
+    pub fn suppressed_downstream(&self) -> usize {
+        self.suppressed_downstream
     }
 
     /// Returns the number omitted by the configured limit.
@@ -1039,6 +1046,16 @@ pub fn build_diagnostic_report<T: DiagnosticReportItem>(
     diagnostics: &[T],
     config: DiagnosticReportConfig,
 ) -> DiagnosticReport<'_, T> {
+    build_diagnostic_report_with_downstream(diagnostics, config, 0)
+}
+
+/// Builds a report while retaining the number of downstream diagnostics
+/// suppressed by an earlier semantic phase.
+pub fn build_diagnostic_report_with_downstream<T: DiagnosticReportItem>(
+    diagnostics: &[T],
+    config: DiagnosticReportConfig,
+    suppressed_downstream: usize,
+) -> DiagnosticReport<'_, T> {
     let mut entries = diagnostics.iter().collect::<Vec<_>>();
     entries.sort_by(|left, right| compare_report_items(*left, *right));
 
@@ -1073,6 +1090,7 @@ pub fn build_diagnostic_report<T: DiagnosticReportItem>(
         error_count,
         warning_count,
         suppressed_duplicates,
+        suppressed_downstream,
         suppressed_by_limit,
     }
 }
@@ -1404,7 +1422,17 @@ pub fn render_diagnostics_json<T: DiagnosticReportItem>(
     diagnostics: &[T],
     config: DiagnosticReportConfig,
 ) -> String {
-    let report = build_diagnostic_report(diagnostics, config);
+    render_diagnostics_json_with_downstream(diagnostics, config, 0)
+}
+
+/// Renders a report as JSON while retaining downstream suppression metadata.
+pub fn render_diagnostics_json_with_downstream<T: DiagnosticReportItem>(
+    diagnostics: &[T],
+    config: DiagnosticReportConfig,
+    suppressed_downstream: usize,
+) -> String {
+    let report =
+        build_diagnostic_report_with_downstream(diagnostics, config, suppressed_downstream);
     let mut output = String::from("{\"diagnostics\":[");
     for (index, entry) in report.entries().iter().enumerate() {
         if index != 0 {
@@ -1423,6 +1451,8 @@ pub fn render_diagnostics_json<T: DiagnosticReportItem>(
     output.push_str("},\"suppressed\":{");
     output.push_str("\"duplicates\":");
     output.push_str(&report.suppressed_duplicates().to_string());
+    output.push_str(",\"downstream\":");
+    output.push_str(&report.suppressed_downstream().to_string());
     output.push_str(",\"limit\":");
     output.push_str(&report.suppressed_by_limit().to_string());
     output.push_str("}}");
@@ -1955,6 +1985,16 @@ mod tests {
             "{json}"
         );
         assert!(json.contains("\"suppressed\":{\"duplicates\":0"), "{json}");
+
+        let downstream_json = render_diagnostics_json_with_downstream(
+            std::slice::from_ref(&item),
+            DiagnosticReportConfig::default(),
+            3,
+        );
+        assert!(
+            downstream_json.contains("\"downstream\":3"),
+            "{downstream_json}"
+        );
     }
 
     #[test]
