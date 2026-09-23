@@ -1,0 +1,5 @@
+fn retained() () {
+    let value = \, second: bool -> second;
+}
+
+fn later() () {}

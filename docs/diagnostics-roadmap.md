@@ -241,6 +241,8 @@ Function parameter lists likewise synchronize a missing comma before `)` while
 preserving the current function and later top-level declarations.
 Closure parameter lists use the same next-parameter boundary detection and
 recover a missing comma before `->` without losing the enclosing function.
+They also skip a missing parameter name at a comma and retain later parameters
+and the closure body with parser and driver coverage.
 Function pointer, callable interface, and tuple type element lists now report
 and recover a missing comma before `)` as one local type-parameter boundary.
 Using selector groups now synchronize an invalid member at the next comma or
@@ -262,6 +264,9 @@ shapes.
 Named nominal match patterns likewise synchronize a missing field pattern at a
 comma or closing brace, retaining later fields and arms with parser and driver
 coverage.
+Enum variant lists now recover a missing variant name at a comma or closing
+brace, retaining later variants and following top-level declarations with
+parser and driver coverage.
 Match arm bodies now synchronize an invalid arm at the next top-level comma or
 closing brace, retaining later arms and statements after the match.
 These are recovery gaps in the grammar parser that consumes the lossless token

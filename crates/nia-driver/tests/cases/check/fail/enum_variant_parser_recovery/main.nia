@@ -1,0 +1,5 @@
+enum Recovered { , Kept, Also }
+
+fn main() () {
+    0;
+}

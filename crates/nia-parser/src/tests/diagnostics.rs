@@ -164,6 +164,28 @@ fn tuple_payload_recovery_keeps_later_types_and_declarations() {
 }
 
 #[test]
+fn enum_variant_name_recovery_keeps_later_variants_and_declarations() {
+    let (module, errors) = parse_module("enum Recovered { , Kept, Also }\nfn later() () {}");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].message.contains("expected enum variant"),
+        "{errors:?}"
+    );
+
+    let ItemKind::Enum(recovered) = &module.items[0].kind else {
+        panic!("expected recovered enum");
+    };
+    assert_eq!(recovered.variants.len(), 2);
+    assert_eq!(recovered.variants[0].name, sym("Kept"));
+    assert_eq!(recovered.variants[1].name, sym("Also"));
+
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn tuple_type_recovery_keeps_later_elements_and_the_function() {
     let (module, errors) = parse_module("fn retained(value: (, i32,, bool)) () {}\nfn later() {}");
     assert_eq!(
@@ -739,6 +761,39 @@ fn closure_parameter_delimiter_recovery_keeps_the_function() {
         panic!("expected retained function");
     };
     assert!(retained.body.is_some());
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
+fn closure_parameter_name_recovery_keeps_later_parameters() {
+    let (module, errors) = parse_module(
+        r#"fn retained() () { let value = \, second: bool -> second; }
+fn later() () {}"#,
+    );
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0]
+            .message
+            .contains("expected closure parameter name"),
+        "{errors:?}"
+    );
+
+    let ItemKind::Function(retained) = &module.items[0].kind else {
+        panic!("expected retained function");
+    };
+    let body = retained.body.as_ref().expect("expected retained body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected closure binding");
+    };
+    let ExprKind::Closure { params, .. } = &binding.value.as_ref().expect("closure").kind else {
+        panic!("expected closure expression");
+    };
+    assert_eq!(params.len(), 1);
+    assert_eq!(params[0].name, Some(sym("second")));
+
     let ItemKind::Function(later) = &module.items[1].kind else {
         panic!("expected later function");
     };

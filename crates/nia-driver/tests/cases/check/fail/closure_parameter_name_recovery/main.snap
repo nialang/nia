@@ -1,0 +1,17 @@
+path: fail/closure_parameter_name_recovery/main.nia
+code: E0101
+summary: expected closure parameter name; found `,`
+label: 36..37 Primary Source expected closure parameter name; found `,`
+help: use an identifier in this position
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected closure parameter name; found `,`
+  --> fail/closure_parameter_name_recovery/main.nia:2:18
+  |
+2 |     let value = \, second: bool -> second;
+  |                  ^ expected closure parameter name; found `,`
+help: use an identifier in this position
+
+summary: 1 error, 0 warnings
