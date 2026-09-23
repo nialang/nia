@@ -1,0 +1,10 @@
+using dep::model;
+
+fn accept(value: model::Token) i32 {
+    _ = value;
+    0
+}
+
+fn read_token_value() i32 {
+    model::token_value()
+}

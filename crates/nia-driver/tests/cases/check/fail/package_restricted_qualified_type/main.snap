@@ -1,0 +1,36 @@
+path: fail/package_restricted_qualified_type/main.nia
+code: E0201
+summary: type `model::Token` is restricted to its package
+label: 43..48 Primary Source type `model::Token` is not visible from this module
+help: make the type public or use it from the defining package
+related: 0..24 the restricted type is declared here
+
+path: fail/package_restricted_qualified_type/main.nia
+code: E0201
+summary: value `model::token_value` is restricted to its package
+label: 119..130 Primary Source value `model::token_value` is not visible from this module
+help: make the value public or use it from the defining package
+related: 26..66 the restricted value is declared here
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: type `model::Token` is restricted to its package
+  --> fail/package_restricted_qualified_type/main.nia:3:25
+  |
+3 | fn accept(value: model::Token) i32 {
+  |                         ^^^^^ type `model::Token` is not visible from this module
+help: make the type public or use it from the defining package
+related: fail/package_restricted_qualified_type/dep/model.nia:1:1: the restricted type is declared here
+
+root diagnostic:
+error[E0201]: value `model::token_value` is restricted to its package
+  --> fail/package_restricted_qualified_type/main.nia:9:12
+  |
+9 |     model::token_value()
+  |            ^^^^^^^^^^^ value `model::token_value` is not visible from this module
+help: make the value public or use it from the defining package
+related: fail/package_restricted_qualified_type/dep/model.nia:3:1: the restricted value is declared here
+
+summary: 2 errors, 0 warnings
+note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)

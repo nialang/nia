@@ -100,11 +100,12 @@ specific fallbacks such as `module value is unresolved` from hiding the original
 import failure.
 
 This coverage is still incremental: qualified visibility cases beyond private
-values/types and parent/package-restricted values/types, restricted module
-visibility beyond `pub(super)`, qualified callable cases beyond unknown
-members, error-union propagation failure variants beyond the current boundary,
-invalid-operand, and missing-conversion cases, and other recovery-derived
-semantic rules need equivalent rule-specific contracts and source fixtures.
+values/types and restricted module visibility beyond `pub(super)`, restricted
+extension methods and associated values, qualified callable cases beyond
+unknown members, error-union propagation failure variants beyond the current
+boundary, invalid-operand, and missing-conversion cases, and other
+recovery-derived semantic rules need equivalent rule-specific contracts and
+source fixtures.
 
 ### 4. Report organization
 
@@ -175,7 +176,9 @@ to semantic consumers so related locations retain ownership across module
 boundaries. Directly qualified `pub(super)` values and types now report their
 actual visibility scope and declaration locations instead of mislabeling them
 as private. Restricted module namespaces now report their actual scope and
-point to the module declaration for both value and type paths.
+point to the module declaration for both value and type paths. Directly
+qualified `pub(pkg)` values and types now have dependency-backed snapshots for
+package-scope errors and related declaration locations.
 The complete diagnostic rule set still needs equivalent fixture/snapshot
 coverage.
 

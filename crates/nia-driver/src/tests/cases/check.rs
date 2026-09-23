@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
 
 use nia_test_support::{CaseManifest, case_directories, copy_case_tree, fixture_relative_path};
 
-use super::support::{assert_check_case, case_expects_errors};
+use super::support::{assert_check_case, assert_check_case_with_module_map, case_expects_errors};
 
 struct CheckCase {
     source: PathBuf,
     expects_errors: bool,
+    module_map: BTreeMap<String, PathBuf>,
 }
 
 struct IncrementalCheckCase {
@@ -36,7 +38,33 @@ fn run_check_suite(driver: &crate::Driver, root: &Path, suite: &str) {
             source.display()
         );
         let snapshot_path = source.with_extension("snap");
-        assert_check_case(driver, root, &source, case.expects_errors, &snapshot_path);
+        if case.module_map.is_empty() {
+            assert_check_case(driver, root, &source, case.expects_errors, &snapshot_path);
+        } else {
+            let mut module_map = crate::ModuleMap::new();
+            for (name, relative_path) in case.module_map {
+                let path = case_root.join(relative_path);
+                assert!(
+                    path.is_file(),
+                    "missing mapped module {} for {name}",
+                    path.display()
+                );
+                module_map
+                    .insert(
+                        name,
+                        crate::SourcePath::new(path.to_string_lossy().into_owned()),
+                    )
+                    .expect("insert module map entry");
+            }
+            assert_check_case_with_module_map(
+                driver,
+                root,
+                &source,
+                case.expects_errors,
+                module_map,
+                &snapshot_path,
+            );
+        }
     }
 }
 
@@ -47,10 +75,12 @@ fn load_check_case(case_root: &Path) -> CheckCase {
     manifest.expect("resource", "compiler");
     let source = fixture_relative_path(&manifest_path, manifest.required("source"));
     let expects_errors = case_expects_errors(&manifest_path, "expect", manifest.required("expect"));
+    let module_map = manifest.required_prefixed_paths("module.");
     manifest.finish();
     CheckCase {
         source,
         expects_errors,
+        module_map,
     }
 }
 
