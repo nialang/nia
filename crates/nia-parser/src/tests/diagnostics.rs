@@ -390,6 +390,49 @@ fn array_and_struct_literal_recovery_keeps_later_members() {
 }
 
 #[test]
+fn aggregate_literal_delimiter_recovery_keeps_later_members_and_statements() {
+    let (module, errors) = parse_module(
+        "struct Point { x: i32, y: bool }\nfn main() () { let array = [true false]; let point = Point { x: 1i32 y: true }; later(); } fn later() () {}",
+    );
+    assert_eq!(errors.len(), 2, "{errors:?}");
+    assert!(
+        errors[0].message.contains("expected `,` or `]`"),
+        "{errors:?}"
+    );
+    assert!(
+        errors[1].message.contains("expected `,` or `}`"),
+        "{errors:?}"
+    );
+    let ItemKind::Function(main) = &module.items[1].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("expected body");
+    assert_eq!(body.stmts.len(), 3, "{errors:?}");
+    let StmtKind::Binding(array) = &body.stmts[0].kind else {
+        panic!("expected array binding");
+    };
+    let ExprKind::ArrayLiteral {
+        elems: nia_ast::ArrayElements::List(elems),
+    } = &array.value.as_ref().expect("array initializer").kind
+    else {
+        panic!("expected array literal");
+    };
+    assert_eq!(elems.len(), 2);
+    let StmtKind::Binding(point) = &body.stmts[1].kind else {
+        panic!("expected point binding");
+    };
+    let ExprKind::TypedStructLiteral { fields, .. } = &point.value.as_ref().expect("point").kind
+    else {
+        panic!("expected typed struct literal");
+    };
+    assert_eq!(fields.len(), 2);
+    let ItemKind::Function(later) = &module.items[2].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn callable_type_recovery_keeps_later_parameters_and_the_function() {
     let (module, errors) = parse_module(
         "fn retained(pointer: &fn(, i32), callable: Fn(, bool)) () {}\nfn later() () {}",

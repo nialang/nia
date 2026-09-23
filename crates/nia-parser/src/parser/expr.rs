@@ -1394,13 +1394,30 @@ impl Parser {
                 if let Some(first) = first {
                     elems.push(first);
                 }
-                if self.eat(TokenKind::Comma).is_none() && elems.is_empty() {
-                    return None;
+                if self.eat(TokenKind::Comma).is_none() {
+                    if elems.is_empty() {
+                        return None;
+                    }
+                    if self.expr_can_start(&self.peek().kind) {
+                        self.expected_here(
+                            ParseErrorKind::Grammar,
+                            "expected `,` or `]` after array element",
+                        );
+                    } else {
+                        return Some(ArrayElements::List(elems));
+                    }
                 }
                 while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
                     if let Some(elem) = self.parse_expr() {
                         elems.push(elem);
                         if self.eat(TokenKind::Comma).is_none() {
+                            if self.expr_can_start(&self.peek().kind) {
+                                self.expected_here(
+                                    ParseErrorKind::Grammar,
+                                    "expected `,` or `]` after array element",
+                                );
+                                continue;
+                            }
                             break;
                         }
                     } else if self.eat(TokenKind::Comma).is_none() {
@@ -1445,10 +1462,49 @@ impl Parser {
                 value,
             });
             if self.eat(TokenKind::Comma).is_none() {
+                if self.at(TokenKind::Ident) {
+                    self.expected_here(
+                        ParseErrorKind::Grammar,
+                        "expected `,` or `}` after struct field",
+                    );
+                    continue;
+                }
                 break;
             }
         }
         Some(fields)
+    }
+
+    fn expr_can_start(&self, kind: &TokenKind) -> bool {
+        matches!(
+            kind,
+            TokenKind::Integer
+                | TokenKind::Float
+                | TokenKind::String
+                | TokenKind::ByteString
+                | TokenKind::Char
+                | TokenKind::ByteChar
+                | TokenKind::True
+                | TokenKind::False
+                | TokenKind::Null
+                | TokenKind::Ident
+                | TokenKind::SelfValue
+                | TokenKind::Pkg
+                | TokenKind::Super
+                | TokenKind::Underscore
+                | TokenKind::Backslash
+                | TokenKind::LBracket
+                | TokenKind::LParen
+                | TokenKind::LBrace
+                | TokenKind::If
+                | TokenKind::Match
+                | TokenKind::Not
+                | TokenKind::Minus
+                | TokenKind::Tilde
+                | TokenKind::Bang
+                | TokenKind::Question
+                | TokenKind::Amp
+        )
     }
 
     fn literal_expr(&mut self, token: SyntaxToken, make: impl FnOnce(String) -> ExprKind) -> Expr {

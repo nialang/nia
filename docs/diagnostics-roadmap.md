@@ -257,7 +257,9 @@ following statements; a parser unit test covers the AST boundary and a driver
 snapshot covers the rendered diagnostics. Array and struct literal lists now
 also skip missing expressions at comma
 boundaries while retaining later elements and fields; a parser unit test and
-driver snapshot cover that boundary.
+driver snapshot cover that boundary. They also diagnose a missing separator
+between otherwise valid array elements or named fields and continue parsing the
+remaining literal and following statements, with parser and driver coverage.
 Function pointer and callable interface type parameter lists likewise retain
 later parameters and the enclosing function after missing types at commas, with
 parser and driver coverage.
