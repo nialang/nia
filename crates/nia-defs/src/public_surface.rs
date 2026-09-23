@@ -254,6 +254,8 @@ pub struct UnresolvedUsing {
     pub declaration_path: Option<String>,
     /// Classification of the failed lookup.
     pub reason: UnresolvedUsingReason,
+    /// Identity of the emitted source diagnostic for the failed import.
+    pub cause: Option<nia_diagnostic::DiagnosticCause>,
 }
 
 /// Read-only resolver for one module's using scope.
