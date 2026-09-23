@@ -99,11 +99,31 @@ fn query_loader_reports_missing_source() {
 
     let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
 
+    let [diagnostic] = program.diagnostics.as_slice() else {
+        panic!("expected one load error: {:?}", program.diagnostics);
+    };
+    assert!(
+        diagnostic.path.as_str().ends_with("main.nia"),
+        "{diagnostic:?}"
+    );
+    assert_eq!(
+        diagnostic.diagnostic.summary,
+        "module `missing` has no readable source file"
+    );
+    assert!(
+        diagnostic
+            .diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("failed to read")),
+        "{diagnostic:?}"
+    );
     assert!(
         program
-            .diagnostics
+            .modules
             .iter()
-            .any(|diagnostic| { diagnostic.diagnostic.summary.contains("failed to read") })
+            .all(|module| !module.path.as_str().ends_with("missing.nia")),
+        "an unreadable source is not a loaded module"
     );
 }
 

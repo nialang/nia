@@ -310,9 +310,12 @@ impl CompilerContext {
         let mut fingerprint_inputs = Vec::new();
         for module_id in module_ids {
             let path = db.get(ModulePathQuery(module_id))?;
-            let version = *db.get(ModuleSourceVersionQuery(module_id))?;
-            let Some((source, len)) = self.loader_facts.module_source_fingerprint(module_id)?
-            else {
+            // A program with an unreadable module has a load error and no
+            // complete source identity, so it bypasses the frontend cache.
+            let (Some(version), Some((source, len))) = (
+                self.loader_facts.module_source_version(module_id)?,
+                self.loader_facts.module_source_fingerprint(module_id)?,
+            ) else {
                 return Ok(None);
             };
             let module = StableModuleKey::from_source_identity(path.identity());

@@ -610,13 +610,19 @@ impl LoaderFactProvider for LoaderDatabase {
     }
 
     fn loaded_module_source_identities(&self) -> QueryResult<Vec<nia_source::SourceIdentity>> {
-        Ok(self
-            .db
-            .get(graph::ModuleGraphQuery)?
-            .semantic
-            .modules()
-            .map(|module| module.path.identity())
-            .collect())
+        let graph = self.db.get(graph::ModuleGraphQuery)?;
+        let mut identities = Vec::new();
+        for module in graph.semantic.modules() {
+            // An unreadable module stays in the graph for its load error but
+            // is not a loaded module: no phase can analyze a missing source.
+            if matches!(
+                *self.db.get(queries::SourceStatusQuery(module.source_id))?,
+                queries::SourceStatus::Present(_)
+            ) {
+                identities.push(module.path.identity());
+            }
+        }
+        Ok(identities)
     }
 
     fn module_path(&self, module_id: nia_imports::ModuleId) -> QueryResult<Option<SourcePath>> {
