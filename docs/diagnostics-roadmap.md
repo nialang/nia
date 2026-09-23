@@ -165,6 +165,9 @@ dedicated fixtures and complete structured/text snapshots.
 Optional and error-union propagation boundaries, invalid propagation operands,
 and missing `IntoError` conversions now share an end-to-end case with complete
 structured/text snapshots, including the enclosing function return boundary.
+A rejected two-step `IntoError` chain also has a complete snapshot showing the
+propagated operand, return boundary, one-step conversion rule, and direct
+conversion help.
 An unknown qualified callable member now has an end-to-end snapshot for the
 name-resolution code, typo suggestion, edit range, and suppressed downstream
 consequence.

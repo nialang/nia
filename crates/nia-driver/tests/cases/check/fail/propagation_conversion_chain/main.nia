@@ -1,0 +1,34 @@
+enum First: i32 {
+    Failed = 1,
+    _,
+}
+
+enum Middle: i32 {
+    Failed = 2,
+    _,
+}
+
+enum Last: i32 {
+    Failed = 3,
+    _,
+}
+
+extend First : std::builtin::IntoError[Middle] {
+    fn intoError(self) Middle { Middle::Failed }
+}
+
+extend Middle : std::builtin::IntoError[Last] {
+    fn intoError(self) Last { Last::Failed }
+}
+
+fn produce() First!i32 {
+    First::Failed!
+}
+
+fn propagate() Last!i32 {
+    !(produce().?)
+}
+
+fn main() i32 {
+    0
+}
