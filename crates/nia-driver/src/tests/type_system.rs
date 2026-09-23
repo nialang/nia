@@ -48,6 +48,87 @@ fn main(value: i32, value: i32) i32 {
     );
 }
 
+#[test]
+fn chained_into_error_propagation_labels_the_propagated_operand() {
+    let root = temp_dir("chained_into_error_propagation_labels_the_propagated_operand");
+    let source = r#"
+enum First: i32 {
+    Failed = 1,
+    _,
+}
+
+enum Middle: i32 {
+    Failed = 2,
+    _,
+}
+
+enum Last: i32 {
+    Failed = 3,
+    _,
+}
+
+extend First : std::builtin::IntoError[Middle] {
+    fn intoError(self) Middle { Middle::Failed }
+}
+
+extend Middle : std::builtin::IntoError[Last] {
+    fn intoError(self) Last { Last::Failed }
+}
+
+fn produce() First!i32 {
+    First::Failed!
+}
+
+fn propagate() Last!i32 {
+    !(produce().?)
+}
+
+fn main() i32 {
+    0
+}
+"#;
+    write(&root.join("main.nia"), source);
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let diagnostic = &program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("does not chain `IntoError` conversions from `First` to `Last`")
+        })
+        .unwrap_or_else(|| panic!("chained conversion diagnostic: {:?}", program.diagnostics))
+        .diagnostic;
+    let operand_start = source.find("produce().?").expect("operand");
+    let operand = diagnostic
+        .labels
+        .iter()
+        .find(|label| {
+            label
+                .message
+                .as_deref()
+                .is_some_and(|message| message.contains("propagated error value has type `First`"))
+        })
+        .unwrap_or_else(|| panic!("propagated operand label: {diagnostic:?}"));
+    assert_eq!(operand.span.start, operand_start, "{diagnostic:?}");
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("does not compose multiple `IntoError` conversions")),
+        "{diagnostic:?}"
+    );
+    assert!(
+        diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("add a direct `IntoError[Last]` implementation for `First`")),
+        "{diagnostic:?}"
+    );
+}
+
 fn test_symbol(text: &str) -> SymbolId {
     SymbolId::from_stable_hash(stable_hash(text))
 }
