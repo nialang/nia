@@ -491,8 +491,13 @@ impl Parser {
                     && self.eat(TokenKind::Eq).is_some()
                 {
                     let key_start = key_ty.span.start;
+                    let value_errors_len = self.errors.len();
                     let Some(ty) = self.parse_type() else {
+                        self.errors.truncate(value_errors_len);
                         self.error_here("expected associated type binding value");
+                        if self.eat(TokenKind::Comma).is_some() {
+                            continue;
+                        }
                         break;
                     };
                     let key = match &key_ty.kind {

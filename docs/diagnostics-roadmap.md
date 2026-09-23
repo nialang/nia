@@ -230,6 +230,10 @@ coverage.
 `where` predicate lists use the same local recovery for a missing predicate
 type, retaining later predicates and following functions with parser and driver
 coverage.
+Associated type binding arguments also recover a missing binding value at a
+comma, retain later arguments and the enclosing function, and have parser and
+driver coverage; the recovery path suppresses the parser's generic expected
+type duplicate when the more specific binding diagnostic is emitted.
 These are recovery gaps in the grammar parser that consumes the lossless token
 view. `nia-syntax` currently
 preserves source, trivia, malformed tokens, and delimiter groups in its green
