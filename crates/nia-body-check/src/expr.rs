@@ -1020,7 +1020,7 @@ impl<'a> BodyChecker<'a> {
     fn check_try_expr(&mut self, expr: &Expr, inner: &Expr) -> InternedTyId {
         let span = expr.span;
         let inner_ty = self.check_expr(inner);
-        if self.is_error_ty(inner_ty) {
+        if self.is_error_recovery_ty(inner_ty) {
             return self.error();
         }
         self.record_expr_node_type(inner, inner_ty);
