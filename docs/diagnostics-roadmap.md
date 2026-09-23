@@ -182,8 +182,11 @@ covering severity, line/column, source excerpts, related locations, hierarchy,
 and summary counts. This also covers reports after an incremental body edit.
 A parser recovery fixture now exercises a missing statement terminator followed
 by an incomplete expression, so grammar diagnostics and recovery order are
-asserted through the same end-to-end structured/text snapshot path. Other parser
-recovery boundaries still need equivalent source coverage.
+asserted through the same end-to-end structured/text snapshot path. It also
+covers a missing function-parameter delimiter: parameter type recovery stops at
+the function body, item recovery skips that invalid body, and diagnostics in
+later functions remain visible. Other parser recovery boundaries still need
+equivalent source coverage.
 Error recovery targets in optional, error-union, tuple, pointer, and null
 patterns now suppress target-shape and match-coverage consequences while
 independent errors in the arm bodies remain checkable; an end-to-end snapshot

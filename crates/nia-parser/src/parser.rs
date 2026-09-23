@@ -730,32 +730,47 @@ impl Parser {
     }
 
     fn recover_to_item_boundary(&mut self) {
+        let mut brace_depth = 0usize;
         while !self.at(TokenKind::Eof) {
-            if self.eat(TokenKind::Semicolon).is_some() {
-                return;
+            if brace_depth == 0 {
+                if self.eat(TokenKind::Semicolon).is_some() {
+                    return;
+                }
+                if self.at(TokenKind::At)
+                    && matches!(self.tokens.nth_kind(1), Some(TokenKind::LBracket))
+                {
+                    return;
+                }
+                if matches!(
+                    self.peek().kind,
+                    TokenKind::Module
+                        | TokenKind::Using
+                        | TokenKind::Extern
+                        | TokenKind::Struct
+                        | TokenKind::Union
+                        | TokenKind::Trait
+                        | TokenKind::Extend
+                        | TokenKind::Enum
+                        | TokenKind::Type
+                        | TokenKind::Fn
+                        | TokenKind::Const
+                        | TokenKind::Static
+                        | TokenKind::Pub
+                ) {
+                    return;
+                }
             }
-            if self.at(TokenKind::At)
-                && matches!(self.tokens.nth_kind(1), Some(TokenKind::LBracket))
-            {
-                return;
-            }
-            if matches!(
-                self.peek().kind,
-                TokenKind::Module
-                    | TokenKind::Using
-                    | TokenKind::Extern
-                    | TokenKind::Struct
-                    | TokenKind::Union
-                    | TokenKind::Trait
-                    | TokenKind::Extend
-                    | TokenKind::Enum
-                    | TokenKind::Type
-                    | TokenKind::Fn
-                    | TokenKind::Const
-                    | TokenKind::Static
-                    | TokenKind::Pub
-            ) {
-                return;
+            match self.peek().kind {
+                TokenKind::LBrace => brace_depth += 1,
+                TokenKind::RBrace if brace_depth > 0 => {
+                    brace_depth -= 1;
+                    self.bump();
+                    if brace_depth == 0 {
+                        return;
+                    }
+                    continue;
+                }
+                _ => {}
             }
             self.bump();
         }
