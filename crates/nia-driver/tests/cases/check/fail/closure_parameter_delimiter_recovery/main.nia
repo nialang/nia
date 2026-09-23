@@ -1,0 +1,5 @@
+fn retained() () {
+    let value = \first: i32 second: bool -> first;
+}
+
+fn later() () {}

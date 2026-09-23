@@ -239,6 +239,8 @@ Explicit type argument lists also synchronize a missing comma before `]` and
 retain the enclosing function and following declarations.
 Function parameter lists likewise synchronize a missing comma before `)` while
 preserving the current function and later top-level declarations.
+Closure parameter lists use the same next-parameter boundary detection and
+recover a missing comma before `->` without losing the enclosing function.
 These are recovery gaps in the grammar parser that consumes the lossless token
 view. `nia-syntax` currently
 preserves source, trivia, malformed tokens, and delimiter groups in its green
