@@ -859,6 +859,7 @@ impl<'a> BodyChecker<'a> {
         let u8_ty = self.primitive(PrimitiveTy::U8);
         match self.interner.get(ptr_ty).cloned() {
             Some(TyKind::Pointer { elem, .. }) if self.types_match(elem, u8_ty) => {}
+            Some(TyKind::Error) => {}
             Some(_) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
