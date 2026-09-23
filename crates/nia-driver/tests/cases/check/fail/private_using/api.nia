@@ -1,0 +1,4 @@
+// A clean dependency still owns the related declaration location.
+
+
+fn hidden() i32 { 0 }

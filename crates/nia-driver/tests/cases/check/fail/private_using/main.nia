@@ -1,0 +1,4 @@
+module api;
+using entry::api;
+using api::hidden;
+fn main() i32 { hidden() }

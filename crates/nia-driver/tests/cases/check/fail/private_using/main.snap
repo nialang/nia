@@ -1,0 +1,42 @@
+path: fail/private_using/main.nia
+code: E0201
+summary: `using api::...` could not be resolved: name `hidden` is unavailable because the imported item is private
+label: 41..47 Primary Source this imported name could not be resolved
+help: make `hidden` public in its defining module, or use it from an allowed scope
+related: 30..48 the `using` directive is here
+related: 69..90 the private item is declared here
+
+path: fail/private_using/main.nia
+code: E0201
+summary: name `hidden` is unavailable because the imported item is private
+label: 65..71 Primary Source use of unresolved imported name
+help: make `hidden` public in its defining module, or use it from an allowed scope
+related: 41..47 the imported name is selected here
+related: 30..48 the `using` directive is here
+related: 69..90 the hidden imported item is declared here
+cause: fail/private_using/main.nia E0201 41..47
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: `using api::...` could not be resolved: name `hidden` is unavailable because the imported item is private
+  --> fail/private_using/main.nia:3:12
+  |
+3 | using api::hidden;
+  |            ^^^^^^ this imported name could not be resolved
+help: make `hidden` public in its defining module, or use it from an allowed scope
+related: fail/private_using/main.nia:3:1: the `using` directive is here
+related: fail/private_using/api.nia:4:1: the private item is declared here
+
+related to root diagnostic 1:
+error[E0201]: name `hidden` is unavailable because the imported item is private
+  --> fail/private_using/main.nia:4:17
+  |
+4 | fn main() i32 { hidden() }
+  |                 ^^^^^^ use of unresolved imported name
+help: make `hidden` public in its defining module, or use it from an allowed scope
+related: fail/private_using/main.nia:3:12: the imported name is selected here
+related: fail/private_using/main.nia:3:1: the `using` directive is here
+related: fail/private_using/api.nia:4:1: the hidden imported item is declared here
+
+summary: 2 errors, 0 warnings

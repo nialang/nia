@@ -241,14 +241,28 @@ fn render_program_diagnostic_items(
     primary_path: Option<&str>,
     primary_source: Option<&str>,
 ) -> String {
-    let sources = diagnostics
-        .iter()
-        .map(|diagnostic| {
-            let path = diagnostic.path.as_str().to_owned();
-            let source = nia_source::read_source_text(&path).unwrap_or_default();
-            (path, source)
-        })
-        .collect::<HashMap<_, _>>();
+    let mut sources = HashMap::new();
+    for diagnostic in diagnostics {
+        for path in std::iter::once(diagnostic.path.as_str()).chain(
+            diagnostic
+                .diagnostic
+                .related
+                .iter()
+                .filter_map(|related| related.source_path.as_deref()),
+        ) {
+            if !sources.contains_key(path) {
+                let source = if primary_path == Some(path) {
+                    primary_source.map(str::to_owned)
+                } else {
+                    None
+                }
+                .or_else(|| nia_source::read_source_text(path).ok());
+                if let Some(source) = source {
+                    sources.insert(path.to_owned(), source);
+                }
+            }
+        }
+    }
     let diagnostics = diagnostics
         .iter()
         .map(|diagnostic| ProgramDiagnosticReportItem {
