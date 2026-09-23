@@ -99,6 +99,47 @@ fn main(value: (), ptr: &u8) () {
 }
 
 #[test]
+fn suppresses_recovery_trait_obligation_diagnostics() {
+    let checked = pipeline(
+        r#"
+trait Marker {}
+
+fn require[T](value: T) ()
+where T: Marker
+{
+    _ = value;
+}
+
+fn main() () {
+    require(missing);
+    require((missing, 1));
+    require(1);
+    _ = 1 + missing;
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| summary.contains("trait bound not satisfied"))
+            .count(),
+        1,
+        "{summaries:?}"
+    );
+    assert!(
+        summaries
+            .iter()
+            .all(|summary| !summary.contains("<error type>")),
+        "{summaries:?}"
+    );
+}
+
+#[test]
 fn type_checks_closure_state_and_body_without_panicking() {
     let checked = pipeline(
         r#"

@@ -1672,7 +1672,10 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(trait_id),
             trait_args.clone(),
         );
-        if !trait_is_satisfied {
+        if !trait_is_satisfied
+            && !self.is_error_recovery_ty(lhs_ty)
+            && !self.is_error_recovery_ty(rhs_ty)
+        {
             self.report_trait_bound_not_satisfied_named(
                 span,
                 lhs_ty,
@@ -1730,7 +1733,9 @@ impl<'a> BodyChecker<'a> {
             lhs_ty,
             TraitId::Builtin(trait_id),
             vec![rhs_ty],
-        ) {
+        ) && !self.is_error_recovery_ty(lhs_ty)
+            && !self.is_error_recovery_ty(rhs_ty)
+        {
             self.report_trait_bound_not_satisfied_named(
                 span,
                 lhs_ty,
@@ -1852,7 +1857,9 @@ impl<'a> BodyChecker<'a> {
             lhs_ty,
             TraitId::Builtin(finish.trait_id),
             trait_args.clone(),
-        ) {
+        ) && !self.is_error_recovery_ty(lhs_ty)
+            && !self.is_error_recovery_ty(rhs_ty)
+        {
             self.report_trait_bound_not_satisfied_named(
                 finish.span,
                 lhs_ty,

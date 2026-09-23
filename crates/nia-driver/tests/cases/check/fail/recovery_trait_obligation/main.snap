@@ -1,0 +1,61 @@
+path: fail/recovery_trait_obligation/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 107..114 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+path: fail/recovery_trait_obligation/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 130..137 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+path: fail/recovery_trait_obligation/main.nia
+code: E0301
+summary: trait bound not satisfied: i32: Marker
+label: 148..158 Primary Source trait bound not satisfied: i32: Marker
+note: the compiler could not find a visible implementation of `Marker` for `i32`
+help: provide an implementation of `Marker` for `i32`, import the module that defines it, or use a type with a matching implementation
+
+path: fail/recovery_trait_obligation/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 172..179 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown value `missing`
+   --> fail/recovery_trait_obligation/main.nia:10:13
+   |
+10 |     require(missing);
+   |             ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing`
+   --> fail/recovery_trait_obligation/main.nia:11:14
+   |
+11 |     require((missing, 1));
+   |              ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+root diagnostic:
+error[E0301]: trait bound not satisfied: i32: Marker
+   --> fail/recovery_trait_obligation/main.nia:12:5
+   |
+12 |     require(1);
+   |     ^^^^^^^^^^ trait bound not satisfied: i32: Marker
+note: the compiler could not find a visible implementation of `Marker` for `i32`
+help: provide an implementation of `Marker` for `i32`, import the module that defines it, or use a type with a matching implementation
+
+root diagnostic:
+error[E0201]: unknown value `missing`
+   --> fail/recovery_trait_obligation/main.nia:13:13
+   |
+13 |     _ = 1 + missing;
+   |             ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+summary: 4 errors, 0 warnings

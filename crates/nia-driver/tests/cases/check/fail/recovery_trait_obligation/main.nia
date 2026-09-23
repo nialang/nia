@@ -1,0 +1,14 @@
+trait Marker {}
+
+fn require[T](value: T) ()
+where T: Marker
+{
+    _ = value;
+}
+
+fn main() () {
+    require(missing);
+    require((missing, 1));
+    require(1);
+    _ = 1 + missing;
+}
