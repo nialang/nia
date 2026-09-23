@@ -1,0 +1,9 @@
+fn main() () {
+    (missing_tuple, 1);
+    [missing_array];
+    defer &missing_deferred;
+    for item in (missing_iterable, 1) {
+        _ = item;
+    }
+    2;
+}

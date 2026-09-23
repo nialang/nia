@@ -151,6 +151,9 @@ not produce a second unit-type diagnostic, while independent later errors remain
 visible. Ordinary expression statements apply the same rule: an unresolved
 expression does not produce a second discarded-result diagnostic, while a
 separate non-unit expression statement remains visible.
+The same recovery check now traverses structural types, so an unresolved value
+wrapped in a tuple, array, pointer, optional, or error union cannot trigger a
+discarded-result, `defer`, or `for-in` shape diagnostic from its wrapper.
 
 ### 4. Report organization
 
@@ -224,7 +227,9 @@ following a discarded nested block, so malformed `return` expressions do not
 emit a second empty-expression error. Unresolved expression statements now
 suppress their discarded-result recovery diagnostic at the body-check boundary,
 with a driver snapshot proving the root name error and an independent discarded
-literal remain distinct. Malformed
+literal remain distinct. Structural recovery wrappers receive the same
+end-to-end coverage for discarded expressions, deferred pointers, and iterable
+shapes. Malformed
 struct fields
 and named enum payload fields now recover at their comma boundaries; the driver
 snapshot keeps both diagnostics and later functions visible, while a parser unit

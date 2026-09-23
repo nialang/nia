@@ -137,6 +137,28 @@ impl<'a> BodyChecker<'a> {
         matches!(self.interner.get(ty), Some(TyKind::Error))
     }
 
+    /// Returns whether a structural type contains the body checker's recovery
+    /// type. Composite expressions keep their shape so independent children
+    /// can still be checked, but that shape must not be treated as a valid
+    /// semantic value by downstream rules.
+    pub(crate) fn is_error_recovery_ty(&self, ty: InternedTyId) -> bool {
+        let mut pending = vec![ty];
+        let mut seen = HashSet::new();
+        while let Some(current) = pending.pop() {
+            let current = self.normalization.normalize(current);
+            if !seen.insert(current) {
+                continue;
+            }
+            if self.is_error_ty(current) {
+                return true;
+            }
+            if let Some(kind) = self.interner.get(current) {
+                kind.visit_referenced_types(|referenced| pending.push(referenced));
+            }
+        }
+        false
+    }
+
     pub(crate) fn non_error_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
         (!self.is_error_ty(ty)).then_some(ty)
     }
@@ -564,7 +586,9 @@ impl<'a> BodyChecker<'a> {
         actual: InternedTyId,
         context: &str,
     ) {
-        if expected == self.error() || actual == self.error() || self.types_match(expected, actual)
+        if self.is_error_recovery_ty(expected)
+            || self.is_error_recovery_ty(actual)
+            || self.types_match(expected, actual)
         {
             return;
         }

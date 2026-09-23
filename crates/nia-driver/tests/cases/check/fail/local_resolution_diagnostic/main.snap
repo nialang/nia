@@ -27,4 +27,4 @@ error[E0302]: `self` cannot cross a closure boundary; bind it to a local and cap
   |                                   ^^^^ `self` cannot cross a closure boundary; bind it to a local and capture that local
 
 summary: 2 errors, 0 warnings
-note: suppressed 3 diagnostic(s) (0 duplicate(s), 3 downstream consequence(s), 0 over limit)
+note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)
