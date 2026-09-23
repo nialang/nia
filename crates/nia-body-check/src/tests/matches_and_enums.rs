@@ -810,6 +810,20 @@ fn non_constant(value: i32, start: i32) i32 {
         _ => 20,
     }
 }
+
+fn unresolved_range_bound(value: i32) i32 {
+    match value {
+        missing_start..3 => 10,
+        _ => 20,
+    }
+}
+
+fn unresolved_start_with_non_constant_end(value: i32, end: i32) i32 {
+    match value {
+        missing_start..end => 10,
+        _ => 20,
+    }
+}
 "#,
     );
     assert!(
@@ -858,6 +872,30 @@ fn non_constant(value: i32, start: i32) i32 {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.summary.contains("compile-time integer constant")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .summary
+                .contains("match pattern range start must be a compile-time integer constant"))
+            .count(),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .summary
+                .contains("match pattern range end must be a compile-time integer constant"))
+            .count(),
+        1,
         "{:?}",
         checked.diagnostics
     );

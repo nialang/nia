@@ -192,7 +192,9 @@ patterns now suppress target-shape and match-coverage consequences while
 independent errors in the arm bodies remain checkable; an end-to-end snapshot
 pins this behavior. Range patterns also continue resolving both bounds against
 an error target, while skipping compile-time constant and coverage checks that
-would only describe the recovery type.
+would only describe the recovery type. If one bound itself has an Error type,
+only that bound's constant check is suppressed; an independent non-constant
+error on the other bound remains visible.
 A private-using fixture verifies related locations in a clean dependency whose
 declaration is on a different line from the primary use site. Renderer tests
 cover available and unavailable related sources and explicit same-file paths.
