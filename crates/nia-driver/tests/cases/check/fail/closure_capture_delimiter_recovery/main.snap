@@ -1,0 +1,15 @@
+path: fail/closure_capture_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `]` after closure capture; found `later`
+label: 81..86 Primary Source expected `,` or `]` after closure capture; found `later`
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `,` or `]` after closure capture; found `later`
+  --> fail/closure_capture_delimiter_recovery/main.nia:4:26
+  |
+4 |     let closure = \[kept later] value -> kept;
+  |                          ^^^^^ expected `,` or `]` after closure capture; found `later`
+
+summary: 1 error, 0 warnings

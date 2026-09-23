@@ -1259,6 +1259,16 @@ impl Parser {
                 node_key: self.node_key(nia_node_id::SyntaxKind::Expr, capture_span),
             });
             if self.eat(TokenKind::Comma).is_none() {
+                if self.at(TokenKind::RBracket) || self.at(TokenKind::Eof) {
+                    break;
+                }
+                if self.at(TokenKind::Ident) || self.at(TokenKind::Amp) {
+                    self.expected_here(
+                        ParseErrorKind::Grammar,
+                        "expected `,` or `]` after closure capture",
+                    );
+                    continue;
+                }
                 break;
             }
         }
