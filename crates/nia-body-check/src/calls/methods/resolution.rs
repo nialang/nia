@@ -657,6 +657,23 @@ impl<'a> BodyChecker<'a> {
         target_ty: InternedTyId,
         name: &SymbolId,
     ) -> Vec<MethodCandidate> {
+        self.method_candidates_for_target_with_access(target_ty, name, false)
+    }
+
+    pub(in crate::calls::methods) fn inaccessible_method_candidates_for_target(
+        &mut self,
+        target_ty: InternedTyId,
+        name: &SymbolId,
+    ) -> Vec<MethodCandidate> {
+        self.method_candidates_for_target_with_access(target_ty, name, true)
+    }
+
+    fn method_candidates_for_target_with_access(
+        &mut self,
+        target_ty: InternedTyId,
+        name: &SymbolId,
+        inaccessible: bool,
+    ) -> Vec<MethodCandidate> {
         self.profile_stage("body_check.profile.method.callable_named", |this| {
             this.ensure_callable_extension_methods_named(name)
         });
@@ -681,7 +698,7 @@ impl<'a> BodyChecker<'a> {
             else {
                 continue;
             };
-            if inaccessible_visibility.is_some() {
+            if inaccessible_visibility.is_some() != inaccessible {
                 continue;
             }
             let mut target_substitutions = SymbolMap::default();

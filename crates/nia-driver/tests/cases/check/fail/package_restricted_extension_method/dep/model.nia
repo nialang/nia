@@ -7,6 +7,10 @@ extend Value {
         Self { data }
     }
 
+    pub(pkg) fn package_make(data: i32) Value {
+        Self { data }
+    }
+
     pub(pkg) fn package_score(&self) i32 {
         self.data + 1
     }

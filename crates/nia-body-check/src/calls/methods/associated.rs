@@ -77,6 +77,11 @@ impl<'a> BodyChecker<'a> {
         let target_ty = self.normalize_aliases_in_type(target_ty);
         let span = expr.span;
         let candidates = self.method_candidates_for_target(target_ty, name);
+        let inaccessible_candidates = if candidates.is_empty() {
+            self.inaccessible_method_candidates_for_target(target_ty, name)
+        } else {
+            Vec::new()
+        };
         let trait_candidates = if candidates.is_empty() {
             self.trait_method_candidates_for_target(target_ty, name)
         } else {
@@ -105,6 +110,13 @@ impl<'a> BodyChecker<'a> {
                 expected,
                 candidates: trait_candidates,
             });
+        }
+        if candidates.is_empty() && !inaccessible_candidates.is_empty() {
+            self.report_inaccessible_extension_method(span, name, &inaccessible_candidates);
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
         }
         let Some(candidate) = self.single_method_candidate(span, name, &candidates) else {
             if candidates.is_empty() && trait_candidates.is_empty() {
