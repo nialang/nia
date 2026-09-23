@@ -210,7 +210,14 @@ test confirms a valid field after the malformed member survives in the AST.
 Tuple struct fields and tuple enum payloads now skip a missing type at a comma,
 retain later tuple elements and enum variants, and preserve following top-level
 items; parser and driver snapshots cover both forms. Other parser recovery
-boundaries still need equivalent source coverage.
+boundaries still need equivalent source coverage. These are recovery gaps in the
+grammar parser that consumes the lossless token view. `nia-syntax` currently
+preserves source, trivia, malformed tokens, and delimiter groups in its green
+tree, with borrowed red views and conservative single-token partial rewrites;
+grammar productions and AST recovery remain in the separate token-cursor parser.
+This diagnostics roadmap audits that parser's error and recovery behavior. A
+grammar-shaped green tree or broader incremental grammar reparse would be a
+separate architecture change and is not implied by the recovery fixes here.
 Error recovery targets in optional, error-union, tuple, pointer, and null
 patterns now suppress target-shape and match-coverage consequences while
 independent errors in the arm bodies remain checkable; an end-to-end snapshot
