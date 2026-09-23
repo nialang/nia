@@ -1,0 +1,6 @@
+trait Retained {
+    fn bad(first: i32 second: bool) ();
+    fn good(value: i32) ();
+}
+
+fn later() () {}
