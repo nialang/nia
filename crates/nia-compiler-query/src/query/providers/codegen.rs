@@ -1045,6 +1045,7 @@ mod tests {
         );
         assert_eq!(diagnostics.len(), 2);
         assert!(suppresses_downstream("E0201", "E0301"));
+        assert!(!suppresses_downstream("E0201", "E0304"));
         assert!(!suppresses_downstream("E0301", "E0201"));
         assert_eq!(diagnostics[1].diagnostic.severity, Severity::Error);
     }
