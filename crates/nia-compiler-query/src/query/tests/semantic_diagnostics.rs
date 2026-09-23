@@ -269,7 +269,7 @@ fn layouts_separate_semantic_value_from_diagnostics() {
     let layouts = db.expect_get(LayoutsQuery(module_id));
     assert!(layouts.semantic.diagnostics.is_empty());
     let diagnostic = resolve_diagnostic_bundle(&layouts.diagnostics)
-        .into_iter()
+        .iter()
         .find(|diagnostic| {
             diagnostic
                 .summary

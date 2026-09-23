@@ -434,13 +434,12 @@ fn render_external_tool_diagnostic(
     if !stderr.is_empty() {
         diagnostic = diagnostic.note(format!("{tool_kind} output:\n{stderr}"));
     }
-    let rendered = render_diagnostics_with_title(
+    render_diagnostics_with_title(
         &format!("{tool_kind} diagnostics:"),
         std::slice::from_ref(&diagnostic.finish()),
         primary_path,
         primary_source,
-    );
-    rendered
+    )
 }
 
 fn render_external_tool_io_diagnostic(
