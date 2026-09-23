@@ -192,6 +192,27 @@ fn tuple_type_recovery_keeps_later_elements_and_the_function() {
 }
 
 #[test]
+fn tuple_expression_and_pattern_recovery_keeps_later_statements() {
+    let (module, errors) = parse_module(
+        "fn main() () { let value = (, 1,, true); let (, retained,, last) = value; retained; }",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected expression")
+                || error.message.contains("expected binding pattern"))
+            .count(),
+        4,
+        "{errors:?}"
+    );
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    assert_eq!(body.stmts.len(), 3);
+}
+
+#[test]
 fn classifies_parse_errors_by_grammar_rule_not_message_text() {
     let cases = [
         (

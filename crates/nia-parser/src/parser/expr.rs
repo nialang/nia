@@ -781,17 +781,26 @@ impl Parser {
                         ExprKind::Tuple(Vec::new()),
                     ));
                 }
-                let first = self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RParen])?;
+                let mut elems = Vec::new();
+                if let Some(first) =
+                    self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RParen])
+                {
+                    elems.push(first);
+                }
                 if self.eat(TokenKind::Comma).is_none() {
+                    let first = elems.pop()?;
                     self.expect(TokenKind::RParen, "expected `)`")?;
                     return Some(first);
                 }
-                let mut elems = vec![first];
                 while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
-                    elems.push(
-                        self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RParen])?,
-                    );
-                    if self.eat(TokenKind::Comma).is_none() {
+                    if let Some(expr) =
+                        self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RParen])
+                    {
+                        elems.push(expr);
+                        if self.eat(TokenKind::Comma).is_none() {
+                            break;
+                        }
+                    } else if self.eat(TokenKind::Comma).is_none() {
                         break;
                     }
                 }

@@ -211,7 +211,9 @@ Tuple struct fields and tuple enum payloads now skip a missing type at a comma,
 retain later tuple elements and enum variants, and preserve following top-level
 items; parser and driver snapshots cover both forms. Tuple type expressions
 also retain valid elements and their enclosing function after missing elements
-at comma boundaries. Other parser recovery
+at comma boundaries. Tuple expressions and irrefutable tuple binding patterns
+likewise retain valid elements and later statements after missing elements at
+comma boundaries, with separate end-to-end snapshots. Other parser recovery
 boundaries still need equivalent source coverage. These are recovery gaps in the
 grammar parser that consumes the lossless token view. `nia-syntax` currently
 preserves source, trivia, malformed tokens, and delimiter groups in its green
