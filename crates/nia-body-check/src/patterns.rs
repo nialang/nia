@@ -1103,6 +1103,9 @@ impl<'a> BodyChecker<'a> {
         self.expect_expr_type(pattern.start, target_ty, start_ty, context);
         let end_ty = self.check_expr_with_expected(pattern.end, Some(target_ty));
         self.expect_expr_type(pattern.end, target_ty, end_ty, context);
+        if self.is_error_ty(target_ty) {
+            return;
+        }
         let Some(start_value) = self.pattern_int_value(pattern.start) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,

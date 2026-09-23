@@ -55,3 +55,9 @@ fn unknown_struct_pattern() () {
         GhostStruct { field } => { _ = field; }
     }
 }
+
+fn range_pattern() () {
+    match range_missing {
+        range_start..3 => {}
+    }
+}
