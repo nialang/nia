@@ -76,11 +76,29 @@ fn render_diagnostic_list(
         output.push_str(&render_diagnostic(path, source, diagnostic));
         output.push('\n');
     }
+    let error_label = if report.error_count() == 1 {
+        "error"
+    } else {
+        "errors"
+    };
+    let warning_label = if report.warning_count() == 1 {
+        "warning"
+    } else {
+        "warnings"
+    };
+    let _ = writeln!(
+        output,
+        "summary: {} {error_label}, {} {warning_label}",
+        report.error_count(),
+        report.warning_count()
+    );
     if report.suppressed_duplicates() > 0 || report.suppressed_by_limit() > 0 {
         let _ = writeln!(
             output,
-            "note: suppressed {} diagnostic(s)",
-            report.suppressed_duplicates() + report.suppressed_by_limit()
+            "note: suppressed {} diagnostic(s) ({} duplicate(s), {} over limit)",
+            report.suppressed_duplicates() + report.suppressed_by_limit(),
+            report.suppressed_duplicates(),
+            report.suppressed_by_limit()
         );
     }
     output

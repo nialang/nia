@@ -258,11 +258,7 @@ fn render_program_diagnostic_items(
         ));
         out.push('\n');
     }
-    push_suppressed_summary(
-        &mut out,
-        report.suppressed_duplicates(),
-        report.suppressed_by_limit(),
-    );
+    push_report_summary(&mut out, &report);
     out
 }
 
@@ -696,11 +692,7 @@ fn render_diagnostics_with_title(
         out.push_str(&render_diagnostic(path, source, diagnostic));
         out.push('\n');
     }
-    push_suppressed_summary(
-        &mut out,
-        report.suppressed_duplicates(),
-        report.suppressed_by_limit(),
-    );
+    push_report_summary(&mut out, &report);
     out
 }
 
@@ -714,11 +706,7 @@ pub fn render_parse_errors(path: &str, source: &str, errors: &[crate::ParseError
         out.push_str(&render_diagnostic(path, source, diagnostic));
         out.push('\n');
     }
-    push_suppressed_summary(
-        &mut out,
-        report.suppressed_duplicates(),
-        report.suppressed_by_limit(),
-    );
+    push_report_summary(&mut out, &report);
     out
 }
 
@@ -753,20 +741,35 @@ impl DiagnosticReportItem for ProgramDiagnosticReportItem<'_> {
     }
 }
 
-fn push_suppressed_summary(out: &mut String, duplicates: usize, by_limit: usize) {
+fn push_report_summary<T: DiagnosticReportItem>(
+    out: &mut String,
+    report: &nia_diagnostic::DiagnosticReport<'_, T>,
+) {
+    let error_label = if report.error_count() == 1 {
+        "error"
+    } else {
+        "errors"
+    };
+    let warning_label = if report.warning_count() == 1 {
+        "warning"
+    } else {
+        "warnings"
+    };
+    out.push_str(&format!(
+        "summary: {} {error_label}, {} {warning_label}\n",
+        report.error_count(),
+        report.warning_count()
+    ));
+
+    let duplicates = report.suppressed_duplicates();
+    let by_limit = report.suppressed_by_limit();
     if duplicates == 0 && by_limit == 0 {
         return;
     }
     out.push_str(&format!(
-        "note: suppressed {total} diagnostic(s)",
+        "note: suppressed {total} diagnostic(s) ({duplicates} duplicate(s), {by_limit} over limit)\n",
         total = duplicates + by_limit
     ));
-    if duplicates > 0 || by_limit > 0 {
-        out.push_str(&format!(
-            " ({duplicates} duplicate(s), {by_limit} over limit)"
-        ));
-    }
-    out.push('\n');
 }
 
 fn diagnostic_source(
@@ -871,6 +874,10 @@ mod tests {
         assert!(internal < user, "{rendered}");
         assert!(rendered.contains("note: suppressed"), "{rendered}");
         assert!(rendered.contains("1 duplicate(s)"), "{rendered}");
+        assert!(
+            rendered.contains("summary: 20 errors, 0 warnings"),
+            "{rendered}"
+        );
     }
 
     #[test]

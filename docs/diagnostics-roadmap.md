@@ -87,12 +87,21 @@ under each root, then independent errors. Suppression must say whether entries
 were duplicates, downstream consequences, or a display limit. The report must
 never present a generated wrapper before the source error that invalidated it.
 
+The report layer now keeps deterministic duplicate and display-limit counts,
+counts retained errors and warnings, and ranks source-owned primary spans ahead
+of generated wrappers. Explicit downstream-consequence suppression metadata and
+the full root/related/independent hierarchy remain to be completed.
+
 ### 5. CLI interaction contract
 
 Add stable text and machine-readable output modes, explicit summary counts, and
 consistent exit status behavior for check, emit, build, and test. Terminal
 rendering should provide color and compact context when interactive, while
 non-interactive output remains deterministic and snapshot-friendly.
+
+Text and JSON reports now expose the same retained error/warning summary and
+duplicate/display-limit counts. Cross-command exit-status and interactive
+terminal behavior still need an end-to-end contract and coverage.
 
 ### 6. Regression and quality gates
 
