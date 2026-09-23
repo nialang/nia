@@ -1,0 +1,15 @@
+path: fail/associated_type_argument_parser_recovery/main.nia
+code: E0101
+summary: expected associated type binding value
+label: 34..35 Primary Source expected associated type binding value
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected associated type binding value
+  --> fail/associated_type_argument_parser_recovery/main.nia:1:35
+  |
+1 | fn retained(value: Wrapper[Item = , i32]) () {}
+  |                                   ^ expected associated type binding value
+
+summary: 1 error, 0 warnings
