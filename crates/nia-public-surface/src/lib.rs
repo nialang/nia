@@ -124,9 +124,27 @@ fn first_using_name(selector: &UsingSelector) -> Option<&UsingName> {
     }
 }
 
+fn using_failure_span(using: &ModuleUsing, failure_span: Option<Span>) -> (Span, &'static str) {
+    if let Some(span) = failure_span {
+        return (span, "this imported name could not be resolved");
+    }
+    if let Some(selected) = first_using_name(&using.selector) {
+        let span = selected.alias_span.unwrap_or(selected.name_span);
+        return (span, "this imported name could not be resolved");
+    }
+    if let Some(segment) = using.host.last() {
+        return (
+            segment.span,
+            "this using path segment could not be resolved",
+        );
+    }
+    (using.span, "this using directive could not be resolved")
+}
+
 fn unresolved_using_diagnostic(
     using: &ModuleUsing,
     reason: UnresolvedUsingReason,
+    failure_span: Option<Span>,
     symbols: &dyn SymbolText,
 ) -> Diagnostic {
     let selected = first_using_name(&using.selector);
@@ -135,18 +153,14 @@ fn unresolved_using_diagnostic(
         .unwrap_or_else(|| first_path_segment_text(symbols, &using.host));
     let host = first_path_segment_text(symbols, &using.host);
     let (cause, help) = reason.diagnostic_parts(&name);
-    let mut diagnostic = Diagnostic::user_error(
+    let (primary_span, primary_message) = using_failure_span(using, failure_span);
+    let diagnostic = Diagnostic::user_error(
         codes::NAME_RESOLUTION,
         format!("`using {host}::...` could not be resolved: {cause}"),
     )
-    .primary(using.span, "this `using` directive could not be resolved")
+    .primary(primary_span, primary_message)
+    .related(using.span, "the `using` directive is here")
     .help(help);
-    if let Some(selected) = selected {
-        diagnostic = diagnostic.related(
-            selected.alias_span.unwrap_or(selected.name_span),
-            "the imported name is selected here",
-        );
-    }
     diagnostic.finish()
 }
 
@@ -319,7 +333,9 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                         }
                         surfaces.insert(surface);
                     }
-                    UsingExpansion::Unresolved | UsingExpansion::UnresolvedReason(_) => {
+                    UsingExpansion::Unresolved
+                    | UsingExpansion::UnresolvedReason(_)
+                    | UsingExpansion::UnresolvedReasonAt(_, _) => {
                         iteration_unresolved += 1;
                     }
                     UsingExpansion::HardError(_) => {}
@@ -380,6 +396,7 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                         unresolved_using_diagnostic(
                             using,
                             UnresolvedUsingReason::UnknownName,
+                            None,
                             symbols,
                         ),
                     ));
@@ -394,10 +411,25 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                 {
                     diagnostics.push((
                         defs.module_id,
-                        unresolved_using_diagnostic(using, reason, symbols),
+                        unresolved_using_diagnostic(using, reason, None, symbols),
                     ));
                 }
-                UsingExpansion::Unresolved | UsingExpansion::UnresolvedReason(_) => {}
+                UsingExpansion::UnresolvedReasonAt(reason, span)
+                    if process_used_paths
+                        && !using_host_waits_on_unprocessed_module(
+                            graph,
+                            defs.module_id,
+                            &using.host,
+                        ) =>
+                {
+                    diagnostics.push((
+                        defs.module_id,
+                        unresolved_using_diagnostic(using, reason, Some(span), symbols),
+                    ));
+                }
+                UsingExpansion::Unresolved
+                | UsingExpansion::UnresolvedReason(_)
+                | UsingExpansion::UnresolvedReasonAt(_, _) => {}
             }
         }
     }
@@ -511,6 +543,7 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                             unresolved_using_diagnostic(
                                 using,
                                 UnresolvedUsingReason::UnknownName,
+                                None,
                                 symbols,
                             ),
                         ));
@@ -522,7 +555,17 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                     if process_used_paths && using.visibility != Visibility::Public {
                         diagnostics.push((
                             defs.module_id,
-                            unresolved_using_diagnostic(using, reason, symbols),
+                            unresolved_using_diagnostic(using, reason, None, symbols),
+                        ));
+                    }
+                    continue;
+                }
+                UsingExpansion::UnresolvedReasonAt(reason, span) => {
+                    record_unresolved_using_names(&mut scope, using, reason);
+                    if process_used_paths && using.visibility != Visibility::Public {
+                        diagnostics.push((
+                            defs.module_id,
+                            unresolved_using_diagnostic(using, reason, Some(span), symbols),
                         ));
                     }
                     continue;
