@@ -734,7 +734,7 @@ pub struct Point {
 }
 
 // main.nia
-using root::geom;
+using entry::geom;
 ```
 
 `pub` controls source-level visibility. It does not imply C ABI visibility,

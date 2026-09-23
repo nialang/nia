@@ -1713,7 +1713,7 @@ may be used through imports:
 pub const width: usize = 4;
 
 // main.nia
-using root::config;
+using entry::config;
 let mut xs: [i32; config::width] = [1, 2, 3, 4];
 ```
 
@@ -2740,7 +2740,7 @@ The target of `extend` may be any visible extendable value type, including an
 imported type:
 
 ```nia
-using root::math;
+using entry::math;
 
 extend math::Point {
     fn len2(&self) i32 {
@@ -3176,7 +3176,7 @@ declare child modules with `module name;` or `pub module name;`. A `using` item
 opens names that are already available through the module graph; it does not
 implicitly discover files.
 
-The logical roots `root`, `pkg`, and `std` identify the entry package, the
+The logical roots `entry`, `pkg`, and `std` identify the entry package, the
 current package, and the standard library package respectively. Additional
 package roots are toolchain-defined. Their physical paths and loading policy
 are outside this specification.
@@ -3201,15 +3201,16 @@ keeps the namespace private to the package visibility rules.
 
 The reserved path roots are:
 
-- `root`, the compilation entry package;
+- `entry`, the compilation entry package;
 - `pkg`, the current package root;
-- `std`, the standard-library package root.
+- `std`, the standard-library package root;
+- `builtin`, the compiler-provided target facts described in section 5.1.
 
 ```nia
 using std;
 using std::io;
 using pkg::internal;
-using root::config;
+using entry::config;
 ```
 
 Additional package roots and their names are supplied by the toolchain. A path
@@ -3217,14 +3218,14 @@ such as `std::io` selects a declared child module of the `std` package; the
 source-file mapping for that package is not part of the language contract.
 
 Within a loaded module, `self` names the current module and `super` names the
-parent module. `pkg` names the current pkg root, while `root` still
+parent module. `pkg` names the current pkg root, while `entry` still
 names the compilation entry package:
 
 ```nia
 // src/app/foo/zoo.nia
 using super::helper;
 using pkg::internal;
-using root::config;
+using entry::config;
 ```
 
 Package implementation code can use `pkg::...` for absolute references to its
@@ -3244,7 +3245,7 @@ Supported forms:
 using std;
 using std::process;
 using pkg::internal;
-using root::math as m;
+using entry::math as m;
 using math::add;
 using math::add as plus;
 using math::{add, sub as minus};
@@ -3257,7 +3258,7 @@ using Color::{Red, Black as Dark};
 using Color::*;
 using palette::Color::Red;
 using palette::Color::*;
-using root::a::{b::c::foo, d::e::{f::goo, g}, h::Color::*};
+using entry::a::{b::c::foo, d::e::{f::goo, g}, h::Color::*};
 ```
 
 Grouped `using` accepts names, renames, module selectors, and enum-member
@@ -3291,13 +3292,13 @@ surface:
 
 ```nia
 // facade.nia
-using root::impl;
+using entry::impl;
 pub using impl;
 pub using impl::add;
 pub using impl::{frob as do_frob};
 pub using impl::*;
 
-using root::palette;
+using entry::palette;
 pub using {impl, impl::add, palette::Color};
 pub using palette::Color;
 pub using palette::Color::Red;
@@ -3306,7 +3307,7 @@ pub using palette::Color::*;
 
 ```nia
 // main.nia
-using root::facade;
+using entry::facade;
 pub fn color() facade::Color {
     facade::Red
 }

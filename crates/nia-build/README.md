@@ -40,19 +40,27 @@ build source, standard-library source, toolchain identity, and build protocol.
 ## Source Ownership
 
 - [`src/lib.rs`](src/lib.rs) owns package discovery, invocation paths, runner
-  generation and execution, plan handoff, and top-level build diagnostics.
-- [`src/runner_config.rs`](src/runner_config.rs) owns the private bounded
-  configuration passed to the generated runner.
-- [`src/plan.rs`](src/plan.rs) owns stable keys, typed logical paths, the
-  immutable plan model, and semantic freeze validation.
-- [`src/plan/actions.rs`](src/plan/actions.rs) owns action-local semantic
-  validation, including typed artifact use and external command contracts.
-- [`src/plan/dependencies.rs`](src/plan/dependencies.rs) owns producer and
-  dependency closure validation for modules, artifacts, actions, and steps.
-- [`src/plan/codec.rs`](src/plan/codec.rs) owns the registered binary plan
-  protocol. Decoding always returns through semantic freeze.
-- [`src/plan/handoff.rs`](src/plan/handoff.rs) owns durable canonical plan
-  publication.
+  generation and execution, and plan handoff.
+- [`src/runner.nia`](src/runner.nia) is the private generated-runner wrapper,
+  and [`src/runner_config.rs`](src/runner_config.rs) owns the private bounded
+  configuration passed to it. [`src/runner_cache.rs`](src/runner_cache.rs)
+  owns the content-addressed cache for compiled host runners.
+- The immutable plan model lives in the separate
+  [`nia-build-plan`](../nia-build-plan/) crate, re-exported from this crate:
+  - [`src/lib.rs`](../nia-build-plan/src/lib.rs) owns stable keys, typed
+    logical paths, and the immutable plan model.
+  - [`src/validation.rs`](../nia-build-plan/src/validation.rs) owns
+    freeze-time canonicalization and complete graph validation.
+  - [`src/actions.rs`](../nia-build-plan/src/actions.rs) owns action-local
+    semantic validation, including typed artifact use and external command
+    contracts.
+  - [`src/dependencies.rs`](../nia-build-plan/src/dependencies.rs) owns
+    producer and dependency closure validation for modules, artifacts,
+    actions, and steps.
+  - [`src/codec.rs`](../nia-build-plan/src/codec.rs) owns the registered
+    binary plan protocol. Decoding always returns through semantic freeze.
+  - [`src/handoff.rs`](../nia-build-plan/src/handoff.rs) owns durable
+    canonical plan publication.
 - [`src/coordinator.rs`](src/coordinator.rs) owns selected-closure scheduling
   and typed action execution.
 - [`src/action_cache.rs`](src/action_cache.rs) and its child modules own
@@ -63,6 +71,11 @@ build source, standard-library source, toolchain identity, and build protocol.
   cross-process coordination for equal logical outputs.
 - [`src/resources.rs`](src/resources.rs) maps declared action resource classes
   onto inherited query-session capacity.
+- [`src/process_output.rs`](src/process_output.rs) owns bounded subprocess
+  output capture and cleanup of owned process trees.
+- [`src/report.rs`](src/report.rs) is the only presentation bridge for build
+  bootstrap and coordinator failures: it assigns stable diagnostic codes and
+  bounds child output in text and JSON reports.
 
 The public build-script API and its ownership rules live with the Nia sources
 in [`lib/std/build.nia`](../../lib/std/build.nia) and
