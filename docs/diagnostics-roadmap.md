@@ -318,6 +318,9 @@ required receives the correct root diagnostic.
 Builtin type argument lists also preserve an unresolved expression as the
 root diagnostic instead of publishing a second "generic arguments must be
 types" error for its recovery type.
+Binary and shift operator recovery is covered end to end: unresolved operands
+retain their name-resolution roots while operator trait and operand-shape
+consequences are suppressed.
 Atomic builtin recovery has a snapshot proving invalid RMW operation codes stay
 visible alongside unknown type arguments while type-dependent atomic errors are
 suppressed. An unaligned-load recovery snapshot proves an unresolved pointer
