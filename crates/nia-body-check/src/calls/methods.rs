@@ -629,7 +629,7 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    pub(in crate::calls::methods) fn report_inaccessible_extension_method(
+    pub(in crate::calls) fn report_inaccessible_extension_method(
         &mut self,
         span: Span,
         method_name: &SymbolId,

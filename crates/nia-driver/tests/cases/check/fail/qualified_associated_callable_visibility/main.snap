@@ -6,9 +6,16 @@ help: make the method public or use it from an allowed scope
 related: 90..132 the restricted method is declared here
 
 path: fail/qualified_associated_callable_visibility/main.nia
+code: E0201
+summary: method `hidden` is private
+label: 118..136 Primary Source this method is not visible from this module
+help: make the method public or use it from an allowed scope
+related: 90..132 the restricted method is declared here
+
+path: fail/qualified_associated_callable_visibility/main.nia
 code: E0301
 summary: unknown associated function `missing`
-label: 86..107 Primary Source unknown associated function `missing`
+label: 158..179 Primary Source unknown associated function `missing`
 note: the target type is `Point`, and no visible associated function named `missing` was found
 help: check the type qualification, import the module that defines `missing`, or use a function available for `Point`
 
@@ -24,12 +31,21 @@ help: make the method public or use it from an allowed scope
 related: fail/qualified_associated_callable_visibility/api.nia:8:5: the restricted method is declared here
 
 root diagnostic:
-error[E0301]: unknown associated function `missing`
-  --> fail/qualified_associated_callable_visibility/main.nia:6:5
+error[E0201]: method `hidden` is private
+  --> fail/qualified_associated_callable_visibility/main.nia:6:37
   |
-6 |     api::Point::missing();
+6 |     let hidden: &fn() api::Point = &api::Point::hidden;
+  |                                     ^^^^^^^^^^^^^^^^^^ this method is not visible from this module
+help: make the method public or use it from an allowed scope
+related: fail/qualified_associated_callable_visibility/api.nia:8:5: the restricted method is declared here
+
+root diagnostic:
+error[E0301]: unknown associated function `missing`
+  --> fail/qualified_associated_callable_visibility/main.nia:8:5
+  |
+8 |     api::Point::missing();
   |     ^^^^^^^^^^^^^^^^^^^^^ unknown associated function `missing`
 note: the target type is `Point`, and no visible associated function named `missing` was found
 help: check the type qualification, import the module that defines `missing`, or use a function available for `Point`
 
-summary: 2 errors, 0 warnings
+summary: 3 errors, 0 warnings

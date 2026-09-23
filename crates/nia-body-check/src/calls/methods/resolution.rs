@@ -660,7 +660,7 @@ impl<'a> BodyChecker<'a> {
         self.method_candidates_for_target_with_access(target_ty, name, false)
     }
 
-    pub(in crate::calls::methods) fn inaccessible_method_candidates_for_target(
+    pub(in crate::calls) fn inaccessible_method_candidates_for_target(
         &mut self,
         target_ty: InternedTyId,
         name: &SymbolId,

@@ -375,9 +375,13 @@ visible alongside unknown type arguments while type-dependent atomic errors are
 suppressed. An unaligned-load recovery snapshot proves an unresolved pointer
 keeps only its name-resolution root. A slice-length recovery snapshot proves an
 unresolved value keeps only its name-resolution root.
-Directly qualified private values and types now retain the owning dependency
-source path for their declaration locations instead of rendering those spans
-against the use-site file. The module graph exposes each module's source path
+Qualified associated function-pointer references now reuse the restricted
+extension-method visibility contract used by calls, preserving the declaration
+location for private and restricted methods instead of silently returning a
+recovery type. Directly qualified private values and types now retain the owning
+dependency source path for their declaration locations instead of rendering those
+spans against the use-site file. The module graph exposes each module's source
+path
 to semantic consumers so related locations retain ownership across module
 boundaries. Directly qualified `pub(super)` values and types now report their
 actual visibility scope and declaration locations instead of mislabeling them
