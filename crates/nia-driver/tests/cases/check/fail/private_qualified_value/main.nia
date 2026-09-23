@@ -1,0 +1,10 @@
+module api;
+
+fn main() i32 {
+    api::hidden()
+}
+
+fn accept_private_type(value: api::Secret) i32 {
+    _ = value;
+    0
+}

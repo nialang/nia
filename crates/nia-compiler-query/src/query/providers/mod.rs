@@ -346,6 +346,13 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
         path
     }
 
+    fn source_path(&self, module_id: ModuleId) -> Option<nia_source::SourcePath> {
+        capture_query_failure(&self.failure, self.db.get(ModuleGraphQuery))?
+            .as_ref()
+            .get(module_id)
+            .map(|module| module.path.clone())
+    }
+
     fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId> {
         if let Some(parent) = self.parents.borrow().get(&module_id) {
             return *parent;

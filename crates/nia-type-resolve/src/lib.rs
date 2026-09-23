@@ -11,7 +11,7 @@ use nia_ast::{
 };
 use nia_ast_walk::{Visitor, walk_item};
 use nia_defs::{DefCollection, DefKind, PublicNamespace, PublicSurfaceLookup, UsingScopeLookup};
-use nia_diagnostic::{Diagnostic, SuggestionApplicability, codes};
+use nia_diagnostic::{Diagnostic, DiagnosticBuilder, SuggestionApplicability, codes};
 use nia_hash::FastHashMap;
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId, Visibility};

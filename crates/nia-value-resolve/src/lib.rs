@@ -10,7 +10,7 @@ use nia_ast_walk::{Visitor, walk_expr, walk_generic_params, walk_where_clause};
 use nia_defs::{
     DefCollection, DefKind, PublicNamespace, PublicSurfaceLookup, UnresolvedUsing, UsingScopeLookup,
 };
-use nia_diagnostic::{Diagnostic, SuggestionApplicability, codes};
+use nia_diagnostic::{Diagnostic, DiagnosticBuilder, SuggestionApplicability, codes};
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::{
@@ -616,6 +616,19 @@ struct ValueResolver<'a> {
 }
 
 impl ValueResolver<'_> {
+    fn related_definition(
+        &self,
+        diagnostic: DiagnosticBuilder,
+        module_id: ModuleId,
+        span: Span,
+        message: &str,
+    ) -> DiagnosticBuilder {
+        match self.graph.and_then(|graph| graph.source_path(module_id)) {
+            Some(path) => diagnostic.related_at(path.as_str(), span, message),
+            None => diagnostic.related(span, message),
+        }
+    }
+
     fn unresolved_using_path_diagnostic(
         &self,
         segment: PathSegment<'_>,
@@ -1161,8 +1174,12 @@ impl<'a> ValueResolver<'a> {
                         if let Some(target_defs) = self.defs_for_module(module_id)
                             && let Some(def) = target_defs.as_ref().defs.get(def_id)
                         {
-                            diagnostic =
-                                diagnostic.related(def.span, "the private type is declared here");
+                            diagnostic = self.related_definition(
+                                diagnostic,
+                                module_id,
+                                def.span,
+                                "the private type is declared here",
+                            );
                         }
                         self.diagnostics.push(
                             diagnostic
@@ -1277,7 +1294,12 @@ impl<'a> ValueResolver<'a> {
                 if let Some(target_defs) = self.defs_for_module(module_id)
                     && let Some(def) = target_defs.as_ref().defs.get(def_id)
                 {
-                    diagnostic = diagnostic.related(def.span, "the private type is declared here");
+                    diagnostic = self.related_definition(
+                        diagnostic,
+                        module_id,
+                        def.span,
+                        "the private type is declared here",
+                    );
                 }
                 self.diagnostics.push(
                     diagnostic
@@ -1311,7 +1333,12 @@ impl<'a> ValueResolver<'a> {
                 if let Some(target_defs) = self.defs_for_module(module_id)
                     && let Some(def) = target_defs.as_ref().defs.get(def_id)
                 {
-                    diagnostic = diagnostic.related(def.span, "the private value is declared here");
+                    diagnostic = self.related_definition(
+                        diagnostic,
+                        module_id,
+                        def.span,
+                        "the private value is declared here",
+                    );
                 }
                 self.diagnostics.push(
                     diagnostic

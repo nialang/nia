@@ -94,11 +94,11 @@ secondary place errors after an unresolved expression, preventing syntax-
 specific fallbacks such as `module value is unresolved` from hiding the original
 import failure.
 
-This coverage is still incremental: qualified visibility and callable cases
-beyond the current unknown-member case, error-union propagation failure
-variants beyond the current boundary, invalid-operand, and missing-conversion
-cases, and other recovery-derived semantic rules need equivalent rule-specific
-contracts and source fixtures.
+This coverage is still incremental: qualified visibility cases beyond private
+values/types and qualified callable cases beyond unknown members, error-union
+propagation failure variants beyond the current boundary, invalid-operand, and
+missing-conversion cases, and other recovery-derived semantic rules need
+equivalent rule-specific contracts and source fixtures.
 
 ### 4. Report organization
 
@@ -162,6 +162,11 @@ structured/text snapshots, including the enclosing function return boundary.
 An unknown qualified callable member now has an end-to-end snapshot for the
 name-resolution code, typo suggestion, edit range, and suppressed downstream
 consequence.
+Directly qualified private values and types now retain the owning dependency
+source path for their declaration locations instead of rendering those spans
+against the use-site file. The module graph exposes each module's source path
+to semantic consumers so related locations retain ownership across module
+boundaries.
 The complete diagnostic rule set still needs equivalent fixture/snapshot
 coverage.
 
