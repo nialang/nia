@@ -150,13 +150,7 @@ impl<'a> BodyChecker<'a> {
             } else {
                 if let Some(expr) = &arg.expr {
                     let expr_ty = self.check_expr(expr);
-                    if let Some(TyKind::Error) = self.interner.get(expr_ty) {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::TYPE_CHECK,
-                            arg.span,
-                            "generic arguments must be types",
-                        ));
-                    } else {
+                    if !self.is_error_ty(expr_ty) {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
                             arg.span,

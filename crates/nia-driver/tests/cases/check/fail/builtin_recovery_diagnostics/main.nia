@@ -3,5 +3,6 @@ fn invalid() usize {
     _ = std::builtin::bitmask(missing);
     _ = std::builtin::splat[MissingVector](1u8);
     _ = std::builtin::ctz[MissingInteger](0usize);
+    _ = std::builtin::splat[missing + 1](1u8);
     0
 }

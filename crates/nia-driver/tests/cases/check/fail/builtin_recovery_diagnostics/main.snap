@@ -22,6 +22,12 @@ summary: unknown type `MissingInteger`
 label: 184..198 Primary Source unknown type `MissingInteger`
 help: check the type name, module path, and whether the type is public
 
+path: fail/builtin_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 237..244 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
 report:
 diagnostics:
 root diagnostic:
@@ -56,4 +62,13 @@ error[E0201]: unknown type `MissingInteger`
   |                           ^^^^^^^^^^^^^^ unknown type `MissingInteger`
 help: check the type name, module path, and whether the type is public
 
-summary: 4 errors, 0 warnings
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/builtin_recovery_diagnostics/main.nia:6:29
+  |
+6 |     _ = std::builtin::splat[missing + 1](1u8);
+  |                             ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+summary: 5 errors, 0 warnings
+note: suppressed 3 diagnostic(s) (0 duplicate(s), 3 downstream consequence(s), 0 over limit)
