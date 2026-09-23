@@ -98,8 +98,11 @@ propagation, callable resolution, and visibility.
 Name lookup, qualified namespace lookup, and failed using directives now use
 rule-specific summaries with primary labels, related source locations, and
 actionable help. Ordinary unresolved body values now identify the missing name
-and use the name-resolution code. Type and module namespaces used as values
-also have distinct contracts with declaration evidence where available.
+and use the name-resolution code. Method generic parameters that shadow an
+enclosing extension or trait parameter now point at the repeated name and tell
+the user to rename it or use the enclosing parameter. Type and module namespaces
+used as values also have distinct contracts with declaration evidence where
+available.
 Assignment/place checking reuses the same import evidence and avoids publishing
 secondary place errors after an unresolved expression, preventing syntax-
 specific fallbacks such as `module value is unresolved` from hiding the original
@@ -218,6 +221,10 @@ declaration is on a different line from the primary use site. Renderer tests
 cover available and unavailable related sources and explicit same-file paths.
 Unknown values, type-as-value misuse, and module-as-value misuse now each have
 dedicated fixtures and complete structured/text snapshots.
+Invalid method generic shadowing in both extension and trait declarations now
+has a complete snapshot for the item-signature code, repeated-name label,
+actionable rename help, and retention of an independent unresolved value in
+another function.
 Ordinary call diagnostics have a combined snapshot for argument arity, argument
 type, non-callable callees, and an unresolved argument alongside an independent
 later argument mismatch. The same unresolved-first-argument boundary is covered

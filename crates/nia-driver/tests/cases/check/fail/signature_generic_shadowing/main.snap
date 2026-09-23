@@ -1,0 +1,45 @@
+path: fail/signature_generic_shadowing/main.nia
+code: E0203
+summary: method generic parameter cannot shadow enclosing generic parameter `T`
+label: 67..68 Primary Source this method parameter shadows the enclosing parameter
+help: rename the method parameter or remove it and use the enclosing `T` parameter
+
+path: fail/signature_generic_shadowing/main.nia
+code: E0203
+summary: method generic parameter cannot shadow enclosing generic parameter `T`
+label: 193..194 Primary Source this method parameter shadows the enclosing parameter
+help: rename the method parameter or remove it and use the enclosing `T` parameter
+
+path: fail/signature_generic_shadowing/main.nia
+code: E0201
+summary: unknown value `missing_in_main`
+label: 238..253 Primary Source no value named `missing_in_main` is visible in this scope
+help: check the spelling, import `missing_in_main`, or declare it before this use
+
+report:
+diagnostics:
+root diagnostic:
+error[E0203]: method generic parameter cannot shadow enclosing generic parameter `T`
+  --> fail/signature_generic_shadowing/main.nia:6:16
+  |
+6 |     fn convert[T](self, value: T) T {
+  |                ^ this method parameter shadows the enclosing parameter
+help: rename the method parameter or remove it and use the enclosing `T` parameter
+
+root diagnostic:
+error[E0203]: method generic parameter cannot shadow enclosing generic parameter `T`
+   --> fail/signature_generic_shadowing/main.nia:13:16
+   |
+13 |     fn convert[T](self, value: T) T;
+   |                ^ this method parameter shadows the enclosing parameter
+help: rename the method parameter or remove it and use the enclosing `T` parameter
+
+root diagnostic:
+error[E0201]: unknown value `missing_in_main`
+   --> fail/signature_generic_shadowing/main.nia:17:5
+   |
+17 |     missing_in_main
+   |     ^^^^^^^^^^^^^^^ no value named `missing_in_main` is visible in this scope
+help: check the spelling, import `missing_in_main`, or declare it before this use
+
+summary: 3 errors, 0 warnings
