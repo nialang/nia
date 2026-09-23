@@ -284,6 +284,9 @@ corrective help.
 A rejected two-step `IntoError` chain also has a complete snapshot showing the
 propagated operand, return boundary, one-step conversion rule, and direct
 conversion help.
+A type generic argument whose expression is already an Error recovery now
+retains the expression's name-resolution root and suppresses the generic
+category fallback; a driver snapshot covers the three downstream consequences.
 An unknown qualified callable member now has an end-to-end snapshot for the
 name-resolution code, typo suggestion, edit range, and suppressed downstream
 consequence. A cross-module associated-call snapshot now distinguishes a
