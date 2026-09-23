@@ -1,0 +1,8 @@
+fn main() () {
+    consume(, 1,, true);
+    later();
+}
+
+fn later() () {}
+
+fn consume(a: i32, b: bool) () {}
