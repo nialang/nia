@@ -33,15 +33,28 @@ note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
 path: fail/call_diagnostics/main.nia
+code: E0301
+summary: argument count mismatch: expected 2, got 1
+label: 194..206 Primary Source argument count mismatch: expected 2, got 1
+note: this call accepts 2 argument(s), but received 1
+help: add the missing arguments to match the call signature
+
+path: fail/call_diagnostics/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 204..211 Primary Source no value named `missing` is visible in this scope
+label: 198..205 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+path: fail/call_diagnostics/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 222..229 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 path: fail/call_diagnostics/main.nia
 code: E0301
 summary: type mismatch in call argument 2: expected i32, got bool
-label: 213..217 Primary Source type mismatch in call argument 2: expected i32, got bool
+label: 231..235 Primary Source type mismatch in call argument 2: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
@@ -92,21 +105,38 @@ note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
 root diagnostic:
-error[E0201]: unknown value `missing`
-   --> fail/call_diagnostics/main.nia:12:15
+error[E0301]: argument count mismatch: expected 2, got 1
+   --> fail/call_diagnostics/main.nia:12:5
    |
-12 |     pair[i32](missing, true);
+12 |     add(missing);
+   |     ^^^^^^^^^^^^ argument count mismatch: expected 2, got 1
+note: this call accepts 2 argument(s), but received 1
+help: add the missing arguments to match the call signature
+
+root diagnostic:
+error[E0201]: unknown value `missing`
+   --> fail/call_diagnostics/main.nia:12:9
+   |
+12 |     add(missing);
+   |         ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing`
+   --> fail/call_diagnostics/main.nia:13:15
+   |
+13 |     pair[i32](missing, true);
    |               ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 root diagnostic:
 error[E0301]: type mismatch in call argument 2: expected i32, got bool
-   --> fail/call_diagnostics/main.nia:12:24
+   --> fail/call_diagnostics/main.nia:13:24
    |
-12 |     pair[i32](missing, true);
+13 |     pair[i32](missing, true);
    |                        ^^^^ type mismatch in call argument 2: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
-summary: 7 errors, 0 warnings
-note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)
+summary: 9 errors, 0 warnings
+note: suppressed 2 diagnostic(s) (0 duplicate(s), 2 downstream consequence(s), 0 over limit)
