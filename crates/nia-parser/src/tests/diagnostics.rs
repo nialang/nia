@@ -1189,6 +1189,8 @@ fn associated_member_recovery_keeps_later_members_and_items() {
     };
     assert_eq!(trait_item.methods.len(), 1);
     assert_eq!(trait_item.methods[0].function.name, sym("good"));
+    assert_eq!(trait_item.associated_values.len(), 1);
+    assert_eq!(trait_item.associated_values[0].name, sym("ALSO"));
 
     let ItemKind::Extend(extend_item) = &module.items[1].kind else {
         panic!("expected retained extension");
