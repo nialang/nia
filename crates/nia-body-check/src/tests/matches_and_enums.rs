@@ -1675,6 +1675,25 @@ fn invalid() () {
 }
 
 #[test]
+fn structural_optional_pattern_does_not_reject_error_recovery_target() {
+    let checked = pipeline(
+        r#"
+fn main() () {
+    match (?missing) {
+        ?value => { _ = value; },
+    }
+}
+"#,
+    );
+    assert_eq!(checked.diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        checked.diagnostics[0]
+            .summary
+            .contains("unknown value `missing`")
+    );
+}
+
+#[test]
 fn struct_destructuring_does_not_reject_error_recovery_targets() {
     let checked = pipeline(
         r#"
