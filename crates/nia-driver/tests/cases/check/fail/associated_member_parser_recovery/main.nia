@@ -1,0 +1,11 @@
+trait Retained {
+    type Missing fn good(value: i32) ();
+    const ALSO: bool;
+}
+
+extend Retained {
+    type Missing fn good(value: i32) Retained { Retained {} }
+    const ALSO: bool;
+}
+
+fn later() () {}

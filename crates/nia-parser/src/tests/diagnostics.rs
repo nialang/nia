@@ -1171,3 +1171,33 @@ fn parser_makes_progress_on_generated_invalid_inputs() {
         .recv_timeout(Duration::from_secs(2))
         .expect("parser did not make progress on generated invalid inputs");
 }
+
+#[test]
+fn associated_member_recovery_keeps_later_members_and_items() {
+    let (module, errors) = parse_module(
+        "trait Retained { type Missing fn good(value: i32) (); const ALSO: bool; }\n\
+         extend Retained { type Missing fn good(value: i32) Retained { Retained {} } const ALSO: bool; }\n\
+         fn later() () {}",
+    );
+    assert!(
+        !errors.is_empty(),
+        "malformed associated members must report errors"
+    );
+
+    let ItemKind::Trait(trait_item) = &module.items[0].kind else {
+        panic!("expected retained trait");
+    };
+    assert_eq!(trait_item.methods.len(), 1);
+    assert_eq!(trait_item.methods[0].function.name, sym("good"));
+
+    let ItemKind::Extend(extend_item) = &module.items[1].kind else {
+        panic!("expected retained extension");
+    };
+    assert_eq!(extend_item.methods.len(), 1);
+    assert_eq!(extend_item.methods[0].function.name, sym("good"));
+
+    let ItemKind::Function(later) = &module.items[2].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
