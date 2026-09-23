@@ -142,6 +142,10 @@ reporting a secondary byte-pointer mismatch.
 The slice-length builtin likewise suppresses its slice-pointer shape error
 when name resolution has already produced an Error recovery value, while an
 independent non-pointer argument still receives the shape diagnostic.
+For-in checking now treats an unresolved iterable as a root error: iterable,
+iterator, and irrefutable-pattern shape checks do not publish recovery-derived
+diagnostics, and bindings introduced by the recovered pattern still receive an
+Error type so later uses do not report a second unknown local type.
 
 ### 4. Report organization
 
@@ -161,7 +165,8 @@ root identity through value, type, and body resolution, so later value and type
 use-site diagnostics are grouped under the import failure. A source fixture now
 covers repeated use of the failed import in a function parameter and return
 type, and snapshots the shared root identity. Other recovery-derived diagnostics
-still need explicit provenance before this stage is complete.
+still need explicit provenance before this stage is complete; the for-in path now
+suppresses its recovery products at the semantic checker boundary.
 
 ### 5. CLI interaction contract
 
