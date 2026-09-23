@@ -46,7 +46,7 @@ impl Parser {
                 break;
             }
             if self.eat(TokenKind::Comma).is_none() {
-                if !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
+                if self.at(TokenKind::Ident) {
                     self.expected_here(
                         ParseErrorKind::Grammar,
                         "expected `,` or `]` after generic parameter",
