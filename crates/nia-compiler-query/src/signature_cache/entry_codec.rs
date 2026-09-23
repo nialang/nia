@@ -19,6 +19,7 @@ pub(crate) fn encode_check_certificate(
     encoded.push(identity.scope.tag());
     write_u64(&mut encoded, certificate.checked_body_count as u64);
     write_u64(&mut encoded, certificate.reachable_body_count as u64);
+    write_u64(&mut encoded, certificate.suppressed_downstream as u64);
     let diagnostics =
         encode_stable_program_diagnostic_bundle(&certificate.diagnostics, identity.source_lengths)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
@@ -65,6 +66,7 @@ pub(crate) fn decode_check_certificate(
     }
     let checked_body_count = usize::try_from(read_u64(&mut cursor)?).ok()?;
     let reachable_body_count = usize::try_from(read_u64(&mut cursor)?).ok()?;
+    let suppressed_downstream = usize::try_from(read_u64(&mut cursor)?).ok()?;
     let diagnostics_len = read_len(&mut cursor, encoded.len())?;
     let diagnostics_start = usize::try_from(cursor.position()).ok()?;
     let diagnostics_end = diagnostics_start.checked_add(diagnostics_len)?;
@@ -78,6 +80,7 @@ pub(crate) fn decode_check_certificate(
             checked_body_count,
             reachable_body_count,
             diagnostics,
+            suppressed_downstream,
         },
     )
 }

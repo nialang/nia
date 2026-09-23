@@ -10,7 +10,9 @@ pub(super) fn provide_checked_program(
         let mut diagnostics = early_program_diagnostics(db)?;
         let module_ids = db.get(CheckedModuleIdsQuery)?.as_ref().clone();
         let diagnostic_modules = materialize_checked_modules(db, module_ids)?;
-        diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules)?);
+        let (module_diagnostics, suppressed_downstream) =
+            checked_module_diagnostics(db, &diagnostic_modules)?;
+        diagnostics.extend(module_diagnostics);
         diagnostics.extend(time_provider(
             db.context().timings(),
             "checked_program.closure_safety",
@@ -21,6 +23,7 @@ pub(super) fn provide_checked_program(
             optimization,
             modules: diagnostic_modules,
             diagnostics,
+            suppressed_downstream,
         })
     })
 }
@@ -33,7 +36,9 @@ pub(super) fn provide_entry_checked_program(
         let optimization = *db.get(CompilerOptimizationQuery)?;
         let mut diagnostics = early_program_diagnostics(db)?;
         let diagnostic_modules = checked_modules_for_diagnostics(db)?;
-        diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules)?);
+        let (module_diagnostics, suppressed_downstream) =
+            checked_module_diagnostics(db, &diagnostic_modules)?;
+        diagnostics.extend(module_diagnostics);
         diagnostics.extend(time_provider(
             db.context().timings(),
             "entry_checked_program.closure_safety",
@@ -44,6 +49,7 @@ pub(super) fn provide_entry_checked_program(
             optimization,
             modules: diagnostic_modules,
             diagnostics,
+            suppressed_downstream,
         })
     })
 }
@@ -75,11 +81,12 @@ pub(in crate::query) fn provide_codegen_preparation(
             "codegen_preparation.checked_modules",
             || checked_modules_for_codegen(db),
         )?;
-        diagnostics.extend(time_provider(
+        let (module_diagnostics, suppressed_downstream) = time_provider(
             db.context().timings(),
             "codegen_preparation.checked_diagnostics",
             || checked_module_diagnostics(db, &modules),
-        )?);
+        )?;
+        diagnostics.extend(module_diagnostics);
         diagnostics.extend(time_provider(
             db.context().timings(),
             "codegen_preparation.closure_safety",
@@ -93,6 +100,7 @@ pub(in crate::query) fn provide_codegen_preparation(
                 modules,
                 monomorphization: Arc::new(empty_monomorphization()),
                 diagnostics,
+                suppressed_downstream,
             });
         }
         let monomorphization = db.get(MonomorphizationQuery)?;
@@ -113,6 +121,7 @@ pub(in crate::query) fn provide_codegen_preparation(
             modules,
             monomorphization: Arc::clone(&monomorphization.semantic),
             diagnostics,
+            suppressed_downstream,
         })
     })
 }
@@ -152,6 +161,7 @@ pub(super) fn provide_codegen_program(
             monomorphization: Arc::clone(&preparation.monomorphization),
             backend_lowering,
             diagnostics,
+            suppressed_downstream: preparation.suppressed_downstream,
         })
     })
 }

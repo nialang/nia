@@ -160,6 +160,8 @@ pub struct CheckedProgram {
     pub optimization: OptimizationPolicy,
     /// Diagnostics emitted during checking.
     pub diagnostics: Vec<ProgramDiagnostic>,
+    /// Number of downstream recovery diagnostics suppressed by phase gating.
+    pub suppressed_downstream: usize,
     checked_body_count: usize,
     reachable_body_count: usize,
 }
@@ -183,6 +185,8 @@ pub struct CheckedProgramAnalysis {
     pub optimization: OptimizationPolicy,
     pub modules: Vec<std::sync::Arc<CheckedModule>>,
     pub diagnostics: Vec<ProgramDiagnostic>,
+    /// Number of downstream recovery diagnostics suppressed by phase gating.
+    pub suppressed_downstream: usize,
 }
 
 impl CheckedProgramAnalysis {
@@ -196,6 +200,7 @@ impl CheckedProgramAnalysis {
             graph: self.graph,
             optimization: self.optimization,
             diagnostics: self.diagnostics,
+            suppressed_downstream: self.suppressed_downstream,
             checked_body_count,
             reachable_body_count: checked_body_count,
         }
@@ -217,6 +222,8 @@ pub struct CodegenPreparation {
     pub monomorphization: std::sync::Arc<Monomorphization>,
     /// Diagnostics accumulated before code generation.
     pub diagnostics: Vec<ProgramDiagnostic>,
+    /// Number of downstream recovery diagnostics suppressed by phase gating.
+    pub suppressed_downstream: usize,
 }
 
 /// Complete checked and backend-lowered compiler product.
@@ -236,6 +243,8 @@ pub struct CodegenProgram {
     pub backend_lowering: std::sync::Arc<BackendLowering>,
     /// Diagnostics accumulated through code generation preparation.
     pub diagnostics: Vec<ProgramDiagnostic>,
+    /// Number of downstream recovery diagnostics suppressed by phase gating.
+    pub suppressed_downstream: usize,
 }
 
 /// Per-module checked products shared by later compiler queries.

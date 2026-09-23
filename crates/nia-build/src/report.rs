@@ -135,10 +135,12 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
                 .iter()
                 .map(|diagnostic| diagnostic.diagnostic.clone())
                 .collect(),
-            nia_driver::DriverError::CodegenPreparationDiagnostics(diagnostics) => diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.diagnostic.clone())
-                .collect(),
+            nia_driver::DriverError::CodegenPreparationDiagnostics { diagnostics, .. } => {
+                diagnostics
+                    .iter()
+                    .map(|diagnostic| diagnostic.diagnostic.clone())
+                    .collect()
+            }
             nia_driver::DriverError::CodegenDiagnostics(diagnostics) => diagnostics.clone(),
             _ => vec![
                 Diagnostic::user_error(codes::BUILD_RUNNER, "could not compile the build runner")
@@ -217,10 +219,12 @@ fn coordinator_diagnostics(error: &CoordinatorError) -> Vec<Diagnostic> {
                 .iter()
                 .map(|diagnostic| diagnostic.diagnostic.clone())
                 .collect(),
-            nia_driver::DriverError::CodegenPreparationDiagnostics(diagnostics) => diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.diagnostic.clone())
-                .collect(),
+            nia_driver::DriverError::CodegenPreparationDiagnostics { diagnostics, .. } => {
+                diagnostics
+                    .iter()
+                    .map(|diagnostic| diagnostic.diagnostic.clone())
+                    .collect()
+            }
             nia_driver::DriverError::CodegenDiagnostics(diagnostics) => diagnostics.clone(),
             _ => vec![
                 Diagnostic::user_error(codes::BUILD_ACTION, "compiler action failed")

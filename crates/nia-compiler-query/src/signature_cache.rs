@@ -157,6 +157,7 @@ pub(crate) struct CachedCheckCertificate {
     pub(crate) checked_body_count: usize,
     pub(crate) reachable_body_count: usize,
     pub(crate) diagnostics: Vec<ProgramDiagnostic>,
+    pub(crate) suppressed_downstream: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -974,9 +974,15 @@ fn focus_build_script_diagnostics(error: DriverError, build_script: &SourcePath)
             focus_program_diagnostics(&mut program.diagnostics, build_script);
             DriverError::CodegenProgramDiagnostics(program)
         }
-        DriverError::CodegenPreparationDiagnostics(mut diagnostics) => {
+        DriverError::CodegenPreparationDiagnostics {
+            mut diagnostics,
+            suppressed_downstream,
+        } => {
             focus_program_diagnostics(&mut diagnostics, build_script);
-            DriverError::CodegenPreparationDiagnostics(diagnostics)
+            DriverError::CodegenPreparationDiagnostics {
+                diagnostics,
+                suppressed_downstream,
+            }
         }
         error => error,
     }

@@ -87,10 +87,11 @@ under each root, then independent errors. Suppression must say whether entries
 were duplicates, downstream consequences, or a display limit. The report must
 never present a generated wrapper before the source error that invalidated it.
 
-The report layer now keeps deterministic duplicate and display-limit counts,
-counts retained errors and warnings, and ranks source-owned primary spans ahead
-of generated wrappers. Explicit downstream-consequence suppression metadata and
-the full root/related/independent hierarchy remain to be completed.
+The report layer now keeps deterministic duplicate, downstream-consequence, and
+display-limit counts, counts retained errors and warnings, and ranks source-owned
+primary spans ahead of generated wrappers. Downstream suppression counts survive
+checked/codegen products and frontend check-certificate cache reuse. The full
+root/related/independent hierarchy remains to be completed.
 
 ### 5. CLI interaction contract
 

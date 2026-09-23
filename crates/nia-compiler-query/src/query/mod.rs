@@ -231,6 +231,7 @@ impl CompilerDatabase {
                 graph: self.current_graph()?,
                 optimization: self.current_optimization(),
                 diagnostics: certificate.diagnostics.clone(),
+                suppressed_downstream: certificate.suppressed_downstream,
                 checked_body_count: certificate.checked_body_count,
                 reachable_body_count: certificate.reachable_body_count,
             });
@@ -260,6 +261,7 @@ impl CompilerDatabase {
             checked_body_count: report.checked_body_count(),
             reachable_body_count: report.reachable_body_count(),
             diagnostics: report.diagnostics.clone(),
+            suppressed_downstream: report.suppressed_downstream,
         };
         let _ = cache.publish_check_certificate(
             context.identity(),

@@ -266,6 +266,7 @@ fn check_certificate_entry_identity_rejects_each_stale_field() {
     let certificate = CachedCheckCertificate {
         checked_body_count: 7,
         reachable_body_count: 5,
+        suppressed_downstream: 0,
         diagnostics: Vec::new(),
     };
     let encoded = encode_check_certificate(identity, &certificate).expect("encode certificate");

@@ -28,6 +28,7 @@ fn check_certificate_roundtrips_and_retires_corruption() {
     let certificate = CachedCheckCertificate {
         checked_body_count: 17,
         reachable_body_count: 13,
+        suppressed_downstream: 2,
         diagnostics: vec![ProgramDiagnostic {
             path: SourcePath::new("src/main.nia"),
             diagnostic: Diagnostic::user_error_at(
