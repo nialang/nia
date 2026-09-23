@@ -1,0 +1,30 @@
+path: fail/local_resolution_diagnostic/main.nia
+code: E0302
+summary: `self` cannot cross a closure boundary; bind it to a local and capture that local
+label: 102..106 Primary Source `self` cannot cross a closure boundary; bind it to a local and capture that local
+
+path: fail/local_resolution_diagnostic/main.nia
+code: E0201
+summary: no method receiver is available for `self`
+label: 102..106 Primary Source `self` requires a method receiver
+help: use `self` inside a method with a receiver, or pass a value as an explicit parameter
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: no method receiver is available for `self`
+  --> fail/local_resolution_diagnostic/main.nia:7:35
+  |
+7 |         let callback = \z: i32 -> self.value + z;
+  |                                   ^^^^ `self` requires a method receiver
+help: use `self` inside a method with a receiver, or pass a value as an explicit parameter
+
+root diagnostic:
+error[E0302]: `self` cannot cross a closure boundary; bind it to a local and capture that local
+  --> fail/local_resolution_diagnostic/main.nia:7:35
+  |
+7 |         let callback = \z: i32 -> self.value + z;
+  |                                   ^^^^ `self` cannot cross a closure boundary; bind it to a local and capture that local
+
+summary: 2 errors, 0 warnings
+note: suppressed 3 diagnostic(s) (0 duplicate(s), 3 downstream consequence(s), 0 over limit)

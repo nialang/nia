@@ -357,8 +357,18 @@ a generic qualified-expression error. Package-internal access remains valid.
 Package-restricted module namespaces now retain parent declaration visibility
 even when the dependency graph has not materialized a child module node; value
 and type paths report the actual package scope and source-owned declaration.
-The complete diagnostic rule set still needs equivalent fixture/snapshot
-coverage.
+Compiler check fixtures now exercise the registered frontend rule codes through
+E0501: parse recovery has source snapshots, name/type/signature resolution uses
+E0201-E0203, body/local/object-safety/type-check rules use
+E0301-E0304, and const/layout failures use E0401 and E0501. Recursive type
+normalization and object-safety each have dedicated source contracts rather
+than relying only on broad type-check assertions. Operational codes remain
+covered by their owning suites: target/toolchain and CLI usage by CLI tests,
+build-plan/runner/action and artifact I/O by build/report tests, and linker or
+LLVM failures by backend and linker tests. The remaining fixture work is
+cross-product coverage for those operational paths plus broader source-origin
+and recovery provenance; the code registry itself is not evidence that every
+combination of phase, source ownership, and suppression has been exercised.
 
 The broad workspace test, clippy, formatting, and CLI case suites remain
 mandatory for each stage.
