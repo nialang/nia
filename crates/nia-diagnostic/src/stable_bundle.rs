@@ -13,8 +13,8 @@ use nia_compat::formats::STABLE_DIAGNOSTIC_BUNDLE;
 use nia_span::Span;
 
 use crate::{
-    DebugField, Diagnostic, DiagnosticCode, DiagnosticLabel, DiagnosticSuggestion, LabelStyle,
-    MAX_DIAGNOSTIC_SUGGESTIONS, MAX_SUGGESTION_EDITS, RelatedDiagnostic, SpanSource,
+    DebugField, Diagnostic, DiagnosticCause, DiagnosticCode, DiagnosticLabel, DiagnosticSuggestion,
+    LabelStyle, MAX_DIAGNOSTIC_SUGGESTIONS, MAX_SUGGESTION_EDITS, RelatedDiagnostic, SpanSource,
     SuggestionApplicability, SuggestionEdit, codes,
 };
 
@@ -120,6 +120,15 @@ pub fn encode_stable_diagnostic_bundle(
             write_optional_string(&mut encoded, related.source_path.as_deref())?;
             write_string(&mut encoded, &related.message)?;
         }
+        match &diagnostic.cause {
+            Some(cause) => {
+                write_u8(&mut encoded, 1)?;
+                write_string(&mut encoded, &cause.source_path)?;
+                write_string(&mut encoded, &cause.code)?;
+                write_related_span(&mut encoded, cause.span)?;
+            }
+            None => write_u8(&mut encoded, 0)?,
+        }
         write_len(&mut encoded, diagnostic.debug.len())?;
         for field in diagnostic.debug.iter() {
             write_string(&mut encoded, &field.key)?;
@@ -210,6 +219,15 @@ pub fn decode_stable_diagnostic_bundle(
                 message: read_string(&mut cursor)?,
             });
         }
+        let cause = match read_u8(&mut cursor)? {
+            0 => None,
+            1 => Some(Box::new(DiagnosticCause {
+                source_path: read_string(&mut cursor)?,
+                code: read_string(&mut cursor)?,
+                span: read_related_span(&mut cursor)?,
+            })),
+            _ => return None,
+        };
         let debug_len = read_len(&mut cursor)?;
         let mut debug = decode_vec(debug_len);
         for _ in 0..debug_len {
@@ -228,6 +246,7 @@ pub fn decode_stable_diagnostic_bundle(
             help: Box::new(help),
             suggestions: Box::new(suggestions),
             related: Box::new(related),
+            cause,
             debug: Box::new(debug),
         });
     }
@@ -435,6 +454,7 @@ mod tests {
                 SuggestionApplicability::MachineApplicable,
             )
             .related_at("api.nia", Span::new(6, 8), "related")
+            .caused_by("main.nia", "E0301", Span::new(0, 1))
             .debug("owner", 7)
             .finish();
         diagnostic.labels[1].span_source = SpanSource::Generated;
