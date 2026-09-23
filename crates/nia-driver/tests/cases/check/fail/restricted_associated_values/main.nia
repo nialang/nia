@@ -1,0 +1,13 @@
+using dep::model;
+
+fn private_limit() usize {
+    model::Value::PRIVATE_LIMIT
+}
+
+fn parent_limit() usize {
+    model::Value::PARENT_LIMIT
+}
+
+fn package_limit() usize {
+    model::Value::PACKAGE_LIMIT
+}
