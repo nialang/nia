@@ -242,6 +242,13 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<FunctionItemRef> {
         let target_ty = self.associated_target_ty(ty_expr, expected, name)?;
         let candidates = self.method_candidates_for_target(target_ty, name);
+        if candidates.is_empty() {
+            let inaccessible = self.inaccessible_method_candidates_for_target(target_ty, name);
+            if !inaccessible.is_empty() {
+                self.report_inaccessible_extension_method(span, name, &inaccessible);
+                return None;
+            }
+        }
         let candidate = self.single_method_candidate(span, name, &candidates)?;
         let method_id = candidate.method.def_id;
         let resolved = self.resolved_function_signature(method_id)?;
