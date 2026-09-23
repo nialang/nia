@@ -1,0 +1,101 @@
+path: fail/recovery_expression_shapes/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 26..33 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+path: fail/recovery_expression_shapes/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 49..56 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+path: fail/recovery_expression_shapes/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 74..81 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+path: fail/recovery_expression_shapes/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 94..101 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+path: fail/recovery_expression_shapes/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 111..118 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+path: fail/recovery_expression_shapes/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 135..142 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+path: fail/recovery_expression_shapes/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 154..161 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/recovery_expression_shapes/main.nia:2:9
+  |
+2 |     _ = missing.field;
+  |         ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/recovery_expression_shapes/main.nia:3:9
+  |
+3 |     _ = missing[0usize];
+  |         ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/recovery_expression_shapes/main.nia:4:9
+  |
+4 |     _ = missing.*;
+  |         ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/recovery_expression_shapes/main.nia:5:10
+  |
+5 |     _ = &missing;
+  |          ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/recovery_expression_shapes/main.nia:6:9
+  |
+6 |     _ = missing as i32;
+  |         ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/recovery_expression_shapes/main.nia:7:9
+  |
+7 |     _ = missing.?;
+  |         ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/recovery_expression_shapes/main.nia:8:9
+  |
+8 |     _ = missing(1);
+  |         ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+summary: 7 errors, 0 warnings
