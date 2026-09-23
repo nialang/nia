@@ -378,7 +378,11 @@ unresolved value keeps only its name-resolution root.
 Qualified associated function-pointer references now reuse the restricted
 extension-method visibility contract used by calls, preserving the declaration
 location for private and restricted methods instead of silently returning a
-recovery type. Directly qualified private values and types now retain the owning
+recovery type. Cross-module free generic function pointers now retain the
+declaration's generic parameter identity. Missing explicit arguments produce the
+dedicated function-pointer diagnostic while explicit type arguments instantiate
+normally.
+Directly qualified private values and types now retain the owning
 dependency source path for their declaration locations instead of rendering those
 spans against the use-site file. The module graph exposes each module's source
 path

@@ -1,5 +1,9 @@
 module api;
 
 fn main() i32 {
+    let missing: &fn(i32) i32 = &api::identity;
+    let explicit: &fn(i32) i32 = &api::identity[i32];
+    _ = missing;
+    _ = explicit;
     api::comput()
 }

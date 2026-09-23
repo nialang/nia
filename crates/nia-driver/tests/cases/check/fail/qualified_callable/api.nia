@@ -1,3 +1,7 @@
 pub fn compute() i32 {
     42
 }
+
+pub fn identity[T](value: T) T {
+    value
+}

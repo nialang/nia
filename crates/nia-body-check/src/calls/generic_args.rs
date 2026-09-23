@@ -620,6 +620,20 @@ impl<'a> BodyChecker<'a> {
                 .unwrap_or_default();
             generics.extend(def.generics.clone());
         }
+        if generics.is_empty()
+            && def_id.module_id != self.defs.module_id
+            && let Some(signature) = self.program_signature_scope.function(def_id)
+        {
+            // External ordinary functions do not participate in the local
+            // extension index, but their generic parameters still define the
+            // function-pointer instantiation contract.
+            generics = signature
+                .signature
+                .generic_params
+                .iter()
+                .map(|param| param.name)
+                .collect();
+        }
         generics
     }
 
