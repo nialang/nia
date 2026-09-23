@@ -58,6 +58,18 @@ summary: unknown value `unknown_struct_missing`
 label: 828..850 Primary Source no value named `unknown_struct_missing` is visible in this scope
 help: check the spelling, import `unknown_struct_missing`, or declare it before this use
 
+path: fail/pattern_recovery/main.nia
+code: E0201
+summary: unknown value `range_missing`
+label: 944..957 Primary Source no value named `range_missing` is visible in this scope
+help: check the spelling, import `range_missing`, or declare it before this use
+
+path: fail/pattern_recovery/main.nia
+code: E0201
+summary: unknown value `range_start`
+label: 968..979 Primary Source no value named `range_start` is visible in this scope
+help: check the spelling, import `range_start`, or declare it before this use
+
 report:
 diagnostics:
 root diagnostic:
@@ -140,5 +152,21 @@ error[E0201]: unknown value `unknown_struct_missing`
    |           ^^^^^^^^^^^^^^^^^^^^^^ no value named `unknown_struct_missing` is visible in this scope
 help: check the spelling, import `unknown_struct_missing`, or declare it before this use
 
-summary: 10 errors, 0 warnings
+root diagnostic:
+error[E0201]: unknown value `range_missing`
+   --> fail/pattern_recovery/main.nia:60:11
+   |
+60 |     match range_missing {
+   |           ^^^^^^^^^^^^^ no value named `range_missing` is visible in this scope
+help: check the spelling, import `range_missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `range_start`
+   --> fail/pattern_recovery/main.nia:61:9
+   |
+61 |         range_start..3 => {}
+   |         ^^^^^^^^^^^ no value named `range_start` is visible in this scope
+help: check the spelling, import `range_start`, or declare it before this use
+
+summary: 12 errors, 0 warnings
 note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)

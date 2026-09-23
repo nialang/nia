@@ -1539,18 +1539,36 @@ fn invalid() () {
     match missing {
         GhostStruct { field } => { _ = field; }
     }
+    match missing {
+        missing_start..3 => {}
+    }
 }
 "#,
     );
 
-    assert_eq!(checked.diagnostics.len(), 11, "{:?}", checked.diagnostics);
+    assert_eq!(checked.diagnostics.len(), 13, "{:?}", checked.diagnostics);
     assert_eq!(
         checked
             .diagnostics
             .iter()
             .filter(|diagnostic| diagnostic.summary.contains("unknown value `missing`"))
             .count(),
-        10,
+        11,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("unknown value `missing_start`")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().all(|diagnostic| !diagnostic
+            .summary
+            .contains("range start must be a compile-time integer constant")),
         "{:?}",
         checked.diagnostics
     );

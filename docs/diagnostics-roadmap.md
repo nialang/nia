@@ -190,7 +190,9 @@ equivalent source coverage.
 Error recovery targets in optional, error-union, tuple, pointer, and null
 patterns now suppress target-shape and match-coverage consequences while
 independent errors in the arm bodies remain checkable; an end-to-end snapshot
-pins this behavior.
+pins this behavior. Range patterns also continue resolving both bounds against
+an error target, while skipping compile-time constant and coverage checks that
+would only describe the recovery type.
 A private-using fixture verifies related locations in a clean dependency whose
 declaration is on a different line from the primary use site. Renderer tests
 cover available and unavailable related sources and explicit same-file paths.
