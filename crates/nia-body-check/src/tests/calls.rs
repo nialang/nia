@@ -1291,6 +1291,46 @@ fn invalid() usize {
 }
 
 #[test]
+fn builtins_do_not_reject_structural_error_recovery_types() {
+    let checked = pipeline(
+        r#"
+fn invalid() () {
+    _ = std::builtin::extract(&missing_vector, 0usize);
+    _ = std::builtin::bitmask([missing_mask]);
+    _ = std::builtin::loadUnaligned[i32](&missing_pointer);
+    _ = std::builtin::sliceLen(&missing_slice);
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    for name in [
+        "missing_vector",
+        "missing_mask",
+        "missing_pointer",
+        "missing_slice",
+    ] {
+        assert!(
+            summaries
+                .iter()
+                .any(|summary| summary.contains(&format!("unknown value `{name}`"))),
+            "missing {name} root: {summaries:?}"
+        );
+    }
+    assert!(
+        summaries.iter().all(|summary| {
+            !summary.contains("requires a SIMD")
+                && !summary.contains("requires a byte pointer")
+                && !summary.contains("requires a slice pointer")
+        }),
+        "{summaries:?}"
+    );
+}
+
+#[test]
 fn simd_builtin_type_argument_rejects_a_resolved_const_value() {
     let checked = pipeline(
         r#"

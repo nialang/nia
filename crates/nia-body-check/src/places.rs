@@ -254,7 +254,7 @@ impl<'a> BodyChecker<'a> {
             Vec::new(),
         );
         match self.interner.get(ty) {
-            Some(TyKind::Error) => None,
+            Some(_) if self.is_error_recovery_ty(ty) => None,
             Some(_) if has_deref => None,
             Some(_) => Some("expression does not implement Deref"),
             None => Some("pointer type is not known"),
@@ -371,7 +371,7 @@ impl<'a> BodyChecker<'a> {
             Vec::new(),
         );
         match self.interner.get(ty) {
-            Some(TyKind::Error) => None,
+            Some(_) if self.is_error_recovery_ty(ty) => None,
             Some(_) if has_deref => None,
             Some(TyKind::Pointer {
                 is_readonly: true, ..
@@ -455,7 +455,7 @@ impl<'a> BodyChecker<'a> {
         is_readonly: bool,
         range_ty: InternedTyId,
     ) -> InternedTyId {
-        if self.is_error_ty(lhs_ty) {
+        if self.is_error_recovery_ty(lhs_ty) {
             return self.error();
         }
         if is_readonly {
@@ -522,7 +522,7 @@ impl<'a> BodyChecker<'a> {
         lhs_ty: InternedTyId,
         index_ty: InternedTyId,
     ) -> InternedTyId {
-        if self.is_error_ty(lhs_ty) {
+        if self.is_error_recovery_ty(lhs_ty) {
             return self.error();
         }
         let trait_args = vec![index_ty];
@@ -555,7 +555,7 @@ impl<'a> BodyChecker<'a> {
         lhs_ty: InternedTyId,
         index_ty: InternedTyId,
     ) -> InternedTyId {
-        if self.is_error_ty(lhs_ty) {
+        if self.is_error_recovery_ty(lhs_ty) {
             return self.error();
         }
         let trait_args = vec![index_ty];
@@ -689,7 +689,7 @@ impl<'a> BodyChecker<'a> {
             vec![index_ty],
         );
         match self.interner.get(self.normalization.normalize(lhs_ty)) {
-            Some(TyKind::Error) => None,
+            Some(_) if self.is_error_recovery_ty(lhs_ty) => None,
             Some(_) if has_index => None,
             Some(TyKind::Pointer {
                 is_readonly: true, ..
@@ -710,6 +710,9 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(BuiltinTrait::Deref),
             Vec::new(),
         );
+        if self.is_error_recovery_ty(ty) {
+            return self.error();
+        }
         match self.expect_ty_kind(ty) {
             TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }
                 if matches!(
@@ -724,7 +727,6 @@ impl<'a> BodyChecker<'a> {
                 ));
                 self.error()
             }
-            TyKind::Error => self.error(),
             _ if has_deref => {
                 self.record_builtin_trait_method_ref(BuiltinTraitMethod::Deref, ty, Vec::new());
                 let target = self.interner.intern(TyKind::Projection {
@@ -757,6 +759,9 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(BuiltinTrait::DerefMut),
             Vec::new(),
         );
+        if self.is_error_recovery_ty(ty) {
+            return self.error();
+        }
         match self.expect_ty_kind(ty) {
             TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }
                 if matches!(
@@ -771,7 +776,6 @@ impl<'a> BodyChecker<'a> {
                 ));
                 self.error()
             }
-            TyKind::Error => self.error(),
             _ if has_deref => {
                 self.record_builtin_trait_method_ref(BuiltinTraitMethod::DerefMut, ty, Vec::new());
                 let target = self.interner.intern(TyKind::Projection {

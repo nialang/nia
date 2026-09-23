@@ -150,7 +150,7 @@ impl<'a> BodyChecker<'a> {
             } else {
                 if let Some(expr) = &arg.expr {
                     let expr_ty = self.check_expr(expr);
-                    if !self.is_error_ty(expr_ty) {
+                    if !self.is_error_recovery_ty(expr_ty) {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
                             arg.span,
@@ -175,7 +175,7 @@ impl<'a> BodyChecker<'a> {
         arg: &BracketArg,
     ) -> InternedTyId {
         let lowered = self.ty_for_type(ty);
-        if !self.is_error_ty(lowered)
+        if !self.is_error_recovery_ty(lowered)
             || !self
                 .type_resolution
                 .unresolved_type_candidates
@@ -307,7 +307,7 @@ impl<'a> BodyChecker<'a> {
                     } else {
                         if let Some(expr) = &arg.expr {
                             let expr_ty = self.check_expr(expr);
-                            if self.is_error_ty(expr_ty) {
+                            if self.is_error_recovery_ty(expr_ty) {
                                 // The expression already owns the source error;
                                 // do not replace it with a generic category error.
                                 return None;

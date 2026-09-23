@@ -15,7 +15,7 @@ impl BodyChecker<'_> {
         target_ty: InternedTyId,
         matrix: &[Vec<AnalysisPattern<PatternConstructor>>],
     ) {
-        if self.is_error_ty(target_ty) {
+        if self.is_error_recovery_ty(target_ty) {
             return;
         }
         // The pure matrix engine receives only constructors whose type/domain

@@ -2,6 +2,39 @@
 use super::common::*;
 
 #[test]
+fn place_operations_do_not_reject_structural_error_recovery_types() {
+    let checked = pipeline(
+        r#"
+fn invalid() () {
+    _ = (&missing_index)[0usize];
+    _ = (&missing_deref).*;
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    for name in ["missing_index", "missing_deref"] {
+        assert!(
+            summaries
+                .iter()
+                .any(|summary| summary.contains(&format!("unknown value `{name}`"))),
+            "missing {name} root: {summaries:?}"
+        );
+    }
+    assert!(
+        summaries.iter().all(|summary| {
+            !summary.contains("does not implement Index")
+                && !summary.contains("does not implement Deref")
+                && !summary.contains("requires an index")
+        }),
+        "{summaries:?}"
+    );
+}
+
+#[test]
 fn constrained_index_uses_the_trait_index_type() {
     let checked = pipeline(
         r#"

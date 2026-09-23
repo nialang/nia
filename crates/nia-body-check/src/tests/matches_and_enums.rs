@@ -1621,6 +1621,60 @@ fn invalid() () {
 }
 
 #[test]
+fn structural_error_recovery_targets_do_not_run_pattern_shape_checks() {
+    let checked = pipeline(
+        r#"
+fn invalid() () {
+    match (missing_tuple, 1i32) {
+        (left, right) => { _ = left; _ = right; }
+    }
+    match &missing_pointer {
+        &value => { _ = value; }
+    }
+    match &missing_pointer_pattern {
+        ?value => { _ = value; }
+    }
+    match (missing_union_pattern, 1i32) {
+        !value => { _ = value; }
+    }
+    match (missing_range, 1i32) {
+        0i32..3i32 => {}
+    }
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    for name in [
+        "missing_tuple",
+        "missing_pointer",
+        "missing_pointer_pattern",
+        "missing_union_pattern",
+        "missing_range",
+    ] {
+        assert!(
+            summaries
+                .iter()
+                .any(|summary| summary.contains(&format!("unknown value `{name}`"))),
+            "missing {name} root: {summaries:?}"
+        );
+    }
+    assert!(
+        summaries.iter().all(|summary| {
+            !summary.contains("requires a tuple target")
+                && !summary.contains("requires a pointer target")
+                && !summary.contains("range requires an integer target")
+                && !summary.contains("non-exhaustive")
+                && !summary.contains("unreachable")
+        }),
+        "{summaries:?}"
+    );
+}
+
+#[test]
 fn struct_destructuring_does_not_reject_error_recovery_targets() {
     let checked = pipeline(
         r#"

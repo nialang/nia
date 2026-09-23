@@ -344,6 +344,7 @@ impl<'a> BodyChecker<'a> {
         } else {
             let actual = self.check_expr(&args[0]);
             match self.interner.get(self.normalization.normalize(actual)) {
+                Some(TyKind::Pointer { .. }) if self.is_error_recovery_ty(actual) => {}
                 Some(TyKind::Pointer { elem, .. }) => {
                     if let Some(TyKind::Slice { elem, .. }) =
                         self.interner.get(self.normalization.normalize(*elem))
@@ -358,7 +359,7 @@ impl<'a> BodyChecker<'a> {
                         ));
                     }
                 }
-                Some(TyKind::Error) => {}
+                Some(_) if self.is_error_recovery_ty(actual) => {}
                 Some(_) => self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     args[0].span,
@@ -430,7 +431,7 @@ impl<'a> BodyChecker<'a> {
                     ));
                     return None;
                 }
-                if self.is_error_ty(lowered[0]) {
+                if self.is_error_recovery_ty(lowered[0]) {
                     return None;
                 }
                 Some(CheckedBuiltinTypeArg {
@@ -500,7 +501,7 @@ impl<'a> BodyChecker<'a> {
                     ));
                     return None;
                 }
-                if self.is_error_ty(lowered[0]) {
+                if self.is_error_recovery_ty(lowered[0]) {
                     return None;
                 }
                 Some(CheckedBuiltinTypeArg {
@@ -789,7 +790,7 @@ impl<'a> BodyChecker<'a> {
         }
         let vector_ty = self.check_expr(&args[0]);
         match self.interner.get(vector_ty).cloned() {
-            Some(TyKind::Error) => {}
+            Some(_) if self.is_error_recovery_ty(vector_ty) => {}
             Some(TyKind::Vector {
                 elem: PrimitiveTy::Bool,
                 lanes,
@@ -868,7 +869,7 @@ impl<'a> BodyChecker<'a> {
         let u8_ty = self.primitive(PrimitiveTy::U8);
         match self.interner.get(ptr_ty).cloned() {
             Some(TyKind::Pointer { elem, .. }) if self.types_match(elem, u8_ty) => {}
-            Some(TyKind::Error) => {}
+            Some(_) if self.is_error_recovery_ty(ptr_ty) => {}
             Some(_) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
@@ -942,7 +943,7 @@ impl<'a> BodyChecker<'a> {
     fn vector_lane_ty(&mut self, span: Span, name: &str, vector_ty: InternedTyId) -> InternedTyId {
         match self.interner.get(vector_ty).cloned() {
             Some(TyKind::Vector { elem, .. }) => self.primitive(elem),
-            Some(TyKind::Error) => self.error(),
+            Some(_) if self.is_error_recovery_ty(vector_ty) => self.error(),
             Some(_) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
@@ -1114,7 +1115,7 @@ impl<'a> BodyChecker<'a> {
                 });
                 Some((elem, expected))
             }
-            Some(TyKind::Error) => None,
+            Some(_) if self.is_error_recovery_ty(actual) => None,
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
@@ -1188,7 +1189,7 @@ impl<'a> BodyChecker<'a> {
         }
         self.check_atomic_value_type(builtin_span, name, ty);
         self.check_atomic_ptr_arg(&args[0], ty, false, name);
-        if self.is_error_ty(ty) {
+        if self.is_error_recovery_ty(ty) {
             self.check_expr(&args[1]);
         } else {
             let value_actual = self.check_expr_with_expected(&args[1], Some(ty));
@@ -1228,7 +1229,7 @@ impl<'a> BodyChecker<'a> {
         self.check_atomic_value_type(builtin_span, name, ty);
         self.check_atomic_ptr_arg(&args[0], ty, false, name);
         self.check_atomic_rmw_op_arg(&args[1], name, ty);
-        if self.is_error_ty(ty) {
+        if self.is_error_recovery_ty(ty) {
             self.check_expr(&args[2]);
         } else {
             let value_actual = self.check_expr_with_expected(&args[2], Some(ty));
@@ -1264,7 +1265,7 @@ impl<'a> BodyChecker<'a> {
         }
         self.check_atomic_value_type(builtin_span, name, ty);
         self.check_atomic_ptr_arg(&args[0], ty, false, name);
-        if self.is_error_ty(ty) {
+        if self.is_error_recovery_ty(ty) {
             self.check_expr(&args[1]);
             self.check_expr(&args[2]);
         } else {
@@ -1328,10 +1329,11 @@ impl<'a> BodyChecker<'a> {
         allow_readonly: bool,
         name: &str,
     ) {
-        if self.is_error_ty(ty) {
+        if self.is_error_recovery_ty(ty) {
             let actual = self.normalization.normalize(self.check_expr(expr));
             match self.interner.get(actual) {
-                Some(TyKind::Pointer { .. } | TyKind::Error) => {}
+                Some(TyKind::Pointer { .. }) => {}
+                Some(_) if self.is_error_recovery_ty(actual) => {}
                 _ => self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     expr.span,
@@ -1358,7 +1360,7 @@ impl<'a> BodyChecker<'a> {
                     format!("builtin `{name}` pointer argument must be mutable"),
                 ));
             }
-            Some(TyKind::Error) => {}
+            Some(_) if self.is_error_recovery_ty(actual) => {}
             _ => {
                 self.expect_expr_type(expr, expected, actual, "atomic pointer argument");
             }
@@ -1366,7 +1368,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_atomic_value_type(&mut self, span: Span, name: &str, ty: InternedTyId) {
-        if self.is_error_ty(ty) {
+        if self.is_error_recovery_ty(ty) {
             return;
         }
         let ty = self.normalization.normalize(ty);
@@ -1499,8 +1501,10 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn atomic_rmw_integer_like(&self, ty: InternedTyId) -> bool {
+        if self.is_error_recovery_ty(ty) {
+            return true;
+        }
         match self.interner.get(self.normalization.normalize(ty)) {
-            Some(TyKind::Error) => true,
             Some(TyKind::GenericParam(_)) => true,
             Some(TyKind::Primitive(
                 PrimitiveTy::Bool
