@@ -10,7 +10,7 @@
 use std::alloc::System;
 use std::{
     env, fmt, fs, io,
-    io::Write,
+    io::{IsTerminal, Write},
     num::NonZeroUsize,
     path::{Path, PathBuf},
     process::ExitCode,
@@ -73,11 +73,55 @@ fn write_stdout(args: fmt::Arguments<'_>) -> ExitCode {
 
 fn report_cli_error(message: &str, help: HelpTopic, diagnostics_format: DiagnosticsFormat) {
     let rendered = render_cli_invocation_error(message, help, diagnostics_format);
-    eprint!("{rendered}");
+    write_diagnostic_report(&rendered, diagnostics_format);
     if diagnostics_format == DiagnosticsFormat::Text {
         eprintln!();
         eprint!("{}", error_help_text(help, HelpStyle::for_stderr()));
     }
+}
+
+fn write_diagnostic_report(rendered: &str, format: DiagnosticsFormat) {
+    if format == DiagnosticsFormat::Text && io::stderr().is_terminal() {
+        eprint!("{}", colorize_diagnostic_report(rendered));
+    } else {
+        eprint!("{rendered}");
+    }
+}
+
+fn colorize_diagnostic_report(rendered: &str) -> String {
+    const RESET: &str = "\x1b[0m";
+    const RED: &str = "\x1b[1;31m";
+    const YELLOW: &str = "\x1b[1;33m";
+    const CYAN: &str = "\x1b[36m";
+    const BLUE: &str = "\x1b[34m";
+    const GREEN: &str = "\x1b[32m";
+    const MAGENTA: &str = "\x1b[35m";
+    let mut output = String::with_capacity(rendered.len() + rendered.len() / 4);
+    for line in rendered.split_inclusive('\n') {
+        let color = if line.starts_with("error") {
+            RED
+        } else if line.starts_with("warning") {
+            YELLOW
+        } else if line.starts_with("  -->") {
+            CYAN
+        } else if line.starts_with("note:") {
+            BLUE
+        } else if line.starts_with("help:") || line.starts_with("suggestion") {
+            GREEN
+        } else if line.starts_with("related:") {
+            MAGENTA
+        } else {
+            ""
+        };
+        if color.is_empty() {
+            output.push_str(line);
+        } else {
+            output.push_str(color);
+            output.push_str(line);
+            output.push_str(RESET);
+        }
+    }
+    output
 }
 
 fn requested_diagnostics_format(args: &[String]) -> DiagnosticsFormat {
@@ -283,13 +327,13 @@ fn run_cli(cli: Cli) -> ExitCode {
     let toolchain = match resolve_toolchain_layout(cli.resource_root) {
         Ok(toolchain) => toolchain,
         Err(message) => {
-            eprint!(
-                "{}",
-                render_cli_boundary_error(
+            write_diagnostic_report(
+                &render_cli_boundary_error(
                     nia_diagnostic::codes::TOOLCHAIN,
                     &message,
                     diagnostics_format,
-                )
+                ),
+                diagnostics_format,
             );
             return ExitCode::FAILURE;
         }
@@ -341,13 +385,13 @@ fn run_cli(cli: Cli) -> ExitCode {
             let path = match resolve_source_entry(&path) {
                 Ok(path) => path,
                 Err(message) => {
-                    eprint!(
-                        "{}",
-                        render_cli_boundary_error(
+                    write_diagnostic_report(
+                        &render_cli_boundary_error(
                             nia_diagnostic::codes::LOAD,
                             &message,
                             diagnostics_format,
-                        )
+                        ),
+                        diagnostics_format,
                     );
                     return ExitCode::FAILURE;
                 }
@@ -355,13 +399,13 @@ fn run_cli(cli: Cli) -> ExitCode {
             let source = match read_source(&path) {
                 Ok(source) => source,
                 Err(message) => {
-                    eprint!(
-                        "{}",
-                        render_cli_boundary_error(
+                    write_diagnostic_report(
+                        &render_cli_boundary_error(
                             nia_diagnostic::codes::LOAD,
                             &message,
                             diagnostics_format,
-                        )
+                        ),
+                        diagnostics_format,
                     );
                     return ExitCode::FAILURE;
                 }
@@ -369,13 +413,13 @@ fn run_cli(cli: Cli) -> ExitCode {
             let package_root = match discover_package_root(&path) {
                 Ok(package_root) => package_root,
                 Err(message) => {
-                    eprint!(
-                        "{}",
-                        render_cli_boundary_error(
+                    write_diagnostic_report(
+                        &render_cli_boundary_error(
                             nia_diagnostic::codes::LOAD,
                             &message,
                             diagnostics_format,
-                        )
+                        ),
+                        diagnostics_format,
                     );
                     return ExitCode::FAILURE;
                 }
@@ -405,13 +449,13 @@ fn run_cli(cli: Cli) -> ExitCode {
             let path = match resolve_source_entry(&path) {
                 Ok(path) => path,
                 Err(message) => {
-                    eprint!(
-                        "{}",
-                        render_cli_boundary_error(
+                    write_diagnostic_report(
+                        &render_cli_boundary_error(
                             nia_diagnostic::codes::LOAD,
                             &message,
                             diagnostics_format,
-                        )
+                        ),
+                        diagnostics_format,
                     );
                     return ExitCode::FAILURE;
                 }
@@ -419,13 +463,13 @@ fn run_cli(cli: Cli) -> ExitCode {
             let source = match read_source(&path) {
                 Ok(source) => source,
                 Err(message) => {
-                    eprint!(
-                        "{}",
-                        render_cli_boundary_error(
+                    write_diagnostic_report(
+                        &render_cli_boundary_error(
                             nia_diagnostic::codes::LOAD,
                             &message,
                             diagnostics_format,
-                        )
+                        ),
+                        diagnostics_format,
                     );
                     return ExitCode::FAILURE;
                 }
@@ -433,13 +477,13 @@ fn run_cli(cli: Cli) -> ExitCode {
             let package_root = match discover_package_root(&path) {
                 Ok(package_root) => package_root,
                 Err(message) => {
-                    eprint!(
-                        "{}",
-                        render_cli_boundary_error(
+                    write_diagnostic_report(
+                        &render_cli_boundary_error(
                             nia_diagnostic::codes::LOAD,
                             &message,
                             diagnostics_format,
-                        )
+                        ),
+                        diagnostics_format,
                     );
                     return ExitCode::FAILURE;
                 }
@@ -1485,9 +1529,9 @@ fn run_parse(path: &str, source: &str, diagnostics_format: DiagnosticsFormat) ->
         return status;
     }
     if !inspection.parse_errors.is_empty() {
-        eprint!(
-            "{}",
-            render_parse_failure(path, source, &inspection.parse_errors, diagnostics_format)
+        write_diagnostic_report(
+            &render_parse_failure(path, source, &inspection.parse_errors, diagnostics_format),
+            diagnostics_format,
         );
         return ExitCode::FAILURE;
     }
@@ -1548,14 +1592,14 @@ fn run_check(
     let runtime = match options.runtime.resolve(&toolchain) {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprint!(
-                "{}",
-                render_driver_failure(
+            write_diagnostic_report(
+                &render_driver_failure(
                     &nia_driver::DriverError::Runtime(error),
                     Some(path),
                     Some(source),
                     options.diagnostics_format,
-                )
+                ),
+                options.diagnostics_format,
             );
             return ExitCode::FAILURE;
         }
@@ -1638,9 +1682,9 @@ fn checked_program_from_output(
             Ok(program)
         }
         Err(error) => {
-            eprint!(
-                "{}",
-                render_driver_failure(&error, Some(path), Some(source), diagnostics_format,)
+            write_diagnostic_report(
+                &render_driver_failure(&error, Some(path), Some(source), diagnostics_format),
+                diagnostics_format,
             );
             Err(ExitCode::FAILURE)
         }
@@ -1674,9 +1718,9 @@ fn codegen_program_from_output(
             Ok(program)
         }
         Err(error) => {
-            eprint!(
-                "{}",
-                render_driver_failure(&error, Some(path), Some(source), diagnostics_format,)
+            write_diagnostic_report(
+                &render_driver_failure(&error, Some(path), Some(source), diagnostics_format),
+                diagnostics_format,
             );
             Err(ExitCode::FAILURE)
         }
@@ -1700,7 +1744,7 @@ fn print_check_warnings(
             }
             DiagnosticsFormat::Json => nia_driver::render_program_warnings_json(program),
         };
-        eprint!("{rendered}");
+        write_diagnostic_report(&rendered, diagnostics_format);
     }
 }
 
@@ -1721,7 +1765,7 @@ fn print_codegen_warnings(
             }
             DiagnosticsFormat::Json => nia_driver::render_codegen_program_warnings_json(program),
         };
-        eprint!("{rendered}");
+        write_diagnostic_report(&rendered, diagnostics_format);
     }
 }
 
@@ -1799,7 +1843,7 @@ fn run_build(context: BuildContext) -> ExitCode {
                 DiagnosticsFormat::Text => nia_build::render_build_error(&error, None, None),
                 DiagnosticsFormat::Json => nia_build::render_build_error_json(&error),
             };
-            eprint!("{rendered}");
+            write_diagnostic_report(&rendered, diagnostics_format);
             ExitCode::FAILURE
         }
     }
@@ -1857,7 +1901,7 @@ fn run_test(context: TestContext) -> ExitCode {
                 DiagnosticsFormat::Text => nia_build::render_build_error(&error, None, None),
                 DiagnosticsFormat::Json => nia_build::render_build_error_json(&error),
             };
-            eprint!("{rendered}");
+            write_diagnostic_report(&rendered, diagnostics_format);
             ExitCode::FAILURE
         }
     }
@@ -1887,14 +1931,14 @@ fn run_emit_checked(
     let runtime = match runtime.resolve(&context.toolchain) {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprint!(
-                "{}",
-                render_driver_failure(
+            write_diagnostic_report(
+                &render_driver_failure(
                     &nia_driver::DriverError::Runtime(error),
                     Some(path),
                     Some(source),
                     context.diagnostics_format,
-                )
+                ),
+                context.diagnostics_format,
             );
             return ExitCode::FAILURE;
         }
@@ -1930,14 +1974,14 @@ fn run_emit_backend(
     let runtime = match runtime.resolve(&context.toolchain) {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprint!(
-                "{}",
-                render_driver_failure(
+            write_diagnostic_report(
+                &render_driver_failure(
                     &nia_driver::DriverError::Runtime(error),
                     Some(path),
                     Some(source),
                     context.diagnostics_format,
-                )
+                ),
+                context.diagnostics_format,
             );
             return ExitCode::FAILURE;
         }
@@ -1972,14 +2016,14 @@ fn run_emit_llvm(path: &str, source: &str, runtime: RuntimeMode, context: EmitCo
     let runtime = match runtime.resolve(&context.toolchain) {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprint!(
-                "{}",
-                render_driver_failure(
+            write_diagnostic_report(
+                &render_driver_failure(
                     &nia_driver::DriverError::Runtime(error),
                     Some(path),
                     Some(source),
                     context.diagnostics_format,
-                )
+                ),
+                context.diagnostics_format,
             );
             return ExitCode::FAILURE;
         }
@@ -1997,9 +2041,9 @@ fn run_emit_llvm(path: &str, source: &str, runtime: RuntimeMode, context: EmitCo
     });
     match output.result {
         Ok(artifact) => {
-            eprint!(
-                "{}",
-                nia_driver::render_llvm_ir_warnings(&artifact, Some(path), Some(source))
+            write_diagnostic_report(
+                &nia_driver::render_llvm_ir_warnings(&artifact, Some(path), Some(source)),
+                context.diagnostics_format,
             );
             if context.opt_report {
                 eprint!("{}", nia_driver::llvm_ir_optimization_report(&artifact));
@@ -2013,9 +2057,14 @@ fn run_emit_llvm(path: &str, source: &str, runtime: RuntimeMode, context: EmitCo
             ExitCode::SUCCESS
         }
         Err(error) => {
-            eprint!(
-                "{}",
-                render_driver_failure(&error, Some(path), Some(source), context.diagnostics_format,)
+            write_diagnostic_report(
+                &render_driver_failure(
+                    &error,
+                    Some(path),
+                    Some(source),
+                    context.diagnostics_format,
+                ),
+                context.diagnostics_format,
             );
             ExitCode::FAILURE
         }
@@ -2026,13 +2075,13 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
     let options = match parse_emit_obj_options(path, args) {
         Ok(options) => options,
         Err(message) => {
-            eprint!(
-                "{}",
-                render_cli_boundary_error(
+            write_diagnostic_report(
+                &render_cli_boundary_error(
                     nia_diagnostic::codes::TARGET_CONFIG,
                     &message,
                     context.diagnostics_format,
-                )
+                ),
+                context.diagnostics_format,
             );
             return ExitCode::FAILURE;
         }
@@ -2040,14 +2089,14 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
     let runtime = match options.runtime.resolve(&context.toolchain) {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprint!(
-                "{}",
-                render_driver_failure(
+            write_diagnostic_report(
+                &render_driver_failure(
                     &nia_driver::DriverError::Runtime(error),
                     Some(path),
                     Some(source),
                     context.diagnostics_format,
-                )
+                ),
+                context.diagnostics_format,
             );
             return ExitCode::FAILURE;
         }
@@ -2069,17 +2118,22 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
     let objects = match output.result {
         Ok(objects) => objects,
         Err(error) => {
-            eprint!(
-                "{}",
-                render_driver_failure(&error, Some(path), Some(source), context.diagnostics_format,)
+            write_diagnostic_report(
+                &render_driver_failure(
+                    &error,
+                    Some(path),
+                    Some(source),
+                    context.diagnostics_format,
+                ),
+                context.diagnostics_format,
             );
             return ExitCode::FAILURE;
         }
     };
     if !objects.diagnostics.is_empty() {
-        eprint!(
-            "{}",
-            nia_driver::render_object_warnings(&objects, Some(path), Some(source))
+        write_diagnostic_report(
+            &nia_driver::render_object_warnings(&objects, Some(path), Some(source)),
+            context.diagnostics_format,
         );
     }
     if context.opt_report {
@@ -2090,9 +2144,14 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
     match output.result {
         Ok(_) => ExitCode::SUCCESS,
         Err(error) => {
-            eprint!(
-                "{}",
-                render_driver_failure(&error, Some(path), Some(source), context.diagnostics_format,)
+            write_diagnostic_report(
+                &render_driver_failure(
+                    &error,
+                    Some(path),
+                    Some(source),
+                    context.diagnostics_format,
+                ),
+                context.diagnostics_format,
             );
             ExitCode::FAILURE
         }
@@ -2103,13 +2162,13 @@ fn run_emit_exe(path: &str, source: &str, args: Vec<String>, context: EmitContex
     let options = match parse_emit_exe_options(path, args) {
         Ok(options) => options,
         Err(message) => {
-            eprint!(
-                "{}",
-                render_cli_boundary_error(
+            write_diagnostic_report(
+                &render_cli_boundary_error(
                     nia_diagnostic::codes::TARGET_CONFIG,
                     &message,
                     context.diagnostics_format,
-                )
+                ),
+                context.diagnostics_format,
             );
             return ExitCode::FAILURE;
         }
@@ -2133,17 +2192,22 @@ fn run_emit_exe(path: &str, source: &str, args: Vec<String>, context: EmitContex
     let executable = match output.result {
         Ok(executable) => executable,
         Err(error) => {
-            eprint!(
-                "{}",
-                render_driver_failure(&error, Some(path), Some(source), context.diagnostics_format,)
+            write_diagnostic_report(
+                &render_driver_failure(
+                    &error,
+                    Some(path),
+                    Some(source),
+                    context.diagnostics_format,
+                ),
+                context.diagnostics_format,
             );
             return ExitCode::FAILURE;
         }
     };
     if !executable.diagnostics.is_empty() {
-        eprint!(
-            "{}",
-            nia_driver::render_executable_warnings(&executable, Some(path), Some(source))
+        write_diagnostic_report(
+            &nia_driver::render_executable_warnings(&executable, Some(path), Some(source)),
+            context.diagnostics_format,
         );
     }
     if context.opt_report {
@@ -2878,5 +2942,16 @@ mod tests {
         );
         assert!(json.contains("\"code\":\"E0105\""), "{json}");
         assert!(json.contains("run `nia help`"), "{json}");
+    }
+
+    #[test]
+    fn interactive_text_reports_color_only_diagnostic_sections() {
+        let rendered = "error[E0101]: bad input\n  --> main.nia:1:1\nnote: context\nhelp: fix it\n";
+        let colored = colorize_diagnostic_report(rendered);
+        assert!(colored.contains("\x1b[1;31merror[E0101]"), "{colored:?}");
+        assert!(colored.contains("\x1b[36m  --> main.nia"), "{colored:?}");
+        assert!(colored.contains("\x1b[34mnote: context"), "{colored:?}");
+        assert!(colored.contains("\x1b[32mhelp: fix it"), "{colored:?}");
+        assert!(colored.contains("\x1b[0m"), "{colored:?}");
     }
 }

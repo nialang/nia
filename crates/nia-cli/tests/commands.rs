@@ -190,6 +190,34 @@ fn main() () {}
 }
 
 #[test]
+fn captured_diagnostic_reports_remain_deterministic_without_ansi() {
+    let root = temp_dir("captured_diagnostic_reports_remain_deterministic_without_ansi");
+    let main = root.join("main.nia");
+    std::fs::write(&main, "fn main() i32 { let value = 0x_ff; value }\n")
+        .expect("write invalid source");
+
+    for format in ["text", "json"] {
+        let output = support::nia_command()
+            .arg("check")
+            .arg(format!("--diagnostics-format={format}"))
+            .arg(&main)
+            .output_timeout_for_compiler("run nia check with captured diagnostics");
+        assert!(!output.status.success(), "invalid source must fail");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !stderr.contains('\x1b'),
+            "captured {format} output: {stderr}"
+        );
+        if format == "json" {
+            assert!(
+                stderr.trim_start().starts_with("{\"diagnostics\":"),
+                "{stderr}"
+            );
+        }
+    }
+}
+
+#[test]
 fn emit_checked_exits_cleanly_when_stdout_pipe_closes() {
     let root = temp_dir("emit_checked_exits_cleanly_when_stdout_pipe_closes");
     let main = root.join("main.nia");
