@@ -226,7 +226,8 @@ later parameters and the enclosing function after missing types at commas, with
 parser and driver coverage.
 Generic parameter lists also skip a missing parameter name at a comma, retain
 later parameters and the enclosing function, and have parser and driver
-coverage.
+coverage. They also synchronize a missing comma before the closing bracket so
+the enclosing function remains parseable.
 `where` predicate lists use the same local recovery for a missing predicate
 type, retaining later predicates and following functions with parser and driver
 coverage.

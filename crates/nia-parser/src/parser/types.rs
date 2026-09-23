@@ -46,6 +46,15 @@ impl Parser {
                 break;
             }
             if self.eat(TokenKind::Comma).is_none() {
+                if !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
+                    self.expected_here(
+                        ParseErrorKind::Grammar,
+                        "expected `,` or `]` after generic parameter",
+                    );
+                    while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
+                        self.bump();
+                    }
+                }
                 break;
             }
         }
