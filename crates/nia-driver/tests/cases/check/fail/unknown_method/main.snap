@@ -1,0 +1,19 @@
+path: fail/unknown_method/main.nia
+code: E0201
+summary: unknown method `dtaa`
+label: 30..42 Primary Source no method named `dtaa` is available here
+note: the receiver has type `i32`
+help: check the method name, import a trait that provides `dtaa`, or use a field access
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown method `dtaa`
+  --> fail/unknown_method/main.nia:2:5
+  |
+2 |     value.dtaa()
+  |     ^^^^^^^^^^^^ no method named `dtaa` is available here
+note: the receiver has type `i32`
+help: check the method name, import a trait that provides `dtaa`, or use a field access
+
+summary: 1 error, 0 warnings

@@ -1,0 +1,35 @@
+path: fail/range_missing_bound_method/main.nia
+code: E0301
+summary: range method `end` is unavailable because this range has no end bound
+label: 74..84 Primary Source range method `end` is unavailable because this range has no end bound
+note: the receiver has type `usize..`
+help: use `end()` only on ranges with an end bound
+
+path: fail/range_missing_bound_method/main.nia
+code: E0301
+summary: range method `start` is unavailable because this range has no start bound
+label: 94..104 Primary Source range method `start` is unavailable because this range has no start bound
+note: the receiver has type `..usize`
+help: use `start()` only on ranges with a start bound
+
+report:
+diagnostics:
+root diagnostic:
+error[E0301]: range method `end` is unavailable because this range has no end bound
+  --> fail/range_missing_bound_method/main.nia:4:9
+  |
+4 |     _ = from.end();
+  |         ^^^^^^^^^^ range method `end` is unavailable because this range has no end bound
+note: the receiver has type `usize..`
+help: use `end()` only on ranges with an end bound
+
+root diagnostic:
+error[E0301]: range method `start` is unavailable because this range has no start bound
+  --> fail/range_missing_bound_method/main.nia:5:9
+  |
+5 |     _ = to.start();
+  |         ^^^^^^^^^^ range method `start` is unavailable because this range has no start bound
+note: the receiver has type `..usize`
+help: use `start()` only on ranges with a start bound
+
+summary: 2 errors, 0 warnings
