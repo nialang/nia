@@ -55,7 +55,7 @@ impl nia_value_resolve::AssociatedValueResolver for LazyAssociatedValueResolver<
         &self,
         target: nia_value_resolve::AssociatedValueTarget,
         name: &SymbolId,
-    ) -> Option<GlobalDefId> {
+    ) -> Option<nia_value_resolve::AssociatedValueLookup> {
         let visible_extensions = self.visible_extensions()?;
         let mut matches = Vec::new();
         for extension_target in visible_extensions.methods.targets() {
@@ -64,16 +64,28 @@ impl nia_value_resolve::AssociatedValueResolver for LazyAssociatedValueResolver<
             }
             for value in &extension_target.associated_values {
                 if &value.name == name {
-                    matches.push(value.def_id);
+                    matches.push((value.def_id, value.visibility, value.is_accessible));
                 }
             }
         }
-        matches.sort();
-        matches.dedup();
-        let [def_id] = matches.as_slice() else {
+        matches.sort_by_key(|(def_id, _, _)| *def_id);
+        matches.dedup_by_key(|(def_id, _, _)| *def_id);
+        let accessible = matches
+            .iter()
+            .filter(|(_, _, is_accessible)| *is_accessible)
+            .collect::<Vec<_>>();
+        if let [value] = accessible.as_slice() {
+            return Some(nia_value_resolve::AssociatedValueLookup::Visible(value.0));
+        }
+        if !accessible.is_empty() {
+            return None;
+        }
+        let [value] = matches.as_slice() else {
             return None;
         };
-        Some(*def_id)
+        Some(nia_value_resolve::AssociatedValueLookup::Inaccessible(
+            value.0, value.1,
+        ))
     }
 }
 

@@ -223,7 +223,7 @@ fn main() i32 {
     };
     let provider = |target: AssociatedValueTarget, name: &SymbolId| {
         (target == AssociatedValueTarget::Nominal(type_id) && *name == sym("VALUE"))
-            .then_some(associated_id)
+            .then_some(AssociatedValueLookup::Visible(associated_id))
     };
     let resolved = resolve_module_values_from_active_item_tree_with_associated_values(
         &ModuleItemTree::from_module(&module)
@@ -428,7 +428,7 @@ fn main() i32 {
     };
     let provider_fn = |target: AssociatedValueTarget, name: &SymbolId| {
         (target == AssociatedValueTarget::Nominal(box_id) && *name == sym("VALUE"))
-            .then_some(associated_id)
+            .then_some(AssociatedValueLookup::Visible(associated_id))
     };
     let provider_defs = Arc::new(provider_defs);
     let defs_provider = |id| (id == provider_id).then_some(provider_defs.clone());

@@ -236,11 +236,16 @@ pub fn visible_extensions_for_module(
             );
         },
     );
-    associated_values.for_each_visible_value(
+    associated_values.for_each_value_in_modules(
         module_id,
         imported_visible_modules.iter().copied(),
-        extension_visibility_allows,
         |value| {
+            let value_module_is_visible = visible_modules.contains(&value.def_id.module_id);
+            if !value_module_is_visible
+                && !extension_visibility_allows(value.visibility, value.def_id.module_id)
+            {
+                return;
+            }
             let trait_is_visible = value.trait_id.is_some_and(|trait_id| {
                 witness_modules.contains(&value.def_id.module_id)
                     && trait_id_is_visible(
@@ -272,6 +277,9 @@ pub fn visible_extensions_for_module(
                 VisibleExtensionAssociatedValue {
                     name: value.name,
                     def_id: value.def_id,
+                    visibility: value.visibility,
+                    is_accessible: value.def_id.module_id == module_id
+                        || extension_visibility_allows(value.visibility, value.def_id.module_id),
                 },
             );
             if trait_is_visible {

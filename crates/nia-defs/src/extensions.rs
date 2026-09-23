@@ -80,6 +80,10 @@ pub struct VisibleExtensionAssociatedValue {
     pub name: SymbolId,
     /// Global definition identity.
     pub def_id: GlobalDefId,
+    /// Declaration visibility, retained so lookup can diagnose hidden values.
+    pub visibility: Visibility,
+    /// Whether the declaration is accessible from the indexing module.
+    pub is_accessible: bool,
 }
 
 /// Method declared by a trait or inherent extension.
@@ -372,6 +376,29 @@ impl ExtensionAssociatedValues {
                         continue;
                     };
                     if visibility_allows(value.visibility, value.def_id.module_id) {
+                        f(value);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Visits values from the current module and imported modules admitted by
+    /// the module graph. Item visibility is preserved for the resolving phase.
+    pub fn for_each_value_in_modules(
+        &self,
+        current_module: ModuleId,
+        imported_modules: impl IntoIterator<Item = ModuleId>,
+        mut f: impl FnMut(&ExtensionAssociatedValue),
+    ) {
+        let mut visited_modules = HashSet::new();
+        for module_id in std::iter::once(current_module).chain(imported_modules) {
+            if !visited_modules.insert(module_id) {
+                continue;
+            }
+            if let Some(value_ids) = self.by_module.get(&module_id) {
+                for def_id in value_ids {
+                    if let Some(value) = self.by_id.get(def_id) {
                         f(value);
                     }
                 }
