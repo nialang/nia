@@ -1,0 +1,18 @@
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] {
+    fn convert[T](self, value: T) T {
+        let mismatch: i32 = true;
+        missing_in_method
+    }
+}
+
+trait Carrier[T] {
+    fn convert[T](self, value: T) T;
+}
+
+fn main() i32 {
+    missing_in_main
+}

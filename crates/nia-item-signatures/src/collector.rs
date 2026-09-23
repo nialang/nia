@@ -498,13 +498,20 @@ impl<'a> SignatureCollector<'a> {
         for generic in &method.generics {
             if enclosing_names.contains(&generic.name) {
                 let name = self.symbol_debug_text(generic.name);
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::ITEM_SIGNATURE,
-                    generic.name_span,
-                    format!(
-                        "method generic parameter cannot shadow enclosing generic parameter `{name}`"
-                    ),
-                ));
+                let summary = format!(
+                    "method generic parameter cannot shadow enclosing generic parameter `{name}`"
+                );
+                self.diagnostics.push(
+                    Diagnostic::user_error(codes::ITEM_SIGNATURE, summary)
+                        .primary(
+                            generic.name_span,
+                            "this method parameter shadows the enclosing parameter",
+                        )
+                        .help(format!(
+                            "rename the method parameter or remove it and use the enclosing `{name}` parameter"
+                        ))
+                        .finish(),
+                );
             }
         }
     }
