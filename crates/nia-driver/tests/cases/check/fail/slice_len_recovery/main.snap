@@ -4,6 +4,11 @@ summary: unknown value `missing`
 label: 99..106 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
+path: fail/slice_len_recovery/main.nia
+code: E0301
+summary: builtin `sliceLen` requires a slice pointer
+label: 149..155 Primary Source builtin `sliceLen` requires a slice pointer
+
 report:
 diagnostics:
 root diagnostic:
@@ -14,4 +19,11 @@ error[E0201]: unknown value `missing`
   |              ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-summary: 1 error, 0 warnings
+root diagnostic:
+error[E0301]: builtin `sliceLen` requires a slice pointer
+  --> fail/slice_len_recovery/main.nia:9:14
+  |
+9 |     sliceLen(1usize)
+  |              ^^^^^^ builtin `sliceLen` requires a slice pointer
+
+summary: 2 errors, 0 warnings

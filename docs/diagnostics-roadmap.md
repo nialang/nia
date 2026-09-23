@@ -122,7 +122,8 @@ failure does not hide them in per-module phase gating.
 The unaligned-load builtin also ignores an Error recovery pointer instead of
 reporting a secondary byte-pointer mismatch.
 The slice-length builtin likewise suppresses its slice-pointer shape error
-when name resolution has already produced an Error recovery value.
+when name resolution has already produced an Error recovery value, while an
+independent non-pointer argument still receives the shape diagnostic.
 
 ### 4. Report organization
 
