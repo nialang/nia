@@ -274,16 +274,14 @@ impl LoaderDatabase {
             .as_ref()
             .zip(provider_demand_plan_key)
             .and_then(|(cache, key)| {
-                match cache.load_provider_demand_plan(
+                let identity = frontend_cache::ProviderDemandPlanIdentity {
                     key,
                     namespace,
-                    &entry_path.identity(),
-                    module_map_fingerprint,
-                    request.package_root_used_paths,
-                    &source_roots,
-                    &sources,
-                    &symbols,
-                ) {
+                    entry: &entry_path.identity(),
+                    module_map: module_map_fingerprint,
+                    package_root_used_paths: request.package_root_used_paths,
+                };
+                match cache.load_provider_demand_plan(identity, &source_roots, &sources, &symbols) {
                     Ok(frontend_cache::ProviderDemandPlanCacheLookup::Hit(demands)) => {
                         Some(demands)
                     }
@@ -557,12 +555,15 @@ impl LoaderDatabase {
                 .as_ref(),
         );
         let snapshot = provider_facts.as_snapshot()?;
-        let _ = cache.publish_provider_demand_plan(
+        let identity = frontend_cache::ProviderDemandPlanIdentity {
             key,
             namespace,
-            &context.entry_path.identity(),
+            entry: &context.entry_path.identity(),
             module_map,
-            context.package_root_used_paths,
+            package_root_used_paths: context.package_root_used_paths,
+        };
+        let _ = cache.publish_provider_demand_plan(
+            identity,
             &source_paths,
             snapshot.demands(),
             &context.sources,

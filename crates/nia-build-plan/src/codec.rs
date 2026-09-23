@@ -395,30 +395,23 @@ impl Writer {
                     self.artifact_key(archive)?;
                 }
             }
-            ActionKind::ExternalCommand {
-                resource_class,
-                environment_policy,
-                cache_policy,
-                program,
-                arguments,
-                working_directory,
-                environment,
-                inputs,
-                outputs,
-            }
-            | ActionKind::TestExecutable {
-                resource_class,
-                environment_policy,
-                cache_policy,
-                program,
-                arguments,
-                working_directory,
-                environment,
-                inputs,
-                outputs,
-            } => {
+            ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
+                let CommandAction {
+                    resource_class,
+                    environment_policy,
+                    cache_policy,
+                    program,
+                    arguments,
+                    working_directory,
+                    environment,
+                    inputs,
+                    outputs,
+                } = command;
                 self.u8(
-                    if matches!(&action.kind, ActionKind::TestExecutable { .. }) {
+                    if matches!(
+                        &action.kind,
+                        ActionKind::TestExecutable(CommandAction { .. })
+                    ) {
                         7
                     } else {
                         2
@@ -828,7 +821,7 @@ impl<'a> Reader<'a> {
                 let inputs = self.list(Reader::logical_path)?;
                 let outputs = self.list(Reader::logical_path)?;
                 if tag == 7 {
-                    ActionKind::TestExecutable {
+                    ActionKind::TestExecutable(CommandAction {
                         resource_class,
                         environment_policy,
                         cache_policy,
@@ -838,9 +831,9 @@ impl<'a> Reader<'a> {
                         environment,
                         inputs,
                         outputs,
-                    }
+                    })
                 } else {
-                    ActionKind::ExternalCommand {
+                    ActionKind::ExternalCommand(CommandAction {
                         resource_class,
                         environment_policy,
                         cache_policy,
@@ -850,7 +843,7 @@ impl<'a> Reader<'a> {
                         environment,
                         inputs,
                         outputs,
-                    }
+                    })
                 }
             }
             3 => {
@@ -1023,7 +1016,7 @@ mod tests {
         let mut command = draft(false);
         command.actions.push(PlanAction {
             key: ActionKey::new(PackageKey::root(), "command-corpus").unwrap(),
-            kind: ActionKind::ExternalCommand {
+            kind: ActionKind::ExternalCommand(CommandAction {
                 resource_class: ActionResourceClass::Io,
                 environment_policy: CommandEnvironmentPolicy::Clear,
                 cache_policy: CommandCachePolicy::Uncacheable,
@@ -1040,7 +1033,7 @@ mod tests {
                 }],
                 inputs: Vec::new(),
                 outputs: Vec::new(),
-            },
+            }),
         });
         [
             draft(false),
@@ -1120,7 +1113,7 @@ mod tests {
         value.actions.extend([
             PlanAction {
                 key: ActionKey::new(package.clone(), "command").unwrap(),
-                kind: ActionKind::ExternalCommand {
+                kind: ActionKind::ExternalCommand(CommandAction {
                     resource_class: ActionResourceClass::Cpu,
                     environment_policy: CommandEnvironmentPolicy::Clear,
                     cache_policy: CommandCachePolicy::DeclaredInputs,
@@ -1152,7 +1145,7 @@ mod tests {
                             .unwrap(),
                     ],
                     outputs: vec![LogicalPath::new(LogicalPathRoot::Build, "command.out").unwrap()],
-                },
+                }),
             },
             PlanAction {
                 key: ActionKey::new(package.clone(), "generate").unwrap(),
@@ -1205,7 +1198,7 @@ mod tests {
         let step = StepKey::new(package.clone(), "tests").unwrap();
         value.actions.push(PlanAction {
             key: action.clone(),
-            kind: ActionKind::TestExecutable {
+            kind: ActionKind::TestExecutable(CommandAction {
                 resource_class: ActionResourceClass::Conservative,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
@@ -1216,7 +1209,7 @@ mod tests {
                 environment: Vec::new(),
                 inputs: Vec::new(),
                 outputs: Vec::new(),
-            },
+            }),
         });
         value.steps.push(PlanStep {
             key: step.clone(),

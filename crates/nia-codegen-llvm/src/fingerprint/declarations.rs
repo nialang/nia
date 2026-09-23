@@ -22,13 +22,7 @@ impl Encoder<'_> {
                     "declaration membership references missing struct {def_id:?}"
                 )));
             };
-            self.aggregate(
-                item.def_id,
-                item.name,
-                &item.generics,
-                &item.fields,
-                item.is_extern,
-            );
+            self.aggregate(item.into());
             self.optional_struct_layout(self.index.struct_layout(item.def_id));
         }
         self.len(declarations.struct_instances.len());
@@ -41,15 +35,7 @@ impl Encoder<'_> {
                     "declaration membership references missing struct instance",
                 ));
             };
-            self.aggregate_instance(
-                item.def_id,
-                item.name,
-                &item.args,
-                &item.const_args,
-                &item.symbol,
-                &item.fields,
-                item.is_extern,
-            );
+            self.aggregate_instance(item.into());
             self.optional_struct_layout(self.index.struct_instance_layout(
                 item.def_id,
                 &item.args,
@@ -63,13 +49,7 @@ impl Encoder<'_> {
                     "declaration membership references missing union {def_id:?}"
                 )));
             };
-            self.aggregate(
-                item.def_id,
-                item.name,
-                &item.generics,
-                &item.fields,
-                item.is_extern,
-            );
+            self.aggregate(item.into());
             self.optional_struct_layout(self.index.union_layout(item.def_id));
         }
         self.len(declarations.union_instances.len());
@@ -82,15 +62,7 @@ impl Encoder<'_> {
                     "declaration membership references missing union instance",
                 ));
             };
-            self.aggregate_instance(
-                item.def_id,
-                item.name,
-                &item.args,
-                &item.const_args,
-                &item.symbol,
-                &item.fields,
-                item.is_extern,
-            );
+            self.aggregate_instance(item.into());
             self.optional_struct_layout(self.index.union_instance_layout(
                 item.def_id,
                 &item.args,

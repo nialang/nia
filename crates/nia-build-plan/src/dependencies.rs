@@ -21,18 +21,18 @@ pub(crate) fn validate_artifact_dependencies(
     for step in steps {
         let mut required = BTreeMap::<ArtifactKey, &'static str>::new();
         match action_by_key.get(&step.action).copied() {
-            Some(ActionKind::ExternalCommand {
+            Some(ActionKind::ExternalCommand(CommandAction {
                 program,
                 working_directory,
                 inputs,
                 ..
-            })
-            | Some(ActionKind::TestExecutable {
+            }))
+            | Some(ActionKind::TestExecutable(CommandAction {
                 program,
                 working_directory,
                 inputs,
                 ..
-            }) => {
+            })) => {
                 if let CommandProgram::Path(program) = program
                     && let LogicalPathRoot::Artifact(artifact) = program.root()
                 {
@@ -141,18 +141,18 @@ pub(crate) fn validate_build_input_dependencies(draft: &BuildPlanDraft) -> Resul
     let step_by_key: BTreeMap<_, _> = draft.steps.iter().map(|step| (&step.key, step)).collect();
 
     for action in &draft.actions {
-        let (ActionKind::ExternalCommand {
+        let (ActionKind::ExternalCommand(CommandAction {
             program,
             working_directory,
             inputs,
             ..
-        }
-        | ActionKind::TestExecutable {
+        })
+        | ActionKind::TestExecutable(CommandAction {
             program,
             working_directory,
             inputs,
             ..
-        }) = &action.kind
+        })) = &action.kind
         else {
             continue;
         };
@@ -235,8 +235,8 @@ pub(crate) fn validate_generated_source_dependencies(
             ActionKind::GeneratedFile { output, .. } => {
                 producers.insert(output, &action.key);
             }
-            ActionKind::ExternalCommand { outputs, .. }
-            | ActionKind::TestExecutable { outputs, .. } => {
+            ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
+                let CommandAction { outputs, .. } = command;
                 for output in outputs {
                     producers.insert(output, &action.key);
                 }
@@ -393,8 +393,8 @@ fn action_outputs<'a>(
                 is_directory: emitted.kind == PlanArtifactKind::ObjectSet,
             }])
         }
-        ActionKind::ExternalCommand { outputs, .. }
-        | ActionKind::TestExecutable { outputs, .. } => Ok(outputs
+        ActionKind::ExternalCommand(CommandAction { outputs, .. })
+        | ActionKind::TestExecutable(CommandAction { outputs, .. }) => Ok(outputs
             .iter()
             .map(|path| ActionOutput {
                 path,

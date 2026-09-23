@@ -72,7 +72,7 @@ pub(crate) fn canonicalize_actions(
             )));
         }
         match &mut action.kind {
-            ActionKind::TestExecutable { cache_policy, .. }
+            ActionKind::TestExecutable(CommandAction { cache_policy, .. })
                 if *cache_policy != CommandCachePolicy::Uncacheable =>
             {
                 return Err(PlanError::InvalidCommand {
@@ -168,28 +168,18 @@ pub(crate) fn canonicalize_actions(
                     });
                 }
             }
-            ActionKind::ExternalCommand {
-                program,
-                arguments,
-                working_directory,
-                environment_policy,
-                cache_policy,
-                environment,
-                inputs,
-                outputs,
-                ..
-            }
-            | ActionKind::TestExecutable {
-                program,
-                arguments,
-                working_directory,
-                environment_policy,
-                cache_policy,
-                environment,
-                inputs,
-                outputs,
-                ..
-            } => {
+            ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
+                let CommandAction {
+                    program,
+                    arguments,
+                    working_directory,
+                    environment_policy,
+                    cache_policy,
+                    environment,
+                    inputs,
+                    outputs,
+                    ..
+                } = command;
                 validate_external_command_artifacts(
                     &action.key,
                     program,

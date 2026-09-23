@@ -36,6 +36,7 @@ mod provider_demand_plan;
 mod public_surface_using;
 mod used_module_path;
 
+pub(crate) use provider_demand_plan::ProviderDemandPlanIdentity;
 use provider_demand_plan::{
     decode_provider_demand_plan, encode_provider_demand_plan,
     provider_demand_plan_paths_are_closed, remap_provider_demands, resolve_cached_source_path,
@@ -493,19 +494,14 @@ impl PersistentFrontendCache {
         remove_cache_entry(&self.dependency_manifest_path(key));
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn load_provider_demand_plan(
         &self,
-        key: FrontendProviderDemandPlanCacheKey,
-        namespace: FrontendCacheNamespace,
-        entry: &SourceIdentity,
-        module_map: FrontendModuleMapFingerprint,
-        package_root_used_paths: bool,
+        identity: ProviderDemandPlanIdentity<'_>,
         source_roots: &[SourcePath],
         sources: &SourceDatabase,
         symbols: &SymbolTable,
     ) -> io::Result<ProviderDemandPlanCacheLookup> {
-        let path = self.provider_demand_plan_path(key);
+        let path = self.provider_demand_plan_path(identity.key);
         let encoded = match read_cache_entry(&path)? {
             Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
             Some(_) => {
@@ -518,11 +514,7 @@ impl PersistentFrontendCache {
             retire_corrupt(&path, &encoded);
             return Ok(ProviderDemandPlanCacheLookup::Corrupt);
         };
-        if decoded.key != key.parts()
-            || decoded.namespace != namespace.parts()
-            || decoded.entry != entry.normalized_path()
-            || decoded.module_map != module_map.parts()
-            || decoded.package_root_used_paths != package_root_used_paths
+        if !identity.matches(&decoded)
             || path
                 != self.provider_demand_plan_path(FrontendProviderDemandPlanCacheKey::from_parts(
                     decoded.key,
@@ -561,20 +553,15 @@ impl PersistentFrontendCache {
         Ok(ProviderDemandPlanCacheLookup::Hit(demands))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn publish_provider_demand_plan(
         &self,
-        key: FrontendProviderDemandPlanCacheKey,
-        namespace: FrontendCacheNamespace,
-        entry: &SourceIdentity,
-        module_map: FrontendModuleMapFingerprint,
-        package_root_used_paths: bool,
+        identity: ProviderDemandPlanIdentity<'_>,
         source_paths: &[SourcePath],
         demands: &HashSet<ProviderDemand>,
         sources: &SourceDatabase,
         symbols: &SymbolTable,
     ) -> io::Result<()> {
-        let path = self.provider_demand_plan_path(key);
+        let path = self.provider_demand_plan_path(identity.key);
         if path.is_file() {
             return Ok(());
         }
@@ -582,17 +569,8 @@ impl PersistentFrontendCache {
             .parent()
             .ok_or_else(|| io::Error::other("invalid provider demand plan path"))?;
         fs::create_dir_all(parent)?;
-        let encoded = encode_provider_demand_plan(
-            key,
-            namespace,
-            entry,
-            module_map,
-            package_root_used_paths,
-            source_paths,
-            demands,
-            sources,
-            symbols,
-        )?;
+        let encoded =
+            encode_provider_demand_plan(identity, source_paths, demands, sources, symbols)?;
         atomic_publish(&staged_path(&path), &path, &encoded)
     }
 

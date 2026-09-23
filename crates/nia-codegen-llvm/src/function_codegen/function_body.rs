@@ -23,14 +23,20 @@ struct TryTerminatorInput<'b, 'ctx> {
     llvm_blocks: &'b std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
 }
 
-struct TryFailureReturn<'b, 'ctx> {
-    body: &'b FunctionBody,
-    block: FunctionBlockId,
+/// The failed operand of a `.?` propagation and how its failure is returned.
+#[derive(Clone, Copy)]
+struct TryFailure<'b, 'ctx> {
     span: Span,
     aggregate: TaggedUnionOperand<'ctx>,
     aggregate_ty: nia_ids::InternedTyId,
     kind: FunctionTryKind,
     error_conversion: Option<&'b FunctionExpr>,
+}
+
+struct TryFailureReturn<'b, 'ctx> {
+    body: &'b FunctionBody,
+    block: FunctionBlockId,
+    failure: TryFailure<'b, 'ctx>,
     outer_blocks: &'b std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
 }
 
@@ -500,13 +506,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(span, "failed to build deferred propagation branch"))?;
 
         self.builder.position_at_end(failure_block);
-        let (return_llvm_ty, return_ptr) = self.emit_try_failure_return_storage(
+        let (return_llvm_ty, return_ptr) = self.emit_try_failure_return_storage(TryFailure {
             span,
             aggregate,
-            value.ty,
+            aggregate_ty: value.ty,
             kind,
             error_conversion,
-        )?;
+        })?;
         self.emit_defer_function_tail_defers(body, block, span, outer_blocks)?;
         if self.current_block_has_terminator() {
             return Ok(());
@@ -577,11 +583,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.emit_try_failure_return(TryFailureReturn {
             body,
             block,
-            span,
-            aggregate,
-            aggregate_ty: value.ty,
-            kind,
-            error_conversion,
+            failure: TryFailure {
+                span,
+                aggregate,
+                aggregate_ty: value.ty,
+                kind,
+                error_conversion,
+            },
             outer_blocks: llvm_blocks,
         })?;
 
@@ -608,40 +616,23 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let TryFailureReturn {
             body,
             block,
-            span,
-            aggregate,
-            aggregate_ty,
-            kind,
-            error_conversion,
+            failure,
             outer_blocks,
         } = failure;
+        let span = failure.span;
         if let Some(out_ptr) = self.out_ptr
             && !self.return_path_has_registered_defers(body, block, span)?
         {
             let return_llvm_ty = self
                 .module
                 .llvm_basic_type(self.function.return_type, span)?;
-            self.emit_try_failure_return_into(
-                span,
-                aggregate,
-                aggregate_ty,
-                kind,
-                error_conversion,
-                return_llvm_ty,
-                out_ptr,
-            )?;
+            self.emit_try_failure_return_into(failure, return_llvm_ty, out_ptr)?;
             self.builder
                 .build_return(None)
                 .map_err(|_| self.error(span, "failed to build propagation return"))?;
             return Ok(());
         }
-        let (return_llvm_ty, return_ptr) = self.emit_try_failure_return_storage(
-            span,
-            aggregate,
-            aggregate_ty,
-            kind,
-            error_conversion,
-        )?;
+        let (return_llvm_ty, return_ptr) = self.emit_try_failure_return_storage(failure)?;
         let value = self
             .builder
             .build_load(return_llvm_ty, return_ptr, "try.return.value")
@@ -658,11 +649,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn emit_try_failure_return_storage(
         &mut self,
-        span: Span,
-        aggregate: TaggedUnionOperand<'ctx>,
-        aggregate_ty: nia_ids::InternedTyId,
-        kind: FunctionTryKind,
-        error_conversion: Option<&FunctionExpr>,
+        failure: TryFailure<'_, 'ctx>,
     ) -> Result<
         (
             nia_llvm::types::BasicTypeEnum<'ctx>,
@@ -670,35 +657,30 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         ),
         Diagnostic,
     > {
+        let span = failure.span;
         let return_ty = self.function.return_type;
         let return_llvm_ty = self.module.llvm_basic_type(return_ty, span)?;
         let return_ptr = self
             .builder
             .build_alloca(return_llvm_ty, "try.return")
             .map_err(|_| self.error(span, "failed to allocate propagation return"))?;
-        self.emit_try_failure_return_into(
+        self.emit_try_failure_return_into(failure, return_llvm_ty, return_ptr)?;
+        Ok((return_llvm_ty, return_ptr))
+    }
+
+    fn emit_try_failure_return_into(
+        &mut self,
+        failure: TryFailure<'_, 'ctx>,
+        return_llvm_ty: nia_llvm::types::BasicTypeEnum<'ctx>,
+        return_ptr: nia_llvm::values::PointerValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
+        let TryFailure {
             span,
             aggregate,
             aggregate_ty,
             kind,
             error_conversion,
-            return_llvm_ty,
-            return_ptr,
-        )?;
-        Ok((return_llvm_ty, return_ptr))
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn emit_try_failure_return_into(
-        &mut self,
-        span: Span,
-        aggregate: TaggedUnionOperand<'ctx>,
-        aggregate_ty: nia_ids::InternedTyId,
-        kind: FunctionTryKind,
-        error_conversion: Option<&FunctionExpr>,
-        return_llvm_ty: nia_llvm::types::BasicTypeEnum<'ctx>,
-        return_ptr: nia_llvm::values::PointerValue<'ctx>,
-    ) -> Result<(), Diagnostic> {
+        } = failure;
         let return_ty = self.function.return_type;
         match kind {
             FunctionTryKind::Optional => {

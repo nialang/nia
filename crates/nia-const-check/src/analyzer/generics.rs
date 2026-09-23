@@ -567,41 +567,24 @@ impl Analyzer<'_> {
         if pattern.len() != actual.len() {
             return Ok(());
         }
-        let mut used = vec![false; actual.len()];
-        let mut first_error = None;
-        let matched = self.infer_type_generics_from_associated_bindings_inner(
-            span,
-            target_module_id,
-            pattern,
-            actual,
-            0,
-            &mut used,
-            substitutions,
-            &mut first_error,
-        );
-        if !matched && let Some(error) = first_error {
-            return Err(error);
-        }
-        Ok(())
+        let mut search = AssociatedBindingSearch::new(span, target_module_id, pattern, actual);
+        let matched =
+            self.infer_type_generics_from_associated_bindings_inner(&mut search, 0, substitutions);
+        search.finish(matched)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn infer_type_generics_from_associated_bindings_inner(
         &mut self,
-        span: Span,
-        target_module_id: ModuleId,
-        pattern: &[nia_ty::AssociatedTypeBindingTy],
-        actual: &[nia_ty::AssociatedTypeBindingTy],
+        search: &mut AssociatedBindingSearch<'_>,
         pattern_index: usize,
-        used: &mut [bool],
         substitutions: &mut SymbolMap<InternedTyId>,
-        first_error: &mut Option<ConstError>,
     ) -> bool {
-        let Some(pattern_binding) = pattern.get(pattern_index) else {
+        let (span, target_module_id) = (search.span, search.target_module_id);
+        let Some(pattern_binding) = search.pattern.get(pattern_index) else {
             return true;
         };
-        for (actual_index, actual_binding) in actual.iter().enumerate() {
-            if used[actual_index]
+        for (actual_index, actual_binding) in search.actual.iter().enumerate() {
+            if search.used[actual_index]
                 || actual_binding.trait_id != pattern_binding.trait_id
                 || actual_binding.name != pattern_binding.name
                 || actual_binding.trait_args.len() != pattern_binding.trait_args.len()
@@ -651,26 +634,21 @@ impl Analyzer<'_> {
                         &candidate,
                     ) =>
                 {
-                    used[actual_index] = true;
-                    if self.infer_type_generics_from_associated_bindings_inner(
-                        span,
-                        target_module_id,
-                        pattern,
-                        actual,
+                    search.used[actual_index] = true;
+                    let matched = self.infer_type_generics_from_associated_bindings_inner(
+                        search,
                         pattern_index + 1,
-                        used,
                         &mut candidate,
-                        first_error,
-                    ) {
+                    );
+                    search.used[actual_index] = false;
+                    if matched {
                         *substitutions = candidate;
-                        used[actual_index] = false;
                         return true;
                     }
-                    used[actual_index] = false;
                 }
                 Ok(()) => {}
                 Err(error) => {
-                    first_error.get_or_insert(error);
+                    search.first_error.get_or_insert(error);
                 }
             }
         }
@@ -1789,41 +1767,25 @@ impl Analyzer<'_> {
             actual.const_args,
             substitutions,
         )?;
-        let mut used = vec![false; actual.bindings.len()];
-        let mut first_error = None;
-        if !self.infer_const_generics_from_associated_bindings(
-            span,
-            target_module_id,
-            pattern.bindings,
-            actual.bindings,
-            0,
-            &mut used,
-            substitutions,
-            &mut first_error,
-        ) && let Some(error) = first_error
-        {
-            return Err(error);
-        }
-        Ok(())
+        let mut search =
+            AssociatedBindingSearch::new(span, target_module_id, pattern.bindings, actual.bindings);
+        let matched =
+            self.infer_const_generics_from_associated_bindings(&mut search, 0, substitutions);
+        search.finish(matched)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn infer_const_generics_from_associated_bindings(
         &mut self,
-        span: Span,
-        target_module_id: ModuleId,
-        pattern: &[nia_ty::AssociatedTypeBindingTy],
-        actual: &[nia_ty::AssociatedTypeBindingTy],
+        search: &mut AssociatedBindingSearch<'_>,
         pattern_index: usize,
-        used: &mut [bool],
         substitutions: &mut SymbolMap<ConstGenericArg>,
-        first_error: &mut Option<ConstError>,
     ) -> bool {
-        let Some(pattern_binding) = pattern.get(pattern_index) else {
+        let (span, target_module_id) = (search.span, search.target_module_id);
+        let Some(pattern_binding) = search.pattern.get(pattern_index) else {
             return true;
         };
-        for (actual_index, actual_binding) in actual.iter().enumerate() {
-            if used[actual_index]
+        for (actual_index, actual_binding) in search.actual.iter().enumerate() {
+            if search.used[actual_index]
                 || actual_binding.trait_id != pattern_binding.trait_id
                 || actual_binding.name != pattern_binding.name
                 || actual_binding.trait_args.len() != pattern_binding.trait_args.len()
@@ -1868,26 +1830,21 @@ impl Analyzer<'_> {
                         &candidate,
                     ) =>
                 {
-                    used[actual_index] = true;
-                    if self.infer_const_generics_from_associated_bindings(
-                        span,
-                        target_module_id,
-                        pattern,
-                        actual,
+                    search.used[actual_index] = true;
+                    let matched = self.infer_const_generics_from_associated_bindings(
+                        search,
                         pattern_index + 1,
-                        used,
                         &mut candidate,
-                        first_error,
-                    ) {
+                    );
+                    search.used[actual_index] = false;
+                    if matched {
                         *substitutions = candidate;
-                        used[actual_index] = false;
                         return true;
                     }
-                    used[actual_index] = false;
                 }
                 Ok(()) => {}
                 Err(error) => {
-                    first_error.get_or_insert(error);
+                    search.first_error.get_or_insert(error);
                 }
             }
         }
@@ -2064,6 +2021,46 @@ fn validate_type_for_module(span: Span, belongs_to_store: bool) -> Result<(), Co
         });
     }
     Ok(())
+}
+
+/// Bijective match of pattern associated bindings onto actual bindings.
+///
+/// Bindings form an unordered set, so each actual binding may be consumed at
+/// most once and an early compatible choice may need backtracking. The first
+/// inference error is kept to explain a search that finds no assignment.
+struct AssociatedBindingSearch<'a> {
+    span: Span,
+    target_module_id: ModuleId,
+    pattern: &'a [nia_ty::AssociatedTypeBindingTy],
+    actual: &'a [nia_ty::AssociatedTypeBindingTy],
+    used: Vec<bool>,
+    first_error: Option<ConstError>,
+}
+
+impl<'a> AssociatedBindingSearch<'a> {
+    fn new(
+        span: Span,
+        target_module_id: ModuleId,
+        pattern: &'a [nia_ty::AssociatedTypeBindingTy],
+        actual: &'a [nia_ty::AssociatedTypeBindingTy],
+    ) -> Self {
+        Self {
+            span,
+            target_module_id,
+            pattern,
+            actual,
+            used: vec![false; actual.len()],
+            first_error: None,
+        }
+    }
+
+    /// A failed search reports its first inference error, if any.
+    fn finish(self, matched: bool) -> Result<(), ConstError> {
+        match self.first_error {
+            Some(error) if !matched => Err(error),
+            _ => Ok(()),
+        }
+    }
 }
 
 #[cfg(test)]

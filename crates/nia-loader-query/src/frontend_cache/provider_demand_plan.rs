@@ -21,13 +21,39 @@ pub(super) struct DecodedProviderDemandPlan {
     pub(super) demands: HashSet<ProviderDemand>,
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Identity header every persisted provider demand plan is validated against.
+///
+/// A plan is reusable only for the same cache key, namespace, entry source,
+/// module map, and package-root processing policy.
+#[derive(Clone, Copy)]
+pub(crate) struct ProviderDemandPlanIdentity<'a> {
+    pub(crate) key: FrontendProviderDemandPlanCacheKey,
+    pub(crate) namespace: FrontendCacheNamespace,
+    pub(crate) entry: &'a SourceIdentity,
+    pub(crate) module_map: FrontendModuleMapFingerprint,
+    pub(crate) package_root_used_paths: bool,
+}
+
+impl ProviderDemandPlanIdentity<'_> {
+    pub(super) fn matches(&self, decoded: &DecodedProviderDemandPlan) -> bool {
+        decoded.key == self.key.parts()
+            && decoded.namespace == self.namespace.parts()
+            && decoded.entry == self.entry.normalized_path()
+            && decoded.module_map == self.module_map.parts()
+            && decoded.package_root_used_paths == self.package_root_used_paths
+    }
+
+    fn write(&self, payload: &mut Vec<u8>) {
+        write_parts(payload, self.key.parts());
+        write_parts(payload, self.namespace.parts());
+        write_string(payload, self.entry.normalized_path());
+        write_parts(payload, self.module_map.parts());
+        payload.push(u8::from(self.package_root_used_paths));
+    }
+}
+
 pub(super) fn encode_provider_demand_plan(
-    key: FrontendProviderDemandPlanCacheKey,
-    namespace: FrontendCacheNamespace,
-    entry: &SourceIdentity,
-    module_map: FrontendModuleMapFingerprint,
-    package_root_used_paths: bool,
+    identity: ProviderDemandPlanIdentity<'_>,
     source_paths: &[SourcePath],
     demands: &HashSet<ProviderDemand>,
     sources: &SourceDatabase,
@@ -42,11 +68,7 @@ pub(super) fn encode_provider_demand_plan(
     source_paths.dedup_by(|left, right| left.identity() == right.identity());
 
     let mut payload = Vec::new();
-    write_parts(&mut payload, key.parts());
-    write_parts(&mut payload, namespace.parts());
-    write_string(&mut payload, entry.normalized_path());
-    write_parts(&mut payload, module_map.parts());
-    payload.push(u8::from(package_root_used_paths));
+    identity.write(&mut payload);
     payload.extend_from_slice(&(source_paths.len() as u64).to_le_bytes());
     for path in source_paths {
         let file = sources.read_source(&path)?;

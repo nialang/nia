@@ -893,6 +893,34 @@ fn instance_fields_match_template(
         })
 }
 
+/// The generic instantiation that a generated instance symbol must encode.
+#[derive(Clone, Copy)]
+struct InstanceIdentity<'a> {
+    def_id: GlobalDefId,
+    /// Module that supplied generic argument context, when the instance has one.
+    arg_module_id: Option<ModuleId>,
+    self_arg: Option<InternedTyId>,
+    args: &'a [InternedTyId],
+    const_args: &'a [ConstGenericArg],
+}
+
+impl<'a> InstanceIdentity<'a> {
+    /// A nominal type instance has no argument module and no receiver.
+    fn nominal(
+        def_id: GlobalDefId,
+        args: &'a [InternedTyId],
+        const_args: &'a [ConstGenericArg],
+    ) -> Self {
+        Self {
+            def_id,
+            arg_module_id: None,
+            self_arg: None,
+            args,
+            const_args,
+        }
+    }
+}
+
 fn backend_definition_name(index: &ProgramIndex, def_id: GlobalDefId) -> Option<SymbolId> {
     index
         .function(def_id)
@@ -1020,11 +1048,13 @@ impl BackendValidator<'_> {
             "function instance",
             MangleSymbolKind::Function,
             &function.symbol,
-            function.def_id,
-            Some(function.arg_module_id),
-            function.self_arg,
-            &function.args,
-            &function.const_args,
+            InstanceIdentity {
+                def_id: function.def_id,
+                arg_module_id: Some(function.arg_module_id),
+                self_arg: function.self_arg,
+                args: &function.args,
+                const_args: &function.const_args,
+            },
             function.span,
         );
         self.current_item = Some(format!(
@@ -1793,27 +1823,15 @@ impl BackendValidator<'_> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn validate_instance_symbol(
         &mut self,
         kind: &'static str,
         symbol_kind: MangleSymbolKind,
         symbol: &str,
-        def_id: GlobalDefId,
-        arg_module_id: Option<ModuleId>,
-        self_arg: Option<InternedTyId>,
-        args: &[InternedTyId],
-        const_args: &[ConstGenericArg],
+        instance: InstanceIdentity<'_>,
         span: nia_span::Span,
     ) {
-        let expected = match self.expected_instance_symbol(
-            def_id,
-            arg_module_id,
-            self_arg,
-            args,
-            const_args,
-            symbol_kind,
-        ) {
+        let expected = match self.expected_instance_symbol(instance, symbol_kind) {
             Ok(Some(expected)) => expected,
             Ok(None) => return,
             Err(error) => {
@@ -1832,13 +1850,16 @@ impl BackendValidator<'_> {
 
     fn expected_instance_symbol(
         &self,
-        def_id: GlobalDefId,
-        arg_module_id: Option<ModuleId>,
-        self_arg: Option<InternedTyId>,
-        args: &[InternedTyId],
-        const_args: &[ConstGenericArg],
+        instance: InstanceIdentity<'_>,
         kind: MangleSymbolKind,
     ) -> nia_ice::IceResult<Option<String>> {
+        let InstanceIdentity {
+            def_id,
+            arg_module_id,
+            self_arg,
+            args,
+            const_args,
+        } = instance;
         if self_arg
             .into_iter()
             .chain(args.iter().copied())
@@ -1918,11 +1939,13 @@ impl BackendValidator<'_> {
             "global instance",
             MangleSymbolKind::Global,
             &global.symbol,
-            global.def_id,
-            Some(global.arg_module_id),
-            None,
-            &global.args,
-            &global.const_args,
+            InstanceIdentity {
+                def_id: global.def_id,
+                arg_module_id: Some(global.arg_module_id),
+                self_arg: None,
+                args: &global.args,
+                const_args: &global.const_args,
+            },
             global.span,
         );
         self.current_item = Some(format!(
@@ -2031,11 +2054,7 @@ impl BackendValidator<'_> {
             "struct instance",
             MangleSymbolKind::Type,
             &item.symbol,
-            item.def_id,
-            None,
-            None,
-            &item.args,
-            &item.const_args,
+            InstanceIdentity::nominal(item.def_id, &item.args, &item.const_args),
             item.span,
         );
         self.current_item = Some(format!(
@@ -2097,11 +2116,7 @@ impl BackendValidator<'_> {
             "union instance",
             MangleSymbolKind::Type,
             &item.symbol,
-            item.def_id,
-            None,
-            None,
-            &item.args,
-            &item.const_args,
+            InstanceIdentity::nominal(item.def_id, &item.args, &item.const_args),
             item.span,
         );
         self.current_item = Some(format!(

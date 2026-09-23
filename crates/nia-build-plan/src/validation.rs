@@ -118,20 +118,14 @@ pub(super) fn validate_package_references(draft: &BuildPlanDraft) -> Result<(), 
                     require(archive.package())?;
                 }
             }
-            ActionKind::ExternalCommand {
-                program,
-                working_directory,
-                inputs,
-                outputs,
-                ..
-            }
-            | ActionKind::TestExecutable {
-                program,
-                working_directory,
-                inputs,
-                outputs,
-                ..
-            } => {
+            ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
+                let CommandAction {
+                    program,
+                    working_directory,
+                    inputs,
+                    outputs,
+                    ..
+                } = command;
                 if let CommandProgram::Path(path) = program {
                     validate_path_package(path, &require)?;
                 }

@@ -50,10 +50,10 @@ use nia_target_config::TargetConfig;
 
 use crate::{
     ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport, ActionKey, ActionKind,
-    ActionResourceClass, ArtifactKey, BuildInvocation, BuildPlan, CommandArgument,
-    CommandCachePolicy, CommandEnvironmentPolicy, CommandProgram, EnvironmentInput, LogicalPath,
-    LogicalPathRoot, ModuleKey, OptimizationMode, OutputRecoveryError, PackageKey, PlanAction,
-    PlanArtifact, PlanArtifactKind, PlanModule, Runtime, StepKey, TargetSpec,
+    ActionResourceClass, ArtifactKey, BuildInvocation, BuildPlan, CommandAction, CommandArgument,
+    CommandCachePolicy, CommandProgram, EnvironmentInput, LogicalPath, LogicalPathRoot, ModuleKey,
+    OptimizationMode, OutputRecoveryError, PackageKey, PlanAction, PlanArtifact, PlanArtifactKind,
+    PlanModule, Runtime, StepKey, TargetSpec,
     action_cache::{
         CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
         CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheIdentityInput,
