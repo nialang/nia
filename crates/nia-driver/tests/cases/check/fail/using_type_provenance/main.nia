@@ -1,0 +1,3 @@
+using entry::missing;
+
+fn main(value: missing) missing { value }

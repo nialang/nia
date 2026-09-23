@@ -1,0 +1,24 @@
+path: fail/using_type_provenance/main.nia
+code: E0201
+summary: `using entry::...` could not be resolved: name `missing` is unavailable because its `using` directive did not find it
+label: 13..20 Primary Source this imported name could not be resolved
+help: check the imported module path and make sure `missing` is declared there
+related: 0..21 the `using` directive is here
+
+path: fail/using_type_provenance/main.nia
+code: E0201
+summary: type `missing` is unavailable
+label: 38..45 Primary Source name `missing` is unavailable because its `using` directive did not find it
+help: check the imported module path and make sure `missing` is declared there
+related: 13..20 the imported type is selected here
+related: 0..21 the `using` directive is here
+cause: fail/using_type_provenance/main.nia E0201 13..20
+
+path: fail/using_type_provenance/main.nia
+code: E0201
+summary: type `missing` is unavailable
+label: 47..54 Primary Source name `missing` is unavailable because its `using` directive did not find it
+help: check the imported module path and make sure `missing` is declared there
+related: 13..20 the imported type is selected here
+related: 0..21 the `using` directive is here
+cause: fail/using_type_provenance/main.nia E0201 13..20
