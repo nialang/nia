@@ -261,6 +261,29 @@ fn array_and_struct_literal_recovery_keeps_later_members() {
 }
 
 #[test]
+fn callable_type_recovery_keeps_later_parameters_and_the_function() {
+    let (module, errors) = parse_module(
+        "fn retained(pointer: &fn(, i32), callable: Fn(, bool)) () {}\nfn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected type"))
+            .count(),
+        2,
+        "{errors:?}"
+    );
+    let ItemKind::Function(retained) = &module.items[0].kind else {
+        panic!("expected retained function");
+    };
+    assert_eq!(retained.params.len(), 2);
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn classifies_parse_errors_by_grammar_rule_not_message_text() {
     let cases = [
         (

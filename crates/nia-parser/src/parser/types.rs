@@ -316,8 +316,12 @@ impl Parser {
                     is_variadic = true;
                     break;
                 }
-                params.push(self.parse_type_with_mode(mode)?);
-                if self.eat(TokenKind::Comma).is_none() {
+                if let Some(param) = self.parse_type_with_mode(mode) {
+                    params.push(param);
+                    if self.eat(TokenKind::Comma).is_none() {
+                        break;
+                    }
+                } else if self.eat(TokenKind::Comma).is_none() {
                     break;
                 }
             }
@@ -383,8 +387,12 @@ impl Parser {
                 self.error_here("callable interface types cannot be variadic");
                 break;
             }
-            params.push(self.parse_type_with_mode(mode)?);
-            if self.eat(TokenKind::Comma).is_none() {
+            if let Some(param) = self.parse_type_with_mode(mode) {
+                params.push(param);
+                if self.eat(TokenKind::Comma).is_none() {
+                    break;
+                }
+            } else if self.eat(TokenKind::Comma).is_none() {
                 break;
             }
         }
