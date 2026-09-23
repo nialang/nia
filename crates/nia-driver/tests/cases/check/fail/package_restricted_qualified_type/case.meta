@@ -1,0 +1,5 @@
+mode=check
+resource=compiler
+source=main.nia
+expect=fail
+module.dep=dep.nia

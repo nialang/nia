@@ -21,9 +21,27 @@ pub(super) fn assert_check_case(
     expects_errors: bool,
     snapshot_path: &Path,
 ) {
-    let program = checked_program_from_output(driver.check_entry(crate::CheckRequest::new(
-        source.to_string_lossy().into_owned(),
-    )));
+    assert_check_case_with_module_map(
+        driver,
+        root,
+        source,
+        expects_errors,
+        crate::ModuleMap::default(),
+        snapshot_path,
+    );
+}
+
+pub(super) fn assert_check_case_with_module_map(
+    driver: &crate::Driver,
+    root: &Path,
+    source: &Path,
+    expects_errors: bool,
+    module_map: crate::ModuleMap,
+    snapshot_path: &Path,
+) {
+    let program = checked_program_from_output(driver.check_entry(
+        crate::CheckRequest::new(source.to_string_lossy().into_owned()).with_module_map(module_map),
+    ));
     assert_eq!(
         nia_compiler_query::has_error_diagnostics(&program.diagnostics),
         expects_errors,
