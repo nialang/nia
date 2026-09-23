@@ -1322,17 +1322,30 @@ impl Parser {
         let elements = if self.at(TokenKind::RBracket) {
             ArrayElements::List(elems)
         } else {
-            let first = self.parse_expr()?;
+            let first = self.parse_expr();
             if self.eat(TokenKind::Semicolon).is_some() {
+                let first = first?;
                 let count = self.parse_expr()?;
                 ArrayElements::Repeat {
                     value: Box::new(first),
                     count: Box::new(count),
                 }
             } else {
-                elems.push(first);
-                while self.eat(TokenKind::Comma).is_some() && !self.at(TokenKind::RBracket) {
-                    elems.push(self.parse_expr()?);
+                if let Some(first) = first {
+                    elems.push(first);
+                }
+                if self.eat(TokenKind::Comma).is_none() && elems.is_empty() {
+                    return None;
+                }
+                while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
+                    if let Some(elem) = self.parse_expr() {
+                        elems.push(elem);
+                        if self.eat(TokenKind::Comma).is_none() {
+                            break;
+                        }
+                    } else if self.eat(TokenKind::Comma).is_none() {
+                        break;
+                    }
                 }
                 ArrayElements::List(elems)
             }
@@ -1345,11 +1358,24 @@ impl Parser {
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
             let field_start = self.peek().span.start;
             let name_span = self.peek().span;
-            let name = self.expect_name(TokenKind::Ident, "expected field name")?;
+            let Some(name) = self.expect_name(TokenKind::Ident, "expected field name") else {
+                if self.eat(TokenKind::Comma).is_some() {
+                    continue;
+                }
+                self.recover_to_member_boundary();
+                continue;
+            };
             // A bare field is the canonical same-name initialization shorthand.
             // Expand it here so later phases have one field-initialization model.
             let value = if self.eat(TokenKind::Colon).is_some() {
-                self.parse_expr()?
+                let Some(value) = self.parse_expr() else {
+                    if self.eat(TokenKind::Comma).is_some() {
+                        continue;
+                    }
+                    self.recover_to_member_boundary();
+                    continue;
+                };
+                value
             } else {
                 self.make_expr(name_span, ExprKind::Ident(name))
             };

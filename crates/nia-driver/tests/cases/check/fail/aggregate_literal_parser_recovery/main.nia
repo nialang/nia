@@ -1,0 +1,12 @@
+struct Point {
+    x: i32,
+    y: bool,
+}
+
+fn main() () {
+    let array = [, 1,, true];
+    let point = Point { x: , y: true };
+    later();
+}
+
+fn later() () {}
