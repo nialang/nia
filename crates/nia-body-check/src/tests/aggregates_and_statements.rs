@@ -215,6 +215,57 @@ fn main() () {
 }
 
 #[test]
+fn suppresses_statement_shape_checks_for_structural_error_types() {
+    let checked = pipeline(
+        r#"
+fn main() () {
+    (missing_tuple, 1);
+    [missing_array];
+    defer &missing_deferred;
+    for item in (missing_iterable, 1) {
+        _ = item;
+    }
+    2;
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    for name in [
+        "missing_tuple",
+        "missing_array",
+        "missing_deferred",
+        "missing_iterable",
+    ] {
+        assert!(
+            summaries
+                .iter()
+                .any(|summary| summary.contains(&format!("unknown value `{name}`"))),
+            "missing {name} root: {summaries:?}"
+        );
+    }
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| summary.contains("non-unit expression result"))
+            .count(),
+        1,
+        "{summaries:?}"
+    );
+    assert!(
+        !summaries.iter().any(|summary| {
+            summary.contains("defer` expression must have type")
+                || summary.contains("for-in expects an Iterable")
+                || summary.contains("for pattern")
+        }),
+        "{summaries:?}"
+    );
+}
+
+#[test]
 fn checks_new_loop_expression_type_edges() {
     let checked = pipeline(
         r#"

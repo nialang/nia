@@ -82,7 +82,10 @@ impl<'a> BodyChecker<'a> {
             }
             StmtKind::Expr(expr) => {
                 let expr_ty = self.check_expr(expr);
-                if !self.is_error_ty(expr_ty) && !self.is_unit(expr_ty) && !self.is_never(expr_ty) {
+                if !self.is_error_recovery_ty(expr_ty)
+                    && !self.is_unit(expr_ty)
+                    && !self.is_never(expr_ty)
+                {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         expr.span,
@@ -92,7 +95,10 @@ impl<'a> BodyChecker<'a> {
             }
             StmtKind::Defer(expr) => {
                 let expr_ty = self.check_expr(expr);
-                if !self.is_error_ty(expr_ty) && !self.is_unit(expr_ty) && !self.is_never(expr_ty) {
+                if !self.is_error_recovery_ty(expr_ty)
+                    && !self.is_unit(expr_ty)
+                    && !self.is_never(expr_ty)
+                {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         expr.span,
@@ -140,7 +146,7 @@ impl<'a> BodyChecker<'a> {
         iter: &Expr,
         iterable_ty: InternedTyId,
     ) -> (InternedTyId, InternedTyId) {
-        if self.is_error_ty(iterable_ty) {
+        if self.is_error_recovery_ty(iterable_ty) {
             return (self.error(), self.error());
         }
         if !self.current_context_proves_trait_obligation(
@@ -218,7 +224,7 @@ impl<'a> BodyChecker<'a> {
         iterator_ty: InternedTyId,
         iterable_item_ty: InternedTyId,
     ) {
-        if self.is_error_ty(iterator_ty) || self.is_error_ty(iterable_item_ty) {
+        if self.is_error_recovery_ty(iterator_ty) || self.is_error_recovery_ty(iterable_item_ty) {
             return;
         }
         if !self.current_context_proves_trait_obligation(
