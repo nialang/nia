@@ -1,0 +1,14 @@
+struct SourceError {}
+struct TargetError {}
+
+fn optional_boundary(value: ?i32) i32 {
+    value.?
+}
+
+fn invalid_operand(value: i32) i32 {
+    value.?
+}
+
+fn missing_conversion(value: SourceError!i32) TargetError!i32 {
+    value.?
+}

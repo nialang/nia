@@ -95,8 +95,9 @@ specific fallbacks such as `module value is unresolved` from hiding the original
 import failure.
 
 This coverage is still incremental: qualified callable failures, error-union
-propagation, and other recovery-derived semantic rules need equivalent
-rule-specific contracts and source fixtures.
+propagation failure variants beyond the current boundary, invalid-operand, and
+missing-conversion cases, and other recovery-derived semantic rules need
+equivalent rule-specific contracts and source fixtures.
 
 ### 4. Report organization
 
@@ -154,6 +155,9 @@ declaration is on a different line from the primary use site. Renderer tests
 cover available and unavailable related sources and explicit same-file paths.
 Unknown values, type-as-value misuse, and module-as-value misuse now each have
 dedicated fixtures and complete structured/text snapshots.
+Optional and error-union propagation boundaries, invalid propagation operands,
+and missing `IntoError` conversions now share an end-to-end case with complete
+structured/text snapshots, including the enclosing function return boundary.
 The complete diagnostic rule set still needs equivalent fixture/snapshot
 coverage.
 
