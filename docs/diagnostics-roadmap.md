@@ -321,6 +321,9 @@ types" error for its recovery type.
 Binary and shift operator recovery is covered end to end: unresolved operands
 retain their name-resolution roots while operator trait and operand-shape
 consequences are suppressed.
+The same root-only contract is covered across field access, indexing, deref,
+address-of, casts, optional propagation, and calls applied to an unresolved
+value.
 Atomic builtin recovery has a snapshot proving invalid RMW operation codes stay
 visible alongside unknown type arguments while type-dependent atomic errors are
 suppressed. An unaligned-load recovery snapshot proves an unresolved pointer

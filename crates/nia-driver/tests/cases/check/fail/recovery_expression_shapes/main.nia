@@ -1,0 +1,9 @@
+fn invalid() () {
+    _ = missing.field;
+    _ = missing[0usize];
+    _ = missing.*;
+    _ = &missing;
+    _ = missing as i32;
+    _ = missing.?;
+    _ = missing(1);
+}
