@@ -1,1 +1,5 @@
-fn main() i32 { missing() }
+fn main() i32 {
+    missing();
+    let independent: i32 = true;
+    0
+}

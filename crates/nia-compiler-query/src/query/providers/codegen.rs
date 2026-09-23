@@ -785,10 +785,18 @@ pub(super) fn checked_module_diagnostics(
     Ok((diagnostics, suppressed_downstream))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct DiagnosticRoot {
+    code: &'static str,
+    source_path: String,
+    scope: Option<nia_span::Span>,
+    span: nia_span::Span,
+}
+
 #[derive(Default)]
 struct DiagnosticGate {
     function_spans: Vec<nia_span::Span>,
-    root_codes: HashSet<(String, Option<nia_span::Span>)>,
+    roots: HashSet<DiagnosticRoot>,
     seen_error_sites: HashSet<(String, nia_span::Span)>,
     suppressed_downstream: usize,
 }
@@ -833,9 +841,10 @@ impl DiagnosticGate {
                 .primary_span()
                 .and_then(|span| self.function_scope(span));
             if diagnostic.severity == nia_diagnostic::Severity::Error
-                && self.root_codes.iter().any(|(root, scope)| {
-                    suppresses_downstream(root, diagnostic.code.as_str())
-                        && (scope.is_none() || *scope == function_scope)
+                && self.roots.iter().any(|root| {
+                    suppresses_downstream(root.code, diagnostic.code.as_str())
+                        && (root.scope.is_none() || root.scope == function_scope)
+                        && diagnostic_has_root_evidence(diagnostic, root)
                 })
             {
                 self.suppressed_downstream += 1;
@@ -849,15 +858,59 @@ impl DiagnosticGate {
             {
                 continue;
             }
-            if diagnostic.severity == nia_diagnostic::Severity::Error {
-                self.root_codes
-                    .insert((diagnostic.code.as_str().to_string(), function_scope));
+            if diagnostic.severity == nia_diagnostic::Severity::Error
+                && let Some(span) = diagnostic.primary_span()
+                && let Some(code) = known_root_code(diagnostic.code.as_str())
+            {
+                self.roots.insert(DiagnosticRoot {
+                    code,
+                    source_path: path.as_str().to_owned(),
+                    scope: function_scope,
+                    span,
+                });
             }
             diagnostics.push(ProgramDiagnostic {
                 path: path.clone(),
                 diagnostic: diagnostic.clone(),
             });
         }
+    }
+}
+
+fn diagnostic_has_root_evidence(diagnostic: &Diagnostic, root: &DiagnosticRoot) -> bool {
+    if let Some(cause) = diagnostic.cause.as_deref()
+        && cause.source_path == root.source_path
+        && cause.code == root.code
+        && cause.span == root.span
+    {
+        return true;
+    }
+    diagnostic
+        .primary_span()
+        .is_some_and(|span| spans_contain(span, root.span) || spans_contain(root.span, span))
+        && diagnostic
+            .labels
+            .iter()
+            .filter(|label| label.style == nia_diagnostic::LabelStyle::Primary)
+            .all(|label| label.span_source == nia_diagnostic::SpanSource::Source)
+}
+
+fn spans_contain(outer: nia_span::Span, inner: nia_span::Span) -> bool {
+    outer.start <= inner.start && inner.end <= outer.end
+}
+
+fn known_root_code(code: &str) -> Option<&'static str> {
+    match code {
+        "E0101" => Some("E0101"),
+        "E0102" => Some("E0102"),
+        "E0201" => Some("E0201"),
+        "E0202" => Some("E0202"),
+        "E0203" => Some("E0203"),
+        "E0301" => Some("E0301"),
+        "E0302" => Some("E0302"),
+        "E0401" => Some("E0401"),
+        "E0501" => Some("E0501"),
+        _ => None,
     }
 }
 
@@ -1051,7 +1104,7 @@ mod tests {
     use nia_span::Span;
 
     #[test]
-    fn phase_gate_suppresses_derived_errors_but_keeps_independent_roots() {
+    fn phase_gate_suppresses_overlapping_errors_but_keeps_independent_roots() {
         let path = SourcePath::new("main.nia");
         let mut diagnostics = Vec::new();
         let mut gate = DiagnosticGate::default();
@@ -1060,7 +1113,7 @@ mod tests {
             &path,
             &[Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
-                Span::new(0, 1),
+                Span::new(0, 3),
                 "unknown name",
             )],
         );
@@ -1155,7 +1208,7 @@ mod tests {
             &path,
             &[Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
-                Span::new(4, 5),
+                Span::new(2, 3),
                 "same-function consequence",
             )],
         );
@@ -1163,5 +1216,63 @@ mod tests {
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(gate.suppressed_downstream, 1);
         assert_eq!(diagnostics[1].diagnostic.summary, "independent type error");
+    }
+
+    #[test]
+    fn phase_gate_suppresses_errors_with_exact_cause_identity() {
+        let path = SourcePath::new("main.nia");
+        let root_span = Span::new(2, 3);
+        let mut diagnostics = Vec::new();
+        let mut gate = DiagnosticGate::default();
+        gate.append(
+            &mut diagnostics,
+            &path,
+            &[Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                root_span,
+                "unknown name",
+            )],
+        );
+        gate.append(
+            &mut diagnostics,
+            &path,
+            &[
+                Diagnostic::user_error(codes::TYPE_CHECK, "downstream error")
+                    .primary(Span::new(8, 9), "downstream error")
+                    .caused_by("main.nia", "E0201", root_span)
+                    .finish(),
+            ],
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(gate.suppressed_downstream, 1);
+    }
+
+    #[test]
+    fn phase_gate_keeps_diagnostics_with_only_partial_span_overlap() {
+        let path = SourcePath::new("main.nia");
+        let mut diagnostics = Vec::new();
+        let mut gate = DiagnosticGate::default();
+        gate.append(
+            &mut diagnostics,
+            &path,
+            &[Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                Span::new(2, 5),
+                "unknown name",
+            )],
+        );
+        gate.append(
+            &mut diagnostics,
+            &path,
+            &[Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                Span::new(4, 8),
+                "independent type error",
+            )],
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(gate.suppressed_downstream, 0);
     }
 }
