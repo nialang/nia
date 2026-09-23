@@ -1,16 +1,16 @@
 path: fail/private_qualified_value/main.nia
 code: E0201
-summary: type `api::Secret` is private
-label: 85..91 Primary Source type `api::Secret` is private
-help: make the type public or use it from an allowed scope
-related: 28..44 the private type is declared here
-
-path: fail/private_qualified_value/main.nia
-code: E0201
 summary: value `api::hidden` is private
 label: 38..44 Primary Source value `api::hidden` is private
 help: make the value public or use it from an allowed scope
 related: 0..26 the private value is declared here
+
+path: fail/private_qualified_value/main.nia
+code: E0201
+summary: type `api::Secret` is private
+label: 85..91 Primary Source type `api::Secret` is private
+help: make the type public or use it from an allowed scope
+related: 28..44 the private type is declared here
 
 report:
 diagnostics:

@@ -1,17 +1,17 @@
 path: fail/propagation_diagnostics/main.nia
 code: E0301
-summary: `.?` requires optional or error union operand, found `i32`
-label: 141..148 Primary Source `.?` requires optional or error union operand, found `i32`
-label: 141..146 Secondary Source this expression has non-propagatable type `i32`
-help: remove `.?`, or make the operand produce an optional or error-union value
-
-path: fail/propagation_diagnostics/main.nia
-code: E0301
 summary: optional propagation requires an optional function return type
 label: 89..96 Primary Source this optional value is propagated here
 label: 89..94 Secondary Source this expression has optional type `?i32`
 note: the enclosing function returns `i32`, so it cannot return the propagated empty optional
 help: change the function return type to an optional, or handle the empty case before using `.?`
+
+path: fail/propagation_diagnostics/main.nia
+code: E0301
+summary: `.?` requires optional or error union operand, found `i32`
+label: 141..148 Primary Source `.?` requires optional or error union operand, found `i32`
+label: 141..146 Secondary Source this expression has non-propagatable type `i32`
+help: remove `.?`, or make the operand produce an optional or error-union value
 
 path: fail/propagation_diagnostics/main.nia
 code: E0301

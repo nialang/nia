@@ -70,6 +70,11 @@ with no diagnostics of their own. Related locations use their owning file's
 line and column; unavailable external sources retain byte spans instead of
 borrowing the primary file's line numbers.
 
+Trait implementation validation now resolves related declaration locations
+through the implemented trait's owning module. The trait signature index also
+retains declaration names by global identity, so cross-module supertrait errors
+name the source trait instead of exposing an internal definition id.
+
 ### 3. Semantic diagnostic contracts
 
 Replace generic summaries such as `name is unresolved` and broad `type-check`
