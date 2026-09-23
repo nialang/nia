@@ -1,0 +1,31 @@
+path: fail/propagation_ambiguous/main.nia
+code: E0301
+summary: ambiguous error propagation conversion from `Source` to `Target`
+label: 264..271 Primary Source ambiguous error propagation conversion from `Source` to `Target`
+label: 264..269 Secondary Source propagated error value has type `Source`
+label: 215..273 Secondary Source function return type is the propagation boundary
+note: the propagated expression has error type `Source`, while this function returns error type `Target`
+note: more than one visible `IntoError` implementation matches this propagation
+help: remove the ambiguity by keeping one conversion implementation or make the target error type explicit
+
+report:
+diagnostics:
+root diagnostic:
+error[E0301]: ambiguous error propagation conversion from `Source` to `Target`
+   --> fail/propagation_ambiguous/main.nia:13:5
+   |
+13 |     value.?
+   |     ^^^^^^^ ambiguous error propagation conversion from `Source` to `Target`
+   ::: fail/propagation_ambiguous/main.nia:13:5
+   |
+13 |     value.?
+   |     ----- propagated error value has type `Source`
+   ::: fail/propagation_ambiguous/main.nia:12:1
+   |
+12 | fn propagate(value: Source!i32) Target!i32 {
+   | -------------------------------------------- function return type is the propagation boundary
+note: the propagated expression has error type `Source`, while this function returns error type `Target`
+note: more than one visible `IntoError` implementation matches this propagation
+help: remove the ambiguity by keeping one conversion implementation or make the target error type explicit
+
+summary: 1 error, 0 warnings

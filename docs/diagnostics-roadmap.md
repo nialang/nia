@@ -107,9 +107,8 @@ is absent.
 This coverage is still incremental: qualified visibility cases beyond private
 values/types and restricted module visibility beyond `pub(super)`, qualified
 callable cases beyond unknown members,
-error-union propagation failure variants beyond the current boundary,
-invalid-operand, and missing-conversion cases, and other recovery-derived
-semantic rules need equivalent rule-specific contracts and source fixtures.
+other recovery-derived semantic rules need equivalent rule-specific contracts
+and source fixtures.
 Propagation now short-circuits an operand already typed as the error recovery
 sentinel, so an unresolved value under `.?` retains only its name-resolution
 diagnostic instead of also being described as a non-propagatable type.
@@ -175,6 +174,9 @@ and missing `IntoError` conversions now share an end-to-end case with complete
 structured/text snapshots, including the enclosing function return boundary.
 A missing value used under `.?` now has a snapshot proving the recovery type
 does not produce a second propagation diagnostic.
+A genuinely ambiguous pair of visible `IntoError` implementations now has its
+own snapshot for the ambiguity rule, propagated operand, return boundary, and
+corrective help.
 A rejected two-step `IntoError` chain also has a complete snapshot showing the
 propagated operand, return boundary, one-step conversion rule, and direct
 conversion help.
