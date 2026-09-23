@@ -105,10 +105,9 @@ field and callable checks; range-bound methods report when the requested bound
 is absent.
 
 This coverage is still incremental: qualified visibility cases beyond private
-values/types and restricted module visibility beyond `pub(super)`, qualified
-callable cases beyond unknown members,
-other recovery-derived semantic rules need equivalent rule-specific contracts
-and source fixtures.
+values/types, qualified callable cases beyond unknown members, and other
+recovery-derived semantic rules need equivalent rule-specific contracts and
+source fixtures.
 Propagation now short-circuits an operand already typed as the error recovery
 sentinel, so an unresolved value under `.?` retains only its name-resolution
 diagnostic instead of also being described as a non-propagatable type.
@@ -204,6 +203,9 @@ Private, `pub(super)`, and `pub(pkg)` associated values in visible extensions
 now retain their declaration visibility through lookup and report source-owned
 diagnostics with dependency declaration locations instead of falling through to
 a generic qualified-expression error. Package-internal access remains valid.
+Package-restricted module namespaces now retain parent declaration visibility
+even when the dependency graph has not materialized a child module node; value
+and type paths report the actual package scope and source-owned declaration.
 The complete diagnostic rule set still needs equivalent fixture/snapshot
 coverage.
 
