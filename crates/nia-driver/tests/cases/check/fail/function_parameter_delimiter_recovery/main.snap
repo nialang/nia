@@ -1,0 +1,15 @@
+path: fail/function_parameter_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `)` after parameter; found `second`
+label: 23..29 Primary Source expected `,` or `)` after parameter; found `second`
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `,` or `)` after parameter; found `second`
+  --> fail/function_parameter_delimiter_recovery/main.nia:1:24
+  |
+1 | fn retained(first: i32 second: bool) () {}
+  |                        ^^^^^^ expected `,` or `)` after parameter; found `second`
+
+summary: 1 error, 0 warnings
