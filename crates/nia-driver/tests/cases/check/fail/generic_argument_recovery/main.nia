@@ -1,0 +1,5 @@
+fn require[T](value: T) () {}
+
+fn main() () {
+    require[missing + 1](1);
+}

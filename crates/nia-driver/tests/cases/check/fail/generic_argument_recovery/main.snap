@@ -1,0 +1,18 @@
+path: fail/generic_argument_recovery/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 58..65 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/generic_argument_recovery/main.nia:4:13
+  |
+4 |     require[missing + 1](1);
+  |             ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+summary: 1 error, 0 warnings
+note: suppressed 3 diagnostic(s) (0 duplicate(s), 3 downstream consequence(s), 0 over limit)

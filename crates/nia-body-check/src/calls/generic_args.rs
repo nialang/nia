@@ -311,6 +311,14 @@ impl<'a> BodyChecker<'a> {
                         lowered.type_args.push(ty);
                         lowered.substitutions.types.insert(param.name, ty);
                     } else {
+                        if let Some(expr) = &arg.expr {
+                            let expr_ty = self.check_expr(expr);
+                            if self.is_error_ty(expr_ty) {
+                                // The expression already owns the source error;
+                                // do not replace it with a generic category error.
+                                return None;
+                            }
+                        }
                         let name = self.symbol_name(param.name);
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
