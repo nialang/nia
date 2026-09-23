@@ -10,3 +10,13 @@ fn first() i32 {
 fn second() i32 {
     1 +
 }
+
+fn missing_type(value:) () {}
+
+fn missing_binding() () {
+    let = 1;
+}
+
+fn missing_delimiter(value: i32 {
+    _ = value;
+}

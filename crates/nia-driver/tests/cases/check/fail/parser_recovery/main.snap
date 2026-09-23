@@ -16,6 +16,24 @@ summary: expected expression
 label: 118..119 Primary Source expected expression
 help: provide an expression here, such as a literal, name, or call
 
+path: fail/parser_recovery/main.nia
+code: E0101
+summary: expected type; found `)`
+label: 143..144 Primary Source expected type; found `)`
+help: provide a type name or type expression here
+
+path: fail/parser_recovery/main.nia
+code: E0101
+summary: expected binding pattern
+label: 186..187 Primary Source expected binding pattern
+help: use a name, `_`, or a supported destructuring pattern
+
+path: fail/parser_recovery/main.nia
+code: E0101
+summary: expected `)` after parameters; found `{`
+label: 226..227 Primary Source expected `)` after parameters; found `{`
+help: check that the surrounding delimiters are balanced
+
 report:
 diagnostics:
 root diagnostic:
@@ -42,4 +60,28 @@ error[E0101]: expected expression
    | ^ expected expression
 help: provide an expression here, such as a literal, name, or call
 
-summary: 3 errors, 0 warnings
+root diagnostic:
+error[E0101]: expected type; found `)`
+   --> fail/parser_recovery/main.nia:14:23
+   |
+14 | fn missing_type(value:) () {}
+   |                       ^ expected type; found `)`
+help: provide a type name or type expression here
+
+root diagnostic:
+error[E0101]: expected binding pattern
+   --> fail/parser_recovery/main.nia:17:9
+   |
+17 |     let = 1;
+   |         ^ expected binding pattern
+help: use a name, `_`, or a supported destructuring pattern
+
+root diagnostic:
+error[E0101]: expected `)` after parameters; found `{`
+   --> fail/parser_recovery/main.nia:20:33
+   |
+20 | fn missing_delimiter(value: i32 {
+   |                                 ^ expected `)` after parameters; found `{`
+help: check that the surrounding delimiters are balanced
+
+summary: 6 errors, 0 warnings
