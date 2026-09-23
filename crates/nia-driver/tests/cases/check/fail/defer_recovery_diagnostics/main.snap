@@ -29,4 +29,3 @@ error[E0201]: unknown value `missing_later`
 help: check the spelling, import `missing_later`, or declare it before this use
 
 summary: 2 errors, 0 warnings
-note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)

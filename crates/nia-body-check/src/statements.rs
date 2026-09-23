@@ -82,7 +82,7 @@ impl<'a> BodyChecker<'a> {
             }
             StmtKind::Expr(expr) => {
                 let expr_ty = self.check_expr(expr);
-                if !self.is_unit(expr_ty) && !self.is_never(expr_ty) {
+                if !self.is_error_ty(expr_ty) && !self.is_unit(expr_ty) && !self.is_never(expr_ty) {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         expr.span,
