@@ -798,9 +798,16 @@ impl Parser {
                     elems.push(first);
                 }
                 if self.eat(TokenKind::Comma).is_none() {
-                    let first = elems.pop()?;
-                    self.expect(TokenKind::RParen, "expected `)`")?;
-                    return Some(first);
+                    if self.expr_can_start(&self.peek().kind) {
+                        self.expected_here(
+                            ParseErrorKind::Grammar,
+                            "expected `,` or `)` after tuple element",
+                        );
+                    } else {
+                        let first = elems.pop()?;
+                        self.expect(TokenKind::RParen, "expected `)`")?;
+                        return Some(first);
+                    }
                 }
                 while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
                     if let Some(expr) =
