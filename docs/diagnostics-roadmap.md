@@ -302,6 +302,9 @@ or value-context fallbacks. SIMD builtins now
 have snapshots proving error recovery does not add secondary shape diagnostics,
 and that an unresolved type candidate or a const value passed where a type is
 required receives the correct root diagnostic.
+Builtin type argument lists also preserve an unresolved expression as the
+root diagnostic instead of publishing a second "generic arguments must be
+types" error for its recovery type.
 Atomic builtin recovery has a snapshot proving invalid RMW operation codes stay
 visible alongside unknown type arguments while type-dependent atomic errors are
 suppressed. An unaligned-load recovery snapshot proves an unresolved pointer
