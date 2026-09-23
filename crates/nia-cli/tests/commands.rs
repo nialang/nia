@@ -223,6 +223,35 @@ fn captured_diagnostic_reports_remain_deterministic_without_ansi() {
 }
 
 #[test]
+fn emit_checked_preserves_text_json_diagnostic_contract() {
+    let root = temp_dir("emit_checked_preserves_text_json_diagnostic_contract");
+    let main = root.join("main.nia");
+    std::fs::write(&main, "fn main() i32 { let value = 0x_ff; value }\n")
+        .expect("write invalid source");
+
+    for format in ["text", "json"] {
+        let output = support::nia_command()
+            .arg("emit")
+            .arg("--checked")
+            .arg(format!("--diagnostics-format={format}"))
+            .arg(&main)
+            .output_timeout_for_compiler("run nia emit --checked with diagnostics");
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty(), "{format}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!stderr.contains('\x1b'), "{format}: {stderr}");
+        if format == "json" {
+            assert!(
+                stderr.trim_start().starts_with("{\"diagnostics\":"),
+                "{stderr}"
+            );
+        } else {
+            assert!(stderr.contains("error[E0101]"), "{stderr}");
+        }
+    }
+}
+
+#[test]
 fn failed_using_use_is_grouped_under_its_root_diagnostic() {
     let root = temp_dir("failed_using_use_is_grouped_under_its_root_diagnostic");
     let main = root.join("main.nia");
