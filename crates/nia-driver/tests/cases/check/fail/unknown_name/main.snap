@@ -1,17 +1,17 @@
 path: fail/unknown_name/main.nia
-code: E0301
-summary: name is unresolved
-label: 16..23 Primary Source name is unresolved
-help: check the spelling, import the name, or define it in this module
+code: E0201
+summary: unknown value `missing`
+label: 16..23 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
 
 report:
 diagnostics:
 root diagnostic:
-error[E0301]: name is unresolved
+error[E0201]: unknown value `missing`
   --> fail/unknown_name/main.nia:1:17
   |
 1 | fn main() i32 { missing() }
-  |                 ^^^^^^^ name is unresolved
-help: check the spelling, import the name, or define it in this module
+  |                 ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
 
 summary: 1 error, 0 warnings

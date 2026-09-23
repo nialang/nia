@@ -1,0 +1,19 @@
+path: fail/type_as_value/main.nia
+code: E0301
+summary: type `Point` cannot be used as a value
+label: 40..45 Primary Source this name resolves to a type, not a value
+help: construct a value of this type, or use a value name instead
+related: 0..23 the type is declared here
+
+report:
+diagnostics:
+root diagnostic:
+error[E0301]: type `Point` cannot be used as a value
+  --> fail/type_as_value/main.nia:2:17
+  |
+2 | fn main() i32 { Point }
+  |                 ^^^^^ this name resolves to a type, not a value
+help: construct a value of this type, or use a value name instead
+related: fail/type_as_value/main.nia:1:1: the type is declared here
+
+summary: 1 error, 0 warnings

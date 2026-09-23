@@ -86,13 +86,17 @@ propagation, callable resolution, and visibility.
 
 Name lookup, qualified namespace lookup, and failed using directives now use
 rule-specific summaries with primary labels, related source locations, and
-actionable help. Assignment/place checking also reuses the same import
-evidence, preventing syntax-specific fallbacks such as `module value is
-unresolved` from hiding the original import failure.
+actionable help. Ordinary unresolved body values now identify the missing name
+and use the name-resolution code. Type and module namespaces used as values
+also have distinct contracts with declaration evidence where available.
+Assignment/place checking reuses the same import evidence and avoids publishing
+secondary place errors after an unresolved expression, preventing syntax-
+specific fallbacks such as `module value is unresolved` from hiding the original
+import failure.
 
-This coverage is not yet universal: ordinary unresolved body names still use
-the generic `name is unresolved` summary. The remaining semantic rules above
-need equivalent rule-specific contracts and source fixtures.
+This coverage is still incremental: qualified callable failures, error-union
+propagation, and other recovery-derived semantic rules need equivalent
+rule-specific contracts and source fixtures.
 
 ### 4. Report organization
 
@@ -148,6 +152,8 @@ and summary counts. This also covers reports after an incremental body edit.
 A private-using fixture verifies related locations in a clean dependency whose
 declaration is on a different line from the primary use site. Renderer tests
 cover available and unavailable related sources and explicit same-file paths.
+Unknown values, type-as-value misuse, and module-as-value misuse now each have
+dedicated fixtures and complete structured/text snapshots.
 The complete diagnostic rule set still needs equivalent fixture/snapshot
 coverage.
 
