@@ -110,6 +110,9 @@ callable cases beyond unknown members,
 error-union propagation failure variants beyond the current boundary,
 invalid-operand, and missing-conversion cases, and other recovery-derived
 semantic rules need equivalent rule-specific contracts and source fixtures.
+Propagation now short-circuits an operand already typed as the error recovery
+sentinel, so an unresolved value under `.?` retains only its name-resolution
+diagnostic instead of also being described as a non-propagatable type.
 
 ### 4. Report organization
 
@@ -170,6 +173,8 @@ dedicated fixtures and complete structured/text snapshots.
 Optional and error-union propagation boundaries, invalid propagation operands,
 and missing `IntoError` conversions now share an end-to-end case with complete
 structured/text snapshots, including the enclosing function return boundary.
+A missing value used under `.?` now has a snapshot proving the recovery type
+does not produce a second propagation diagnostic.
 A rejected two-step `IntoError` chain also has a complete snapshot showing the
 propagated operand, return boundary, one-step conversion rule, and direct
 conversion help.

@@ -1014,6 +1014,9 @@ impl<'a> BodyChecker<'a> {
     fn check_try_expr(&mut self, expr: &Expr, inner: &Expr) -> InternedTyId {
         let span = expr.span;
         let inner_ty = self.check_expr(inner);
+        if self.is_error_ty(inner_ty) {
+            return self.error();
+        }
         self.record_expr_node_type(inner, inner_ty);
         let normalized = self.normalize_aliases(inner_ty);
         match self.interner.get(normalized).cloned() {
