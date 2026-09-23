@@ -43,3 +43,15 @@ fn enum_pattern() () {
         Color::Red => {}
     }
 }
+
+fn unknown_enum_pattern() () {
+    match unknown_enum_missing {
+        Ghost::Variant => {}
+    }
+}
+
+fn unknown_struct_pattern() () {
+    match unknown_struct_missing {
+        GhostStruct { field } => { _ = field; }
+    }
+}

@@ -15,8 +15,9 @@ was actively misleading.
 
 Status: in progress. The implemented paths below are incremental coverage, not
 completion of the whole roadmap. Remaining work includes broader source-origin
-and recovery provenance, rule-specific semantic diagnostics, terminal-platform
-validation, and fixture/snapshot coverage for the complete diagnostic rule set.
+and recovery provenance, rule-specific semantic diagnostics, and fixture/snapshot
+coverage for the complete diagnostic rule set. Non-Linux terminal validation is
+deferred to the 0.3.0 multi-platform port and is not a gate for this roadmap.
 
 ## Invariants
 
@@ -161,7 +162,8 @@ free of ANSI control sequences. CLI cases now assert exact success and failure
 statuses for check, emit, build, and test. A Linux pseudo-terminal integration
 test verifies color on interactive text output and ANSI-free JSON output on the
 same terminal; interactive text also honors `NO_COLOR`. Other terminal
-platforms and broader output snapshot coverage remain to be verified.
+platforms are deferred to the 0.3.0 multi-platform port. Broader output snapshot
+coverage remains to be verified.
 
 ### 6. Regression and quality gates
 
