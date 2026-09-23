@@ -111,7 +111,8 @@ field and callable checks; range-bound methods report when the requested bound
 is absent. Ordinary and explicit-generic call fixtures now snapshot arity,
 argument type, and non-callable errors together, while an unresolved argument
 keeps an independent type mismatch in a later argument visible after generic
-substitution as well.
+substitution as well. A call with both an unresolved argument and too few
+arguments retains both independent diagnostics.
 
 This coverage is still incremental: qualified visibility cases beyond private
 values/types, qualified callable cases beyond unknown members, and other
@@ -215,7 +216,8 @@ dedicated fixtures and complete structured/text snapshots.
 Ordinary call diagnostics have a combined snapshot for argument arity, argument
 type, non-callable callees, and an unresolved argument alongside an independent
 later argument mismatch. The same unresolved-first-argument boundary is covered
-for an explicit generic call after type substitution.
+for an explicit generic call after type substitution. A missing argument count
+and an unresolved supplied argument on the same call are also both retained.
 Optional and error-union propagation boundaries, invalid propagation operands,
 and missing `IntoError` conversions now share an end-to-end case with complete
 structured/text snapshots, including the enclosing function return boundary.

@@ -9,6 +9,7 @@ fn main() i32 {
     let value: i32 = 1;
     value(false);
     add(missing, true);
+    add(missing);
     pair[i32](missing, true);
     0
 }
