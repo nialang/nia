@@ -1,0 +1,10 @@
+pub module api;
+
+fn main() i32 {
+    api::inner::deeper::read()
+}
+
+fn accept(value: api::inner::deeper::Thing) i32 {
+    _ = value;
+    0
+}

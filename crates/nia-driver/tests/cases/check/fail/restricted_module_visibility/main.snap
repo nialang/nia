@@ -1,0 +1,36 @@
+path: fail/restricted_module_visibility/main.nia
+code: E0201
+summary: module namespace `deeper` is restricted to its parent module and descendants
+label: 49..55 Primary Source module namespace `deeper` is not visible from this module
+help: make the module namespace public or move this use into its permitted scope
+related: 0..25 the module declaration is here
+
+path: fail/restricted_module_visibility/main.nia
+code: E0201
+summary: module namespace `deeper` is restricted to its parent module and descendants
+label: 96..102 Primary Source module namespace `deeper` is not visible from this module
+help: make the module namespace public or move this use into its permitted scope
+related: 0..25 the module declaration is here
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: module namespace `deeper` is restricted to its parent module and descendants
+  --> fail/restricted_module_visibility/main.nia:4:17
+  |
+4 |     api::inner::deeper::read()
+  |                 ^^^^^^ module namespace `deeper` is not visible from this module
+help: make the module namespace public or move this use into its permitted scope
+related: fail/restricted_module_visibility/api/inner.nia:1:1: the module declaration is here
+
+root diagnostic:
+error[E0201]: module namespace `deeper` is restricted to its parent module and descendants
+  --> fail/restricted_module_visibility/main.nia:7:30
+  |
+7 | fn accept(value: api::inner::deeper::Thing) i32 {
+  |                              ^^^^^^ module namespace `deeper` is not visible from this module
+help: make the module namespace public or move this use into its permitted scope
+related: fail/restricted_module_visibility/api/inner.nia:1:1: the module declaration is here
+
+summary: 2 errors, 0 warnings
+note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)
