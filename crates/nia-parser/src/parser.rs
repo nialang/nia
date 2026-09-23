@@ -908,6 +908,7 @@ impl Parser {
                     brace_depth -= 1;
                     self.bump();
                     if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 {
+                        self.eat(TokenKind::Semicolon);
                         return;
                     }
                 }

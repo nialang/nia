@@ -217,7 +217,9 @@ top-level declarations, with parser AST and driver report coverage. Statement
 recovery now tracks nested parentheses, brackets, and braces, so a failed
 control-flow expression cannot stop at a semicolon inside its discarded body;
 the enclosing block and later declarations remain parseable with parser AST and
-driver report coverage. Malformed
+driver report coverage. Statement-keyword recovery also consumes a terminator
+following a discarded nested block, so malformed `return` expressions do not
+emit a second empty-expression error. Malformed
 struct fields
 and named enum payload fields now recover at their comma boundaries; the driver
 snapshot keeps both diagnostics and later functions visible, while a parser unit
