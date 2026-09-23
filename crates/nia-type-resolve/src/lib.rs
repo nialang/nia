@@ -11,7 +11,7 @@ use nia_ast::{
 };
 use nia_ast_walk::{Visitor, walk_item};
 use nia_defs::{DefCollection, DefKind, PublicNamespace, PublicSurfaceLookup, UsingScopeLookup};
-use nia_diagnostic::{Diagnostic, codes};
+use nia_diagnostic::{Diagnostic, SuggestionApplicability, codes};
 use nia_hash::FastHashMap;
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId, Visibility};
@@ -24,7 +24,9 @@ use nia_item_tree::{
 };
 use nia_node_id::{NodeMap, NodeSite, NodeStore, VersionedNodeKey};
 use nia_span::Span;
-use nia_symbol::{SymbolId, SymbolText, known, symbol_text_from_optional_resolver};
+use nia_symbol::{
+    SymbolId, SymbolText, closest_text_candidate, known, symbol_text_from_optional_resolver,
+};
 use nia_ty::{BuiltinTrait, PrimitiveTy, PrimitiveTypeSpelling};
 
 mod resolver;

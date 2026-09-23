@@ -55,6 +55,58 @@ pub fn symbol_identity_key(symbol: SymbolId) -> String {
     format!("sym:{:016x}", symbol.raw())
 }
 
+/// Returns the closest bounded spelling candidate from a deterministic set.
+///
+/// Candidates farther than one third of the requested spelling (with a
+/// minimum distance of one) are ignored. The result is stable for hash-map
+/// iteration order because ties are resolved lexicographically.
+pub fn closest_text_candidate<I>(target: &str, candidates: I) -> Option<String>
+where
+    I: IntoIterator<Item = String>,
+{
+    let mut best: Option<(usize, String)> = None;
+    let max_distance = (target.chars().count() / 3).max(1);
+    for candidate in candidates {
+        if candidate == target {
+            continue;
+        }
+        let Some(distance) = bounded_edit_distance(target, &candidate, max_distance) else {
+            continue;
+        };
+        let replace = best.as_ref().is_none_or(|(best_distance, best_text)| {
+            distance < *best_distance || (distance == *best_distance && candidate < *best_text)
+        });
+        if replace {
+            best = Some((distance, candidate));
+        }
+    }
+    best.map(|(_, candidate)| candidate)
+}
+
+fn bounded_edit_distance(left: &str, right: &str, limit: usize) -> Option<usize> {
+    let right = right.chars().collect::<Vec<_>>();
+    let mut previous = (0..=right.len()).collect::<Vec<_>>();
+    for (left_index, left_char) in left.chars().enumerate() {
+        let mut current = vec![left_index + 1; right.len() + 1];
+        let mut row_min = current[0];
+        for (right_index, right_char) in right.iter().enumerate() {
+            current[right_index + 1] = if left_char == *right_char {
+                previous[right_index]
+            } else {
+                (previous[right_index] + 1)
+                    .min(previous[right_index + 1] + 1)
+                    .min(current[right_index] + 1)
+            };
+            row_min = row_min.min(current[right_index + 1]);
+        }
+        if row_min > limit {
+            return None;
+        }
+        previous = current;
+    }
+    (previous[right.len()] <= limit).then_some(previous[right.len()])
+}
+
 /// Returns registered text when known, otherwise the stable identity key.
 pub fn known_symbol_text_or_identity(symbol: SymbolId) -> String {
     known::WELL_KNOWN
@@ -746,5 +798,18 @@ mod tests {
         );
         assert_eq!(nia_ids::BuiltinTypeAnchor::Usize.symbol_id(), known::USIZE);
         assert_eq!(nia_ids::LayoutBuiltin::Align.symbol_id(), known::ALIGN);
+    }
+
+    #[test]
+    fn closest_text_candidate_is_bounded_and_deterministic() {
+        assert_eq!(
+            closest_text_candidate("pront", ["print".to_owned(), "printf".to_owned()]),
+            Some("print".to_owned())
+        );
+        assert_eq!(closest_text_candidate("value", ["other".to_owned()]), None);
+        assert_eq!(
+            closest_text_candidate("fooo", ["food".to_owned(), "fool".to_owned()]),
+            Some("food".to_owned())
+        );
     }
 }
