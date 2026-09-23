@@ -488,7 +488,7 @@ impl Parser {
                         args.push(TypeArg::Const(expr));
                     }
                 }
-                if self.eat(TokenKind::Comma).is_none() {
+                if !self.eat_type_arg_delimiter() {
                     break;
                 }
                 continue;
@@ -536,7 +536,7 @@ impl Parser {
                         span: Span::new(key_start, ty.span.end),
                         ty,
                     });
-                    if self.eat(TokenKind::Comma).is_none() {
+                    if !self.eat_type_arg_delimiter() {
                         break;
                     }
                     continue;
@@ -615,7 +615,7 @@ impl Parser {
                     }
                 }
             }
-            if self.eat(TokenKind::Comma).is_none() {
+            if !self.eat_type_arg_delimiter() {
                 break;
             }
         }
@@ -625,6 +625,23 @@ impl Parser {
 
     fn at_type_arg_boundary(&self) -> bool {
         self.at(TokenKind::Comma) || self.at(TokenKind::RBracket) || self.at(TokenKind::Eof)
+    }
+
+    fn eat_type_arg_delimiter(&mut self) -> bool {
+        if self.eat(TokenKind::Comma).is_some() {
+            return true;
+        }
+        if self.at(TokenKind::RBracket) || self.at(TokenKind::Eof) {
+            return false;
+        }
+        self.expected_here(
+            ParseErrorKind::Grammar,
+            "expected `,` or `]` after type argument",
+        );
+        while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
+            self.bump();
+        }
+        false
     }
 
     fn skip_to_type_arg_boundary(&mut self) {
