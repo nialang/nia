@@ -1,0 +1,13 @@
+enum Color {
+    Pair(bool, bool),
+}
+
+fn main(value: Color) () {
+    match value {
+        Color::Pair(true, , false) => (),
+        _ => (),
+    }
+    later();
+}
+
+fn later() () {}
