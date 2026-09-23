@@ -2657,13 +2657,11 @@ fn take(p: math::Point) i32 {
 }
 "#;
     write(&root.join("main.nia"), source);
-    write(
-        &root.join("math.nia"),
-        r#"
+    let math_source = r#"
 struct Point { x: i32 }
 fn add(a: i32, b: i32) i32 { a + b }
-"#,
-    );
+"#;
+    write(&root.join("math.nia"), math_source);
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     let private_type = program
@@ -2693,6 +2691,22 @@ fn add(a: i32, b: i32) i32 { a + b }
     assert_eq!(
         private_value.diagnostic.primary_span().unwrap().start,
         source.find("add").expect("add source span")
+    );
+    assert!(
+        private_type.diagnostic.related.iter().any(|related| {
+            related.message.contains("private type is declared")
+                && related.span.start == math_source.find("struct Point").unwrap()
+        }),
+        "missing private type declaration evidence: {:?}",
+        private_type.diagnostic
+    );
+    assert!(
+        private_value.diagnostic.related.iter().any(|related| {
+            related.message.contains("private value is declared")
+                && related.span.start == math_source.find("fn add").unwrap()
+        }),
+        "missing private value declaration evidence: {:?}",
+        private_value.diagnostic
     );
 }
 
