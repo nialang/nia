@@ -459,8 +459,21 @@ pub struct Diagnostic {
     pub suggestions: Box<Vec<DiagnosticSuggestion>>,
     /// Related source locations and messages.
     pub related: Box<Vec<RelatedDiagnostic>>,
+    /// Optional source-owned diagnostic that explains this consequence.
+    pub cause: Option<Box<DiagnosticCause>>,
     /// Internal debug fields retained for diagnostics tooling.
     pub debug: Box<Vec<DebugField>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Stable identity of a diagnostic root that caused another diagnostic.
+pub struct DiagnosticCause {
+    /// Source file owning the root diagnostic.
+    pub source_path: String,
+    /// Stable diagnostic code of the root.
+    pub code: String,
+    /// Primary source span of the root diagnostic.
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -670,6 +683,8 @@ impl Default for DiagnosticReportConfig {
 /// Sorted, deduplicated diagnostic report with suppression counts.
 pub struct DiagnosticReport<'a, T> {
     entries: Vec<&'a T>,
+    entry_kinds: Vec<DiagnosticReportEntryKind>,
+    entry_parents: Vec<Option<usize>>,
     error_count: usize,
     warning_count: usize,
     suppressed_duplicates: usize,
@@ -677,10 +692,42 @@ pub struct DiagnosticReport<'a, T> {
     suppressed_by_limit: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Presentation relationship of one retained report entry.
+pub enum DiagnosticReportEntryKind {
+    /// A source-owned diagnostic that establishes a root cause.
+    Root,
+    /// A generated-location diagnostic retained as context for a source root.
+    Related,
+    /// A diagnostic without source ownership that cannot be attached to a root.
+    Independent,
+}
+
+impl DiagnosticReportEntryKind {
+    /// Returns the stable machine-readable kind name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Root => "root",
+            Self::Related => "related",
+            Self::Independent => "independent",
+        }
+    }
+}
+
 impl<'a, T> DiagnosticReport<'a, T> {
     /// Returns selected report entries in presentation order.
     pub fn entries(&self) -> &[&'a T] {
         &self.entries
+    }
+
+    /// Returns the presentation relationship for an entry at `index`.
+    pub fn entry_kind(&self, index: usize) -> Option<DiagnosticReportEntryKind> {
+        self.entry_kinds.get(index).copied()
+    }
+
+    /// Returns the root entry index for a related entry.
+    pub fn entry_parent(&self, index: usize) -> Option<usize> {
+        self.entry_parents.get(index).copied().flatten()
     }
 
     /// Returns the number of errors retained in the report.
@@ -711,7 +758,7 @@ impl<'a, T> DiagnosticReport<'a, T> {
 
     /// Returns all suppressed entries.
     pub fn suppressed_total(&self) -> usize {
-        self.suppressed_duplicates + self.suppressed_by_limit
+        self.suppressed_duplicates + self.suppressed_downstream + self.suppressed_by_limit
     }
 }
 
@@ -739,6 +786,7 @@ impl Diagnostic {
                 help: Box::new(Vec::new()),
                 suggestions: Box::new(Vec::new()),
                 related: Box::new(Vec::new()),
+                cause: None,
                 debug: Box::new(Vec::new()),
             },
         }
@@ -788,6 +836,7 @@ impl Diagnostic {
                 help: Box::new(Vec::new()),
                 suggestions: Box::new(Vec::new()),
                 related: Box::new(Vec::new()),
+                cause: None,
                 debug: Box::new(Vec::new()),
             },
         }
@@ -1021,6 +1070,21 @@ impl DiagnosticBuilder {
         self
     }
 
+    /// Links this diagnostic to a source-owned root diagnostic.
+    pub fn caused_by(
+        mut self,
+        source_path: impl Into<String>,
+        code: impl Into<String>,
+        span: Span,
+    ) -> Self {
+        self.diagnostic.cause = Some(Box::new(DiagnosticCause {
+            source_path: source_path.into(),
+            code: code.into(),
+            span,
+        }));
+        self
+    }
+
     /// Appends a formatted internal debug field.
     pub fn debug(mut self, key: impl Into<String>, value: impl fmt::Debug) -> Self {
         self.diagnostic.debug.push(DebugField {
@@ -1062,19 +1126,102 @@ pub fn build_diagnostic_report_with_downstream<T: DiagnosticReportItem>(
     let mut selected = Vec::new();
     let mut seen = HashSet::new();
     let mut suppressed_duplicates = 0;
-    let mut suppressed_by_limit = 0;
     for entry in entries {
         let key = DiagnosticDedupeKey::from_item(entry);
         if !seen.insert(key) {
             suppressed_duplicates += 1;
             continue;
         }
-        if selected.len() >= config.max_diagnostics {
-            suppressed_by_limit += 1;
-            continue;
-        }
         selected.push(entry);
     }
+
+    let mut roots = HashMap::new();
+    let mut ambiguous_roots = HashSet::new();
+    for entry in &selected {
+        let diagnostic = entry.report_diagnostic();
+        if report_entry_kind(diagnostic) != DiagnosticReportEntryKind::Root {
+            continue;
+        }
+        let Some(path) = entry.report_path() else {
+            continue;
+        };
+        let Some(span) = diagnostic.primary_span() else {
+            continue;
+        };
+        let key = (path.to_owned(), diagnostic.code.as_str().to_owned(), span);
+        if roots.insert(key.clone(), ()).is_some() {
+            ambiguous_roots.insert(key);
+        }
+    }
+    let root_positions = selected
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry)| {
+            let diagnostic = entry.report_diagnostic();
+            let path = entry.report_path()?;
+            let span = diagnostic.primary_span()?;
+            (report_entry_kind(diagnostic) == DiagnosticReportEntryKind::Root).then(|| {
+                (
+                    (path.to_owned(), diagnostic.code.as_str().to_owned(), span),
+                    index,
+                )
+            })
+        })
+        .collect::<HashMap<_, _>>();
+    let mut relationships = Vec::with_capacity(selected.len());
+    for entry in &selected {
+        let diagnostic = entry.report_diagnostic();
+        let parent = diagnostic.cause.as_ref().and_then(|cause| {
+            let key = (cause.source_path.clone(), cause.code.clone(), cause.span);
+            (!ambiguous_roots.contains(&key))
+                .then(|| root_positions.get(&key).copied())
+                .flatten()
+        });
+        if let Some(parent) = parent {
+            relationships.push((DiagnosticReportEntryKind::Related, Some(parent)));
+        } else {
+            relationships.push((report_entry_kind(diagnostic), None));
+        }
+    }
+
+    let mut ordered_indices = Vec::with_capacity(selected.len());
+    for (root_index, (kind, _)) in relationships.iter().enumerate() {
+        if *kind != DiagnosticReportEntryKind::Root {
+            continue;
+        }
+        ordered_indices.push(root_index);
+        ordered_indices.extend(relationships.iter().enumerate().filter_map(
+            |(index, (kind, parent))| {
+                (*kind == DiagnosticReportEntryKind::Related && *parent == Some(root_index))
+                    .then_some(index)
+            },
+        ));
+    }
+    ordered_indices.extend(
+        relationships
+            .iter()
+            .enumerate()
+            .filter_map(|(index, (kind, _))| {
+                (*kind == DiagnosticReportEntryKind::Independent).then_some(index)
+            }),
+    );
+
+    let suppressed_by_limit = ordered_indices.len().saturating_sub(config.max_diagnostics);
+    ordered_indices.truncate(config.max_diagnostics);
+    let mut retained_positions = HashMap::with_capacity(ordered_indices.len());
+    for (report_index, selected_index) in ordered_indices.iter().enumerate() {
+        retained_positions.insert(*selected_index, report_index);
+    }
+    let mut entry_kinds = Vec::with_capacity(ordered_indices.len());
+    let mut entry_parents = Vec::with_capacity(ordered_indices.len());
+    let mut ordered_entries = Vec::with_capacity(ordered_indices.len());
+    for selected_index in ordered_indices {
+        let (kind, parent) = relationships[selected_index];
+        entry_kinds.push(kind);
+        entry_parents.push(parent.and_then(|parent| retained_positions.get(&parent).copied()));
+        ordered_entries.push(selected[selected_index]);
+    }
+    selected = ordered_entries;
 
     let error_count = selected
         .iter()
@@ -1087,6 +1234,8 @@ pub fn build_diagnostic_report_with_downstream<T: DiagnosticReportItem>(
 
     DiagnosticReport {
         entries: selected,
+        entry_kinds,
+        entry_parents,
         error_count,
         warning_count,
         suppressed_duplicates,
@@ -1095,17 +1244,28 @@ pub fn build_diagnostic_report_with_downstream<T: DiagnosticReportItem>(
     }
 }
 
+fn report_entry_kind(diagnostic: &Diagnostic) -> DiagnosticReportEntryKind {
+    match diagnostic.primary_span_source() {
+        Some(SpanSource::Source) => DiagnosticReportEntryKind::Root,
+        Some(SpanSource::Generated | SpanSource::Fallback) | None => {
+            DiagnosticReportEntryKind::Independent
+        }
+    }
+}
+
 fn compare_report_items<T: DiagnosticReportItem>(left: &T, right: &T) -> Ordering {
     let left_diagnostic = left.report_diagnostic();
     let right_diagnostic = right.report_diagnostic();
-    diagnostic_priority(left_diagnostic)
-        .cmp(&diagnostic_priority(right_diagnostic))
+    span_source_rank(left_diagnostic)
+        .cmp(&span_source_rank(right_diagnostic))
         .then_with(|| {
             left_diagnostic
                 .uses_unregistered_code()
                 .cmp(&right_diagnostic.uses_unregistered_code())
         })
-        .then_with(|| span_source_rank(left_diagnostic).cmp(&span_source_rank(right_diagnostic)))
+        .then_with(|| {
+            diagnostic_priority(left_diagnostic).cmp(&diagnostic_priority(right_diagnostic))
+        })
         .then_with(|| left.report_path().cmp(&right.report_path()))
         .then_with(|| {
             left_diagnostic
@@ -1438,10 +1598,23 @@ pub fn render_diagnostics_json_with_downstream<T: DiagnosticReportItem>(
         if index != 0 {
             output.push(',');
         }
-        output.push_str(&render_diagnostic_json(
+        let rendered = render_diagnostic_json(
             entry.report_path().unwrap_or("<unknown>"),
             entry.report_diagnostic(),
-        ));
+        );
+        let kind = report
+            .entry_kind(index)
+            .expect("report entry kind must match retained entry")
+            .as_str();
+        output.push_str("{\"kind\":\"");
+        output.push_str(kind);
+        output.push('\"');
+        if let Some(parent) = report.entry_parent(index) {
+            output.push_str(",\"parent\":");
+            output.push_str(&parent.to_string());
+        }
+        output.push(',');
+        output.push_str(&rendered[1..]);
     }
     output.push_str("],\"summary\":{");
     output.push_str("\"errors\":");
@@ -1862,6 +2035,60 @@ mod tests {
     }
 
     #[test]
+    fn report_exposes_root_related_and_independent_kinds() {
+        struct Item<'a> {
+            path: &'a str,
+            diagnostic: &'a Diagnostic,
+        }
+
+        impl DiagnosticReportItem for Item<'_> {
+            fn report_diagnostic(&self) -> &Diagnostic {
+                self.diagnostic
+            }
+
+            fn report_path(&self) -> Option<&str> {
+                Some(self.path)
+            }
+        }
+
+        let root = Diagnostic::user_error_at(codes::PARSE, Span::new(0, 1), "root");
+        let related = Diagnostic::user_error(codes::TYPE_CHECK, "related")
+            .primary(Span::new(2, 3), "related")
+            .caused_by("main.nia", "E0101", Span::new(0, 1))
+            .finish();
+        let independent = Diagnostic::internal_error(codes::ICE, "independent")
+            .primary_fallback(Span::default(), "no source")
+            .finish();
+
+        let diagnostics = [
+            Item {
+                path: "main.nia",
+                diagnostic: &related,
+            },
+            Item {
+                path: "main.nia",
+                diagnostic: &independent,
+            },
+            Item {
+                path: "main.nia",
+                diagnostic: &root,
+            },
+        ];
+        let report = build_diagnostic_report(&diagnostics, DiagnosticReportConfig::default());
+
+        assert_eq!(report.entry_kind(0), Some(DiagnosticReportEntryKind::Root));
+        assert_eq!(
+            report.entry_kind(1),
+            Some(DiagnosticReportEntryKind::Related)
+        );
+        assert_eq!(report.entry_parent(1), Some(0));
+        assert_eq!(
+            report.entry_kind(2),
+            Some(DiagnosticReportEntryKind::Independent)
+        );
+    }
+
+    #[test]
     fn registered_codes_are_unique_and_well_formed() {
         let mut seen = Vec::new();
         for code in codes::ALL {
@@ -1984,6 +2211,7 @@ mod tests {
             json.contains("\"summary\":{\"errors\":1,\"warnings\":0}"),
             "{json}"
         );
+        assert!(json.contains("\"kind\":\"root\""), "{json}");
         assert!(json.contains("\"suppressed\":{\"duplicates\":0"), "{json}");
 
         let downstream_json = render_diagnostics_json_with_downstream(

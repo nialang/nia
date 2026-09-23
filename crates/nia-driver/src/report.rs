@@ -6,8 +6,9 @@ use crate::{
     NiaOptimizationLevel, ObjectArtifact,
 };
 use nia_diagnostic::{
-    Diagnostic, DiagnosticReportConfig, DiagnosticReportItem, build_diagnostic_report,
-    render_diagnostic, render_diagnostics_json, render_diagnostics_json_at,
+    Diagnostic, DiagnosticReportConfig, DiagnosticReportEntryKind, DiagnosticReportItem,
+    build_diagnostic_report, render_diagnostic, render_diagnostics_json,
+    render_diagnostics_json_at,
 };
 use nia_opt::{InlineThreshold, OptimizationDepth, SpecializationPolicy};
 
@@ -262,7 +263,20 @@ fn render_program_diagnostic_items(
     );
     let mut out = String::new();
     out.push_str("diagnostics:\n");
-    for entry in report.entries() {
+    for (index, entry) in report.entries().iter().enumerate() {
+        match report.entry_kind(index) {
+            Some(DiagnosticReportEntryKind::Root) => out.push_str("root diagnostic:\n"),
+            Some(DiagnosticReportEntryKind::Related) => {
+                let parent = report
+                    .entry_parent(index)
+                    .expect("related report entry must have a root");
+                out.push_str(&format!("related to root diagnostic {}:\n", parent + 1));
+            }
+            Some(DiagnosticReportEntryKind::Independent) => {
+                out.push_str("independent diagnostic:\n")
+            }
+            None => unreachable!("report entry kind must match retained entry"),
+        }
         let source = diagnostic_source(entry.path, primary_path, primary_source);
         out.push_str(&nia_diagnostic::render_diagnostic_with_sources(
             entry.path,
