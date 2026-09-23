@@ -1,0 +1,5 @@
+module api;
+
+fn main() i32 {
+    api::comput()
+}
