@@ -380,6 +380,30 @@ fn generic_parameter_delimiter_recovery_keeps_the_function() {
 }
 
 #[test]
+fn using_group_recovery_keeps_later_members_and_items() {
+    let (module, errors) = parse_module("using {kept, , later as alias};\nfn after() () {}");
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected name in `using`"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Using(using) = &module.items[0].kind else {
+        panic!("expected using item");
+    };
+    let nia_ast::UsingSelector::Group(items) = &using.selector else {
+        panic!("expected using group");
+    };
+    assert_eq!(items.len(), 2);
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(function.name, sym("after"));
+}
+
+#[test]
 fn type_argument_delimiter_recovery_keeps_the_function() {
     let (module, errors) =
         parse_module("fn retained(value: Wrapper[i32 bool]) () {}\nfn later() () {}");
