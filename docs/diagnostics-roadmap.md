@@ -148,7 +148,9 @@ diagnostics, and bindings introduced by the recovered pattern still receive an
 Error type so later uses do not report a second unknown local type.
 Defer statements apply the same rule: an unresolved deferred expression does
 not produce a second unit-type diagnostic, while independent later errors remain
-visible.
+visible. Ordinary expression statements apply the same rule: an unresolved
+expression does not produce a second discarded-result diagnostic, while a
+separate non-unit expression statement remains visible.
 
 ### 4. Report organization
 
@@ -219,7 +221,10 @@ control-flow expression cannot stop at a semicolon inside its discarded body;
 the enclosing block and later declarations remain parseable with parser AST and
 driver report coverage. Statement-keyword recovery also consumes a terminator
 following a discarded nested block, so malformed `return` expressions do not
-emit a second empty-expression error. Malformed
+emit a second empty-expression error. Unresolved expression statements now
+suppress their discarded-result recovery diagnostic at the body-check boundary,
+with a driver snapshot proving the root name error and an independent discarded
+literal remain distinct. Malformed
 struct fields
 and named enum payload fields now recover at their comma boundaries; the driver
 snapshot keeps both diagnostics and later functions visible, while a parser unit

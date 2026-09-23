@@ -1,0 +1,29 @@
+path: fail/expression_statement_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown value `missing_expression`
+label: 19..37 Primary Source no value named `missing_expression` is visible in this scope
+help: check the spelling, import `missing_expression`, or declare it before this use
+
+path: fail/expression_statement_recovery_diagnostics/main.nia
+code: E0301
+summary: non-unit expression result is discarded; assign it to `_` explicitly
+label: 43..44 Primary Source non-unit expression result is discarded; assign it to `_` explicitly
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown value `missing_expression`
+  --> fail/expression_statement_recovery_diagnostics/main.nia:2:5
+  |
+2 |     missing_expression;
+  |     ^^^^^^^^^^^^^^^^^^ no value named `missing_expression` is visible in this scope
+help: check the spelling, import `missing_expression`, or declare it before this use
+
+root diagnostic:
+error[E0301]: non-unit expression result is discarded; assign it to `_` explicitly
+  --> fail/expression_statement_recovery_diagnostics/main.nia:3:5
+  |
+3 |     1;
+  |     ^ non-unit expression result is discarded; assign it to `_` explicitly
+
+summary: 2 errors, 0 warnings

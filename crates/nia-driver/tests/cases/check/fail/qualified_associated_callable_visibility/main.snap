@@ -33,4 +33,3 @@ note: the target type is `Point`, and no visible associated function named `miss
 help: check the type qualification, import the module that defines `missing`, or use a function available for `Point`
 
 summary: 2 errors, 0 warnings
-note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)

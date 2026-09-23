@@ -15,4 +15,4 @@ error[E0201]: unknown value `missing`
 help: check the spelling, import `missing`, or declare it before this use
 
 summary: 1 error, 0 warnings
-note: suppressed 3 diagnostic(s) (0 duplicate(s), 3 downstream consequence(s), 0 over limit)
+note: suppressed 2 diagnostic(s) (0 duplicate(s), 2 downstream consequence(s), 0 over limit)

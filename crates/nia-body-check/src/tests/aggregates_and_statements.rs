@@ -190,6 +190,31 @@ fn main() i32 {
 }
 
 #[test]
+fn suppresses_discard_diagnostic_after_unresolved_expression_statement() {
+    let checked = pipeline(
+        r#"
+fn main() () {
+    missing_expression;
+    1;
+}
+"#,
+    );
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("unknown value `missing_expression`")
+    }));
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.summary.contains("non-unit expression result"))
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn checks_new_loop_expression_type_edges() {
     let checked = pipeline(
         r#"

@@ -1,0 +1,4 @@
+fn main() () {
+    missing_expression;
+    1;
+}
