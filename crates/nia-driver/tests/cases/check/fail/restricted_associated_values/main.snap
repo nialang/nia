@@ -1,0 +1,51 @@
+path: fail/restricted_associated_values/main.nia
+code: E0201
+summary: associated value `PRIVATE_LIMIT` is private
+label: 64..77 Primary Source associated value `PRIVATE_LIMIT` is private
+help: make the associated value public or use it from an allowed scope
+related: 40..76 the private associated value is declared here
+
+path: fail/restricted_associated_values/main.nia
+code: E0201
+summary: associated value `PARENT_LIMIT` is restricted to its parent module and descendants
+label: 125..137 Primary Source associated value `PARENT_LIMIT` is not visible from this module
+help: make the associated value public or move this use into its permitted scope
+related: 92..127 the restricted associated value is declared here
+
+path: fail/restricted_associated_values/main.nia
+code: E0201
+summary: associated value `PACKAGE_LIMIT` is restricted to its package
+label: 186..199 Primary Source associated value `PACKAGE_LIMIT` is not visible from this module
+help: make the associated value public or use it from the defining package
+related: 141..177 the restricted associated value is declared here
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: associated value `PRIVATE_LIMIT` is private
+  --> fail/restricted_associated_values/main.nia:4:19
+  |
+4 |     model::Value::PRIVATE_LIMIT
+  |                   ^^^^^^^^^^^^^ associated value `PRIVATE_LIMIT` is private
+help: make the associated value public or use it from an allowed scope
+related: fail/restricted_associated_values/dep/model.nia:4:5: the private associated value is declared here
+
+root diagnostic:
+error[E0201]: associated value `PARENT_LIMIT` is restricted to its parent module and descendants
+  --> fail/restricted_associated_values/main.nia:8:19
+  |
+8 |     model::Value::PARENT_LIMIT
+  |                   ^^^^^^^^^^^^ associated value `PARENT_LIMIT` is not visible from this module
+help: make the associated value public or move this use into its permitted scope
+related: fail/restricted_associated_values/dep/model.nia:5:16: the restricted associated value is declared here
+
+root diagnostic:
+error[E0201]: associated value `PACKAGE_LIMIT` is restricted to its package
+   --> fail/restricted_associated_values/main.nia:12:19
+   |
+12 |     model::Value::PACKAGE_LIMIT
+   |                   ^^^^^^^^^^^^^ associated value `PACKAGE_LIMIT` is not visible from this module
+help: make the associated value public or use it from the defining package
+related: fail/restricted_associated_values/dep/model.nia:6:14: the restricted associated value is declared here
+
+summary: 3 errors, 0 warnings

@@ -184,10 +184,10 @@ package-scope errors and related declaration locations. A package-restricted
 receiver-style or associated extension function now reports its visibility and
 dependency declaration instead of falling through to an unrelated field or
 unknown-function error.
-Package-restricted associated values in visible extensions now retain their
-declaration visibility through lookup and report a source-owned diagnostic with
-the dependency declaration location instead of falling through to a generic
-qualified-expression error. Package-internal access remains valid.
+Private, `pub(super)`, and `pub(pkg)` associated values in visible extensions
+now retain their declaration visibility through lookup and report source-owned
+diagnostics with dependency declaration locations instead of falling through to
+a generic qualified-expression error. Package-internal access remains valid.
 The complete diagnostic rule set still needs equivalent fixture/snapshot
 coverage.
 
