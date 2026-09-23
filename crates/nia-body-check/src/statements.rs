@@ -307,7 +307,7 @@ impl<'a> BodyChecker<'a> {
         value_ty: InternedTyId,
         context: &str,
     ) -> InternedTyId {
-        if self.is_error_ty(value_ty) {
+        if self.is_error_recovery_ty(value_ty) {
             self.record_error_pattern_bindings(pattern);
             return value_ty;
         }

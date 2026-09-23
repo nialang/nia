@@ -1,0 +1,4 @@
+fn main() () {
+    let &value = (missing, 1);
+    _ = value;
+}

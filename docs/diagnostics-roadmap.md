@@ -373,6 +373,10 @@ recovery values such as pointers, arrays, tuples, and optionals no longer
 trigger secondary builtin shape, trait-bound, pattern-shape, or exhaustiveness
 diagnostics. Body-check tests and a driver snapshot cover both matching and
 intentionally mismatched pattern constructors against those recovered shapes.
+Irrefutable binding patterns apply the same recursive recovery rule, so a
+destructuring pattern against a tuple or other composite containing an
+unresolved value does not publish a secondary binding-shape diagnostic; the
+body-check and driver suites cover this boundary.
 Binary and shift operator recovery is covered end to end: unresolved operands
 retain their name-resolution roots while operator trait and operand-shape
 consequences are suppressed.

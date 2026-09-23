@@ -1715,3 +1715,27 @@ fn invalid() () {
         checked.diagnostics
     );
 }
+
+#[test]
+fn structural_binding_does_not_reject_error_recovery_value() {
+    let checked = pipeline(
+        r#"
+fn main() () {
+    let &value = (missing, 1);
+    _ = value;
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        summaries
+            .iter()
+            .any(|summary| summary.contains("unknown value `missing`")),
+        "{summaries:?}"
+    );
+    assert_eq!(summaries.len(), 1, "{summaries:?}");
+}
