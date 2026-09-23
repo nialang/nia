@@ -95,6 +95,7 @@ pub enum BodyCheckFilter<'a> {
 }
 
 type ExtensionMethodsNamed<'a> = &'a dyn Fn(&SymbolId) -> Vec<ExtensionMethod>;
+type ExtensionVisibilityAllows<'a> = &'a dyn Fn(Visibility, ModuleId) -> bool;
 
 #[derive(Clone, Copy)]
 /// Optional program-wide providers used during body checking.
@@ -120,6 +121,8 @@ pub struct BodyProgramContext<'a> {
     pub extension_method_by_id: Option<&'a dyn Fn(GlobalDefId) -> Option<ExtensionMethod>>,
     /// Resolves extension methods by source name.
     pub extension_methods_named: Option<ExtensionMethodsNamed<'a>>,
+    /// Checks whether an extension method is visible from the current module.
+    pub extension_visibility_allows: Option<ExtensionVisibilityAllows<'a>>,
 }
 
 impl BodyProgramContext<'_> {
@@ -136,6 +139,7 @@ impl BodyProgramContext<'_> {
             visible_extensions: None,
             extension_method_by_id: None,
             extension_methods_named: None,
+            extension_visibility_allows: None,
         }
     }
 }
@@ -160,6 +164,10 @@ impl fmt::Debug for BodyProgramContext<'_> {
             .field(
                 "extension_methods_named",
                 &self.extension_methods_named.is_some(),
+            )
+            .field(
+                "extension_visibility_allows",
+                &self.extension_visibility_allows.is_some(),
             )
             .finish()
     }

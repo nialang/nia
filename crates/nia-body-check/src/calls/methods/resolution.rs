@@ -570,7 +570,11 @@ impl<'a> BodyChecker<'a> {
             .with_visible_extensions(|extensions| extensions.all_methods_named(name))
             .into_iter()
             .filter(|(_, method)| !method.is_trait_witness)
-            .map(|(target_ty, method)| crate::CallableExtensionMethod { target_ty, method })
+            .map(|(target_ty, method)| crate::CallableExtensionMethod {
+                target_ty,
+                method,
+                inaccessible_visibility: None,
+            })
             .collect::<Vec<_>>();
         let program_methods = self
             .program
@@ -603,6 +607,12 @@ impl<'a> BodyChecker<'a> {
                         .insert(method.def_id, lookup.clone());
                     lookup
                 };
+            let callable = method.def_id.module_id == self.defs.module_id
+                || self
+                    .program
+                    .extension_visibility_allows
+                    .map(|allows| allows(method.visibility, method.def_id.module_id))
+                    .unwrap_or(method.visibility == Visibility::Public);
             methods.push(crate::CallableExtensionMethod {
                 target_ty: lookup.target_ty,
                 method: VisibleExtensionMethod {
@@ -615,9 +625,10 @@ impl<'a> BodyChecker<'a> {
                     trait_args: Vec::new(),
                     trait_const_args: Vec::new(),
                     where_predicates: lookup.where_predicates.clone(),
-                    is_callable: true,
+                    is_callable: callable,
                     is_trait_witness: false,
                 },
+                inaccessible_visibility: (!callable).then_some(method.visibility),
             });
         }
         let mut seen = std::collections::HashSet::new();
@@ -656,14 +667,23 @@ impl<'a> BodyChecker<'a> {
             .unwrap_or_default();
         let mut candidates = Vec::new();
         for index in 0..methods_len {
-            let Some((candidate_ty, method)) = self
+            let Some((candidate_ty, method, inaccessible_visibility)) = self
                 .callable_extension_methods_by_name
                 .get(name)
                 .and_then(|methods| methods.methods.get(index))
-                .map(|method| (method.target_ty, method.method.clone()))
+                .map(|method| {
+                    (
+                        method.target_ty,
+                        method.method.clone(),
+                        method.inaccessible_visibility,
+                    )
+                })
             else {
                 continue;
             };
+            if inaccessible_visibility.is_some() {
+                continue;
+            }
             let mut target_substitutions = SymbolMap::default();
             let mut target_const_substitutions = SymbolMap::default();
             if self.profile_stage("body_check.profile.method.match_target", |this| {
@@ -678,6 +698,7 @@ impl<'a> BodyChecker<'a> {
                     target_ty: candidate_ty,
                     self_ty: target_ty,
                     method,
+                    inaccessible_visibility,
                     target_substitutions,
                     target_const_substitutions,
                 });
@@ -709,11 +730,17 @@ impl<'a> BodyChecker<'a> {
                 .unwrap_or_default();
             let mut candidates = Vec::new();
             for index in candidate_indexes {
-                let Some((target_ty, method)) = self
+                let Some((target_ty, method, inaccessible_visibility)) = self
                     .callable_extension_methods_by_name
                     .get(name)
                     .and_then(|methods| methods.methods.get(index))
-                    .map(|method| (method.target_ty, method.method.clone()))
+                    .map(|method| {
+                        (
+                            method.target_ty,
+                            method.method.clone(),
+                            method.inaccessible_visibility,
+                        )
+                    })
                 else {
                     continue;
                 };
@@ -745,6 +772,7 @@ impl<'a> BodyChecker<'a> {
                         target_ty,
                         self_ty: receiver_ty,
                         method,
+                        inaccessible_visibility,
                         target_substitutions,
                         target_const_substitutions,
                     });

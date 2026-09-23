@@ -837,7 +837,7 @@ fn qualified_visibility_diagnostic(
         Visibility::Public => (
             format!("{kind} `{name}` is not visible from this module"),
             format!("{kind} `{name}` is not visible from this module"),
-            format!("check the module path and declaration visibility"),
+            "check the module path and declaration visibility".to_string(),
         ),
     }
 }

@@ -1,0 +1,5 @@
+using dep::model;
+
+fn main() i32 {
+    model::Value::init(41).package_score()
+}

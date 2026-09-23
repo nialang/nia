@@ -318,6 +318,7 @@ struct ReceiverBase {
 struct CallableExtensionMethod {
     target_ty: InternedTyId,
     method: VisibleExtensionMethod,
+    inaccessible_visibility: Option<Visibility>,
 }
 
 #[derive(Debug, Clone, Default)]

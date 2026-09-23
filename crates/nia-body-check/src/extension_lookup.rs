@@ -153,10 +153,6 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         method: &nia_defs::ExtensionMethod,
     ) -> Option<ExtensionMethodLookup> {
-        if method.def_id.module_id != self.defs.module_id && method.visibility != Visibility::Public
-        {
-            return None;
-        }
         let program_normalizations = self.program.extension_type_normalizations?;
         let normalization = program_normalizations(method.def_id.module_id)?;
         let target_ty = normalization.normalize(method.target_ty);

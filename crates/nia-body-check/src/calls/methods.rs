@@ -3,7 +3,7 @@ use crate::BodyChecker;
 use nia_ast::{BracketArg, Expr, ExprKind};
 use nia_defs::VisibleExtensionMethod;
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, ReceiverKind, TraitId};
+use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, ReceiverKind, TraitId, Visibility};
 use nia_item_signatures::FunctionSignature;
 use nia_sema_ir::{BracketSuffixResolution, BuiltinMethod, BuiltinOperatorOp, ResolvedCall};
 use nia_span::Span;
@@ -78,6 +78,7 @@ pub(super) struct MethodCandidate {
     pub(super) target_ty: InternedTyId,
     pub(super) self_ty: InternedTyId,
     pub(super) method: VisibleExtensionMethod,
+    pub(super) inaccessible_visibility: Option<Visibility>,
     pub(super) target_substitutions: SymbolMap<InternedTyId>,
     pub(super) target_const_substitutions: SymbolMap<ConstGenericArg>,
 }
@@ -318,6 +319,9 @@ impl<'a> BodyChecker<'a> {
         trait_candidates_searched: bool,
     ) -> Option<InternedTyId> {
         let receiver_ty = self.normalize_aliases_in_type(call.receiver_ty);
+        let (inaccessible_candidates, candidates): (Vec<_>, Vec<_>) = candidates
+            .into_iter()
+            .partition(|candidate| candidate.inaccessible_visibility.is_some());
         let viable_candidates = self.profile_stage("body_check.profile.method.viable", |this| {
             this.viable_method_candidates(&call, &candidates)
         });
@@ -367,6 +371,61 @@ impl<'a> BodyChecker<'a> {
                 })
         {
             return Some(return_ty);
+        }
+        if viable_candidates.is_empty()
+            && candidates.is_empty()
+            && !inaccessible_candidates.is_empty()
+        {
+            let candidate = inaccessible_candidates
+                .iter()
+                .min_by_key(|candidate| candidate.method.def_id)
+                .expect("inaccessible extension candidate exists");
+            let visibility = candidate
+                .inaccessible_visibility
+                .expect("candidate partition preserves inaccessible visibility");
+            let name = self.symbol_name(*call.name);
+            let (summary, help) = match visibility {
+                Visibility::Private => (
+                    format!("method `{name}` is private"),
+                    "make the method public or use it from an allowed scope".to_string(),
+                ),
+                Visibility::PublicSuper => (
+                    format!("method `{name}` is restricted to its parent module and descendants"),
+                    "make the method public or move this use into its permitted scope".to_string(),
+                ),
+                Visibility::PublicPkg => (
+                    format!("method `{name}` is restricted to its package"),
+                    "make the method public or use it from the defining package".to_string(),
+                ),
+                Visibility::Public => (
+                    format!("method `{name}` is not visible from this module"),
+                    "check the module path and declaration visibility".to_string(),
+                ),
+            };
+            let method_id = candidate.method.def_id;
+            let mut diagnostic = Diagnostic::user_error(codes::NAME_RESOLUTION, summary)
+                .primary(call.span, "this method is not visible from this module");
+            let declaration_span = self
+                .program
+                .defs
+                .and_then(|defs| defs(method_id.module_id))
+                .and_then(|defs| defs.defs.get(method_id.def_id).map(|def| def.span));
+            let source_path = self
+                .program
+                .module_source_path
+                .and_then(|source_path| source_path(method_id.module_id));
+            if let (Some(path), Some(span)) = (source_path, declaration_span) {
+                diagnostic = diagnostic.related_at(
+                    path.as_str(),
+                    span,
+                    "the restricted method is declared here",
+                );
+            }
+            self.diagnostics.push(diagnostic.help(help).finish());
+            for arg in call.args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
         }
         if viable_candidates.is_empty() && candidates.len() > 1 {
             let name = self.symbol_name(*call.name);
