@@ -114,9 +114,10 @@ keeps an independent type mismatch in a later argument visible after generic
 substitution as well. A call with both an unresolved argument and too few
 arguments retains both independent diagnostics.
 
-This coverage is still incremental: qualified visibility cases beyond private
-values/types, qualified callable cases beyond unknown members, and other
-recovery-derived semantic rules need equivalent rule-specific contracts and
+This coverage is still incremental. Qualified callable lookup outside unknown
+members and restricted extension functions, cross-module edge cases among
+visibility scopes, and recovery-derived semantic rules outside the listed call,
+propagation, and builtin cases still need rule-specific contract audits and
 source fixtures.
 Propagation now short-circuits an operand already typed as the error recovery
 sentinel, so an unresolved value under `.?` retains only its name-resolution
