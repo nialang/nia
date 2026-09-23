@@ -201,12 +201,21 @@ pub enum AssociatedValueTarget {
 
 /// Resolves an associated value for a type target and name.
 pub trait AssociatedValueResolver {
-    /// Returns the global definition of an associated value, if present.
+    /// Resolves an associated value, retaining restricted declarations for diagnostics.
     fn associated_value(
         &self,
         target: AssociatedValueTarget,
         name: &SymbolId,
-    ) -> Option<GlobalDefId>;
+    ) -> Option<AssociatedValueLookup>;
+}
+
+/// Result of resolving an associated value in the visible extension set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssociatedValueLookup {
+    /// The declaration is accessible from the current module.
+    Visible(GlobalDefId),
+    /// The declaration exists in a visible extension but its item visibility denies access.
+    Inaccessible(GlobalDefId, Visibility),
 }
 
 #[derive(Clone, Copy)]
@@ -234,13 +243,13 @@ impl<'a> ValueResolveOptions<'a> {
 
 impl<F> AssociatedValueResolver for F
 where
-    F: Fn(AssociatedValueTarget, &SymbolId) -> Option<GlobalDefId>,
+    F: Fn(AssociatedValueTarget, &SymbolId) -> Option<AssociatedValueLookup>,
 {
     fn associated_value(
         &self,
         target: AssociatedValueTarget,
         name: &SymbolId,
-    ) -> Option<GlobalDefId> {
+    ) -> Option<AssociatedValueLookup> {
         self(target, name)
     }
 }
@@ -1469,7 +1478,7 @@ impl<'a> ValueResolver<'a> {
             self.insert_variant_enum(node_key, type_id);
             return;
         }
-        self.resolve_associated_value(node_key, AssociatedValueTarget::Nominal(type_id), &symbol);
+        self.resolve_associated_value(node_key, AssociatedValueTarget::Nominal(type_id), name);
     }
 
     fn resolve_primitive_qualified_value(
@@ -1485,23 +1494,47 @@ impl<'a> ValueResolver<'a> {
             self.insert_builtin_associated_value(node_key, value);
             return;
         }
-        self.resolve_associated_value(
-            node_key,
-            AssociatedValueTarget::Primitive(primitive),
-            &symbol,
-        );
+        self.resolve_associated_value(node_key, AssociatedValueTarget::Primitive(primitive), name);
     }
 
     fn resolve_associated_value(
         &mut self,
         node_key: &VersionedNodeKey,
         target: AssociatedValueTarget,
-        name: &SymbolId,
+        segment: PathSegment<'_>,
     ) {
-        if let Some(resolver) = self.associated_values
-            && let Some(def_id) = resolver.associated_value(target, name)
-        {
-            self.insert_qualified_value(node_key, def_id);
+        let Some(name) = segment.name() else {
+            return;
+        };
+        let Some(value) = self
+            .associated_values
+            .and_then(|resolver| resolver.associated_value(target, &name))
+        else {
+            return;
+        };
+        match value {
+            AssociatedValueLookup::Visible(def_id) => {
+                self.insert_qualified_value(node_key, def_id);
+            }
+            AssociatedValueLookup::Inaccessible(def_id, visibility) => {
+                let name = self.symbol_name(name);
+                let (summary, label, help) =
+                    qualified_visibility_diagnostic("associated value", &name, visibility);
+                let related = if visibility == Visibility::Private {
+                    "the private associated value is declared here"
+                } else {
+                    "the restricted associated value is declared here"
+                };
+                let mut diagnostic = Diagnostic::user_error(codes::NAME_RESOLUTION, summary)
+                    .primary(segment.span, label);
+                if let Some(defs) = self.defs_for_module(def_id.module_id)
+                    && let Some(def) = defs.as_ref().defs.get(def_id.def_id)
+                {
+                    diagnostic =
+                        self.related_definition(diagnostic, def_id.module_id, def.span, related);
+                }
+                self.diagnostics.push(diagnostic.help(help).finish());
+            }
         }
     }
 

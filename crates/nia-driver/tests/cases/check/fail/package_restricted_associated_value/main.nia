@@ -1,0 +1,5 @@
+using dep::model;
+
+fn limit() usize {
+    model::Value::LIMIT
+}

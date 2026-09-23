@@ -1,0 +1,5 @@
+pub struct Value {}
+
+extend Value {
+    pub(pkg) const LIMIT: usize = 7usize;
+}

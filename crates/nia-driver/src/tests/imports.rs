@@ -3539,7 +3539,7 @@ fn main() usize {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("qualified access is not a value expression")),
+            .contains("associated value `LIMIT` is restricted to its package")),
         "{:?}",
         program.diagnostics
     );

@@ -100,8 +100,8 @@ specific fallbacks such as `module value is unresolved` from hiding the original
 import failure.
 
 This coverage is still incremental: qualified visibility cases beyond private
-values/types and restricted module visibility beyond `pub(super)`, restricted
-associated values, qualified callable cases beyond unknown members,
+values/types and restricted module visibility beyond `pub(super)`, qualified
+callable cases beyond unknown members,
 error-union propagation failure variants beyond the current boundary,
 invalid-operand, and missing-conversion cases, and other recovery-derived
 semantic rules need equivalent rule-specific contracts and source fixtures.
@@ -181,6 +181,10 @@ package-scope errors and related declaration locations. A package-restricted
 receiver-style or associated extension function now reports its visibility and
 dependency declaration instead of falling through to an unrelated field or
 unknown-function error.
+Package-restricted associated values in visible extensions now retain their
+declaration visibility through lookup and report a source-owned diagnostic with
+the dependency declaration location instead of falling through to a generic
+qualified-expression error. Package-internal access remains valid.
 The complete diagnostic rule set still needs equivalent fixture/snapshot
 coverage.
 
