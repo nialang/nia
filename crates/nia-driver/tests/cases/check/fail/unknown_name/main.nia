@@ -1,5 +1,6 @@
+fn takes(first: i32, second: i32) () {}
+
 fn main() i32 {
-    missing();
-    let independent: i32 = true;
+    takes(missing, true);
     0
 }

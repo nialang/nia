@@ -48,8 +48,9 @@ constraint errors remain visible. The gate scopes function-local roots to their
 enclosing function or method and requires one downstream primary span to contain
 the other (or carry an exact source/code/span cause identity). This preserves
 independent type errors elsewhere in the same function as well as in a different
-function in the same module. Build-runner compilation performs a source check
-first and publishes `build.nia` diagnostics instead of
+function in the same module. An end-to-end call fixture confirms an unresolved
+first argument does not hide an independent type mismatch in a later argument.
+Build-runner compilation performs a source check first and publishes `build.nia` diagnostics instead of
 generated-wrapper recovery errors when both are present.
 
 Regression coverage includes incremental supertrait constraints, generated
