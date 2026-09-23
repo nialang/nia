@@ -215,6 +215,13 @@ pub mod codes {
         "object-safety",
         "a trait cannot be used as a trait object under its object-safety rules",
     );
+    /// Invalid atomic operation code supplied to an atomic RMW builtin.
+    pub const INVALID_ATOMIC_OPERATION: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0304",
+        DiagnosticStage::TypeCheck,
+        "invalid-atomic-operation",
+        "an atomic read-modify-write operation code is invalid",
+    );
     /// Compile-time evaluation failure.
     pub const CONST: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0401",
@@ -308,6 +315,7 @@ pub mod codes {
         TYPE_CHECK,
         LOCAL_RESOLUTION,
         OBJECT_SAFETY,
+        INVALID_ATOMIC_OPERATION,
         CONST,
         STATIC_CHECK,
         LLVM_CODEGEN,

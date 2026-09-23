@@ -1370,6 +1370,56 @@ fn main() () {
 }
 
 #[test]
+fn atomic_builtins_do_not_reject_error_recovery_types() {
+    let checked = pipeline(
+        r#"
+fn invalid() () {
+    let mut value = 0i32;
+    _ = std::builtin::atomicLoad[Missing](value, 1usize);
+    _ = std::builtin::atomicRmw[Missing](&mut value, 99usize, 1i32, 1usize);
+}
+"#,
+    );
+
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.summary.contains("unknown type `Missing`"))
+            .count(),
+        2,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("invalid atomic RMW operation `99`")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("builtin `atomicLoad` requires a pointer argument")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().all(|diagnostic| {
+            !diagnostic.summary.contains("supports only bool")
+                && !diagnostic.summary.contains("atomic pointer argument")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn rejects_non_atomic_builtin_value_types() {
     let checked = pipeline(
         r#"

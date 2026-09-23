@@ -1,0 +1,43 @@
+path: fail/atomic_builtin_recovery/main.nia
+code: E0201
+summary: unknown type `Missing`
+label: 77..84 Primary Source unknown type `Missing`
+help: check the type name, module path, and whether the type is public
+
+path: fail/atomic_builtin_recovery/main.nia
+code: E0201
+summary: unknown type `Missing`
+label: 135..142 Primary Source unknown type `Missing`
+help: check the type name, module path, and whether the type is public
+
+path: fail/atomic_builtin_recovery/main.nia
+code: E0304
+summary: invalid atomic RMW operation `99` for builtin `atomicRmw`
+label: 156..163 Primary Source invalid atomic RMW operation `99` for builtin `atomicRmw`
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown type `Missing`
+  --> fail/atomic_builtin_recovery/main.nia:3:34
+  |
+3 |     _ = std::builtin::atomicLoad[Missing](&value, 1usize);
+  |                                  ^^^^^^^ unknown type `Missing`
+help: check the type name, module path, and whether the type is public
+
+root diagnostic:
+error[E0201]: unknown type `Missing`
+  --> fail/atomic_builtin_recovery/main.nia:4:33
+  |
+4 |     _ = std::builtin::atomicRmw[Missing](&mut value, 99usize, 1i32, 1usize);
+  |                                 ^^^^^^^ unknown type `Missing`
+help: check the type name, module path, and whether the type is public
+
+root diagnostic:
+error[E0304]: invalid atomic RMW operation `99` for builtin `atomicRmw`
+  --> fail/atomic_builtin_recovery/main.nia:4:54
+  |
+4 |     _ = std::builtin::atomicRmw[Missing](&mut value, 99usize, 1i32, 1usize);
+  |                                                      ^^^^^^^ invalid atomic RMW operation `99` for builtin `atomicRmw`
+
+summary: 3 errors, 0 warnings

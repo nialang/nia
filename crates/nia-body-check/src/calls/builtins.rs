@@ -1178,8 +1178,12 @@ impl<'a> BodyChecker<'a> {
         }
         self.check_atomic_value_type(builtin_span, name, ty);
         self.check_atomic_ptr_arg(&args[0], ty, false, name);
-        let value_actual = self.check_expr_with_expected(&args[1], Some(ty));
-        self.expect_expr_type(&args[1], ty, value_actual, "atomic store value");
+        if self.is_error_ty(ty) {
+            self.check_expr(&args[1]);
+        } else {
+            let value_actual = self.check_expr_with_expected(&args[1], Some(ty));
+            self.expect_expr_type(&args[1], ty, value_actual, "atomic store value");
+        }
         self.check_atomic_order_arg(&args[2], name, AtomicOrderContext::Store);
         self.unit()
     }
@@ -1214,8 +1218,12 @@ impl<'a> BodyChecker<'a> {
         self.check_atomic_value_type(builtin_span, name, ty);
         self.check_atomic_ptr_arg(&args[0], ty, false, name);
         self.check_atomic_rmw_op_arg(&args[1], name, ty);
-        let value_actual = self.check_expr_with_expected(&args[2], Some(ty));
-        self.expect_expr_type(&args[2], ty, value_actual, "atomic read-modify-write value");
+        if self.is_error_ty(ty) {
+            self.check_expr(&args[2]);
+        } else {
+            let value_actual = self.check_expr_with_expected(&args[2], Some(ty));
+            self.expect_expr_type(&args[2], ty, value_actual, "atomic read-modify-write value");
+        }
         self.check_atomic_order_arg(&args[3], name, AtomicOrderContext::Rmw);
         ty
     }
@@ -1246,10 +1254,15 @@ impl<'a> BodyChecker<'a> {
         }
         self.check_atomic_value_type(builtin_span, name, ty);
         self.check_atomic_ptr_arg(&args[0], ty, false, name);
-        let expected_actual = self.check_expr_with_expected(&args[1], Some(ty));
-        self.expect_expr_type(&args[1], ty, expected_actual, "cmpxchg expected value");
-        let desired_actual = self.check_expr_with_expected(&args[2], Some(ty));
-        self.expect_expr_type(&args[2], ty, desired_actual, "cmpxchg desired value");
+        if self.is_error_ty(ty) {
+            self.check_expr(&args[1]);
+            self.check_expr(&args[2]);
+        } else {
+            let expected_actual = self.check_expr_with_expected(&args[1], Some(ty));
+            self.expect_expr_type(&args[1], ty, expected_actual, "cmpxchg expected value");
+            let desired_actual = self.check_expr_with_expected(&args[2], Some(ty));
+            self.expect_expr_type(&args[2], ty, desired_actual, "cmpxchg desired value");
+        }
         let success =
             self.check_atomic_order_arg(&args[3], name, AtomicOrderContext::CmpxchgSuccess);
         let failure =
@@ -1305,6 +1318,18 @@ impl<'a> BodyChecker<'a> {
         allow_readonly: bool,
         name: &str,
     ) {
+        if self.is_error_ty(ty) {
+            let actual = self.normalization.normalize(self.check_expr(expr));
+            match self.interner.get(actual) {
+                Some(TyKind::Pointer { .. } | TyKind::Error) => {}
+                _ => self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    expr.span,
+                    format!("builtin `{name}` requires a pointer argument"),
+                )),
+            }
+            return;
+        }
         let expected = self.interner.intern(TyKind::Pointer {
             is_readonly: allow_readonly,
             elem: ty,
@@ -1331,6 +1356,9 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_atomic_value_type(&mut self, span: Span, name: &str, ty: InternedTyId) {
+        if self.is_error_ty(ty) {
+            return;
+        }
         let ty = self.normalization.normalize(ty);
         if matches!(self.interner.get(ty), Some(TyKind::GenericParam(_))) {
             return;
@@ -1426,7 +1454,7 @@ impl<'a> BodyChecker<'a> {
             10 => CheckedAtomicRmwOp::UMin,
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
+                    codes::INVALID_ATOMIC_OPERATION,
                     expr.span,
                     format!("invalid atomic RMW operation `{value}` for builtin `{name}`"),
                 ));
@@ -1462,6 +1490,7 @@ impl<'a> BodyChecker<'a> {
 
     fn atomic_rmw_integer_like(&self, ty: InternedTyId) -> bool {
         match self.interner.get(self.normalization.normalize(ty)) {
+            Some(TyKind::Error) => true,
             Some(TyKind::GenericParam(_)) => true,
             Some(TyKind::Primitive(
                 PrimitiveTy::Bool

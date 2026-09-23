@@ -1,0 +1,5 @@
+fn invalid() () {
+    let mut value = 0i32;
+    _ = std::builtin::atomicLoad[Missing](&value, 1usize);
+    _ = std::builtin::atomicRmw[Missing](&mut value, 99usize, 1i32, 1usize);
+}

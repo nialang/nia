@@ -115,6 +115,10 @@ Ambiguous bracket arguments now retain unresolved type-candidate evidence until
 a semantic signature establishes that the argument must be a type. That context
 reports an unknown type, while a name resolved as a const value reports the
 type/value mismatch; const-generic arguments keep their value interpretation.
+Atomic builtins now stop type-dependent checks on that recovery sentinel while
+retaining independent pointer-shape and operation-code errors. Invalid RMW
+operation codes have a dedicated diagnostic code so an earlier type-resolution
+failure does not hide them in per-module phase gating.
 
 ### 4. Report organization
 
@@ -192,6 +196,9 @@ fallback; a separate snapshot covers ranges missing the requested start or end
 bound. SIMD builtins now have snapshots proving error recovery does not add
 secondary shape diagnostics, and that an unresolved type candidate or a const
 value passed where a type is required receives the correct root diagnostic.
+Atomic builtin recovery has a snapshot proving invalid RMW operation codes stay
+visible alongside unknown type arguments while type-dependent atomic errors are
+suppressed.
 Directly qualified private values and types now retain the owning dependency
 source path for their declaration locations instead of rendering those spans
 against the use-site file. The module graph exposes each module's source path
