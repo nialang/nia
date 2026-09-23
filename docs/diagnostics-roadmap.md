@@ -214,7 +214,10 @@ also retain valid elements and their enclosing function after missing elements
 at comma boundaries. Tuple expressions and irrefutable tuple binding patterns
 likewise retain valid elements and later statements after missing elements at
 comma boundaries, with separate end-to-end snapshots. Other parser recovery
-boundaries still need equivalent source coverage. These are recovery gaps in the
+boundaries still need equivalent source coverage. Call argument lists now also
+skip missing expressions at comma boundaries while retaining later arguments and
+following statements; a parser unit test covers the AST boundary and a driver
+snapshot covers the rendered diagnostics. These are recovery gaps in the
 grammar parser that consumes the lossless token view. `nia-syntax` currently
 preserves source, trivia, malformed tokens, and delimiter groups in its green
 tree, with borrowed red views and conservative single-token partial rewrites;
