@@ -111,6 +111,10 @@ source fixtures.
 Propagation now short-circuits an operand already typed as the error recovery
 sentinel, so an unresolved value under `.?` retains only its name-resolution
 diagnostic instead of also being described as a non-propagatable type.
+Ambiguous bracket arguments now retain unresolved type-candidate evidence until
+a semantic signature establishes that the argument must be a type. That context
+reports an unknown type, while a name resolved as a const value reports the
+type/value mismatch; const-generic arguments keep their value interpretation.
 
 ### 4. Report organization
 
@@ -185,7 +189,9 @@ consequence.
 An unknown receiver method now has a complete snapshot for its method name,
 receiver type, and corrective help. Regression tests preserve field-call
 fallback; a separate snapshot covers ranges missing the requested start or end
-bound.
+bound. SIMD builtins now have snapshots proving error recovery does not add
+secondary shape diagnostics, and that an unresolved type candidate or a const
+value passed where a type is required receives the correct root diagnostic.
 Directly qualified private values and types now retain the owning dependency
 source path for their declaration locations instead of rendering those spans
 against the use-site file. The module graph exposes each module's source path
