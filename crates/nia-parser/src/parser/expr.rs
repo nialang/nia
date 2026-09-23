@@ -1224,11 +1224,15 @@ impl Parser {
     fn parse_closure_captures(&mut self) -> Option<Vec<ClosureCapture>> {
         let mut captures = Vec::new();
         while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
+            let checkpoint = self.checkpoint();
             let capture_start = self.peek().span.start;
             let is_reference = self.eat(TokenKind::Amp).is_some();
             let is_mutable = is_reference && self.eat(TokenKind::Mut).is_some();
             let value_span = self.peek().span;
-            let name = self.expect_name(TokenKind::Ident, "expected capture name")?;
+            let Some(name) = self.expect_name(TokenKind::Ident, "expected capture name") else {
+                self.recover_to_comma_or_rbracket_with_progress(checkpoint);
+                continue;
+            };
             let capture_span = Span::new(capture_start, self.previous_end());
             let value = self.make_expr(value_span, ExprKind::Ident(name));
             // Capture modes reuse ordinary address expressions so ownership,

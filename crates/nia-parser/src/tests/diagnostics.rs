@@ -430,6 +430,36 @@ fn attribute_argument_recovery_keeps_later_arguments_and_item() {
 }
 
 #[test]
+fn closure_capture_recovery_keeps_later_captures_and_items() {
+    let (module, errors) = parse_module(
+        "fn retained() () { let closure = \\[kept, , later] value -> kept; }\nfn after() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected capture name"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Function(retained) = &module.items[0].kind else {
+        panic!("expected retained function");
+    };
+    let body = retained.body.as_ref().expect("expected retained body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected closure binding");
+    };
+    let ExprKind::Closure { captures, .. } = &binding.value.as_ref().expect("closure").kind else {
+        panic!("expected closure expression");
+    };
+    assert_eq!(captures.len(), 2);
+    let ItemKind::Function(after) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(after.name, sym("after"));
+}
+
+#[test]
 fn type_argument_delimiter_recovery_keeps_the_function() {
     let (module, errors) =
         parse_module("fn retained(value: Wrapper[i32 bool]) () {}\nfn later() () {}");
