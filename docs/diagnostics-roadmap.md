@@ -245,6 +245,9 @@ Function pointer, callable interface, and tuple type element lists now report
 and recover a missing comma before `)` as one local type-parameter boundary.
 Using selector groups now synchronize an invalid member at the next comma or
 closing brace, retaining later selectors and the following top-level item.
+Attribute argument lists now synchronize a missing expression at the next
+comma or closing parenthesis, retaining later arguments and the attributed
+item.
 These are recovery gaps in the grammar parser that consumes the lossless token
 view. `nia-syntax` currently
 preserves source, trivia, malformed tokens, and delimiter groups in its green
