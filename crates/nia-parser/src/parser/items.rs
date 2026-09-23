@@ -760,7 +760,15 @@ impl Parser {
                 continue;
             }
             let start = self.peek().span.start;
-            let name = self.expect_name(TokenKind::Ident, "expected enum variant")?;
+            let checkpoint = self.checkpoint();
+            let Some(name) = self.expect_name(TokenKind::Ident, "expected enum variant") else {
+                // A missing variant name is local to this comma-delimited
+                // entry. Preserve later variants and the enclosing module.
+                if !self.at(TokenKind::RBrace) {
+                    self.recover_to_comma_or_rbrace_with_progress(checkpoint);
+                }
+                continue;
+            };
             let payload = if self.eat(TokenKind::LParen).is_some() {
                 let mut fields = Vec::new();
                 while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {

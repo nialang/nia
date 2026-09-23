@@ -1285,7 +1285,22 @@ impl Parser {
         let mut params = Vec::new();
         while !self.at(TokenKind::ThinArrow) && !self.at(TokenKind::Eof) {
             let start = self.peek().span.start;
-            let name = self.expect_name(TokenKind::Ident, "expected closure parameter name")?;
+            let Some(name) = self.expect_name(TokenKind::Ident, "expected closure parameter name")
+            else {
+                // Keep a missing parameter local to this comma-delimited
+                // entry so later parameters and the closure body survive.
+                while !self.at(TokenKind::Comma)
+                    && !self.at(TokenKind::ThinArrow)
+                    && !self.at(TokenKind::RBrace)
+                    && !self.at(TokenKind::Eof)
+                {
+                    self.bump();
+                }
+                if self.eat(TokenKind::Comma).is_some() {
+                    continue;
+                }
+                break;
+            };
             let ty = if self.eat(TokenKind::Colon).is_some() {
                 self.parse_closure_param_type()
             } else {

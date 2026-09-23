@@ -1,0 +1,17 @@
+path: fail/enum_variant_parser_recovery/main.nia
+code: E0101
+summary: expected enum variant; found `,`
+label: 17..18 Primary Source expected enum variant; found `,`
+help: use an identifier in this position
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected enum variant; found `,`
+  --> fail/enum_variant_parser_recovery/main.nia:1:18
+  |
+1 | enum Recovered { , Kept, Also }
+  |                  ^ expected enum variant; found `,`
+help: use an identifier in this position
+
+summary: 1 error, 0 warnings
