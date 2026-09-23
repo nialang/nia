@@ -1603,3 +1603,23 @@ fn invalid() usize {
         checked.diagnostics
     );
 }
+
+#[test]
+fn slice_len_still_rejects_non_pointer_arguments() {
+    let checked = pipeline(
+        r#"
+fn invalid() usize {
+    std::builtin::sliceLen(1usize)
+}
+"#,
+    );
+
+    assert_eq!(checked.diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        checked.diagnostics[0]
+            .summary
+            .contains("builtin `sliceLen` requires a slice pointer"),
+        "{:?}",
+        checked.diagnostics
+    );
+}
