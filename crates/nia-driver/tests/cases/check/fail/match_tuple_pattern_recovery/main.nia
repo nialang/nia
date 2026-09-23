@@ -1,0 +1,9 @@
+fn main(value: (bool, bool)) () {
+    match value {
+        (true, , false) => (),
+        _ => (),
+    }
+    later();
+}
+
+fn later() () {}

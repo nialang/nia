@@ -633,8 +633,16 @@ impl Parser {
                     kind: PatternKind::Tuple(Vec::new()),
                 });
             }
-            let first = self.parse_pattern_until(&[TokenKind::Comma, TokenKind::RParen])?;
+            let first = self.parse_pattern_until(&[TokenKind::Comma, TokenKind::RParen]);
+            if first.is_none() && self.at(TokenKind::RParen) {
+                let end = self.expect(TokenKind::RParen, "expected `)` after tuple pattern")?;
+                return Some(Pattern {
+                    span: Span::new(start, end.end),
+                    kind: PatternKind::Tuple(Vec::new()),
+                });
+            }
             if self.eat(TokenKind::Comma).is_none() {
+                let first = first?;
                 self.expect(
                     TokenKind::RParen,
                     "expected `)` after parenthesized pattern",
@@ -653,9 +661,13 @@ impl Parser {
                     kind: first.kind,
                 });
             }
-            let mut fields = vec![first];
+            let mut fields = first.into_iter().collect::<Vec<_>>();
             while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
-                fields.push(self.parse_pattern_until(&[TokenKind::Comma, TokenKind::RParen])?);
+                if let Some(field) =
+                    self.parse_pattern_until(&[TokenKind::Comma, TokenKind::RParen])
+                {
+                    fields.push(field);
+                }
                 if self.eat(TokenKind::Comma).is_none() {
                     break;
                 }

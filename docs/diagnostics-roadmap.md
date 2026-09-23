@@ -256,6 +256,8 @@ Bracket argument lists now skip a missing argument at a comma and retain later
 arguments, the surrounding type or expression, and following top-level items.
 Match arm pattern lists now skip a missing pattern at a comma and retain the
 later patterns, arm body, and following statements.
+Tuple match patterns now skip a missing field at a comma and retain later
+fields and arms; parser and driver snapshots cover the recovered tuple shape.
 Match arm bodies now synchronize an invalid arm at the next top-level comma or
 closing brace, retaining later arms and statements after the match.
 These are recovery gaps in the grammar parser that consumes the lossless token
