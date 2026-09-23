@@ -257,7 +257,9 @@ extension associated declarations retain later methods and following top-level
 items while preserving the local grammar diagnostics. Call argument lists now also
 skip missing expressions at comma boundaries while retaining later arguments and
 following statements; a parser unit test covers the AST boundary and a driver
-snapshot covers the rendered diagnostics. Array and struct literal lists now
+snapshot covers the rendered diagnostics. They also diagnose a missing separator
+between valid arguments and retain later arguments and statements, with parser
+and driver coverage. Array and struct literal lists now
 also skip missing expressions at comma
 boundaries while retaining later elements and fields; a parser unit test and
 driver snapshot cover that boundary. They also diagnose a missing separator

@@ -395,6 +395,36 @@ fn call_argument_recovery_keeps_later_arguments_and_statements() {
 }
 
 #[test]
+fn call_argument_delimiter_recovery_keeps_later_arguments_and_statements() {
+    let (module, errors) = parse_module(
+        "fn main() () { consume(true false); later(); } fn consume(first: bool, second: bool) () {} fn later() () {}",
+    );
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0]
+            .message
+            .contains("expected `,` or `)` after call argument"),
+        "{errors:?}"
+    );
+    let ItemKind::Function(main) = &module.items[0].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("expected body");
+    assert_eq!(body.stmts.len(), 2, "{errors:?}");
+    let StmtKind::Expr(call) = &body.stmts[0].kind else {
+        panic!("expected call statement");
+    };
+    let ExprKind::Call { args, .. } = &call.kind else {
+        panic!("expected call expression");
+    };
+    assert_eq!(args.len(), 2);
+    let ItemKind::Function(later) = &module.items[2].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn array_and_struct_literal_recovery_keeps_later_members() {
     let (module, errors) = parse_module(
         "struct Point { x: i32, y: bool }\nfn main() () { let array = [, 1,, true]; let point = Point { x: , y: true }; later(); } fn later() () {}",
