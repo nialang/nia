@@ -85,7 +85,7 @@ fn loader_query_registry_covers_all_declared_query_contracts() {
         .expect("create loader query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 19);
+    assert_eq!(descriptors.len(), 20);
     assert!(
         descriptors
             .windows(2)
@@ -99,7 +99,10 @@ fn loader_query_registry_covers_all_declared_query_contracts() {
             | "loader_active_module_item_tree_fact"
             | "loader_module_item_tree_fact"
             | "loader_module_origins_fact"
-            | "loader_module_parse_errors_fact" => nia_query::QueryFingerprintPolicy::SemanticValue,
+            | "loader_module_parse_errors_fact"
+            | "loader_module_unused_imports_fact" => {
+                nia_query::QueryFingerprintPolicy::SemanticValue
+            }
             _ => nia_query::QueryFingerprintPolicy::None,
         };
         descriptor.context_type == std::any::type_name::<LoaderContext>()

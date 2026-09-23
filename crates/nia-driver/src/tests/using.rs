@@ -1063,3 +1063,75 @@ pub type Repeat[T, N: usize] = [T; N];
         program.diagnostics
     );
 }
+
+fn using_diagnostics(source: &str, api: &str) -> Vec<(String, String, usize)> {
+    let root = temp_dir("using_diagnostics");
+    write(&root.join("main.nia"), source);
+    write(&root.join("api.nia"), api);
+    check_program(root.join("main.nia").to_string_lossy().into_owned())
+        .diagnostics
+        .iter()
+        .map(|diagnostic| {
+            (
+                diagnostic.diagnostic.code.as_str().to_string(),
+                diagnostic.diagnostic.summary.clone(),
+                diagnostic
+                    .diagnostic
+                    .primary_span()
+                    .expect("primary span")
+                    .start,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn failed_group_selector_leaves_valid_sibling_usable() {
+    let source = r#"module api;
+using entry::api::{present, absent};
+
+fn main() i32 {
+    present()
+}
+"#;
+    let diagnostics = using_diagnostics(source, "pub fn present() i32 { 1 }");
+
+    assert_eq!(
+        diagnostics,
+        [(
+            "E0201".to_string(),
+            "`using entry::...` could not be resolved: name `absent` is unavailable because its `using` directive did not find it".to_string(),
+            source.find("absent").expect("absent"),
+        )]
+    );
+}
+
+#[test]
+fn unused_import_warning_skips_failed_names_and_marks_the_selector() {
+    let source = r#"module api;
+using entry::api::{present, absent};
+
+fn main() i32 {
+    0
+}
+"#;
+    let diagnostics = using_diagnostics(source, "pub fn present() i32 { 1 }");
+
+    assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|(code, summary, start)| code == "E0201"
+                && summary.contains("name `absent`")
+                && *start == source.find("absent").expect("absent")),
+        "{diagnostics:?}"
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|(code, summary, start)| code == "W0201"
+                && summary == "unused import `present`"
+                && *start == source.find("present").expect("present")),
+        "{diagnostics:?}"
+    );
+}

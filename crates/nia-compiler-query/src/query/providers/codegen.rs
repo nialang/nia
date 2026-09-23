@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use nia_loader_contract::UnusedUsingImport;
+use nia_symbol_table::SymbolTable;
 use std::collections::HashSet;
 
 use super::*;
@@ -684,6 +686,28 @@ pub(super) fn early_program_diagnostics(
     let load_diagnostics = db.get(ProgramLoadDiagnosticsQuery)?;
     let mut diagnostics = load_diagnostics.to_diagnostics();
     // Parse errors are published once by the loader as load diagnostics.
+    let loaded_modules = db.get(LoadedModulesQuery)?;
+    let loaded_modules = resolve_stable_module_sequence_from_current_inputs(db, &loaded_modules)?;
+    let symbols = db.context().symbols();
+    for module_id in loaded_modules {
+        let unused = db.get(ModuleUnusedImportsQuery(module_id))?;
+        if unused.is_empty() {
+            continue;
+        }
+        let scope = db.get(ModuleUsingScopeQuery(module_id))?;
+        let path = db.get(ModulePathQuery(module_id))?;
+        diagnostics.extend(
+            unused
+                .iter()
+                // A failed `using` already has a root error; calling the same
+                // name unused would describe the recovery, not the source.
+                .filter(|import| !scope.unresolved_usings.contains_key(&import.name))
+                .map(|import| ProgramDiagnostic {
+                    path: path.as_ref().clone(),
+                    diagnostic: unused_import_warning(import, &symbols),
+                }),
+        );
+    }
     let public_surfaces = db.get(PublicSurfacesQuery)?;
     let public_using_scopes = db.get(PublicUsingScopesQuery)?;
     for bundle in public_surfaces
@@ -798,6 +822,15 @@ impl DiagnosticGate {
             });
         }
     }
+}
+
+fn unused_import_warning(import: &UnusedUsingImport, symbols: &SymbolTable) -> Diagnostic {
+    let name = nia_symbol::symbol_text_or_unresolved(symbols, import.name);
+    let summary = format!("unused import `{name}`");
+    Diagnostic::user_warning(codes::UNUSED_IMPORT, summary)
+        .primary(import.name_span, "this imported name is never used")
+        .help(format!("remove `{name}` from this `using` directive"))
+        .finish()
 }
 
 fn suppresses_downstream(root: &str, candidate: &str) -> bool {

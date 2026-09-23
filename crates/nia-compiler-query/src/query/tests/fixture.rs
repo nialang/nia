@@ -355,6 +355,7 @@ pub(super) fn loaded_module_with_source_version(
         active_item_tree,
         provider_summary,
         parse_errors,
+        unused_imports: Vec::new(),
         origins,
     }
 }

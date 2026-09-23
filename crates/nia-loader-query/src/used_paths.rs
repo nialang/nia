@@ -1,9 +1,8 @@
 use nia_ast::{
     Expr, ExprKind, Item, ItemKind, PathSegmentKind, Stmt, StmtKind, TypeKind, TypePathSegment,
-    TypeRef, UsingGroupItem, UsingHostSegment, UsingItem, UsingSelector,
+    TypeRef, UsingGroupItem, UsingHostSegment, UsingItem, UsingName, UsingSelector,
 };
 use nia_ast_walk::{Visitor, walk_expr, walk_generic_params, walk_item, walk_stmt, walk_type};
-use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::{ModuleMap, ModuleRootSegment, ResolvedModuleDeclaration, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, known};
@@ -635,7 +634,6 @@ fn module_explicit_imports(
             continue;
         }
         collect_explicit_imports_from_using(
-            item.span,
             using,
             module_map,
             local_module_names,
@@ -647,7 +645,6 @@ fn module_explicit_imports(
 }
 
 fn collect_explicit_imports_from_using(
-    span: nia_span::Span,
     using: &UsingItem,
     module_map: &ModuleMap,
     local_module_names: &[SymbolId],
@@ -660,7 +657,6 @@ fn collect_explicit_imports_from_using(
         };
         for item in items {
             collect_explicit_imports_from_root_group_item(
-                span,
                 item,
                 module_map,
                 local_module_names,
@@ -673,11 +669,10 @@ fn collect_explicit_imports_from_using(
     else {
         return;
     };
-    collect_explicit_imports_from_selector(span, host_path, &using.selector, imports);
+    collect_explicit_imports_from_selector(&using.host, host_path, &using.selector, imports);
 }
 
 fn collect_explicit_imports_from_root_group_item(
-    span: nia_span::Span,
     item: &UsingGroupItem,
     module_map: &ModuleMap,
     local_module_names: &[SymbolId],
@@ -690,7 +685,7 @@ fn collect_explicit_imports_from_root_group_item(
                 && module_map.contains_root(name.name)
             {
                 imports.push(ExplicitUsingImport {
-                    span,
+                    name_span: using_name_span(name),
                     alias: name.alias.unwrap_or(name.name),
                     path: UsedModulePath::Package {
                         package: name.name,
@@ -707,22 +702,22 @@ fn collect_explicit_imports_from_root_group_item(
             else {
                 return;
             };
-            collect_explicit_imports_from_selector(span, host_path, selector, imports);
+            collect_explicit_imports_from_selector(host, host_path, selector, imports);
         }
     }
 }
 
 fn collect_explicit_imports_from_selector(
-    span: nia_span::Span,
+    host: &[UsingHostSegment],
     host_path: UsedModulePath,
     selector: &UsingSelector,
     imports: &mut Vec<ExplicitUsingImport>,
 ) {
     match selector {
         UsingSelector::SelfName => {
-            if let Some(alias) = host_path.last_segment_name() {
+            if let (Some(alias), Some(segment)) = (host_path.last_segment_name(), host.last()) {
                 imports.push(ExplicitUsingImport {
-                    span,
+                    name_span: segment.span,
                     alias,
                     path: host_path,
                 });
@@ -731,7 +726,7 @@ fn collect_explicit_imports_from_selector(
         UsingSelector::Wildcard { .. } => {}
         UsingSelector::Single(name) => {
             imports.push(ExplicitUsingImport {
-                span,
+                name_span: using_name_span(name),
                 alias: name.alias.unwrap_or(name.name),
                 path: host_path.with_appended_segments_with_processing_mode(
                     std::slice::from_ref(&name.name),
@@ -742,14 +737,13 @@ fn collect_explicit_imports_from_selector(
         }
         UsingSelector::Group(items) => {
             for item in items {
-                collect_explicit_imports_from_group_item(span, &host_path, item, imports);
+                collect_explicit_imports_from_group_item(&host_path, item, imports);
             }
         }
     }
 }
 
 fn collect_explicit_imports_from_group_item(
-    span: nia_span::Span,
     host_path: &UsedModulePath,
     item: &UsingGroupItem,
     imports: &mut Vec<ExplicitUsingImport>,
@@ -757,7 +751,7 @@ fn collect_explicit_imports_from_group_item(
     match item {
         UsingGroupItem::Name(name) => {
             imports.push(ExplicitUsingImport {
-                span,
+                name_span: using_name_span(name),
                 alias: name.alias.unwrap_or(name.name),
                 path: host_path.with_appended_segments_with_processing_mode(
                     std::slice::from_ref(&name.name),
@@ -772,9 +766,14 @@ fn collect_explicit_imports_from_group_item(
                 false,
                 false,
             );
-            collect_explicit_imports_from_selector(span, nested, selector, imports);
+            collect_explicit_imports_from_selector(host, nested, selector, imports);
         }
     }
+}
+
+/// Returns the span of the name a selector exposes: its alias when present.
+fn using_name_span(name: &UsingName) -> nia_span::Span {
+    name.alias_span.unwrap_or(name.name_span)
 }
 
 fn collect_root_group_modules(
@@ -837,22 +836,10 @@ pub(crate) struct UsedModuleCollection {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ExplicitUsingImport {
-    pub(crate) span: nia_span::Span,
+    /// Span of the name (or alias) this selector exposes to the local scope.
+    pub(crate) name_span: nia_span::Span,
     pub(crate) alias: SymbolId,
     pub(crate) path: UsedModulePath,
-}
-
-impl ExplicitUsingImport {
-    pub(crate) fn warning(&self, symbols: &dyn nia_symbol::SymbolText) -> Diagnostic {
-        Diagnostic::user_warning_at(
-            codes::UNUSED_IMPORT,
-            self.span,
-            format!(
-                "unused import `{}`",
-                nia_symbol::symbol_text_or_unresolved(symbols, self.alias)
-            ),
-        )
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

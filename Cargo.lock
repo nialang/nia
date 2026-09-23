@@ -877,6 +877,7 @@ dependencies = [
  "nia-query",
  "nia-source",
  "nia-span",
+ "nia-symbol",
  "nia-symbol-table",
  "nia-syntax",
  "nia-target-config",

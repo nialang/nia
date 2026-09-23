@@ -21,6 +21,7 @@ nia-query.workspace = true
 nia-source.workspace = true
 nia-span.workspace = true
 nia-syntax.workspace = true
+nia-symbol.workspace = true
 nia-symbol-table.workspace = true
 nia-target-config.workspace = true
 nia-toolchain.workspace = true
