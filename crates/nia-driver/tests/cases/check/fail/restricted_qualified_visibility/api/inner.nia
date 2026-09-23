@@ -1,0 +1,5 @@
+pub(super) fn restricted() i32 {
+    1
+}
+
+pub(super) struct Restricted {}

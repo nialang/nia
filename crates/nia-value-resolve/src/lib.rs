@@ -775,7 +775,7 @@ impl ValueResolver<'_> {
             return DirectMember::Missing;
         };
         if !self.visibility_allows(module_id, def.visibility) {
-            return DirectMember::Private(def_id);
+            return DirectMember::Inaccessible(def_id, def.visibility);
         }
         DirectMember::Visible(def_id)
     }
@@ -792,7 +792,7 @@ impl ValueResolver<'_> {
             return DirectMember::Missing;
         };
         if !self.visibility_allows(module_id, def.visibility) {
-            return DirectMember::Private(def_id);
+            return DirectMember::Inaccessible(def_id, def.visibility);
         }
         DirectMember::Visible(def_id)
     }
@@ -808,9 +808,38 @@ enum ResolvedNamespace {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DirectMember<T> {
     Visible(T),
-    Private(T),
+    Inaccessible(T, Visibility),
     Missing,
     Unloaded,
+}
+
+fn qualified_visibility_diagnostic(
+    kind: &str,
+    name: &str,
+    visibility: Visibility,
+) -> (String, String, String) {
+    match visibility {
+        Visibility::Private => (
+            format!("{kind} `{name}` is private"),
+            format!("{kind} `{name}` is private"),
+            format!("make the {kind} public or use it from an allowed scope"),
+        ),
+        Visibility::PublicSuper => (
+            format!("{kind} `{name}` is restricted to its parent module and descendants"),
+            format!("{kind} `{name}` is not visible from this module"),
+            format!("make the {kind} public or move this use into its permitted scope"),
+        ),
+        Visibility::PublicPkg => (
+            format!("{kind} `{name}` is restricted to its package"),
+            format!("{kind} `{name}` is not visible from this module"),
+            format!("make the {kind} public or use it from the defining package"),
+        ),
+        Visibility::Public => (
+            format!("{kind} `{name}` is not visible from this module"),
+            format!("{kind} `{name}` is not visible from this module"),
+            format!("check the module path and declaration visibility"),
+        ),
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1164,28 +1193,25 @@ impl<'a> ValueResolver<'a> {
                         self.insert_qualified_type_prefix(segment.node_key, type_id);
                         Some(ResolvedNamespace::Type(type_id))
                     }
-                    DirectMember::Private(def_id) => {
+                    DirectMember::Inaccessible(def_id, visibility) => {
                         let name = self.symbol_name(name);
-                        let mut diagnostic = Diagnostic::user_error(
-                            codes::NAME_RESOLUTION,
-                            format!("type `{name}` is private"),
-                        )
-                        .primary(segment.span, format!("type `{name}` is private"));
+                        let (summary, label, help) =
+                            qualified_visibility_diagnostic("type", &name, visibility);
+                        let related = if visibility == Visibility::Private {
+                            "the private type is declared here"
+                        } else {
+                            "the restricted type is declared here"
+                        };
+                        let mut diagnostic =
+                            Diagnostic::user_error(codes::NAME_RESOLUTION, summary)
+                                .primary(segment.span, label);
                         if let Some(target_defs) = self.defs_for_module(module_id)
                             && let Some(def) = target_defs.as_ref().defs.get(def_id)
                         {
-                            diagnostic = self.related_definition(
-                                diagnostic,
-                                module_id,
-                                def.span,
-                                "the private type is declared here",
-                            );
+                            diagnostic =
+                                self.related_definition(diagnostic, module_id, def.span, related);
                         }
-                        self.diagnostics.push(
-                            diagnostic
-                                .help("make the type public or use it from an allowed scope")
-                                .finish(),
-                        );
+                        self.diagnostics.push(diagnostic.help(help).finish());
                         None
                     }
                     DirectMember::Missing => {
@@ -1285,27 +1311,22 @@ impl<'a> ValueResolver<'a> {
                 self.insert_qualified_type_prefix(node_key, GlobalDefId { module_id, def_id });
                 return;
             }
-            DirectMember::Private(def_id) => {
-                let mut diagnostic = Diagnostic::user_error(
-                    codes::NAME_RESOLUTION,
-                    format!("type `{path_text}` is private"),
-                )
-                .primary(span, format!("type `{path_text}` is private"));
+            DirectMember::Inaccessible(def_id, visibility) => {
+                let (summary, label, help) =
+                    qualified_visibility_diagnostic("type", path_text, visibility);
+                let related = if visibility == Visibility::Private {
+                    "the private type is declared here"
+                } else {
+                    "the restricted type is declared here"
+                };
+                let mut diagnostic =
+                    Diagnostic::user_error(codes::NAME_RESOLUTION, summary).primary(span, label);
                 if let Some(target_defs) = self.defs_for_module(module_id)
                     && let Some(def) = target_defs.as_ref().defs.get(def_id)
                 {
-                    diagnostic = self.related_definition(
-                        diagnostic,
-                        module_id,
-                        def.span,
-                        "the private type is declared here",
-                    );
+                    diagnostic = self.related_definition(diagnostic, module_id, def.span, related);
                 }
-                self.diagnostics.push(
-                    diagnostic
-                        .help("make the type public or use it from an allowed scope")
-                        .finish(),
-                );
+                self.diagnostics.push(diagnostic.help(help).finish());
                 return;
             }
             DirectMember::Missing => {}
@@ -1324,27 +1345,22 @@ impl<'a> ValueResolver<'a> {
         }
         let def_id = match self.direct_value_member(module_id, &symbol) {
             DirectMember::Visible(def_id) => def_id,
-            DirectMember::Private(def_id) => {
-                let mut diagnostic = Diagnostic::user_error(
-                    codes::NAME_RESOLUTION,
-                    format!("value `{path_text}` is private"),
-                )
-                .primary(span, format!("value `{path_text}` is private"));
+            DirectMember::Inaccessible(def_id, visibility) => {
+                let (summary, label, help) =
+                    qualified_visibility_diagnostic("value", path_text, visibility);
+                let related = if visibility == Visibility::Private {
+                    "the private value is declared here"
+                } else {
+                    "the restricted value is declared here"
+                };
+                let mut diagnostic =
+                    Diagnostic::user_error(codes::NAME_RESOLUTION, summary).primary(span, label);
                 if let Some(target_defs) = self.defs_for_module(module_id)
                     && let Some(def) = target_defs.as_ref().defs.get(def_id)
                 {
-                    diagnostic = self.related_definition(
-                        diagnostic,
-                        module_id,
-                        def.span,
-                        "the private value is declared here",
-                    );
+                    diagnostic = self.related_definition(diagnostic, module_id, def.span, related);
                 }
-                self.diagnostics.push(
-                    diagnostic
-                        .help("make the value public or use it from an allowed scope")
-                        .finish(),
-                );
+                self.diagnostics.push(diagnostic.help(help).finish());
                 return;
             }
             DirectMember::Missing => {
