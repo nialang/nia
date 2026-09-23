@@ -538,6 +538,30 @@ fn match_pattern_recovery_keeps_later_patterns_and_statements() {
 }
 
 #[test]
+fn match_arm_body_recovery_keeps_later_arms_and_statements() {
+    let (module, errors) = parse_module(
+        "fn main(value: bool) () { match value { true => , false => (), } later(); }\nfn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected expression"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Function(main) = &module.items[0].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("main body");
+    assert_eq!(body.stmts.len(), 2);
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn type_argument_delimiter_recovery_keeps_the_function() {
     let (module, errors) =
         parse_module("fn retained(value: Wrapper[i32 bool]) () {}\nfn later() () {}");

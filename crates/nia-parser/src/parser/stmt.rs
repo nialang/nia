@@ -232,9 +232,21 @@ impl Parser {
         let mut arms = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
             let start = self.peek().span.start;
-            let patterns = self.parse_match_arm_patterns()?;
-            self.expect(TokenKind::FatArrow, "expected `=>` in match arm")?;
-            let body = self.parse_match_arm_body()?;
+            let Some(patterns) = self.parse_match_arm_patterns() else {
+                self.recover_match_arm_boundary();
+                continue;
+            };
+            if self
+                .expect(TokenKind::FatArrow, "expected `=>` in match arm")
+                .is_none()
+            {
+                self.recover_match_arm_boundary();
+                continue;
+            }
+            let Some(body) = self.parse_match_arm_body() else {
+                self.recover_match_arm_boundary();
+                continue;
+            };
             self.eat(TokenKind::Comma);
             let end = body.span().end;
             arms.push(MatchArm {
@@ -245,6 +257,50 @@ impl Parser {
         }
         self.expect(TokenKind::RBrace, "expected `}` after match")?;
         Some(MatchExpr { target, arms })
+    }
+
+    fn recover_match_arm_boundary(&mut self) {
+        let mut paren_depth = 0usize;
+        let mut bracket_depth = 0usize;
+        let mut brace_depth = 0usize;
+        while !self.at(TokenKind::Eof) {
+            match self.peek().kind {
+                TokenKind::LParen => {
+                    paren_depth += 1;
+                    self.bump();
+                }
+                TokenKind::RParen if paren_depth > 0 => {
+                    paren_depth -= 1;
+                    self.bump();
+                }
+                TokenKind::LBracket => {
+                    bracket_depth += 1;
+                    self.bump();
+                }
+                TokenKind::RBracket if bracket_depth > 0 => {
+                    bracket_depth -= 1;
+                    self.bump();
+                }
+                TokenKind::LBrace => {
+                    brace_depth += 1;
+                    self.bump();
+                }
+                TokenKind::RBrace if brace_depth > 0 => {
+                    brace_depth -= 1;
+                    self.bump();
+                }
+                TokenKind::Comma if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
+                    self.bump();
+                    return;
+                }
+                TokenKind::RBrace if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
+                    return;
+                }
+                _ => {
+                    self.bump();
+                }
+            }
+        }
     }
 
     fn parse_match_arm_patterns(&mut self) -> Option<Vec<Pattern>> {
