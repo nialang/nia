@@ -2050,12 +2050,15 @@ impl<'a> BodyChecker<'a> {
             .map(|name| self.symbol_name(*name))
             .unwrap_or_else(|| "this name".to_string());
         let (summary, help) = failure.reason.diagnostic_parts(&name);
-        Diagnostic::user_error(codes::NAME_RESOLUTION, summary)
+        let mut diagnostic = Diagnostic::user_error(codes::NAME_RESOLUTION, summary)
             .primary(expr.span, "use of unresolved imported name")
             .related(failure.name_span, "the imported name is selected here")
             .related(failure.directive_span, "the `using` directive is here")
-            .help(help)
-            .finish()
+            .help(help);
+        if let Some(span) = failure.declaration_span {
+            diagnostic = diagnostic.related(span, "the hidden imported item is declared here");
+        }
+        diagnostic.finish()
     }
 
     fn imported_type_used_as_value_diagnostic(

@@ -144,15 +144,18 @@ impl TypeResolver<'_> {
     ) -> Diagnostic {
         let name = self.symbol_name(type_segment_name(segment).copied().unwrap_or(failure.name));
         let (summary, help) = failure.reason.diagnostic_parts(&name);
-        Diagnostic::user_error(
+        let mut diagnostic = Diagnostic::user_error(
             codes::NAME_RESOLUTION,
             format!("type `{name}` is unavailable"),
         )
         .primary(span, summary)
         .related(failure.name_span, "the imported type is selected here")
         .related(failure.directive_span, "the `using` directive is here")
-        .help(help)
-        .finish()
+        .help(help);
+        if let Some(span) = failure.declaration_span {
+            diagnostic = diagnostic.related(span, "the hidden imported item is declared here");
+        }
+        diagnostic.finish()
     }
 
     fn primitive_type_spelling_for_symbol(&self, name: &SymbolId) -> Option<PrimitiveTypeSpelling> {
