@@ -1,0 +1,31 @@
+path: fail/propagation_conversion_chain/main.nia
+code: E0301
+summary: error propagation does not chain `IntoError` conversions from `First` to `Last`
+label: 408..419 Primary Source error propagation does not chain `IntoError` conversions from `First` to `Last`
+label: 408..417 Secondary Source propagated error value has type `First`
+label: 376..422 Secondary Source function return type is the propagation boundary
+note: the propagated expression has error type `First`, while this function returns error type `Last`
+note: Nia requires one direct conversion at the propagation boundary; it does not compose multiple `IntoError` conversions
+help: add a direct `IntoError[Last]` implementation for `First`, or propagate through the intermediate error type explicitly
+
+report:
+diagnostics:
+root diagnostic:
+error[E0301]: error propagation does not chain `IntoError` conversions from `First` to `Last`
+   --> fail/propagation_conversion_chain/main.nia:29:7
+   |
+29 |     !(produce().?)
+   |       ^^^^^^^^^^^ error propagation does not chain `IntoError` conversions from `First` to `Last`
+   ::: fail/propagation_conversion_chain/main.nia:29:7
+   |
+29 |     !(produce().?)
+   |       --------- propagated error value has type `First`
+   ::: fail/propagation_conversion_chain/main.nia:28:1
+   |
+28 | fn propagate() Last!i32 {
+   | ------------------------- function return type is the propagation boundary
+note: the propagated expression has error type `First`, while this function returns error type `Last`
+note: Nia requires one direct conversion at the propagation boundary; it does not compose multiple `IntoError` conversions
+help: add a direct `IntoError[Last]` implementation for `First`, or propagate through the intermediate error type explicitly
+
+summary: 1 error, 0 warnings
