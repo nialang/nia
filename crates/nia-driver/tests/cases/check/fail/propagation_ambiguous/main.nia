@@ -1,0 +1,14 @@
+struct Source {}
+struct Target {}
+
+extend Source : std::builtin::IntoError[Target] {
+    fn intoError(self) Target { {} }
+}
+
+extend Source : std::builtin::IntoError[Target] {
+    fn intoError(self) Target { {} }
+}
+
+fn propagate(value: Source!i32) Target!i32 {
+    value.?
+}
