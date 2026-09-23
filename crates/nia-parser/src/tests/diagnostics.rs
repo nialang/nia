@@ -877,6 +877,33 @@ fn trait_member_parameter_recovery_keeps_later_members_and_items() {
 }
 
 #[test]
+fn extend_member_parameter_recovery_keeps_later_members_and_items() {
+    let (module, errors) = parse_module(
+        "struct Value {}\nextend Value { fn bad(first: i32 second: bool) Value { Value {} } fn good(value: i32) Value { Value {} } }\nfn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error
+                .message
+                .contains("expected `,` or `)` after parameter"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Extend(retained) = &module.items[1].kind else {
+        panic!("expected retained extension");
+    };
+    assert_eq!(retained.methods.len(), 2);
+    assert_eq!(retained.methods[0].function.params.len(), 1);
+    assert_eq!(retained.methods[1].function.name, sym("good"));
+    let ItemKind::Function(later) = &module.items[2].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn closure_parameter_delimiter_recovery_keeps_the_function() {
     let (module, errors) = parse_module(
         "fn retained() () { let value = \\first: i32 second: bool -> first; }\nfn later() () {}",
