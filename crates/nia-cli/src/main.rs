@@ -81,7 +81,10 @@ fn report_cli_error(message: &str, help: HelpTopic, diagnostics_format: Diagnost
 }
 
 fn write_diagnostic_report(rendered: &str, format: DiagnosticsFormat) {
-    if format == DiagnosticsFormat::Text && io::stderr().is_terminal() {
+    if format == DiagnosticsFormat::Text
+        && io::stderr().is_terminal()
+        && std::env::var_os("NO_COLOR").is_none()
+    {
         eprint!("{}", colorize_diagnostic_report(rendered));
     } else {
         eprint!("{rendered}");

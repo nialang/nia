@@ -320,7 +320,11 @@ fn interactive_terminal_reports_color_text_without_coloring_json() {
     std::fs::write(root.join("entry.nia"), "").expect("write imported module");
 
     let mut text_command = support::nia_command();
-    text_command.arg("check").arg(&main).stdout(Stdio::null());
+    text_command
+        .arg("check")
+        .arg(&main)
+        .env_remove("NO_COLOR")
+        .stdout(Stdio::null());
     let (text_status, text_stderr) = run_with_terminal_stderr(text_command);
     assert_eq!(text_status.code(), Some(1));
     let text_stderr = String::from_utf8(text_stderr).expect("terminal text is UTF-8");
@@ -331,11 +335,27 @@ fn interactive_terminal_reports_color_text_without_coloring_json() {
     assert!(text_stderr.contains("\x1b[36m  -->"), "{text_stderr}");
     assert!(text_stderr.contains("\x1b[0m"), "{text_stderr}");
 
+    let mut no_color_command = support::nia_command();
+    no_color_command
+        .arg("check")
+        .arg(&main)
+        .env("NO_COLOR", "1")
+        .stdout(Stdio::null());
+    let (no_color_status, no_color_stderr) = run_with_terminal_stderr(no_color_command);
+    assert_eq!(no_color_status.code(), Some(1));
+    let no_color_stderr = String::from_utf8(no_color_stderr).expect("terminal text is UTF-8");
+    assert!(
+        no_color_stderr.contains("error[E0201]"),
+        "{no_color_stderr}"
+    );
+    assert!(!no_color_stderr.contains('\x1b'), "{no_color_stderr}");
+
     let mut json_command = support::nia_command();
     json_command
         .arg("check")
         .arg("--diagnostics-format=json")
         .arg(&main)
+        .env_remove("NO_COLOR")
         .stdout(Stdio::null());
     let (json_status, json_stderr) = run_with_terminal_stderr(json_command);
     assert_eq!(json_status.code(), Some(1));
