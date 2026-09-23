@@ -122,7 +122,10 @@ impl Parser {
 
     fn parse_condition_primary_until(&mut self, stops: &[TokenKind]) -> Option<ConditionExpr> {
         if stops.iter().any(|kind| self.at(kind.clone())) {
-            self.error_here("expected condition expression");
+            self.error_here_as(
+                ParseErrorKind::ExpectedExpression,
+                "expected condition expression",
+            );
             return None;
         }
         let token = self.peek().clone();
@@ -174,7 +177,10 @@ impl Parser {
                 })
             }
             _ => {
-                self.error_here("expected condition expression");
+                self.error_here_as(
+                    ParseErrorKind::ExpectedExpression,
+                    "expected condition expression",
+                );
                 None
             }
         }
@@ -801,7 +807,7 @@ impl Parser {
             TokenKind::If => self.parse_if_expr(),
             TokenKind::Match => self.parse_match_expr(),
             _ => {
-                self.error_here("expected expression");
+                self.error_here_as(ParseErrorKind::ExpectedExpression, "expected expression");
                 None
             }
         }

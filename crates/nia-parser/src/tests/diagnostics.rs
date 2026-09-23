@@ -94,6 +94,83 @@ fn main() {
 }
 
 #[test]
+fn reports_expected_token_and_actionable_help() {
+    let (_module, errors) = parse_module("fn main() { let value = 1 }");
+    let error = errors
+        .iter()
+        .find(|error| error.message.contains("expected `;` after binding"))
+        .expect("missing semicolon diagnostic");
+    assert!(error.message.contains("found `}`"), "{error:?}");
+    assert_eq!(error.kind, ParseErrorKind::MissingSemicolon);
+
+    let diagnostic = error.to_diagnostic();
+    assert_eq!(diagnostic.code.as_str(), "E0101");
+    assert_eq!(diagnostic.primary_span(), Some(error.span));
+    assert_eq!(
+        diagnostic.help.as_slice(),
+        ["add the missing `;` to terminate this declaration or statement"]
+    );
+}
+
+#[test]
+fn classifies_parse_errors_by_grammar_rule_not_message_text() {
+    let cases = [
+        (
+            "struct { x: i32 }",
+            "expected struct name",
+            ParseErrorKind::ExpectedName,
+        ),
+        (
+            "type = i32;",
+            "expected type alias name",
+            ParseErrorKind::ExpectedName,
+        ),
+        (
+            "fn f(x: ) {}",
+            "expected type",
+            ParseErrorKind::ExpectedType,
+        ),
+        (
+            "fn f() { let = 1; }",
+            "expected binding pattern",
+            ParseErrorKind::ExpectedBindingPattern,
+        ),
+        (
+            "fn f() i32 { 1 + }",
+            "expected expression",
+            ParseErrorKind::ExpectedExpression,
+        ),
+        (
+            "fn f() { g(1; }",
+            "expected `)`",
+            ParseErrorKind::MissingClosingDelimiter,
+        ),
+        ("fn f() { 1 $ }", "lexical error", ParseErrorKind::Lexical),
+    ];
+    for (source, message, kind) in cases {
+        let (_module, errors) = parse_module(source);
+        let error = errors
+            .iter()
+            .find(|error| error.message.contains(message))
+            .unwrap_or_else(|| panic!("missing `{message}` for {source:?}: {errors:?}"));
+        assert_eq!(error.kind, kind, "{source:?}: {error:?}");
+        let help = error.to_diagnostic().help.first().cloned();
+        assert_eq!(help.as_deref(), kind.help(), "{source:?}");
+    }
+}
+
+#[test]
+fn grammar_errors_without_a_rule_hint_carry_no_help() {
+    let (_module, errors) = parse_module("const mut X: i32 = 1;");
+    let error = errors
+        .iter()
+        .find(|error| error.message == "const bindings cannot be mutable")
+        .expect("mutable const diagnostic");
+    assert_eq!(error.kind, ParseErrorKind::Grammar);
+    assert!(error.to_diagnostic().help.is_empty(), "{error:?}");
+}
+
+#[test]
 fn rejects_prefix_deref_syntax() {
     let (_module, errors) = parse_module(
         r#"

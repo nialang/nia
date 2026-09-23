@@ -205,7 +205,10 @@ impl Parser {
                 break;
             }
             if !self.at_namespace_segment() {
-                self.error_here("expected name in using selector");
+                self.error_here_as(
+                    ParseErrorKind::ExpectedName,
+                    "expected name in using selector",
+                );
                 return None;
             }
             // Two-token lookahead: if `NAME '::'`, treat NAME as another host segment.
@@ -291,14 +294,14 @@ impl Parser {
 
     fn parse_using_name(&mut self) -> Option<UsingName> {
         let name_token = self.eat(TokenKind::Ident).or_else(|| {
-            self.error_here("expected name in `using`");
+            self.error_here_as(ParseErrorKind::ExpectedName, "expected name in `using`");
             None
         })?;
         let name = self.token_name(&name_token)?;
         let name_span = name_token.span;
         let (alias, alias_span) = if self.eat(TokenKind::As).is_some() {
             let alias_token = self.eat(TokenKind::Ident).or_else(|| {
-                self.error_here("expected alias after `as`");
+                self.error_here_as(ParseErrorKind::ExpectedName, "expected alias after `as`");
                 None
             })?;
             let alias_text = self.token_name(&alias_token)?;

@@ -110,7 +110,11 @@ impl Parser {
         let expr = self.parse_expr()?;
         let has_semicolon = self.eat(TokenKind::Semicolon).is_some();
         if !has_semicolon && !expr_can_terminate_statement_without_semicolon(&expr) {
-            self.error_at_end(expr.span, "expected `;` after expression");
+            self.error_at_end_as(
+                ParseErrorKind::MissingSemicolon,
+                expr.span,
+                "expected `;` after expression",
+            );
         }
         Some(self.make_stmt(
             Span::new(start, self.previous_end()),
@@ -372,7 +376,10 @@ impl Parser {
                 },
             });
         }
-        self.error_here("expected binding pattern");
+        self.error_here_as(
+            ParseErrorKind::ExpectedBindingPattern,
+            "expected binding pattern",
+        );
         None
     }
 
@@ -834,7 +841,11 @@ impl Parser {
             let has_semicolon = self.eat(TokenKind::Semicolon).is_some();
             if has_semicolon || !self.at(TokenKind::RBrace) {
                 if !has_semicolon && !expr_can_terminate_statement_without_semicolon(&expr) {
-                    self.error_at_end(expr.span, "expected `;` after expression");
+                    self.error_at_end_as(
+                        ParseErrorKind::MissingSemicolon,
+                        expr.span,
+                        "expected `;` after expression",
+                    );
                 }
                 let span = expr.span;
                 stmts.push(self.make_stmt(span, Vec::new(), StmtKind::Expr(Box::new(expr))));

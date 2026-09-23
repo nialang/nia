@@ -26,7 +26,7 @@ pub use nia_imports::{ENTRY_MODULE_MAP_NAME, ModuleMap, PACKAGE_MODULE_MAP_NAME}
 pub use nia_loader_query::{SourceInput, SourceInputContent, SourceInputManifest};
 pub use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 pub use nia_package_metadata::PackageId;
-pub use nia_parser::ParseError;
+pub use nia_parser::{ParseError, ParseErrorKind};
 pub use nia_source::SourcePath;
 pub use nia_target_config::{BuildProfile, CompilationMode};
 pub use nia_toolchain::{
@@ -48,8 +48,9 @@ pub use report::{
     render_codegen_diagnostics_json, render_codegen_program_warnings,
     render_codegen_program_warnings_json, render_driver_error, render_driver_error_json,
     render_driver_error_json_at, render_executable_warnings, render_llvm_ir_warnings,
-    render_object_warnings, render_parse_errors, render_program_diagnostics,
-    render_program_diagnostics_json, render_program_warnings, render_program_warnings_json,
+    render_object_warnings, render_parse_errors, render_parse_errors_json,
+    render_program_diagnostics, render_program_diagnostics_json, render_program_warnings,
+    render_program_warnings_json,
 };
 
 #[cfg(test)]

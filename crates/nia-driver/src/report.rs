@@ -707,16 +707,7 @@ fn render_diagnostics_with_title(
 
 /// Renders parser errors using the same diagnostic report suppression policy.
 pub fn render_parse_errors(path: &str, source: &str, errors: &[crate::ParseError]) -> String {
-    let diagnostics = errors
-        .iter()
-        .map(|error| {
-            Diagnostic::user_error_at(
-                nia_diagnostic::codes::PARSE,
-                error.span,
-                error.message.clone(),
-            )
-        })
-        .collect::<Vec<_>>();
+    let diagnostics = parse_error_diagnostics(errors);
     let report = build_diagnostic_report(&diagnostics, DiagnosticReportConfig::default());
     let mut out = String::new();
     out.push_str("parse errors:\n");
@@ -730,6 +721,22 @@ pub fn render_parse_errors(path: &str, source: &str, errors: &[crate::ParseError
         report.suppressed_by_limit(),
     );
     out
+}
+
+/// Renders parser errors as the machine-readable report for `path`.
+pub fn render_parse_errors_json(path: &str, errors: &[crate::ParseError]) -> String {
+    render_diagnostics_json_at(
+        path,
+        &parse_error_diagnostics(errors),
+        DiagnosticReportConfig::default(),
+    )
+}
+
+fn parse_error_diagnostics(errors: &[crate::ParseError]) -> Vec<Diagnostic> {
+    errors
+        .iter()
+        .map(crate::ParseError::to_diagnostic)
+        .collect()
 }
 
 struct ProgramDiagnosticReportItem<'a> {
@@ -871,6 +878,7 @@ mod tests {
     fn parse_report_uses_parse_error_code() {
         let errors = vec![crate::ParseError {
             span: Span::new(0, 1),
+            kind: crate::ParseErrorKind::Grammar,
             message: "bad token".to_string(),
             node_key: None,
         }];
@@ -878,6 +886,22 @@ mod tests {
         let rendered = render_parse_errors("main.nia", "?", &errors);
 
         assert!(rendered.contains("error[E0101]"), "{rendered}");
+    }
+
+    #[test]
+    fn parse_reports_share_rule_help_across_text_and_json() {
+        let source = "fn main() { let value = 1 }";
+        let (_module, errors) = nia_parser::parse_module(source);
+        let help = "add the missing `;` to terminate this declaration or statement";
+
+        let text = render_parse_errors("main.nia", source, &errors);
+        let json = render_parse_errors_json("main.nia", &errors);
+
+        assert!(text.contains("error[E0101]"), "{text}");
+        assert!(text.contains(help), "{text}");
+        assert!(json.contains(r#""code":"E0101""#), "{json}");
+        assert!(json.contains(r#""path":"main.nia""#), "{json}");
+        assert!(json.contains(help), "{json}");
     }
 
     #[test]
