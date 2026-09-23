@@ -116,6 +116,7 @@ fn main() () {
     require(1);
     _ = 1 + missing;
 }
+
 "#,
     );
     let summaries = checked
@@ -135,6 +136,39 @@ fn main() () {
         summaries
             .iter()
             .all(|summary| !summary.contains("<error type>")),
+        "{summaries:?}"
+    );
+}
+
+#[test]
+fn suppresses_unary_recovery_trait_diagnostics() {
+    let checked = pipeline(
+        r#"
+fn main() () {
+    _ = -missing;
+    _ = !missing;
+    _ = ~missing;
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| summary.starts_with("unknown value `missing`"))
+            .count(),
+        3,
+        "{summaries:?}"
+    );
+    assert!(
+        summaries
+            .iter()
+            .all(|summary| !summary.contains("trait bound not satisfied")
+                && !summary.contains("requires an expected error union type")),
         "{summaries:?}"
     );
 }

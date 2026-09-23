@@ -374,6 +374,9 @@ intentionally mismatched pattern constructors against those recovered shapes.
 Binary and shift operator recovery is covered end to end: unresolved operands
 retain their name-resolution roots while operator trait and operand-shape
 consequences are suppressed.
+Unary arithmetic, bitwise-not, and error-union success recovery now follow the
+same root-only contract when their operand is unresolved, with body-check and
+driver snapshot coverage.
 The same root-only contract is covered across field access, indexing, deref,
 address-of, casts, optional propagation, and calls applied to an unresolved
 value.
