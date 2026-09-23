@@ -419,6 +419,9 @@ Private, `pub(super)`, and `pub(pkg)` associated values in visible extensions
 now retain their declaration visibility through lookup and report source-owned
 diagnostics with dependency declaration locations instead of falling through to
 a generic qualified-expression error. Package-internal access remains valid.
+The same package visibility contract is covered for qualified associated
+function-pointer references, including dependency-owned declaration locations;
+call and pointer forms now share the source-owned diagnostic behavior.
 Package-restricted module namespaces now retain parent declaration visibility
 even when the dependency graph has not materialized a child module node; value
 and type paths report the actual package scope and source-owned declaration.

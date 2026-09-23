@@ -7,3 +7,10 @@ fn make() model::Value {
 fn score(value: model::Value) i32 {
     value.package_score()
 }
+
+fn pointers() () {
+    let make: &fn(i32) model::Value = &model::Value::package_make;
+    let score: &fn(&model::Value) i32 = &model::Value::package_score;
+    _ = make;
+    _ = score;
+}
