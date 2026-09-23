@@ -339,7 +339,7 @@ impl Parser {
                 }
                 if let Some(param) = self.parse_type_with_mode(mode) {
                     params.push(param);
-                    if self.eat(TokenKind::Comma).is_none() {
+                    if !self.eat_type_parameter_delimiter() {
                         break;
                     }
                 } else if self.eat(TokenKind::Comma).is_none() {
@@ -410,7 +410,7 @@ impl Parser {
             }
             if let Some(param) = self.parse_type_with_mode(mode) {
                 params.push(param);
-                if self.eat(TokenKind::Comma).is_none() {
+                if !self.eat_type_parameter_delimiter() {
                     break;
                 }
             } else if self.eat(TokenKind::Comma).is_none() {
@@ -639,6 +639,23 @@ impl Parser {
             "expected `,` or `]` after type argument",
         );
         while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
+            self.bump();
+        }
+        false
+    }
+
+    fn eat_type_parameter_delimiter(&mut self) -> bool {
+        if self.eat(TokenKind::Comma).is_some() {
+            return true;
+        }
+        if self.at(TokenKind::RParen) || self.at(TokenKind::Eof) {
+            return false;
+        }
+        self.expected_here(
+            ParseErrorKind::Grammar,
+            "expected `,` or `)` after type parameter",
+        );
+        while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
             self.bump();
         }
         false

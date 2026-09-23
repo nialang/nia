@@ -1,0 +1,27 @@
+path: fail/type_parameter_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `)` after type parameter; found `bool`
+label: 29..33 Primary Source expected `,` or `)` after type parameter; found `bool`
+
+path: fail/type_parameter_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `)` after type parameter; found `bool`
+label: 53..57 Primary Source expected `,` or `)` after type parameter; found `bool`
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `,` or `)` after type parameter; found `bool`
+  --> fail/type_parameter_delimiter_recovery/main.nia:1:30
+  |
+1 | fn retained(pointer: &fn(i32 bool), callable: Fn(i32 bool), tuple: (i32 bool)) () {}
+  |                              ^^^^ expected `,` or `)` after type parameter; found `bool`
+
+root diagnostic:
+error[E0101]: expected `,` or `)` after type parameter; found `bool`
+  --> fail/type_parameter_delimiter_recovery/main.nia:1:54
+  |
+1 | fn retained(pointer: &fn(i32 bool), callable: Fn(i32 bool), tuple: (i32 bool)) () {}
+  |                                                      ^^^^ expected `,` or `)` after type parameter; found `bool`
+
+summary: 2 errors, 0 warnings
