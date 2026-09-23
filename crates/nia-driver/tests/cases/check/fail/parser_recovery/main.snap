@@ -36,14 +36,26 @@ help: check that the surrounding delimiters are balanced
 
 path: fail/parser_recovery/main.nia
 code: E0101
+summary: expected type; found `,`
+label: 284..285 Primary Source expected type; found `,`
+help: provide a type name or type expression here
+
+path: fail/parser_recovery/main.nia
+code: E0101
+summary: expected type; found `,`
+label: 360..361 Primary Source expected type; found `,`
+help: provide a type name or type expression here
+
+path: fail/parser_recovery/main.nia
+code: E0101
 summary: expected function name; found `(`
-label: 249..250 Primary Source expected function name; found `(`
+label: 408..409 Primary Source expected function name; found `(`
 help: use an identifier in this position
 
 path: fail/parser_recovery/main.nia
 code: E0101
 summary: lexical error: unexpected byte 0x24
-label: 298..299 Primary Source lexical error: unexpected byte 0x24
+label: 457..458 Primary Source lexical error: unexpected byte 0x24
 
 report:
 diagnostics:
@@ -96,18 +108,34 @@ error[E0101]: expected `)` after parameters; found `{`
 help: check that the surrounding delimiters are balanced
 
 root diagnostic:
-error[E0101]: expected function name; found `(`
-   --> fail/parser_recovery/main.nia:24:4
+error[E0101]: expected type; found `,`
+   --> fail/parser_recovery/main.nia:25:14
    |
-24 | fn () {}
+25 |     missing: ,
+   |              ^ expected type; found `,`
+help: provide a type name or type expression here
+
+root diagnostic:
+error[E0101]: expected type; found `,`
+   --> fail/parser_recovery/main.nia:31:18
+   |
+31 |         missing: ,
+   |                  ^ expected type; found `,`
+help: provide a type name or type expression here
+
+root diagnostic:
+error[E0101]: expected function name; found `(`
+   --> fail/parser_recovery/main.nia:37:4
+   |
+37 | fn () {}
    |    ^ expected function name; found `(`
 help: use an identifier in this position
 
 root diagnostic:
 error[E0101]: lexical error: unexpected byte 0x24
-   --> fail/parser_recovery/main.nia:27:19
+   --> fail/parser_recovery/main.nia:40:19
    |
-27 |     let value = 1 $;
+40 |     let value = 1 $;
    |                   ^ lexical error: unexpected byte 0x24
 
-summary: 8 errors, 0 warnings
+summary: 10 errors, 0 warnings
