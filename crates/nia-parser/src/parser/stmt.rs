@@ -250,7 +250,15 @@ impl Parser {
     fn parse_match_arm_patterns(&mut self) -> Option<Vec<Pattern>> {
         let mut patterns = Vec::new();
         loop {
-            patterns.push(self.parse_pattern_until(&[TokenKind::Comma, TokenKind::FatArrow])?);
+            let checkpoint = self.checkpoint();
+            let Some(pattern) = self.parse_pattern_until(&[TokenKind::Comma, TokenKind::FatArrow])
+            else {
+                if self.recover_match_pattern_boundary(checkpoint) {
+                    continue;
+                }
+                return patterns.is_empty().then_some(patterns);
+            };
+            patterns.push(pattern);
             if self.at(TokenKind::FatArrow) {
                 break;
             }
@@ -261,6 +269,57 @@ impl Parser {
             }
         }
         Some(patterns)
+    }
+
+    fn recover_match_pattern_boundary(&mut self, checkpoint: ParserCheckpoint) -> bool {
+        let mut paren_depth = 0usize;
+        let mut bracket_depth = 0usize;
+        let mut brace_depth = 0usize;
+        while !self.at(TokenKind::Eof) {
+            match self.peek().kind {
+                TokenKind::LParen => {
+                    paren_depth += 1;
+                    self.bump();
+                }
+                TokenKind::RParen if paren_depth > 0 => {
+                    paren_depth -= 1;
+                    self.bump();
+                }
+                TokenKind::LBracket => {
+                    bracket_depth += 1;
+                    self.bump();
+                }
+                TokenKind::RBracket if bracket_depth > 0 => {
+                    bracket_depth -= 1;
+                    self.bump();
+                }
+                TokenKind::LBrace => {
+                    brace_depth += 1;
+                    self.bump();
+                }
+                TokenKind::RBrace if brace_depth > 0 => {
+                    brace_depth -= 1;
+                    self.bump();
+                }
+                TokenKind::Comma if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
+                    self.bump();
+                    return true;
+                }
+                TokenKind::FatArrow
+                    if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 =>
+                {
+                    return false;
+                }
+                TokenKind::RBrace if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
+                    return false;
+                }
+                _ => {
+                    self.bump();
+                }
+            }
+        }
+        self.ensure_recovery_progress(checkpoint);
+        false
     }
 
     pub(super) fn parse_binding_pattern_until_tokens(

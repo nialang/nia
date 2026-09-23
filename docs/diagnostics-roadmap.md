@@ -254,6 +254,8 @@ They also diagnose a missing comma before a clearly identifiable next capture
 and continue parsing that capture.
 Bracket argument lists now skip a missing argument at a comma and retain later
 arguments, the surrounding type or expression, and following top-level items.
+Match arm pattern lists now skip a missing pattern at a comma and retain the
+later patterns, arm body, and following statements.
 These are recovery gaps in the grammar parser that consumes the lossless token
 view. `nia-syntax` currently
 preserves source, trivia, malformed tokens, and delimiter groups in its green
