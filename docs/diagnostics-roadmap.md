@@ -259,6 +259,9 @@ later patterns, arm body, and following statements.
 Tuple and nominal tuple match patterns now skip a missing field at a comma and
 retain later fields and arms; parser and driver snapshots cover both recovered
 shapes.
+Named nominal match patterns likewise synchronize a missing field pattern at a
+comma or closing brace, retaining later fields and arms with parser and driver
+coverage.
 Match arm bodies now synchronize an invalid arm at the next top-level comma or
 closing brace, retaining later arms and statements after the match.
 These are recovery gaps in the grammar parser that consumes the lossless token

@@ -634,6 +634,45 @@ fn nominal_tuple_pattern_recovery_keeps_later_fields() {
 }
 
 #[test]
+fn nominal_named_pattern_recovery_keeps_later_fields() {
+    let (module, errors) = parse_module(
+        "fn main(value: bool) () { match value { Point { x: , y: true } => (), _ => (), } }",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected expression"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Function(main) = &module.items[0].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("main body");
+    let Some(tail) = &body.tail else {
+        panic!("expected match tail");
+    };
+    let ExprKind::Match(matched) = &tail.kind else {
+        panic!("expected match expression");
+    };
+    assert_eq!(matched.arms.len(), 2);
+    let PatternKind::Nominal {
+        fields: nia_ast::NominalPatternFields::Named { fields, .. },
+        ..
+    } = &matched.arms[0].patterns[0].kind
+    else {
+        panic!("expected nominal named pattern");
+    };
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].name, sym("y"));
+    assert!(matches!(
+        matched.arms[1].patterns[0].kind,
+        PatternKind::Wildcard
+    ));
+}
+
+#[test]
 fn type_argument_delimiter_recovery_keeps_the_function() {
     let (module, errors) =
         parse_module("fn retained(value: Wrapper[i32 bool]) () {}\nfn later() () {}");

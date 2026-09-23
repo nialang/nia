@@ -1,0 +1,14 @@
+struct Point {
+    x: bool,
+    y: bool,
+}
+
+fn main(value: Point) () {
+    match value {
+        Point { x: , y: true } => (),
+        _ => (),
+    }
+    later();
+}
+
+fn later() () {}

@@ -784,6 +784,7 @@ impl Parser {
             let mut fields = Vec::new();
             let mut rest = None;
             while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+                let field_checkpoint = self.checkpoint();
                 if let Some(token) = self.eat(TokenKind::DotDot) {
                     if rest.replace(token.span).is_some() {
                         self.error_at(token.span, "nominal pattern may contain `..` only once");
@@ -805,9 +806,31 @@ impl Parser {
                 }
                 let start = self.peek().span.start;
                 let name_span = self.peek().span;
-                let name = self.expect_name(TokenKind::Ident, "expected payload field name")?;
+                let Some(name) = self.expect_name(TokenKind::Ident, "expected payload field name")
+                else {
+                    if self.eat(TokenKind::Comma).is_some() {
+                        continue;
+                    }
+                    if self.at(TokenKind::RBrace) {
+                        break;
+                    }
+                    self.recover_to_comma_or_rbrace_with_progress(field_checkpoint);
+                    continue;
+                };
                 let pattern = if self.eat(TokenKind::Colon).is_some() {
-                    self.parse_pattern_until(&[TokenKind::Comma, TokenKind::RBrace])?
+                    let Some(pattern) =
+                        self.parse_pattern_until(&[TokenKind::Comma, TokenKind::RBrace])
+                    else {
+                        if self.eat(TokenKind::Comma).is_some() {
+                            continue;
+                        }
+                        if self.at(TokenKind::RBrace) {
+                            break;
+                        }
+                        self.recover_to_comma_or_rbrace_with_progress(field_checkpoint);
+                        continue;
+                    };
+                    pattern
                 } else {
                     Pattern {
                         span: name_span,
