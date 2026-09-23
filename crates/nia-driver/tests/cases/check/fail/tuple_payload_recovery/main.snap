@@ -10,6 +10,18 @@ summary: expected type; found `,`
 label: 44..45 Primary Source expected type; found `,`
 help: provide a type name or type expression here
 
+path: fail/tuple_payload_recovery/main.nia
+code: E0101
+summary: expected type
+label: 88..89 Primary Source expected type
+help: provide a type name or type expression here
+
+path: fail/tuple_payload_recovery/main.nia
+code: E0101
+summary: expected type
+label: 94..95 Primary Source expected type
+help: provide a type name or type expression here
+
 report:
 diagnostics:
 root diagnostic:
@@ -28,4 +40,20 @@ error[E0101]: expected type; found `,`
   |            ^ expected type; found `,`
 help: provide a type name or type expression here
 
-summary: 2 errors, 0 warnings
+root diagnostic:
+error[E0101]: expected type
+  --> fail/tuple_payload_recovery/main.nia:8:23
+  |
+8 | fn tuple_type(value: (, i32,, bool)) () {}
+  |                       ^ expected type
+help: provide a type name or type expression here
+
+root diagnostic:
+error[E0101]: expected type
+  --> fail/tuple_payload_recovery/main.nia:8:29
+  |
+8 | fn tuple_type(value: (, i32,, bool)) () {}
+  |                             ^ expected type
+help: provide a type name or type expression here
+
+summary: 4 errors, 0 warnings

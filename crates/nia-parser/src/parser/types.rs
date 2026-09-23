@@ -171,17 +171,25 @@ impl Parser {
             if self.eat(TokenKind::RParen).is_some() {
                 TypeKind::Tuple { elems: Vec::new() }
             } else {
-                let first = self.parse_type_with_mode(mode)?;
+                let mut elems = Vec::new();
+                let first = self.parse_type_with_mode(mode);
+                if let Some(first) = first {
+                    elems.push(first);
+                }
                 if self.eat(TokenKind::Comma).is_none() {
+                    let first = elems.pop()?;
                     self.expect(TokenKind::RParen, "expected `)` after parenthesized type")?;
                     return Some(
                         self.make_type_ref(Span::new(start, self.previous_end()), first.kind),
                     );
                 }
-                let mut elems = vec![first];
                 while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
-                    elems.push(self.parse_type_with_mode(mode)?);
-                    if self.eat(TokenKind::Comma).is_none() {
+                    if let Some(ty) = self.parse_type_with_mode(mode) {
+                        elems.push(ty);
+                        if self.eat(TokenKind::Comma).is_none() {
+                            break;
+                        }
+                    } else if self.eat(TokenKind::Comma).is_none() {
                         break;
                     }
                 }
