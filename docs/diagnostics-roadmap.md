@@ -250,6 +250,8 @@ comma or closing parenthesis, retaining later arguments and the attributed
 item.
 Closure capture lists now synchronize a missing capture name at the next comma
 or closing bracket, retaining later captures and the enclosing closure.
+They also diagnose a missing comma before a clearly identifiable next capture
+and continue parsing that capture.
 These are recovery gaps in the grammar parser that consumes the lossless token
 view. `nia-syntax` currently
 preserves source, trivia, malformed tokens, and delimiter groups in its green

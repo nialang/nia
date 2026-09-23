@@ -460,6 +460,33 @@ fn closure_capture_recovery_keeps_later_captures_and_items() {
 }
 
 #[test]
+fn closure_capture_delimiter_recovery_keeps_later_captures() {
+    let (module, errors) =
+        parse_module("fn retained() () { let closure = \\[kept later] value -> kept; }");
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error
+                .message
+                .contains("expected `,` or `]` after closure capture"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected closure binding");
+    };
+    let ExprKind::Closure { captures, .. } = &binding.value.as_ref().expect("closure").kind else {
+        panic!("expected closure expression");
+    };
+    assert_eq!(captures.len(), 2);
+}
+
+#[test]
 fn type_argument_delimiter_recovery_keeps_the_function() {
     let (module, errors) =
         parse_module("fn retained(value: Wrapper[i32 bool]) () {}\nfn later() () {}");

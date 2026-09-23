@@ -1,0 +1,5 @@
+fn retained() () {
+    let kept = 1;
+    let later = 2;
+    let closure = \[kept later] value -> kept;
+}
