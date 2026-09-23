@@ -895,6 +895,21 @@ impl Parser {
                 self.origins.rollback(checkpoint.origin);
             }
             if self.eat(TokenKind::Comma).is_none() {
+                if !self.at(TokenKind::RParen)
+                    && !self.at(TokenKind::LBrace)
+                    && !self.at(TokenKind::Eof)
+                {
+                    self.expected_here(
+                        ParseErrorKind::Grammar,
+                        "expected `,` or `)` after parameter",
+                    );
+                    while !self.at(TokenKind::RParen)
+                        && !self.at(TokenKind::LBrace)
+                        && !self.at(TokenKind::Eof)
+                    {
+                        self.bump();
+                    }
+                }
                 break;
             }
         }
@@ -920,8 +935,7 @@ impl Parser {
                 ));
             }
             self.rewind(checkpoint);
-            let ty =
-                self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen, TokenKind::LBrace])?;
+            let ty = self.parse_param_type()?;
             return Some(self.make_param(Span::new(start, ty.span.end), None, None, Some(ty)));
         }
         if self.at(TokenKind::SelfValue) {
@@ -935,9 +949,25 @@ impl Parser {
         }
         let name = self.expect_name(TokenKind::Ident, "expected parameter name")?;
         self.expect(TokenKind::Colon, "expected `:` after parameter name")?;
-        let ty =
-            self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen, TokenKind::LBrace])?;
+        let ty = self.parse_param_type()?;
         Some(self.make_param(Span::new(start, ty.span.end), None, Some(name), Some(ty)))
+    }
+
+    fn parse_param_type(&mut self) -> Option<TypeRef> {
+        let checkpoint = self.checkpoint();
+        let errors_len = self.errors.len();
+        if let Some(ty) = self.parse_type()
+            && (self.at(TokenKind::Comma)
+                || self.at(TokenKind::RParen)
+                || self.at(TokenKind::LBrace)
+                || (self.at(TokenKind::Ident)
+                    && matches!(self.tokens.nth_kind(1), Some(TokenKind::Colon))))
+        {
+            return Some(ty);
+        }
+        self.rewind(checkpoint);
+        self.errors.truncate(errors_len);
+        self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen, TokenKind::LBrace])
     }
 
     pub(super) fn parse_binding(&mut self, is_extern: bool) -> Option<BindingItem> {

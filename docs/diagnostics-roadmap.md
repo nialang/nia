@@ -237,6 +237,8 @@ driver coverage; the recovery path suppresses the parser's generic expected
 type duplicate when the more specific binding diagnostic is emitted.
 Explicit type argument lists also synchronize a missing comma before `]` and
 retain the enclosing function and following declarations.
+Function parameter lists likewise synchronize a missing comma before `)` while
+preserving the current function and later top-level declarations.
 These are recovery gaps in the grammar parser that consumes the lossless token
 view. `nia-syntax` currently
 preserves source, trivia, malformed tokens, and delimiter groups in its green
