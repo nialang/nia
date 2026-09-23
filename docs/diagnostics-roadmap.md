@@ -235,6 +235,8 @@ Associated type binding arguments also recover a missing binding value at a
 comma, retain later arguments and the enclosing function, and have parser and
 driver coverage; the recovery path suppresses the parser's generic expected
 type duplicate when the more specific binding diagnostic is emitted.
+Explicit type argument lists also synchronize a missing comma before `]` and
+retain the enclosing function and following declarations.
 These are recovery gaps in the grammar parser that consumes the lossless token
 view. `nia-syntax` currently
 preserves source, trivia, malformed tokens, and delimiter groups in its green
