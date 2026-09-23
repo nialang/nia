@@ -1,0 +1,15 @@
+path: fail/tuple_expression_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `)` after tuple element; found `false`
+label: 37..42 Primary Source expected `,` or `)` after tuple element; found `false`
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `,` or `)` after tuple element; found `false`
+  --> fail/tuple_expression_delimiter_recovery/main.nia:2:23
+  |
+2 |     let value = (true false);
+  |                       ^^^^^ expected `,` or `)` after tuple element; found `false`
+
+summary: 1 error, 0 warnings

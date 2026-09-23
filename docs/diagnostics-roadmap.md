@@ -247,8 +247,11 @@ items; parser and driver snapshots cover both forms. Tuple type expressions
 also retain valid elements and their enclosing function after missing elements
 at comma boundaries. Tuple expressions and irrefutable tuple binding patterns
 likewise retain valid elements and later statements after missing elements at
-comma boundaries, with separate end-to-end snapshots. Other parser recovery
-boundaries still need equivalent source coverage. Associated type/value member
+comma boundaries, with separate end-to-end snapshots. They also diagnose a
+missing separator between valid tuple elements and retain the rest of the tuple
+and following statements, with parser and driver coverage. Other parser
+recovery boundaries still need equivalent source coverage. Associated
+type/value member
 recovery now has equivalent parser and driver coverage: malformed trait and
 extension associated declarations retain later methods and following top-level
 items while preserving the local grammar diagnostics. Call argument lists now also

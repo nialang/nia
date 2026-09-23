@@ -342,6 +342,35 @@ fn tuple_expression_and_pattern_recovery_keeps_later_statements() {
 }
 
 #[test]
+fn tuple_expression_delimiter_recovery_keeps_later_elements_and_statements() {
+    let (module, errors) =
+        parse_module("fn main() () { let value = (true false); later(); } fn later() () {}");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0]
+            .message
+            .contains("expected `,` or `)` after tuple element"),
+        "{errors:?}"
+    );
+    let ItemKind::Function(main) = &module.items[0].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("expected body");
+    assert_eq!(body.stmts.len(), 2, "{errors:?}");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected tuple binding");
+    };
+    let ExprKind::Tuple(elems) = &binding.value.as_ref().expect("tuple initializer").kind else {
+        panic!("expected tuple expression");
+    };
+    assert_eq!(elems.len(), 2);
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn call_argument_recovery_keeps_later_arguments_and_statements() {
     let (module, errors) = parse_module(
         "fn main() () { consume(, 1,, true); later(); } fn later() () {} fn consume(a: i32, b: bool) () {}",
