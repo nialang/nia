@@ -410,7 +410,8 @@ projection containing only declaration, namespace, enum-variant, and module-usin
 Builds the explicit module graph and normalizes using paths. Handles package roots,
 entry-root paths, current-package paths, child declarations, parent paths, module cycle
 diagnostics, and duplicate local using aliases. Does not perform semantic checking of
-selected items.
+selected items. The graph retains each module's owning `SourcePath`; semantic consumers
+use it when a diagnostic relates a use site to a declaration in another module.
 
 ### `nia-driver`
 

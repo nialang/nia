@@ -1048,6 +1048,8 @@ pub trait ModuleGraphLookup {
     fn package_root_module(&self, package: &SymbolId) -> Option<ModuleId>;
     /// Returns a module's stable package path.
     fn module_path(&self, module_id: ModuleId) -> Option<ModulePath>;
+    /// Returns the source file that owns a module.
+    fn source_path(&self, module_id: ModuleId) -> Option<SourcePath>;
     /// Returns a module's parent.
     fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId>;
     /// Resolves a declared child and its visibility.
@@ -1106,6 +1108,10 @@ impl ModuleGraphLookup for ModuleGraph {
         Some(self.get(module_id)?.module_path.clone())
     }
 
+    fn source_path(&self, module_id: ModuleId) -> Option<SourcePath> {
+        Some(self.get(module_id)?.path.clone())
+    }
+
     fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId> {
         self.get(module_id)?.parent
     }
@@ -1142,6 +1148,10 @@ impl ModuleGraphLookup for ModuleGraphSnapshot {
 
     fn module_path(&self, module_id: ModuleId) -> Option<ModulePath> {
         Some(self.get(module_id)?.module_path.clone())
+    }
+
+    fn source_path(&self, module_id: ModuleId) -> Option<SourcePath> {
+        Some(self.get(module_id)?.path.clone())
     }
 
     fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId> {
@@ -1183,6 +1193,10 @@ where
 
     fn module_path(&self, module_id: ModuleId) -> Option<ModulePath> {
         self.as_ref().module_path(module_id)
+    }
+
+    fn source_path(&self, module_id: ModuleId) -> Option<SourcePath> {
+        self.as_ref().source_path(module_id)
     }
 
     fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId> {

@@ -1,0 +1,36 @@
+path: fail/private_qualified_value/main.nia
+code: E0201
+summary: type `api::Secret` is private
+label: 85..91 Primary Source type `api::Secret` is private
+help: make the type public or use it from an allowed scope
+related: 28..44 the private type is declared here
+
+path: fail/private_qualified_value/main.nia
+code: E0201
+summary: value `api::hidden` is private
+label: 38..44 Primary Source value `api::hidden` is private
+help: make the value public or use it from an allowed scope
+related: 0..26 the private value is declared here
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: value `api::hidden` is private
+  --> fail/private_qualified_value/main.nia:4:10
+  |
+4 |     api::hidden()
+  |          ^^^^^^ value `api::hidden` is private
+help: make the value public or use it from an allowed scope
+related: fail/private_qualified_value/api.nia:1:1: the private value is declared here
+
+root diagnostic:
+error[E0201]: type `api::Secret` is private
+  --> fail/private_qualified_value/main.nia:7:36
+  |
+7 | fn accept_private_type(value: api::Secret) i32 {
+  |                                    ^^^^^^ type `api::Secret` is private
+help: make the type public or use it from an allowed scope
+related: fail/private_qualified_value/api.nia:5:1: the private type is declared here
+
+summary: 2 errors, 0 warnings
+note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)

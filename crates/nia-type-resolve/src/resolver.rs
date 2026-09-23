@@ -103,6 +103,19 @@ struct TypeResolver<'a> {
 }
 
 impl TypeResolver<'_> {
+    fn related_definition(
+        &self,
+        diagnostic: DiagnosticBuilder,
+        module_id: ModuleId,
+        span: Span,
+        message: &str,
+    ) -> DiagnosticBuilder {
+        match self.graph.and_then(|graph| graph.source_path(module_id)) {
+            Some(path) => diagnostic.related_at(path.as_str(), span, message),
+            None => diagnostic.related(span, message),
+        }
+    }
+
     fn local_value_as_type_diagnostic(
         &self,
         span: Span,
@@ -1121,8 +1134,12 @@ impl<'a> TypeResolver<'a> {
                         if let Some(target_defs) = self.defs_for_module(module_id)
                             && let Some(def) = target_defs.as_ref().defs.get(def_id)
                         {
-                            diagnostic =
-                                diagnostic.related(def.span, "the private type is declared here");
+                            diagnostic = self.related_definition(
+                                diagnostic,
+                                module_id,
+                                def.span,
+                                "the private type is declared here",
+                            );
                         }
                         self.diagnostics.push(
                             diagnostic
@@ -1206,7 +1223,12 @@ impl<'a> TypeResolver<'a> {
                 if let Some(target_defs) = self.defs_for_module(module_id)
                     && let Some(def) = target_defs.as_ref().defs.get(def_id)
                 {
-                    diagnostic = diagnostic.related(def.span, "the private type is declared here");
+                    diagnostic = self.related_definition(
+                        diagnostic,
+                        module_id,
+                        def.span,
+                        "the private type is declared here",
+                    );
                 }
                 self.diagnostics.push(
                     diagnostic

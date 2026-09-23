@@ -1,0 +1,5 @@
+fn hidden() i32 {
+    42
+}
+
+struct Secret {}
