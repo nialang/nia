@@ -399,9 +399,36 @@ pub fn main(init: process::Init) process::ExitCode!() {
 fn std_mem_obsolete_allocator_spellings_are_absent() {
     let root = temp_dir("std_mem_obsolete_allocator_spellings_are_absent");
     let main = root.join("main.nia");
-    std::fs::write(
-        &main,
-        r#"
+    let probes = [
+        ("alloc_bytes", "_ = allocator.alloc_bytes(1, 1);"),
+        ("alloc_slice", "_ = allocator.alloc_slice[u8](1);"),
+        (
+            "free_slice",
+            "_ = allocator.free_slice[u8](&mut bytes[..]);",
+        ),
+        ("is_empty", "_ = layout.is_empty();"),
+        ("as_slice", "_ = block.as_slice[u8]();"),
+        ("query_capacity", "_ = arena.query_capacity();"),
+        ("query_used", "_ = arena.query_used();"),
+        (
+            "reset_retain_capacity",
+            "_ = arena.reset_retain_capacity();",
+        ),
+        (
+            "reset_retain_with_limit",
+            "_ = arena.reset_retain_with_limit(0);",
+        ),
+        ("owns_block", "_ = fixed.owns_block(block);"),
+        ("is_last_allocation", "_ = fixed.is_last_allocation(block);"),
+        ("ownsBlock", "_ = fixed.ownsBlock(block);"),
+        ("isLastAllocation", "_ = fixed.isLastAllocation(block);"),
+        ("asExitCode", "_ = reallocError.asExitCode();"),
+        (
+            "exit",
+            "let code: process::ExitCode = reallocError.intoError();\n    _ = code;\n    _ = reallocResult.exit();",
+        ),
+    ];
+    let source = r#"
 using std::mem;
 using std::process;
 
@@ -415,54 +442,21 @@ fn probe(
     reallocResult: mem::ReallocError!mem::Block,
 ) () {
     let mut bytes: [u8; 1] = [0];
-    _ = allocator.alloc_bytes(1, 1);
-    _ = allocator.alloc_slice[u8](1);
-    _ = allocator.free_slice[u8](&mut bytes[..]);
-    _ = layout.is_empty();
-    _ = block.as_slice[u8]();
-    _ = arena.query_capacity();
-    _ = arena.query_used();
-    _ = arena.reset_retain_capacity();
-    _ = arena.reset_retain_with_limit(0);
-    _ = fixed.owns_block(block);
-    _ = fixed.is_last_allocation(block);
-    _ = fixed.ownsBlock(block);
-    _ = fixed.isLastAllocation(block);
-    let code: process::ExitCode = reallocError.intoError();
-    _ = code;
-    _ = reallocError.asExitCode();
-    _ = reallocResult.exit();
+    __PROBE__
 }
 
 fn main() () {}
-"#,
-    )
-    .expect("write obsolete allocator API source");
+"#;
+    for (name, expression) in probes {
+        std::fs::write(&main, source.replace("__PROBE__", expression))
+            .expect("write obsolete allocator API source");
+        let output = support::nia_command()
+            .arg("check")
+            .arg(&main)
+            .output_timeout_for_compiler("check obsolete allocator API spelling");
 
-    let output = support::nia_command()
-        .arg("check")
-        .arg(&main)
-        .output_timeout_for_compiler("check obsolete allocator API spellings");
-
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    for name in [
-        "alloc_bytes",
-        "alloc_slice",
-        "free_slice",
-        "is_empty",
-        "as_slice",
-        "query_capacity",
-        "query_used",
-        "reset_retain_capacity",
-        "reset_retain_with_limit",
-        "owns_block",
-        "is_last_allocation",
-        "ownsBlock",
-        "isLastAllocation",
-        "asExitCode",
-        "exit",
-    ] {
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
             stderr.contains(name),
             "missing diagnostic for {name}:\n{stderr}"
