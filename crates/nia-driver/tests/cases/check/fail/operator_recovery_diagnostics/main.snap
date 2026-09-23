@@ -1,0 +1,32 @@
+path: fail/operator_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 26..33 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+path: fail/operator_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 52..59 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/operator_recovery_diagnostics/main.nia:2:9
+  |
+2 |     _ = missing + 1;
+  |         ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/operator_recovery_diagnostics/main.nia:3:14
+  |
+3 |     _ = 1 << missing;
+  |              ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+summary: 2 errors, 0 warnings
+note: suppressed 2 diagnostic(s) (0 duplicate(s), 2 downstream consequence(s), 0 over limit)
