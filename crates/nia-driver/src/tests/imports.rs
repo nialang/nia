@@ -2791,6 +2791,54 @@ fn main(value: answer) () {
 }
 
 #[test]
+fn reports_imported_type_used_as_value() {
+    let root = temp_dir("reports_imported_type_used_as_value");
+    let source = r#"module types;
+using entry::types::Point;
+
+fn main() () {
+    Point;
+}
+"#;
+    write(&root.join("main.nia"), source);
+    write(&root.join("types.nia"), "pub struct Point {}\n");
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let diagnostic = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("type `Point` cannot be used as a value")
+        })
+        .unwrap_or_else(|| panic!("wrong namespace diagnostic: {:?}", program.diagnostics));
+    assert_eq!(
+        diagnostic.diagnostic.primary_span().unwrap().start,
+        source.rfind("Point;").expect("value-use span")
+    );
+    assert!(
+        diagnostic
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message.contains("imported type")),
+        "missing imported type evidence: {:?}",
+        diagnostic.diagnostic
+    );
+    assert!(
+        diagnostic
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("value import")),
+        "missing namespace remediation: {:?}",
+        diagnostic.diagnostic
+    );
+}
+
+#[test]
 fn self_import_loads_child_module_by_stem_path() {
     let root = temp_dir("self_import_loads_child_module_by_stem_path");
     write(

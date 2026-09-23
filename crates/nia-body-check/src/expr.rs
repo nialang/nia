@@ -2058,6 +2058,25 @@ impl<'a> BodyChecker<'a> {
             .finish()
     }
 
+    fn imported_type_used_as_value_diagnostic(
+        &self,
+        expr: &Expr,
+        evidence: nia_value_resolve::ImportedTypePrefix,
+    ) -> Diagnostic {
+        let name = expr_ident_name(expr)
+            .map(|name| self.symbol_name(*name))
+            .unwrap_or_else(|| "this name".to_string());
+        Diagnostic::user_error(
+            codes::NAME_RESOLUTION,
+            format!("type `{name}` cannot be used as a value"),
+        )
+        .primary(expr.span, "this name resolves to a type, not a value")
+        .related(evidence.name_span, "the imported type is selected here")
+        .related(evidence.directive_span, "the `using` directive is here")
+        .help("construct a value of this type, or use a value import instead")
+        .finish()
+    }
+
     fn ident_type(&mut self, expr: &Expr) -> InternedTyId {
         let span = expr.span;
         match self.local_use(expr) {
@@ -2102,10 +2121,28 @@ impl<'a> BodyChecker<'a> {
                     _ => self.error(),
                 }
             }
-            Some(LocalUse::Module)
-            | Some(LocalUse::TypePrefix)
-            | Some(LocalUse::Unresolved)
-            | None => {
+            Some(LocalUse::TypePrefix) => {
+                if let Some(evidence) = self
+                    .values
+                    .node_imported_type_prefixes
+                    .get(&expr.node_key)
+                    .copied()
+                {
+                    self.diagnostics
+                        .push(self.imported_type_used_as_value_diagnostic(expr, evidence));
+                } else {
+                    self.diagnostics.push(
+                        Diagnostic::user_error(codes::TYPE_CHECK, "name is unresolved")
+                            .primary(span, "name is unresolved")
+                            .help(
+                                "check the spelling, import the name, or define it in this module",
+                            )
+                            .finish(),
+                    );
+                }
+                self.error()
+            }
+            Some(LocalUse::Module) | Some(LocalUse::Unresolved) | None => {
                 if let Some(arg) =
                     expr_ident_name(expr).and_then(|name| self.current_const_generic_arg(name))
                 {
