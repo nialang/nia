@@ -1,0 +1,45 @@
+path: fail/unary_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 24..31 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+path: fail/unary_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 42..49 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+path: fail/unary_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 60..67 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/unary_recovery_diagnostics/main.nia:2:10
+  |
+2 |     _ = -missing;
+  |          ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/unary_recovery_diagnostics/main.nia:3:10
+  |
+3 |     _ = !missing;
+  |          ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/unary_recovery_diagnostics/main.nia:4:10
+  |
+4 |     _ = ~missing;
+  |          ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+summary: 3 errors, 0 warnings

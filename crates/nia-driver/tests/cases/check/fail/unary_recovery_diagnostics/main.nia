@@ -1,0 +1,5 @@
+fn main() () {
+    _ = -missing;
+    _ = !missing;
+    _ = ~missing;
+}

@@ -977,12 +977,15 @@ impl<'a> BodyChecker<'a> {
         let expected = expected.map(|expected| self.normalization.normalize(expected));
         let Some((error, value)) = expected.and_then(|expected| self.error_union_parts(expected))
         else {
+            let actual = self.check_expr(inner);
+            if self.is_error_recovery_ty(actual) {
+                return self.error();
+            }
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 inner.span,
                 "`!value` requires an expected error union type",
             ));
-            self.check_expr(inner);
             return self.error();
         };
         let actual = self.check_expr_with_expected(inner, Some(value));
@@ -998,12 +1001,15 @@ impl<'a> BodyChecker<'a> {
         let expected = expected.map(|expected| self.normalization.normalize(expected));
         let Some((error, value)) = expected.and_then(|expected| self.error_union_parts(expected))
         else {
+            let actual = self.check_expr(inner);
+            if self.is_error_recovery_ty(actual) {
+                return self.error();
+            }
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 inner.span,
                 "`error!` requires an expected error union type",
             ));
-            self.check_expr(inner);
             return self.error();
         };
         let actual = self.check_expr_with_expected(inner, Some(error));
@@ -1897,11 +1903,13 @@ impl<'a> BodyChecker<'a> {
             return self.error();
         };
         let inner_ty = self.expr_ty(inner).unwrap_or(inner_ty);
-        if !self.current_context_proves_trait_obligation(
-            inner_ty,
-            TraitId::Builtin(trait_id),
-            Vec::new(),
-        ) {
+        if !self.is_error_recovery_ty(inner_ty)
+            && !self.current_context_proves_trait_obligation(
+                inner_ty,
+                TraitId::Builtin(trait_id),
+                Vec::new(),
+            )
+        {
             self.report_trait_bound_not_satisfied_named(
                 span,
                 inner_ty,
