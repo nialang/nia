@@ -1,0 +1,6 @@
+@[builtin("sliceLen")]
+const fn sliceLen[T](value: &[T]) usize;
+
+fn invalid() usize {
+    sliceLen(missing)
+}
