@@ -209,7 +209,9 @@ snapshot keeps both diagnostics and later functions visible, while a parser unit
 test confirms a valid field after the malformed member survives in the AST.
 Tuple struct fields and tuple enum payloads now skip a missing type at a comma,
 retain later tuple elements and enum variants, and preserve following top-level
-items; parser and driver snapshots cover both forms. Other parser recovery
+items; parser and driver snapshots cover both forms. Tuple type expressions
+also retain valid elements and their enclosing function after missing elements
+at comma boundaries. Other parser recovery
 boundaries still need equivalent source coverage. These are recovery gaps in the
 grammar parser that consumes the lossless token view. `nia-syntax` currently
 preserves source, trivia, malformed tokens, and delimiter groups in its green
