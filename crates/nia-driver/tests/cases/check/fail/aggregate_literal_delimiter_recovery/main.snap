@@ -1,0 +1,27 @@
+path: fail/aggregate_literal_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `]` after array element; found `false`
+label: 80..85 Primary Source expected `,` or `]` after array element; found `false`
+
+path: fail/aggregate_literal_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `}` after struct field; found `y`
+label: 120..121 Primary Source expected `,` or `}` after struct field; found `y`
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `,` or `]` after array element; found `false`
+  --> fail/aggregate_literal_delimiter_recovery/main.nia:7:23
+  |
+7 |     let array = [true false];
+  |                       ^^^^^ expected `,` or `]` after array element; found `false`
+
+root diagnostic:
+error[E0101]: expected `,` or `}` after struct field; found `y`
+  --> fail/aggregate_literal_delimiter_recovery/main.nia:8:33
+  |
+8 |     let point = Point { x: 1i32 y: true };
+  |                                 ^ expected `,` or `}` after struct field; found `y`
+
+summary: 2 errors, 0 warnings
