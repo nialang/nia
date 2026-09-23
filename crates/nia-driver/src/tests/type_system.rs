@@ -49,6 +49,79 @@ fn main(value: i32, value: i32) i32 {
 }
 
 #[test]
+fn parse_errors_are_published_once_per_module() {
+    let cases = [
+        (
+            "fn main() i32 { let value = 1 value }\n",
+            "fn helper() i32 { 2 }\n",
+            "main.nia",
+        ),
+        (
+            "module child;\nfn main() i32 { 0 }\n",
+            "fn helper() i32 { let other = 2 other }\n",
+            "child.nia",
+        ),
+    ];
+    for (index, (main, child, broken)) in cases.into_iter().enumerate() {
+        let root = temp_dir(&format!(
+            "parse_errors_are_published_once_per_module_{index}"
+        ));
+        write(&root.join("main.nia"), main);
+        write(&root.join("child.nia"), child);
+
+        let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+        let [diagnostic] = program.diagnostics.as_slice() else {
+            panic!(
+                "{broken}: expected one parse error: {:?}",
+                program.diagnostics
+            );
+        };
+        assert!(diagnostic.path.as_str().ends_with(broken), "{diagnostic:?}");
+        assert_eq!(diagnostic.diagnostic.code.as_str(), "E0101");
+        assert_eq!(
+            diagnostic.diagnostic.help.as_slice(),
+            ["add the missing `;` to terminate this declaration or statement"]
+        );
+    }
+}
+
+#[test]
+fn incremental_parse_error_edits_match_clean_diagnostics() {
+    let broken = "fn main() i32 { let value = 1 value }\n";
+    let fixed = "fn main() i32 { let value = 1; value }\n";
+    let other = "fn main() i32 { value + }\n";
+    let driver = test_driver();
+    let summaries = |driver: &crate::Driver| {
+        let program = driver.analyze_all_modules(CheckRequest::new("main.nia"));
+        program
+            .diagnostics
+            .iter()
+            .map(|diagnostic| {
+                (
+                    diagnostic.diagnostic.code.as_str().to_string(),
+                    diagnostic.diagnostic.summary.clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    for source in [broken, fixed, other, broken] {
+        driver.set_source("main.nia", source).expect("edit source");
+        let clean = test_driver();
+        clean.set_source("main.nia", source).expect("clean source");
+        let incremental = summaries(&driver);
+        assert_eq!(incremental, summaries(&clean), "{source:?}");
+        assert_eq!(
+            incremental
+                .iter()
+                .filter(|(code, _)| code == "E0101")
+                .count(),
+            usize::from(source != fixed) * incremental.len(),
+            "{source:?}: {incremental:?}"
+        );
+    }
+}
+
+#[test]
 fn chained_into_error_propagation_labels_the_propagated_operand() {
     let root = temp_dir("chained_into_error_propagation_labels_the_propagated_operand");
     let source = r#"

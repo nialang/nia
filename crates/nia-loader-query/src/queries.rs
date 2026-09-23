@@ -119,11 +119,7 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
                     .iter()
                     .map(|error| ProgramDiagnostic {
                         path: node.path.clone(),
-                        diagnostic: Diagnostic::user_error_at(
-                            codes::PARSE,
-                            error.span,
-                            error.message.clone(),
-                        ),
+                        diagnostic: error.to_diagnostic(),
                     })
                     .collect(),
             )?;
