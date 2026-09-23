@@ -110,7 +110,18 @@ pub(super) fn diagnostic_snapshot(diagnostics: &[crate::ProgramDiagnostic], root
         for field in diagnostic.diagnostic.debug.iter() {
             let _ = writeln!(record, "debug: {}={}", field.key, field.value);
         }
-        records.push(record);
+        let span = diagnostic.diagnostic.primary_span().unwrap_or_default();
+        records.push((
+            diagnostic.path.as_str().to_owned(),
+            span.start,
+            span.end,
+            record,
+        ));
     }
-    records.join("\n")
+    records.sort_by(|left, right| (&left.0, left.1, left.2).cmp(&(&right.0, right.1, right.2)));
+    records
+        .into_iter()
+        .map(|(_, _, _, record)| record)
+        .collect::<Vec<_>>()
+        .join("\n")
 }

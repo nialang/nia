@@ -367,6 +367,7 @@ pub(super) fn provide_extension_provider_validation_facts(
         let query_failure = RefCell::new(None);
         let input = db.get(ExtensionSignatureModuleInputQuery(module_id))?;
         let trait_index = db.get(ExtensionTraitSignatureIndexQuery)?;
+        let graph = db.get(ModuleGraphQuery)?;
         let trait_impls_for_trait = |trait_id| {
             capture_query_failure(
                 &query_failure,
@@ -382,8 +383,10 @@ pub(super) fn provide_extension_provider_validation_facts(
                 type_store: &db.context().type_store,
                 trait_defs: &trait_index.trait_defs,
                 trait_signatures: &trait_index.trait_signatures,
+                trait_names: &trait_index.trait_names,
                 trait_impls_for_trait: &trait_impls_for_trait,
                 symbols: &symbols,
+                graph: &graph,
             },
         )?;
         if let Some(error) = query_failure.into_inner() {
@@ -619,8 +622,15 @@ pub(super) fn provide_extension_trait_signature_index(
             let provider_modules = resolve_stable_module_sequence(db, &provider_modules)?;
             let mut trait_defs = HashSet::new();
             let mut trait_signatures = HashMap::new();
+            let mut trait_names = HashMap::new();
             for module_facts in semantic_facts {
-                extend_trait_signature_index(&module_facts, &mut trait_defs, &mut trait_signatures);
+                extend_trait_signature_index(
+                    db,
+                    &module_facts,
+                    &mut trait_defs,
+                    &mut trait_signatures,
+                    &mut trait_names,
+                )?;
             }
 
             let mut pending_modules = VecDeque::from(provider_modules);
@@ -638,22 +648,31 @@ pub(super) fn provide_extension_trait_signature_index(
                     module_id,
                     nia_item_tree::SignatureItemSet::Traits,
                 ))?;
-                extend_trait_signature_index(&module_facts, &mut trait_defs, &mut trait_signatures);
+                extend_trait_signature_index(
+                    db,
+                    &module_facts,
+                    &mut trait_defs,
+                    &mut trait_signatures,
+                    &mut trait_names,
+                )?;
                 pending_modules.extend(extension_signature_type_modules(db, module_id)?);
             }
             Ok(ExtensionTraitSignatureIndex {
                 trait_defs,
                 trait_signatures,
+                trait_names,
             })
         },
     )
 }
 
 fn extend_trait_signature_index(
+    db: &QueryDb<CompilerContext>,
     facts: &ModuleProgramSignatureFactsValue,
     trait_defs: &mut HashSet<GlobalDefId>,
     trait_signatures: &mut HashMap<GlobalDefId, nia_item_signatures::ProgramTraitSignature>,
-) {
+    trait_names: &mut HashMap<GlobalDefId, SymbolId>,
+) -> QueryResult<()> {
     trait_defs.extend(facts.trait_defs.iter().copied());
     trait_signatures.extend(
         facts
@@ -661,6 +680,20 @@ fn extend_trait_signature_index(
             .iter()
             .map(|(def_id, signature)| (*def_id, signature.clone())),
     );
+    if let Some(module_id) = facts
+        .trait_defs
+        .iter()
+        .next()
+        .map(|def_id| def_id.module_id)
+    {
+        let defs = module_defs_semantic(db, module_id)?;
+        trait_names.extend(facts.trait_defs.iter().filter_map(|def_id| {
+            defs.defs
+                .get(def_id.def_id)
+                .map(|definition| (*def_id, definition.name))
+        }));
+    }
+    Ok(())
 }
 
 fn extension_signature_type_modules(

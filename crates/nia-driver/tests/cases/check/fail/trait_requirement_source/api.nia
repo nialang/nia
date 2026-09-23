@@ -1,0 +1,7 @@
+pub trait Base {
+    fn base(&self) bool;
+}
+
+pub trait Child : Base {
+    fn child(&self) bool;
+}

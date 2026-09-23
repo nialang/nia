@@ -6,7 +6,7 @@ use nia_defs::{
     ExtensionAssociatedValues, ExtensionMethod, ExtensionMethods, WhereBoundSignature,
     WherePredicateSignature,
 };
-use nia_diagnostic::{Diagnostic, codes};
+use nia_diagnostic::{Diagnostic, DiagnosticBuilder, codes};
 use nia_ids::{
     BuiltinAssociatedType, BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId,
     ReceiverKind, TraitImplId, Visibility,
@@ -101,6 +101,8 @@ pub struct ExtensionTraitSignatureIndex {
     pub trait_defs: HashSet<GlobalDefId>,
     /// Program signatures keyed by global trait id.
     pub trait_signatures: HashMap<GlobalDefId, ProgramTraitSignature>,
+    /// Source names keyed by global trait id.
+    pub trait_names: HashMap<GlobalDefId, SymbolId>,
 }
 
 /// Context shared by extension-method validation routines.
@@ -112,10 +114,39 @@ pub struct ExtensionMethodValidationInput<'a> {
     pub trait_defs: &'a HashSet<GlobalDefId>,
     /// Known trait signatures keyed by global id.
     pub trait_signatures: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
+    /// Source names keyed by global trait id.
+    pub trait_names: &'a HashMap<GlobalDefId, SymbolId>,
     /// Resolver for existing implementations of a trait.
     pub trait_impls_for_trait: &'a dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
     /// Symbol table used to render diagnostics.
     pub symbols: &'a SymbolTable,
+    /// Module graph used to locate cross-module declaration evidence.
+    pub graph: &'a dyn nia_imports::ModuleGraphLookup,
+}
+
+trait RelatedDiagnosticExt {
+    fn related_in_module(
+        self,
+        graph: &dyn nia_imports::ModuleGraphLookup,
+        module_id: nia_ids::ModuleId,
+        span: nia_span::Span,
+        message: impl Into<String>,
+    ) -> Self;
+}
+
+impl RelatedDiagnosticExt for DiagnosticBuilder {
+    fn related_in_module(
+        self,
+        graph: &dyn nia_imports::ModuleGraphLookup,
+        module_id: nia_ids::ModuleId,
+        span: nia_span::Span,
+        message: impl Into<String>,
+    ) -> Self {
+        match graph.source_path(module_id) {
+            Some(path) => self.related_at(path.as_str(), span, message),
+            None => self.related(span, message),
+        }
+    }
 }
 
 fn symbol_name(symbols: &SymbolTable, symbol: SymbolId) -> String {
@@ -801,7 +832,9 @@ fn validate_trait_impl(
                     associated_type.span,
                     format!("associated type `{name}` is not declared by this trait"),
                 )
-                .related(
+                .related_in_module(
+                    input.graph,
+                    trait_id.module_id,
                     trait_signature.signature.span,
                     "the implementation targets this trait",
                 )
@@ -829,7 +862,9 @@ fn validate_trait_impl(
                     associated_value.span,
                     format!("associated const `{name}` is not declared by this trait"),
                 )
-                .related(
+                .related_in_module(
+                    input.graph,
+                    trait_id.module_id,
                     trait_signature.signature.span,
                     "the implementation targets this trait",
                 )
@@ -858,7 +893,9 @@ fn validate_trait_impl(
                     associated_value.span,
                     format!("associated const `{name}` has no explicit type"),
                 )
-                .related(
+                .related_in_module(
+                    input.graph,
+                    trait_id.module_id,
                     required.span,
                     format!("the trait requires `{name}` with this type"),
                 )
@@ -893,7 +930,9 @@ fn validate_trait_impl(
                     associated_value.span,
                     format!("associated const `{name}` has a different type"),
                 )
-                .related(
+                .related_in_module(
+                    input.graph,
+                    trait_id.module_id,
                     required.span,
                     format!("the trait requires `{name}` with this type"),
                 )
@@ -920,7 +959,12 @@ fn validate_trait_impl(
                     impl_signature.span,
                     format!("the implementation does not define `{name}`"),
                 )
-                .related(required.span, format!("the trait requires `{name}` here"))
+                .related_in_module(
+                    input.graph,
+                    trait_id.module_id,
+                    required.span,
+                    format!("the trait requires `{name}` here"),
+                )
                 .help(format!(
                     "define associated type `{name}` in this implementation"
                 ))
@@ -944,7 +988,12 @@ fn validate_trait_impl(
                     impl_signature.span,
                     format!("the implementation does not define `{name}`"),
                 )
-                .related(required.span, format!("the trait requires `{name}` here"))
+                .related_in_module(
+                    input.graph,
+                    trait_id.module_id,
+                    required.span,
+                    format!("the trait requires `{name}` here"),
+                )
                 .help(format!(
                     "define associated const `{name}` in this implementation"
                 ))
@@ -969,7 +1018,9 @@ fn validate_trait_impl(
                     method.span,
                     format!("method `{name}` is not declared by this trait"),
                 )
-                .related(
+                .related_in_module(
+                    input.graph,
+                    trait_id.module_id,
                     trait_signature.signature.span,
                     "the implementation targets this trait",
                 )
@@ -989,6 +1040,7 @@ fn validate_trait_impl(
     validate_supertrait_impls(
         module,
         impl_signature,
+        trait_id,
         trait_signature,
         &trait_goal,
         input,
@@ -1012,7 +1064,12 @@ fn validate_trait_impl(
                         impl_signature.span,
                         format!("the implementation does not define `{name}`"),
                     )
-                    .related(required.span, format!("the trait requires `{name}` here"))
+                    .related_in_module(
+                        input.graph,
+                        trait_id.module_id,
+                        required.span,
+                        format!("the trait requires `{name}` here"),
+                    )
                     .help(format!("implement trait method `{name}` in this block"))
                     .finish(),
                 );
@@ -1085,7 +1142,12 @@ fn validate_trait_impl(
                     method.span,
                     format!("method `{name}` has a different signature"),
                 )
-                .related(required.span, format!("the trait declares `{name}` here"))
+                .related_in_module(
+                    input.graph,
+                    trait_id.module_id,
+                    required.span,
+                    format!("the trait declares `{name}` here"),
+                )
                 .help(format!(
                     "change method `{name}` to match the trait declaration"
                 ))
@@ -1569,6 +1631,7 @@ fn builtin_impl_trait_args(
 fn validate_supertrait_impls(
     module: &ExtensionModuleInput<'_>,
     impl_signature: &TraitImplSignature,
+    trait_id: GlobalDefId,
     trait_signature: TraitSignatureRef<'_>,
     trait_goal: &TraitGoal,
     input: ExtensionMethodValidationInput<'_>,
@@ -1626,7 +1689,7 @@ fn validate_supertrait_impls(
         {
             let name = match supertrait_id {
                 TraitId::Source(supertrait_def_id) => {
-                    trait_name(module, supertrait_def_id, input.symbols).to_string()
+                    trait_name(supertrait_def_id, input.trait_names, input.symbols)
                 }
                 TraitId::Builtin(supertrait_id) => supertrait_id.name().to_string(),
             };
@@ -1641,7 +1704,9 @@ fn validate_supertrait_impls(
                     impl_signature.span,
                     format!("this implementation has no `{name}` supertrait witness"),
                 )
-                .related(
+                .related_in_module(
+                    input.graph,
+                    trait_id.module_id,
                     supertrait.span,
                     format!("the implemented trait requires `{name}` here"),
                 )
@@ -1694,7 +1759,7 @@ fn validate_supertrait_impls(
         )? {
             let name = match supertrait_id {
                 TraitId::Source(supertrait_def_id) => {
-                    trait_name(module, supertrait_def_id, input.symbols).to_string()
+                    trait_name(supertrait_def_id, input.trait_names, input.symbols)
                 }
                 TraitId::Builtin(supertrait_id) => supertrait_id.name().to_string(),
             };
@@ -1709,7 +1774,9 @@ fn validate_supertrait_impls(
                     impl_signature.span,
                     format!("the implementation's associated types do not satisfy `{name}`"),
                 )
-                .related(
+                .related_in_module(
+                    input.graph,
+                    trait_id.module_id,
                     supertrait.span,
                     format!("the supertrait binding for `{name}` is declared here"),
                 )
@@ -1838,23 +1905,14 @@ fn intrinsically_sized_target(
 }
 
 fn trait_name(
-    module: &ExtensionModuleInput<'_>,
     trait_id: GlobalDefId,
+    trait_names: &HashMap<GlobalDefId, SymbolId>,
     symbols: &SymbolTable,
 ) -> String {
-    module
-        .defs
-        .defs
-        .get(trait_id.def_id)
-        .filter(|_| trait_id.module_id == module.module_id)
-        .map(|def| symbol_name(symbols, def.name))
-        .unwrap_or_else(|| {
-            format!(
-                "trait#{}.{}",
-                trait_id.module_id.local_index(),
-                trait_id.def_id.0
-            )
-        })
+    trait_names
+        .get(&trait_id)
+        .map(|name| symbol_name(symbols, *name))
+        .unwrap_or_else(|| "<unknown trait>".to_string())
 }
 
 struct TraitMethodSignatureMatch<'a> {
