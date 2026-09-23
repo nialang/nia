@@ -83,7 +83,7 @@ impl<'a> BodyChecker<'a> {
                     Some(&mut local_coverage),
                     "match pattern",
                 );
-                if self.is_error_ty(target_ty) {
+                if self.is_error_recovery_ty(target_ty) {
                     continue;
                 }
                 let normalized = self.analysis_pattern(pattern, target_ty);
@@ -206,7 +206,7 @@ impl<'a> BodyChecker<'a> {
                     {
                         *elem
                     }
-                    Some(TyKind::Error) => self.error(),
+                    _ if self.is_error_recovery_ty(target_ty) => self.error(),
                     Some(TyKind::Pointer { .. }) => {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
@@ -229,7 +229,7 @@ impl<'a> BodyChecker<'a> {
             nia_ast::PatternKind::OptionalSome(inner) => {
                 let elem_ty = match self.interner.get(self.normalization.normalize(target_ty)) {
                     Some(TyKind::Optional { elem }) => *elem,
-                    Some(TyKind::Error) => self.error(),
+                    _ if self.is_error_recovery_ty(target_ty) => self.error(),
                     _ => {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
@@ -254,10 +254,12 @@ impl<'a> BodyChecker<'a> {
                 self.check_pattern(inner, elem_ty, child_coverage, context);
             }
             nia_ast::PatternKind::OptionalNull => {
-                if !matches!(
-                    self.interner.get(self.normalization.normalize(target_ty)),
-                    Some(TyKind::Optional { .. } | TyKind::Error)
-                ) {
+                if !self.is_error_recovery_ty(target_ty)
+                    && !matches!(
+                        self.interner.get(self.normalization.normalize(target_ty)),
+                        Some(TyKind::Optional { .. })
+                    )
+                {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         pattern.span,
@@ -277,7 +279,7 @@ impl<'a> BodyChecker<'a> {
             nia_ast::PatternKind::ErrorOk(inner) => {
                 let value_ty = match self.interner.get(self.normalization.normalize(target_ty)) {
                     Some(TyKind::ErrorUnion { value, .. }) => *value,
-                    Some(TyKind::Error) => self.error(),
+                    _ if self.is_error_recovery_ty(target_ty) => self.error(),
                     _ => {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
@@ -304,7 +306,7 @@ impl<'a> BodyChecker<'a> {
             nia_ast::PatternKind::ErrorErr(inner) => {
                 let error_ty = match self.interner.get(self.normalization.normalize(target_ty)) {
                     Some(TyKind::ErrorUnion { error, .. }) => *error,
-                    Some(TyKind::Error) => self.error(),
+                    _ if self.is_error_recovery_ty(target_ty) => self.error(),
                     _ => {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
@@ -335,7 +337,9 @@ impl<'a> BodyChecker<'a> {
                     .cloned()
                 {
                     Some(TyKind::Tuple(elems)) if elems.len() == patterns.len() => elems,
-                    Some(TyKind::Error) => vec![self.error(); patterns.len()],
+                    _ if self.is_error_recovery_ty(target_ty) => {
+                        vec![self.error(); patterns.len()]
+                    }
                     Some(TyKind::Tuple(elems)) => {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
@@ -501,10 +505,7 @@ impl<'a> BodyChecker<'a> {
         coverage: Option<&mut PatternCoverage>,
         context: &str,
     ) {
-        if matches!(
-            self.interner.get(self.normalization.normalize(target_ty)),
-            Some(TyKind::Error)
-        ) {
+        if self.is_error_recovery_ty(target_ty) {
             self.check_invalid_enum_pattern_fields(fields, context);
             return;
         }
@@ -687,10 +688,7 @@ impl<'a> BodyChecker<'a> {
         coverage: Option<&mut PatternCoverage>,
         context: &str,
     ) {
-        if matches!(
-            self.interner.get(self.normalization.normalize(target_ty)),
-            Some(TyKind::Error)
-        ) {
+        if self.is_error_recovery_ty(target_ty) {
             self.check_invalid_enum_pattern_fields(fields, context);
             return;
         }
@@ -948,7 +946,7 @@ impl<'a> BodyChecker<'a> {
         target_ty: InternedTyId,
         context: &str,
     ) {
-        if !self.is_error_ty(target_ty) && !self.is_integer(target_ty) {
+        if !self.is_error_recovery_ty(target_ty) && !self.is_integer(target_ty) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 pattern.span,
@@ -976,6 +974,9 @@ impl<'a> BodyChecker<'a> {
         coverage: &PatternCoverage,
     ) -> bool {
         if coverage.catch_all.is_some() {
+            return true;
+        }
+        if self.is_error_recovery_ty(target_ty) {
             return true;
         }
         let normalized = self.normalization.normalize(target_ty);
@@ -1092,7 +1093,7 @@ impl<'a> BodyChecker<'a> {
         context: &str,
         covered_intervals: &mut Vec<MatchInterval>,
     ) {
-        if !self.is_error_ty(target_ty) && !self.is_integer(target_ty) {
+        if !self.is_error_recovery_ty(target_ty) && !self.is_integer(target_ty) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 pattern.span,
@@ -1103,10 +1104,10 @@ impl<'a> BodyChecker<'a> {
         self.expect_expr_type(pattern.start, target_ty, start_ty, context);
         let end_ty = self.check_expr_with_expected(pattern.end, Some(target_ty));
         self.expect_expr_type(pattern.end, target_ty, end_ty, context);
-        if self.is_error_ty(target_ty) {
+        if self.is_error_recovery_ty(target_ty) {
             return;
         }
-        let start_value = if self.is_error_ty(start_ty) {
+        let start_value = if self.is_error_recovery_ty(start_ty) {
             None
         } else {
             self.pattern_int_value(pattern.start).or_else(|| {
@@ -1118,7 +1119,7 @@ impl<'a> BodyChecker<'a> {
                 None
             })
         };
-        let end_value = if self.is_error_ty(end_ty) {
+        let end_value = if self.is_error_recovery_ty(end_ty) {
             None
         } else {
             self.pattern_int_value(pattern.end).or_else(|| {

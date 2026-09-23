@@ -358,6 +358,12 @@ required receives the correct root diagnostic.
 Builtin type argument lists also preserve an unresolved expression as the
 root diagnostic instead of publishing a second "generic arguments must be
 types" error for its recovery type.
+Structural recovery provenance now also covers builtin arguments, generic
+type arguments, place/index/deref operations, and match targets. Composite
+recovery values such as pointers, arrays, tuples, and optionals no longer
+trigger secondary builtin shape, trait-bound, pattern-shape, or exhaustiveness
+diagnostics. Body-check tests and a driver snapshot cover both matching and
+intentionally mismatched pattern constructors against those recovered shapes.
 Binary and shift operator recovery is covered end to end: unresolved operands
 retain their name-resolution roots while operator trait and operand-shape
 consequences are suppressed.

@@ -1,0 +1,157 @@
+path: fail/structural_recovery_semantics/main.nia
+code: E0201
+summary: unknown value `missing_vector`
+label: 115..129 Primary Source no value named `missing_vector` is visible in this scope
+help: check the spelling, import `missing_vector`, or declare it before this use
+
+path: fail/structural_recovery_semantics/main.nia
+code: E0201
+summary: unknown value `missing_mask`
+label: 171..183 Primary Source no value named `missing_mask` is visible in this scope
+help: check the spelling, import `missing_mask`, or declare it before this use
+
+path: fail/structural_recovery_semantics/main.nia
+code: E0201
+summary: unknown value `missing_pointer`
+label: 229..244 Primary Source no value named `missing_pointer` is visible in this scope
+help: check the spelling, import `missing_pointer`, or declare it before this use
+
+path: fail/structural_recovery_semantics/main.nia
+code: E0201
+summary: unknown value `missing_slice`
+label: 265..278 Primary Source no value named `missing_slice` is visible in this scope
+help: check the spelling, import `missing_slice`, or declare it before this use
+
+path: fail/structural_recovery_semantics/main.nia
+code: E0201
+summary: unknown value `missing_index`
+label: 311..324 Primary Source no value named `missing_index` is visible in this scope
+help: check the spelling, import `missing_index`, or declare it before this use
+
+path: fail/structural_recovery_semantics/main.nia
+code: E0201
+summary: unknown value `missing_deref`
+label: 345..358 Primary Source no value named `missing_deref` is visible in this scope
+help: check the spelling, import `missing_deref`, or declare it before this use
+
+path: fail/structural_recovery_semantics/main.nia
+code: E0201
+summary: unknown value `missing_tuple`
+label: 396..409 Primary Source no value named `missing_tuple` is visible in this scope
+help: check the spelling, import `missing_tuple`, or declare it before this use
+
+path: fail/structural_recovery_semantics/main.nia
+code: E0201
+summary: unknown value `missing_pointer_pattern`
+label: 486..509 Primary Source no value named `missing_pointer_pattern` is visible in this scope
+help: check the spelling, import `missing_pointer_pattern`, or declare it before this use
+
+path: fail/structural_recovery_semantics/main.nia
+code: E0201
+summary: unknown value `missing_pointer_pattern_shape`
+label: 562..591 Primary Source no value named `missing_pointer_pattern_shape` is visible in this scope
+help: check the spelling, import `missing_pointer_pattern_shape`, or declare it before this use
+
+path: fail/structural_recovery_semantics/main.nia
+code: E0201
+summary: unknown value `missing_union_pattern`
+label: 644..665 Primary Source no value named `missing_union_pattern` is visible in this scope
+help: check the spelling, import `missing_union_pattern`, or declare it before this use
+
+path: fail/structural_recovery_semantics/main.nia
+code: E0201
+summary: unknown value `missing_range`
+label: 725..738 Primary Source no value named `missing_range` is visible in this scope
+help: check the spelling, import `missing_range`, or declare it before this use
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown value `missing_vector`
+  --> fail/structural_recovery_semantics/main.nia:5:32
+  |
+5 |     _ = std::builtin::extract(&missing_vector, 0usize);
+  |                                ^^^^^^^^^^^^^^ no value named `missing_vector` is visible in this scope
+help: check the spelling, import `missing_vector`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing_mask`
+  --> fail/structural_recovery_semantics/main.nia:6:32
+  |
+6 |     _ = std::builtin::bitmask([missing_mask]);
+  |                                ^^^^^^^^^^^^ no value named `missing_mask` is visible in this scope
+help: check the spelling, import `missing_mask`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing_pointer`
+  --> fail/structural_recovery_semantics/main.nia:7:43
+  |
+7 |     _ = std::builtin::loadUnaligned[i32](&missing_pointer);
+  |                                           ^^^^^^^^^^^^^^^ no value named `missing_pointer` is visible in this scope
+help: check the spelling, import `missing_pointer`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing_slice`
+  --> fail/structural_recovery_semantics/main.nia:8:19
+  |
+8 |     _ = sliceLen(&missing_slice);
+  |                   ^^^^^^^^^^^^^ no value named `missing_slice` is visible in this scope
+help: check the spelling, import `missing_slice`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing_index`
+   --> fail/structural_recovery_semantics/main.nia:12:11
+   |
+12 |     _ = (&missing_index)[0usize];
+   |           ^^^^^^^^^^^^^ no value named `missing_index` is visible in this scope
+help: check the spelling, import `missing_index`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing_deref`
+   --> fail/structural_recovery_semantics/main.nia:13:11
+   |
+13 |     _ = (&missing_deref).*;
+   |           ^^^^^^^^^^^^^ no value named `missing_deref` is visible in this scope
+help: check the spelling, import `missing_deref`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing_tuple`
+   --> fail/structural_recovery_semantics/main.nia:17:12
+   |
+17 |     match (missing_tuple, 1i32) {
+   |            ^^^^^^^^^^^^^ no value named `missing_tuple` is visible in this scope
+help: check the spelling, import `missing_tuple`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing_pointer_pattern`
+   --> fail/structural_recovery_semantics/main.nia:20:12
+   |
+20 |     match &missing_pointer_pattern {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^ no value named `missing_pointer_pattern` is visible in this scope
+help: check the spelling, import `missing_pointer_pattern`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing_pointer_pattern_shape`
+   --> fail/structural_recovery_semantics/main.nia:23:12
+   |
+23 |     match &missing_pointer_pattern_shape {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no value named `missing_pointer_pattern_shape` is visible in this scope
+help: check the spelling, import `missing_pointer_pattern_shape`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing_union_pattern`
+   --> fail/structural_recovery_semantics/main.nia:26:12
+   |
+26 |     match (missing_union_pattern, 1i32) {
+   |            ^^^^^^^^^^^^^^^^^^^^^ no value named `missing_union_pattern` is visible in this scope
+help: check the spelling, import `missing_union_pattern`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing_range`
+   --> fail/structural_recovery_semantics/main.nia:29:12
+   |
+29 |     match (missing_range, 1i32) {
+   |            ^^^^^^^^^^^^^ no value named `missing_range` is visible in this scope
+help: check the spelling, import `missing_range`, or declare it before this use
+
+summary: 11 errors, 0 warnings

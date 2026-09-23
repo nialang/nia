@@ -107,7 +107,7 @@ impl<'a> BodyChecker<'a> {
                 self.field_ty_for_aggregate_ty(lhs_ty, &field.name)
                     .unwrap_or_else(|| self.error())
             }
-            Some(TyKind::Error) => self.error(),
+            _ if self.is_error_recovery_ty(lhs_ty) => self.error(),
             _ => {
                 let summary = format!(
                     "cannot project tuple field .{index} from {}",
@@ -1015,7 +1015,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn expect_integer(&mut self, span: Span, actual: InternedTyId, context: &str) {
-        if actual == self.error() || self.is_integer(actual) {
+        if self.is_error_recovery_ty(actual) || self.is_integer(actual) {
             return;
         }
         let actual_name = self.ty_name(actual);
