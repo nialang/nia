@@ -43,9 +43,11 @@ validation, and fixture/snapshot coverage for the complete diagnostic rule set.
 The query facade now gates per-module diagnostic collection by root diagnostic
 code. Unresolved names and invalid signatures suppress only downstream type,
 const, layout, and code-generation products while independent resolution and
-constraint errors remain visible. Build-runner compilation performs a source
-check first and publishes `build.nia` diagnostics instead of generated-wrapper
-recovery errors when both are present.
+constraint errors remain visible. The gate now also scopes function-local roots
+to their enclosing function or method, preserving independent type errors in a
+different function in the same module. Build-runner compilation performs a
+source check first and publishes `build.nia` diagnostics instead of
+generated-wrapper recovery errors when both are present.
 
 Regression coverage includes incremental supertrait constraints, generated
 runner ownership, and unresolved build-script values.
@@ -180,6 +182,10 @@ A parser recovery fixture now exercises a missing statement terminator followed
 by an incomplete expression, so grammar diagnostics and recovery order are
 asserted through the same end-to-end structured/text snapshot path. Other parser
 recovery boundaries still need equivalent source coverage.
+Error recovery targets in optional, error-union, tuple, pointer, and null
+patterns now suppress target-shape and match-coverage consequences while
+independent errors in the arm bodies remain checkable; an end-to-end snapshot
+pins this behavior.
 A private-using fixture verifies related locations in a clean dependency whose
 declaration is on a different line from the primary use site. Renderer tests
 cover available and unavailable related sources and explicit same-file paths.

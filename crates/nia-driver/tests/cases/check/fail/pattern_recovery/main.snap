@@ -1,0 +1,101 @@
+path: fail/pattern_recovery/main.nia
+code: E0201
+summary: unknown value `optional_missing`
+label: 70..86 Primary Source no value named `optional_missing` is visible in this scope
+help: check the spelling, import `optional_missing`, or declare it before this use
+
+path: fail/pattern_recovery/main.nia
+code: E0201
+summary: unknown value `error_missing`
+label: 159..172 Primary Source no value named `error_missing` is visible in this scope
+help: check the spelling, import `error_missing`, or declare it before this use
+
+path: fail/pattern_recovery/main.nia
+code: E0201
+summary: unknown value `tuple_missing`
+label: 267..280 Primary Source no value named `tuple_missing` is visible in this scope
+help: check the spelling, import `tuple_missing`, or declare it before this use
+
+path: fail/pattern_recovery/main.nia
+code: E0201
+summary: unknown value `pointer_missing`
+label: 370..385 Primary Source no value named `pointer_missing` is visible in this scope
+help: check the spelling, import `pointer_missing`, or declare it before this use
+
+path: fail/pattern_recovery/main.nia
+code: E0201
+summary: unknown value `null_missing`
+label: 463..475 Primary Source no value named `null_missing` is visible in this scope
+help: check the spelling, import `null_missing`, or declare it before this use
+
+path: fail/pattern_recovery/main.nia
+code: E0201
+summary: unknown value `struct_missing`
+label: 541..555 Primary Source no value named `struct_missing` is visible in this scope
+help: check the spelling, import `struct_missing`, or declare it before this use
+
+path: fail/pattern_recovery/main.nia
+code: E0201
+summary: unknown value `enum_missing`
+label: 634..646 Primary Source no value named `enum_missing` is visible in this scope
+help: check the spelling, import `enum_missing`, or declare it before this use
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown value `optional_missing`
+  --> fail/pattern_recovery/main.nia:5:8
+  |
+5 |     if optional_missing is ?value {
+  |        ^^^^^^^^^^^^^^^^ no value named `optional_missing` is visible in this scope
+help: check the spelling, import `optional_missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `error_missing`
+   --> fail/pattern_recovery/main.nia:11:11
+   |
+11 |     match error_missing {
+   |           ^^^^^^^^^^^^^ no value named `error_missing` is visible in this scope
+help: check the spelling, import `error_missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `tuple_missing`
+   --> fail/pattern_recovery/main.nia:18:11
+   |
+18 |     match tuple_missing {
+   |           ^^^^^^^^^^^^^ no value named `tuple_missing` is visible in this scope
+help: check the spelling, import `tuple_missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `pointer_missing`
+   --> fail/pattern_recovery/main.nia:24:11
+   |
+24 |     match pointer_missing {
+   |           ^^^^^^^^^^^^^^^ no value named `pointer_missing` is visible in this scope
+help: check the spelling, import `pointer_missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `null_missing`
+   --> fail/pattern_recovery/main.nia:30:11
+   |
+30 |     match null_missing {
+   |           ^^^^^^^^^^^^ no value named `null_missing` is visible in this scope
+help: check the spelling, import `null_missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `struct_missing`
+   --> fail/pattern_recovery/main.nia:36:11
+   |
+36 |     match struct_missing {
+   |           ^^^^^^^^^^^^^^ no value named `struct_missing` is visible in this scope
+help: check the spelling, import `struct_missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `enum_missing`
+   --> fail/pattern_recovery/main.nia:42:11
+   |
+42 |     match enum_missing {
+   |           ^^^^^^^^^^^^ no value named `enum_missing` is visible in this scope
+help: check the spelling, import `enum_missing`, or declare it before this use
+
+summary: 7 errors, 0 warnings

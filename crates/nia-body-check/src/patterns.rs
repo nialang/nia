@@ -83,6 +83,9 @@ impl<'a> BodyChecker<'a> {
                     Some(&mut local_coverage),
                     "match pattern",
                 );
+                if self.is_error_ty(target_ty) {
+                    continue;
+                }
                 let normalized = self.analysis_pattern(pattern, target_ty);
                 match useful_witness(
                     &matrix,
@@ -203,6 +206,7 @@ impl<'a> BodyChecker<'a> {
                     {
                         *elem
                     }
+                    Some(TyKind::Error) => self.error(),
                     Some(TyKind::Pointer { .. }) => {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
@@ -225,6 +229,7 @@ impl<'a> BodyChecker<'a> {
             nia_ast::PatternKind::OptionalSome(inner) => {
                 let elem_ty = match self.interner.get(self.normalization.normalize(target_ty)) {
                     Some(TyKind::Optional { elem }) => *elem,
+                    Some(TyKind::Error) => self.error(),
                     _ => {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
@@ -251,7 +256,7 @@ impl<'a> BodyChecker<'a> {
             nia_ast::PatternKind::OptionalNull => {
                 if !matches!(
                     self.interner.get(self.normalization.normalize(target_ty)),
-                    Some(TyKind::Optional { .. })
+                    Some(TyKind::Optional { .. } | TyKind::Error)
                 ) {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
@@ -272,6 +277,7 @@ impl<'a> BodyChecker<'a> {
             nia_ast::PatternKind::ErrorOk(inner) => {
                 let value_ty = match self.interner.get(self.normalization.normalize(target_ty)) {
                     Some(TyKind::ErrorUnion { value, .. }) => *value,
+                    Some(TyKind::Error) => self.error(),
                     _ => {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
@@ -298,6 +304,7 @@ impl<'a> BodyChecker<'a> {
             nia_ast::PatternKind::ErrorErr(inner) => {
                 let error_ty = match self.interner.get(self.normalization.normalize(target_ty)) {
                     Some(TyKind::ErrorUnion { error, .. }) => *error,
+                    Some(TyKind::Error) => self.error(),
                     _ => {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
@@ -328,6 +335,7 @@ impl<'a> BodyChecker<'a> {
                     .cloned()
                 {
                     Some(TyKind::Tuple(elems)) if elems.len() == patterns.len() => elems,
+                    Some(TyKind::Error) => vec![self.error(); patterns.len()],
                     Some(TyKind::Tuple(elems)) => {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
@@ -493,6 +501,13 @@ impl<'a> BodyChecker<'a> {
         coverage: Option<&mut PatternCoverage>,
         context: &str,
     ) {
+        if matches!(
+            self.interner.get(self.normalization.normalize(target_ty)),
+            Some(TyKind::Error)
+        ) {
+            self.check_invalid_enum_pattern_fields(fields, context);
+            return;
+        }
         let Some((constructor_def, _, _)) = self.type_prefix_instance(constructor) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -672,6 +687,13 @@ impl<'a> BodyChecker<'a> {
         coverage: Option<&mut PatternCoverage>,
         context: &str,
     ) {
+        if matches!(
+            self.interner.get(self.normalization.normalize(target_ty)),
+            Some(TyKind::Error)
+        ) {
+            self.check_invalid_enum_pattern_fields(fields, context);
+            return;
+        }
         let Some((enum_id, variant_def)) = self
             .enum_variant_info(variant_expr)
             .or_else(|| self.omitted_enum_variant_info(variant_expr, target_ty))
@@ -926,7 +948,7 @@ impl<'a> BodyChecker<'a> {
         target_ty: InternedTyId,
         context: &str,
     ) {
-        if !self.is_integer(target_ty) {
+        if !self.is_error_ty(target_ty) && !self.is_integer(target_ty) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 pattern.span,
@@ -958,6 +980,7 @@ impl<'a> BodyChecker<'a> {
         }
         let normalized = self.normalization.normalize(target_ty);
         match self.interner.get(normalized).cloned() {
+            Some(TyKind::Error) => true,
             Some(TyKind::Optional { elem }) => {
                 coverage.optional_null.is_some()
                     && if let Some(coverage) = coverage.optional_some.as_deref() {
@@ -1069,7 +1092,7 @@ impl<'a> BodyChecker<'a> {
         context: &str,
         covered_intervals: &mut Vec<MatchInterval>,
     ) {
-        if !self.is_integer(target_ty) {
+        if !self.is_error_ty(target_ty) && !self.is_integer(target_ty) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 pattern.span,

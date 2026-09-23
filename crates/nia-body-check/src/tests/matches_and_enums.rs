@@ -1499,3 +1499,51 @@ fn main(kind: Kind) i32 {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
+
+#[test]
+fn optional_pattern_does_not_reject_error_recovery_targets() {
+    let checked = pipeline(
+        r#"
+struct Point { x: i32 }
+enum Color { Red }
+
+fn invalid() () {
+    if missing is ?value {
+        _ = value;
+    }
+    match missing {
+        ?item => { _ = item; }
+    }
+    match missing {
+        !ok => { _ = ok; },
+        err! => { _ = err; }
+    }
+    match missing {
+        (left, right) => { _ = left; _ = right; }
+    }
+    match missing {
+        &value => { _ = value; }
+    }
+    match missing {
+        null => {}
+    }
+    match missing {
+        Point { x } => { _ = x; }
+    }
+    match missing {
+        Color::Red => {}
+    }
+}
+"#,
+    );
+
+    assert_eq!(checked.diagnostics.len(), 8, "{:?}", checked.diagnostics);
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .all(|diagnostic| { diagnostic.summary.contains("unknown value `missing`") }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
