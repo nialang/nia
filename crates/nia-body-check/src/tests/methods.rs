@@ -1368,6 +1368,44 @@ fn main(flag: bool) i32 {
 }
 
 #[test]
+fn ambiguous_associated_function_pointer_keeps_only_candidate_diagnostic() {
+    let checked = pipeline(
+        r#"
+struct Pair[A, B] {
+    a: A,
+    b: B,
+}
+
+extend[T] Pair[T, i32] {
+    fn rank() i32 { 1 }
+}
+
+extend[U] Pair[i32, U] {
+    fn rank() i32 { 2 }
+}
+
+fn main() () {
+    let rank: &fn() i32 = &Pair[i32, i32]::rank;
+    _ = rank;
+}
+"#,
+    );
+    assert_eq!(
+        checked.diagnostics.len(),
+        1,
+        "an ambiguous function reference must not fall back to ordinary value checking: {:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics[0]
+            .summary
+            .contains("ambiguous method `rank`"),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_structural_associated_calls_and_function_pointers() {
     let checked = pipeline(
         r#"

@@ -120,7 +120,9 @@ visibility scopes, and recovery-derived semantic rules outside the listed call,
 propagation, and builtin cases still need rule-specific contract audits and
 source fixtures. Ambiguous extension-method resolution now keeps its specific
 candidate diagnostic without falling through to a misleading missing-field
-error.
+error. Ambiguous extension associated-function references also stop before
+ordinary value checking can publish a secondary error type or initializer
+mismatch.
 Propagation now short-circuits an operand already typed as the error recovery
 sentinel, so an unresolved value under `.?` retains only its name-resolution
 diagnostic instead of also being described as a non-propagatable type.
@@ -238,8 +240,9 @@ consequence.
 An unknown receiver method now has a complete snapshot for its method name,
 receiver type, and corrective help. Regression tests preserve field-call
 fallback; a separate snapshot covers ranges missing the requested start or end
-bound. Ambiguous extension-method calls now have a complete driver snapshot for
-candidate reporting, and do not add an unknown-field fallback. SIMD builtins now
+bound. Ambiguous extension-method calls and associated-function references now
+have a complete driver snapshot for candidate reporting without missing-field
+or value-context fallbacks. SIMD builtins now
 have snapshots proving error recovery does not add secondary shape diagnostics,
 and that an unresolved type candidate or a const value passed where a type is
 required receives the correct root diagnostic.
