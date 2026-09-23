@@ -1,0 +1,31 @@
+path: fail/tuple_payload_recovery/main.nia
+code: E0101
+summary: expected type; found `,`
+label: 12..13 Primary Source expected type; found `,`
+help: provide a type name or type expression here
+
+path: fail/tuple_payload_recovery/main.nia
+code: E0101
+summary: expected type; found `,`
+label: 44..45 Primary Source expected type; found `,`
+help: provide a type name or type expression here
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected type; found `,`
+  --> fail/tuple_payload_recovery/main.nia:1:13
+  |
+1 | struct Pair(, i32)
+  |             ^ expected type; found `,`
+help: provide a type name or type expression here
+
+root diagnostic:
+error[E0101]: expected type; found `,`
+  --> fail/tuple_payload_recovery/main.nia:4:12
+  |
+4 |     Broken(, bool),
+  |            ^ expected type; found `,`
+help: provide a type name or type expression here
+
+summary: 2 errors, 0 warnings

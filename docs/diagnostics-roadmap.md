@@ -207,7 +207,10 @@ missing-semicolon diagnostic at the same recovery point. Malformed struct fields
 and named enum payload fields now recover at their comma boundaries; the driver
 snapshot keeps both diagnostics and later functions visible, while a parser unit
 test confirms a valid field after the malformed member survives in the AST.
-Other parser recovery boundaries still need equivalent source coverage.
+Tuple struct fields and tuple enum payloads now skip a missing type at a comma,
+retain later tuple elements and enum variants, and preserve following top-level
+items; parser and driver snapshots cover both forms. Other parser recovery
+boundaries still need equivalent source coverage.
 Error recovery targets in optional, error-union, tuple, pointer, and null
 patterns now suppress target-shape and match-coverage consequences while
 independent errors in the arm bodies remain checkable; an end-to-end snapshot
