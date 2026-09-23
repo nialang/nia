@@ -1009,7 +1009,12 @@ impl Parser {
                 continue;
             }
 
-            let expr = self.parse_expr()?;
+            let checkpoint = self.checkpoint();
+            let Some(expr) = self.parse_expr() else {
+                self.origins.rollback(checkpoint.origin);
+                self.recover_to_stmt_boundary_with_progress(checkpoint);
+                continue;
+            };
             let has_semicolon = self.eat(TokenKind::Semicolon).is_some();
             if has_semicolon || !self.at(TokenKind::RBrace) {
                 if !has_semicolon && !expr_can_terminate_statement_without_semicolon(&expr) {

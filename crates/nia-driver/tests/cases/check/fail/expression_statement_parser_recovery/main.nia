@@ -1,0 +1,7 @@
+fn main() () {
+    ;
+    retained();
+}
+
+fn retained() () {}
+fn later() () {}
