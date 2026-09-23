@@ -147,8 +147,8 @@ the CLI boundary, while captured and JSON output remains deterministic and
 free of ANSI control sequences. CLI cases now assert exact success and failure
 statuses for check, emit, build, and test. A Linux pseudo-terminal integration
 test verifies color on interactive text output and ANSI-free JSON output on the
-same terminal. Other terminal platforms and broader output snapshot coverage
-remain to be verified.
+same terminal; interactive text also honors `NO_COLOR`. Other terminal
+platforms and broader output snapshot coverage remain to be verified.
 
 ### 6. Regression and quality gates
 
