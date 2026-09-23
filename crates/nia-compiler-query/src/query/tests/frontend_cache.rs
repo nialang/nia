@@ -94,6 +94,13 @@ impl crate::LoaderFactProvider for FingerprintedLoadedProgram {
         self.program.module_parse_errors(module_id)
     }
 
+    fn module_unused_imports(
+        &self,
+        module_id: ModuleId,
+    ) -> QueryResult<Option<Vec<nia_loader_contract::UnusedUsingImport>>> {
+        self.program.module_unused_imports(module_id)
+    }
+
     fn module_item_tree(&self, module_id: ModuleId) -> QueryResult<Option<ModuleItemTree>> {
         self.program.module_item_tree(module_id)
     }

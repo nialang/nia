@@ -86,23 +86,28 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let program = load_program(main_path.to_string_lossy().into_owned());
 
     assert_no_error_diagnostics(&program);
-    let warnings = program
-        .diagnostics
+    let entry = program
+        .modules
         .iter()
-        .filter(|diagnostic| diagnostic.is_warning())
+        .find(|module| module.path.as_str().ends_with("main.nia"))
+        .expect("entry module");
+    let mut unused = entry
+        .unused_imports
+        .iter()
+        .map(|import| {
+            program
+                .symbols
+                .resolve(import.name)
+                .expect("import name")
+                .to_string()
+        })
         .collect::<Vec<_>>();
-    assert_eq!(warnings.len(), 4, "{warnings:?}");
-    assert!(
-        warnings
-            .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("build")),
-        "{warnings:?}"
-    );
-    assert!(
-        warnings
-            .iter()
-            .all(|diagnostic| !diagnostic.diagnostic.summary.contains("process")),
-        "{warnings:?}"
+    unused.sort_unstable();
+    assert_eq!(
+        unused,
+        ["build", "fs", "io", "mem"],
+        "{:?}",
+        entry.unused_imports
     );
     let build = module_by_suffix(&program, "lib/std/build.nia");
     let fs = module_by_suffix(&program, "lib/std/fs.nia");

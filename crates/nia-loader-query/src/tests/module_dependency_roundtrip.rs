@@ -62,7 +62,7 @@ fn module_dependencies_cache_round_trips_all_stable_fields() {
     ];
     used_module_paths.sort();
     let explicit_imports = vec![ExplicitUsingImport {
-        span: nia_span::Span::new(9, 20),
+        name_span: nia_span::Span::new(9, 20),
         alias: sym("Alias"),
         path: UsedModulePath::Local {
             segments: vec![sym("value")],

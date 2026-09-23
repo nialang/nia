@@ -138,7 +138,7 @@ pub mod formats {
         PersistedFormat::new("frontend-facade-facts", b"NIAFFF\0\x01");
     /// Persisted module dependency edges.
     pub const FRONTEND_MODULE_DEPENDENCIES: PersistedFormat =
-        PersistedFormat::new("frontend-module-dependencies", b"NIAFMD\0\x01");
+        PersistedFormat::new("frontend-module-dependencies", b"NIAFMD\0\x02");
     /// Persisted provider candidate summary.
     pub const FRONTEND_PROVIDER_SUMMARY: PersistedFormat =
         PersistedFormat::new("frontend-provider-summary", b"NIAFPS\0\x01");

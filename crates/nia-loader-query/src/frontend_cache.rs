@@ -1034,7 +1034,7 @@ fn encode_module_dependencies_payload(
     }
     encoded.extend_from_slice(&(declarations.explicit_imports.len() as u64).to_le_bytes());
     for import in &declarations.explicit_imports {
-        write_span(&mut encoded, import.span);
+        write_span(&mut encoded, import.name_span);
         encoded.extend_from_slice(&import.alias.raw().to_le_bytes());
         write_used_module_path(&mut encoded, &import.path);
     }
@@ -1073,7 +1073,7 @@ fn decode_module_dependencies_payload(
     let mut explicit_imports = Vec::with_capacity(import_len);
     for _ in 0..import_len {
         explicit_imports.push(ExplicitUsingImport {
-            span: read_span(&mut cursor, source_len)?,
+            name_span: read_span(&mut cursor, source_len)?,
             alias: read_symbol(&mut cursor)?,
             path: read_used_module_path(&mut cursor)?,
         });

@@ -13,7 +13,7 @@ use nia_loader_contract::{
     FrontendModuleDependenciesCacheKey, FrontendProviderSummaryCacheKey,
     FrontendPublicSurfaceFactsCacheKey, FrontendSourceCacheKey, ItemSignatureFingerprint,
     LoadedModule, LoadedProgram, ProgramDiagnostic, ProgramDiagnosticBundles, RuntimeSpec,
-    SourceContentFingerprint, frontend_module_map_fingerprint_with_package_root,
+    SourceContentFingerprint, UnusedUsingImport, frontend_module_map_fingerprint_with_package_root,
     item_signature_fingerprint, source_content_fingerprint,
 };
 use nia_provider_summary::ProviderSummary;
@@ -138,31 +138,68 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
                 )?;
                 diagnostics = diagnostics.append(&declaration_diagnostics)?;
             }
-            if node.module_path.is_entry_package() {
-                let unused_diagnostics = ProgramDiagnosticBundles::from_diagnostics_in(
-                    db.context().diagnostic_store.clone(),
-                    unused_import_diagnostics(
-                        &graph.semantic,
-                        node.id,
-                        &node.path,
-                        &declarations.semantic,
-                        &db.context().symbols,
-                    ),
-                )?;
-                diagnostics = diagnostics.append(&unused_diagnostics)?;
-            }
         }
         Ok(diagnostics)
     }
 }
 
-fn unused_import_diagnostics(
+/// Explicit imports an entry-package module never references.
+///
+/// Library packages are exempt: their imports may exist only for re-export or
+/// provider discovery by consumers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ModuleUnusedImportsFactQuery(pub(crate) SourceId);
+
+impl QueryKey<LoaderContext> for ModuleUnusedImportsFactQuery {
+    type Value = Vec<UnusedUsingImport>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "loader_module_unused_imports_fact"
+    }
+
+    fn description(&self) -> String {
+        format!("loader_module_unused_imports_fact({:?})", self.0)
+    }
+
+    fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
+        let path = db
+            .context()
+            .sources
+            .path_for_id(self.0)
+            .ok_or_else(|| db.invalid_input(self, format!("unknown source id {:?}", self.0)))?;
+        let graph = db.get(ModuleGraphQuery)?;
+        let Some(node) = graph
+            .semantic
+            .module_id_for_source_identity(&path.identity())
+            .and_then(|module_id| graph.semantic.get(module_id))
+        else {
+            return Err(
+                db.invalid_input(self, format!("missing module id for `{}`", path.as_str()))
+            );
+        };
+        if !node.module_path.is_entry_package() {
+            return Ok(Vec::new());
+        }
+        let declarations = db.get(module_declarations_query(db, &node.path)?)?;
+        Ok(unused_imports(
+            &graph.semantic,
+            node.id,
+            &declarations.semantic,
+        ))
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
+}
+
+fn unused_imports(
     graph: &nia_imports::ModuleGraph,
     module_id: nia_imports::ModuleId,
-    path: &SourcePath,
     declarations: &ModuleDeclarations,
-    symbols: &nia_symbol_table::SymbolTable,
-) -> Vec<ProgramDiagnostic> {
+) -> Vec<UnusedUsingImport> {
     declarations
         .explicit_imports
         .iter()
@@ -170,9 +207,9 @@ fn unused_import_diagnostics(
             !declarations.used_import_aliases.contains(&import.alias)
                 && !import_target_is_semantic(graph, module_id, &import.path)
         })
-        .map(|import| ProgramDiagnostic {
-            path: path.clone(),
-            diagnostic: import.warning(symbols),
+        .map(|import| UnusedUsingImport {
+            name: import.alias,
+            name_span: import.name_span,
         })
         .collect()
 }
@@ -243,6 +280,7 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
         let parsed = db.get(parsed_module_query_for_id(db, self.0)?)?;
         let source = db.get(SourceTextQuery(self.0))?;
         let provider_summary = db.get(provider_summary_query_for_id(db, self.0)?)?;
+        let unused_imports = db.get(ModuleUnusedImportsFactQuery(self.0))?;
         Ok(LoadedModule {
             id,
             path: path.as_ref().clone(),
@@ -258,6 +296,7 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
             provider_summary: provider_summary.as_ref().clone(),
             origins: parsed.semantic.origins.clone(),
             parse_errors: parsed.semantic.parse_errors.clone(),
+            unused_imports: unused_imports.as_ref().clone(),
         })
     }
 }

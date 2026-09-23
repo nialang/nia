@@ -125,6 +125,10 @@ fn materialize_loader_facts(facts: &dyn crate::LoaderFactProvider) -> LoadedProg
                     .module_parse_errors(module_id)
                     .expect("test module parse errors query")
                     .expect("test module parse errors"),
+                unused_imports: facts
+                    .module_unused_imports(module_id)
+                    .expect("test module unused imports query")
+                    .expect("test module unused imports"),
             }
         })
         .collect();

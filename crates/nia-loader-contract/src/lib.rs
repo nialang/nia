@@ -164,6 +164,10 @@ pub trait LoaderFactProvider: Send + Sync {
         &self,
         module_id: nia_ids::ModuleId,
     ) -> QueryResult<Option<Vec<ParseError>>>;
+    fn module_unused_imports(
+        &self,
+        module_id: nia_ids::ModuleId,
+    ) -> QueryResult<Option<Vec<UnusedUsingImport>>>;
     fn module_item_tree(&self, module_id: nia_ids::ModuleId)
     -> QueryResult<Option<ModuleItemTree>>;
     fn active_module_item_tree(
@@ -287,6 +291,16 @@ impl LoaderFactProvider for LoadedProgram {
             .find(|module| module.id == module_id)
             .map(|module| module.parse_errors.clone()))
     }
+    fn module_unused_imports(
+        &self,
+        module_id: nia_ids::ModuleId,
+    ) -> QueryResult<Option<Vec<UnusedUsingImport>>> {
+        Ok(self
+            .modules
+            .iter()
+            .find(|module| module.id == module_id)
+            .map(|module| module.unused_imports.clone()))
+    }
     fn module_item_tree(
         &self,
         module_id: nia_ids::ModuleId,
@@ -354,4 +368,17 @@ pub struct LoadedModule {
     pub provider_summary: ProviderSummary,
     pub origins: NodeOriginTable,
     pub parse_errors: Vec<ParseError>,
+    pub unused_imports: Vec<UnusedUsingImport>,
+}
+
+/// An explicit `using` name that its entry-package module never references.
+///
+/// The loader owns reference collection; the compiler owns the warning, so it
+/// can suppress names whose `using` directive already failed to resolve.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnusedUsingImport {
+    /// Name exposed to the local scope, including an alias.
+    pub name: nia_symbol::SymbolId,
+    /// Span of the selected name or alias.
+    pub name_span: nia_span::Span,
 }
