@@ -338,6 +338,8 @@ and missing `IntoError` conversions now share an end-to-end case with complete
 structured/text snapshots, including the enclosing function return boundary.
 A missing value used under `.?` now has a snapshot proving the recovery type
 does not produce a second propagation diagnostic.
+A structurally recovered optional operand such as `(?missing).?` now has the
+same root-only behavior, with body-check and driver coverage.
 A genuinely ambiguous pair of visible `IntoError` implementations now has its
 own snapshot for the ambiguity rule, propagated operand, return boundary, and
 corrective help.

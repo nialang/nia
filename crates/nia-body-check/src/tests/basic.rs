@@ -716,9 +716,27 @@ fn unresolved_try_operand_does_not_report_a_propagation_cascade() {
 fn bad() i32 {
     missing.?
 }
+
 "#,
     );
 
+    assert_eq!(checked.diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        checked.diagnostics[0]
+            .summary
+            .contains("unknown value `missing`")
+    );
+}
+
+#[test]
+fn structural_unresolved_try_operand_does_not_report_a_propagation_cascade() {
+    let checked = pipeline(
+        r#"
+fn bad() i32 {
+    (?missing).?
+}
+"#,
+    );
     assert_eq!(checked.diagnostics.len(), 1, "{:?}", checked.diagnostics);
     assert!(
         checked.diagnostics[0]
