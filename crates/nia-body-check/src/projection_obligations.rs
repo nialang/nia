@@ -492,12 +492,19 @@ impl<'a> BodyChecker<'a> {
                     trait_args.clone(),
                     trait_const_args.clone(),
                 ) {
-                    self.report_trait_bound_not_satisfied(
-                        span,
-                        predicate.ty,
-                        trait_id,
-                        &trait_args,
-                    );
+                    if !self.is_error_recovery_ty(predicate.ty)
+                        && !trait_args
+                            .iter()
+                            .copied()
+                            .any(|arg| self.is_error_recovery_ty(arg))
+                    {
+                        self.report_trait_bound_not_satisfied(
+                            span,
+                            predicate.ty,
+                            trait_id,
+                            &trait_args,
+                        );
+                    }
                     continue;
                 }
                 for binding in &bound.associated_type_bindings {
@@ -1695,7 +1702,14 @@ impl<'a> BodyChecker<'a> {
                     trait_const_args,
                     associated_type_bindings: Vec::new(),
                 };
-                if !self.proves_trait_obligation(obligations, &required) {
+                if !self.proves_trait_obligation(obligations, &required)
+                    && !self.is_error_recovery_ty(required.self_ty)
+                    && !required
+                        .trait_args
+                        .iter()
+                        .copied()
+                        .any(|arg| self.is_error_recovery_ty(arg))
+                {
                     self.report_trait_bound_not_satisfied(
                         span,
                         required.self_ty,
@@ -1786,7 +1800,14 @@ impl<'a> BodyChecker<'a> {
             trait_const_args: projection.trait_const_args,
             associated_type_bindings: Vec::new(),
         };
-        if !self.proves_trait_obligation(obligations, &required) {
+        if !self.proves_trait_obligation(obligations, &required)
+            && !self.is_error_recovery_ty(required.self_ty)
+            && !required
+                .trait_args
+                .iter()
+                .copied()
+                .any(|arg| self.is_error_recovery_ty(arg))
+        {
             self.report_trait_bound_not_satisfied(
                 span,
                 required.self_ty,
@@ -1854,7 +1875,14 @@ impl<'a> BodyChecker<'a> {
                         })
                         .collect(),
                 };
-                if !self.proves_trait_obligation(obligations, &required) {
+                if !self.proves_trait_obligation(obligations, &required)
+                    && !self.is_error_recovery_ty(required.self_ty)
+                    && !required
+                        .trait_args
+                        .iter()
+                        .copied()
+                        .any(|arg| self.is_error_recovery_ty(arg))
+                {
                     self.report_trait_bound_not_satisfied(
                         span,
                         required.self_ty,

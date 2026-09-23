@@ -174,7 +174,11 @@ use-site diagnostics are grouped under the import failure. A source fixture now
 covers repeated use of the failed import in a function parameter and return
 type, and snapshots the shared root identity. Other recovery-derived diagnostics
 still need explicit provenance before this stage is complete; the for-in path now
-suppresses its recovery products at the semantic checker boundary.
+suppresses its recovery products at the semantic checker boundary. Trait-bound,
+projection, and builtin-operator checks now suppress obligations whose receiver
+or trait arguments contain an Error recovery type, including structural tuples
+and recovered generic arguments. Independent bounds on resolved values remain
+visible, with body-check and driver snapshot coverage for both cases.
 
 ### 5. CLI interaction contract
 
