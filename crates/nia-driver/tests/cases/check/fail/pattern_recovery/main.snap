@@ -40,6 +40,24 @@ summary: unknown value `enum_missing`
 label: 634..646 Primary Source no value named `enum_missing` is visible in this scope
 help: check the spelling, import `enum_missing`, or declare it before this use
 
+path: fail/pattern_recovery/main.nia
+code: E0201
+summary: unknown value `unknown_enum_missing`
+label: 724..744 Primary Source no value named `unknown_enum_missing` is visible in this scope
+help: check the spelling, import `unknown_enum_missing`, or declare it before this use
+
+path: fail/pattern_recovery/main.nia
+code: E0201
+summary: unknown namespace `Ghost`
+label: 755..760 Primary Source unknown namespace `Ghost`
+help: check the path spelling and make sure the module or type is in scope
+
+path: fail/pattern_recovery/main.nia
+code: E0201
+summary: unknown value `unknown_struct_missing`
+label: 828..850 Primary Source no value named `unknown_struct_missing` is visible in this scope
+help: check the spelling, import `unknown_struct_missing`, or declare it before this use
+
 report:
 diagnostics:
 root diagnostic:
@@ -98,4 +116,29 @@ error[E0201]: unknown value `enum_missing`
    |           ^^^^^^^^^^^^ no value named `enum_missing` is visible in this scope
 help: check the spelling, import `enum_missing`, or declare it before this use
 
-summary: 7 errors, 0 warnings
+root diagnostic:
+error[E0201]: unknown value `unknown_enum_missing`
+   --> fail/pattern_recovery/main.nia:48:11
+   |
+48 |     match unknown_enum_missing {
+   |           ^^^^^^^^^^^^^^^^^^^^ no value named `unknown_enum_missing` is visible in this scope
+help: check the spelling, import `unknown_enum_missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown namespace `Ghost`
+   --> fail/pattern_recovery/main.nia:49:9
+   |
+49 |         Ghost::Variant => {}
+   |         ^^^^^ unknown namespace `Ghost`
+help: check the path spelling and make sure the module or type is in scope
+
+root diagnostic:
+error[E0201]: unknown value `unknown_struct_missing`
+   --> fail/pattern_recovery/main.nia:54:11
+   |
+54 |     match unknown_struct_missing {
+   |           ^^^^^^^^^^^^^^^^^^^^^^ no value named `unknown_struct_missing` is visible in this scope
+help: check the spelling, import `unknown_struct_missing`, or declare it before this use
+
+summary: 10 errors, 0 warnings
+note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)

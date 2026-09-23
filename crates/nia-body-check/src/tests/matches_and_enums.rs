@@ -1533,16 +1533,31 @@ fn invalid() () {
     match missing {
         Color::Red => {}
     }
+    match missing {
+        Ghost::Variant => {}
+    }
+    match missing {
+        GhostStruct { field } => { _ = field; }
+    }
 }
 "#,
     );
 
-    assert_eq!(checked.diagnostics.len(), 8, "{:?}", checked.diagnostics);
-    assert!(
+    assert_eq!(checked.diagnostics.len(), 11, "{:?}", checked.diagnostics);
+    assert_eq!(
         checked
             .diagnostics
             .iter()
-            .all(|diagnostic| { diagnostic.summary.contains("unknown value `missing`") }),
+            .filter(|diagnostic| diagnostic.summary.contains("unknown value `missing`"))
+            .count(),
+        10,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("qualified access is not a value expression")),
         "{:?}",
         checked.diagnostics
     );
