@@ -100,7 +100,8 @@ specific fallbacks such as `module value is unresolved` from hiding the original
 import failure.
 
 This coverage is still incremental: qualified visibility cases beyond private
-values/types and qualified callable cases beyond unknown members, error-union
+values/types and parent/package-restricted values/types, qualified callable
+cases beyond unknown members, error-union
 propagation failure variants beyond the current boundary, invalid-operand, and
 missing-conversion cases, and other recovery-derived semantic rules need
 equivalent rule-specific contracts and source fixtures.
@@ -171,7 +172,9 @@ Directly qualified private values and types now retain the owning dependency
 source path for their declaration locations instead of rendering those spans
 against the use-site file. The module graph exposes each module's source path
 to semantic consumers so related locations retain ownership across module
-boundaries.
+boundaries. Directly qualified `pub(super)` values and types now report their
+actual visibility scope and declaration locations instead of mislabeling them
+as private.
 The complete diagnostic rule set still needs equivalent fixture/snapshot
 coverage.
 

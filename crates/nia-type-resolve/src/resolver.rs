@@ -258,7 +258,7 @@ impl TypeResolver<'_> {
             return DirectMember::Missing;
         };
         if !self.visibility_allows(module_id, def.visibility) {
-            return DirectMember::Private(def_id);
+            return DirectMember::Inaccessible(def_id, def.visibility);
         }
         DirectMember::Visible(def_id)
     }
@@ -273,9 +273,38 @@ enum ResolvedNamespace {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DirectMember<T> {
     Visible(T),
-    Private(T),
+    Inaccessible(T, Visibility),
     Missing,
     Unloaded,
+}
+
+fn qualified_visibility_diagnostic(
+    kind: &str,
+    name: &str,
+    visibility: Visibility,
+) -> (String, String, String) {
+    match visibility {
+        Visibility::Private => (
+            format!("{kind} `{name}` is private"),
+            format!("{kind} `{name}` is private"),
+            format!("make the {kind} public or use it from an allowed scope"),
+        ),
+        Visibility::PublicSuper => (
+            format!("{kind} `{name}` is restricted to its parent module and descendants"),
+            format!("{kind} `{name}` is not visible from this module"),
+            format!("make the {kind} public or move this use into its permitted scope"),
+        ),
+        Visibility::PublicPkg => (
+            format!("{kind} `{name}` is restricted to its package"),
+            format!("{kind} `{name}` is not visible from this module"),
+            format!("make the {kind} public or use it from the defining package"),
+        ),
+        Visibility::Public => (
+            format!("{kind} `{name}` is not visible from this module"),
+            format!("{kind} `{name}` is not visible from this module"),
+            "check the module path and declaration visibility".to_string(),
+        ),
+    }
 }
 
 impl<'ast> Visitor<'ast> for TypeResolver<'_> {
@@ -824,9 +853,9 @@ impl<'a> TypeResolver<'a> {
                     DirectMember::Visible(def_id) => {
                         Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
                     }
-                    DirectMember::Private(_) | DirectMember::Missing | DirectMember::Unloaded => {
-                        None
-                    }
+                    DirectMember::Inaccessible(_, _)
+                    | DirectMember::Missing
+                    | DirectMember::Unloaded => None,
                 }
             }
             ResolvedNamespace::Type(_) => None,
@@ -1124,28 +1153,25 @@ impl<'a> TypeResolver<'a> {
                     DirectMember::Visible(def_id) => {
                         Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
                     }
-                    DirectMember::Private(def_id) => {
+                    DirectMember::Inaccessible(def_id, visibility) => {
                         let name = self.symbol_name(*type_segment_name(segment)?);
-                        let mut diagnostic = Diagnostic::user_error(
-                            codes::NAME_RESOLUTION,
-                            format!("type `{name}` is private"),
-                        )
-                        .primary(path_span, format!("type `{name}` is private"));
+                        let (summary, label, help) =
+                            qualified_visibility_diagnostic("type", &name, visibility);
+                        let related = if visibility == Visibility::Private {
+                            "the private type is declared here"
+                        } else {
+                            "the restricted type is declared here"
+                        };
+                        let mut diagnostic =
+                            Diagnostic::user_error(codes::NAME_RESOLUTION, summary)
+                                .primary(path_span, label);
                         if let Some(target_defs) = self.defs_for_module(module_id)
                             && let Some(def) = target_defs.as_ref().defs.get(def_id)
                         {
-                            diagnostic = self.related_definition(
-                                diagnostic,
-                                module_id,
-                                def.span,
-                                "the private type is declared here",
-                            );
+                            diagnostic =
+                                self.related_definition(diagnostic, module_id, def.span, related);
                         }
-                        self.diagnostics.push(
-                            diagnostic
-                                .help("make the type public or use it from an allowed scope")
-                                .finish(),
-                        );
+                        self.diagnostics.push(diagnostic.help(help).finish());
                         None
                     }
                     DirectMember::Missing => {
@@ -1214,27 +1240,22 @@ impl<'a> TypeResolver<'a> {
         }
         let def_id = match self.direct_type_member(module_id, &name) {
             DirectMember::Visible(def_id) => def_id,
-            DirectMember::Private(def_id) => {
-                let mut diagnostic = Diagnostic::user_error(
-                    codes::NAME_RESOLUTION,
-                    format!("type `{path_text}` is private"),
-                )
-                .primary(span, format!("type `{path_text}` is private"));
+            DirectMember::Inaccessible(def_id, visibility) => {
+                let (summary, label, help) =
+                    qualified_visibility_diagnostic("type", path_text, visibility);
+                let related = if visibility == Visibility::Private {
+                    "the private type is declared here"
+                } else {
+                    "the restricted type is declared here"
+                };
+                let mut diagnostic =
+                    Diagnostic::user_error(codes::NAME_RESOLUTION, summary).primary(span, label);
                 if let Some(target_defs) = self.defs_for_module(module_id)
                     && let Some(def) = target_defs.as_ref().defs.get(def_id)
                 {
-                    diagnostic = self.related_definition(
-                        diagnostic,
-                        module_id,
-                        def.span,
-                        "the private type is declared here",
-                    );
+                    diagnostic = self.related_definition(diagnostic, module_id, def.span, related);
                 }
-                self.diagnostics.push(
-                    diagnostic
-                        .help("make the type public or use it from an allowed scope")
-                        .finish(),
-                );
+                self.diagnostics.push(diagnostic.help(help).finish());
                 return TypeNameResolution::Error;
             }
             DirectMember::Missing => {

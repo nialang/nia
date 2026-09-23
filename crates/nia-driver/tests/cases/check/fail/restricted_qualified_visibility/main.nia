@@ -1,0 +1,10 @@
+pub module api;
+
+fn main() i32 {
+    api::inner::restricted()
+}
+
+fn accept(value: api::inner::Restricted) i32 {
+    _ = value;
+    0
+}
