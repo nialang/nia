@@ -88,40 +88,8 @@ impl DriverActionExecutor {
             } => {
                 return self.execute_compiler_emit(action, artifact, target, static_archives);
             }
-            ActionKind::ExternalCommand {
-                resource_class: _,
-                environment_policy,
-                cache_policy,
-                program,
-                arguments,
-                working_directory,
-                environment,
-                inputs,
-                outputs,
-            }
-            | ActionKind::TestExecutable {
-                resource_class: _,
-                environment_policy,
-                cache_policy,
-                program,
-                arguments,
-                working_directory,
-                environment,
-                inputs,
-                outputs,
-            } => {
-                return self.execute_external_command_action(
-                    action,
-                    *environment_policy,
-                    *cache_policy,
-                    program,
-                    arguments,
-                    working_directory,
-                    environment,
-                    inputs,
-                    outputs,
-                    cancellation,
-                );
+            ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
+                return self.execute_external_command_action(action, command, cancellation);
             }
             ActionKind::GeneratedFile { output, contents } => {
                 return self.execute_generated_file(action, output, contents);
@@ -137,20 +105,24 @@ impl DriverActionExecutor {
         result.map(|()| None)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn execute_external_command_action(
         &self,
         action: &PlanAction,
-        environment_policy: CommandEnvironmentPolicy,
-        cache_policy: CommandCachePolicy,
-        program: &CommandProgram,
-        arguments: &[CommandArgument],
-        logical_working_directory: &LogicalPath,
-        environment: &[EnvironmentInput],
-        inputs: &[LogicalPath],
-        outputs: &[LogicalPath],
+        command: &CommandAction,
         cancellation: &ActionCancellation,
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
+        let CommandAction {
+            resource_class: _,
+            environment_policy,
+            cache_policy,
+            program,
+            arguments,
+            working_directory: logical_working_directory,
+            environment,
+            inputs,
+            outputs,
+        } = command;
+        let (environment_policy, cache_policy) = (*environment_policy, *cache_policy);
         let working_directory = self.resolve_path(action, logical_working_directory)?;
         let resolved_inputs = inputs
             .iter()
@@ -174,12 +146,8 @@ impl DriverActionExecutor {
         let mut cache_identity = if cacheable {
             Some(self.external_command_cache_identity(
                 action,
-                program,
-                arguments,
-                logical_working_directory,
-                environment,
+                command,
                 &resolved_inputs,
-                outputs,
                 &resolved_program,
             )?)
         } else {
@@ -315,12 +283,8 @@ impl DriverActionExecutor {
         };
         let current_identity = match self.external_command_cache_identity(
             action,
-            program,
-            arguments,
-            logical_working_directory,
-            environment,
+            command,
             &resolved_inputs,
-            outputs,
             &resolved_program,
         ) {
             Ok(identity) => identity,
@@ -341,16 +305,11 @@ impl DriverActionExecutor {
         Ok(Some(ActionCacheOutcome::Miss(reason)))
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn external_command_cache_identity(
         &self,
         action: &PlanAction,
-        program: &CommandProgram,
-        arguments: &[CommandArgument],
-        working_directory: &LogicalPath,
-        environment: &[EnvironmentInput],
+        command: &CommandAction,
         resolved_inputs: &[(&LogicalPath, PathBuf)],
-        outputs: &[LogicalPath],
         resolved_program: &Path,
     ) -> Result<ExternalCommandCacheIdentity, CoordinatorError> {
         let tool_contents = read_external_identity_file(action, resolved_program, "read tool")?;
@@ -363,12 +322,8 @@ impl DriverActionExecutor {
             .collect::<Result<Vec<_>, _>>()?;
         ExternalCommandCacheIdentity::new(
             &action.key,
-            program,
-            arguments,
-            working_directory,
-            environment,
+            command,
             &inputs,
-            outputs,
             self.plan.packages(),
             tool_contents,
             self.invocation.toolchain.identity(),
@@ -848,8 +803,8 @@ impl DriverActionExecutor {
             ActionKind::CompilerEmit { artifact, .. } => {
                 vec![&self.artifact(action, artifact)?.output]
             }
-            ActionKind::ExternalCommand { outputs, .. }
-            | ActionKind::TestExecutable { outputs, .. } => outputs.iter().collect(),
+            ActionKind::ExternalCommand(CommandAction { outputs, .. })
+            | ActionKind::TestExecutable(CommandAction { outputs, .. }) => outputs.iter().collect(),
             ActionKind::GeneratedFile { output, .. } => vec![output],
             ActionKind::InstallArtifact { destination, .. } => vec![destination],
             _ => Vec::new(),

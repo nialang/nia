@@ -825,7 +825,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .expect("object input action");
     assert!(matches!(
         &object_input.kind,
-        nia_build::ActionKind::ExternalCommand { inputs, .. }
+        nia_build::ActionKind::ExternalCommand(nia_build::CommandAction { inputs, .. })
             if inputs.iter().any(|input| matches!(
                 input.root(),
                 nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "objects"
@@ -838,7 +838,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .expect("archive input action");
     assert!(matches!(
         &archive_input.kind,
-        nia_build::ActionKind::ExternalCommand { inputs, .. }
+        nia_build::ActionKind::ExternalCommand(nia_build::CommandAction { inputs, .. })
             if inputs.iter().any(|input| matches!(
                 input.root(),
                 nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "archive"
@@ -903,14 +903,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .expect("host executable test action");
     assert!(matches!(
         &host_test.kind,
-        nia_build::ActionKind::ExternalCommand {
+        nia_build::ActionKind::ExternalCommand(nia_build::CommandAction {
             program: nia_build::CommandProgram::Path(path),
             ..
-        }
-        | nia_build::ActionKind::TestExecutable {
+        })
+        | nia_build::ActionKind::TestExecutable(nia_build::CommandAction {
             program: nia_build::CommandProgram::Path(path),
             ..
-        } if matches!(
+        }) if matches!(
             path.root(),
             nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "host-app"
         )

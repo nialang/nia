@@ -449,49 +449,11 @@ pub enum ActionKind {
         static_archives: Vec<ArtifactKey>,
     },
     /// Run a declared external program in a bounded environment.
-    ExternalCommand {
-        /// Scheduler resource class reserved by the command.
-        resource_class: ActionResourceClass,
-        /// Whether the command inherits or clears the parent environment.
-        environment_policy: CommandEnvironmentPolicy,
-        /// Persistent cache policy for the command result.
-        cache_policy: CommandCachePolicy,
-        /// Program identity resolved at execution time.
-        program: CommandProgram,
-        /// Ordered command-line arguments.
-        arguments: Vec<CommandArgument>,
-        /// Logical working directory.
-        working_directory: LogicalPath,
-        /// Explicit environment declarations.
-        environment: Vec<EnvironmentInput>,
-        /// Declared logical inputs.
-        inputs: Vec<LogicalPath>,
-        /// Declared logical outputs.
-        outputs: Vec<LogicalPath>,
-    },
+    ExternalCommand(CommandAction),
     /// Run a host test executable. This deliberately remains distinct from
     /// `ExternalCommand` so test selection and reporting cannot be inferred
     /// from an incidental command shape.
-    TestExecutable {
-        /// Scheduler resource class reserved by the test.
-        resource_class: ActionResourceClass,
-        /// Whether the test inherits or clears the parent environment.
-        environment_policy: CommandEnvironmentPolicy,
-        /// Persistent cache policy for the test result.
-        cache_policy: CommandCachePolicy,
-        /// Program identity resolved at execution time.
-        program: CommandProgram,
-        /// Ordered command-line arguments.
-        arguments: Vec<CommandArgument>,
-        /// Logical working directory.
-        working_directory: LogicalPath,
-        /// Explicit environment declarations.
-        environment: Vec<EnvironmentInput>,
-        /// Declared logical inputs.
-        inputs: Vec<LogicalPath>,
-        /// Declared logical outputs.
-        outputs: Vec<LogicalPath>,
-    },
+    TestExecutable(CommandAction),
     /// Materialize an in-memory payload as a generated file.
     GeneratedFile {
         /// Logical output path.
@@ -518,7 +480,7 @@ pub enum ActionKind {
 impl ActionKind {
     /// Returns whether this action is an explicitly registered test process.
     pub fn is_test(&self) -> bool {
-        matches!(self, Self::TestExecutable { .. })
+        matches!(self, Self::TestExecutable(CommandAction { .. }))
     }
 }
 
@@ -535,8 +497,8 @@ impl PlanAction {
     /// Returns the scheduler resource class implied by this action kind.
     pub fn resource_class(&self) -> ActionResourceClass {
         match &self.kind {
-            ActionKind::ExternalCommand { resource_class, .. }
-            | ActionKind::TestExecutable { resource_class, .. } => *resource_class,
+            ActionKind::ExternalCommand(CommandAction { resource_class, .. })
+            | ActionKind::TestExecutable(CommandAction { resource_class, .. }) => *resource_class,
             ActionKind::CompilerCheck { .. } | ActionKind::CompilerEmit { .. } => {
                 ActionResourceClass::Cpu
             }
@@ -546,6 +508,31 @@ impl PlanAction {
             ActionKind::Uncacheable { .. } => ActionResourceClass::Conservative,
         }
     }
+}
+
+/// A bounded external process invocation shared by command and test actions.
+///
+/// Field order is part of the canonical plan order derived by `ActionKind`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CommandAction {
+    /// Scheduler resource class reserved by the process.
+    pub resource_class: ActionResourceClass,
+    /// Whether the process inherits or clears the parent environment.
+    pub environment_policy: CommandEnvironmentPolicy,
+    /// Persistent cache policy for the process result.
+    pub cache_policy: CommandCachePolicy,
+    /// Program identity resolved at execution time.
+    pub program: CommandProgram,
+    /// Ordered command-line arguments.
+    pub arguments: Vec<CommandArgument>,
+    /// Logical working directory.
+    pub working_directory: LogicalPath,
+    /// Explicit environment declarations.
+    pub environment: Vec<EnvironmentInput>,
+    /// Declared logical inputs.
+    pub inputs: Vec<LogicalPath>,
+    /// Declared logical outputs.
+    pub outputs: Vec<LogicalPath>,
 }
 
 /// Dependency-graph step selecting one action.
@@ -1711,7 +1698,7 @@ mod tests {
         let mut value = draft(false);
         value.actions.push(PlanAction {
             key: action_key("run"),
-            kind: ActionKind::ExternalCommand {
+            kind: ActionKind::ExternalCommand(CommandAction {
                 resource_class: ActionResourceClass::Conservative,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
@@ -1734,7 +1721,7 @@ mod tests {
                 ],
                 inputs: Vec::new(),
                 outputs: Vec::new(),
-            },
+            }),
         });
 
         assert!(matches!(
@@ -1751,7 +1738,7 @@ mod tests {
         let mut value = draft(false);
         value.actions.push(PlanAction {
             key: action_key("test"),
-            kind: ActionKind::TestExecutable {
+            kind: ActionKind::TestExecutable(CommandAction {
                 resource_class: ActionResourceClass::Cpu,
                 environment_policy: CommandEnvironmentPolicy::Clear,
                 cache_policy: CommandCachePolicy::DeclaredInputs,
@@ -1765,7 +1752,7 @@ mod tests {
                 environment: Vec::new(),
                 inputs: Vec::new(),
                 outputs: Vec::new(),
-            },
+            }),
         });
 
         assert!(matches!(
@@ -1782,7 +1769,7 @@ mod tests {
         let output = LogicalPath::new(LogicalPathRoot::Build, "output.txt").unwrap();
         let cacheable = |environment_policy, outputs: Vec<LogicalPath>| PlanAction {
             key: action_key("tool"),
-            kind: ActionKind::ExternalCommand {
+            kind: ActionKind::ExternalCommand(CommandAction {
                 resource_class: ActionResourceClass::Io,
                 environment_policy,
                 cache_policy: CommandCachePolicy::DeclaredInputs,
@@ -1800,7 +1787,7 @@ mod tests {
                 environment: Vec::new(),
                 inputs: Vec::new(),
                 outputs,
-            },
+            }),
         };
 
         let mut inherited = draft(false);
@@ -1836,7 +1823,7 @@ mod tests {
         let output = LogicalPath::new(LogicalPathRoot::Build, "output.txt").unwrap();
         value.actions.push(PlanAction {
             key: action_key("tool"),
-            kind: ActionKind::ExternalCommand {
+            kind: ActionKind::ExternalCommand(CommandAction {
                 resource_class: ActionResourceClass::Cpu,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
@@ -1853,7 +1840,7 @@ mod tests {
                 environment: Vec::new(),
                 inputs: Vec::new(),
                 outputs: vec![output],
-            },
+            }),
         });
 
         assert!(matches!(
@@ -1871,7 +1858,7 @@ mod tests {
         let mut unbound = draft(false);
         unbound.actions.push(PlanAction {
             key: action_key("unbound"),
-            kind: ActionKind::ExternalCommand {
+            kind: ActionKind::ExternalCommand(CommandAction {
                 resource_class: ActionResourceClass::Conservative,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
@@ -1885,7 +1872,7 @@ mod tests {
                 environment: Vec::new(),
                 inputs: Vec::new(),
                 outputs: vec![output.clone()],
-            },
+            }),
         });
         assert!(matches!(
             BuildPlan::freeze(unbound),
@@ -1899,7 +1886,7 @@ mod tests {
         let mut multiple = draft(false);
         multiple.actions.push(PlanAction {
             key: action_key("multiple"),
-            kind: ActionKind::ExternalCommand {
+            kind: ActionKind::ExternalCommand(CommandAction {
                 resource_class: ActionResourceClass::Io,
                 environment_policy: CommandEnvironmentPolicy::Clear,
                 cache_policy: CommandCachePolicy::DeclaredInputs,
@@ -1916,7 +1903,7 @@ mod tests {
                 environment: Vec::new(),
                 inputs: Vec::new(),
                 outputs: vec![output, second],
-            },
+            }),
         });
         let plan = BuildPlan::freeze(multiple).unwrap();
         let multiple = plan
@@ -1924,7 +1911,7 @@ mod tests {
             .iter()
             .find(|action| action.key.name() == "multiple")
             .unwrap();
-        let ActionKind::ExternalCommand { outputs, .. } = &multiple.kind else {
+        let ActionKind::ExternalCommand(CommandAction { outputs, .. }) = &multiple.kind else {
             panic!("expected external command action");
         };
         assert_eq!(outputs.len(), 2);
@@ -1948,7 +1935,7 @@ mod tests {
             },
             PlanAction {
                 key: action_key("consume"),
-                kind: ActionKind::ExternalCommand {
+                kind: ActionKind::ExternalCommand(CommandAction {
                     resource_class: ActionResourceClass::Io,
                     environment_policy: CommandEnvironmentPolicy::Inherit,
                     cache_policy: CommandCachePolicy::Uncacheable,
@@ -1962,7 +1949,7 @@ mod tests {
                     environment: Vec::new(),
                     inputs: vec![input],
                     outputs: Vec::new(),
-                },
+                }),
             },
         ]);
         value.steps.extend([
@@ -2035,12 +2022,12 @@ mod tests {
             .iter_mut()
             .find(|action| action.key.name() == "consume")
             .unwrap();
-        let ActionKind::ExternalCommand {
+        let ActionKind::ExternalCommand(CommandAction {
             program,
             arguments,
             inputs,
             ..
-        } = &mut consume.kind
+        }) = &mut consume.kind
         else {
             panic!("expected external command action");
         };
@@ -2072,12 +2059,12 @@ mod tests {
             .iter_mut()
             .find(|action| action.key.name() == "consume")
             .unwrap();
-        let ActionKind::ExternalCommand {
+        let ActionKind::ExternalCommand(CommandAction {
             program,
             arguments,
             inputs,
             ..
-        } = &mut consume.kind
+        }) = &mut consume.kind
         else {
             panic!("expected external command action");
         };
@@ -2105,7 +2092,7 @@ mod tests {
             LogicalPath::new(LogicalPathRoot::Build, produced_directory).unwrap();
         value.actions.push(PlanAction {
             key: action_key("consume"),
-            kind: ActionKind::ExternalCommand {
+            kind: ActionKind::ExternalCommand(CommandAction {
                 resource_class: ActionResourceClass::Io,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
@@ -2116,7 +2103,7 @@ mod tests {
                 environment: Vec::new(),
                 inputs: Vec::new(),
                 outputs: Vec::new(),
-            },
+            }),
         });
         value.steps.push(PlanStep {
             key: step_key("consume"),
@@ -2184,7 +2171,7 @@ mod tests {
         let run_step = step_key("run");
         value.actions.push(PlanAction {
             key: run_action.clone(),
-            kind: ActionKind::ExternalCommand {
+            kind: ActionKind::ExternalCommand(CommandAction {
                 resource_class: ActionResourceClass::Conservative,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
@@ -2200,7 +2187,7 @@ mod tests {
                 environment: Vec::new(),
                 inputs: Vec::new(),
                 outputs: Vec::new(),
-            },
+            }),
         });
         value.steps.push(PlanStep {
             key: run_step.clone(),
@@ -2236,7 +2223,7 @@ mod tests {
         let tool_step = step_key("tool");
         value.actions.push(PlanAction {
             key: tool_action.clone(),
-            kind: ActionKind::ExternalCommand {
+            kind: ActionKind::ExternalCommand(CommandAction {
                 resource_class: ActionResourceClass::Io,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
@@ -2250,7 +2237,7 @@ mod tests {
                 environment: Vec::new(),
                 inputs: vec![artifact_input],
                 outputs: Vec::new(),
-            },
+            }),
         });
         value.steps.push(PlanStep {
             key: tool_step.clone(),
@@ -2284,7 +2271,7 @@ mod tests {
         let input = LogicalPath::new(LogicalPathRoot::Artifact(missing.clone()), "").unwrap();
         value.actions.push(PlanAction {
             key: action_key("consume"),
-            kind: ActionKind::ExternalCommand {
+            kind: ActionKind::ExternalCommand(CommandAction {
                 resource_class: ActionResourceClass::Io,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
@@ -2298,7 +2285,7 @@ mod tests {
                 environment: Vec::new(),
                 inputs: vec![input],
                 outputs: Vec::new(),
-            },
+            }),
         });
         value.steps.push(PlanStep {
             key: step_key("consume"),
@@ -2318,7 +2305,7 @@ mod tests {
         value.artifacts[0].kind = PlanArtifactKind::ObjectSet;
         value.actions.push(PlanAction {
             key: action_key("run"),
-            kind: ActionKind::ExternalCommand {
+            kind: ActionKind::ExternalCommand(CommandAction {
                 resource_class: ActionResourceClass::Conservative,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
@@ -2334,7 +2321,7 @@ mod tests {
                 environment: Vec::new(),
                 inputs: Vec::new(),
                 outputs: Vec::new(),
-            },
+            }),
         });
         // Invalid declarations are rejected even when no step exposes them.
         assert!(matches!(
@@ -2360,7 +2347,7 @@ mod tests {
         *target = artifact_target;
         value.actions.push(PlanAction {
             key: action_key("run"),
-            kind: ActionKind::ExternalCommand {
+            kind: ActionKind::ExternalCommand(CommandAction {
                 resource_class: ActionResourceClass::Conservative,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
@@ -2376,7 +2363,7 @@ mod tests {
                 environment: Vec::new(),
                 inputs: Vec::new(),
                 outputs: Vec::new(),
-            },
+            }),
         });
 
         assert!(matches!(
@@ -2395,7 +2382,7 @@ mod tests {
         value.artifacts[0].kind = kind;
         value.actions.push(PlanAction {
             key: action_key("inspect"),
-            kind: ActionKind::ExternalCommand {
+            kind: ActionKind::ExternalCommand(CommandAction {
                 resource_class: ActionResourceClass::Io,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
@@ -2409,7 +2396,7 @@ mod tests {
                 environment: Vec::new(),
                 inputs: Vec::new(),
                 outputs: Vec::new(),
-            },
+            }),
         });
         value.steps.push(PlanStep {
             key: step_key("inspect"),

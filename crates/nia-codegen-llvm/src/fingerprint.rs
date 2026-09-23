@@ -166,6 +166,117 @@ fn finish_builder(builder: QueryFingerprintBuilder) -> CodegenUnitFingerprint {
     CodegenUnitFingerprint::from_parts(builder.finish().parts())
 }
 
+/// Fingerprinted fields shared by nominal struct and union definitions.
+///
+/// Both IR types encode the same identity; the view keeps that field list in
+/// one place so a field added to either type is not silently omitted.
+struct AggregateDefinition<'a> {
+    def_id: GlobalDefId,
+    name: nia_symbol::SymbolId,
+    generics: &'a [nia_symbol::SymbolId],
+    fields: &'a [BackendField],
+    is_extern: bool,
+}
+
+impl<'a> From<&'a BackendStruct> for AggregateDefinition<'a> {
+    fn from(item: &'a BackendStruct) -> Self {
+        let BackendStruct {
+            def_id,
+            name,
+            generics,
+            fields,
+            is_extern,
+            span: _,
+        } = item;
+        Self {
+            def_id: *def_id,
+            name: *name,
+            generics,
+            fields,
+            is_extern: *is_extern,
+        }
+    }
+}
+
+impl<'a> From<&'a BackendUnion> for AggregateDefinition<'a> {
+    fn from(item: &'a BackendUnion) -> Self {
+        let BackendUnion {
+            def_id,
+            name,
+            generics,
+            fields,
+            is_extern,
+            span: _,
+        } = item;
+        Self {
+            def_id: *def_id,
+            name: *name,
+            generics,
+            fields,
+            is_extern: *is_extern,
+        }
+    }
+}
+
+/// Fingerprinted fields shared by concrete struct and union instances.
+struct AggregateInstance<'a> {
+    def_id: GlobalDefId,
+    name: nia_symbol::SymbolId,
+    args: &'a [InternedTyId],
+    const_args: &'a [ConstGenericArg],
+    symbol: &'a str,
+    fields: &'a [BackendField],
+    is_extern: bool,
+}
+
+impl<'a> From<&'a BackendStructInstance> for AggregateInstance<'a> {
+    fn from(item: &'a BackendStructInstance) -> Self {
+        let BackendStructInstance {
+            def_id,
+            name,
+            args,
+            const_args,
+            symbol,
+            fields,
+            is_extern,
+            span: _,
+        } = item;
+        Self {
+            def_id: *def_id,
+            name: *name,
+            args,
+            const_args,
+            symbol,
+            fields,
+            is_extern: *is_extern,
+        }
+    }
+}
+
+impl<'a> From<&'a BackendUnionInstance> for AggregateInstance<'a> {
+    fn from(item: &'a BackendUnionInstance) -> Self {
+        let BackendUnionInstance {
+            def_id,
+            name,
+            args,
+            const_args,
+            symbol,
+            fields,
+            is_extern,
+            span: _,
+        } = item;
+        Self {
+            def_id: *def_id,
+            name: *name,
+            args,
+            const_args,
+            symbol,
+            fields,
+            is_extern: *is_extern,
+        }
+    }
+}
+
 struct Encoder<'a> {
     builder: QueryFingerprintBuilder,
     index: &'a ProgramIndex,
@@ -321,33 +432,19 @@ impl<'a> Encoder<'a> {
     fn partition_definitions(&mut self, partition: &CodegenPartition, module: &BackendModule) {
         self.len(partition.global_definitions().len());
         for &index in partition.global_definitions() {
-            let item = &module.globals[index];
-            self.global(item, item.init.as_ref());
+            self.global(&module.globals[index]);
         }
         self.len(partition.global_instance_definitions().len());
         for &index in partition.global_instance_definitions() {
-            let item = &module.global_instances[index];
-            self.global_instance(item, item.init.as_ref());
+            self.global_instance(&module.global_instances[index]);
         }
         self.len(partition.function_definitions().len());
         for &index in partition.function_definitions() {
-            let item = &module.functions[index];
-            self.function(
-                item.def_id,
-                item.name,
-                &item.linkage,
-                &item.generics,
-                &item.params,
-                item.return_type,
-                item.is_variadic,
-                &item.attributes,
-                item.function_body.as_ref(),
-            );
+            self.function(&module.functions[index]);
         }
         self.len(partition.function_instance_definitions().len());
         for &index in partition.function_instance_definitions() {
-            let item = &module.function_instances[index];
-            self.function_instance(item, item.function_body.as_ref());
+            self.function_instance(&module.function_instances[index]);
         }
         self.len(partition.closure_entry_definitions().len());
         for &index in partition.closure_entry_definitions() {
@@ -359,16 +456,16 @@ impl<'a> Encoder<'a> {
         }
     }
 
-    fn global(&mut self, item: &BackendGlobal, init: Option<&StaticInit>) {
+    fn global(&mut self, item: &BackendGlobal) {
         self.global_def(item.def_id);
         self.symbol(item.name);
         self.linkage(&item.linkage);
         self.ty(item.ty);
         self.bool(item.is_let);
-        self.optional_static_init(init);
+        self.optional_static_init(item.init.as_ref());
     }
 
-    fn global_instance(&mut self, item: &BackendGlobalInstance, init: Option<&StaticInit>) {
+    fn global_instance(&mut self, item: &BackendGlobalInstance) {
         self.global_def(item.def_id);
         self.symbol(item.name);
         self.module_id(item.arg_module_id);
@@ -377,10 +474,10 @@ impl<'a> Encoder<'a> {
         self.builder.write_str(&item.symbol);
         self.ty(item.ty);
         self.bool(item.is_let);
-        self.optional_static_init(init);
+        self.optional_static_init(item.init.as_ref());
     }
 
-    fn function_instance(&mut self, item: &BackendFunctionInstance, body: Option<&FunctionBody>) {
+    fn function_instance(&mut self, item: &BackendFunctionInstance) {
         self.global_def(item.def_id);
         self.symbol(item.name);
         self.module_id(item.arg_module_id);
@@ -393,7 +490,7 @@ impl<'a> Encoder<'a> {
         self.linkage(&item.linkage);
         self.bool(item.is_variadic);
         self.function_attributes(&item.attributes);
-        self.optional_function_body(body);
+        self.optional_function_body(item.function_body.as_ref());
     }
 
     fn closure_entry(&mut self, item: &BackendClosureEntry) {
@@ -463,39 +560,22 @@ impl<'a> Encoder<'a> {
         }
     }
 
-    fn aggregate(
-        &mut self,
-        def_id: GlobalDefId,
-        name: nia_symbol::SymbolId,
-        generics: &[nia_symbol::SymbolId],
-        fields: &[BackendField],
-        is_extern: bool,
-    ) {
-        self.global_def(def_id);
-        self.symbol(name);
-        self.symbols(generics);
-        self.fields(fields);
-        self.bool(is_extern);
+    fn aggregate(&mut self, item: AggregateDefinition<'_>) {
+        self.global_def(item.def_id);
+        self.symbol(item.name);
+        self.symbols(item.generics);
+        self.fields(item.fields);
+        self.bool(item.is_extern);
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn aggregate_instance(
-        &mut self,
-        def_id: GlobalDefId,
-        name: nia_symbol::SymbolId,
-        args: &[InternedTyId],
-        const_args: &[ConstGenericArg],
-        symbol: &str,
-        fields: &[BackendField],
-        is_extern: bool,
-    ) {
-        self.global_def(def_id);
-        self.symbol(name);
-        self.types(args);
-        self.const_args(const_args);
-        self.builder.write_str(symbol);
-        self.fields(fields);
-        self.bool(is_extern);
+    fn aggregate_instance(&mut self, item: AggregateInstance<'_>) {
+        self.global_def(item.def_id);
+        self.symbol(item.name);
+        self.types(item.args);
+        self.const_args(item.const_args);
+        self.builder.write_str(item.symbol);
+        self.fields(item.fields);
+        self.bool(item.is_extern);
     }
 
     fn linkage(&mut self, linkage: &BackendLinkage) {
@@ -521,28 +601,16 @@ impl<'a> Encoder<'a> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn function(
-        &mut self,
-        def_id: GlobalDefId,
-        name: nia_symbol::SymbolId,
-        linkage: &BackendLinkage,
-        generics: &[nia_symbol::SymbolId],
-        params: &[BackendParam],
-        return_type: InternedTyId,
-        is_variadic: bool,
-        attributes: &[BackendFunctionAttribute],
-        body: Option<&FunctionBody>,
-    ) {
-        self.global_def(def_id);
-        self.symbol(name);
-        self.linkage(linkage);
-        self.symbols(generics);
-        self.params(params);
-        self.ty(return_type);
-        self.bool(is_variadic);
-        self.function_attributes(attributes);
-        self.optional_function_body(body);
+    fn function(&mut self, item: &BackendFunction) {
+        self.global_def(item.def_id);
+        self.symbol(item.name);
+        self.linkage(&item.linkage);
+        self.symbols(&item.generics);
+        self.params(&item.params);
+        self.ty(item.return_type);
+        self.bool(item.is_variadic);
+        self.function_attributes(&item.attributes);
+        self.optional_function_body(item.function_body.as_ref());
     }
 
     fn params(&mut self, params: &[BackendParam]) {

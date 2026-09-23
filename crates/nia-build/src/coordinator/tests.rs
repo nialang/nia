@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use super::*;
-use crate::{BuildPlanDraft, ModuleImport, PlanAction, PlanPackage, PlanStep};
+use crate::{
+    BuildPlanDraft, CommandEnvironmentPolicy, ModuleImport, PlanAction, PlanPackage, PlanStep,
+};
 use std::sync::{Arc, Barrier, Mutex, OnceLock, atomic::AtomicBool};
 
 fn action(name: &str) -> ActionKey {
@@ -118,16 +120,19 @@ fn aggregate_plan(
 
 fn registered_test_plan() -> BuildPlan {
     let package = PackageKey::root();
-    let test_kind = || ActionKind::TestExecutable {
-        resource_class: ActionResourceClass::Cpu,
-        environment_policy: CommandEnvironmentPolicy::Inherit,
-        cache_policy: CommandCachePolicy::Uncacheable,
-        program: CommandProgram::Search("test-suite".into()),
-        arguments: Vec::new(),
-        working_directory: LogicalPath::new(LogicalPathRoot::Package(package.clone()), "").unwrap(),
-        environment: Vec::new(),
-        inputs: Vec::new(),
-        outputs: Vec::new(),
+    let test_kind = || {
+        ActionKind::TestExecutable(CommandAction {
+            resource_class: ActionResourceClass::Cpu,
+            environment_policy: CommandEnvironmentPolicy::Inherit,
+            cache_policy: CommandCachePolicy::Uncacheable,
+            program: CommandProgram::Search("test-suite".into()),
+            arguments: Vec::new(),
+            working_directory: LogicalPath::new(LogicalPathRoot::Package(package.clone()), "")
+                .unwrap(),
+            environment: Vec::new(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+        })
     };
     BuildPlan::freeze(BuildPlanDraft {
         root_package: package.clone(),
@@ -2050,7 +2055,7 @@ fn failed_generated_file_publication_cleans_temporary_output() {
 fn external_action() -> PlanAction {
     PlanAction {
         key: action("run"),
-        kind: ActionKind::ExternalCommand {
+        kind: ActionKind::ExternalCommand(CommandAction {
             resource_class: ActionResourceClass::Conservative,
             environment_policy: crate::CommandEnvironmentPolicy::Inherit,
             cache_policy: crate::CommandCachePolicy::Uncacheable,
@@ -2061,7 +2066,7 @@ fn external_action() -> PlanAction {
             environment: Vec::new(),
             inputs: Vec::new(),
             outputs: Vec::new(),
-        },
+        }),
     }
 }
 
@@ -2096,7 +2101,7 @@ fn staged_command_plan_outputs(
         artifacts: Vec::new(),
         actions: vec![PlanAction {
             key: action("tool"),
-            kind: ActionKind::ExternalCommand {
+            kind: ActionKind::ExternalCommand(CommandAction {
                 resource_class: ActionResourceClass::Conservative,
                 environment_policy: crate::CommandEnvironmentPolicy::Inherit,
                 cache_policy: crate::CommandCachePolicy::Uncacheable,
@@ -2110,7 +2115,7 @@ fn staged_command_plan_outputs(
                 environment: Vec::new(),
                 inputs: Vec::new(),
                 outputs,
-            },
+            }),
         }],
         steps: vec![PlanStep {
             key: step("tool"),
@@ -2157,7 +2162,7 @@ fn cacheable_command_plan_with_input(
             artifacts: Vec::new(),
             actions: vec![PlanAction {
                 key: action("cached-tool"),
-                kind: ActionKind::ExternalCommand {
+                kind: ActionKind::ExternalCommand(CommandAction {
                     resource_class: ActionResourceClass::Io,
                     environment_policy: CommandEnvironmentPolicy::Clear,
                     cache_policy: CommandCachePolicy::DeclaredInputs,
@@ -2184,7 +2189,7 @@ fn cacheable_command_plan_with_input(
                     }],
                     inputs: vec![input],
                     outputs: vec![first, second],
-                },
+                }),
             }],
             steps: vec![PlanStep {
                 key: step("cached-tool"),
@@ -2211,7 +2216,7 @@ fn cacheable_path_tool_plan(invocation: &BuildInvocation) -> BuildPlan {
         artifacts: Vec::new(),
         actions: vec![PlanAction {
             key: action("path-tool"),
-            kind: ActionKind::ExternalCommand {
+            kind: ActionKind::ExternalCommand(CommandAction {
                 resource_class: ActionResourceClass::Io,
                 environment_policy: CommandEnvironmentPolicy::Clear,
                 cache_policy: CommandCachePolicy::DeclaredInputs,
@@ -2228,7 +2233,7 @@ fn cacheable_path_tool_plan(invocation: &BuildInvocation) -> BuildPlan {
                 environment: Vec::new(),
                 inputs: Vec::new(),
                 outputs: vec![output],
-            },
+            }),
         }],
         steps: vec![PlanStep {
             key: step("path-tool"),

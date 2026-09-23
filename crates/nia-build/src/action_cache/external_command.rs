@@ -31,8 +31,8 @@ use super::{
 #[cfg(test)]
 use super::{read_bytes, read_fingerprint, read_u64};
 use crate::{
-    ActionKey, CommandArgument, CommandProgram, EnvironmentInput, LogicalPath, LogicalPathRoot,
-    PlanPackage, lock::ScopedFileLock,
+    ActionKey, CommandAction, CommandArgument, CommandProgram, EnvironmentInput, LogicalPath,
+    LogicalPathRoot, PlanPackage, lock::ScopedFileLock,
 };
 
 const EXTERNAL_COMMAND_FINGERPRINT_DOMAIN: FingerprintDomain =
@@ -214,19 +214,26 @@ pub(crate) struct ExternalCommandCacheIdentity {
 }
 
 impl ExternalCommandCacheIdentity {
-    #[allow(clippy::too_many_arguments)]
+    /// Identity of one cacheable command run.
+    ///
+    /// `inputs` carries the declared inputs with their observed contents;
+    /// the command's own input list only names them.
     pub(crate) fn new(
         action: &ActionKey,
-        program: &CommandProgram,
-        arguments: &[CommandArgument],
-        working_directory: &LogicalPath,
-        environment: &[EnvironmentInput],
+        command: &CommandAction,
         inputs: &[(LogicalPath, ExternalCommandContentIdentity)],
-        outputs: &[LogicalPath],
         packages: &[PlanPackage],
         tool_contents: ExternalCommandContentIdentity,
         toolchain: &ToolchainIdentity,
     ) -> Option<Self> {
+        let CommandAction {
+            program,
+            arguments,
+            working_directory,
+            environment,
+            outputs,
+            ..
+        } = command;
         let action_identity = action_identity(action);
         let command = command_identity(program, arguments);
         let tool = tool_identity(program, tool_contents);

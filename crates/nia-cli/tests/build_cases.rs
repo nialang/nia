@@ -416,7 +416,7 @@ fn assert_configured_build_success(
         .find(|action| action.key.name() == "run")
         .expect("run action");
     match &run_action.kind {
-        nia_build::ActionKind::ExternalCommand {
+        nia_build::ActionKind::ExternalCommand(nia_build::CommandAction {
             resource_class,
             environment_policy,
             cache_policy,
@@ -426,7 +426,7 @@ fn assert_configured_build_success(
             environment,
             inputs,
             outputs,
-        } => {
+        }) => {
             assert_eq!(
                 *resource_class,
                 nia_build::ActionResourceClass::Conservative
@@ -466,7 +466,7 @@ fn assert_configured_build_success(
         .find(|action| action.key.name() == "tool")
         .expect("tool action");
     match &tool_action.kind {
-        nia_build::ActionKind::ExternalCommand {
+        nia_build::ActionKind::ExternalCommand(nia_build::CommandAction {
             resource_class,
             environment_policy,
             cache_policy,
@@ -476,7 +476,7 @@ fn assert_configured_build_success(
             environment,
             inputs,
             outputs,
-        } => {
+        }) => {
             assert_eq!(*resource_class, nia_build::ActionResourceClass::Io);
             assert_eq!(
                 *environment_policy,
@@ -580,10 +580,10 @@ fn assert_configured_build_success(
         .expect("host tool run action");
     assert!(matches!(
         &host_run_action.kind,
-        nia_build::ActionKind::ExternalCommand {
+        nia_build::ActionKind::ExternalCommand(nia_build::CommandAction {
             program: nia_build::CommandProgram::Path(path),
             ..
-        } if matches!(
+        }) if matches!(
             path.root(),
             nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "host-tool"
         ) && path.components().is_empty()
