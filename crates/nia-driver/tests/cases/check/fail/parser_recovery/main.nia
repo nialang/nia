@@ -1,0 +1,8 @@
+fn first() i32 {
+    let value = 1
+    value
+}
+
+fn second() i32 {
+    1 +
+}

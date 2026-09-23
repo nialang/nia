@@ -176,6 +176,10 @@ including the cause identity of repeated signature type diagnostics. Check-case
 snapshots now include the rendered text report as well as structured fields,
 covering severity, line/column, source excerpts, related locations, hierarchy,
 and summary counts. This also covers reports after an incremental body edit.
+A parser recovery fixture now exercises a missing statement terminator followed
+by an incomplete expression, so grammar diagnostics and recovery order are
+asserted through the same end-to-end structured/text snapshot path. Other parser
+recovery boundaries still need equivalent source coverage.
 A private-using fixture verifies related locations in a clean dependency whose
 declaration is on a different line from the primary use site. Renderer tests
 cover available and unavailable related sources and explicit same-file paths.
