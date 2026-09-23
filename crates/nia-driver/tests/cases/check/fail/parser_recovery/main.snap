@@ -1,0 +1,31 @@
+path: fail/parser_recovery/main.nia
+code: E0101
+summary: expected `;` after binding; found `value`
+label: 33..34 Primary Source expected `;` after binding; found `value`
+help: add the missing `;` to terminate this declaration or statement
+
+path: fail/parser_recovery/main.nia
+code: E0101
+summary: expected expression
+label: 74..75 Primary Source expected expression
+help: provide an expression here, such as a literal, name, or call
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `;` after binding; found `value`
+  --> fail/parser_recovery/main.nia:2:17
+  |
+2 |     let value = 1
+  |                 ^ expected `;` after binding; found `value`
+help: add the missing `;` to terminate this declaration or statement
+
+root diagnostic:
+error[E0101]: expected expression
+  --> fail/parser_recovery/main.nia:8:1
+  |
+8 | }
+  | ^ expected expression
+help: provide an expression here, such as a literal, name, or call
+
+summary: 2 errors, 0 warnings
