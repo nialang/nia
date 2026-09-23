@@ -234,7 +234,7 @@ impl TypeResolver<'_> {
             return DirectMember::Missing;
         };
         if !self.visibility_allows(module_id, def.visibility) {
-            return DirectMember::Private;
+            return DirectMember::Private(def_id);
         }
         DirectMember::Visible(def_id)
     }
@@ -249,7 +249,7 @@ enum ResolvedNamespace {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DirectMember<T> {
     Visible(T),
-    Private,
+    Private(T),
     Missing,
     Unloaded,
 }
@@ -800,7 +800,9 @@ impl<'a> TypeResolver<'a> {
                     DirectMember::Visible(def_id) => {
                         Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
                     }
-                    DirectMember::Private | DirectMember::Missing | DirectMember::Unloaded => None,
+                    DirectMember::Private(_) | DirectMember::Missing | DirectMember::Unloaded => {
+                        None
+                    }
                 }
             }
             ResolvedNamespace::Type(_) => None,
@@ -1098,16 +1100,23 @@ impl<'a> TypeResolver<'a> {
                     DirectMember::Visible(def_id) => {
                         Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
                     }
-                    DirectMember::Private => {
+                    DirectMember::Private(def_id) => {
                         let name = self.symbol_name(*type_segment_name(segment)?);
+                        let mut diagnostic = Diagnostic::user_error(
+                            codes::NAME_RESOLUTION,
+                            format!("type `{name}` is private"),
+                        )
+                        .primary(path_span, format!("type `{name}` is private"));
+                        if let Some(target_defs) = self.defs_for_module(module_id)
+                            && let Some(def) = target_defs.as_ref().defs.get(def_id)
+                        {
+                            diagnostic =
+                                diagnostic.related(def.span, "the private type is declared here");
+                        }
                         self.diagnostics.push(
-                            Diagnostic::user_error(
-                                codes::NAME_RESOLUTION,
-                                format!("type `{name}` is private"),
-                            )
-                            .primary(path_span, format!("type `{name}` is private"))
-                            .help("make the type public or use it from an allowed scope")
-                            .finish(),
+                            diagnostic
+                                .help("make the type public or use it from an allowed scope")
+                                .finish(),
                         );
                         None
                     }
@@ -1177,15 +1186,21 @@ impl<'a> TypeResolver<'a> {
         }
         let def_id = match self.direct_type_member(module_id, &name) {
             DirectMember::Visible(def_id) => def_id,
-            DirectMember::Private => {
+            DirectMember::Private(def_id) => {
+                let mut diagnostic = Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!("type `{path_text}` is private"),
+                )
+                .primary(span, format!("type `{path_text}` is private"));
+                if let Some(target_defs) = self.defs_for_module(module_id)
+                    && let Some(def) = target_defs.as_ref().defs.get(def_id)
+                {
+                    diagnostic = diagnostic.related(def.span, "the private type is declared here");
+                }
                 self.diagnostics.push(
-                    Diagnostic::user_error(
-                        codes::NAME_RESOLUTION,
-                        format!("type `{path_text}` is private"),
-                    )
-                    .primary(span, format!("type `{path_text}` is private"))
-                    .help("make the type public or use it from an allowed scope")
-                    .finish(),
+                    diagnostic
+                        .help("make the type public or use it from an allowed scope")
+                        .finish(),
                 );
                 return TypeNameResolution::Error;
             }
