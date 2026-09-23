@@ -232,7 +232,7 @@ impl UnresolvedUsingReason {
 }
 
 /// Source evidence retained for one failed `using` name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnresolvedUsing {
     /// Name exposed to the local scope (including an alias).
     pub name: SymbolId,
@@ -242,6 +242,8 @@ pub struct UnresolvedUsing {
     pub name_span: Span,
     /// Span of the target declaration when lookup found a hidden item.
     pub declaration_span: Option<Span>,
+    /// Source path of the hidden declaration when it belongs to another file.
+    pub declaration_path: Option<String>,
     /// Classification of the failed lookup.
     pub reason: UnresolvedUsingReason,
 }
@@ -283,7 +285,7 @@ impl ModuleUsingScope {
 
     /// Returns source evidence for a failed `using` name.
     pub fn unresolved_using(&self, name: &SymbolId) -> Option<UnresolvedUsing> {
-        self.unresolved_usings.get(name).copied()
+        self.unresolved_usings.get(name).cloned()
     }
 
     /// Iterates imported value and type entries.

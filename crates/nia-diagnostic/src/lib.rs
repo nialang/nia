@@ -17,7 +17,7 @@ pub use stable_bundle::{
     StableDiagnosticBundleError, decode_stable_diagnostic_bundle, encode_stable_diagnostic_bundle,
 };
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 pub use store::{DiagnosticBundle, DiagnosticBundleId, DiagnosticStore};
 
@@ -526,6 +526,8 @@ pub enum LabelStyle {
 pub struct RelatedDiagnostic {
     /// Related source span.
     pub span: Span,
+    /// Optional source path when the related span belongs to another file.
+    pub source_path: Option<String>,
     /// Explanation for the related location.
     pub message: String,
 }
@@ -979,6 +981,22 @@ impl DiagnosticBuilder {
     pub fn related(mut self, span: Span, message: impl Into<String>) -> Self {
         self.diagnostic.related.push(RelatedDiagnostic {
             span,
+            source_path: None,
+            message: message.into(),
+        });
+        self
+    }
+
+    /// Appends a related source location owned by another source file.
+    pub fn related_at(
+        mut self,
+        source_path: impl Into<String>,
+        span: Span,
+        message: impl Into<String>,
+    ) -> Self {
+        self.diagnostic.related.push(RelatedDiagnostic {
+            span,
+            source_path: Some(source_path.into()),
             message: message.into(),
         });
         self
@@ -1160,6 +1178,17 @@ struct LineInfo {
 
 /// Renders one diagnostic using source labels and explanatory sections.
 pub fn render_diagnostic(path: &str, source: &str, diagnostic: &Diagnostic) -> String {
+    render_diagnostic_with_sources(path, source, diagnostic, &HashMap::new())
+}
+
+/// Renders one diagnostic while resolving source text for cross-file related
+/// locations. The primary source remains the fallback for legacy locations.
+pub fn render_diagnostic_with_sources<'a>(
+    path: &str,
+    source: &'a str,
+    diagnostic: &Diagnostic,
+    sources: &'a HashMap<String, String>,
+) -> String {
     let mut output = String::new();
     let category = match diagnostic.category {
         DiagnosticCategory::User => "",
@@ -1199,10 +1228,16 @@ pub fn render_diagnostic(path: &str, source: &str, diagnostic: &Diagnostic) -> S
         }
     }
     for related in diagnostic.related.iter() {
-        let line = line_info(source, related.span.start);
+        let related_path = related.source_path.as_deref().unwrap_or(path);
+        let related_source = related
+            .source_path
+            .as_deref()
+            .and_then(|path| sources.get(path).map(String::as_str))
+            .unwrap_or(source);
+        let line = line_info(related_source, related.span.start);
         output.push_str(&format!(
             "related: {}:{}:{}: {}\n",
-            path, line.number, line.column, related.message
+            related_path, line.number, line.column, related.message
         ));
     }
     if diagnostic.category == DiagnosticCategory::Internal {
@@ -1317,6 +1352,9 @@ pub fn render_diagnostic_json(path: &str, diagnostic: &Diagnostic) -> String {
         output.push_str(&related.span.start.to_string());
         output.push_str(",\"end\":");
         output.push_str(&related.span.end.to_string());
+        if let Some(source_path) = &related.source_path {
+            push_json_string_field(&mut output, "path", source_path, false);
+        }
         push_json_string_field(&mut output, "message", &related.message, false);
         output.push('}');
     }
@@ -1607,6 +1645,20 @@ mod tests {
         let rendered = render_diagnostic("main.nia", "abc", &diagnostic);
         assert!(rendered.contains("--> main.nia:1:2"));
         assert!(rendered.contains("|  ^"));
+    }
+
+    #[test]
+    fn renders_related_source_identity_and_json_path() {
+        let diagnostic = Diagnostic::user_error(codes::NAME_RESOLUTION, "hidden import")
+            .primary(Span::new(0, 1), "use here")
+            .related_at("api.nia", Span::new(4, 7), "declared here")
+            .finish();
+        let mut sources = HashMap::new();
+        sources.insert("api.nia".to_string(), "0123456789".to_string());
+        let rendered = render_diagnostic_with_sources("main.nia", "use", &diagnostic, &sources);
+        assert!(rendered.contains("related: api.nia:1:5: declared here"));
+        let json = render_diagnostic_json("main.nia", &diagnostic);
+        assert!(json.contains("\"path\":\"api.nia\""));
     }
 
     #[test]

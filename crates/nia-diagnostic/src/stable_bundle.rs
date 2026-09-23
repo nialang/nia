@@ -112,7 +112,12 @@ pub fn encode_stable_diagnostic_bundle(
         }
         write_len(&mut encoded, diagnostic.related.len())?;
         for related in diagnostic.related.iter() {
-            write_span(&mut encoded, related.span, source_len)?;
+            if related.source_path.is_some() {
+                write_related_span(&mut encoded, related.span)?;
+            } else {
+                write_span(&mut encoded, related.span, source_len)?;
+            }
+            write_optional_string(&mut encoded, related.source_path.as_deref())?;
             write_string(&mut encoded, &related.message)?;
         }
         write_len(&mut encoded, diagnostic.debug.len())?;
@@ -194,8 +199,14 @@ pub fn decode_stable_diagnostic_bundle(
         let related_len = read_len(&mut cursor)?;
         let mut related = decode_vec(related_len);
         for _ in 0..related_len {
+            let span = read_related_span(&mut cursor)?;
+            let source_path = read_optional_string(&mut cursor)?;
+            if source_path.is_none() && span.end > source_len {
+                return None;
+            }
             related.push(RelatedDiagnostic {
-                span: read_span(&mut cursor, source_len)?,
+                span,
+                source_path,
                 message: read_string(&mut cursor)?,
             });
         }
@@ -242,6 +253,29 @@ fn write_span(
         u64::try_from(span.end).map_err(|_| StableDiagnosticBundleError::TooLarge)?,
     )?;
     Ok(())
+}
+
+fn write_related_span(
+    encoded: &mut Vec<u8>,
+    span: Span,
+) -> Result<(), StableDiagnosticBundleError> {
+    if span.start > span.end || span.end > MAX_BUNDLE_BYTES {
+        return Err(StableDiagnosticBundleError::InvalidSpan);
+    }
+    write_u64(
+        encoded,
+        u64::try_from(span.start).map_err(|_| StableDiagnosticBundleError::InvalidSpan)?,
+    )?;
+    write_u64(
+        encoded,
+        u64::try_from(span.end).map_err(|_| StableDiagnosticBundleError::InvalidSpan)?,
+    )
+}
+
+fn read_related_span(cursor: &mut Cursor<&[u8]>) -> Option<Span> {
+    let start = usize::try_from(read_u64(cursor)?).ok()?;
+    let end = usize::try_from(read_u64(cursor)?).ok()?;
+    (start <= end && end <= MAX_BUNDLE_BYTES).then_some(Span::new(start, end))
 }
 
 fn read_span(cursor: &mut Cursor<&[u8]>, source_len: usize) -> Option<Span> {
@@ -400,7 +434,7 @@ mod tests {
                 "prefix the binding with an underscore",
                 SuggestionApplicability::MachineApplicable,
             )
-            .related(Span::new(6, 8), "related")
+            .related_at("api.nia", Span::new(6, 8), "related")
             .debug("owner", 7)
             .finish();
         diagnostic.labels[1].span_source = SpanSource::Generated;

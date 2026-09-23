@@ -153,7 +153,12 @@ impl TypeResolver<'_> {
         .related(failure.directive_span, "the `using` directive is here")
         .help(help);
         if let Some(span) = failure.declaration_span {
-            diagnostic = diagnostic.related(span, "the hidden imported item is declared here");
+            diagnostic = match failure.declaration_path.as_deref() {
+                Some(path) => {
+                    diagnostic.related_at(path, span, "the hidden imported item is declared here")
+                }
+                None => diagnostic.related(span, "the hidden imported item is declared here"),
+            };
         }
         diagnostic.finish()
     }

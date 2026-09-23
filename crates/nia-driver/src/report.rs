@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::collections::HashMap;
+
 use crate::{
     BackendOptimizationChange, CheckedProgram, CodegenProgram, DriverError, LlvmIrArtifact,
     NiaOptimizationLevel, ObjectArtifact,
@@ -228,6 +230,14 @@ fn render_program_diagnostic_items(
     primary_path: Option<&str>,
     primary_source: Option<&str>,
 ) -> String {
+    let sources = diagnostics
+        .iter()
+        .map(|diagnostic| {
+            let path = diagnostic.path.as_str().to_owned();
+            let source = nia_source::read_source_text(&path).unwrap_or_default();
+            (path, source)
+        })
+        .collect::<HashMap<_, _>>();
     let diagnostics = diagnostics
         .iter()
         .map(|diagnostic| ProgramDiagnosticReportItem {
@@ -240,7 +250,12 @@ fn render_program_diagnostic_items(
     out.push_str("diagnostics:\n");
     for entry in report.entries() {
         let source = diagnostic_source(entry.path, primary_path, primary_source);
-        out.push_str(&render_diagnostic(entry.path, &source, entry.diagnostic));
+        out.push_str(&nia_diagnostic::render_diagnostic_with_sources(
+            entry.path,
+            &source,
+            entry.diagnostic,
+            &sources,
+        ));
         out.push('\n');
     }
     push_suppressed_summary(

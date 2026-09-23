@@ -146,6 +146,7 @@ fn unresolved_using_diagnostic(
     reason: UnresolvedUsingReason,
     failure_span: Option<Span>,
     declaration_span: Option<Span>,
+    declaration_path: Option<&str>,
     symbols: &dyn SymbolText,
 ) -> Diagnostic {
     let selected = first_using_name(&using.selector);
@@ -172,7 +173,10 @@ fn unresolved_using_diagnostic(
                 "the target item is declared here"
             }
         };
-        diagnostic = diagnostic.related(declaration_span, message);
+        diagnostic = match declaration_path {
+            Some(path) => diagnostic.related_at(path, declaration_span, message),
+            None => diagnostic.related(declaration_span, message),
+        };
     }
     diagnostic.finish()
 }
@@ -348,7 +352,7 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                     }
                     UsingExpansion::Unresolved
                     | UsingExpansion::UnresolvedReason(_)
-                    | UsingExpansion::UnresolvedReasonAt(_, _, _) => {
+                    | UsingExpansion::UnresolvedReasonAt(_, _, _, _) => {
                         iteration_unresolved += 1;
                     }
                     UsingExpansion::HardError(_) => {}
@@ -411,6 +415,7 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                             UnresolvedUsingReason::UnknownName,
                             None,
                             None,
+                            None,
                             symbols,
                         ),
                     ));
@@ -425,16 +430,20 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                 {
                     diagnostics.push((
                         defs.module_id,
-                        unresolved_using_diagnostic(using, reason, None, None, symbols),
+                        unresolved_using_diagnostic(using, reason, None, None, None, symbols),
                     ));
                 }
-                UsingExpansion::UnresolvedReasonAt(reason, span, declaration_span)
-                    if process_used_paths
-                        && !using_host_waits_on_unprocessed_module(
-                            graph,
-                            defs.module_id,
-                            &using.host,
-                        ) =>
+                UsingExpansion::UnresolvedReasonAt(
+                    reason,
+                    span,
+                    declaration_span,
+                    declaration_path,
+                ) if process_used_paths
+                    && !using_host_waits_on_unprocessed_module(
+                        graph,
+                        defs.module_id,
+                        &using.host,
+                    ) =>
                 {
                     diagnostics.push((
                         defs.module_id,
@@ -443,13 +452,14 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                             reason,
                             Some(span),
                             declaration_span,
+                            declaration_path.as_deref(),
                             symbols,
                         ),
                     ));
                 }
                 UsingExpansion::Unresolved
                 | UsingExpansion::UnresolvedReason(_)
-                | UsingExpansion::UnresolvedReasonAt(_, _, _) => {}
+                | UsingExpansion::UnresolvedReasonAt(_, _, _, _) => {}
             }
         }
     }
@@ -557,6 +567,7 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                         using,
                         UnresolvedUsingReason::UnknownName,
                         None,
+                        None,
                     );
                     if process_used_paths && using.visibility != Visibility::Public {
                         diagnostics.push((
@@ -566,6 +577,7 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                                 UnresolvedUsingReason::UnknownName,
                                 None,
                                 None,
+                                None,
                                 symbols,
                             ),
                         ));
@@ -573,17 +585,28 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                     continue;
                 }
                 UsingExpansion::UnresolvedReason(reason) => {
-                    record_unresolved_using_names(&mut scope, using, reason, None);
+                    record_unresolved_using_names(&mut scope, using, reason, None, None);
                     if process_used_paths && using.visibility != Visibility::Public {
                         diagnostics.push((
                             defs.module_id,
-                            unresolved_using_diagnostic(using, reason, None, None, symbols),
+                            unresolved_using_diagnostic(using, reason, None, None, None, symbols),
                         ));
                     }
                     continue;
                 }
-                UsingExpansion::UnresolvedReasonAt(reason, span, declaration_span) => {
-                    record_unresolved_using_names(&mut scope, using, reason, declaration_span);
+                UsingExpansion::UnresolvedReasonAt(
+                    reason,
+                    span,
+                    declaration_span,
+                    declaration_path,
+                ) => {
+                    record_unresolved_using_names(
+                        &mut scope,
+                        using,
+                        reason,
+                        declaration_span,
+                        declaration_path.clone(),
+                    );
                     if process_used_paths && using.visibility != Visibility::Public {
                         diagnostics.push((
                             defs.module_id,
@@ -592,6 +615,7 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                                 reason,
                                 Some(span),
                                 declaration_span,
+                                declaration_path.as_deref(),
                                 symbols,
                             ),
                         ));
@@ -603,6 +627,7 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                         &mut scope,
                         using,
                         UnresolvedUsingReason::UnknownName,
+                        None,
                         None,
                     );
                     if process_used_paths && using.visibility != Visibility::Public {

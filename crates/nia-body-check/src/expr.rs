@@ -2056,7 +2056,12 @@ impl<'a> BodyChecker<'a> {
             .related(failure.directive_span, "the `using` directive is here")
             .help(help);
         if let Some(span) = failure.declaration_span {
-            diagnostic = diagnostic.related(span, "the hidden imported item is declared here");
+            diagnostic = match failure.declaration_path.as_deref() {
+                Some(path) => {
+                    diagnostic.related_at(path, span, "the hidden imported item is declared here")
+                }
+                None => diagnostic.related(span, "the hidden imported item is declared here"),
+            };
         }
         diagnostic.finish()
     }
@@ -2100,7 +2105,7 @@ impl<'a> BodyChecker<'a> {
             Some(LocalUse::ModuleValue) => {
                 if let Some(failure) = self.values.node_unresolved_usings.get(&expr.node_key) {
                     self.diagnostics
-                        .push(self.unresolved_using_diagnostic(expr, *failure));
+                        .push(self.unresolved_using_diagnostic(expr, failure.clone()));
                     return self.error();
                 }
                 if let Some(enum_id) = self.values.node_variant_enums.get(&expr.node_key).copied() {
@@ -2153,7 +2158,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 if let Some(failure) = self.values.node_unresolved_usings.get(&expr.node_key) {
                     self.diagnostics
-                        .push(self.unresolved_using_diagnostic(expr, *failure));
+                        .push(self.unresolved_using_diagnostic(expr, failure.clone()));
                 } else {
                     self.diagnostics.push(
                         Diagnostic::user_error(codes::TYPE_CHECK, "name is unresolved")

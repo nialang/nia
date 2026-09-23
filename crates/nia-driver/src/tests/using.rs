@@ -547,6 +547,10 @@ fn using_private_item_reports_declaration_evidence() {
         diagnostic.diagnostic.related.iter().any(|related| {
             related.message == "the private item is declared here"
                 && related.span.start == api_source.find("fn hidden").unwrap()
+                && related
+                    .source_path
+                    .as_deref()
+                    .is_some_and(|path| path.ends_with("api.nia"))
         }),
         "missing private declaration evidence: {:?}",
         diagnostic.diagnostic
