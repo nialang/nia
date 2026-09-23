@@ -343,19 +343,28 @@ impl<'a> BodyChecker<'a> {
             }
         } else {
             let actual = self.check_expr(&args[0]);
-            if let Some(TyKind::Pointer { elem, .. }) =
-                self.interner.get(self.normalization.normalize(actual))
-                && let Some(TyKind::Slice { elem, .. }) =
-                    self.interner.get(self.normalization.normalize(*elem))
-            {
-                elem_ty = Some(*elem);
-            }
-            if elem_ty.is_none() {
-                self.diagnostics.push(Diagnostic::user_error_at(
+            match self.interner.get(self.normalization.normalize(actual)) {
+                Some(TyKind::Pointer { elem, .. }) => {
+                    if let Some(TyKind::Slice { elem, .. }) =
+                        self.interner.get(self.normalization.normalize(*elem))
+                    {
+                        elem_ty = Some(*elem);
+                    }
+                    if elem_ty.is_none() {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TYPE_CHECK,
+                            args[0].span,
+                            format!("builtin `{name}` requires a slice pointer"),
+                        ));
+                    }
+                }
+                Some(TyKind::Error) => {}
+                Some(_) => self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     args[0].span,
                     format!("builtin `{name}` requires a slice pointer"),
-                ));
+                )),
+                None => {}
             }
         }
         if let ([expected], Some(actual)) = (explicit_args.as_slice(), elem_ty) {

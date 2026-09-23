@@ -121,6 +121,8 @@ operation codes have a dedicated diagnostic code so an earlier type-resolution
 failure does not hide them in per-module phase gating.
 The unaligned-load builtin also ignores an Error recovery pointer instead of
 reporting a secondary byte-pointer mismatch.
+The slice-length builtin likewise suppresses its slice-pointer shape error
+when name resolution has already produced an Error recovery value.
 
 ### 4. Report organization
 
@@ -201,7 +203,8 @@ value passed where a type is required receives the correct root diagnostic.
 Atomic builtin recovery has a snapshot proving invalid RMW operation codes stay
 visible alongside unknown type arguments while type-dependent atomic errors are
 suppressed. An unaligned-load recovery snapshot proves an unresolved pointer
-keeps only its name-resolution root.
+keeps only its name-resolution root. A slice-length recovery snapshot proves an
+unresolved value keeps only its name-resolution root.
 Directly qualified private values and types now retain the owning dependency
 source path for their declaration locations instead of rendering those spans
 against the use-site file. The module graph exposes each module's source path

@@ -1583,3 +1583,23 @@ fn invalid() u8x8 {
         checked.diagnostics
     );
 }
+
+#[test]
+fn slice_len_does_not_reject_error_recovery_pointers() {
+    let checked = pipeline(
+        r#"
+fn invalid() usize {
+    std::builtin::sliceLen(missing)
+}
+"#,
+    );
+
+    assert_eq!(checked.diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        checked.diagnostics[0]
+            .summary
+            .contains("unknown value `missing`"),
+        "{:?}",
+        checked.diagnostics
+    );
+}
