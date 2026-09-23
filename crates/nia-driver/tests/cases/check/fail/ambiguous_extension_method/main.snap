@@ -1,7 +1,17 @@
 path: fail/ambiguous_extension_method/main.nia
 code: E0301
+summary: ambiguous method `associated_rank`
+label: 349..380 Primary Source ambiguous method `associated_rank`
+note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
+note: candidate methods:
+  - associated_rank() -> i32
+note: 1 additional candidate(s) omitted
+help: make the receiver type or argument types more specific, or use an explicit method/type qualification
+
+path: fail/ambiguous_extension_method/main.nia
+code: E0301
 summary: ambiguous method `rank`
-label: 219..230 Primary Source ambiguous method `rank`
+label: 411..422 Primary Source ambiguous method `rank`
 note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
 note: candidate methods:
   - rank() -> i32
@@ -11,10 +21,22 @@ help: make the receiver type or argument types more specific, or use an explicit
 report:
 diagnostics:
 root diagnostic:
-error[E0301]: ambiguous method `rank`
-   --> fail/ambiguous_extension_method/main.nia:19:5
+error[E0301]: ambiguous method `associated_rank`
+   --> fail/ambiguous_extension_method/main.nia:27:39
    |
-19 |     pair.rank()
+27 |     let associated_rank: &fn() i32 = &Pair[i32, i32]::associated_rank;
+   |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ambiguous method `associated_rank`
+note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
+note: candidate methods:
+  - associated_rank() -> i32
+note: 1 additional candidate(s) omitted
+help: make the receiver type or argument types more specific, or use an explicit method/type qualification
+
+root diagnostic:
+error[E0301]: ambiguous method `rank`
+   --> fail/ambiguous_extension_method/main.nia:29:5
+   |
+29 |     pair.rank()
    |     ^^^^^^^^^^^ ambiguous method `rank`
 note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
 note: candidate methods:
@@ -22,4 +44,4 @@ note: candidate methods:
 note: 1 additional candidate(s) omitted
 help: make the receiver type or argument types more specific, or use an explicit method/type qualification
 
-summary: 1 error, 0 warnings
+summary: 2 errors, 0 warnings

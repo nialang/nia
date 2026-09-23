@@ -7,14 +7,24 @@ extend[T] Pair[T, i32] {
     fn rank(self) i32 {
         1
     }
+
+    fn associated_rank() i32 {
+        1
+    }
 }
 
 extend[U] Pair[i32, U] {
     fn rank(self) i32 {
         2
     }
+
+    fn associated_rank() i32 {
+        2
+    }
 }
 
 fn main(pair: Pair[i32, i32]) i32 {
+    let associated_rank: &fn() i32 = &Pair[i32, i32]::associated_rank;
+    _ = associated_rank;
     pair.rank()
 }
