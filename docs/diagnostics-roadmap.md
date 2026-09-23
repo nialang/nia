@@ -108,9 +108,10 @@ Unknown receiver-method calls on non-aggregate types now identify the missing
 method and receiver type instead of falling through to an unrelated aggregate
 field error. Callable fields on structs and unions still use the ordinary
 field and callable checks; range-bound methods report when the requested bound
-is absent. Ordinary call fixtures now snapshot arity, argument type, and
-non-callable errors together, while an unresolved argument keeps an independent
-type mismatch in a later argument visible.
+is absent. Ordinary and explicit-generic call fixtures now snapshot arity,
+argument type, and non-callable errors together, while an unresolved argument
+keeps an independent type mismatch in a later argument visible after generic
+substitution as well.
 
 This coverage is still incremental: qualified visibility cases beyond private
 values/types, qualified callable cases beyond unknown members, and other
@@ -210,7 +211,8 @@ Unknown values, type-as-value misuse, and module-as-value misuse now each have
 dedicated fixtures and complete structured/text snapshots.
 Ordinary call diagnostics have a combined snapshot for argument arity, argument
 type, non-callable callees, and an unresolved argument alongside an independent
-later argument mismatch.
+later argument mismatch. The same unresolved-first-argument boundary is covered
+for an explicit generic call after type substitution.
 Optional and error-union propagation boundaries, invalid propagation operands,
 and missing `IntoError` conversions now share an end-to-end case with complete
 structured/text snapshots, including the enclosing function return boundary.

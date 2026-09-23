@@ -1,34 +1,47 @@
 path: fail/call_diagnostics/main.nia
 code: E0301
 summary: argument count mismatch: expected 2, got 1
-label: 76..85 Primary Source argument count mismatch: expected 2, got 1
+label: 113..122 Primary Source argument count mismatch: expected 2, got 1
 note: this call accepts 2 argument(s), but received 1
 help: add the missing arguments to match the call signature
 
 path: fail/call_diagnostics/main.nia
 code: E0301
 summary: type mismatch in call argument 1: expected i32, got bool
-label: 80..84 Primary Source type mismatch in call argument 1: expected i32, got bool
+label: 117..121 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
 path: fail/call_diagnostics/main.nia
 code: E0301
 summary: callee is not callable
-label: 115..127 Primary Source this expression is used as a callee
+label: 152..164 Primary Source this expression is used as a callee
 note: the callee has type `i32`; only function pointers, closures, and callable views can be called
 help: call a function or callable value, or pass this value to a callable constructor
 
 path: fail/call_diagnostics/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 137..144 Primary Source no value named `missing` is visible in this scope
+label: 174..181 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 path: fail/call_diagnostics/main.nia
 code: E0301
 summary: type mismatch in call argument 2: expected i32, got bool
-label: 146..150 Primary Source type mismatch in call argument 2: expected i32, got bool
+label: 183..187 Primary Source type mismatch in call argument 2: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+path: fail/call_diagnostics/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 204..211 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+path: fail/call_diagnostics/main.nia
+code: E0301
+summary: type mismatch in call argument 2: expected i32, got bool
+label: 213..217 Primary Source type mismatch in call argument 2: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
@@ -36,47 +49,64 @@ report:
 diagnostics:
 root diagnostic:
 error[E0301]: argument count mismatch: expected 2, got 1
-  --> fail/call_diagnostics/main.nia:6:5
+  --> fail/call_diagnostics/main.nia:8:5
   |
-6 |     add(true);
+8 |     add(true);
   |     ^^^^^^^^^ argument count mismatch: expected 2, got 1
 note: this call accepts 2 argument(s), but received 1
 help: add the missing arguments to match the call signature
 
 root diagnostic:
 error[E0301]: type mismatch in call argument 1: expected i32, got bool
-  --> fail/call_diagnostics/main.nia:6:9
+  --> fail/call_diagnostics/main.nia:8:9
   |
-6 |     add(true);
+8 |     add(true);
   |         ^^^^ type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
 root diagnostic:
 error[E0301]: callee is not callable
-  --> fail/call_diagnostics/main.nia:8:5
-  |
-8 |     value(false);
-  |     ^^^^^^^^^^^^ this expression is used as a callee
+   --> fail/call_diagnostics/main.nia:10:5
+   |
+10 |     value(false);
+   |     ^^^^^^^^^^^^ this expression is used as a callee
 note: the callee has type `i32`; only function pointers, closures, and callable views can be called
 help: call a function or callable value, or pass this value to a callable constructor
 
 root diagnostic:
 error[E0201]: unknown value `missing`
-  --> fail/call_diagnostics/main.nia:9:9
-  |
-9 |     add(missing, true);
-  |         ^^^^^^^ no value named `missing` is visible in this scope
+   --> fail/call_diagnostics/main.nia:11:9
+   |
+11 |     add(missing, true);
+   |         ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 root diagnostic:
 error[E0301]: type mismatch in call argument 2: expected i32, got bool
-  --> fail/call_diagnostics/main.nia:9:18
-  |
-9 |     add(missing, true);
-  |                  ^^^^ type mismatch in call argument 2: expected i32, got bool
+   --> fail/call_diagnostics/main.nia:11:18
+   |
+11 |     add(missing, true);
+   |                  ^^^^ type mismatch in call argument 2: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
-summary: 5 errors, 0 warnings
+root diagnostic:
+error[E0201]: unknown value `missing`
+   --> fail/call_diagnostics/main.nia:12:15
+   |
+12 |     pair[i32](missing, true);
+   |               ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+root diagnostic:
+error[E0301]: type mismatch in call argument 2: expected i32, got bool
+   --> fail/call_diagnostics/main.nia:12:24
+   |
+12 |     pair[i32](missing, true);
+   |                        ^^^^ type mismatch in call argument 2: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+summary: 7 errors, 0 warnings
 note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)
