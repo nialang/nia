@@ -21,6 +21,19 @@ fn missing_delimiter(value: i32 {
     _ = value;
 }
 
+struct RecoveredFields {
+    missing: ,
+    retained: i32,
+}
+
+enum RecoveredPayload {
+    Data {
+        missing: ,
+        retained: i32,
+    },
+    Done,
+}
+
 fn () {}
 
 fn lexical_error() () {

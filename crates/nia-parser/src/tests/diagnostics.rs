@@ -113,6 +113,23 @@ fn reports_expected_token_and_actionable_help() {
 }
 
 #[test]
+fn member_recovery_keeps_later_fields_after_a_missing_type() {
+    let (module, errors) =
+        parse_module("struct Recovered { missing: , retained: i32, }\nfn later() {}");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].message.contains("expected type"), "{errors:?}");
+    let ItemKind::Struct(item) = &module.items[0].kind else {
+        panic!("expected recovered struct item");
+    };
+    assert_eq!(item.fields.len(), 1);
+    assert_eq!(item.fields[0].name, sym("retained"));
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected later function item");
+    };
+    assert_eq!(function.name, sym("later"));
+}
+
+#[test]
 fn classifies_parse_errors_by_grammar_rule_not_message_text() {
     let cases = [
         (
