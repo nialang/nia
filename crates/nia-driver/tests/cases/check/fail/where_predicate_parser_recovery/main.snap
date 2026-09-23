@@ -1,0 +1,17 @@
+path: fail/where_predicate_parser_recovery/main.nia
+code: E0101
+summary: expected type; found `:`
+label: 26..27 Primary Source expected type; found `:`
+help: provide a type name or type expression here
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected type; found `:`
+  --> fail/where_predicate_parser_recovery/main.nia:1:27
+  |
+1 | fn retained[T]() () where : T, T: T {}
+  |                           ^ expected type; found `:`
+help: provide a type name or type expression here
+
+summary: 1 error, 0 warnings
