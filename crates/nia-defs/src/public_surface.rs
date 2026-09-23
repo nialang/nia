@@ -201,6 +201,9 @@ pub enum UnresolvedUsingReason {
     NotPublic,
     /// The selected namespace exists but is not visible from this module.
     NamespaceNotVisible,
+    /// The host module is declared but its source could not be loaded; the
+    /// load error is the root cause.
+    ModuleUnavailable,
 }
 
 impl UnresolvedUsingReason {
@@ -225,7 +228,12 @@ impl UnresolvedUsingReason {
             ),
             Self::NamespaceNotVisible => (
                 format!("name `{name}` is unavailable because its module is not visible here"),
-                "make the module declaration visible from this module".to_string(),
+                "declare the module with `pub module`, or import it from a module that can see it"
+                    .to_string(),
+            ),
+            Self::ModuleUnavailable => (
+                format!("name `{name}` is unavailable because its module could not be loaded"),
+                "fix the module's load error first".to_string(),
             ),
         }
     }

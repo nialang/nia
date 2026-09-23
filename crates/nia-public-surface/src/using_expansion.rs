@@ -128,6 +128,11 @@ impl UsingExpansion {
         })
     }
 
+    /// A graph module without a surface was declared but never loaded.
+    fn module_unavailable() -> Self {
+        Self::unresolved(UnresolvedUsingReason::ModuleUnavailable, None, None, None)
+    }
+
     fn invalid(diagnostic: Diagnostic) -> Self {
         Self::failed(UsingFailureCause::Invalid(diagnostic))
     }
@@ -197,19 +202,15 @@ pub(super) fn resolve_namespace_path(
     current: &DefCollection,
     local_modules: &SymbolMap<ModuleId>,
     path: &[UsingPathSegment],
-) -> Result<ResolvedNamespace, Diagnostic> {
+) -> Result<ResolvedNamespace, UsingFailureCause> {
     // Resolve the first segment against roots and local module aliases, then
     // walk exported module surfaces. A type becomes a namespace only when it
     // is an enum; other types must not accidentally expose members through a
     // `using` path.
-    let defs_by_module = context.defs_by_module;
     let graph = context.graph;
-    let surfaces = context.surfaces;
-    let mode = context.mode;
     let symbols = context.symbols;
     let Some(first) = path.first() else {
-        return Err(Diagnostic::user_error_at(
-            codes::NAME_RESOLUTION,
+        return Err(invalid_path(
             Span::default(),
             "`using` requires a namespace path",
         ));
@@ -231,8 +232,7 @@ pub(super) fn resolve_namespace_path(
                 def_id,
             })
         } else {
-            return Err(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
+            return Err(invalid_path(
                 first.span,
                 format!(
                     "`using {}::...` requires `{0}` to be a module namespace or a local enum",
@@ -240,83 +240,78 @@ pub(super) fn resolve_namespace_path(
                 ),
             ));
         };
-
     for segment in &path[1..] {
-        let Some(segment_name) = path_segment_name(segment) else {
-            return Err(non_initial_special_segment_diagnostic(symbols, segment));
-        };
-        namespace = match namespace {
-            ResolvedNamespace::Module(module_id) => {
-                let Some(surface) = surfaces.get(module_id) else {
-                    return Err(Diagnostic::user_error_at(
-                        codes::NAME_RESOLUTION,
-                        segment.span,
-                        "module namespace refers to an unresolved public surface",
-                    ));
-                };
-                if let Some(target_module) = surface.lookup_module(&segment_name) {
-                    ResolvedNamespace::Module(target_module)
-                } else if let Some(target_module) =
-                    visible_child_module(graph, current.module_id, module_id, &segment_name)
-                {
-                    ResolvedNamespace::Module(target_module)
-                } else if let Some(item) = surface.lookup_type(&segment_name) {
-                    let enum_id = GlobalDefId {
-                        module_id: item.target_module,
-                        def_id: item.target_def_id,
-                    };
-                    let Some(target_defs) = defs_by_module.get(&enum_id.module_id).copied() else {
-                        return Err(Diagnostic::user_error_at(
-                            codes::NAME_RESOLUTION,
-                            segment.span,
-                            "type namespace refers to an unloaded module",
-                        ));
-                    };
-                    let Some(def) = target_defs.defs.get(enum_id.def_id) else {
-                        return Err(Diagnostic::user_error_at(
-                            codes::NAME_RESOLUTION,
-                            segment.span,
-                            "type definition not found",
-                        ));
-                    };
-                    if def.kind != DefKind::Enum {
-                        return Err(Diagnostic::user_error_at(
-                            codes::NAME_RESOLUTION,
-                            segment.span,
-                            format!(
-                                "`{}` is not an enum namespace",
-                                symbol_text(symbols, segment_name)
-                            ),
-                        ));
-                    }
-                    ResolvedNamespace::Enum(enum_id)
-                } else if let Some(enum_id) = visible_direct_enum_namespace(
-                    defs_by_module,
-                    graph,
-                    current.module_id,
-                    module_id,
-                    &segment_name,
-                    mode,
-                ) {
-                    ResolvedNamespace::Enum(enum_id)
-                } else {
-                    return Err(Diagnostic::user_error_at(
-                        codes::NAME_RESOLUTION,
-                        segment.span,
-                        format!("unknown namespace `{}`", symbol_text(symbols, segment_name)),
-                    ));
-                }
-            }
-            ResolvedNamespace::Enum(_) => {
-                return Err(Diagnostic::user_error_at(
-                    codes::NAME_RESOLUTION,
-                    segment.span,
-                    "enum namespaces do not contain nested namespaces",
-                ));
-            }
-        };
+        if path_segment_name(segment).is_none() {
+            return Err(UsingFailureCause::Invalid(
+                non_initial_special_segment_diagnostic(symbols, segment),
+            ));
+        }
+        namespace = resolve_namespace_step(context, namespace, segment)?;
     }
     Ok(namespace)
+}
+
+fn invalid_path(span: Span, message: impl Into<String>) -> UsingFailureCause {
+    UsingFailureCause::Invalid(Diagnostic::user_error_at(
+        codes::NAME_RESOLUTION,
+        span,
+        message,
+    ))
+}
+
+fn module_unavailable_at(span: Span) -> UsingFailureCause {
+    UsingFailureCause::Unresolved {
+        reason: UnresolvedUsingReason::ModuleUnavailable,
+        span: Some(span),
+        declaration_span: None,
+        declaration_path: None,
+    }
+}
+
+/// Resolves one namespace segment below an already resolved namespace.
+fn resolve_namespace_step(
+    context: &UsingExpansionContext<'_>,
+    namespace: ResolvedNamespace,
+    segment: &UsingPathSegment,
+) -> Result<ResolvedNamespace, UsingFailureCause> {
+    match namespace {
+        ResolvedNamespace::Module(module_id) => {
+            resolve_public_namespace_segment(context, module_id, segment)
+        }
+        ResolvedNamespace::Enum(_) => Err(invalid_path(
+            segment.span,
+            "enum namespaces do not contain nested namespaces",
+        )),
+    }
+}
+
+/// Classifies a child module that exists but is hidden from the accessing
+/// module, so lookups report visibility with its declaration instead of
+/// claiming the name is absent.
+fn hidden_namespace_failure(
+    context: &UsingExpansionContext<'_>,
+    parent_module: ModuleId,
+    name: &SymbolId,
+    span: Span,
+) -> Option<UsingFailureCause> {
+    let parent = context.graph.get(parent_module)?;
+    let target = parent.children.get(name).copied()?;
+    let declaration = parent
+        .declarations
+        .iter()
+        .find(|declaration| &declaration.name == name && declaration.target == target)?;
+    (!module_declaration_visibility_allows(
+        declaration.visibility,
+        context.graph,
+        parent_module,
+        context.accessing_module,
+    ))
+    .then(|| UsingFailureCause::Unresolved {
+        reason: UnresolvedUsingReason::NamespaceNotVisible,
+        span: Some(span),
+        declaration_span: Some(declaration.span),
+        declaration_path: Some(parent.path.as_str().to_owned()),
+    })
 }
 
 pub(super) fn visible_child_module(
@@ -478,7 +473,7 @@ fn expand_directive(
     }
     let namespace = match resolve_namespace_path(context, current, local_modules, &using.host) {
         Ok(namespace) => namespace,
-        Err(diag) => return UsingExpansion::invalid(diag),
+        Err(cause) => return UsingExpansion::failed(cause),
     };
     if matches!(using.selector, UsingSelector::SelfName) {
         let Some(name) = using.host.last() else {
@@ -640,7 +635,7 @@ fn expand_root_group_item(
         UsingGroupItem::Nested { host, selector } => {
             let namespace = match resolve_namespace_path(context, current, local_modules, host) {
                 Ok(namespace) => namespace,
-                Err(diag) => return UsingExpansion::invalid(diag),
+                Err(cause) => return UsingExpansion::failed(cause),
             };
             if matches!(selector.as_ref(), UsingSelector::SelfName) {
                 let Some(name) = host.last() else {
@@ -684,7 +679,7 @@ fn expand_module_host(
     source: PublicSource,
 ) -> UsingExpansion {
     let Some(target_surface) = context.surfaces.get(target_module) else {
-        return UsingExpansion::unknown();
+        return UsingExpansion::module_unavailable();
     };
     match selector {
         UsingSelector::SelfName => UsingExpansion::unknown(),
@@ -826,14 +821,14 @@ fn expand_group_item(
                 }]);
             }
             let Some(surface) = context.surfaces.get(current_module) else {
-                return UsingExpansion::unknown();
+                return UsingExpansion::module_unavailable();
             };
             resolve_module_single(context, surface, current_module, name, source.clone())
         }
         UsingGroupItem::Nested { host, selector } => {
             let namespace = match resolve_public_namespace_path(context, current_module, host) {
                 Ok(namespace) => namespace,
-                Err(diag) => return UsingExpansion::invalid(diag),
+                Err(cause) => return UsingExpansion::failed(cause),
             };
             if matches!(selector.as_ref(), UsingSelector::SelfName) {
                 let Some(name) = host.last() else {
@@ -880,10 +875,9 @@ pub(super) fn resolve_public_namespace_path(
     context: &UsingExpansionContext<'_>,
     start_module: ModuleId,
     host: &[UsingPathSegment],
-) -> Result<ResolvedNamespace, Diagnostic> {
+) -> Result<ResolvedNamespace, UsingFailureCause> {
     let Some(first) = host.first() else {
-        return Err(Diagnostic::user_error_at(
-            codes::NAME_RESOLUTION,
+        return Err(invalid_path(
             Span::default(),
             "nested `using` group host must name a namespace",
         ));
@@ -891,23 +885,11 @@ pub(super) fn resolve_public_namespace_path(
     let mut namespace = resolve_public_namespace_segment(context, start_module, first)?;
     for segment in &host[1..] {
         if !matches!(segment.kind, PathSegmentKind::Name(_)) {
-            return Err(non_initial_special_segment_diagnostic(
-                context.symbols,
-                segment,
+            return Err(UsingFailureCause::Invalid(
+                non_initial_special_segment_diagnostic(context.symbols, segment),
             ));
         }
-        namespace = match namespace {
-            ResolvedNamespace::Module(module_id) => {
-                resolve_public_namespace_segment(context, module_id, segment)?
-            }
-            ResolvedNamespace::Enum(_) => {
-                return Err(Diagnostic::user_error_at(
-                    codes::NAME_RESOLUTION,
-                    segment.span,
-                    "enum namespaces do not contain nested namespaces",
-                ));
-            }
-        };
+        namespace = resolve_namespace_step(context, namespace, segment)?;
     }
     Ok(namespace)
 }
@@ -916,7 +898,7 @@ fn resolve_public_namespace_segment(
     context: &UsingExpansionContext<'_>,
     module_id: ModuleId,
     segment: &UsingPathSegment,
-) -> Result<ResolvedNamespace, Diagnostic> {
+) -> Result<ResolvedNamespace, UsingFailureCause> {
     let defs_by_module = context.defs_by_module;
     let graph = context.graph;
     let accessing_module = context.accessing_module;
@@ -930,36 +912,24 @@ fn resolve_public_namespace_segment(
                 .get(module_id)
                 .and_then(|node| node.parent)
                 .map(ResolvedNamespace::Module)
-                .ok_or_else(|| {
-                    Diagnostic::user_error_at(
-                        codes::NAME_RESOLUTION,
-                        segment.span,
-                        "`super` has no parent module",
-                    )
-                }),
+                .ok_or_else(|| invalid_path(segment.span, "`super` has no parent module")),
             PathSegmentKind::Package => graph
                 .current_package_root(module_id)
                 .map(ResolvedNamespace::Module)
-                .ok_or_else(|| {
-                    Diagnostic::user_error_at(
-                        codes::NAME_RESOLUTION,
-                        segment.span,
-                        "`pkg` has no package root",
-                    )
-                }),
-            PathSegmentKind::Name(_) => Err(Diagnostic::internal_error_at(
-                codes::NAME_RESOLUTION,
-                segment.span,
-                "named path segment lost its symbol during namespace resolution",
-            )),
+                .ok_or_else(|| invalid_path(segment.span, "`pkg` has no package root")),
+            PathSegmentKind::Name(_) => {
+                Err(UsingFailureCause::Invalid(Diagnostic::internal_error_at(
+                    codes::NAME_RESOLUTION,
+                    segment.span,
+                    "named path segment lost its symbol during namespace resolution",
+                )))
+            }
         };
     };
     let Some(surface) = surfaces.get(module_id) else {
-        return Err(Diagnostic::user_error_at(
-            codes::NAME_RESOLUTION,
-            segment.span,
-            "module namespace refers to an unresolved public surface",
-        ));
+        // The module is in the graph but was never loaded; its load error is
+        // the root cause.
+        return Err(module_unavailable_at(segment.span));
     };
     if let Some(target_module) = surface.lookup_module(&segment_name) {
         return Ok(ResolvedNamespace::Module(target_module));
@@ -975,22 +945,17 @@ fn resolve_public_namespace_segment(
             def_id: item.target_def_id,
         };
         let Some(target_defs) = defs_by_module.get(&enum_id.module_id).copied() else {
-            return Err(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                segment.span,
-                "type namespace refers to an unloaded module",
-            ));
+            return Err(module_unavailable_at(segment.span));
         };
         let Some(def) = target_defs.defs.get(enum_id.def_id) else {
-            return Err(Diagnostic::user_error_at(
+            return Err(UsingFailureCause::Invalid(Diagnostic::internal_error_at(
                 codes::NAME_RESOLUTION,
                 segment.span,
-                "type definition not found",
-            ));
+                "public surface type has no definition in its module",
+            )));
         };
         if def.kind != DefKind::Enum {
-            return Err(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
+            return Err(invalid_path(
                 segment.span,
                 format!(
                     "`{}` is not an enum namespace",
@@ -1010,8 +975,11 @@ fn resolve_public_namespace_segment(
     ) {
         return Ok(ResolvedNamespace::Enum(enum_id));
     }
-    Err(Diagnostic::user_error_at(
-        codes::NAME_RESOLUTION,
+    if let Some(hidden) = hidden_namespace_failure(context, module_id, &segment_name, segment.span)
+    {
+        return Err(hidden);
+    }
+    Err(invalid_path(
         segment.span,
         format!("unknown namespace `{}`", symbol_text(symbols, segment_name)),
     ))
@@ -1101,6 +1069,11 @@ fn resolve_module_single(
         }
     }
     if entries.is_empty() {
+        if let Some(hidden) =
+            hidden_namespace_failure(context, target_module, &name.name, local_span)
+        {
+            return UsingExpansion::failed(hidden);
+        }
         let (reason, declaration_span) = context
             .defs_by_module
             .get(&target_module)

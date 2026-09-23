@@ -135,13 +135,20 @@ fn using_failure_span(
 }
 
 /// Builds the root diagnostic for one failed selector of `using`.
+///
+/// Returns `None` when another phase owns the root cause: a host module that
+/// could not be loaded is already reported by the load diagnostics.
 fn using_failure_diagnostic(
     using: &ModuleUsing,
     failure: &UsingFailure,
     symbols: &dyn SymbolText,
-) -> Diagnostic {
+) -> Option<Diagnostic> {
     let (reason, failure_span, declaration_span, declaration_path) = match &failure.cause {
-        UsingFailureCause::Invalid(diagnostic) => return diagnostic.clone(),
+        UsingFailureCause::Invalid(diagnostic) => return Some(diagnostic.clone()),
+        UsingFailureCause::Unresolved {
+            reason: UnresolvedUsingReason::ModuleUnavailable,
+            ..
+        } => return None,
         UsingFailureCause::Unresolved {
             reason,
             span,
@@ -174,7 +181,10 @@ fn using_failure_diagnostic(
             UnresolvedUsingReason::NotPublic => {
                 "the item is declared here and needs public visibility"
             }
-            UnresolvedUsingReason::UnknownName | UnresolvedUsingReason::NamespaceNotVisible => {
+            UnresolvedUsingReason::NamespaceNotVisible => {
+                "the module is declared here without public visibility"
+            }
+            UnresolvedUsingReason::UnknownName | UnresolvedUsingReason::ModuleUnavailable => {
                 "the target item is declared here"
             }
         };
@@ -183,7 +193,7 @@ fn using_failure_diagnostic(
             None => diagnostic.related(declaration_span, message),
         };
     }
-    diagnostic.finish()
+    Some(diagnostic.finish())
 }
 
 /// Compute every module's exported public surface and per-module using scope.
@@ -410,11 +420,10 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                     UsingFailureCause::Unresolved { .. } => lookup_final,
                     UsingFailureCause::Invalid(_) => process_used_paths,
                 };
-                if report {
-                    diagnostics.push((
-                        defs.module_id,
-                        using_failure_diagnostic(using, failure, symbols),
-                    ));
+                if report
+                    && let Some(diagnostic) = using_failure_diagnostic(using, failure, symbols)
+                {
+                    diagnostics.push((defs.module_id, diagnostic));
                 }
             }
         }
@@ -520,11 +529,11 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                 record_unresolved_using_names(&mut scope, using, failure);
                 // Public re-export failures are reported once by the
                 // public-surface pass.
-                if process_used_paths && using.visibility != Visibility::Public {
-                    diagnostics.push((
-                        defs.module_id,
-                        using_failure_diagnostic(using, failure, symbols),
-                    ));
+                if process_used_paths
+                    && using.visibility != Visibility::Public
+                    && let Some(diagnostic) = using_failure_diagnostic(using, failure, symbols)
+                {
+                    diagnostics.push((defs.module_id, diagnostic));
                 }
             }
             for entry in expansion.entries {
