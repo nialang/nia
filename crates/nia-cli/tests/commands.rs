@@ -252,6 +252,35 @@ fn emit_checked_preserves_text_json_diagnostic_contract() {
 }
 
 #[test]
+fn build_preserves_text_json_diagnostic_contract() {
+    let root = temp_dir("build_preserves_text_json_diagnostic_contract");
+    std::fs::write(root.join("build.nia"), "fn main(\n").expect("write invalid build script");
+
+    for command in ["build", "test"] {
+        for format in ["text", "json"] {
+            let output = support::nia_command()
+                .arg(command)
+                .arg(format!("--diagnostics-format={format}"))
+                .arg("--root")
+                .arg(&*root)
+                .output_timeout_for_build("run nia workflow with diagnostics");
+            assert_eq!(output.status.code(), Some(1), "{command} {format}");
+            assert!(output.stdout.is_empty(), "{command} {format}");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(!stderr.contains('\x1b'), "{command} {format}: {stderr}");
+            if format == "json" {
+                assert!(
+                    stderr.trim_start().starts_with("{\"diagnostics\":"),
+                    "{command} {stderr}"
+                );
+            } else {
+                assert!(stderr.contains("error[E0101]"), "{command} {stderr}");
+            }
+        }
+    }
+}
+
+#[test]
 fn failed_using_use_is_grouped_under_its_root_diagnostic() {
     let root = temp_dir("failed_using_use_is_grouped_under_its_root_diagnostic");
     let main = root.join("main.nia");

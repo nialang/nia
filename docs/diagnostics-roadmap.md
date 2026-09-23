@@ -192,6 +192,9 @@ duplicate/display-limit counts. Interactive text diagnostics are colorized at
 the CLI boundary, while captured and JSON output remains deterministic and
 free of ANSI control sequences. CLI cases now assert exact success and failure
 statuses for check and emit, with test/build workflow status coverage. A Linux pseudo-terminal integration
+Build and test failures now also share an explicit text/JSON captured-output
+contract, including empty stdout, stable exit status, and the diagnostic JSON
+envelope.
 test verifies color on interactive text output and ANSI-free JSON output on the
 same terminal; interactive text also honors `NO_COLOR`. Other terminal
 platforms are deferred to the 0.3.0 multi-platform port. Broader output snapshot
