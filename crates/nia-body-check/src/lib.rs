@@ -185,6 +185,7 @@ struct BodyChecker<'a> {
     values: &'a ValueResolution,
     locals: &'a LocalResolution,
     semantic_uses: &'a SemanticUseTable,
+    type_resolution: &'a nia_type_resolve::TypeResolution,
     interner: BodyTypeCx<'a>,
     type_lowering: &'a TypeLowering,
     signatures: BodyLocalSignatures<'a>,

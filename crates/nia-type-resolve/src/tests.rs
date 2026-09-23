@@ -85,6 +85,24 @@ fn repeat[T, N: usize](value: T) [T; N] {
 }
 
 #[test]
+fn retains_unresolved_type_readings_of_ambiguous_call_arguments() {
+    let resolution = resolve_source(
+        r#"
+fn invalid() () {
+    _ = std::builtin::splat[MissingVector](1u8);
+}
+"#,
+    );
+
+    assert_eq!(resolution.unresolved_type_candidates.len(), 1);
+    assert!(
+        resolution.diagnostics.is_empty(),
+        "{:?}",
+        resolution.diagnostics
+    );
+}
+
+#[test]
 fn resolves_trait_associated_type_shorthand_in_trait_scope() {
     let resolved = resolve_source(
         r#"

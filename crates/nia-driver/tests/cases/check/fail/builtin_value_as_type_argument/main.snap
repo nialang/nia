@@ -1,0 +1,17 @@
+path: fail/builtin_value_as_type_argument/main.nia
+code: E0301
+summary: generic argument resolved as a value; expected a type
+label: 71..75 Primary Source generic argument resolved as a value; expected a type
+help: use a type name in this generic argument
+
+report:
+diagnostics:
+root diagnostic:
+error[E0301]: generic argument resolved as a value; expected a type
+  --> fail/builtin_value_as_type_argument/main.nia:4:27
+  |
+4 |     _ = std::builtin::ctz[LANE](0usize);
+  |                           ^^^^ generic argument resolved as a value; expected a type
+help: use a type name in this generic argument
+
+summary: 1 error, 0 warnings

@@ -256,6 +256,16 @@ fn encode_type_resolution(
     write_sorted_node_entries(
         &mut encoded,
         resolution
+            .unresolved_type_candidates
+            .iter()
+            .map(|site| Ok((site, ()))),
+        |site| *site,
+        source_version.id,
+        |_, ()| Ok(()),
+    )?;
+    write_sorted_node_entries(
+        &mut encoded,
+        resolution
             .node_const_generic_names
             .iter()
             .map(|(key, symbol)| {
@@ -311,6 +321,16 @@ fn decode_type_resolution(
             return None;
         }
     }
+    let mut unresolved_type_candidates = nia_hash::FastHashSet::default();
+    for entry in read_entries(&mut cursor, encoded.len())? {
+        let mut entry = Cursor::new(entry);
+        let site = read_node_site(&mut entry, source_version.id, source_len)?;
+        if usize::try_from(entry.position()).ok()? != entry.get_ref().len()
+            || !unresolved_type_candidates.insert(site)
+        {
+            return None;
+        }
+    }
     let mut node_const_generic_names = NodeMap::builder(node_store);
     let mut seen_const_nodes = HashSet::new();
     for entry in read_entries(&mut cursor, encoded.len())? {
@@ -337,6 +357,7 @@ fn decode_type_resolution(
     Some(TypeResolution {
         node_type_names,
         node_qualified_type_names,
+        unresolved_type_candidates,
         node_const_generic_names: node_const_generic_names.finish(),
         diagnostics: Vec::new(),
     })

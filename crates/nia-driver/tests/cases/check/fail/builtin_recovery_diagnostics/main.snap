@@ -1,0 +1,59 @@
+path: fail/builtin_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 51..58 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+path: fail/builtin_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 99..106 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+path: fail/builtin_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown type `MissingVector`
+label: 137..150 Primary Source unknown type `MissingVector`
+help: check the type name, module path, and whether the type is public
+
+path: fail/builtin_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown type `MissingInteger`
+label: 184..198 Primary Source unknown type `MissingInteger`
+help: check the type name, module path, and whether the type is public
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/builtin_recovery_diagnostics/main.nia:2:31
+  |
+2 |     _ = std::builtin::extract(missing, 0usize);
+  |                               ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/builtin_recovery_diagnostics/main.nia:3:31
+  |
+3 |     _ = std::builtin::bitmask(missing);
+  |                               ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown type `MissingVector`
+  --> fail/builtin_recovery_diagnostics/main.nia:4:29
+  |
+4 |     _ = std::builtin::splat[MissingVector](1u8);
+  |                             ^^^^^^^^^^^^^ unknown type `MissingVector`
+help: check the type name, module path, and whether the type is public
+
+root diagnostic:
+error[E0201]: unknown type `MissingInteger`
+  --> fail/builtin_recovery_diagnostics/main.nia:5:27
+  |
+5 |     _ = std::builtin::ctz[MissingInteger](0usize);
+  |                           ^^^^^^^^^^^^^^ unknown type `MissingInteger`
+help: check the type name, module path, and whether the type is public
+
+summary: 4 errors, 0 warnings

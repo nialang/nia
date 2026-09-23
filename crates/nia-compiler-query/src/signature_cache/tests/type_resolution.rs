@@ -35,6 +35,7 @@ fn type_resolution_encoding_is_independent_of_map_insertion_order() {
         TypeResolution {
             node_type_names,
             node_qualified_type_names: nia_hash::FastHashMap::default(),
+            unresolved_type_candidates: nia_hash::FastHashSet::default(),
             node_const_generic_names: NodeMap::builder(&store).finish(),
             diagnostics: Vec::new(),
         }
@@ -75,6 +76,7 @@ fn type_resolution_encoding_rejects_foreign_source_and_revision() {
             TypeNameResolution::Primitive(PrimitiveTypeSpelling::Scalar(PrimitiveTy::Usize)),
         )]),
         node_qualified_type_names: nia_hash::FastHashMap::default(),
+        unresolved_type_candidates: nia_hash::FastHashSet::default(),
         node_const_generic_names: NodeMap::builder(&store).finish(),
         diagnostics: Vec::new(),
     };
@@ -105,6 +107,7 @@ fn type_resolution_encoding_rejects_foreign_source_and_revision() {
     let foreign_revision = TypeResolution {
         node_type_names: nia_hash::FastHashMap::default(),
         node_qualified_type_names: nia_hash::FastHashMap::default(),
+        unresolved_type_candidates: nia_hash::FastHashSet::default(),
         node_const_generic_names: const_names.finish(),
         diagnostics: Vec::new(),
     };
@@ -162,6 +165,11 @@ fn type_resolution_rehydrates_current_source_module_and_symbol_owners() {
             end: NodeChildPath::from_steps(vec![5]),
         },
     };
+    let unresolved_candidate_site = NodeSite {
+        source_id: old_version.id,
+        kind: SyntaxKind::Type,
+        position: NodePosition::Span(nia_span::Span::new(11, 16)),
+    };
     let mut const_names = NodeMap::builder(&old_store);
     const_names.insert(
         VersionedNodeKey {
@@ -191,6 +199,9 @@ fn type_resolution_rehydrates_current_source_module_and_symbol_owners() {
                 def_id: DefId(41),
             },
         )]),
+        unresolved_type_candidates: nia_hash::FastHashSet::from_iter([
+            unresolved_candidate_site.clone()
+        ]),
         node_const_generic_names: const_names.finish(),
         diagnostics: Vec::new(),
     };
@@ -266,6 +277,10 @@ fn type_resolution_rehydrates_current_source_module_and_symbol_owners() {
             def_id: DefId(41),
         }))
     );
+    assert!(loaded.unresolved_type_candidates.contains(&NodeSite {
+        source_id: new_version.id,
+        ..unresolved_candidate_site
+    }));
     let new_const_key = VersionedNodeKey {
         site: NodeSite {
             source_id: new_version.id,

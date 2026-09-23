@@ -1395,6 +1395,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     values: &inputs.values,
                     locals: &inputs.locals,
                     semantic_uses: &inputs.semantic_uses,
+                    type_resolution: &type_resolution,
                     lowered: &lowered,
                     signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(
                         &signatures,

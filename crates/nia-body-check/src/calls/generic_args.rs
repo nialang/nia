@@ -146,7 +146,7 @@ impl<'a> BodyChecker<'a> {
                     lowered.push(self.error());
                     continue;
                 }
-                lowered.push(self.ty_for_type(ty));
+                lowered.push(self.lower_required_bracket_type(ty, arg));
             } else {
                 if let Some(expr) = &arg.expr {
                     let expr_ty = self.check_expr(expr);
@@ -172,6 +172,73 @@ impl<'a> BodyChecker<'a> {
                 }
             }
         }
+        lowered
+    }
+
+    fn lower_required_bracket_type(
+        &mut self,
+        ty: &nia_ast::TypeRef,
+        arg: &BracketArg,
+    ) -> InternedTyId {
+        let lowered = self.ty_for_type(ty);
+        if !self.is_error_ty(lowered)
+            || !self
+                .type_resolution
+                .unresolved_type_candidates
+                .contains(ty.node_key.site())
+        {
+            return lowered;
+        }
+        let TypeKind::Path { segments } = &ty.kind else {
+            return lowered;
+        };
+        let Some(PathSegmentKind::Name(name)) = segments.last().map(|segment| &segment.kind) else {
+            return lowered;
+        };
+        let name = self.symbol_name(*name);
+        let value_exists = arg.expr.as_ref().is_some_and(|expr| match &expr.kind {
+            ExprKind::Ident(_) => self.values.node_names.get(&expr.node_key).is_some_and(
+                |resolution| match resolution {
+                    nia_value_resolve::ValueNameResolution::Def(_)
+                    | nia_value_resolve::ValueNameResolution::External(_)
+                    | nia_value_resolve::ValueNameResolution::Module => true,
+                    nia_value_resolve::ValueNameResolution::LocalDeferred => self
+                        .locals
+                        .node_uses
+                        .get(&expr.node_key)
+                        .is_some_and(|local_use| {
+                            !matches!(local_use, nia_local_resolve::LocalUse::Unresolved)
+                        }),
+                    nia_value_resolve::ValueNameResolution::Error => false,
+                },
+            ),
+            ExprKind::Qualified { .. } => self
+                .values
+                .node_qualified_values
+                .get(&expr.node_key)
+                .is_some(),
+            _ => false,
+        });
+        let summary = if value_exists {
+            "generic argument resolved as a value; expected a type".to_string()
+        } else {
+            format!("unknown type `{name}`")
+        };
+        let code = if value_exists {
+            codes::TYPE_CHECK
+        } else {
+            codes::NAME_RESOLUTION
+        };
+        self.diagnostics.push(
+            Diagnostic::user_error(code, summary.clone())
+                .primary(arg.span, summary)
+                .help(if value_exists {
+                    "use a type name in this generic argument"
+                } else {
+                    "check the type name, module path, and whether the type is public"
+                })
+                .finish(),
+        );
         lowered
     }
 
@@ -240,7 +307,7 @@ impl<'a> BodyChecker<'a> {
             match &param.kind {
                 GenericParamSignatureKind::Type => {
                     if let Some(ty) = &arg.ty {
-                        let ty = self.ty_for_type(ty);
+                        let ty = self.lower_required_bracket_type(ty, arg);
                         lowered.type_args.push(ty);
                         lowered.substitutions.types.insert(param.name, ty);
                     } else {

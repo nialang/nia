@@ -207,6 +207,8 @@ pub struct BodyCheckInput<'a> {
     pub locals: &'a LocalResolution,
     /// Semantic use facts.
     pub semantic_uses: &'a SemanticUseTable,
+    /// Type-name resolutions and deferred ambiguous type candidates.
+    pub type_resolution: &'a nia_type_resolve::TypeResolution,
     /// Lowered runtime type information.
     pub lowered: &'a TypeLowering,
     /// Local-module signatures.
@@ -319,6 +321,8 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub locals: &'a LocalResolution,
     /// Semantic use facts.
     pub semantic_uses: &'a SemanticUseTable,
+    /// Type-name resolutions and deferred ambiguous type candidates.
+    pub type_resolution: &'a nia_type_resolve::TypeResolution,
     /// Lowered types.
     pub lowered: &'a TypeLowering,
     /// Program-wide signatures.
