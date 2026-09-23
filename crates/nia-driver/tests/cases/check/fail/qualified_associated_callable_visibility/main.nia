@@ -4,6 +4,7 @@ fn main() () {
     _ = api::Point::make();
     api::Point::hidden();
     let hidden: &fn() api::Point = &api::Point::hidden;
+    let missing: &fn() api::Point = &api::Point::missing;
     _ = hidden;
-    api::Point::missing();
+    _ = missing;
 }

@@ -15,7 +15,7 @@ related: 90..132 the restricted method is declared here
 path: fail/qualified_associated_callable_visibility/main.nia
 code: E0301
 summary: unknown associated function `missing`
-label: 158..179 Primary Source unknown associated function `missing`
+label: 175..194 Primary Source unknown associated function `missing`
 note: the target type is `Point`, and no visible associated function named `missing` was found
 help: check the type qualification, import the module that defines `missing`, or use a function available for `Point`
 
@@ -41,10 +41,10 @@ related: fail/qualified_associated_callable_visibility/api.nia:8:5: the restrict
 
 root diagnostic:
 error[E0301]: unknown associated function `missing`
-  --> fail/qualified_associated_callable_visibility/main.nia:8:5
+  --> fail/qualified_associated_callable_visibility/main.nia:7:38
   |
-8 |     api::Point::missing();
-  |     ^^^^^^^^^^^^^^^^^^^^^ unknown associated function `missing`
+7 |     let missing: &fn() api::Point = &api::Point::missing;
+  |                                      ^^^^^^^^^^^^^^^^^^^ unknown associated function `missing`
 note: the target type is `Point`, and no visible associated function named `missing` was found
 help: check the type qualification, import the module that defines `missing`, or use a function available for `Point`
 

@@ -212,6 +212,33 @@ impl<'a> BodyChecker<'a> {
                 {
                     return Some(item);
                 }
+                if self.qualified_value(expr).is_none()
+                    && let Some(target_ty) = self.associated_target_ty(lhs, expected, name)
+                {
+                    let candidates = self.method_candidates_for_target(target_ty, name);
+                    let inaccessible = if candidates.is_empty() {
+                        self.inaccessible_method_candidates_for_target(target_ty, name)
+                    } else {
+                        Vec::new()
+                    };
+                    if candidates.is_empty() && inaccessible.is_empty() {
+                        let name_text = self.symbol_name(*name);
+                        let target_name = self.ty_name(target_ty);
+                        let summary = format!("unknown associated function `{name_text}`");
+                        self.diagnostics.push(
+                            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                                .primary(expr.span, summary)
+                                .note(format!(
+                                    "the target type is `{target_name}`, and no visible associated function named `{name_text}` was found"
+                                ))
+                                .help(format!(
+                                    "check the type qualification, import the module that defines `{name_text}`, or use a function available for `{target_name}`"
+                                ))
+                                .finish(),
+                        );
+                        return None;
+                    }
+                }
                 self.qualified_callee_signature(expr)
                     .map(|resolved| FunctionItemRef {
                         resolved,
