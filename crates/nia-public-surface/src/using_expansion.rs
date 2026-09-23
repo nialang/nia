@@ -495,6 +495,7 @@ pub(super) fn record_unresolved_using_names(
     scope: &mut ModuleUsingScope,
     using: &ModuleUsing,
     failure: &UsingFailure,
+    cause: Option<nia_diagnostic::DiagnosticCause>,
 ) {
     let (reason, declaration_span, declaration_path) = match &failure.cause {
         UsingFailureCause::Unresolved {
@@ -518,6 +519,7 @@ pub(super) fn record_unresolved_using_names(
             declaration_span,
             declaration_path: declaration_path.clone(),
             reason,
+            cause: cause.clone(),
         };
         scope.unresolved_usings.insert(unresolved.name, unresolved);
     }

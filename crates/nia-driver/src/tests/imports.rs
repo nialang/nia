@@ -3243,6 +3243,22 @@ fn main() i32 {
             .iter()
             .any(|help| help.contains("check the imported module path"))
     );
+    let cause = diagnostic
+        .diagnostic
+        .cause
+        .as_ref()
+        .expect("failed import use should retain its emitted root identity");
+    let root = program
+        .diagnostics
+        .iter()
+        .find(|candidate| {
+            candidate.path.as_str() == cause.source_path
+                && candidate.diagnostic.code.as_str() == cause.code
+                && candidate.diagnostic.primary_span() == Some(cause.span)
+        })
+        .expect("failed import root diagnostic");
+    assert_eq!(root.diagnostic.primary_span(), Some(cause.span));
+    assert_ne!(root.diagnostic.summary, diagnostic.diagnostic.summary);
 }
 
 #[test]

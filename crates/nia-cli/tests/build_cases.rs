@@ -880,6 +880,7 @@ fn assert_dependency_success(contract: &str, workspace: &Path, output: &std::pro
         "stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    assert_eq!(output.status.code(), Some(0));
     assert!(workspace.join(".nia-build/build-plan.bin").is_file());
     assert_no_transient_runner_files(workspace);
     match contract {
@@ -900,6 +901,7 @@ fn assert_runner_error(
     output: &std::process::Output,
 ) {
     assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(1));
     assert_no_transient_runner_files(workspace);
     assert!(!workspace.join(".nia-build/build-plan.bin").exists());
     let stderr = String::from_utf8_lossy(&output.stderr);

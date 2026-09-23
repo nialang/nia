@@ -526,12 +526,20 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
             };
             let expansion = expand_using(&context, defs, using, &scope.modules);
             for failure in &expansion.failures {
-                record_unresolved_using_names(&mut scope, using, failure);
                 // Public re-export failures are reported once by the
                 // public-surface pass.
+                let root = using_failure_diagnostic(using, failure, symbols);
+                let cause = root.as_ref().and_then(|diagnostic| {
+                    Some(nia_diagnostic::DiagnosticCause {
+                        source_path: graph.get(defs.module_id)?.path.as_str().to_owned(),
+                        code: diagnostic.code.as_str().to_owned(),
+                        span: diagnostic.primary_span()?,
+                    })
+                });
+                record_unresolved_using_names(&mut scope, using, failure, cause);
                 if process_used_paths
                     && using.visibility != Visibility::Public
-                    && let Some(diagnostic) = using_failure_diagnostic(using, failure, symbols)
+                    && let Some(diagnostic) = root
                 {
                     diagnostics.push((defs.module_id, diagnostic));
                 }

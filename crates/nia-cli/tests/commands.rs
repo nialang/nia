@@ -184,6 +184,7 @@ fn main() () {}
         "check should succeed with warnings\nstderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    assert_eq!(output.status.code(), Some(0));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("warning[W0201]"), "{stderr}");
     assert!(stderr.contains("unused import `collections`"), "{stderr}");
@@ -203,6 +204,7 @@ fn captured_diagnostic_reports_remain_deterministic_without_ansi() {
             .arg(&main)
             .output_timeout_for_compiler("run nia check with captured diagnostics");
         assert!(!output.status.success(), "invalid source must fail");
+        assert_eq!(output.status.code(), Some(1));
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
             !stderr.contains('\x1b'),
@@ -215,6 +217,53 @@ fn captured_diagnostic_reports_remain_deterministic_without_ansi() {
             );
         }
     }
+}
+
+#[test]
+fn failed_using_use_is_grouped_under_its_root_diagnostic() {
+    let root = temp_dir("failed_using_use_is_grouped_under_its_root_diagnostic");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        "using entry::api::missing_value;\n\nfn main() i32 { missing_value() }\n",
+    )
+    .expect("write source");
+    std::fs::write(root.join("api.nia"), "").expect("write imported module");
+
+    let text = support::nia_command()
+        .arg("check")
+        .arg(&main)
+        .output_timeout_for_compiler("group a failed import use in text diagnostics");
+    assert_eq!(text.status.code(), Some(1));
+    let text = String::from_utf8_lossy(&text.stderr);
+    let root_heading = text.find("root diagnostic:").expect("root heading");
+    let root_message = text
+        .find("unknown namespace `api`")
+        .unwrap_or_else(|| panic!("missing import root message:\n{text}"));
+    let related_heading = text
+        .find("related to root diagnostic 1:")
+        .expect("related heading");
+    let use_message = text
+        .find("name `missing_value` is unavailable")
+        .unwrap_or_else(|| panic!("missing import use error:\n{text}"));
+    assert!(root_heading < root_message, "{text}");
+    assert!(
+        root_message < related_heading && related_heading < use_message,
+        "{text}"
+    );
+
+    let json = support::nia_command()
+        .arg("check")
+        .arg("--diagnostics-format=json")
+        .arg(&main)
+        .output_timeout_for_compiler("group a failed import use in JSON diagnostics");
+    assert_eq!(json.status.code(), Some(1));
+    let json = String::from_utf8_lossy(&json.stderr);
+    let root = json.find("\"kind\":\"root\"").expect("root JSON entry");
+    let related = json
+        .find("\"kind\":\"related\",\"parent\":0")
+        .expect("related JSON entry");
+    assert!(root < related, "{json}");
 }
 
 #[test]
@@ -252,6 +301,7 @@ fn main() i32 {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    assert_eq!(output.status.code(), Some(0));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stderr.contains("This is a compiler bug"), "{stderr}");
     assert!(!stderr.contains("Broken pipe"), "{stderr}");
@@ -270,6 +320,7 @@ fn check_rejects_misplaced_numeric_separators() {
         .output_timeout_for_compiler("reject misplaced numeric separator");
 
     assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("lexical error"), "{stderr}");
     assert!(stderr.contains("invalid numeric literal"), "{stderr}");
@@ -303,6 +354,7 @@ pub fn main() () {}
         "emit should succeed with warnings\nstderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    assert_eq!(output.status.code(), Some(0));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("warning[W0201]"), "{stderr}");
     assert!(stderr.contains("unused import `collections`"), "{stderr}");

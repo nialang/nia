@@ -162,6 +162,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         "{}",
         String::from_utf8_lossy(&listed.stderr)
     );
+    assert_eq!(listed.status.code(), Some(0));
     assert_eq!(
         String::from_utf8_lossy(&listed.stdout),
         "fail\nfail-second\npass\n"
@@ -175,9 +176,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
         "{}",
         String::from_utf8_lossy(&passing.stderr)
     );
+    assert_eq!(passing.status.code(), Some(0));
 
     let all = test_command(&workspace).output_timeout_in_session("run all Nia test suites");
     assert!(!all.status.success());
+    assert_eq!(all.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&all.stderr);
     assert!(stderr.contains("2 test suite(s) failed"), "{stderr}");
     assert!(stderr.contains("fail:"), "{stderr}");
@@ -187,6 +190,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .args(["--fail-fast", "--jobs", "1"])
         .output_timeout_in_session("stop after first failing Nia test suite");
     assert!(!fail_fast.status.success());
+    assert_eq!(fail_fast.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&fail_fast.stderr);
     assert!(stderr.contains("1 test suite(s) failed"), "{stderr}");
 }

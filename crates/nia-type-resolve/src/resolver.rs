@@ -152,6 +152,9 @@ impl TypeResolver<'_> {
         .related(failure.name_span, "the imported type is selected here")
         .related(failure.directive_span, "the `using` directive is here")
         .help(help);
+        if let Some(cause) = failure.cause {
+            diagnostic = diagnostic.caused_by(cause.source_path, cause.code, cause.span);
+        }
         if let Some(span) = failure.declaration_span {
             diagnostic = match failure.declaration_path.as_deref() {
                 Some(path) => {

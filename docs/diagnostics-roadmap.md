@@ -93,9 +93,10 @@ primary spans ahead of generated wrappers. Downstream suppression counts survive
 checked/codegen products and frontend check-certificate cache reuse. The full
 root/related/independent hierarchy is now ordered explicitly when diagnostics
 carry an unambiguous source-owned cause identity. That cause identity is retained
-in stable diagnostic bundles. Production diagnostic producers do not yet attach
-cause identities, so real compiler reports still need causal provenance before
-this stage is complete.
+in stable diagnostic bundles. Failed `using` lookups now carry their emitted
+root identity through value, type, and body resolution, so later use-site
+diagnostics are grouped under the import failure. Other recovery-derived
+diagnostics still need explicit provenance before this stage is complete.
 
 ### 5. CLI interaction contract
 
@@ -107,8 +108,9 @@ non-interactive output remains deterministic and snapshot-friendly.
 Text and JSON reports now expose the same retained error/warning summary and
 duplicate/display-limit counts. Interactive text diagnostics are colorized at
 the CLI boundary, while captured and JSON output remains deterministic and
-free of ANSI control sequences. Cross-command exit-status behavior and the
-complete interactive terminal contract still need end-to-end coverage.
+free of ANSI control sequences. CLI cases now assert exact success and failure
+statuses for check, emit, build, and test. The complete interactive terminal
+contract still needs end-to-end coverage.
 
 ### 6. Regression and quality gates
 
