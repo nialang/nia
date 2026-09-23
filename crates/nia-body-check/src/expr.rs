@@ -27,6 +27,25 @@ struct BuiltinOperatorFinish<'a> {
     expected: Option<InternedTyId>,
 }
 
+/// Source location and error types of one rejected `.?` propagation.
+#[derive(Debug, Clone, Copy)]
+struct ErrorPropagationSite {
+    /// The `.?` operator that crosses the function boundary.
+    span: Span,
+    /// The propagated operand that produces the source error.
+    source_span: Span,
+    source_ty: InternedTyId,
+    target_ty: InternedTyId,
+}
+
+/// The `IntoError` rule that rejected an error-type conversion.
+#[derive(Debug, Clone, Copy)]
+enum IntoErrorConversionFailure {
+    Missing,
+    Ambiguous,
+    Chained,
+}
+
 impl<'a> BodyChecker<'a> {
     pub(crate) fn check_expr(&mut self, expr: &Expr) -> InternedTyId {
         self.check_expr_with_expected(expr, None)
@@ -1028,7 +1047,13 @@ impl<'a> BodyChecker<'a> {
                 match self.error_union_parts(self.current_return) {
                     Some((return_error, _)) => {
                         if !self.types_match(error, return_error) {
-                            match self.resolve_into_error_conversion(span, error, return_error) {
+                            let site = ErrorPropagationSite {
+                                span,
+                                source_span: inner.span,
+                                source_ty: error,
+                                target_ty: return_error,
+                            };
+                            match self.resolve_into_error_conversion(site) {
                                 Ok(Some(conversion)) => {
                                     self.record_resolved_node_call(
                                         span,
@@ -1037,20 +1062,9 @@ impl<'a> BodyChecker<'a> {
                                     );
                                 }
                                 Ok(None) => {
-                                    let source_name = self.ty_name(error);
-                                    let target_name = self.ty_name(return_error);
                                     self.report_error_propagation_failure(
-                                        span,
-                                        inner.span,
-                                        format!(
-                                            "error propagation requires `{source_name}` to implement `IntoError[{target_name}]`"
-                                        ),
-                                        error,
-                                        return_error,
-                                        "no direct, visible `IntoError` implementation was found for the propagated error",
-                                        format!(
-                                            "implement `IntoError[{target_name}]` for `{source_name}`, or change the function return error type to `{source_name}`"
-                                        ),
+                                        site,
+                                        IntoErrorConversionFailure::Missing,
                                     );
                                 }
                                 Err(()) => {}
@@ -1101,18 +1115,50 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    /// Publishes the `IntoError` conversion failure at a `.?` boundary.
+    ///
+    /// The constructor owns the rule wording for every failure cause so the
+    /// summary, notes, help, and source labels cannot drift between callers.
     fn report_error_propagation_failure(
         &mut self,
-        span: Span,
-        source_span: Span,
-        summary: String,
-        source_ty: InternedTyId,
-        target_ty: InternedTyId,
-        note: &str,
-        help: impl Into<String>,
+        site: ErrorPropagationSite,
+        failure: IntoErrorConversionFailure,
     ) {
+        let ErrorPropagationSite {
+            span,
+            source_span,
+            source_ty,
+            target_ty,
+        } = site;
         let source_name = self.ty_name(source_ty);
         let target_name = self.ty_name(target_ty);
+        let (summary, note, help) = match failure {
+            IntoErrorConversionFailure::Missing => (
+                format!(
+                    "error propagation requires `{source_name}` to implement `IntoError[{target_name}]`"
+                ),
+                "no direct, visible `IntoError` implementation was found for the propagated error",
+                format!(
+                    "implement `IntoError[{target_name}]` for `{source_name}`, or change the function return error type to `{source_name}`"
+                ),
+            ),
+            IntoErrorConversionFailure::Ambiguous => (
+                format!(
+                    "ambiguous error propagation conversion from `{source_name}` to `{target_name}`"
+                ),
+                "more than one visible `IntoError` implementation matches this propagation",
+                "remove the ambiguity by keeping one conversion implementation or make the target error type explicit".to_string(),
+            ),
+            IntoErrorConversionFailure::Chained => (
+                format!(
+                    "error propagation does not chain `IntoError` conversions from `{source_name}` to `{target_name}`"
+                ),
+                "Nia requires one direct conversion at the propagation boundary; it does not compose multiple `IntoError` conversions",
+                format!(
+                    "add a direct `IntoError[{target_name}]` implementation for `{source_name}`, or propagate through the intermediate error type explicitly"
+                ),
+            ),
+        };
         let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
             .primary(span, summary)
             .note(format!(
@@ -1141,10 +1187,13 @@ impl<'a> BodyChecker<'a> {
 
     fn resolve_into_error_conversion(
         &mut self,
-        span: Span,
-        source_ty: InternedTyId,
-        target_ty: InternedTyId,
+        site: ErrorPropagationSite,
     ) -> Result<Option<ResolvedCall>, ()> {
+        let ErrorPropagationSite {
+            source_ty,
+            target_ty,
+            ..
+        } = site;
         let trait_args = vec![target_ty];
         match self.current_context_resolve_trait_obligation(
             source_ty,
@@ -1161,19 +1210,7 @@ impl<'a> BodyChecker<'a> {
                 }))
             }
             nia_trait_solve::TraitResolution::Ambiguous => {
-                let source_name = self.ty_name(source_ty);
-                let target_name = self.ty_name(target_ty);
-                self.report_error_propagation_failure(
-                    span,
-                    span,
-                    format!(
-                        "ambiguous error propagation conversion from `{source_name}` to `{target_name}`"
-                    ),
-                    source_ty,
-                    target_ty,
-                    "more than one visible `IntoError` implementation matches this propagation",
-                    "remove the ambiguity by keeping one conversion implementation or make the target error type explicit",
-                );
+                self.report_error_propagation_failure(site, IntoErrorConversionFailure::Ambiguous);
                 Err(())
             }
             nia_trait_solve::TraitResolution::Intrinsic(_) => Ok(None),
@@ -1184,20 +1221,9 @@ impl<'a> BodyChecker<'a> {
                     &trait_args,
                 );
                 if self.has_into_error_chain(source_ty, target_ty) {
-                    let source_name = self.ty_name(source_ty);
-                    let target_name = self.ty_name(target_ty);
                     self.report_error_propagation_failure(
-                        span,
-                        span,
-                        format!(
-                            "error propagation does not chain `IntoError` conversions from `{source_name}` to `{target_name}`"
-                        ),
-                        source_ty,
-                        target_ty,
-                        "Nia requires one direct conversion at the propagation boundary; it does not compose multiple `IntoError` conversions",
-                        format!(
-                            "add a direct `IntoError[{target_name}]` implementation for `{source_name}`, or propagate through the intermediate error type explicitly"
-                        ),
+                        site,
+                        IntoErrorConversionFailure::Chained,
                     );
                     Err(())
                 } else {
