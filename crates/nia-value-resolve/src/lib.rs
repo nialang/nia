@@ -47,6 +47,11 @@ pub struct ValueResolution {
     /// Populated by value-resolve so downstream phases can recognise these
     /// as type prefixes without re-resolving the module alias.
     pub node_qualified_type_prefixes: NodeMap<GlobalDefId>,
+    /// Source evidence for imported types encountered in value position.
+    /// Local resolution uses the type-prefix identity to reject the value use;
+    /// these spans let body checking explain the namespace mismatch without
+    /// reconstructing the import graph.
+    pub node_imported_type_prefixes: NodeMap<ImportedTypePrefix>,
     /// Diagnostics emitted while resolving values.
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -60,6 +65,7 @@ pub struct ValueResolutionBuilder {
     node_builtin_associated_values: NodeMapBuilder<BuiltinAssociatedValue>,
     node_variant_enums: NodeMapBuilder<GlobalDefId>,
     node_qualified_type_prefixes: NodeMapBuilder<GlobalDefId>,
+    node_imported_type_prefixes: NodeMapBuilder<ImportedTypePrefix>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -73,6 +79,7 @@ impl ValueResolution {
             node_builtin_associated_values: NodeMap::with_store(store),
             node_variant_enums: NodeMap::with_store(store),
             node_qualified_type_prefixes: NodeMap::with_store(store),
+            node_imported_type_prefixes: NodeMap::with_store(store),
             diagnostics: Vec::new(),
         }
     }
@@ -86,6 +93,7 @@ impl ValueResolution {
             node_builtin_associated_values: NodeMap::builder(store),
             node_variant_enums: NodeMap::builder(store),
             node_qualified_type_prefixes: NodeMap::builder(store),
+            node_imported_type_prefixes: NodeMap::builder(store),
             diagnostics: Vec::new(),
         }
     }
@@ -99,6 +107,7 @@ impl ValueResolution {
             node_builtin_associated_values: self.node_builtin_associated_values.into_builder(),
             node_variant_enums: self.node_variant_enums.into_builder(),
             node_qualified_type_prefixes: self.node_qualified_type_prefixes.into_builder(),
+            node_imported_type_prefixes: self.node_imported_type_prefixes.into_builder(),
             diagnostics: self.diagnostics,
         }
     }
@@ -135,6 +144,8 @@ impl ValueResolutionBuilder {
             .extend_map(resolution.node_variant_enums);
         self.node_qualified_type_prefixes
             .extend_map(resolution.node_qualified_type_prefixes);
+        self.node_imported_type_prefixes
+            .extend_map(resolution.node_imported_type_prefixes);
         self.diagnostics.extend(resolution.diagnostics);
     }
 
@@ -147,9 +158,19 @@ impl ValueResolutionBuilder {
             node_builtin_associated_values: self.node_builtin_associated_values.finish(),
             node_variant_enums: self.node_variant_enums.finish(),
             node_qualified_type_prefixes: self.node_qualified_type_prefixes.finish(),
+            node_imported_type_prefixes: self.node_imported_type_prefixes.finish(),
             diagnostics: self.diagnostics,
         }
     }
+}
+
+/// Source evidence for a type imported into the current module's using scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImportedTypePrefix {
+    /// Span of the imported name or alias in the using selector.
+    pub name_span: Span,
+    /// Span of the complete using directive.
+    pub directive_span: Span,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -588,6 +609,7 @@ struct ValueResolver<'a> {
     node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
     node_variant_enums: HashMap<VersionedNodeKey, GlobalDefId>,
     node_qualified_type_prefixes: HashMap<VersionedNodeKey, GlobalDefId>,
+    node_imported_type_prefixes: HashMap<VersionedNodeKey, ImportedTypePrefix>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -625,6 +647,7 @@ impl ValueResolver<'_> {
             node_builtin_associated_values: HashMap::new(),
             node_variant_enums: HashMap::new(),
             node_qualified_type_prefixes: HashMap::new(),
+            node_imported_type_prefixes: HashMap::new(),
             diagnostics: Vec::new(),
         }
     }
@@ -647,6 +670,9 @@ impl ValueResolver<'_> {
         resolution
             .node_qualified_type_prefixes
             .extend(self.node_qualified_type_prefixes);
+        resolution
+            .node_imported_type_prefixes
+            .extend(self.node_imported_type_prefixes);
         resolution.diagnostics = self.diagnostics;
         resolution.finish()
     }
@@ -1011,6 +1037,13 @@ impl<'a> ValueResolver<'a> {
             };
             self.insert_name(segment.node_key, ValueNameResolution::External(type_id));
             self.insert_qualified_type_prefix(segment.node_key, type_id);
+            self.node_imported_type_prefixes.insert(
+                segment.node_key.clone(),
+                ImportedTypePrefix {
+                    name_span: entry.name_span,
+                    directive_span: entry.directive_span,
+                },
+            );
             return Some(ResolvedNamespace::Type(type_id));
         }
         if let Some(failure) = self
@@ -1408,6 +1441,13 @@ impl<'a> ValueResolver<'a> {
                 GlobalDefId {
                     module_id: entry.target_module,
                     def_id: entry.target_def_id,
+                },
+            );
+            self.node_imported_type_prefixes.insert(
+                node_key.clone(),
+                ImportedTypePrefix {
+                    name_span: entry.name_span,
+                    directive_span: entry.directive_span,
                 },
             );
         }

@@ -868,6 +868,20 @@ impl<'a> LocalResolver<'a> {
             self.record_use(node_key, LocalUse::Static(item.id));
             return;
         }
+        if let Some(type_id) = self
+            .values
+            .node_qualified_type_prefixes
+            .get(&node_key)
+            .copied()
+            && self
+                .values
+                .node_imported_type_prefixes
+                .contains_key(&node_key)
+        {
+            self.record_use(node_key.clone(), LocalUse::TypePrefix);
+            self.node_type_prefixes.insert(node_key, type_id);
+            return;
+        }
         match self.values.node_names.get(&node_key).copied() {
             Some(ValueNameResolution::Def(_)) | Some(ValueNameResolution::External(_)) => {
                 self.record_use(node_key, LocalUse::ModuleValue);
