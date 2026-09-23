@@ -1,0 +1,45 @@
+struct Point { x: i32 }
+enum Color { Red }
+
+fn optional() () {
+    if optional_missing is ?value {
+        _ = value;
+    }
+}
+
+fn error_union() () {
+    match error_missing {
+        !ok => { _ = ok; },
+        err! => { _ = err; }
+    }
+}
+
+fn tuple() () {
+    match tuple_missing {
+        (left, right) => { _ = left; _ = right; }
+    }
+}
+
+fn pointer() () {
+    match pointer_missing {
+        &value => { _ = value; }
+    }
+}
+
+fn null_pattern() () {
+    match null_missing {
+        null => {}
+    }
+}
+
+fn struct_pattern() () {
+    match struct_missing {
+        Point { x } => { _ = x; }
+    }
+}
+
+fn enum_pattern() () {
+    match enum_missing {
+        Color::Red => {}
+    }
+}

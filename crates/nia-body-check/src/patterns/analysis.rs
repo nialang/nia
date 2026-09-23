@@ -15,6 +15,9 @@ impl BodyChecker<'_> {
         target_ty: InternedTyId,
         matrix: &[Vec<AnalysisPattern<PatternConstructor>>],
     ) {
+        if self.is_error_ty(target_ty) {
+            return;
+        }
         // The pure matrix engine receives only constructors whose type/domain
         // facts are sound. Unknown names, malformed nominal fields, open enum
         // tails, and unavailable constant values become `Opaque`; that keeps
