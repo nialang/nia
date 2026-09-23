@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::ResolvedFunctionSignature;
 use super::builtins::{BuiltinCallArguments, BuiltinCallTypeArgs};
+use super::generic_args::GenericSubstitutions;
 use super::std_builtin_function;
 use crate::{BodyChecker, generic_inst_base};
 use nia_ast::{BracketArg, Expr, ExprKind, UnaryOp};
@@ -561,35 +562,36 @@ impl<'a> BodyChecker<'a> {
         };
         // Explicit call arguments are authoritative. Substitute them into the
         // inference patterns so only `_` parameters are inferred from values.
-        let fixed_substitutions = lowered_args.type_substitutions;
-        let fixed_const_substitutions = lowered_args.const_substitutions;
-        let fixed_is_concrete = fixed_substitutions
+        let fixed = lowered_args.substitutions;
+        let fixed_is_concrete = fixed
+            .types
             .values()
             .all(|ty| !self.type_contains_generic_param(*ty))
-            && fixed_const_substitutions
+            && fixed
+                .consts
                 .values()
                 .all(|arg| !matches!(arg.value, ConstGenericValue::GenericParam(_)));
-        let mut substitutions = fixed_substitutions.clone();
-        let mut const_substitutions = fixed_const_substitutions.clone();
+        let mut substitutions = fixed.clone();
         self.infer_generic_function_call_substitutions(
             span,
             signature,
             args,
             expected,
-            fixed_is_concrete.then_some((&fixed_substitutions, &fixed_const_substitutions)),
+            fixed_is_concrete.then_some(&fixed),
             &mut substitutions,
-            &mut const_substitutions,
         );
         let type_generics = type_generic_names(signature);
-        let Some(instance_args) =
-            self.complete_generic_function_instance_args(span, &type_generics, &substitutions)
-        else {
+        let Some(instance_args) = self.complete_generic_function_instance_args(
+            span,
+            &type_generics,
+            &substitutions.types,
+        ) else {
             return self.error();
         };
         let Some(const_instance_args) = self.complete_const_instance_args_for_generic_params(
             span,
             &signature.generic_params,
-            &const_substitutions,
+            &substitutions.consts,
         ) else {
             return self.error();
         };
@@ -613,13 +615,13 @@ impl<'a> BodyChecker<'a> {
             span,
             signature,
             args,
-            &substitutions,
-            &const_substitutions,
+            &substitutions.types,
+            &substitutions.consts,
         );
         let return_type = self.substitute_generics_and_consts(
             signature.return_type,
-            &substitutions,
-            &const_substitutions,
+            &substitutions.types,
+            &substitutions.consts,
         );
         let return_type = self.normalize_projection(return_type);
         self.normalize_aliases_in_type(return_type)
@@ -634,8 +636,7 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let span = expr.span;
-        let mut substitutions = SymbolMap::default();
-        let mut const_substitutions = SymbolMap::default();
+        let mut substitutions = GenericSubstitutions::default();
         self.infer_generic_function_call_substitutions(
             span,
             signature,
@@ -643,18 +644,19 @@ impl<'a> BodyChecker<'a> {
             expected,
             None,
             &mut substitutions,
-            &mut const_substitutions,
         );
         let type_generics = type_generic_names(signature);
-        let Some(instance_args) =
-            self.complete_generic_function_instance_args(span, &type_generics, &substitutions)
-        else {
+        let Some(instance_args) = self.complete_generic_function_instance_args(
+            span,
+            &type_generics,
+            &substitutions.types,
+        ) else {
             return self.error();
         };
         let Some(const_instance_args) = self.complete_const_instance_args_for_generic_params(
             span,
             &signature.generic_params,
-            &const_substitutions,
+            &substitutions.consts,
         ) else {
             return self.error();
         };
@@ -679,13 +681,13 @@ impl<'a> BodyChecker<'a> {
             span,
             signature,
             args,
-            &substitutions,
-            &const_substitutions,
+            &substitutions.types,
+            &substitutions.consts,
         );
         let return_type = self.substitute_generics_and_consts(
             signature.return_type,
-            &substitutions,
-            &const_substitutions,
+            &substitutions.types,
+            &substitutions.consts,
         );
         let return_type = self.normalize_projection(return_type);
         self.normalize_aliases_in_type(return_type)
@@ -697,21 +699,24 @@ impl<'a> BodyChecker<'a> {
         signature: &FunctionSignature,
         args: &[Expr],
         expected: Option<InternedTyId>,
-        fixed: Option<(&SymbolMap<InternedTyId>, &SymbolMap<ConstGenericArg>)>,
-        substitutions: &mut SymbolMap<InternedTyId>,
-        const_substitutions: &mut SymbolMap<ConstGenericArg>,
+        fixed: Option<&GenericSubstitutions>,
+        substitutions: &mut GenericSubstitutions,
     ) {
         let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
         if let Some(expected) = expected.and_then(|expected| self.generic_call_expected(expected)) {
-            let pattern = fixed.map_or(signature.return_type, |(types, consts)| {
-                self.substitute_generics_and_consts(signature.return_type, types, consts)
+            let pattern = fixed.map_or(signature.return_type, |fixed| {
+                self.substitute_generics_and_consts(
+                    signature.return_type,
+                    &fixed.types,
+                    &fixed.consts,
+                )
             });
-            self.infer_generics_from_type(pattern, expected, substitutions, span);
+            self.infer_generics_from_type(pattern, expected, &mut substitutions.types, span);
         }
         self.infer_generic_function_call_substitutions_from_where_predicates(
             signature,
             args,
-            substitutions,
+            &mut substitutions.types,
         );
         self.check_call_arg_count(span, args.len(), params.len(), signature.is_variadic);
         for (index, arg) in args.iter().enumerate() {
@@ -719,28 +724,34 @@ impl<'a> BodyChecker<'a> {
                 self.check_expr(arg);
                 continue;
             };
-            let inference_param = fixed.map_or(param, |(types, consts)| {
-                self.substitute_generics_and_consts(param, types, consts)
+            let inference_param = fixed.map_or(param, |fixed| {
+                self.substitute_generics_and_consts(param, &fixed.types, &fixed.consts)
             });
             let mut inferred_from_closure = self.infer_generics_from_closure_signature(
                 inference_param,
                 arg,
-                substitutions,
+                &mut substitutions.types,
                 arg.span,
             );
-            let mut substituted_param =
-                self.substitute_generics_and_consts(param, substitutions, const_substitutions);
+            let mut substituted_param = self.substitute_generics_and_consts(
+                param,
+                &substitutions.types,
+                &substitutions.consts,
+            );
             let closure_params_ready =
                 self.seed_closure_params_from_callable_pattern(substituted_param, arg);
             if closure_params_ready {
                 inferred_from_closure |= self.infer_generics_from_closure_signature(
                     inference_param,
                     arg,
-                    substitutions,
+                    &mut substitutions.types,
                     arg.span,
                 );
-                substituted_param =
-                    self.substitute_generics_and_consts(param, substitutions, const_substitutions);
+                substituted_param = self.substitute_generics_and_consts(
+                    param,
+                    &substitutions.types,
+                    &substitutions.consts,
+                );
             }
             let expected = self.generic_call_expected(substituted_param);
             let actual = if let Some(expected) = expected {
@@ -758,25 +769,30 @@ impl<'a> BodyChecker<'a> {
             let closure_shape_matches = self.inferred_closure_signature(arg).is_none()
                 || self.generic_pattern_accepts_type_shape(inference_param, actual);
             if closure_shape_matches {
-                self.infer_generics_from_type(inference_param, actual, substitutions, arg.span);
+                self.infer_generics_from_type(
+                    inference_param,
+                    actual,
+                    &mut substitutions.types,
+                    arg.span,
+                );
                 if self.generic_pattern_accepts_type_shape(inference_param, actual) {
                     // Const inference is staged behind a complete structural
                     // probe. A mismatch in a later tuple field or associated
                     // binding must not leak values collected from a prefix.
-                    let mut staged = const_substitutions.clone();
+                    let mut staged = substitutions.consts.clone();
                     self.infer_const_generics_from_type(
                         inference_param,
                         actual,
                         &mut staged,
                         arg.span,
                     );
-                    *const_substitutions = staged;
+                    substitutions.consts = staged;
                 }
             }
             self.infer_generic_function_call_substitutions_from_where_predicates(
                 signature,
                 args,
-                substitutions,
+                &mut substitutions.types,
             );
         }
     }
@@ -1570,7 +1586,6 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn infer_associated_type_bindings_inner(
         &mut self,
         patterns: &[AssociatedTypeBindingTy],
@@ -1638,7 +1653,6 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn infer_associated_const_bindings_inner(
         &mut self,
         patterns: &[AssociatedTypeBindingTy],

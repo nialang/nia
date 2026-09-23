@@ -8,12 +8,7 @@
 //! failed associated-binding alternatives never leak partial substitutions.
 
 use super::*;
-
-#[derive(Clone, Default)]
-struct PatternSubstitutions {
-    types: SymbolMap<InternedTyId>,
-    consts: SymbolMap<nia_ty::ConstGenericArg>,
-}
+use crate::calls::generic_args::GenericSubstitutions;
 
 impl<'a> BodyChecker<'a> {
     pub(crate) fn strictly_more_specific(
@@ -29,7 +24,7 @@ impl<'a> BodyChecker<'a> {
         general: InternedTyId,
         specific: InternedTyId,
     ) -> bool {
-        self.pattern_subsumes_inner(general, specific, &mut PatternSubstitutions::default())
+        self.pattern_subsumes_inner(general, specific, &mut GenericSubstitutions::default())
     }
 
     pub(crate) fn const_patterns_subsume(
@@ -37,14 +32,14 @@ impl<'a> BodyChecker<'a> {
         general: &[nia_ty::ConstGenericArg],
         specific: &[nia_ty::ConstGenericArg],
     ) -> bool {
-        self.const_pattern_args_subsume(general, specific, &mut PatternSubstitutions::default())
+        self.const_pattern_args_subsume(general, specific, &mut GenericSubstitutions::default())
     }
 
     fn pattern_subsumes_inner(
         &mut self,
         general: InternedTyId,
         specific: InternedTyId,
-        substitutions: &mut PatternSubstitutions,
+        substitutions: &mut GenericSubstitutions,
     ) -> bool {
         let mut candidate = substitutions.clone();
         if !self.pattern_subsumes_candidate(general, specific, &mut candidate) {
@@ -58,7 +53,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         general: InternedTyId,
         specific: InternedTyId,
-        substitutions: &mut PatternSubstitutions,
+        substitutions: &mut GenericSubstitutions,
     ) -> bool {
         let general = self.normalization.normalize(general);
         let specific = self.normalization.normalize(specific);
@@ -438,7 +433,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         general: &ArrayLenTy,
         specific: &ArrayLenTy,
-        substitutions: &mut PatternSubstitutions,
+        substitutions: &mut GenericSubstitutions,
     ) -> bool {
         if self.array_lens_match(general, specific) {
             return true;
@@ -474,7 +469,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         general: &nia_ty::AssociatedTypeBindingTy,
         specific: &nia_ty::AssociatedTypeBindingTy,
-        substitutions: &mut PatternSubstitutions,
+        substitutions: &mut GenericSubstitutions,
     ) -> bool {
         if general.name != specific.name
             || general.trait_id != specific.trait_id
@@ -510,7 +505,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         general: &[nia_ty::AssociatedTypeBindingTy],
         specific: &[nia_ty::AssociatedTypeBindingTy],
-        substitutions: &mut PatternSubstitutions,
+        substitutions: &mut GenericSubstitutions,
     ) -> bool {
         if general.len() != specific.len() {
             return false;
@@ -530,7 +525,7 @@ impl<'a> BodyChecker<'a> {
         specific: &[nia_ty::AssociatedTypeBindingTy],
         general_index: usize,
         used: &mut [bool],
-        substitutions: &mut PatternSubstitutions,
+        substitutions: &mut GenericSubstitutions,
     ) -> bool {
         let Some(general_binding) = general.get(general_index) else {
             return true;
@@ -565,7 +560,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         general: &[nia_ty::ConstGenericArg],
         specific: &[nia_ty::ConstGenericArg],
-        substitutions: &mut PatternSubstitutions,
+        substitutions: &mut GenericSubstitutions,
     ) -> bool {
         general.len() == specific.len()
             && general.iter().zip(specific).all(|(general, specific)| {
@@ -577,7 +572,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         general: &nia_ty::ConstGenericArg,
         specific: &nia_ty::ConstGenericArg,
-        substitutions: &mut PatternSubstitutions,
+        substitutions: &mut GenericSubstitutions,
     ) -> bool {
         if !self.pattern_subsumes_inner(general.ty, specific.ty, substitutions) {
             return false;
@@ -594,7 +589,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         name: SymbolId,
         specific: nia_ty::ConstGenericArg,
-        substitutions: &mut PatternSubstitutions,
+        substitutions: &mut GenericSubstitutions,
     ) -> bool {
         if let Some(existing) = substitutions.consts.get(&name).cloned() {
             self.const_generic_args_match(&existing, &specific)

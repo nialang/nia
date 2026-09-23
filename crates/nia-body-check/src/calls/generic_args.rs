@@ -9,12 +9,21 @@ use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy, TyKind};
 
+/// Type and const parameter bindings for one generic signature.
+///
+/// Type and const parameters share one binding set so a probe, an explicit
+/// argument list, or an inference pass commits or discards both together.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct GenericSubstitutions {
+    pub(crate) types: SymbolMap<InternedTyId>,
+    pub(crate) consts: SymbolMap<ConstGenericArg>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct LoweredGenericArgs {
     pub(crate) type_args: Vec<InternedTyId>,
     pub(crate) const_args: Vec<ConstGenericArg>,
-    pub(crate) type_substitutions: SymbolMap<InternedTyId>,
-    pub(crate) const_substitutions: SymbolMap<ConstGenericArg>,
+    pub(crate) substitutions: GenericSubstitutions,
 }
 
 impl<'a> BodyChecker<'a> {
@@ -233,7 +242,7 @@ impl<'a> BodyChecker<'a> {
                     if let Some(ty) = &arg.ty {
                         let ty = self.ty_for_type(ty);
                         lowered.type_args.push(ty);
-                        lowered.type_substitutions.insert(param.name, ty);
+                        lowered.substitutions.types.insert(param.name, ty);
                     } else {
                         let name = self.symbol_name(param.name);
                         self.diagnostics.push(Diagnostic::user_error_at(
@@ -256,7 +265,7 @@ impl<'a> BodyChecker<'a> {
                     };
                     let arg = ConstGenericArg { ty: *ty, value };
                     lowered.const_args.push(arg.clone());
-                    lowered.const_substitutions.insert(param.name, arg);
+                    lowered.substitutions.consts.insert(param.name, arg);
                 }
             }
         }
