@@ -677,12 +677,32 @@ impl Parser {
         {
             let start = self.peek().span.start;
             let Some(ty) = self.parse_type_until(&[TokenKind::Colon]) else {
+                while !self.at(TokenKind::Comma)
+                    && !self.at(TokenKind::LBrace)
+                    && !self.at(TokenKind::Semicolon)
+                    && !self.at(TokenKind::Eof)
+                {
+                    self.bump();
+                }
+                if self.eat(TokenKind::Comma).is_some() {
+                    continue;
+                }
                 break;
             };
             if self
                 .expect(TokenKind::Colon, "expected `:` in where predicate")
                 .is_none()
             {
+                while !self.at(TokenKind::Comma)
+                    && !self.at(TokenKind::LBrace)
+                    && !self.at(TokenKind::Semicolon)
+                    && !self.at(TokenKind::Eof)
+                {
+                    self.bump();
+                }
+                if self.eat(TokenKind::Comma).is_some() {
+                    continue;
+                }
                 break;
             }
             let mut bounds = Vec::new();
