@@ -908,7 +908,8 @@ impl Parser {
                 ));
             }
             self.rewind(checkpoint);
-            let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])?;
+            let ty =
+                self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen, TokenKind::LBrace])?;
             return Some(self.make_param(Span::new(start, ty.span.end), None, None, Some(ty)));
         }
         if self.at(TokenKind::SelfValue) {
@@ -922,7 +923,8 @@ impl Parser {
         }
         let name = self.expect_name(TokenKind::Ident, "expected parameter name")?;
         self.expect(TokenKind::Colon, "expected `:` after parameter name")?;
-        let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])?;
+        let ty =
+            self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen, TokenKind::LBrace])?;
         Some(self.make_param(Span::new(start, ty.span.end), None, Some(name), Some(ty)))
     }
 

@@ -1,3 +1,7 @@
+fn malformed(value: i32 {
+    _ = value;
+}
+
 fn first() i32 {
     let value = 1
     value
