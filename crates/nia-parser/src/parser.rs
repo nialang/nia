@@ -20,6 +20,7 @@ use nia_ast::{
     UsingGroupItem, UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility, WhereClause,
     WherePredicate, WhileStmt,
 };
+use nia_diagnostic::{Diagnostic, codes};
 use nia_lexer::TokenKind;
 use nia_node_id::{
     NodeOriginTable, NodeOriginTableBuilder, NodeStore, SyntaxKind as NodeSyntaxKind,
@@ -92,10 +93,84 @@ pub fn parse_module_syntax_with_node_store_and_symbols(
 pub struct ParseError {
     /// Source span associated with the lexical or grammar error.
     pub span: Span,
+    /// Grammar rule classification assigned where the parser rejected input.
+    pub kind: ParseErrorKind,
     /// Human-readable diagnostic message.
     pub message: String,
     /// Optional stable syntax identity for the originating node.
     pub node_key: Option<VersionedNodeKey>,
+}
+
+/// Grammar rule that rejected the input, independent of its message wording.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ParseErrorKind {
+    /// The lexer produced an invalid token.
+    Lexical,
+    /// A declaration or statement terminator is missing.
+    MissingSemicolon,
+    /// A closing `)`, `]`, or `}` is missing.
+    MissingClosingDelimiter,
+    /// An identifier is required in this position.
+    ExpectedName,
+    /// An expression is required in this position.
+    ExpectedExpression,
+    /// A type is required in this position.
+    ExpectedType,
+    /// A binding pattern is required in this position.
+    ExpectedBindingPattern,
+    /// Any other grammar rule; its message is the complete explanation.
+    Grammar,
+}
+
+impl ParseErrorKind {
+    /// Returns a bounded, actionable hint for this grammar rule.
+    pub fn help(self) -> Option<&'static str> {
+        match self {
+            Self::MissingSemicolon => {
+                Some("add the missing `;` to terminate this declaration or statement")
+            }
+            Self::MissingClosingDelimiter => {
+                Some("check that the surrounding delimiters are balanced")
+            }
+            Self::ExpectedName => Some("use an identifier in this position"),
+            Self::ExpectedExpression => {
+                Some("provide an expression here, such as a literal, name, or call")
+            }
+            Self::ExpectedType => Some("provide a type name or type expression here"),
+            Self::ExpectedBindingPattern => {
+                Some("use a name, `_`, or a supported destructuring pattern")
+            }
+            Self::Lexical | Self::Grammar => None,
+        }
+    }
+
+    fn for_expected_token(kind: &TokenKind) -> Self {
+        match kind {
+            TokenKind::Semicolon => Self::MissingSemicolon,
+            TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                Self::MissingClosingDelimiter
+            }
+            TokenKind::Ident => Self::ExpectedName,
+            _ => Self::Grammar,
+        }
+    }
+}
+
+impl ParseError {
+    /// Builds the canonical `E0101` diagnostic for this parse error.
+    ///
+    /// Every renderer and query boundary uses this constructor so the code,
+    /// primary label, and remediation stay identical across text, JSON, and
+    /// incremental diagnostic products.
+    pub fn to_diagnostic(&self) -> Diagnostic {
+        let diagnostic = Diagnostic::user_error(codes::PARSE, self.message.clone())
+            .primary(self.span, self.message.clone());
+        match self.kind.help() {
+            Some(help) => diagnostic.help(help),
+            None => diagnostic,
+        }
+        .finish()
+    }
 }
 
 /// Stateful parser for one lossless source tree.
@@ -160,6 +235,7 @@ impl Parser {
             .filter_map(|token| match &token.kind {
                 TokenKind::Error(error) => Some(ParseError {
                     span: token.span,
+                    kind: ParseErrorKind::Lexical,
                     message: format!("lexical error: {error}"),
                     node_key: token.node_key(),
                 }),
@@ -430,10 +506,10 @@ impl Parser {
     }
 
     fn expect(&mut self, kind: TokenKind, message: &str) -> Option<Span> {
-        if self.at(kind) {
+        if self.at(kind.clone()) {
             Some(self.bump().span)
         } else {
-            self.error_here(message);
+            self.expected_here(ParseErrorKind::for_expected_token(&kind), message);
             None
         }
     }
@@ -442,7 +518,8 @@ impl Parser {
         if self.at(TokenKind::Semicolon) {
             Some(self.bump().span)
         } else {
-            self.error_at_end(anchor, message);
+            let message = format!("{message}; found {}", self.found_token_description());
+            self.error_at_end_as(ParseErrorKind::MissingSemicolon, anchor, message);
             None
         }
     }
@@ -452,7 +529,7 @@ impl Parser {
             let token = self.bump();
             self.symbol_for_name_token(&token)
         } else {
-            self.error_here(message);
+            self.expected_here(ParseErrorKind::ExpectedName, message);
             None
         }
     }
@@ -473,7 +550,7 @@ impl Parser {
 
     fn expect_path_segment_kind(&mut self, message: &str) -> Option<(PathSegmentKind, Span)> {
         self.eat_path_segment_kind().or_else(|| {
-            self.error_here(message);
+            self.expected_here(ParseErrorKind::ExpectedName, message);
             None
         })
     }
@@ -544,6 +621,23 @@ impl Parser {
         self.tokens.previous_end()
     }
 
+    fn found_token_description(&self) -> String {
+        if self.at(TokenKind::Eof) {
+            return "end of file".to_string();
+        }
+        let text = self.peek().text.trim();
+        if text.is_empty() {
+            return "an unexpected token".to_string();
+        }
+        let mut chars = text.chars();
+        let prefix = chars.by_ref().take(32).collect::<String>();
+        if chars.next().is_some() {
+            format!("`{prefix}...`")
+        } else {
+            format!("`{prefix}`")
+        }
+    }
+
     fn token_text<'token>(&self, token: &'token SyntaxToken) -> &'token str {
         &token.text
     }
@@ -563,7 +657,11 @@ impl Parser {
             return Some(symbol);
         }
         if !matches!(token.kind, TokenKind::Ident) {
-            self.error_at(token.span, "expected identifier");
+            self.error_at_as(
+                ParseErrorKind::ExpectedName,
+                token.span,
+                "expected identifier",
+            );
             return None;
         }
         let text = self.token_text(token);
@@ -595,24 +693,40 @@ impl Parser {
     }
 
     fn error_here(&mut self, message: impl Into<String>) {
+        self.error_here_as(ParseErrorKind::Grammar, message);
+    }
+
+    fn error_here_as(&mut self, kind: ParseErrorKind, message: impl Into<String>) {
         self.errors.push(ParseError {
             span: self.peek().span,
+            kind,
             message: message.into(),
             node_key: self.peek().node_key(),
         });
     }
 
+    /// Reports a missing construct at the current token, naming what was found.
+    fn expected_here(&mut self, kind: ParseErrorKind, message: &str) {
+        let message = format!("{message}; found {}", self.found_token_description());
+        self.error_here_as(kind, message);
+    }
+
     fn error_at(&mut self, span: Span, message: impl Into<String>) {
+        self.error_at_as(ParseErrorKind::Grammar, span, message);
+    }
+
+    fn error_at_as(&mut self, kind: ParseErrorKind, span: Span, message: impl Into<String>) {
         self.errors.push(ParseError {
             span,
+            kind,
             message: message.into(),
             node_key: None,
         });
     }
 
-    fn error_at_end(&mut self, span: Span, message: impl Into<String>) {
+    fn error_at_end_as(&mut self, kind: ParseErrorKind, span: Span, message: impl Into<String>) {
         let start = span.end.saturating_sub(1).max(span.start);
-        self.error_at(Span::new(start, span.end), message);
+        self.error_at_as(kind, Span::new(start, span.end), message);
     }
 
     fn recover_to_item_boundary(&mut self) {

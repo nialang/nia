@@ -1514,23 +1514,7 @@ fn render_parse_failure(
 ) -> String {
     match format {
         DiagnosticsFormat::Text => nia_driver::render_parse_errors(path, source, errors),
-        DiagnosticsFormat::Json => {
-            let diagnostics = errors
-                .iter()
-                .map(|error| {
-                    nia_diagnostic::Diagnostic::user_error_at(
-                        nia_diagnostic::codes::PARSE,
-                        error.span,
-                        error.message.clone(),
-                    )
-                })
-                .collect::<Vec<_>>();
-            nia_diagnostic::render_diagnostics_json_at(
-                path,
-                &diagnostics,
-                nia_diagnostic::DiagnosticReportConfig::default(),
-            )
-        }
+        DiagnosticsFormat::Json => nia_driver::render_parse_errors_json(path, errors),
     }
 }
 

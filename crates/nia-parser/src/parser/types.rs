@@ -30,7 +30,7 @@ impl Parser {
                     generics.push(nia_ast::GenericParam::type_param(name, token.span));
                 }
             } else {
-                self.error_here("expected generic parameter");
+                self.error_here_as(ParseErrorKind::ExpectedName, "expected generic parameter");
                 break;
             }
             if self.eat(TokenKind::Comma).is_none() {
@@ -52,6 +52,10 @@ impl Parser {
         let bare_fn_type = self.at(TokenKind::Fn);
         self.rewind(checkpoint);
         self.errors.truncate(errors_len);
+        if stops.iter().any(|kind| self.at(kind.clone())) {
+            self.expected_here(ParseErrorKind::ExpectedType, "expected type");
+            return None;
+        }
         let span = self.collect_until(stops)?;
         if bare_fn_type {
             self.error_at(span, "function pointer types must be written as `&fn(...)`");
@@ -202,7 +206,7 @@ impl Parser {
                 segments: self.parse_type_path_segments_with_mode(mode)?,
             }
         } else {
-            self.error_here("expected type");
+            self.error_here_as(ParseErrorKind::ExpectedType, "expected type");
             return None;
         };
         let start_bound_end = self.previous_end();
@@ -523,7 +527,7 @@ impl Parser {
                     self.rewind(type_checkpoint);
                     self.errors.truncate(type_errors_len);
                     let Some(ty) = self.parse_type() else {
-                        self.error_here("expected type argument");
+                        self.error_here_as(ParseErrorKind::ExpectedType, "expected type argument");
                         self.skip_to_type_arg_boundary();
                         continue;
                     };
@@ -543,7 +547,7 @@ impl Parser {
                     if let Some(ty) = self.parse_type() {
                         args.push(TypeArg::Type(ty));
                     } else {
-                        self.error_here("expected type argument");
+                        self.error_here_as(ParseErrorKind::ExpectedType, "expected type argument");
                         self.skip_to_type_arg_boundary();
                     }
                 }
@@ -707,7 +711,7 @@ impl Parser {
             TokenKind::Pkg => PathSegmentKind::Package,
             TokenKind::Super => PathSegmentKind::Super,
             _ => {
-                self.error_here(message);
+                self.expected_here(ParseErrorKind::ExpectedName, message);
                 return None;
             }
         };

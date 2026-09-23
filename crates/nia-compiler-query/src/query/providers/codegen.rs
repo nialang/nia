@@ -689,16 +689,10 @@ pub(super) fn early_program_diagnostics(
     for module_id in loaded_modules {
         let parse_errors = db.get(ModuleParseErrorsQuery(module_id))?;
         let path = db.get(ModulePathQuery(module_id))?;
-        for error in parse_errors.iter() {
-            diagnostics.push(ProgramDiagnostic {
-                path: path.as_ref().clone(),
-                diagnostic: Diagnostic::user_error_at(
-                    codes::PARSE,
-                    error.span,
-                    error.message.clone(),
-                ),
-            });
-        }
+        diagnostics.extend(parse_errors.iter().map(|error| ProgramDiagnostic {
+            path: path.as_ref().clone(),
+            diagnostic: error.to_diagnostic(),
+        }));
     }
     let public_surfaces = db.get(PublicSurfacesQuery)?;
     let public_using_scopes = db.get(PublicUsingScopesQuery)?;
