@@ -1,0 +1,52 @@
+path: fail/package_restricted_module/main.nia
+code: E0201
+summary: module namespace `inner` is restricted to its package
+label: 42..47 Primary Source module namespace `inner` is not visible from this module
+help: make the module namespace public or use it from the defining package
+related: 0..22 the module declaration is here
+
+path: fail/package_restricted_module/main.nia
+code: E0201
+summary: module namespace `inner` is restricted to its package
+label: 94..99 Primary Source module namespace `inner` is not visible from this module
+help: make the module namespace public or use it from the defining package
+related: 0..22 the module declaration is here
+
+path: fail/package_restricted_module/main.nia
+code: E0201
+summary: module namespace `inner` is restricted to its package
+label: 133..138 Primary Source module namespace `inner` is not visible from this module
+help: make the module namespace public or use it from the defining package
+related: 0..22 the module declaration is here
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: module namespace `inner` is restricted to its package
+  --> fail/package_restricted_module/main.nia:4:10
+  |
+4 |     api::inner::read()
+  |          ^^^^^ module namespace `inner` is not visible from this module
+help: make the module namespace public or use it from the defining package
+related: fail/package_restricted_module/dep/api.nia:1:1: the module declaration is here
+
+root diagnostic:
+error[E0201]: module namespace `inner` is restricted to its package
+  --> fail/package_restricted_module/main.nia:8:15
+  |
+8 |     dep::api::inner::read()
+  |               ^^^^^ module namespace `inner` is not visible from this module
+help: make the module namespace public or use it from the defining package
+related: fail/package_restricted_module/dep/api.nia:1:1: the module declaration is here
+
+root diagnostic:
+error[E0201]: module namespace `inner` is restricted to its package
+   --> fail/package_restricted_module/main.nia:11:23
+   |
+11 | fn accept(value: api::inner::Thing) i32 {
+   |                       ^^^^^ module namespace `inner` is not visible from this module
+help: make the module namespace public or use it from the defining package
+related: fail/package_restricted_module/dep/api.nia:1:1: the module declaration is here
+
+summary: 3 errors, 0 warnings
+note: suppressed 2 diagnostic(s) (0 duplicate(s), 2 downstream consequence(s), 0 over limit)

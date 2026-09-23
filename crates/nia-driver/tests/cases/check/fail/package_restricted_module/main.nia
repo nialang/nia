@@ -1,0 +1,14 @@
+using dep::api;
+
+fn main() i32 {
+    api::inner::read()
+}
+
+fn qualified() i32 {
+    dep::api::inner::read()
+}
+
+fn accept(value: api::inner::Thing) i32 {
+    _ = value;
+    0
+}

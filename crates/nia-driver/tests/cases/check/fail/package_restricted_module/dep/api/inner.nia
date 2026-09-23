@@ -1,0 +1,5 @@
+pub struct Thing {}
+
+pub fn read() i32 {
+    42
+}

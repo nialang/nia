@@ -246,6 +246,19 @@ impl TypeResolver<'_> {
         graph.child_declaration(parent_module, name)
     }
 
+    fn inaccessible_module_declaration(
+        &self,
+        parent_module: ModuleId,
+        name: &SymbolId,
+    ) -> Option<(Visibility, Span)> {
+        let parent_defs = self.defs_for_module(parent_module)?;
+        let def_id = parent_defs.as_ref().module_scope.modules.get(name)?;
+        let def = parent_defs.as_ref().defs.get(def_id)?;
+        (def.kind == DefKind::Module
+            && !self.module_declaration_visible(parent_module, def.visibility))
+        .then_some((def.visibility, def.span))
+    }
+
     fn direct_type_member(&self, module_id: ModuleId, name: &SymbolId) -> DirectMember<DefId> {
         let Some(target_defs) = self.defs_for_module(module_id) else {
             return DirectMember::Unloaded;
@@ -1157,6 +1170,23 @@ impl<'a> TypeResolver<'a> {
                             "the module declaration is here",
                         );
                     }
+                    self.diagnostics.push(diagnostic.help(help).finish());
+                    return None;
+                }
+                if let Some((visibility, declaration_span)) =
+                    self.inaccessible_module_declaration(module_id, type_segment_name(segment)?)
+                {
+                    let name = self.symbol_name(*type_segment_name(segment)?);
+                    let (summary, label, help) =
+                        qualified_visibility_diagnostic("module namespace", &name, visibility);
+                    let diagnostic = Diagnostic::user_error(codes::NAME_RESOLUTION, summary)
+                        .primary(path_span, label);
+                    let diagnostic = self.related_definition(
+                        diagnostic,
+                        module_id,
+                        declaration_span,
+                        "the module declaration is here",
+                    );
                     self.diagnostics.push(diagnostic.help(help).finish());
                     return None;
                 }
