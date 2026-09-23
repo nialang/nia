@@ -3543,3 +3543,76 @@ extend Value {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert_no_error_diagnostics(&program.diagnostics);
 }
+
+#[test]
+fn missing_child_module_reports_the_declaration_once() {
+    let root = temp_dir("missing_child_module_reports_the_declaration_once");
+    let source = "module child;\nusing child::helper;\n\nfn main() i32 {\n    helper()\n}\n";
+    write(&root.join("main.nia"), source);
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let load = program
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.diagnostic.code.as_str() == "E0102")
+        .collect::<Vec<_>>();
+    let [load] = load.as_slice() else {
+        panic!("expected one load error: {:?}", program.diagnostics);
+    };
+    assert!(load.path.as_str().ends_with("main.nia"), "{load:?}");
+    assert_eq!(
+        load.diagnostic.primary_span(),
+        Some(nia_span::Span::new(0, "module child;".len()))
+    );
+    assert!(
+        load.diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("remove the `module child;` declaration")),
+        "{load:?}"
+    );
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.diagnostic.category
+                == nia_diagnostic::DiagnosticCategory::User
+                && !diagnostic
+                    .diagnostic
+                    .summary
+                    .contains("could not be resolved")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn creating_a_missing_child_module_matches_a_clean_check() {
+    let main = "module child;\nusing child::helper;\n\nfn main() i32 {\n    helper()\n}\n";
+    let child = "pub fn helper() i32 { 1 }\n";
+    let driver = test_driver();
+    driver.set_source("main.nia", main).expect("main source");
+    let missing = driver.analyze_all_modules(crate::CheckRequest::new("main.nia"));
+    assert!(
+        missing
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.code.as_str() == "E0102"),
+        "{:?}",
+        missing.diagnostics
+    );
+
+    driver.set_source("child.nia", child).expect("child source");
+    let incremental = driver.analyze_all_modules(crate::CheckRequest::new("main.nia"));
+    let clean_driver = test_driver();
+    clean_driver
+        .set_source("main.nia", main)
+        .expect("clean main");
+    clean_driver
+        .set_source("child.nia", child)
+        .expect("clean child");
+    let clean = clean_driver.analyze_all_modules(crate::CheckRequest::new("main.nia"));
+
+    assert!(clean.diagnostics.is_empty(), "{:?}", clean.diagnostics);
+    assert_eq!(incremental.diagnostics, clean.diagnostics);
+}

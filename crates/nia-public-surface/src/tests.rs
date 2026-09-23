@@ -206,3 +206,77 @@ fn invalid_public_reexport_path_is_reported() {
     assert_eq!(fixture.primary_spans(), [fixture.span("nested")]);
     assert!(fixture.diagnostics[0].summary.contains("unknown namespace"));
 }
+
+#[test]
+fn hidden_child_module_reports_visibility_with_its_declaration() {
+    let mut graph = graph_with_public_children(&["api"]);
+    let entry_id = graph.entry();
+    let api_id = graph
+        .root_module_for_name(entry_id, name("api"))
+        .expect("api child");
+    let hidden_declaration = Span::new(0, "module hidden;".len());
+    let hidden_id = graph
+        .intern_declared_child(
+            api_id,
+            &name("hidden"),
+            Visibility::Private,
+            hidden_declaration,
+        )
+        .expect("hidden child");
+    let source = "pub module api;\nusing api::hidden;\nusing api::hidden::value;\n";
+    let main = defs(entry_id, source);
+    let api = defs(api_id, "module hidden;");
+    let hidden = defs(hidden_id, "pub fn value() i32 { 1 }");
+
+    let (_, mut scopes, diagnostics) = compute_public_surfaces(&[main, api, hidden], &graph);
+    let scope = scopes.remove(&entry_id).expect("entry scope");
+
+    for local in ["hidden", "value"] {
+        let unresolved = &scope.unresolved_usings[&name(local)];
+        assert_eq!(
+            unresolved.reason,
+            UnresolvedUsingReason::NamespaceNotVisible
+        );
+    }
+    let hidden_segments = source
+        .match_indices("hidden")
+        .map(|(start, text)| Span::new(start, start + text.len()))
+        .collect::<Vec<_>>();
+    let primaries = diagnostics
+        .iter()
+        .map(|(_, diagnostic)| diagnostic.primary_span().expect("primary span"))
+        .collect::<Vec<_>>();
+    assert_eq!(primaries, hidden_segments, "{diagnostics:?}");
+    for (_, diagnostic) in &diagnostics {
+        assert!(
+            diagnostic
+                .related
+                .iter()
+                .any(|related| related.span == hidden_declaration
+                    && related.message.contains("without public visibility")),
+            "{diagnostic:?}"
+        );
+    }
+}
+
+#[test]
+fn using_through_unloaded_module_defers_to_the_load_error() {
+    let graph = graph_with_public_children(&["api"]);
+    let entry_id = graph.entry();
+    let main = defs(
+        entry_id,
+        "pub module api;\nusing api::value;\nusing api::nested::item;\n",
+    );
+
+    // `api` is declared in the graph but has no loaded definitions.
+    let (_, mut scopes, diagnostics) = compute_public_surfaces(&[main], &graph);
+    let scope = scopes.remove(&entry_id).expect("entry scope");
+
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    for local in ["value", "item"] {
+        assert_eq!(
+            scope.unresolved_usings[&name(local)].reason,
+            UnresolvedUsingReason::ModuleUnavailable
+        );
+    }
+}
