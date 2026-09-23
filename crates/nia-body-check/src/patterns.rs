@@ -1106,20 +1106,31 @@ impl<'a> BodyChecker<'a> {
         if self.is_error_ty(target_ty) {
             return;
         }
-        let Some(start_value) = self.pattern_int_value(pattern.start) else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                pattern.start.span,
-                format!("{context} range start must be a compile-time integer constant"),
-            ));
-            return;
+        let start_value = if self.is_error_ty(start_ty) {
+            None
+        } else {
+            self.pattern_int_value(pattern.start).or_else(|| {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    pattern.start.span,
+                    format!("{context} range start must be a compile-time integer constant"),
+                ));
+                None
+            })
         };
-        let Some(end_value) = self.pattern_int_value(pattern.end) else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                pattern.end.span,
-                format!("{context} range end must be a compile-time integer constant"),
-            ));
+        let end_value = if self.is_error_ty(end_ty) {
+            None
+        } else {
+            self.pattern_int_value(pattern.end).or_else(|| {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    pattern.end.span,
+                    format!("{context} range end must be a compile-time integer constant"),
+                ));
+                None
+            })
+        };
+        let (Some(start_value), Some(end_value)) = (start_value, end_value) else {
             return;
         };
         let Some(end_inclusive) = (if pattern.inclusive {
