@@ -1,0 +1,15 @@
+path: fail/closure_parameter_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `->` after closure parameter; found `second`
+label: 47..53 Primary Source expected `,` or `->` after closure parameter; found `second`
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `,` or `->` after closure parameter; found `second`
+  --> fail/closure_parameter_delimiter_recovery/main.nia:2:29
+  |
+2 |     let value = \first: i32 second: bool -> first;
+  |                             ^^^^^^ expected `,` or `->` after closure parameter; found `second`
+
+summary: 1 error, 0 warnings

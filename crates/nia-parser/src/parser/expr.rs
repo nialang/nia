@@ -1267,7 +1267,7 @@ impl Parser {
             let start = self.peek().span.start;
             let name = self.expect_name(TokenKind::Ident, "expected closure parameter name")?;
             let ty = if self.eat(TokenKind::Colon).is_some() {
-                self.parse_type_until(&[TokenKind::Comma, TokenKind::ThinArrow])
+                self.parse_closure_param_type()
             } else {
                 None
             };
@@ -1276,10 +1276,35 @@ impl Parser {
                 .map_or_else(|| self.previous_end(), |ty| ty.span.end);
             params.push(self.make_param(Span::new(start, end), None, Some(name), ty));
             if self.eat(TokenKind::Comma).is_none() {
+                if !self.at(TokenKind::ThinArrow) && !self.at(TokenKind::Eof) {
+                    self.expected_here(
+                        ParseErrorKind::Grammar,
+                        "expected `,` or `->` after closure parameter",
+                    );
+                    while !self.at(TokenKind::ThinArrow) && !self.at(TokenKind::Eof) {
+                        self.bump();
+                    }
+                }
                 break;
             }
         }
         Some(params)
+    }
+
+    fn parse_closure_param_type(&mut self) -> Option<TypeRef> {
+        let checkpoint = self.checkpoint();
+        let errors_len = self.errors.len();
+        if let Some(ty) = self.parse_type()
+            && (self.at(TokenKind::Comma)
+                || self.at(TokenKind::ThinArrow)
+                || (self.at(TokenKind::Ident)
+                    && matches!(self.tokens.nth_kind(1), Some(TokenKind::Colon))))
+        {
+            return Some(ty);
+        }
+        self.rewind(checkpoint);
+        self.errors.truncate(errors_len);
+        self.parse_type_until(&[TokenKind::Comma, TokenKind::ThinArrow])
     }
 
     fn parse_trait_target_after_open(&mut self) -> Option<(TypeRef, TypeRef)> {
