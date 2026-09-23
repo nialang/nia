@@ -1517,6 +1517,13 @@ impl<'a> ValueResolver<'a> {
         }
 
         // Local bindings and parameters are resolved by nia-local-resolve.
+        if self.defs.module_scope.modules.get(name).is_some()
+            || self
+                .using_scope
+                .is_some_and(|scope| scope.using_module(name).is_some())
+        {
+            return ValueNameResolution::Module;
+        }
         ValueNameResolution::LocalDeferred
     }
 

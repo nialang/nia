@@ -139,6 +139,9 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn check_assignable(&mut self, expr: &Expr, context: &str) {
+        if self.expr_ty(expr) == Some(self.error()) {
+            return;
+        }
         if let Some(reason) = self.not_assignable_reason(expr) {
             if let Some(failure) = self.values.node_unresolved_usings.get(&expr.node_key) {
                 self.diagnostics
@@ -165,6 +168,9 @@ impl<'a> BodyChecker<'a> {
         is_readonly: bool,
         ty: Option<InternedTyId>,
     ) {
+        if ty == Some(self.error()) {
+            return;
+        }
         let reason = if self.is_place_expr(expr) {
             if is_readonly {
                 self.not_addressable_reason(expr)

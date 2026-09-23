@@ -2114,6 +2114,69 @@ impl<'a> BodyChecker<'a> {
         .finish()
     }
 
+    fn unavailable_value_diagnostic(&self, expr: &Expr) -> Diagnostic {
+        let name = expr_ident_name(expr)
+            .map(|name| self.symbol_name(*name))
+            .unwrap_or_else(|| "self".to_string());
+        if let Some(evidence) = self
+            .values
+            .node_imported_type_prefixes
+            .get(&expr.node_key)
+            .copied()
+        {
+            return self.imported_type_used_as_value_diagnostic(expr, evidence);
+        }
+        if let Some(type_id) = self.values.node_qualified_type_prefixes.get(&expr.node_key) {
+            let mut diagnostic = Diagnostic::user_error(
+                codes::TYPE_CHECK,
+                format!("type `{name}` cannot be used as a value"),
+            )
+            .primary(expr.span, "this name resolves to a type, not a value")
+            .help("construct a value of this type, or use a value name instead");
+            if type_id.module_id == self.defs.module_id
+                && let Some(def) = self.defs.defs.get(type_id.def_id)
+            {
+                diagnostic = diagnostic.related(def.span, "the type is declared here");
+            }
+            return diagnostic.finish();
+        }
+        if matches!(self.local_use(expr), Some(LocalUse::Module)) {
+            let mut diagnostic = Diagnostic::user_error(
+                codes::TYPE_CHECK,
+                format!("module `{name}` cannot be used as a value"),
+            )
+            .primary(
+                expr.span,
+                "this name resolves to a module namespace, not a value",
+            )
+            .help(format!(
+                "select a value from `{name}` with `::`, or use a value name instead"
+            ));
+            if let Some(def) = expr_ident_name(expr)
+                .and_then(|name| self.defs.module_scope.modules.get(name))
+                .and_then(|id| self.defs.defs.get(id))
+            {
+                diagnostic = diagnostic.related(def.span, "the module is declared here");
+            }
+            return diagnostic.finish();
+        }
+        if matches!(expr.kind, ExprKind::SelfValue) {
+            return Diagnostic::user_error(codes::NAME_RESOLUTION, "no method receiver is available for `self`")
+                .primary(expr.span, "`self` requires a method receiver")
+                .help("use `self` inside a method with a receiver, or pass a value as an explicit parameter")
+                .finish();
+        }
+        Diagnostic::user_error(codes::NAME_RESOLUTION, format!("unknown value `{name}`"))
+            .primary(
+                expr.span,
+                format!("no value named `{name}` is visible in this scope"),
+            )
+            .help(format!(
+                "check the spelling, import `{name}`, or declare it before this use"
+            ))
+            .finish()
+    }
+
     fn ident_type(&mut self, expr: &Expr) -> InternedTyId {
         let span = expr.span;
         match self.local_use(expr) {
@@ -2159,24 +2222,8 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             Some(LocalUse::TypePrefix) => {
-                if let Some(evidence) = self
-                    .values
-                    .node_imported_type_prefixes
-                    .get(&expr.node_key)
-                    .copied()
-                {
-                    self.diagnostics
-                        .push(self.imported_type_used_as_value_diagnostic(expr, evidence));
-                } else {
-                    self.diagnostics.push(
-                        Diagnostic::user_error(codes::TYPE_CHECK, "name is unresolved")
-                            .primary(span, "name is unresolved")
-                            .help(
-                                "check the spelling, import the name, or define it in this module",
-                            )
-                            .finish(),
-                    );
-                }
+                self.diagnostics
+                    .push(self.unavailable_value_diagnostic(expr));
                 self.error()
             }
             Some(LocalUse::Module) | Some(LocalUse::Unresolved) | None => {
@@ -2189,14 +2236,8 @@ impl<'a> BodyChecker<'a> {
                     self.diagnostics
                         .push(self.unresolved_using_diagnostic(expr, failure.clone()));
                 } else {
-                    self.diagnostics.push(
-                        Diagnostic::user_error(codes::TYPE_CHECK, "name is unresolved")
-                            .primary(span, "name is unresolved")
-                            .help(
-                                "check the spelling, import the name, or define it in this module",
-                            )
-                            .finish(),
-                    );
+                    self.diagnostics
+                        .push(self.unavailable_value_diagnostic(expr));
                 }
                 self.error()
             }
