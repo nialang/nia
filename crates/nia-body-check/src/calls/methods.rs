@@ -428,10 +428,12 @@ impl<'a> BodyChecker<'a> {
         if viable_candidates.is_empty() {
             self.record_method_provider_demand(receiver_ty, *call.name);
         }
-        let candidate = self
-            .profile_stage("body_check.profile.method.single_candidate", |this| {
-                this.single_method_candidate(call.span, call.name, &viable_candidates)
-            })?;
+        let candidate = self.profile_stage("body_check.profile.method.single_candidate", |this| {
+            this.single_method_candidate(call.span, call.name, &viable_candidates)
+        });
+        let Some(candidate) = candidate else {
+            return (!viable_candidates.is_empty()).then_some(self.error());
+        };
         let method_id = candidate.method.def_id;
         self.record_semantic_provider_module(method_id.module_id);
         let Some(signature) = self.profile_stage("body_check.profile.method.signature", |this| {
