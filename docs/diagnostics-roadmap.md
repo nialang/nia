@@ -101,8 +101,10 @@ rendering should provide color and compact context when interactive, while
 non-interactive output remains deterministic and snapshot-friendly.
 
 Text and JSON reports now expose the same retained error/warning summary and
-duplicate/display-limit counts. Cross-command exit-status and interactive
-terminal behavior still need an end-to-end contract and coverage.
+duplicate/display-limit counts. Interactive text diagnostics are colorized at
+the CLI boundary, while captured and JSON output remains deterministic and
+free of ANSI control sequences. Cross-command exit-status and the complete
+interactive terminal contract still need end-to-end coverage.
 
 ### 6. Regression and quality gates
 
