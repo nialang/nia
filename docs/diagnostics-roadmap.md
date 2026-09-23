@@ -379,6 +379,13 @@ recovery values such as pointers, arrays, tuples, and optionals no longer
 trigger secondary builtin shape, trait-bound, pattern-shape, or exhaustiveness
 diagnostics. Body-check tests and a driver snapshot cover both matching and
 intentionally mismatched pattern constructors against those recovered shapes.
+Generic inference applies the same root-only rule to structural substitutions:
+an inferred tuple, pointer, or other generic shape containing an Error recovery
+type does not publish a conflicting-substitution diagnostic, and later
+arguments are not rechecked against that poisoned shape to manufacture tuple
+element mismatches. The original unresolved expression remains the only
+diagnostic for that inference path, with body-check and driver snapshot
+coverage.
 Irrefutable binding patterns apply the same recursive recovery rule, so a
 destructuring pattern against a tuple or other composite containing an
 unresolved value does not publish a secondary binding-shape diagnostic; the

@@ -1,0 +1,5 @@
+fn choose[T](left: T, right: T) T { left }
+
+fn main() () {
+    _ = choose((missing, 1i32), (true, false));
+}

@@ -2314,7 +2314,10 @@ impl<'a> BodyChecker<'a> {
                 if let Some(existing) = substitutions.get(&name).copied() {
                     if self.generic_substitution_is_self_mapping(&name, existing) {
                         substitutions.insert(name, actual);
-                    } else if !self.types_match(existing, actual) {
+                    } else if !self.is_error_recovery_ty(existing)
+                        && !self.is_error_recovery_ty(actual)
+                        && !self.types_match(existing, actual)
+                    {
                         self.report_conflicting_generic_type(span, name, existing, actual);
                     }
                 } else {
