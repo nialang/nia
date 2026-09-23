@@ -272,6 +272,8 @@ Function parameter lists likewise synchronize a missing comma before `)` while
 preserving the current function and later top-level declarations.
 Closure parameter lists use the same next-parameter boundary detection and
 recover a missing comma before `->` without losing the enclosing function.
+Trait member parameter lists reuse the same local recovery and now have parser
+and driver coverage proving later trait methods and top-level items survive.
 They also skip a missing parameter name at a comma and retain later parameters
 and the closure body with parser and driver coverage.
 Function pointer, callable interface, and tuple type element lists now report
