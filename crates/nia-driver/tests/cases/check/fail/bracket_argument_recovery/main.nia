@@ -1,0 +1,5 @@
+struct Wrapper[T, U] {}
+
+fn retained(value: Wrapper[i32, , bool]) () {}
+
+fn later() () {}

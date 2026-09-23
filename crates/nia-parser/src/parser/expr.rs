@@ -678,7 +678,13 @@ impl Parser {
                 (None, Some(expr_end)) => expr_end,
                 (None, None) => {
                     self.error_here("expected bracket argument");
-                    return None;
+                    if self.eat(TokenKind::Comma).is_some() {
+                        continue;
+                    }
+                    while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
+                        self.bump();
+                    }
+                    break;
                 }
             };
             if expr_end.is_none() || expr_end.is_some_and(|expr_end| expr_end < end) {

@@ -487,6 +487,33 @@ fn closure_capture_delimiter_recovery_keeps_later_captures() {
 }
 
 #[test]
+fn bracket_argument_recovery_keeps_later_arguments_and_items() {
+    let (module, errors) = parse_module(
+        "struct Wrapper[T, U] {}\nfn retained(value: Wrapper[i32, , bool]) () {}\nfn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected expression"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Function(retained) = &module.items[1].kind else {
+        panic!("expected retained function");
+    };
+    let ty = retained.params[0].ty.as_ref().expect("parameter type");
+    let TypeKind::Path { segments } = &ty.kind else {
+        panic!("expected wrapper path");
+    };
+    assert_eq!(segments[0].args.len(), 2);
+    let ItemKind::Function(later) = &module.items[2].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn type_argument_delimiter_recovery_keeps_the_function() {
     let (module, errors) =
         parse_module("fn retained(value: Wrapper[i32 bool]) () {}\nfn later() () {}");
