@@ -1138,15 +1138,26 @@ impl<'a> TypeResolver<'a> {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
                     let name = self.symbol_name(*type_segment_name(segment)?);
-                    self.diagnostics.push(
-                        Diagnostic::user_error(
-                            codes::NAME_RESOLUTION,
-                            format!("module namespace `{name}` is private"),
-                        )
-                        .primary(path_span, format!("module namespace `{name}` is private"))
-                        .help("make the module declaration public or use an allowed module path")
-                        .finish(),
-                    );
+                    let (summary, label, help) =
+                        qualified_visibility_diagnostic("module namespace", &name, visibility);
+                    let mut diagnostic = Diagnostic::user_error(codes::NAME_RESOLUTION, summary)
+                        .primary(path_span, label);
+                    if let Some(parent_defs) = self.defs_for_module(module_id)
+                        && let Some(def_id) = parent_defs
+                            .as_ref()
+                            .module_scope
+                            .modules
+                            .get(type_segment_name(segment)?)
+                        && let Some(def) = parent_defs.as_ref().defs.get(def_id)
+                    {
+                        diagnostic = self.related_definition(
+                            diagnostic,
+                            module_id,
+                            def.span,
+                            "the module declaration is here",
+                        );
+                    }
+                    self.diagnostics.push(diagnostic.help(help).finish());
                     return None;
                 }
                 match self.direct_type_member(module_id, type_segment_name(segment)?) {

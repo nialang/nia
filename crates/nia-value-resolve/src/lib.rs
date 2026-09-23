@@ -1172,19 +1172,25 @@ impl<'a> ValueResolver<'a> {
                     if self.module_declaration_visible(module_id, visibility) {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
-                    let name = self.symbol_name(name);
-                    self.diagnostics.push(
-                        Diagnostic::user_error(
-                            codes::NAME_RESOLUTION,
-                            format!("module namespace `{name}` is private"),
-                        )
-                        .primary(
-                            segment.span,
-                            format!("module namespace `{name}` is private"),
-                        )
-                        .help("make the module declaration public or use an allowed module path")
-                        .finish(),
-                    );
+                    let module_name = name;
+                    let name = self.symbol_name(module_name);
+                    let (summary, label, help) =
+                        qualified_visibility_diagnostic("module namespace", &name, visibility);
+                    let mut diagnostic = Diagnostic::user_error(codes::NAME_RESOLUTION, summary)
+                        .primary(segment.span, label);
+                    if let Some(parent_defs) = self.defs_for_module(module_id)
+                        && let Some(def_id) =
+                            parent_defs.as_ref().module_scope.modules.get(&module_name)
+                        && let Some(def) = parent_defs.as_ref().defs.get(def_id)
+                    {
+                        diagnostic = self.related_definition(
+                            diagnostic,
+                            module_id,
+                            def.span,
+                            "the module declaration is here",
+                        );
+                    }
+                    self.diagnostics.push(diagnostic.help(help).finish());
                     return None;
                 }
                 match self.direct_type_member(module_id, &name) {
@@ -1294,16 +1300,23 @@ impl<'a> ValueResolver<'a> {
             if self.module_declaration_visible(module_id, visibility) {
                 return;
             }
-            let symbol = self.symbol_name(symbol);
-            self.diagnostics.push(
-                Diagnostic::user_error(
-                    codes::NAME_RESOLUTION,
-                    format!("module namespace `{symbol}` is private"),
-                )
-                .primary(span, format!("module namespace `{symbol}` is private"))
-                .help("make the module declaration public or use an allowed module path")
-                .finish(),
-            );
+            let name = self.symbol_name(symbol);
+            let (summary, label, help) =
+                qualified_visibility_diagnostic("module namespace", &name, visibility);
+            let mut diagnostic =
+                Diagnostic::user_error(codes::NAME_RESOLUTION, summary).primary(span, label);
+            if let Some(parent_defs) = self.defs_for_module(module_id)
+                && let Some(def_id) = parent_defs.as_ref().module_scope.modules.get(&symbol)
+                && let Some(def) = parent_defs.as_ref().defs.get(def_id)
+            {
+                diagnostic = self.related_definition(
+                    diagnostic,
+                    module_id,
+                    def.span,
+                    "the module declaration is here",
+                );
+            }
+            self.diagnostics.push(diagnostic.help(help).finish());
             return;
         }
         match self.direct_type_member(module_id, &symbol) {
