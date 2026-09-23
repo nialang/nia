@@ -203,7 +203,10 @@ the function body, item recovery skips that invalid body, and diagnostics in
 later functions remain visible. It also snapshots missing parameter types,
 binding patterns, closing delimiters, and missing names, including their
 rule-specific help. A lexical-error token no longer produces a secondary
-missing-semicolon diagnostic at the same recovery point. Malformed struct fields
+missing-semicolon diagnostic at the same recovery point. Invalid expressions at
+a statement boundary now recover locally and keep later statements and
+top-level declarations, with parser AST and driver report coverage. Malformed
+struct fields
 and named enum payload fields now recover at their comma boundaries; the driver
 snapshot keeps both diagnostics and later functions visible, while a parser unit
 test confirms a valid field after the malformed member survives in the AST.

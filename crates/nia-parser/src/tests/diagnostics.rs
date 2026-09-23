@@ -94,6 +94,41 @@ fn main() {
 }
 
 #[test]
+fn expression_recovery_keeps_later_statements_and_items() {
+    let (module, errors) = parse_module(
+        r#"
+fn main() () {
+    ;
+    retained();
+}
+
+fn retained() () {}
+fn later() () {}
+"#,
+    );
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].message.contains("expected expression"),
+        "{errors:?}"
+    );
+
+    let ItemKind::Function(main) = &module.items[0].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("expected main body");
+    assert_eq!(body.stmts.len(), 1);
+
+    let ItemKind::Function(retained) = &module.items[1].kind else {
+        panic!("expected retained function");
+    };
+    assert_eq!(retained.name, sym("retained"));
+    let ItemKind::Function(later) = &module.items[2].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn reports_expected_token_and_actionable_help() {
     let (_module, errors) = parse_module("fn main() { let value = 1 }");
     let error = errors
