@@ -1,0 +1,11 @@
+fn add(left: i32, right: i32) i32 {
+    left + right
+}
+
+fn main() i32 {
+    add(true);
+    let value: i32 = 1;
+    value(false);
+    add(missing, true);
+    0
+}
