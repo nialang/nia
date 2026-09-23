@@ -879,11 +879,51 @@ impl Parser {
     }
 
     fn recover_to_stmt_boundary(&mut self) {
-        while !self.at(TokenKind::Eof) && !self.at(TokenKind::RBrace) {
-            if self.eat(TokenKind::Semicolon).is_some() {
-                return;
+        let mut paren_depth = 0usize;
+        let mut bracket_depth = 0usize;
+        let mut brace_depth = 0usize;
+        while !self.at(TokenKind::Eof) {
+            match self.peek().kind {
+                TokenKind::LParen => {
+                    paren_depth += 1;
+                    self.bump();
+                }
+                TokenKind::RParen if paren_depth > 0 => {
+                    paren_depth -= 1;
+                    self.bump();
+                }
+                TokenKind::LBracket => {
+                    bracket_depth += 1;
+                    self.bump();
+                }
+                TokenKind::RBracket if bracket_depth > 0 => {
+                    bracket_depth -= 1;
+                    self.bump();
+                }
+                TokenKind::LBrace => {
+                    brace_depth += 1;
+                    self.bump();
+                }
+                TokenKind::RBrace if brace_depth > 0 => {
+                    brace_depth -= 1;
+                    self.bump();
+                    if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 {
+                        return;
+                    }
+                }
+                TokenKind::RBrace if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
+                    return;
+                }
+                TokenKind::Semicolon
+                    if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 =>
+                {
+                    self.bump();
+                    return;
+                }
+                _ => {
+                    self.bump();
+                }
             }
-            self.bump();
         }
     }
 }
