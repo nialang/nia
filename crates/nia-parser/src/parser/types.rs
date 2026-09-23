@@ -31,6 +31,18 @@ impl Parser {
                 }
             } else {
                 self.error_here_as(ParseErrorKind::ExpectedName, "expected generic parameter");
+                // A missing parameter name is local to this comma-delimited
+                // entry. Keep later parameters and the enclosing item
+                // recoverable instead of treating the whole list as lost.
+                while !self.at(TokenKind::Comma)
+                    && !self.at(TokenKind::RBracket)
+                    && !self.at(TokenKind::Eof)
+                {
+                    self.bump();
+                }
+                if self.eat(TokenKind::Comma).is_some() {
+                    continue;
+                }
                 break;
             }
             if self.eat(TokenKind::Comma).is_none() {

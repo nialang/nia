@@ -1,0 +1,17 @@
+path: fail/generic_parameter_parser_recovery/main.nia
+code: E0101
+summary: expected generic parameter
+label: 12..13 Primary Source expected generic parameter
+help: use an identifier in this position
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected generic parameter
+  --> fail/generic_parameter_parser_recovery/main.nia:1:13
+  |
+1 | fn retained[, Kept]() () {}
+  |             ^ expected generic parameter
+help: use an identifier in this position
+
+summary: 1 error, 0 warnings

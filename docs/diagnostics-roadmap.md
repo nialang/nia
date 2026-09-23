@@ -224,6 +224,9 @@ driver snapshot cover that boundary.
 Function pointer and callable interface type parameter lists likewise retain
 later parameters and the enclosing function after missing types at commas, with
 parser and driver coverage.
+Generic parameter lists also skip a missing parameter name at a comma, retain
+later parameters and the enclosing function, and have parser and driver
+coverage.
 These are recovery gaps in the grammar parser that consumes the lossless token
 view. `nia-syntax` currently
 preserves source, trivia, malformed tokens, and delimiter groups in its green
