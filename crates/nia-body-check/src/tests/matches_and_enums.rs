@@ -1581,6 +1581,7 @@ fn invalid() () {
         missing_start..3 => {}
     }
 }
+
 "#,
     );
 
@@ -1614,6 +1615,29 @@ fn invalid() () {
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
             .contains("qualified access is not a value expression")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn struct_destructuring_does_not_reject_error_recovery_targets() {
+    let checked = pipeline(
+        r#"
+struct Point { x: i32 }
+
+fn invalid() () {
+    let Point { x } = missing;
+    _ = x;
+}
+"#,
+    );
+
+    assert_eq!(checked.diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        checked.diagnostics[0]
+            .summary
+            .contains("unknown value `missing`"),
         "{:?}",
         checked.diagnostics
     );
