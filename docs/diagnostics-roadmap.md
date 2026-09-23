@@ -118,7 +118,9 @@ This coverage is still incremental. Qualified callable lookup outside unknown
 members and restricted extension functions, cross-module edge cases among
 visibility scopes, and recovery-derived semantic rules outside the listed call,
 propagation, and builtin cases still need rule-specific contract audits and
-source fixtures.
+source fixtures. Ambiguous extension-method resolution now keeps its specific
+candidate diagnostic without falling through to a misleading missing-field
+error.
 Propagation now short-circuits an operand already typed as the error recovery
 sentinel, so an unresolved value under `.?` retains only its name-resolution
 diagnostic instead of also being described as a non-propagatable type.
@@ -236,9 +238,11 @@ consequence.
 An unknown receiver method now has a complete snapshot for its method name,
 receiver type, and corrective help. Regression tests preserve field-call
 fallback; a separate snapshot covers ranges missing the requested start or end
-bound. SIMD builtins now have snapshots proving error recovery does not add
-secondary shape diagnostics, and that an unresolved type candidate or a const
-value passed where a type is required receives the correct root diagnostic.
+bound. Ambiguous extension-method calls now have a complete driver snapshot for
+candidate reporting, and do not add an unknown-field fallback. SIMD builtins now
+have snapshots proving error recovery does not add secondary shape diagnostics,
+and that an unresolved type candidate or a const value passed where a type is
+required receives the correct root diagnostic.
 Atomic builtin recovery has a snapshot proving invalid RMW operation codes stay
 visible alongside unknown type arguments while type-dependent atomic errors are
 suppressed. An unaligned-load recovery snapshot proves an unresolved pointer

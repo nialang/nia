@@ -666,6 +666,14 @@ fn main(pair: Pair[i32, i32]) i32 {
         help.contains("more specific") || help.contains("explicit method/type qualification")
     }));
     assert!(
+        checked
+            .diagnostics
+            .iter()
+            .all(|diagnostic| !diagnostic.summary.contains("unknown struct field `rank`")),
+        "method ambiguity must not fall back to a missing-field diagnostic: {:?}",
+        checked.diagnostics
+    );
+    assert!(
         checked.facts.iter_node_resolved_calls().next().is_none(),
         "failed probes must not publish resolved calls"
     );

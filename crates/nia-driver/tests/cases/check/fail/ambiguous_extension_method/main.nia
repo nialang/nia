@@ -1,0 +1,20 @@
+struct Pair[A, B] {
+    a: A,
+    b: B,
+}
+
+extend[T] Pair[T, i32] {
+    fn rank(self) i32 {
+        1
+    }
+}
+
+extend[U] Pair[i32, U] {
+    fn rank(self) i32 {
+        2
+    }
+}
+
+fn main(pair: Pair[i32, i32]) i32 {
+    pair.rank()
+}
