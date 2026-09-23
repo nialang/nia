@@ -130,3 +130,79 @@ pub using self::types::Used as FacadeUsed;
     expected.dedup();
     assert_eq!(names, expected.as_slice());
 }
+
+struct UsingGroupFixture {
+    scope: ModuleUsingScope,
+    diagnostics: Vec<Diagnostic>,
+    source: &'static str,
+}
+
+impl UsingGroupFixture {
+    fn new(main_source: &'static str) -> Self {
+        let graph = graph_with_public_children(&["api"]);
+        let entry_id = graph.entry();
+        let api_id = graph
+            .root_module_for_name(entry_id, name("api"))
+            .expect("api child");
+        let main = defs(entry_id, main_source);
+        let api = defs(api_id, "pub fn present() i32 { 1 }");
+        let (_, mut scopes, diagnostics) = compute_public_surfaces(&[main, api], &graph);
+        Self {
+            scope: scopes.remove(&entry_id).expect("entry scope"),
+            diagnostics: diagnostics
+                .into_iter()
+                .map(|(_, diagnostic)| diagnostic)
+                .collect(),
+            source: main_source,
+        }
+    }
+
+    fn span(&self, text: &str) -> Span {
+        let start = self.source.find(text).expect("fixture text");
+        Span::new(start, start + text.len())
+    }
+
+    fn primary_spans(&self) -> Vec<Span> {
+        self.diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.primary_span().expect("primary span"))
+            .collect()
+    }
+}
+
+#[test]
+fn failed_group_selector_keeps_resolved_siblings() {
+    let fixture = UsingGroupFixture::new("pub module api;\nusing api::{present, absent};\n");
+
+    assert!(fixture.scope.values.contains_key(&name("present")));
+    assert!(
+        !fixture
+            .scope
+            .unresolved_usings
+            .contains_key(&name("present"))
+    );
+    assert_eq!(
+        fixture.scope.unresolved_usings[&name("absent")].name_span,
+        fixture.span("absent")
+    );
+    assert_eq!(fixture.primary_spans(), [fixture.span("absent")]);
+}
+
+#[test]
+fn every_failed_group_selector_is_an_independent_root() {
+    let fixture = UsingGroupFixture::new("pub module api;\nusing api::{absent, present, gone};\n");
+
+    assert!(fixture.scope.values.contains_key(&name("present")));
+    assert_eq!(
+        fixture.primary_spans(),
+        [fixture.span("absent"), fixture.span("gone")]
+    );
+}
+
+#[test]
+fn invalid_public_reexport_path_is_reported() {
+    let fixture = UsingGroupFixture::new("pub module api;\npub using api::nested::absent;\n");
+
+    assert_eq!(fixture.primary_spans(), [fixture.span("nested")]);
+    assert!(fixture.diagnostics[0].summary.contains("unknown namespace"));
+}
