@@ -1,0 +1,7 @@
+module api;
+
+fn main() () {
+    _ = api::Point::make();
+    api::Point::hidden();
+    api::Point::missing();
+}
