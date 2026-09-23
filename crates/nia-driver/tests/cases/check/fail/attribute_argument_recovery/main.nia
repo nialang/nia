@@ -1,0 +1,4 @@
+@[custom(, true)]
+fn retained() () {}
+
+fn later() () {}

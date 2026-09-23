@@ -638,6 +638,31 @@ impl Parser {
         self.ensure_recovery_progress(checkpoint);
     }
 
+    fn recover_to_comma_or_rparen_with_progress(&mut self, checkpoint: ParserCheckpoint) {
+        let mut paren_depth = 0usize;
+        while !self.at(TokenKind::Eof) {
+            match self.peek().kind {
+                TokenKind::LParen => {
+                    paren_depth += 1;
+                    self.bump();
+                }
+                TokenKind::RParen if paren_depth == 0 => break,
+                TokenKind::RParen => {
+                    paren_depth -= 1;
+                    self.bump();
+                }
+                TokenKind::Comma if paren_depth == 0 => {
+                    self.bump();
+                    break;
+                }
+                _ => {
+                    self.bump();
+                }
+            }
+        }
+        self.ensure_recovery_progress(checkpoint);
+    }
+
     fn peek(&self) -> &SyntaxToken {
         self.tokens.peek()
     }
