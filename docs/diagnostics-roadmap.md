@@ -267,7 +267,10 @@ propagated operand, return boundary, one-step conversion rule, and direct
 conversion help.
 An unknown qualified callable member now has an end-to-end snapshot for the
 name-resolution code, typo suggestion, edit range, and suppressed downstream
-consequence.
+consequence. A cross-module associated-call snapshot now distinguishes a
+visible public function, a private method with its dependency declaration, and
+an unknown associated function without falling back to a generic qualified
+value error.
 An unknown receiver method now has a complete snapshot for its method name,
 receiver type, and corrective help. Regression tests preserve field-call
 fallback; a separate snapshot covers ranges missing the requested start or end

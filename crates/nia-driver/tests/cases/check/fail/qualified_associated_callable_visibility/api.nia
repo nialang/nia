@@ -1,0 +1,11 @@
+pub struct Point {}
+
+extend Point {
+    pub fn make() Point {
+        Point {}
+    }
+
+    fn hidden() Point {
+        Point {}
+    }
+}
