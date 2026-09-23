@@ -2653,12 +2653,20 @@ extend math::Point {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.iter().any(|diagnostic| {
-        diagnostic
+    let inaccessible_method = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.diagnostic.summary == "method `len2` is private")
+        .expect("private extension method diagnostic");
+    assert!(
+        inaccessible_method
             .diagnostic
-            .summary
-            .contains("unknown struct field `len2`")
-    }));
+            .related
+            .iter()
+            .any(|related| related.message.contains("restricted method is declared")),
+        "missing private method declaration evidence: {:?}",
+        inaccessible_method.diagnostic
+    );
 }
 
 #[test]
@@ -2983,10 +2991,10 @@ pub(super) fn value() i32 {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
-        program
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("private")),
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("restricted to its parent module and descendants")),
         "{:?}",
         program.diagnostics
     );
@@ -3358,13 +3366,25 @@ fn main() i32 {
         root.join("main.nia").to_string_lossy().into_owned(),
         module_map,
     );
+    let inaccessible_method = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic.diagnostic.summary == "method `package_score` is restricted to its package"
+        })
+        .expect("package-restricted extension method diagnostic");
     assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
+        inaccessible_method
             .diagnostic
-            .summary
-            .contains("unknown struct field")),
-        "{:?}",
-        program.diagnostics
+            .related
+            .iter()
+            .any(|related| related
+                .source_path
+                .as_deref()
+                .is_some_and(|path| path.ends_with("dep/model.nia")
+                    && related.message.contains("restricted method is declared"))),
+        "missing extension method declaration evidence: {:?}",
+        inaccessible_method.diagnostic
     );
 }
 

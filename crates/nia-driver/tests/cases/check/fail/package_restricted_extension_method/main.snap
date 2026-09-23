@@ -1,0 +1,19 @@
+path: fail/package_restricted_extension_method/main.nia
+code: E0201
+summary: method `package_score` is restricted to its package
+label: 39..77 Primary Source this method is not visible from this module
+help: make the method public or use it from the defining package
+related: 129..186 the restricted method is declared here
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: method `package_score` is restricted to its package
+  --> fail/package_restricted_extension_method/main.nia:4:5
+  |
+4 |     model::Value::init(41).package_score()
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this method is not visible from this module
+help: make the method public or use it from the defining package
+related: fail/package_restricted_extension_method/dep/model.nia:10:14: the restricted method is declared here
+
+summary: 1 error, 0 warnings
