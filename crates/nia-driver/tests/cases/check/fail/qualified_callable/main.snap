@@ -1,0 +1,22 @@
+path: fail/qualified_callable/main.nia
+code: E0201
+summary: unknown value `comput`
+label: 38..44 Primary Source unknown value `comput`
+help: check the module path, spelling, and whether the value is public
+help: did you mean `compute`?
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown value `comput`
+  --> fail/qualified_callable/main.nia:4:10
+  |
+4 |     api::comput()
+  |          ^^^^^^ unknown value `comput`
+help: check the module path, spelling, and whether the value is public
+help: did you mean `compute`?
+suggestion (maybe-incorrect): replace the unknown member with this spelling
+  edit: fail/qualified_callable/main.nia:4:10 replace 38..44 with "compute"
+
+summary: 1 error, 0 warnings
+note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)
