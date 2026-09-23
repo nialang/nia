@@ -357,6 +357,29 @@ fn associated_type_argument_recovery_keeps_later_arguments_and_the_function() {
 }
 
 #[test]
+fn generic_parameter_delimiter_recovery_keeps_the_function() {
+    let (module, errors) = parse_module("fn retained[T U]() () {}\nfn later() () {}");
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error
+                .message
+                .contains("expected `,` or `]` after generic parameter"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Function(retained) = &module.items[0].kind else {
+        panic!("expected retained function");
+    };
+    assert_eq!(retained.generics.len(), 1);
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn classifies_parse_errors_by_grammar_rule_not_message_text() {
     let cases = [
         (
