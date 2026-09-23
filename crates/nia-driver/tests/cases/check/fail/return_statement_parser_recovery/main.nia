@@ -1,0 +1,8 @@
+fn main() () {
+    return + {
+        discarded();
+    };
+    retained();
+}
+
+fn later() () {}

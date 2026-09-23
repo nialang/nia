@@ -165,6 +165,42 @@ fn later() () {}
 }
 
 #[test]
+fn failed_return_expression_recovery_keeps_later_statements_and_items() {
+    let (module, errors) = parse_module(
+        r#"
+fn main() () {
+    return + {
+        discarded();
+    };
+    retained();
+}
+
+fn later() () {}
+"#,
+    );
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].message.contains("expected expression"),
+        "{errors:?}"
+    );
+
+    let ItemKind::Function(main) = &module.items[0].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("expected main body");
+    assert_eq!(body.stmts.len(), 1);
+    let StmtKind::Expr(expr) = &body.stmts[0].kind else {
+        panic!("expected retained expression statement");
+    };
+    assert!(matches!(expr.kind, ExprKind::Call { .. }));
+
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn reports_expected_token_and_actionable_help() {
     let (_module, errors) = parse_module("fn main() { let value = 1 }");
     let error = errors

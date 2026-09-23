@@ -1,0 +1,17 @@
+path: fail/return_statement_parser_recovery/main.nia
+code: E0101
+summary: expected expression
+label: 26..27 Primary Source expected expression
+help: provide an expression here, such as a literal, name, or call
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected expression
+  --> fail/return_statement_parser_recovery/main.nia:2:12
+  |
+2 |     return + {
+  |            ^ expected expression
+help: provide an expression here, such as a literal, name, or call
+
+summary: 1 error, 0 warnings
