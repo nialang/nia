@@ -146,6 +146,9 @@ For-in checking now treats an unresolved iterable as a root error: iterable,
 iterator, and irrefutable-pattern shape checks do not publish recovery-derived
 diagnostics, and bindings introduced by the recovered pattern still receive an
 Error type so later uses do not report a second unknown local type.
+Defer statements apply the same rule: an unresolved deferred expression does
+not produce a second unit-type diagnostic, while independent later errors remain
+visible.
 
 ### 4. Report organization
 

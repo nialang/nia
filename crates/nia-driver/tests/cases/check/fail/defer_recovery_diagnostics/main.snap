@@ -1,0 +1,32 @@
+path: fail/defer_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown value `missing_deferred`
+label: 25..41 Primary Source no value named `missing_deferred` is visible in this scope
+help: check the spelling, import `missing_deferred`, or declare it before this use
+
+path: fail/defer_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown value `missing_later`
+label: 47..60 Primary Source no value named `missing_later` is visible in this scope
+help: check the spelling, import `missing_later`, or declare it before this use
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown value `missing_deferred`
+  --> fail/defer_recovery_diagnostics/main.nia:2:11
+  |
+2 |     defer missing_deferred;
+  |           ^^^^^^^^^^^^^^^^ no value named `missing_deferred` is visible in this scope
+help: check the spelling, import `missing_deferred`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing_later`
+  --> fail/defer_recovery_diagnostics/main.nia:3:5
+  |
+3 |     missing_later;
+  |     ^^^^^^^^^^^^^ no value named `missing_later` is visible in this scope
+help: check the spelling, import `missing_later`, or declare it before this use
+
+summary: 2 errors, 0 warnings
+note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)

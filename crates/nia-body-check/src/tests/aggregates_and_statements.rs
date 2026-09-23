@@ -324,6 +324,45 @@ fn main() () {
 }
 
 #[test]
+fn suppresses_defer_shape_check_after_unresolved_expression() {
+    let checked = pipeline(
+        r#"
+fn main() () {
+    defer missing_deferred;
+    missing_later;
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| summary.contains("unknown value `missing_deferred`"))
+            .count(),
+        1,
+        "{summaries:?}"
+    );
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| summary.contains("defer` expression must have type"))
+            .count(),
+        0,
+        "{summaries:?}"
+    );
+    assert!(
+        summaries
+            .iter()
+            .any(|summary| summary.contains("unknown value `missing_later`")),
+        "{summaries:?}"
+    );
+}
+
+#[test]
 fn accepts_for_in_iterator_values() {
     let checked = pipeline(
         r#"

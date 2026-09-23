@@ -1,0 +1,4 @@
+fn main() () {
+    defer missing_deferred;
+    missing_later;
+}
