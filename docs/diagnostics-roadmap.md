@@ -245,7 +245,10 @@ also retain valid elements and their enclosing function after missing elements
 at comma boundaries. Tuple expressions and irrefutable tuple binding patterns
 likewise retain valid elements and later statements after missing elements at
 comma boundaries, with separate end-to-end snapshots. Other parser recovery
-boundaries still need equivalent source coverage. Call argument lists now also
+boundaries still need equivalent source coverage. Associated type/value member
+recovery now has equivalent parser and driver coverage: malformed trait and
+extension associated declarations retain later methods and following top-level
+items while preserving the local grammar diagnostics. Call argument lists now also
 skip missing expressions at comma boundaries while retaining later arguments and
 following statements; a parser unit test covers the AST boundary and a driver
 snapshot covers the rendered diagnostics. Array and struct literal lists now

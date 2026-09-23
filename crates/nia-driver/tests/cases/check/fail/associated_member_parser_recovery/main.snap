@@ -1,0 +1,41 @@
+path: fail/associated_member_parser_recovery/main.nia
+code: E0101
+summary: expected `;` after associated type declaration; found `fn`
+label: 34..36 Primary Source expected `;` after associated type declaration; found `fn`
+help: add the missing `;` to terminate this declaration or statement
+
+path: fail/associated_member_parser_recovery/main.nia
+code: E0101
+summary: expected `=` in associated type definition; found `fn`
+label: 118..120 Primary Source expected `=` in associated type definition; found `fn`
+
+path: fail/associated_member_parser_recovery/main.nia
+code: E0101
+summary: const binding requires an initializer
+label: 167..184 Primary Source const binding requires an initializer
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `;` after associated type declaration; found `fn`
+  --> fail/associated_member_parser_recovery/main.nia:2:18
+  |
+2 |     type Missing fn good(value: i32) ();
+  |                  ^^ expected `;` after associated type declaration; found `fn`
+help: add the missing `;` to terminate this declaration or statement
+
+root diagnostic:
+error[E0101]: expected `=` in associated type definition; found `fn`
+  --> fail/associated_member_parser_recovery/main.nia:7:18
+  |
+7 |     type Missing fn good(value: i32) Retained { Retained {} }
+  |                  ^^ expected `=` in associated type definition; found `fn`
+
+root diagnostic:
+error[E0101]: const binding requires an initializer
+  --> fail/associated_member_parser_recovery/main.nia:8:5
+  |
+8 |     const ALSO: bool;
+  |     ^^^^^^^^^^^^^^^^^ const binding requires an initializer
+
+summary: 3 errors, 0 warnings
