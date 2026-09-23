@@ -217,8 +217,12 @@ comma boundaries, with separate end-to-end snapshots. Other parser recovery
 boundaries still need equivalent source coverage. Call argument lists now also
 skip missing expressions at comma boundaries while retaining later arguments and
 following statements; a parser unit test covers the AST boundary and a driver
-snapshot covers the rendered diagnostics. These are recovery gaps in the
-grammar parser that consumes the lossless token view. `nia-syntax` currently
+snapshot covers the rendered diagnostics. Array and struct literal lists now
+also skip missing expressions at comma
+boundaries while retaining later elements and fields; a parser unit test and
+driver snapshot cover that boundary.
+These are recovery gaps in the grammar parser that consumes the lossless token
+view. `nia-syntax` currently
 preserves source, trivia, malformed tokens, and delimiter groups in its green
 tree, with borrowed red views and conservative single-token partial rewrites;
 grammar productions and AST recovery remain in the separate token-cursor parser.

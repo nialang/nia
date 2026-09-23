@@ -237,6 +237,30 @@ fn call_argument_recovery_keeps_later_arguments_and_statements() {
 }
 
 #[test]
+fn array_and_struct_literal_recovery_keeps_later_members() {
+    let (module, errors) = parse_module(
+        "struct Point { x: i32, y: bool }\nfn main() () { let array = [, 1,, true]; let point = Point { x: , y: true }; later(); } fn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected expression"))
+            .count(),
+        3,
+        "{errors:?}"
+    );
+    let ItemKind::Function(main) = &module.items[1].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("expected body");
+    assert_eq!(body.stmts.len(), 3);
+    let ItemKind::Function(later) = &module.items[2].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn classifies_parse_errors_by_grammar_rule_not_message_text() {
     let cases = [
         (
