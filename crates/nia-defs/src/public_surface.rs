@@ -240,6 +240,8 @@ pub struct UnresolvedUsing {
     pub directive_span: Span,
     /// Span of the selected name or alias.
     pub name_span: Span,
+    /// Span of the target declaration when lookup found a hidden item.
+    pub declaration_span: Option<Span>,
     /// Classification of the failed lookup.
     pub reason: UnresolvedUsingReason,
 }

@@ -65,7 +65,7 @@ pub(super) enum UsingExpansion {
     Resolved(Vec<ResolvedEntry>),
     Unresolved,
     UnresolvedReason(UnresolvedUsingReason),
-    UnresolvedReasonAt(UnresolvedUsingReason, Span),
+    UnresolvedReasonAt(UnresolvedUsingReason, Span, Option<Span>),
     HardError(Diagnostic),
 }
 
@@ -403,14 +403,17 @@ pub(super) fn record_unresolved_using_names(
     scope: &mut ModuleUsingScope,
     using: &ModuleUsing,
     reason: UnresolvedUsingReason,
+    declaration_span: Option<Span>,
 ) {
     let mut names = Vec::new();
     collect_explicit_using_names(&using.host, &using.selector, &mut names);
+    let declaration_span = (names.len() == 1).then_some(declaration_span).flatten();
     for name in names {
         let unresolved = UnresolvedUsing {
             name: name.alias.unwrap_or(name.name),
             directive_span: using.span,
             name_span: name.alias_span.unwrap_or(name.name_span),
+            declaration_span,
             reason,
         };
         scope.unresolved_usings.insert(unresolved.name, unresolved);
@@ -464,25 +467,37 @@ fn expand_root_group(
     let mut entries = Vec::new();
     let mut unresolved_reason = None;
     let mut failed_span = None;
+    let mut failed_declaration_span = None;
+    let mut failure_count = 0;
     for item in items {
         match expand_root_group_item(context, current, local_modules, item, source.clone()) {
             UsingExpansion::Resolved(sub) => entries.extend(sub),
             UsingExpansion::Unresolved => {
+                failure_count += 1;
                 unresolved_reason.get_or_insert(UnresolvedUsingReason::UnknownName);
             }
             UsingExpansion::UnresolvedReason(reason) => {
+                failure_count += 1;
                 unresolved_reason.get_or_insert(reason);
             }
-            UsingExpansion::UnresolvedReasonAt(reason, span) => {
+            UsingExpansion::UnresolvedReasonAt(reason, span, declaration_span) => {
+                failure_count += 1;
                 unresolved_reason.get_or_insert(reason);
                 failed_span.get_or_insert(span);
+                failed_declaration_span.get_or_insert(declaration_span);
             }
             UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
         }
     }
     if let Some(reason) = unresolved_reason {
         failed_span.map_or(UsingExpansion::UnresolvedReason(reason), |span| {
-            UsingExpansion::UnresolvedReasonAt(reason, span)
+            UsingExpansion::UnresolvedReasonAt(
+                reason,
+                span,
+                (failure_count == 1)
+                    .then_some(failed_declaration_span.flatten())
+                    .flatten(),
+            )
         })
     } else {
         UsingExpansion::Resolved(entries)
@@ -689,25 +704,37 @@ fn expand_module_host(
             let mut entries = Vec::new();
             let mut unresolved_reason = None;
             let mut failed_span = None;
+            let mut failed_declaration_span = None;
+            let mut failure_count = 0;
             for item in items {
                 match expand_group_item(context, target_module, item, source.clone()) {
                     UsingExpansion::Resolved(sub) => entries.extend(sub),
                     UsingExpansion::Unresolved => {
+                        failure_count += 1;
                         unresolved_reason.get_or_insert(UnresolvedUsingReason::UnknownName);
                     }
                     UsingExpansion::UnresolvedReason(reason) => {
+                        failure_count += 1;
                         unresolved_reason.get_or_insert(reason);
                     }
-                    UsingExpansion::UnresolvedReasonAt(reason, span) => {
+                    UsingExpansion::UnresolvedReasonAt(reason, span, declaration_span) => {
+                        failure_count += 1;
                         unresolved_reason.get_or_insert(reason);
                         failed_span.get_or_insert(span);
+                        failed_declaration_span.get_or_insert(declaration_span);
                     }
                     UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
                 }
             }
             if let Some(reason) = unresolved_reason {
                 failed_span.map_or(UsingExpansion::UnresolvedReason(reason), |span| {
-                    UsingExpansion::UnresolvedReasonAt(reason, span)
+                    UsingExpansion::UnresolvedReasonAt(
+                        reason,
+                        span,
+                        (failure_count == 1)
+                            .then_some(failed_declaration_span.flatten())
+                            .flatten(),
+                    )
                 })
             } else {
                 UsingExpansion::Resolved(entries)
@@ -1012,7 +1039,7 @@ fn resolve_module_single(
         }
     }
     if entries.is_empty() {
-        let reason = context
+        let (reason, declaration_span) = context
             .defs_by_module
             .get(&target_module)
             .and_then(|target_defs| {
@@ -1029,13 +1056,16 @@ fn resolve_module_single(
                     context.accessing_module,
                     def.visibility,
                 ))
-                .then_some(match context.mode {
-                    UsingLookupMode::PublicOnly => UnresolvedUsingReason::NotPublic,
-                    UsingLookupMode::Visible => UnresolvedUsingReason::Private,
-                })
+                .then_some((
+                    match context.mode {
+                        UsingLookupMode::PublicOnly => UnresolvedUsingReason::NotPublic,
+                        UsingLookupMode::Visible => UnresolvedUsingReason::Private,
+                    },
+                    Some(def.span),
+                ))
             })
-            .unwrap_or(UnresolvedUsingReason::UnknownName);
-        return UsingExpansion::UnresolvedReasonAt(reason, local_span);
+            .unwrap_or((UnresolvedUsingReason::UnknownName, None));
+        return UsingExpansion::UnresolvedReasonAt(reason, local_span, declaration_span);
     }
     UsingExpansion::Resolved(entries)
 }
@@ -1089,7 +1119,11 @@ fn resolve_current_single(
         });
     }
     if entries.is_empty() {
-        return UsingExpansion::UnresolvedReasonAt(UnresolvedUsingReason::UnknownName, local_span);
+        return UsingExpansion::UnresolvedReasonAt(
+            UnresolvedUsingReason::UnknownName,
+            local_span,
+            None,
+        );
     }
     UsingExpansion::Resolved(entries)
 }
@@ -1183,8 +1217,8 @@ fn expand_enum_host(
                     UsingExpansion::UnresolvedReason(reason) => {
                         return UsingExpansion::UnresolvedReason(reason);
                     }
-                    UsingExpansion::UnresolvedReasonAt(reason, span) => {
-                        return UsingExpansion::UnresolvedReasonAt(reason, span);
+                    UsingExpansion::UnresolvedReasonAt(reason, span, declaration_span) => {
+                        return UsingExpansion::UnresolvedReasonAt(reason, span, declaration_span);
                     }
                     UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
                 }

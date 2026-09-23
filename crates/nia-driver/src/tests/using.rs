@@ -525,6 +525,35 @@ fn main() () {}
 }
 
 #[test]
+fn using_private_item_reports_declaration_evidence() {
+    let root = temp_dir("using_private_item_reports_declaration_evidence");
+    let source = "\nmodule api;\nusing entry::api;\nusing api::hidden;\n\nfn main() () {}\n";
+    let api_source = "fn hidden() () {}\n";
+    write(&root.join("main.nia"), source);
+    write(&root.join("api.nia"), api_source);
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let diagnostic = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("imported item is private")
+        })
+        .expect("private using diagnostic");
+    assert!(
+        diagnostic.diagnostic.related.iter().any(|related| {
+            related.message == "the private item is declared here"
+                && related.span.start == api_source.find("fn hidden").unwrap()
+        }),
+        "missing private declaration evidence: {:?}",
+        diagnostic.diagnostic
+    );
+}
+
+#[test]
 fn pub_using_module_path_reexports_module_namespace() {
     let root = temp_dir("pub_using_module_path_reexports_module_namespace");
     write(
