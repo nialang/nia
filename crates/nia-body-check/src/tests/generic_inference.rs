@@ -1410,3 +1410,34 @@ fn main(values: [i32; 2]) i32 {
     );
     assert!(!checked.diagnostics.is_empty());
 }
+
+#[test]
+fn structural_recovery_does_not_publish_generic_shape_cascade() {
+    let checked = pipeline(
+        r#"
+fn choose[T](left: T, right: T) T { left }
+
+fn main() () {
+    _ = choose((missing, 1i32), (true, false));
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        summaries
+            .iter()
+            .any(|summary| summary.contains("unknown value `missing`")),
+        "{summaries:?}"
+    );
+    assert!(
+        summaries.iter().all(|summary| {
+            !summary.contains("conflicting inferred type")
+                && !summary.contains("type mismatch in tuple element")
+        }),
+        "{summaries:?}"
+    );
+}

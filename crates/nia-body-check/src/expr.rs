@@ -81,6 +81,8 @@ impl<'a> BodyChecker<'a> {
                 self.check_bracket_suffix_expr(expr, callee, args, expected)
             }
             ExprKind::Tuple(elems) => {
+                let recovery_expected =
+                    expected.is_some_and(|expected| self.is_error_recovery_ty(expected));
                 let expected_elems = expected.and_then(|expected| {
                     match self.interner.get(self.normalization.normalize(expected)) {
                         Some(TyKind::Tuple(expected_elems))
@@ -95,7 +97,9 @@ impl<'a> BodyChecker<'a> {
                     .iter()
                     .enumerate()
                     .map(|(index, elem)| {
-                        let expected = expected_elems.as_ref().map(|elems| elems[index]);
+                        let expected = (!recovery_expected)
+                            .then(|| expected_elems.as_ref().map(|elems| elems[index]))
+                            .flatten();
                         let actual = self.check_expr_with_expected(elem, expected);
                         if let Some(expected) = expected {
                             self.expect_expr_type(elem, expected, actual, "tuple element");
