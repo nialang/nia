@@ -1,0 +1,32 @@
+path: fail/for_in_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown value `missing_iterable`
+label: 32..48 Primary Source no value named `missing_iterable` is visible in this scope
+help: check the spelling, import `missing_iterable`, or declare it before this use
+
+path: fail/for_in_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown value `missing_value`
+label: 79..92 Primary Source no value named `missing_value` is visible in this scope
+help: check the spelling, import `missing_value`, or declare it before this use
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown value `missing_iterable`
+  --> fail/for_in_recovery_diagnostics/main.nia:2:18
+  |
+2 |     for &item in missing_iterable {
+  |                  ^^^^^^^^^^^^^^^^ no value named `missing_iterable` is visible in this scope
+help: check the spelling, import `missing_iterable`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing_value`
+  --> fail/for_in_recovery_diagnostics/main.nia:5:5
+  |
+5 |     missing_value;
+  |     ^^^^^^^^^^^^^ no value named `missing_value` is visible in this scope
+help: check the spelling, import `missing_value`, or declare it before this use
+
+summary: 2 errors, 0 warnings
+note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)

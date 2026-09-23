@@ -279,6 +279,51 @@ fn main() i32 {
 }
 
 #[test]
+fn suppresses_for_in_shape_checks_after_unresolved_iterable() {
+    let checked = pipeline(
+        r#"
+fn main() () {
+    for &item in missing_iterable {
+        _ = item;
+    }
+    missing_value;
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| summary.contains("unknown value `missing_iterable`"))
+            .count(),
+        1,
+        "{summaries:?}"
+    );
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| {
+                summary.contains("for-in expects an Iterable")
+                    || summary.contains("for-in Iterable iterator must implement Iterator")
+                    || summary.contains("for pattern")
+            })
+            .count(),
+        0,
+        "{summaries:?}"
+    );
+    assert!(
+        summaries
+            .iter()
+            .any(|summary| summary.contains("unknown value `missing_value`")),
+        "{summaries:?}"
+    );
+}
+
+#[test]
 fn accepts_for_in_iterator_values() {
     let checked = pipeline(
         r#"

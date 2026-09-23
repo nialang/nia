@@ -1,0 +1,6 @@
+fn main() () {
+    for &item in missing_iterable {
+        _ = item;
+    }
+    missing_value;
+}

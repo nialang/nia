@@ -140,6 +140,9 @@ impl<'a> BodyChecker<'a> {
         iter: &Expr,
         iterable_ty: InternedTyId,
     ) -> (InternedTyId, InternedTyId) {
+        if self.is_error_ty(iterable_ty) {
+            return (self.error(), self.error());
+        }
         if !self.current_context_proves_trait_obligation(
             iterable_ty,
             nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
@@ -215,6 +218,9 @@ impl<'a> BodyChecker<'a> {
         iterator_ty: InternedTyId,
         iterable_item_ty: InternedTyId,
     ) {
+        if self.is_error_ty(iterator_ty) || self.is_error_ty(iterable_item_ty) {
+            return;
+        }
         if !self.current_context_proves_trait_obligation(
             iterator_ty,
             nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
@@ -295,6 +301,10 @@ impl<'a> BodyChecker<'a> {
         value_ty: InternedTyId,
         context: &str,
     ) -> InternedTyId {
+        if self.is_error_ty(value_ty) {
+            self.record_error_pattern_bindings(pattern);
+            return value_ty;
+        }
         match &pattern.kind {
             nia_ast::PatternKind::Wildcard => value_ty,
             nia_ast::PatternKind::Bind { node_key, .. } => {
@@ -396,6 +406,41 @@ impl<'a> BodyChecker<'a> {
                 ));
                 self.error()
             }
+        }
+    }
+
+    fn record_error_pattern_bindings(&mut self, pattern: &nia_ast::Pattern) {
+        match &pattern.kind {
+            nia_ast::PatternKind::Bind { node_key, .. } => {
+                self.record_error_local_binding(node_key);
+            }
+            nia_ast::PatternKind::Pointer(inner) | nia_ast::PatternKind::MutPointer(inner) => {
+                self.record_error_pattern_bindings(inner);
+            }
+            nia_ast::PatternKind::Tuple(fields) => {
+                for field in fields {
+                    self.record_error_pattern_bindings(field);
+                }
+            }
+            nia_ast::PatternKind::Nominal { fields, .. } => match fields {
+                nia_ast::NominalPatternFields::Tuple(fields) => {
+                    for field in fields {
+                        self.record_error_pattern_bindings(field);
+                    }
+                }
+                nia_ast::NominalPatternFields::Named { fields, .. } => {
+                    for field in fields {
+                        self.record_error_pattern_bindings(&field.pattern);
+                    }
+                }
+            },
+            nia_ast::PatternKind::Wildcard
+            | nia_ast::PatternKind::OptionalSome(_)
+            | nia_ast::PatternKind::OptionalNull
+            | nia_ast::PatternKind::ErrorOk(_)
+            | nia_ast::PatternKind::ErrorErr(_)
+            | nia_ast::PatternKind::Expr(_)
+            | nia_ast::PatternKind::Range { .. } => {}
         }
     }
 
