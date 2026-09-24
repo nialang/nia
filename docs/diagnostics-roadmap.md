@@ -365,6 +365,9 @@ match arms, with parser and driver coverage.
 Tuple match and irrefutable binding patterns also synchronize a malformed first
 field across nested delimiters, retaining later fields, arms, and statements;
 parser and driver coverage pin the recovered boundary.
+Tuple type parsing applies the same nested synchronization when its first type
+fails, retaining later tuple elements and the enclosing declarations with
+parser and driver coverage.
 Named struct, union, and enum payload fields likewise diagnose a missing
 separator between valid fields, retaining later fields and following items
 with parser and driver coverage.
