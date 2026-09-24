@@ -1,0 +1,7 @@
+fn invalid() () {
+    std::builtin::asm(.{
+        code: missing_code,
+        clobbers: [missing_clobber],
+        options: [missing_option],
+    });
+}

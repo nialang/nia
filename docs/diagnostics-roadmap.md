@@ -451,6 +451,9 @@ Inline assembly operand validation now suppresses aggregate-shape diagnostics
 when an operand's structural type contains an Error recovery, preserving the
 underlying unresolved value as the sole root while still reporting shape errors
 for resolved aggregate operands.
+Inline assembly literal fields also check their expressions before enforcing
+byte-string shape, so unresolved code, clobber, and option values retain their
+name-resolution roots instead of being replaced by literal-only diagnostics.
 Qualified associated function-pointer references now reuse the restricted
 extension-method visibility contract used by calls, preserving the declaration
 location for private and restricted methods instead of silently returning a

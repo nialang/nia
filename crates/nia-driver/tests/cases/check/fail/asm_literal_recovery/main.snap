@@ -1,0 +1,45 @@
+path: fail/asm_literal_recovery/main.nia
+code: E0201
+summary: unknown value `missing_code`
+label: 57..69 Primary Source no value named `missing_code` is visible in this scope
+help: check the spelling, import `missing_code`, or declare it before this use
+
+path: fail/asm_literal_recovery/main.nia
+code: E0201
+summary: unknown value `missing_clobber`
+label: 90..105 Primary Source no value named `missing_clobber` is visible in this scope
+help: check the spelling, import `missing_clobber`, or declare it before this use
+
+path: fail/asm_literal_recovery/main.nia
+code: E0201
+summary: unknown value `missing_option`
+label: 126..140 Primary Source no value named `missing_option` is visible in this scope
+help: check the spelling, import `missing_option`, or declare it before this use
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown value `missing_code`
+  --> fail/asm_literal_recovery/main.nia:3:15
+  |
+3 |         code: missing_code,
+  |               ^^^^^^^^^^^^ no value named `missing_code` is visible in this scope
+help: check the spelling, import `missing_code`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing_clobber`
+  --> fail/asm_literal_recovery/main.nia:4:20
+  |
+4 |         clobbers: [missing_clobber],
+  |                    ^^^^^^^^^^^^^^^ no value named `missing_clobber` is visible in this scope
+help: check the spelling, import `missing_clobber`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing_option`
+  --> fail/asm_literal_recovery/main.nia:5:19
+  |
+5 |         options: [missing_option],
+  |                   ^^^^^^^^^^^^^^ no value named `missing_option` is visible in this scope
+help: check the spelling, import `missing_option`, or declare it before this use
+
+summary: 3 errors, 0 warnings
