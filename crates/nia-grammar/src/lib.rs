@@ -80,6 +80,10 @@ impl GrammarParser {
                 self.parse_function_item();
             } else if self.is_aggregate_start() {
                 self.parse_aggregate_item();
+            } else if self.is_type_alias_start() {
+                self.parse_type_alias_item();
+            } else if self.is_binding_start() {
+                self.parse_binding_item();
             } else {
                 self.parse_unmigrated_item();
             }
@@ -180,7 +184,7 @@ impl GrammarParser {
                 self.events.push(GreenEvent::Finish);
                 return;
             }
-            if is_outer_recovery_start(&kind) {
+            if is_top_level_recovery_start(&kind) {
                 self.missing("expected `;` after using declaration");
                 while delimiters.pop().is_some() {
                     self.events.push(GreenEvent::Start(SyntaxKind::Missing));
@@ -251,6 +255,64 @@ impl GrammarParser {
             self.missing("expected function body or `;`");
         }
         self.events.push(GreenEvent::Finish);
+    }
+
+    fn parse_type_alias_item(&mut self) {
+        self.emit_trivia_before_current();
+        self.events.push(GreenEvent::Start(SyntaxKind::TypeAlias));
+        if self.at(TokenKind::Pub) {
+            self.bump();
+        }
+        self.bump();
+        if self.at(TokenKind::Ident) {
+            self.bump();
+        } else {
+            self.missing("expected type alias name");
+        }
+        self.consume_angle_group();
+        self.consume_until_terminator(TokenKind::Semicolon);
+        self.events.push(GreenEvent::Finish);
+    }
+
+    fn parse_binding_item(&mut self) {
+        self.emit_trivia_before_current();
+        self.events.push(GreenEvent::Start(SyntaxKind::Binding));
+        while matches!(
+            self.current_kind(),
+            TokenKind::Pub | TokenKind::Extern | TokenKind::Const | TokenKind::Static
+        ) {
+            self.bump();
+        }
+        self.consume_until_terminator(TokenKind::Semicolon);
+        self.events.push(GreenEvent::Finish);
+    }
+
+    fn consume_until_terminator(&mut self, terminator: TokenKind) {
+        let mut delimiters = Vec::new();
+        while !self.at(TokenKind::Eof) {
+            let kind = self.current_kind();
+            if delimiters.is_empty() && kind == terminator {
+                self.bump();
+                return;
+            }
+            if delimiters.is_empty() && is_top_level_recovery_start(&kind) {
+                self.missing("expected declaration terminator");
+                return;
+            }
+            match kind {
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                    delimiters.push(kind);
+                }
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace
+                    if delimiters.last().is_some_and(|open| closes(open, &kind)) =>
+                {
+                    delimiters.pop();
+                }
+                _ => {}
+            }
+            self.bump();
+        }
+        self.missing("expected declaration terminator");
     }
 
     fn parse_aggregate_item(&mut self) {
@@ -621,6 +683,26 @@ impl GrammarParser {
         )
     }
 
+    fn is_type_alias_start(&self) -> bool {
+        self.kind_at(0) == Some(TokenKind::Type)
+            || (self.kind_at(0) == Some(TokenKind::Pub) && self.kind_at(1) == Some(TokenKind::Type))
+    }
+
+    fn is_binding_start(&self) -> bool {
+        let mut offset = 0;
+        while matches!(
+            self.kind_at(offset),
+            Some(TokenKind::Pub | TokenKind::Extern)
+        ) {
+            offset += 1;
+        }
+        match self.kind_at(offset) {
+            Some(TokenKind::Static) => true,
+            Some(TokenKind::Const) => self.kind_at(offset + 1) != Some(TokenKind::Fn),
+            _ => false,
+        }
+    }
+
     fn declaration_keyword(&self) -> Option<TokenKind> {
         let mut offset = 0;
         while matches!(
@@ -731,6 +813,14 @@ fn is_outer_recovery_start(kind: &TokenKind) -> bool {
             | TokenKind::Extend
             | TokenKind::Enum
     )
+}
+
+fn is_top_level_recovery_start(kind: &TokenKind) -> bool {
+    is_outer_recovery_start(kind)
+        || matches!(
+            kind,
+            TokenKind::Type | TokenKind::Fn | TokenKind::Const | TokenKind::Static | TokenKind::Pub
+        )
 }
 
 fn is_trait_member_start(kind: &TokenKind) -> bool {
@@ -1018,6 +1108,30 @@ mod tests {
         let children = parsed.tree.root().child_nodes();
         assert_eq!(children.len(), 2);
         assert_eq!(children[0].kind(), &SyntaxKind::Using);
+        assert_eq!(children[1].kind(), &SyntaxKind::Module);
+    }
+
+    #[test]
+    fn type_aliases_and_bindings_have_declaration_nodes() {
+        let source = "type Word = u32;\nconst LIMIT: usize = 4;\nstatic ready: bool;\nmodule next;";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 4);
+        assert_eq!(children[0].kind(), &SyntaxKind::TypeAlias);
+        assert_eq!(children[1].kind(), &SyntaxKind::Binding);
+        assert_eq!(children[2].kind(), &SyntaxKind::Binding);
+        assert_eq!(children[3].kind(), &SyntaxKind::Module);
+    }
+
+    #[test]
+    fn unterminated_binding_recovers_at_following_item() {
+        let source = "const LIMIT: usize = 4\nmodule next;";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert_eq!(parsed.errors.len(), 1);
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].kind(), &SyntaxKind::Binding);
         assert_eq!(children[1].kind(), &SyntaxKind::Module);
     }
 }

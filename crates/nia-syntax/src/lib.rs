@@ -152,6 +152,10 @@ pub enum SyntaxKind {
     Trait,
     /// Extension declaration grammar node.
     Extend,
+    /// Type alias declaration grammar node.
+    TypeAlias,
+    /// Static or const binding declaration grammar node.
+    Binding,
     /// Type grammar node.
     Type,
     /// Expression grammar node.
@@ -617,7 +621,9 @@ impl<'a> SyntaxNode<'a> {
             | SyntaxKind::Union
             | SyntaxKind::Enum
             | SyntaxKind::Trait
-            | SyntaxKind::Extend => NodeSyntaxKind::Item,
+            | SyntaxKind::Extend
+            | SyntaxKind::TypeAlias
+            | SyntaxKind::Binding => NodeSyntaxKind::Item,
             SyntaxKind::Type => NodeSyntaxKind::Type,
             SyntaxKind::Expr => NodeSyntaxKind::Expr,
             SyntaxKind::Stmt => NodeSyntaxKind::Stmt,
