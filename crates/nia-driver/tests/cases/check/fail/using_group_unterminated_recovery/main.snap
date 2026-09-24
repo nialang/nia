@@ -1,0 +1,31 @@
+path: fail/using_group_unterminated_recovery/main.nia
+code: E0101
+summary: expected name in `using`
+label: 13..14 Primary Source expected name in `using`
+help: use an identifier in this position
+
+path: fail/using_group_unterminated_recovery/main.nia
+code: E0101
+summary: expected `}` after using group; found `fn`
+label: 15..17 Primary Source expected `}` after using group; found `fn`
+help: check that the surrounding delimiters are balanced
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected name in `using`
+  --> fail/using_group_unterminated_recovery/main.nia:1:14
+  |
+1 | using {kept, ,
+  |              ^ expected name in `using`
+help: use an identifier in this position
+
+root diagnostic:
+error[E0101]: expected `}` after using group; found `fn`
+  --> fail/using_group_unterminated_recovery/main.nia:2:1
+  |
+2 | fn later() () {}
+  | ^^ expected `}` after using group; found `fn`
+help: check that the surrounding delimiters are balanced
+
+summary: 2 errors, 0 warnings

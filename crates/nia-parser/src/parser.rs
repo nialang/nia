@@ -581,6 +581,26 @@ impl Parser {
         self.at(TokenKind::Const) && matches!(self.tokens.nth_kind(1), Some(TokenKind::Fn))
     }
 
+    fn at_top_level_item_start(&self) -> bool {
+        (self.at(TokenKind::At) && matches!(self.tokens.nth_kind(1), Some(TokenKind::LBracket)))
+            || matches!(
+                self.peek().kind,
+                TokenKind::Module
+                    | TokenKind::Using
+                    | TokenKind::Extern
+                    | TokenKind::Struct
+                    | TokenKind::Union
+                    | TokenKind::Trait
+                    | TokenKind::Extend
+                    | TokenKind::Enum
+                    | TokenKind::Type
+                    | TokenKind::Fn
+                    | TokenKind::Const
+                    | TokenKind::Static
+                    | TokenKind::Pub
+            )
+    }
+
     fn bump(&mut self) -> SyntaxToken {
         self.tokens.bump()
     }
@@ -659,6 +679,37 @@ impl Parser {
             }
         }
         self.ensure_recovery_progress(checkpoint);
+    }
+
+    fn recover_to_using_boundary_with_progress(&mut self, checkpoint: ParserCheckpoint) {
+        let mut paren_depth = 0usize;
+        let mut bracket_depth = 0usize;
+        let mut brace_depth = 0usize;
+        while !self.at(TokenKind::Eof) {
+            if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 {
+                if self.at(TokenKind::Comma) || self.at(TokenKind::RBrace) {
+                    break;
+                }
+                if self.at_top_level_item_start() {
+                    break;
+                }
+            }
+            match self.peek().kind {
+                TokenKind::LParen => paren_depth += 1,
+                TokenKind::RParen if paren_depth > 0 => paren_depth -= 1,
+                TokenKind::LBracket => bracket_depth += 1,
+                TokenKind::RBracket if bracket_depth > 0 => bracket_depth -= 1,
+                TokenKind::LBrace => brace_depth += 1,
+                TokenKind::RBrace if brace_depth > 0 => brace_depth -= 1,
+                _ => {}
+            }
+            self.bump();
+        }
+        if self.at(TokenKind::Comma) {
+            self.bump();
+        } else if !self.at(TokenKind::RBrace) && !self.at_top_level_item_start() {
+            self.ensure_recovery_progress(checkpoint);
+        }
     }
 
     fn recover_to_comma_or_rparen_with_progress(&mut self, checkpoint: ParserCheckpoint) {
