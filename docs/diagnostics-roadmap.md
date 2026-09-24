@@ -457,6 +457,8 @@ name-resolution roots instead of being replaced by literal-only diagnostics.
 The same contract applies to unresolved asm configuration, input, output,
 clobber, and option containers; independent missing-required-field diagnostics
 remain visible when the surrounding literal itself is otherwise valid.
+The `offset` builtin now preserves an unresolved field-name expression as its
+name-resolution root instead of replacing it with a string-literal shape error.
 Qualified associated function-pointer references now reuse the restricted
 extension-method visibility contract used by calls, preserving the declaration
 location for private and restricted methods instead of silently returning a
