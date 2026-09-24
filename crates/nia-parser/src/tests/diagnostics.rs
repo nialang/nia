@@ -716,6 +716,31 @@ fn attribute_argument_recovery_keeps_later_arguments_and_item() {
 }
 
 #[test]
+fn attribute_argument_delimiter_recovery_keeps_later_arguments_and_item() {
+    let (module, errors) =
+        parse_module("@[custom(true false)]\nfn retained() () {}\nfn later() () {}");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0]
+            .message
+            .contains("expected `,` or `)` after attribute argument"),
+        "{errors:?}"
+    );
+    let item = &module.items[0];
+    let ItemKind::Function(_) = &item.kind else {
+        panic!("expected retained function");
+    };
+    let nia_ast::AttributeKind::Meta(meta) = &item.attributes[0].kind else {
+        panic!("expected metadata attribute");
+    };
+    assert_eq!(meta.args.len(), 2);
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn closure_capture_recovery_keeps_later_captures_and_items() {
     let (module, errors) = parse_module(
         "fn retained() () { let closure = \\[kept, , later] value -> kept; }\nfn after() () {}",

@@ -298,7 +298,8 @@ They also diagnose a missing separator between valid selectors and retain the
 remaining selectors and following items, with parser and driver coverage.
 Attribute argument lists now synchronize a missing expression at the next
 comma or closing parenthesis, retaining later arguments and the attributed
-item.
+item. They also diagnose a missing separator between valid arguments and retain
+the remaining arguments and attributed item, with parser and driver coverage.
 Closure capture lists now synchronize a missing capture name at the next comma
 or closing bracket, retaining later captures and the enclosing closure.
 They also diagnose a missing comma before a clearly identifiable next capture

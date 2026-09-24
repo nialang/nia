@@ -1489,7 +1489,7 @@ impl Parser {
         Some(fields)
     }
 
-    fn expr_can_start(&self, kind: &TokenKind) -> bool {
+    pub(super) fn expr_can_start(&self, kind: &TokenKind) -> bool {
         matches!(
             kind,
             TokenKind::Integer
