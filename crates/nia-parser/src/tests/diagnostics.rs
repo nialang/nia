@@ -627,6 +627,33 @@ fn aggregate_literal_delimiter_recovery_keeps_later_members_and_statements() {
 }
 
 #[test]
+fn aggregate_literal_recovery_ignores_nested_member_delimiters() {
+    let (module, errors) = parse_module(
+        "struct Point { x: i32, y: bool }\nfn main() () { let point = Point { x: @ (bad, value), y: true }; later(); } fn later() () {}",
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("expected")),
+        "{errors:?}"
+    );
+    let ItemKind::Function(main) = &module.items[1].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("expected body");
+    assert_eq!(body.stmts.len(), 2, "{errors:?}");
+    let StmtKind::Binding(point) = &body.stmts[0].kind else {
+        panic!("expected point binding");
+    };
+    let ExprKind::TypedStructLiteral { fields, .. } = &point.value.as_ref().expect("point").kind
+    else {
+        panic!("expected typed struct literal");
+    };
+    assert_eq!(fields.len(), 1, "{errors:?}");
+    assert_eq!(fields[0].name, sym("y"));
+}
+
+#[test]
 fn callable_type_recovery_keeps_later_parameters_and_the_function() {
     let (module, errors) = parse_module(
         "fn retained(pointer: &fn(, i32), callable: Fn(, bool)) () {}\nfn later() () {}",

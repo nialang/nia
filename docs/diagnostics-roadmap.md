@@ -268,6 +268,10 @@ boundaries while retaining later elements and fields; a parser unit test and
 driver snapshot cover that boundary. They also diagnose a missing separator
 between otherwise valid array elements or named fields and continue parsing the
 remaining literal and following statements, with parser and driver coverage.
+Struct literal recovery also tracks nested parentheses, brackets, and braces,
+so an invalid field expression cannot treat a comma inside its discarded
+nested expression as the next field boundary; later fields and statements
+remain parseable with parser and driver coverage.
 Function pointer and callable interface type parameter lists likewise retain
 later parameters and the enclosing function after missing types at commas, with
 parser and driver coverage.
