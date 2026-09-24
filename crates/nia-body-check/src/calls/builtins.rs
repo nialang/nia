@@ -960,6 +960,9 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn require_sized_type(&mut self, span: Span, ty: InternedTyId, builtin_name: &str) {
+        if self.is_error_recovery_ty(ty) {
+            return;
+        }
         if self.current_context_proves_trait_obligation(
             ty,
             TraitId::Builtin(nia_ty::BuiltinTrait::Sized),

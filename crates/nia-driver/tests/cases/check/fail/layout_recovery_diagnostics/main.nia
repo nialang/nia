@@ -1,0 +1,3 @@
+fn invalid() usize {
+    std::builtin::size[Missing]()
+}

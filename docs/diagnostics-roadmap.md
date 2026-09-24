@@ -434,6 +434,9 @@ visible alongside unknown type arguments while type-dependent atomic errors are
 suppressed. An unaligned-load recovery snapshot proves an unresolved pointer
 keeps only its name-resolution root. A slice-length recovery snapshot proves an
 unresolved value keeps only its name-resolution root.
+Layout builtins now suppress their `Sized` obligation when the explicit type
+argument is an Error recovery, preserving only the unknown-type root with body
+check and driver snapshot coverage.
 Qualified associated function-pointer references now reuse the restricted
 extension-method visibility contract used by calls, preserving the declaration
 location for private and restricted methods instead of silently returning a

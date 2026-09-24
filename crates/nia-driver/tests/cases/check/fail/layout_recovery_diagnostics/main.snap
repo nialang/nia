@@ -1,0 +1,17 @@
+path: fail/layout_recovery_diagnostics/main.nia
+code: E0201
+summary: unknown type `Missing`
+label: 44..51 Primary Source unknown type `Missing`
+help: check the type name, module path, and whether the type is public
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown type `Missing`
+  --> fail/layout_recovery_diagnostics/main.nia:2:24
+  |
+2 |     std::builtin::size[Missing]()
+  |                        ^^^^^^^ unknown type `Missing`
+help: check the type name, module path, and whether the type is public
+
+summary: 1 error, 0 warnings
