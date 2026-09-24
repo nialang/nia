@@ -667,6 +667,29 @@ fn using_group_recovery_keeps_later_members_and_items() {
 }
 
 #[test]
+fn using_group_delimiter_recovery_keeps_later_members_and_items() {
+    let (module, errors) = parse_module("using {kept later};\nfn after() () {}");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0]
+            .message
+            .contains("expected `,` or `}` after using selector"),
+        "{errors:?}"
+    );
+    let ItemKind::Using(using) = &module.items[0].kind else {
+        panic!("expected using item");
+    };
+    let nia_ast::UsingSelector::Group(items) = &using.selector else {
+        panic!("expected using group");
+    };
+    assert_eq!(items.len(), 2, "{errors:?}");
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(function.name, sym("after"));
+}
+
+#[test]
 fn attribute_argument_recovery_keeps_later_arguments_and_item() {
     let (module, errors) = parse_module("@[custom(, true)]\nfn retained() () {}\nfn later() () {}");
     assert_eq!(

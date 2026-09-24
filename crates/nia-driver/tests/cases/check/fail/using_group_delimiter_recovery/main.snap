@@ -1,0 +1,15 @@
+path: fail/using_group_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `}` after using selector; found `later`
+label: 12..17 Primary Source expected `,` or `}` after using selector; found `later`
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `,` or `}` after using selector; found `later`
+  --> fail/using_group_delimiter_recovery/main.nia:1:13
+  |
+1 | using {kept later};
+  |             ^^^^^ expected `,` or `}` after using selector; found `later`
+
+summary: 1 error, 0 warnings

@@ -294,6 +294,8 @@ Function pointer, callable interface, and tuple type element lists now report
 and recover a missing comma before `)` as one local type-parameter boundary.
 Using selector groups now synchronize an invalid member at the next comma or
 closing brace, retaining later selectors and the following top-level item.
+They also diagnose a missing separator between valid selectors and retain the
+remaining selectors and following items, with parser and driver coverage.
 Attribute argument lists now synchronize a missing expression at the next
 comma or closing parenthesis, retaining later arguments and the attributed
 item.
