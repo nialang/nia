@@ -37,6 +37,45 @@ deferred to the 0.3.0 multi-platform port and is not a gate for this roadmap.
   and either a useful label, note, or help action. Internal diagnostics are
   clearly separated from source errors.
 
+## Grammar Migration Track
+
+The diagnostic roadmap includes the parser rewrite because recovery ownership
+determines diagnostic quality. The target is one grammar-aware lossless green
+tree owned by `nia-grammar` and `nia-syntax`; `nia-parser` only lowers that tree
+to AST. `Unparsed` is a temporary migration marker and must be absent from
+production paths when this track closes. The old token-cursor productions are
+removed as their grammar replacements become complete; no permanent dual
+parser or compatibility layer is accepted before 1.0.
+
+The track advances through these gates:
+
+1. **Source and declaration grammar:** attributes, modules, functions,
+   aggregate headers and bodies, imports, aliases, and bindings. This gate is
+   complete in production.
+2. **Member grammar:** trait and extension associated types, associated values,
+   methods, parameters, return types, bodies, and recovery boundaries. This
+   gate is complete in production.
+3. **Type grammar:** generic parameters and arguments, paths, pointers,
+   arrays, slices, tuples, callable types, projections, and type recovery.
+   Each node must preserve source ownership and nested delimiter structure.
+4. **Expression, statement, and pattern grammar:** blocks, control flow,
+   calls, operators, literals, bindings, match arms, and nested recovery.
+   Independent malformed regions must remain parseable and must not stall the
+   parser.
+5. **Lowering cutover:** AST lowering consumes grammar nodes exclusively;
+   obsolete token-cursor production code and migration-only adapters are
+   deleted. Existing parser and diagnostic fixtures remain the parity oracle
+   until this gate closes.
+6. **Incremental reparse:** `nia-syntax` owns revision-aware subtree edits,
+   `nia-grammar` reparses the smallest affected region, and stable red/green
+   identities are retained for unchanged subtrees. Clean and incremental
+   parses must produce equivalent diagnostics, spans, and AST origins.
+
+Each gate requires owner-level recovery tests, parser/driver parity coverage,
+strict formatting and Clippy checks, and a focused commit. The 0.3.0
+multi-platform matrix is separate from this Linux grammar migration and is not
+required to close these gates.
+
 ## Stages
 
 ### 1. Cascade control
@@ -411,9 +450,11 @@ to AST. Existing diagnostic fixtures remain the parity oracle during migration,
 but the token-cursor productions are removed as their grammar counterparts land.
 `Unparsed` nodes mark only an unfinished migration region and are not a permanent
 second parser model. Attributes, module declarations, function declaration
-boundaries, struct/union/enum/trait declaration headers, and struct/union/enum
-field or variant boundaries now emit grammar nodes in production; the next
-migration stage covers trait/extension members and deeper field/variant recovery.
+boundaries, struct/union/enum/trait declaration headers, aggregate fields and
+variants, trait/extension members, imports, aliases, and bindings now emit
+grammar nodes in production. The next migration stage is generic and type
+grammar, followed by expressions, statements, patterns, and final token-cursor
+removal.
 Field names and types, enum variant names, payload delimiters, and initializer
 expressions now have nested grammar nodes with explicit missing-node recovery.
 Trait and extension members now retain nested associated type, associated value,
