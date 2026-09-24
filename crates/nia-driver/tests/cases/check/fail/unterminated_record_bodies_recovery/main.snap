@@ -6,8 +6,14 @@ help: check that the surrounding delimiters are balanced
 
 path: fail/unterminated_record_bodies_recovery/main.nia
 code: E0101
-summary: expected `}` after union body; found `fn`
-label: 64..66 Primary Source expected `}` after union body; found `fn`
+summary: expected `}` after union body; found `enum`
+label: 64..68 Primary Source expected `}` after union body; found `enum`
+help: check that the surrounding delimiters are balanced
+
+path: fail/unterminated_record_bodies_recovery/main.nia
+code: E0101
+summary: expected `}` after enum body; found `fn`
+label: 90..92 Primary Source expected `}` after enum body; found `fn`
 help: check that the surrounding delimiters are balanced
 
 report:
@@ -21,11 +27,19 @@ error[E0101]: expected `}` after struct body; found `union`
 help: check that the surrounding delimiters are balanced
 
 root diagnostic:
-error[E0101]: expected `}` after union body; found `fn`
+error[E0101]: expected `}` after union body; found `enum`
   --> fail/unterminated_record_bodies_recovery/main.nia:3:1
   |
-3 | fn later() () {}
-  | ^^ expected `}` after union body; found `fn`
+3 | enum YetRecovered { Kept,
+  | ^^^^ expected `}` after union body; found `enum`
 help: check that the surrounding delimiters are balanced
 
-summary: 2 errors, 0 warnings
+root diagnostic:
+error[E0101]: expected `}` after enum body; found `fn`
+  --> fail/unterminated_record_bodies_recovery/main.nia:4:1
+  |
+4 | fn later() () {}
+  | ^^ expected `}` after enum body; found `fn`
+help: check that the surrounding delimiters are balanced
+
+summary: 3 errors, 0 warnings

@@ -1,3 +1,4 @@
 struct Recovered { kept: i32,
 union AlsoRecovered { value: i32,
+enum YetRecovered { Kept,
 fn later() () {}
