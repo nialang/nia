@@ -28,6 +28,7 @@ fn main() () {
         options: [b"volatile"],
     });
 }
+
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -125,5 +126,38 @@ fn main() () {
             >= 2,
         "{:?}",
         aggregate_operand.diagnostics
+    );
+}
+
+#[test]
+fn inline_asm_does_not_shape_check_structural_recovery_operands() {
+    let checked = asm_pipeline(
+        r#"
+fn main() () {
+    std::builtin::asm(.{
+        code: b"nop",
+        inputs: .{ rax: (missing, 1i64) },
+    });
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| summary.contains("unknown value"))
+            .count(),
+        1,
+        "{summaries:?}"
+    );
+    assert!(
+        summaries
+            .iter()
+            .all(|summary| !summary.contains("aggregate type directly")),
+        "{summaries:?}"
     );
 }
