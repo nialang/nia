@@ -5,3 +5,9 @@ fn later() () {}
 
 @[unterminated.
 fn final() () {}
+
+fn main() () {
+    @[statement.
+    let kept = 1;
+    return;
+}

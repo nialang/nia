@@ -10,6 +10,12 @@ summary: expected attribute path segment; found `fn`
 label: 66..68 Primary Source expected attribute path segment; found `fn`
 help: use an identifier in this position
 
+path: fail/attribute_header_recovery/main.nia
+code: E0101
+summary: expected attribute path segment; found `let`
+label: 120..123 Primary Source expected attribute path segment; found `let`
+help: use an identifier in this position
+
 report:
 diagnostics:
 root diagnostic:
@@ -28,4 +34,12 @@ error[E0101]: expected attribute path segment; found `fn`
   | ^^ expected attribute path segment; found `fn`
 help: use an identifier in this position
 
-summary: 2 errors, 0 warnings
+root diagnostic:
+error[E0101]: expected attribute path segment; found `let`
+   --> fail/attribute_header_recovery/main.nia:11:5
+   |
+11 |     let kept = 1;
+   |     ^^^ expected attribute path segment; found `let`
+help: use an identifier in this position
+
+summary: 3 errors, 0 warnings

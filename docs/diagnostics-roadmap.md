@@ -348,7 +348,8 @@ nested expression.
 Malformed attribute headers now recover through their closing bracket or the
 next top-level item/attribute boundary, keeping the attributed item and
 following declarations parseable without a duplicate top-level item error,
-with parser and driver coverage.
+and statement attributes also stop at the next statement boundary, with parser
+and driver coverage.
 Closure capture lists now synchronize a missing capture name at the next comma
 or closing bracket, retaining later captures and the enclosing closure.
 They also diagnose a missing comma before a clearly identifiable next capture

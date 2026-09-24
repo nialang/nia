@@ -965,6 +965,16 @@ impl Parser {
                             | TokenKind::Const
                             | TokenKind::Static
                             | TokenKind::Pub
+                            | TokenKind::Let
+                            | TokenKind::Return
+                            | TokenKind::Break
+                            | TokenKind::Continue
+                            | TokenKind::Defer
+                            | TokenKind::For
+                            | TokenKind::While
+                            | TokenKind::Loop
+                            | TokenKind::If
+                            | TokenKind::Match
                     ))
             {
                 break;
