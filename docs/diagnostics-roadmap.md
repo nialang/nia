@@ -362,6 +362,9 @@ comma or closing brace, retaining later fields and arms with parser and driver
 coverage. Tuple, nominal tuple, and named nominal patterns also diagnose a
 missing separator between valid fields and retain the remaining fields and
 match arms, with parser and driver coverage.
+Tuple match and irrefutable binding patterns also synchronize a malformed first
+field across nested delimiters, retaining later fields, arms, and statements;
+parser and driver coverage pin the recovered boundary.
 Named struct, union, and enum payload fields likewise diagnose a missing
 separator between valid fields, retaining later fields and following items
 with parser and driver coverage.

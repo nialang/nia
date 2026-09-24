@@ -1354,6 +1354,62 @@ fn nominal_named_pattern_recovery_keeps_later_fields() {
 }
 
 #[test]
+fn tuple_pattern_recovery_keeps_fields_after_nested_invalid_first_pattern() {
+    let (module, errors) = parse_module(
+        "fn main(value: (bool, bool)) () { match value { (@ (bad, value), true) => (), _ => (), } later(); } fn later() () {}",
+    );
+    assert!(
+        !errors.is_empty(),
+        "invalid first pattern must be diagnosed"
+    );
+    let ItemKind::Function(main) = &module.items[0].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("main body");
+    assert_eq!(body.stmts.len(), 2, "{errors:?}");
+    let StmtKind::Expr(match_stmt) = &body.stmts[0].kind else {
+        panic!("expected match statement");
+    };
+    let ExprKind::Match(matched) = &match_stmt.kind else {
+        panic!("expected match expression");
+    };
+    assert_eq!(matched.arms.len(), 2, "{errors:?}");
+    let PatternKind::Tuple(fields) = &matched.arms[0].patterns[0].kind else {
+        panic!("expected tuple pattern");
+    };
+    assert_eq!(fields.len(), 1, "{errors:?}");
+    assert!(matches!(fields[0].kind, PatternKind::Expr(_)));
+    let StmtKind::Expr(later_stmt) = &body.stmts[1].kind else {
+        panic!("expected retained later statement");
+    };
+    assert!(matches!(later_stmt.kind, ExprKind::Call { .. }));
+}
+
+#[test]
+fn irrefutable_tuple_pattern_recovery_keeps_fields_after_nested_invalid_first_pattern() {
+    let (module, errors) = parse_module(
+        "fn main(source: (bool, bool)) () { let (@ (bad, value), retained) = source; later(); } fn later() () {}",
+    );
+    assert!(
+        !errors.is_empty(),
+        "invalid first pattern must be diagnosed"
+    );
+    let ItemKind::Function(main) = &module.items[0].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("main body");
+    assert_eq!(body.stmts.len(), 2, "{errors:?}");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected binding statement");
+    };
+    let PatternKind::Tuple(fields) = &binding.pattern.kind else {
+        panic!("expected tuple binding pattern");
+    };
+    assert_eq!(fields.len(), 1, "{errors:?}");
+    assert!(matches!(fields[0].kind, PatternKind::Bind { .. }));
+}
+
+#[test]
 fn type_argument_delimiter_recovery_keeps_the_function() {
     let (module, errors) =
         parse_module("fn retained(value: Wrapper[i32 bool]) () {}\nfn later() () {}");
