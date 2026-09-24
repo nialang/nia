@@ -62,6 +62,7 @@ fn main() usize {
     let mut align = std::builtin::align[Pair]();
     size + align
 }
+
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -76,6 +77,34 @@ fn main() usize {
             .facts
             .iter_node_builtin_values()
             .any(|(_, value)| *value == BuiltinValue::Usize(4))
+    );
+}
+
+#[test]
+fn layout_builtins_do_not_reject_error_recovery_types() {
+    let checked = pipeline(
+        r#"
+fn main() usize {
+    std::builtin::size[Missing]()
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        summaries
+            .iter()
+            .any(|summary| summary.contains("unknown type `Missing`")),
+        "{summaries:?}"
+    );
+    assert!(
+        summaries
+            .iter()
+            .all(|summary| !summary.contains("requires Missing: Sized")),
+        "{summaries:?}"
     );
 }
 
