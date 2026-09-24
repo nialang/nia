@@ -1,0 +1,6 @@
+fn main() () {
+    let array = [@ (bad, value), true];
+    later();
+}
+
+fn later() () {}

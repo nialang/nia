@@ -1408,6 +1408,7 @@ impl Parser {
         let elements = if self.at(TokenKind::RBracket) {
             ArrayElements::List(elems)
         } else {
+            let first_checkpoint = self.checkpoint();
             let first = self.parse_expr();
             if self.eat(TokenKind::Semicolon).is_some() {
                 let first = first?;
@@ -1417,10 +1418,13 @@ impl Parser {
                     count: Box::new(count),
                 }
             } else {
+                let had_first = first.is_some();
                 if let Some(first) = first {
                     elems.push(first);
+                } else {
+                    self.recover_to_comma_or_rbracket_with_progress(first_checkpoint);
                 }
-                if self.eat(TokenKind::Comma).is_none() {
+                if had_first && self.eat(TokenKind::Comma).is_none() {
                     if elems.is_empty() {
                         return None;
                     }
@@ -1434,6 +1438,7 @@ impl Parser {
                     }
                 }
                 while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
+                    let checkpoint = self.checkpoint();
                     if let Some(elem) = self.parse_expr() {
                         elems.push(elem);
                         if self.eat(TokenKind::Comma).is_none() {
@@ -1446,8 +1451,8 @@ impl Parser {
                             }
                             break;
                         }
-                    } else if self.eat(TokenKind::Comma).is_none() {
-                        break;
+                    } else {
+                        self.recover_to_comma_or_rbracket_with_progress(checkpoint);
                     }
                 }
                 ArrayElements::List(elems)
