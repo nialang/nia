@@ -292,6 +292,9 @@ type duplicate when the more specific binding diagnostic is emitted.
 Explicit type argument lists also synchronize a missing comma before `]` and
 retain clearly identifiable later type or const arguments, the enclosing
 function, and following declarations.
+Malformed explicit type arguments now recover through nested parentheses,
+brackets, and braces, retaining a later top-level argument and avoiding a
+second delimiter diagnostic for the same missing argument.
 Function parameter lists likewise synchronize a missing comma before `)` while
 preserving the current function and later top-level declarations.
 When the next parameter has a clear `name:` or receiver shape, recovery now
