@@ -200,16 +200,29 @@ impl Parser {
                     elems.push(first);
                 }
                 if self.eat(TokenKind::Comma).is_none() {
-                    let first = elems.pop()?;
-                    self.expect(TokenKind::RParen, "expected `)` after parenthesized type")?;
-                    return Some(
-                        self.make_type_ref(Span::new(start, self.previous_end()), first.kind),
+                    if !self.type_can_start() {
+                        let first = elems.pop()?;
+                        self.expect(TokenKind::RParen, "expected `)` after parenthesized type")?;
+                        return Some(
+                            self.make_type_ref(Span::new(start, self.previous_end()), first.kind),
+                        );
+                    }
+                    self.expected_here(
+                        ParseErrorKind::Grammar,
+                        "expected `,` or `)` after type parameter",
                     );
                 }
                 while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
                     if let Some(ty) = self.parse_type_with_mode(mode) {
                         elems.push(ty);
                         if self.eat(TokenKind::Comma).is_none() {
+                            if self.type_can_start() {
+                                self.expected_here(
+                                    ParseErrorKind::Grammar,
+                                    "expected `,` or `)` after type parameter",
+                                );
+                                continue;
+                            }
                             break;
                         }
                     } else if self.eat(TokenKind::Comma).is_none() {
@@ -657,6 +670,9 @@ impl Parser {
             ParseErrorKind::Grammar,
             "expected `,` or `)` after type parameter",
         );
+        if self.type_can_start() {
+            return true;
+        }
         while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
             self.bump();
         }

@@ -382,7 +382,7 @@ impl Parser {
             let mut fields = Vec::new();
             while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
                 let start = self.peek().span.start;
-                let Some(ty) = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen]) else {
+                let Some(ty) = self.parse_type_list_element(TokenKind::RParen) else {
                     if self.eat(TokenKind::Comma).is_some() {
                         continue;
                     }
@@ -406,6 +406,13 @@ impl Parser {
                     Span::new(start, ty.span.end),
                 ));
                 if self.eat(TokenKind::Comma).is_none() {
+                    if self.type_can_start() {
+                        self.expected_here(
+                            ParseErrorKind::Grammar,
+                            "expected `,` or `)` after tuple field",
+                        );
+                        continue;
+                    }
                     break;
                 }
             }
@@ -780,6 +787,19 @@ impl Parser {
         self.parse_type_until(&[TokenKind::Comma, TokenKind::RBrace])
     }
 
+    fn parse_type_list_element(&mut self, closing: TokenKind) -> Option<TypeRef> {
+        let checkpoint = self.checkpoint();
+        let errors_len = self.errors.len();
+        if let Some(ty) = self.parse_type()
+            && (self.at(TokenKind::Comma) || self.at(closing.clone()) || self.type_can_start())
+        {
+            return Some(ty);
+        }
+        self.rewind(checkpoint);
+        self.errors.truncate(errors_len);
+        self.parse_type_until(&[TokenKind::Comma, closing])
+    }
+
     fn parse_enum(&mut self) -> Option<EnumItem> {
         self.expect(TokenKind::Enum, "expected `enum`")?;
         let name = self.expect_name(TokenKind::Ident, "expected enum name")?;
@@ -821,8 +841,7 @@ impl Parser {
             let payload = if self.eat(TokenKind::LParen).is_some() {
                 let mut fields = Vec::new();
                 while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
-                    let Some(ty) = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])
-                    else {
+                    let Some(ty) = self.parse_type_list_element(TokenKind::RParen) else {
                         if self.eat(TokenKind::Comma).is_some() {
                             continue;
                         }
@@ -830,6 +849,13 @@ impl Parser {
                     };
                     fields.push(ty);
                     if self.eat(TokenKind::Comma).is_none() {
+                        if self.type_can_start() {
+                            self.expected_here(
+                                ParseErrorKind::Grammar,
+                                "expected `,` or `)` after tuple field",
+                            );
+                            continue;
+                        }
                         break;
                     }
                 }

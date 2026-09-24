@@ -271,6 +271,39 @@ fn tuple_payload_recovery_keeps_later_types_and_declarations() {
 }
 
 #[test]
+fn tuple_payload_delimiter_recovery_keeps_later_types() {
+    let (module, errors) = parse_module(
+        "struct Pair(i32 bool)\nenum Value { Broken(i32 bool), Kept }\nfn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error
+                .message
+                .contains("expected `,` or `)` after tuple field"))
+            .count(),
+        2,
+        "{errors:?}"
+    );
+    let ItemKind::Struct(pair) = &module.items[0].kind else {
+        panic!("expected tuple struct");
+    };
+    assert_eq!(pair.fields.len(), 2);
+    let ItemKind::Enum(value) = &module.items[1].kind else {
+        panic!("expected enum");
+    };
+    let EnumVariantPayload::Tuple(payload) = &value.variants[0].payload else {
+        panic!("expected tuple payload");
+    };
+    assert_eq!(payload.len(), 2);
+    assert_eq!(value.variants[1].name, sym("Kept"));
+    let ItemKind::Function(later) = &module.items[2].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn enum_variant_name_recovery_keeps_later_variants_and_declarations() {
     let (module, errors) = parse_module("enum Recovered { , Kept, Also }\nfn later() () {}");
     assert_eq!(errors.len(), 1, "{errors:?}");
@@ -1333,7 +1366,7 @@ fn type_parameter_delimiter_recovery_keeps_the_function() {
                 .message
                 .contains("expected `,` or `)` after type parameter"))
             .count(),
-        2,
+        3,
         "{errors:?}"
     );
     let ItemKind::Function(retained) = &module.items[0].kind else {

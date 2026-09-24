@@ -295,6 +295,9 @@ They also skip a missing parameter name at a comma and retain later parameters
 and the closure body with parser and driver coverage.
 Function pointer, callable interface, and tuple type element lists now report
 and recover a missing comma before `)` as one local type-parameter boundary.
+Tuple struct and tuple enum payload lists apply the same boundary recovery,
+retaining later payload types and following declarations with parser and driver
+coverage.
 Using selector groups now synchronize an invalid member at the next comma or
 closing brace, retaining later selectors and the following top-level item.
 They also diagnose a missing separator between valid selectors and retain the

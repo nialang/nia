@@ -1,0 +1,27 @@
+path: fail/tuple_payload_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `)` after tuple field; found `bool`
+label: 16..20 Primary Source expected `,` or `)` after tuple field; found `bool`
+
+path: fail/tuple_payload_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `)` after tuple field; found `bool`
+label: 46..50 Primary Source expected `,` or `)` after tuple field; found `bool`
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `,` or `)` after tuple field; found `bool`
+  --> fail/tuple_payload_delimiter_recovery/main.nia:1:17
+  |
+1 | struct Pair(i32 bool)
+  |                 ^^^^ expected `,` or `)` after tuple field; found `bool`
+
+root diagnostic:
+error[E0101]: expected `,` or `)` after tuple field; found `bool`
+  --> fail/tuple_payload_delimiter_recovery/main.nia:2:25
+  |
+2 | enum Value { Broken(i32 bool), Kept }
+  |                         ^^^^ expected `,` or `)` after tuple field; found `bool`
+
+summary: 2 errors, 0 warnings
