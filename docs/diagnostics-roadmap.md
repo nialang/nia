@@ -414,6 +414,8 @@ second parser model. Attributes, module declarations, function declaration
 boundaries, struct/union/enum/trait declaration headers, and struct/union/enum
 field or variant boundaries now emit grammar nodes in production; the next
 migration stage covers trait/extension members and deeper field/variant recovery.
+Top-level `using` declarations now also have grammar nodes with nested selector
+delimiters and outer-item recovery.
 Error recovery targets in optional, error-union, tuple, pointer, and null
 patterns now suppress target-shape and match-coverage consequences while
 independent errors in the arm bodies remain checkable; an end-to-end snapshot
