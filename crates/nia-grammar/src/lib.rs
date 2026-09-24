@@ -66,7 +66,11 @@ struct GrammarParser {
 impl GrammarParser {
     fn parse_source(&mut self) {
         while !self.at(TokenKind::Eof) {
-            if self.at(TokenKind::Module) {
+            if self.at(TokenKind::At)
+                && matches!(self.significant.get(self.position + 1), Some(&index) if matches!(self.tokens[index].kind, LosslessTokenKind::Token(TokenKind::LBracket)))
+            {
+                self.parse_attributes();
+            } else if self.at(TokenKind::Module) {
                 self.emit_trivia_before_current();
                 self.parse_module_item();
             } else {
@@ -75,6 +79,57 @@ impl GrammarParser {
         }
         self.emit_until(self.tokens.len());
         self.events.push(GreenEvent::Finish);
+    }
+
+    fn parse_attributes(&mut self) {
+        while self.at(TokenKind::At)
+            && matches!(self.significant.get(self.position + 1), Some(&index) if matches!(self.tokens[index].kind, LosslessTokenKind::Token(TokenKind::LBracket)))
+        {
+            self.emit_trivia_before_current();
+            self.events.push(GreenEvent::Start(SyntaxKind::Attribute));
+            self.bump();
+            self.bump();
+
+            let mut delimiters = Vec::new();
+            let mut closed = false;
+            while !self.at(TokenKind::Eof) {
+                let kind = self.current_kind();
+                if delimiters.is_empty() && is_item_start(&kind) {
+                    break;
+                }
+                match kind {
+                    TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                        delimiters.push(kind);
+                        self.bump();
+                    }
+                    TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                        if delimiters.last().is_some_and(|open| closes(open, &kind)) {
+                            delimiters.pop();
+                            self.bump();
+                        } else if kind == TokenKind::RBracket && delimiters.is_empty() {
+                            self.bump();
+                            self.events.push(GreenEvent::Finish);
+                            closed = true;
+                            break;
+                        } else {
+                            self.bump();
+                        }
+                    }
+                    _ => self.bump(),
+                }
+            }
+
+            if closed {
+                continue;
+            }
+            self.errors.push(GrammarError {
+                span: self.current_span(),
+                message: "expected `]` after attribute".into(),
+            });
+            self.events.push(GreenEvent::Start(SyntaxKind::Missing));
+            self.events.push(GreenEvent::Finish);
+            self.events.push(GreenEvent::Finish);
+        }
     }
 
     fn parse_module_item(&mut self) {
@@ -266,5 +321,32 @@ mod tests {
                 .iter()
                 .any(|item| item.kind() == &SyntaxKind::Module)
         );
+    }
+
+    #[test]
+    fn attributes_are_grammar_nodes_and_do_not_hide_following_items() {
+        let source = "@[test]\nmodule next;";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+        assert_eq!(parsed.tree.full_text(), source);
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].kind(), &SyntaxKind::Attribute);
+        assert_eq!(children[1].kind(), &SyntaxKind::Module);
+    }
+
+    #[test]
+    fn unterminated_attribute_has_missing_node_and_recovers_at_item() {
+        let source = "@[test\nmodule next;";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert_eq!(parsed.errors.len(), 1);
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].kind(), &SyntaxKind::Attribute);
+        assert!(children[0]
+            .child_nodes()
+            .iter()
+            .any(|child| child.kind() == &SyntaxKind::Missing));
+        assert_eq!(children[1].kind(), &SyntaxKind::Module);
     }
 }
