@@ -424,6 +424,28 @@ fn tuple_type_recovery_keeps_later_elements_and_the_function() {
 }
 
 #[test]
+fn tuple_type_recovery_keeps_elements_after_nested_invalid_first_type() {
+    let (module, errors) =
+        parse_module("fn retained(value: (@ (bad, value), bool)) () {}\nfn later() () {}");
+    assert!(!errors.is_empty(), "invalid first type must be diagnosed");
+    let ItemKind::Function(retained) = &module.items[0].kind else {
+        panic!("expected retained function");
+    };
+    let Some(ty) = retained.params[0].ty.as_ref() else {
+        panic!("expected recovered parameter type");
+    };
+    let TypeKind::Tuple { elems } = &ty.kind else {
+        panic!("expected recovered tuple type");
+    };
+    assert_eq!(elems.len(), 1, "{errors:?}");
+    assert!(matches!(elems[0].kind, TypeKind::Path { .. }));
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn tuple_expression_and_pattern_recovery_keeps_later_statements() {
     let (module, errors) = parse_module(
         "fn main() () { let value = (, 1,, true); let (, retained,, last) = value; retained; }",

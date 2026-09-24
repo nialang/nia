@@ -191,47 +191,7 @@ impl Parser {
                 }
             }
         } else if self.eat(TokenKind::LParen).is_some() {
-            if self.eat(TokenKind::RParen).is_some() {
-                TypeKind::Tuple { elems: Vec::new() }
-            } else {
-                let mut elems = Vec::new();
-                let first = self.parse_type_with_mode(mode);
-                if let Some(first) = first {
-                    elems.push(first);
-                }
-                if self.eat(TokenKind::Comma).is_none() {
-                    if !self.type_can_start() {
-                        let first = elems.pop()?;
-                        self.expect(TokenKind::RParen, "expected `)` after parenthesized type")?;
-                        return Some(
-                            self.make_type_ref(Span::new(start, self.previous_end()), first.kind),
-                        );
-                    }
-                    self.expected_here(
-                        ParseErrorKind::Grammar,
-                        "expected `,` or `)` after type parameter",
-                    );
-                }
-                while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
-                    if let Some(ty) = self.parse_type_with_mode(mode) {
-                        elems.push(ty);
-                        if self.eat(TokenKind::Comma).is_none() {
-                            if self.type_can_start() {
-                                self.expected_here(
-                                    ParseErrorKind::Grammar,
-                                    "expected `,` or `)` after type parameter",
-                                );
-                                continue;
-                            }
-                            break;
-                        }
-                    } else if self.eat(TokenKind::Comma).is_none() {
-                        break;
-                    }
-                }
-                self.expect(TokenKind::RParen, "expected `)` after tuple type")?;
-                TypeKind::Tuple { elems }
-            }
+            self.parse_parenthesized_type_with_mode(mode)?
         } else if self.at_callable_type() {
             self.parse_callable_type_with_mode(mode)?
         } else if self.eat(TokenKind::Underscore).is_some() {
@@ -393,6 +353,58 @@ impl Parser {
                 elem: Box::new(elem),
             })
         }
+    }
+
+    fn parse_parenthesized_type_with_mode(&mut self, mode: TypeParseMode) -> Option<TypeKind> {
+        if self.eat(TokenKind::RParen).is_some() {
+            return Some(TypeKind::Tuple { elems: Vec::new() });
+        }
+
+        let mut elems = Vec::new();
+        let first_checkpoint = self.checkpoint();
+        let first = self.parse_type_with_mode(mode);
+        let first_failed = first.is_none();
+        if first_failed && !self.at(TokenKind::RParen) {
+            self.recover_to_comma_or_rparen_with_progress(first_checkpoint);
+        }
+        if first_failed && self.at(TokenKind::RParen) {
+            self.expect(TokenKind::RParen, "expected `)` after tuple type")?;
+            return Some(TypeKind::Tuple { elems });
+        }
+
+        if let Some(first) = first {
+            elems.push(first);
+        }
+        if !first_failed && self.eat(TokenKind::Comma).is_none() {
+            if !self.type_can_start() {
+                let first = elems.pop()?;
+                self.expect(TokenKind::RParen, "expected `)` after parenthesized type")?;
+                return Some(first.kind);
+            }
+            self.expected_here(
+                ParseErrorKind::Grammar,
+                "expected `,` or `)` after type parameter",
+            );
+        }
+        while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+            if let Some(ty) = self.parse_type_with_mode(mode) {
+                elems.push(ty);
+                if self.eat(TokenKind::Comma).is_none() {
+                    if self.type_can_start() {
+                        self.expected_here(
+                            ParseErrorKind::Grammar,
+                            "expected `,` or `)` after type parameter",
+                        );
+                        continue;
+                    }
+                    break;
+                }
+            } else if self.eat(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "expected `)` after tuple type")?;
+        Some(TypeKind::Tuple { elems })
     }
 
     fn parse_volatile_pointer_type_after_caret_with_mode(
