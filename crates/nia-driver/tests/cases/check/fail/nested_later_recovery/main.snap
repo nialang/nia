@@ -1,0 +1,59 @@
+path: fail/nested_later_recovery/main.nia
+code: E0101
+summary: expected expression
+label: 73..74 Primary Source expected expression
+help: provide an expression here, such as a literal, name, or call
+
+path: fail/nested_later_recovery/main.nia
+code: E0101
+summary: expected binding pattern
+label: 142..143 Primary Source expected binding pattern
+help: use a name, `_`, or a supported destructuring pattern
+
+path: fail/nested_later_recovery/main.nia
+code: E0101
+summary: expected expression
+label: 195..196 Primary Source expected expression
+help: provide an expression here, such as a literal, name, or call
+
+path: fail/nested_later_recovery/main.nia
+code: E0101
+summary: expected type
+label: 254..255 Primary Source expected type
+help: provide a type name or type expression here
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected expression
+  --> fail/nested_later_recovery/main.nia:3:16
+  |
+3 |         (true, @ (bad, value), false) => (),
+  |                ^ expected expression
+help: provide an expression here, such as a literal, name, or call
+
+root diagnostic:
+error[E0101]: expected binding pattern
+  --> fail/nested_later_recovery/main.nia:6:17
+  |
+6 |     let (first, @ (bad, value), retained) = value;
+  |                 ^ expected binding pattern
+help: use a name, `_`, or a supported destructuring pattern
+
+root diagnostic:
+error[E0101]: expected expression
+  --> fail/nested_later_recovery/main.nia:7:19
+  |
+7 |     consume(true, @ (bad, value), 1);
+  |                   ^ expected expression
+help: provide an expression here, such as a literal, name, or call
+
+root diagnostic:
+error[E0101]: expected type
+   --> fail/nested_later_recovery/main.nia:11:24
+   |
+11 | fn typed(value: (bool, @ (bad, value), i32)) () {}
+   |                        ^ expected type
+help: provide a type name or type expression here
+
+summary: 4 errors, 0 warnings

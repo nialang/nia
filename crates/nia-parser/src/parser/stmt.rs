@@ -489,22 +489,30 @@ impl Parser {
                 }
             }
             while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+                let checkpoint = self.checkpoint();
                 if let Some(field) =
                     self.parse_irrefutable_pattern_until(&[TokenKind::Comma, TokenKind::RParen])
                 {
                     fields.push(field);
                     if self.eat(TokenKind::Comma).is_none() {
-                        if self.pattern_can_start(&self.peek().kind) {
+                        if self.at(TokenKind::RParen) || self.at(TokenKind::Eof) {
+                            break;
+                        } else if self.pattern_can_start(&self.peek().kind) {
                             self.expected_here(
                                 ParseErrorKind::Grammar,
                                 "expected `,` or `)` after tuple pattern",
                             );
                             continue;
                         }
-                        break;
+                        self.recover_to_comma_or_rparen_with_progress(checkpoint);
                     }
-                } else if self.eat(TokenKind::Comma).is_none() {
-                    break;
+                } else {
+                    if self.eat(TokenKind::Comma).is_none() {
+                        if self.at(TokenKind::RParen) || self.at(TokenKind::Eof) {
+                            break;
+                        }
+                        self.recover_to_comma_or_rparen_with_progress(checkpoint);
+                    }
                 }
             }
             let end = self
@@ -711,20 +719,23 @@ impl Parser {
             }
             let mut fields = first.into_iter().collect::<Vec<_>>();
             while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+                let checkpoint = self.checkpoint();
                 if let Some(field) =
                     self.parse_pattern_until(&[TokenKind::Comma, TokenKind::RParen])
                 {
                     fields.push(field);
                 }
                 if self.eat(TokenKind::Comma).is_none() {
-                    if self.pattern_can_start(&self.peek().kind) {
+                    if self.at(TokenKind::RParen) || self.at(TokenKind::Eof) {
+                        break;
+                    } else if self.pattern_can_start(&self.peek().kind) {
                         self.expected_here(
                             ParseErrorKind::Grammar,
                             "expected `,` or `)` after tuple pattern",
                         );
                         continue;
                     }
-                    break;
+                    self.recover_to_comma_or_rparen_with_progress(checkpoint);
                 }
             }
             let end = self

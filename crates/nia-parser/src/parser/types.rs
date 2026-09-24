@@ -388,20 +388,26 @@ impl Parser {
             );
         }
         while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+            let checkpoint = self.checkpoint();
             if let Some(ty) = self.parse_type_with_mode(mode) {
                 elems.push(ty);
                 if self.eat(TokenKind::Comma).is_none() {
-                    if self.type_can_start() {
+                    if self.at(TokenKind::RParen) || self.at(TokenKind::Eof) {
+                        break;
+                    } else if self.type_can_start() {
                         self.expected_here(
                             ParseErrorKind::Grammar,
                             "expected `,` or `)` after type parameter",
                         );
                         continue;
                     }
-                    break;
+                    self.recover_to_comma_or_rparen_with_progress(checkpoint);
                 }
             } else if self.eat(TokenKind::Comma).is_none() {
-                break;
+                if self.at(TokenKind::RParen) || self.at(TokenKind::Eof) {
+                    break;
+                }
+                self.recover_to_comma_or_rparen_with_progress(checkpoint);
             }
         }
         self.expect(TokenKind::RParen, "expected `)` after tuple type")?;

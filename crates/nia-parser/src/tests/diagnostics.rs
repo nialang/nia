@@ -523,6 +523,122 @@ fn tuple_expression_delimiter_recovery_keeps_later_elements_and_statements() {
 }
 
 #[test]
+fn tuple_pattern_recovery_keeps_fields_after_nested_invalid_later_pattern() {
+    let (module, errors) = parse_module(
+        "fn main(value: (bool, bool, bool)) () { match value { (true, @ (bad, value), false) => (), _ => (), } }",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected expression"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Function(main) = &module.items[0].kind else {
+        panic!("expected main function");
+    };
+    let ExprKind::Match(matched) = &main
+        .body
+        .as_ref()
+        .expect("main body")
+        .tail
+        .as_ref()
+        .unwrap()
+        .kind
+    else {
+        panic!("expected match expression");
+    };
+    let PatternKind::Tuple(fields) = &matched.arms[0].patterns[0].kind else {
+        panic!("expected tuple pattern");
+    };
+    assert_eq!(fields.len(), 2, "{errors:?}");
+    assert_eq!(matched.arms.len(), 2, "{errors:?}");
+}
+
+#[test]
+fn irrefutable_tuple_pattern_recovery_keeps_fields_after_nested_invalid_later_pattern() {
+    let (module, errors) = parse_module(
+        "fn main(source: (bool, bool, bool)) () { let (first, @ (bad, value), retained) = source; later(); } fn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected binding pattern"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Function(main) = &module.items[0].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("main body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected binding statement");
+    };
+    let PatternKind::Tuple(fields) = &binding.pattern.kind else {
+        panic!("expected tuple binding pattern");
+    };
+    assert_eq!(fields.len(), 2, "{errors:?}");
+    assert_eq!(body.stmts.len(), 2, "{errors:?}");
+}
+
+#[test]
+fn tuple_type_recovery_keeps_elements_after_nested_invalid_later_type() {
+    let (module, errors) =
+        parse_module("fn retained(value: (bool, @ (bad, value), i32)) () {}\nfn later() () {}");
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected type"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Function(retained) = &module.items[0].kind else {
+        panic!("expected retained function");
+    };
+    let TypeRef {
+        kind: TypeKind::Tuple { elems },
+        ..
+    } = retained.params[0].ty.as_ref().expect("parameter type")
+    else {
+        panic!("expected tuple type");
+    };
+    assert_eq!(elems.len(), 2, "{errors:?}");
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
+fn call_argument_recovery_keeps_arguments_after_nested_invalid_later_argument() {
+    let (module, errors) = parse_module(
+        "fn main() () { consume(true, @ (bad, value), 1); later(); } fn consume(first: bool, second: i32, third: i32) () {} fn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected expression"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Function(main) = &module.items[0].kind else {
+        panic!("expected main function");
+    };
+    let StmtKind::Expr(call) = &main.body.as_ref().expect("main body").stmts[0].kind else {
+        panic!("expected call statement");
+    };
+    let ExprKind::Call { args, .. } = &call.kind else {
+        panic!("expected call expression");
+    };
+    assert_eq!(args.len(), 2, "{errors:?}");
+    assert_eq!(main.body.as_ref().expect("main body").stmts.len(), 2);
+}
+
+#[test]
 fn pattern_delimiter_recovery_keeps_later_patterns_and_arms() {
     let (module, errors) = parse_module(
         "struct Pair(bool, bool)\nstruct Point { x: bool, y: bool }\nfn main(value: (bool, bool)) () { match value { (true false) => (), Pair(true false) => (), Point { x: true y: false } => (), _ => (), } }",
