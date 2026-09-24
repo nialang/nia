@@ -498,6 +498,32 @@ impl GrammarParser {
         }
     }
 
+    fn consume_member_tokens_until(&mut self, stops: &[TokenKind]) {
+        let mut delimiters = Vec::new();
+        let mut consumed = false;
+        while !self.at(TokenKind::Eof) {
+            let kind = self.current_kind();
+            if delimiters.is_empty()
+                && (stops.contains(&kind) || (consumed && is_trait_member_start(&kind)))
+            {
+                return;
+            }
+            match kind {
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                    delimiters.push(kind);
+                }
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace
+                    if delimiters.last().is_some_and(|open| closes(open, &kind)) =>
+                {
+                    delimiters.pop();
+                }
+                _ => {}
+            }
+            self.bump();
+            consumed = true;
+        }
+    }
+
     fn consume_balanced_group_node(&mut self) {
         let open = self.current_kind();
         self.events.push(GreenEvent::Start(SyntaxKind::Delimited {
@@ -529,31 +555,9 @@ impl GrammarParser {
                 return false;
             }
             self.emit_trivia_before_current();
+            let member_start = self.position;
             self.events.push(GreenEvent::Start(SyntaxKind::Member));
-            let mut delimiters = Vec::new();
-            let mut consumed = false;
-            while !self.at(TokenKind::Eof) {
-                let kind = self.current_kind();
-                if delimiters.is_empty()
-                    && (matches!(kind, TokenKind::Semicolon | TokenKind::RBrace)
-                        || (consumed && is_trait_member_start(&kind)))
-                {
-                    break;
-                }
-                match kind {
-                    TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
-                        delimiters.push(kind);
-                    }
-                    TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace
-                        if delimiters.last().is_some_and(|open| closes(open, &kind)) =>
-                    {
-                        delimiters.pop();
-                    }
-                    _ => {}
-                }
-                self.bump();
-                consumed = true;
-            }
+            self.parse_trait_member();
             self.events.push(GreenEvent::Finish);
             if self.at(TokenKind::Semicolon) {
                 self.bump();
@@ -563,11 +567,129 @@ impl GrammarParser {
                 self.events.push(GreenEvent::Finish);
                 return false;
             }
+            if self.position == member_start {
+                if is_top_level_recovery_start(&self.current_kind()) {
+                    self.events.push(GreenEvent::Start(SyntaxKind::Missing));
+                    self.events.push(GreenEvent::Finish);
+                    self.events.push(GreenEvent::Finish);
+                    return false;
+                }
+                self.bump();
+            }
         }
         self.events.push(GreenEvent::Start(SyntaxKind::Missing));
         self.events.push(GreenEvent::Finish);
         self.events.push(GreenEvent::Finish);
         false
+    }
+
+    fn parse_trait_member(&mut self) {
+        while matches!(self.current_kind(), TokenKind::Pub | TokenKind::Extern) {
+            let is_pub = self.at(TokenKind::Pub);
+            self.bump();
+            if is_pub && self.at(TokenKind::LParen) {
+                self.consume_balanced_group();
+            }
+        }
+        match self.current_kind() {
+            TokenKind::Type => self.parse_associated_type_member(),
+            TokenKind::Const => {
+                if self.kind_at(1) == Some(TokenKind::Fn) {
+                    self.parse_method_member();
+                } else {
+                    self.parse_associated_value_member();
+                }
+            }
+            TokenKind::Fn => self.parse_method_member(),
+            _ => {
+                self.consume_member_tokens_until(&[TokenKind::Semicolon]);
+            }
+        }
+    }
+
+    fn parse_associated_type_member(&mut self) {
+        self.events.push(GreenEvent::Start(SyntaxKind::TypeAlias));
+        self.bump();
+        if self.at(TokenKind::Ident) {
+            self.bump();
+        } else {
+            self.missing("expected associated type name");
+        }
+        self.consume_generic_group();
+        if self.at(TokenKind::Eq) {
+            self.bump();
+            self.events.push(GreenEvent::Start(SyntaxKind::Type));
+            if self.at(TokenKind::Semicolon) {
+                self.missing("expected associated type");
+            } else {
+                self.consume_member_tokens_until(&[TokenKind::Semicolon]);
+            }
+            self.events.push(GreenEvent::Finish);
+        }
+        self.events.push(GreenEvent::Finish);
+    }
+
+    fn parse_associated_value_member(&mut self) {
+        self.events.push(GreenEvent::Start(SyntaxKind::Binding));
+        self.bump();
+        if self.at(TokenKind::Mut) {
+            self.bump();
+        }
+        if self.at(TokenKind::Ident) {
+            self.bump();
+        } else {
+            self.missing("expected associated const name");
+        }
+        if self.at(TokenKind::Colon) {
+            self.bump();
+            self.events.push(GreenEvent::Start(SyntaxKind::Type));
+            if self.at(TokenKind::Semicolon) || self.at(TokenKind::Eq) {
+                self.missing("expected associated const type");
+            } else {
+                self.consume_member_tokens_until(&[TokenKind::Eq, TokenKind::Semicolon]);
+            }
+            self.events.push(GreenEvent::Finish);
+        } else {
+            self.missing("expected `:` after associated const name");
+        }
+        if self.at(TokenKind::Eq) {
+            self.bump();
+            self.events.push(GreenEvent::Start(SyntaxKind::Expr));
+            self.consume_member_tokens_until(&[TokenKind::Semicolon]);
+            self.events.push(GreenEvent::Finish);
+        }
+        self.events.push(GreenEvent::Finish);
+    }
+
+    fn parse_method_member(&mut self) {
+        self.events.push(GreenEvent::Start(SyntaxKind::Function));
+        if self.at(TokenKind::Const) {
+            self.bump();
+        }
+        self.bump();
+        if self.at(TokenKind::Ident) {
+            self.bump();
+        } else {
+            self.missing("expected method name");
+        }
+        self.consume_generic_group();
+        if self.at(TokenKind::LParen) {
+            self.parse_parameter_list();
+        } else {
+            self.missing("expected `(` after method name");
+        }
+        if !matches!(
+            self.current_kind(),
+            TokenKind::LBrace | TokenKind::Semicolon
+        ) {
+            self.events.push(GreenEvent::Start(SyntaxKind::Type));
+            self.consume_member_tokens_until(&[TokenKind::LBrace, TokenKind::Semicolon]);
+            self.events.push(GreenEvent::Finish);
+        }
+        if self.at(TokenKind::LBrace) && !self.consume_balanced_group() {
+            self.missing("expected `}` after method body");
+        }
+        self.events.push(GreenEvent::Finish);
     }
 
     fn consume_angle_group(&mut self) {
@@ -583,6 +705,14 @@ impl GrammarParser {
                 _ => {}
             }
             self.bump();
+        }
+    }
+
+    fn consume_generic_group(&mut self) {
+        if self.at(TokenKind::LBracket) {
+            self.consume_balanced_group();
+        } else {
+            self.consume_angle_group();
         }
     }
 
@@ -1213,6 +1343,86 @@ mod tests {
             );
         }
         assert_eq!(children[2].kind(), &SyntaxKind::Module);
+    }
+
+    #[test]
+    fn trait_members_have_nested_declaration_nodes() {
+        let source = "trait Display { type Output; const FLAG: bool; fn show(value: i32) bool; }\nextend Point { pub(pkg) fn show[T](value: i32) bool {} }";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+        let children = parsed.tree.root().child_nodes();
+        for (index, declaration) in children.iter().enumerate() {
+            let body = declaration
+                .child_nodes()
+                .into_iter()
+                .find(|child| {
+                    matches!(
+                        child.kind(),
+                        SyntaxKind::Delimited {
+                            open: TokenKind::LBrace,
+                            ..
+                        }
+                    )
+                })
+                .expect("member body");
+            let members = body
+                .child_nodes()
+                .into_iter()
+                .filter(|child| child.kind() == &SyntaxKind::Member)
+                .collect::<Vec<_>>();
+            assert!(!members.is_empty());
+            if index == 0 {
+                assert!(members.iter().any(|member| {
+                    member
+                        .child_nodes()
+                        .iter()
+                        .any(|child| child.kind() == &SyntaxKind::TypeAlias)
+                }));
+                assert!(members.iter().any(|member| {
+                    member
+                        .child_nodes()
+                        .iter()
+                        .any(|child| child.kind() == &SyntaxKind::Binding)
+                }));
+            }
+            assert!(members.iter().any(|member| {
+                member
+                    .child_nodes()
+                    .iter()
+                    .any(|child| child.kind() == &SyntaxKind::Function)
+            }));
+        }
+    }
+
+    #[test]
+    fn malformed_trait_member_recovers_at_later_member_and_item() {
+        let source = "trait Display { const Broken: ; fn show() bool; }\nmodule next;";
+        let parsed = parse(source, None).expect("valid event stream");
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].kind(), &SyntaxKind::Trait);
+        assert_eq!(children[1].kind(), &SyntaxKind::Module);
+        let body = children[0]
+            .child_nodes()
+            .into_iter()
+            .find(|child| {
+                matches!(
+                    child.kind(),
+                    SyntaxKind::Delimited {
+                        open: TokenKind::LBrace,
+                        ..
+                    }
+                )
+            })
+            .expect("member body");
+        assert_eq!(
+            body.child_nodes()
+                .into_iter()
+                .filter(|child| child.kind() == &SyntaxKind::Member)
+                .count(),
+            2
+        );
+        assert!(!parsed.errors.is_empty(), "{:?}", parsed.errors);
     }
 
     #[test]
