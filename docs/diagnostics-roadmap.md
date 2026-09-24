@@ -323,6 +323,9 @@ comma or closing brace, retaining later fields and arms with parser and driver
 coverage. Tuple, nominal tuple, and named nominal patterns also diagnose a
 missing separator between valid fields and retain the remaining fields and
 match arms, with parser and driver coverage.
+Named struct, union, and enum payload fields likewise diagnose a missing
+separator between valid fields, retaining later fields and following items
+with parser and driver coverage.
 Enum variant lists now recover a missing variant name at a comma or closing
 brace, retaining later variants and following top-level declarations with
 parser and driver coverage. They also report a missing separator between valid
