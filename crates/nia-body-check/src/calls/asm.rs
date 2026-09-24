@@ -27,12 +27,14 @@ impl<'a> BodyChecker<'a> {
         }
         let config = &args[0];
         let Some(fields) = self.asm_builtin_literal_fields(config, BuiltinType::AsmConfig) else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                config.span,
-                "builtin `asm` expects an `AsmConfig` literal",
-            ));
-            self.check_expr(config);
+            let actual = self.check_expr(config);
+            if !self.is_error_recovery_ty(actual) {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    config.span,
+                    "builtin `asm` expects an `AsmConfig` literal",
+                ));
+            }
             return self.unit();
         };
 
@@ -79,12 +81,14 @@ impl<'a> BodyChecker<'a> {
 
     fn check_asm_inputs(&mut self, expr: &Expr) {
         let Some(fields) = self.asm_builtin_literal_fields(expr, BuiltinType::AsmInputs) else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                expr.span,
-                "`asm` field `inputs` expects an `AsmInputs` literal",
-            ));
-            self.check_expr(expr);
+            let actual = self.check_expr(expr);
+            if !self.is_error_recovery_ty(actual) {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    expr.span,
+                    "`asm` field `inputs` expects an `AsmInputs` literal",
+                ));
+            }
             return;
         };
         for field in fields {
@@ -95,12 +99,14 @@ impl<'a> BodyChecker<'a> {
 
     fn check_asm_outputs(&mut self, expr: &Expr) {
         let Some(fields) = self.asm_builtin_literal_fields(expr, BuiltinType::AsmOutputs) else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                expr.span,
-                "`asm` field `outputs` expects an `AsmOutputs` literal",
-            ));
-            self.check_expr(expr);
+            let actual = self.check_expr(expr);
+            if !self.is_error_recovery_ty(actual) {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    expr.span,
+                    "`asm` field `outputs` expects an `AsmOutputs` literal",
+                ));
+            }
             return;
         };
         for field in fields {
@@ -235,12 +241,14 @@ impl<'a> BodyChecker<'a> {
             elems: ArrayElements::List(elems),
         } = &expr.kind
         else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                expr.span,
-                "`asm` field `clobbers` must be an array literal of byte strings",
-            ));
-            self.check_expr(expr);
+            let actual = self.check_expr(expr);
+            if !self.is_error_recovery_ty(actual) {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    expr.span,
+                    "`asm` field `clobbers` must be an array literal of byte strings",
+                ));
+            }
             return;
         };
         for elem in elems {
@@ -279,12 +287,14 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::ArrayLiteral { .. } => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    expr.span,
-                    "`asm` options must be a list of byte string literals",
-                ));
-                self.check_expr(expr);
+                let actual = self.check_expr(expr);
+                if !self.is_error_recovery_ty(actual) {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        expr.span,
+                        "`asm` options must be a list of byte string literals",
+                    ));
+                }
             }
             _ => {
                 let value_ty = self.check_expr(expr);

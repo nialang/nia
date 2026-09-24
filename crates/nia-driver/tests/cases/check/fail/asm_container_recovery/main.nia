@@ -1,0 +1,9 @@
+fn invalid() () {
+    std::builtin::asm(missing_config);
+    std::builtin::asm(.{
+        inputs: missing_inputs,
+        outputs: missing_outputs,
+        clobbers: missing_clobbers,
+        options: missing_options,
+    });
+}
