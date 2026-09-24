@@ -875,6 +875,30 @@ fn using_group_delimiter_recovery_keeps_later_members_and_items() {
 }
 
 #[test]
+fn using_group_recovery_ignores_nested_member_delimiters() {
+    let (module, errors) = parse_module("using {(bad, value), kept};\nfn after() () {}");
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected name in `using`"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Using(using) = &module.items[0].kind else {
+        panic!("expected using item");
+    };
+    let nia_ast::UsingSelector::Group(items) = &using.selector else {
+        panic!("expected using group");
+    };
+    assert_eq!(items.len(), 1, "{errors:?}");
+    let ItemKind::Function(after) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(after.name, sym("after"));
+}
+
+#[test]
 fn attribute_argument_recovery_keeps_later_arguments_and_item() {
     let (module, errors) = parse_module("@[custom(, true)]\nfn retained() () {}\nfn later() () {}");
     assert_eq!(
@@ -919,6 +943,29 @@ fn attribute_argument_delimiter_recovery_keeps_later_arguments_and_item() {
         panic!("expected metadata attribute");
     };
     assert_eq!(meta.args.len(), 2);
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
+fn attribute_argument_recovery_ignores_nested_argument_delimiters() {
+    let (module, errors) =
+        parse_module("@[custom(@ [bad, value], true)]\nfn retained() () {}\nfn later() () {}");
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected expression"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let item = &module.items[0];
+    let nia_ast::AttributeKind::Meta(meta) = &item.attributes[0].kind else {
+        panic!("expected metadata attribute");
+    };
+    assert_eq!(meta.args.len(), 1, "{errors:?}");
     let ItemKind::Function(later) = &module.items[1].kind else {
         panic!("expected later function");
     };
