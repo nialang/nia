@@ -1,0 +1,6 @@
+fn main() () {
+    let value = target[@ (bad, value), true];
+    later();
+}
+
+fn later() () {}

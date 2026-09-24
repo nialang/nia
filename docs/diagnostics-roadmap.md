@@ -329,6 +329,9 @@ Bracket argument lists now skip a missing argument at a comma and retain later
 arguments, the surrounding type or expression, and following top-level items.
 They also diagnose a missing separator between valid arguments and retain the
 remaining arguments and following items, with parser and driver coverage.
+Bracket argument recovery also tracks nested parentheses, brackets, and
+braces, so a malformed nested argument cannot consume later top-level
+arguments; parser and driver coverage pin the retained argument and statement.
 Match arm pattern lists now skip a missing pattern at a comma and retain the
 later patterns, arm body, and following statements.
 They also diagnose a missing separator between valid patterns and retain the

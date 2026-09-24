@@ -1,0 +1,15 @@
+path: fail/bracket_argument_nested_recovery/main.nia
+code: E0101
+summary: expected bracket argument
+label: 38..39 Primary Source expected bracket argument
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected bracket argument
+  --> fail/bracket_argument_nested_recovery/main.nia:2:24
+  |
+2 |     let value = target[@ (bad, value), true];
+  |                        ^ expected bracket argument
+
+summary: 1 error, 0 warnings
