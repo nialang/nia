@@ -278,6 +278,9 @@ remain parseable with parser and driver coverage.
 Array literal recovery uses the same nested delimiter synchronization for
 malformed elements, preserving later elements and following statements with
 parser and driver coverage.
+Tuple expression recovery now applies that synchronization to malformed first
+and later elements, retaining the remaining tuple and following statements
+with parser and driver coverage.
 Function pointer and callable interface type parameter lists likewise retain
 later parameters and the enclosing function after missing types at commas, with
 parser and driver coverage.

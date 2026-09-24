@@ -803,12 +803,17 @@ impl Parser {
                     ));
                 }
                 let mut elems = Vec::new();
-                if let Some(first) =
-                    self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RParen])
-                {
-                    elems.push(first);
+                let first_checkpoint = self.checkpoint();
+                let had_first = self
+                    .parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RParen])
+                    .map(|first| {
+                        elems.push(first);
+                    })
+                    .is_some();
+                if !had_first {
+                    self.recover_to_comma_or_rparen_with_progress(first_checkpoint);
                 }
-                if self.eat(TokenKind::Comma).is_none() {
+                if had_first && self.eat(TokenKind::Comma).is_none() {
                     if self.expr_can_start(&self.peek().kind) {
                         self.expected_here(
                             ParseErrorKind::Grammar,
@@ -821,6 +826,7 @@ impl Parser {
                     }
                 }
                 while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+                    let checkpoint = self.checkpoint();
                     if let Some(expr) =
                         self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RParen])
                     {
@@ -828,8 +834,8 @@ impl Parser {
                         if self.eat(TokenKind::Comma).is_none() {
                             break;
                         }
-                    } else if self.eat(TokenKind::Comma).is_none() {
-                        break;
+                    } else {
+                        self.recover_to_comma_or_rparen_with_progress(checkpoint);
                     }
                 }
                 let end = self
