@@ -1,0 +1,3 @@
+enum Recovered { First Second, Third }
+
+fn later() () {}

@@ -845,7 +845,12 @@ impl Parser {
                 .as_ref()
                 .map_or_else(|| self.previous_end(), |expr| expr.span.end);
             variants.push(self.make_enum_variant(name, payload, value, Span::new(start, end)));
-            self.eat(TokenKind::Comma);
+            if self.eat(TokenKind::Comma).is_none() && self.at(TokenKind::Ident) {
+                self.expected_here(
+                    ParseErrorKind::Grammar,
+                    "expected `,` or `}` after enum variant",
+                );
+            }
         }
         self.expect(TokenKind::RBrace, "expected `}` after enum body")?;
         Some(EnumItem {

@@ -293,6 +293,36 @@ fn enum_variant_name_recovery_keeps_later_variants_and_declarations() {
 }
 
 #[test]
+fn enum_variant_delimiter_recovery_keeps_later_variants() {
+    let (module, errors) = parse_module("enum Recovered { First Second, Third }\nfn later() () {}");
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error
+                .message
+                .contains("expected `,` or `}` after enum variant"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Enum(recovered) = &module.items[0].kind else {
+        panic!("expected recovered enum");
+    };
+    assert_eq!(
+        recovered
+            .variants
+            .iter()
+            .map(|variant| variant.name)
+            .collect::<Vec<_>>(),
+        vec![sym("First"), sym("Second"), sym("Third")]
+    );
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn tuple_type_recovery_keeps_later_elements_and_the_function() {
     let (module, errors) = parse_module("fn retained(value: (, i32,, bool)) () {}\nfn later() {}");
     assert_eq!(

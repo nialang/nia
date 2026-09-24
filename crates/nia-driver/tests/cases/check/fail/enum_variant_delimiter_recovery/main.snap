@@ -1,0 +1,15 @@
+path: fail/enum_variant_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `}` after enum variant; found `Second`
+label: 23..29 Primary Source expected `,` or `}` after enum variant; found `Second`
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `,` or `}` after enum variant; found `Second`
+  --> fail/enum_variant_delimiter_recovery/main.nia:1:24
+  |
+1 | enum Recovered { First Second, Third }
+  |                        ^^^^^^ expected `,` or `}` after enum variant; found `Second`
+
+summary: 1 error, 0 warnings

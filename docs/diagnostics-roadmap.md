@@ -325,7 +325,9 @@ missing separator between valid fields and retain the remaining fields and
 match arms, with parser and driver coverage.
 Enum variant lists now recover a missing variant name at a comma or closing
 brace, retaining later variants and following top-level declarations with
-parser and driver coverage.
+parser and driver coverage. They also report a missing separator between valid
+variant names while retaining the later variants and declarations with parser
+and driver coverage.
 Match arm bodies now synchronize an invalid arm at the next top-level comma or
 closing brace, retaining later arms and statements after the match.
 These are recovery gaps in the grammar parser that consumes the lossless token
