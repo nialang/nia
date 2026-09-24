@@ -710,6 +710,13 @@ impl Parser {
                 ty: ty.filter(|ty| ty.span.end == end),
             });
             if self.eat(TokenKind::Comma).is_none() {
+                if self.expr_can_start(&self.peek().kind) {
+                    self.expected_here(
+                        ParseErrorKind::Grammar,
+                        "expected `,` or `]` after bracket argument",
+                    );
+                    continue;
+                }
                 break;
             }
         }

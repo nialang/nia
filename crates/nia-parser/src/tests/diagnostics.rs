@@ -825,6 +825,35 @@ fn bracket_argument_recovery_keeps_later_arguments_and_items() {
 }
 
 #[test]
+fn bracket_argument_delimiter_recovery_keeps_later_arguments_and_items() {
+    let (module, errors) =
+        parse_module("fn main() () { let value = target[true false]; later(); } fn later() () {}");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0]
+            .message
+            .contains("expected `,` or `]` after bracket argument"),
+        "{errors:?}"
+    );
+    let ItemKind::Function(main) = &module.items[0].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("expected body");
+    assert_eq!(body.stmts.len(), 2, "{errors:?}");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected bracket binding");
+    };
+    let ExprKind::BracketSuffix { args, .. } = &binding.value.as_ref().expect("value").kind else {
+        panic!("expected bracket suffix");
+    };
+    assert_eq!(args.len(), 2);
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn match_pattern_recovery_keeps_later_patterns_and_statements() {
     let (module, errors) = parse_module(
         "fn main(value: bool) () { match value { , true => (), false => (), } later(); }\nfn later() () {}",

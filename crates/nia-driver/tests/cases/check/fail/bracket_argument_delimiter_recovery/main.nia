@@ -1,0 +1,6 @@
+fn main() () {
+    let value = target[true false];
+    later();
+}
+
+fn later() () {}
