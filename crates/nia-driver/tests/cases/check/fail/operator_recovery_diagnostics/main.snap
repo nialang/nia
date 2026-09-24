@@ -10,6 +10,11 @@ summary: unknown value `missing`
 label: 52..59 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
+path: fail/operator_recovery_diagnostics/main.nia
+code: E0301
+summary: shift count must be an integer type, got bool
+label: 74..78 Primary Source shift count must be an integer type, got bool
+
 report:
 diagnostics:
 root diagnostic:
@@ -28,5 +33,11 @@ error[E0201]: unknown value `missing`
   |              ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-summary: 2 errors, 0 warnings
-note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)
+root diagnostic:
+error[E0301]: shift count must be an integer type, got bool
+  --> fail/operator_recovery_diagnostics/main.nia:4:14
+  |
+4 |     _ = 1 << true;
+  |              ^^^^ shift count must be an integer type, got bool
+
+summary: 3 errors, 0 warnings

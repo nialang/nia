@@ -1730,7 +1730,7 @@ impl<'a> BodyChecker<'a> {
         let rhs_actual = self.check_expr(rhs);
         let rhs_ty = self.expr_ty(rhs).unwrap_or(rhs_actual);
         let rhs_is_integer = self.is_integer(rhs_ty);
-        if !rhs_is_integer {
+        if !rhs_is_integer && !self.is_error_recovery_ty(rhs_ty) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 rhs.span,
