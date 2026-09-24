@@ -505,6 +505,7 @@ fn main(flag: bool, wide: u128, count: u32) i32 {
     _ = high;
     y + z + bad
 }
+
 "#,
     );
     assert!(
@@ -520,6 +521,36 @@ fn main(flag: bool, wide: u128, count: u32) i32 {
             .contains("trait bound not satisfied: bool: Shl[i32]")),
         "{:?}",
         checked.diagnostics
+    );
+}
+
+#[test]
+fn suppresses_shift_count_shape_for_error_recovery() {
+    let checked = pipeline(
+        r#"
+fn main() () {
+    _ = 1 << missing;
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| summary.starts_with("unknown value `missing`"))
+            .count(),
+        1,
+        "{summaries:?}"
+    );
+    assert!(
+        summaries
+            .iter()
+            .all(|summary| !summary.contains("shift count must be an integer")),
+        "{summaries:?}"
     );
 }
 

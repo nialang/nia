@@ -1,4 +1,5 @@
 fn invalid() () {
     _ = missing + 1;
     _ = 1 << missing;
+    _ = 1 << true;
 }

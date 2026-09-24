@@ -420,7 +420,9 @@ unresolved value does not publish a secondary binding-shape diagnostic; the
 body-check and driver suites cover this boundary.
 Binary and shift operator recovery is covered end to end: unresolved operands
 retain their name-resolution roots while operator trait and operand-shape
-consequences are suppressed.
+consequences are suppressed. Shift-count shape checking now applies the same
+root-only rule to an unresolved right operand while retaining an independent
+non-integer shift count diagnostic.
 Unary arithmetic, bitwise-not, and error-union success recovery now follow the
 same root-only contract when their operand is unresolved, with body-check and
 driver snapshot coverage.
