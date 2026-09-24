@@ -404,14 +404,14 @@ variant names while retaining the later variants and declarations with parser
 and driver coverage.
 Match arm bodies now synchronize an invalid arm at the next top-level comma or
 closing brace, retaining later arms and statements after the match.
-These are recovery gaps in the grammar parser that consumes the lossless token
-view. `nia-syntax` currently
-preserves source, trivia, malformed tokens, and delimiter groups in its green
-tree, with borrowed red views and conservative single-token partial rewrites;
-grammar productions and AST recovery remain in the separate token-cursor parser.
-This diagnostics roadmap audits that parser's error and recovery behavior. A
-grammar-shaped green tree or broader incremental grammar reparse would be a
-separate architecture change and is not implied by the recovery fixes here.
+These recovery cases were first audited in the token-cursor parser. The grammar
+tree migration is now active: `nia-grammar` owns grammar events, recovery nodes,
+and lossless source coverage above `nia-syntax`; `nia-parser` lowers migrated nodes
+to AST. Existing diagnostic fixtures remain the parity oracle during migration,
+but the token-cursor productions are removed as their grammar counterparts land.
+`Unparsed` nodes mark only an unfinished migration region and are not a permanent
+second parser model. The next migration stages cover attributes and top-level item
+dispatch, followed by declaration headers and nested recovery.
 Error recovery targets in optional, error-union, tuple, pointer, and null
 patterns now suppress target-shape and match-coverage consequences while
 independent errors in the arm bodies remain checkable; an end-to-end snapshot

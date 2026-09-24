@@ -60,6 +60,16 @@ fn parses_ast_from_lossless_syntax_tree() {
 }
 
 #[test]
+fn legacy_ast_lowering_accepts_the_grammar_tree_during_migration() {
+    let source = "module math;\nfn main() () {}\n";
+    let grammar = nia_grammar::parse(source, None).expect("grammar tree");
+    assert!(grammar.errors.is_empty(), "{:?}", grammar.errors);
+    let (module, errors) = parse_module_syntax(&grammar.tree);
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(module.items.len(), 2);
+}
+
+#[test]
 fn parse_errors_from_syntax_carry_red_token_node_keys() {
     let version = SourceVersion {
         id: SourceId::isolated(),

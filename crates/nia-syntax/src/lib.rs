@@ -100,11 +100,68 @@ pub enum ReparseKind {
     Full,
 }
 
+/// Event emitted by a grammar parser while constructing a green tree.
+///
+/// Events separate grammar recognition from tree allocation. A parser can
+/// report malformed input with an error node or preserve a missing construct
+/// without manufacturing a token, while the builder remains responsible for
+/// immutable parent/child structure and source spans.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GreenEvent {
+    /// Starts a new green node that will contain subsequent events.
+    Start(SyntaxKind),
+    /// Adds one lossless token or trivia element to the current node.
+    Token(LosslessToken),
+    /// Finishes the most recently started node.
+    Finish,
+}
+
+/// Invalid grammar event sequence or lossless source coverage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GreenBuildError {
+    /// Events did not form exactly one source-file root.
+    InvalidStructure,
+    /// Emitted tokens did not reconstruct the complete source.
+    InvalidSource,
+}
+
 /// Structural or lexical kind represented by a green tree element.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyntaxKind {
     /// Root node covering the complete source.
     SourceFile,
+    /// Syntax retained losslessly until its grammar production is migrated.
+    Unparsed,
+    /// Complete module grammar node.
+    Module,
+    /// Top-level or nested declaration grammar node.
+    Item,
+    /// Attribute grammar node.
+    Attribute,
+    /// Function declaration grammar node.
+    Function,
+    /// Struct declaration grammar node.
+    Struct,
+    /// Union declaration grammar node.
+    Union,
+    /// Enum declaration grammar node.
+    Enum,
+    /// Trait declaration grammar node.
+    Trait,
+    /// Type grammar node.
+    Type,
+    /// Expression grammar node.
+    Expr,
+    /// Statement grammar node.
+    Stmt,
+    /// Pattern grammar node.
+    Pattern,
+    /// Parameter grammar node.
+    Param,
+    /// Explicit missing construct inserted by recovery.
+    Missing,
+    /// Malformed source region retained by recovery.
+    Error,
     /// Node grouped by an opening delimiter and optional matching close.
     Delimited {
         /// Opening delimiter token.
@@ -303,6 +360,27 @@ impl SyntaxTree {
         }
     }
 
+    /// Builds a lossless tree from events emitted by a grammar parser.
+    pub fn from_green_events(
+        source: &str,
+        version: Option<SourceVersion>,
+        events: impl IntoIterator<Item = GreenEvent>,
+    ) -> Result<Self, GreenBuildError> {
+        let root = build_green_from_events(source, events)?;
+        if root.kind != SyntaxKind::SourceFile {
+            return Err(GreenBuildError::InvalidStructure);
+        }
+        let tree = Self {
+            source: source.to_owned(),
+            version,
+            root,
+        };
+        if tree.full_text() != source {
+            return Err(GreenBuildError::InvalidSource);
+        }
+        Ok(tree)
+    }
+
     /// Returns the original source text.
     pub fn source(&self) -> &str {
         &self.source
@@ -361,6 +439,95 @@ impl SyntaxTree {
                 kind: ReparseKind::Full,
             },
         }
+    }
+}
+
+/// Builds a green tree from grammar parser events.
+fn build_green_from_events(
+    source: &str,
+    events: impl IntoIterator<Item = GreenEvent>,
+) -> Result<GreenNode, GreenBuildError> {
+    let mut builder = GreenNodeBuilder::new(source);
+    for event in events {
+        match event {
+            GreenEvent::Start(kind) => builder.start(kind)?,
+            GreenEvent::Token(token) => builder.token(token)?,
+            GreenEvent::Finish => builder.finish()?,
+        }
+    }
+    builder.finish_root()
+}
+
+/// Incremental green tree builder driven by grammar events.
+#[derive(Debug)]
+struct GreenNodeBuilder<'a> {
+    source: &'a str,
+    stack: Vec<NodeBuilder>,
+    finished: Option<GreenNode>,
+    offset: usize,
+}
+
+impl<'a> GreenNodeBuilder<'a> {
+    fn new(source: &'a str) -> Self {
+        Self {
+            source,
+            stack: Vec::new(),
+            finished: None,
+            offset: 0,
+        }
+    }
+
+    fn start(&mut self, kind: SyntaxKind) -> Result<(), GreenBuildError> {
+        if self.finished.is_some()
+            || (self.stack.is_empty() && kind != SyntaxKind::SourceFile)
+            || (!self.stack.is_empty() && kind == SyntaxKind::SourceFile)
+        {
+            return Err(GreenBuildError::InvalidStructure);
+        }
+        self.stack
+            .push(NodeBuilder::new(kind, Span::new(self.offset, self.offset)));
+        Ok(())
+    }
+
+    fn token(&mut self, token: LosslessToken) -> Result<(), GreenBuildError> {
+        let Some(node) = self.stack.last_mut() else {
+            return Err(GreenBuildError::InvalidStructure);
+        };
+        if token.span.start != self.offset
+            || token.span.end > self.source.len()
+            || self.source.get(token.span.start..token.span.end).is_none()
+        {
+            return Err(GreenBuildError::InvalidSource);
+        }
+        let kind = syntax_kind(token.kind);
+        let green_token = green_token(self.source, kind, token.span);
+        if node.children.is_empty() {
+            node.span.start = token.span.start;
+        }
+        node.span.end = token.span.end;
+        node.children.push(GreenElement::Token(green_token));
+        self.offset = token.span.end;
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<(), GreenBuildError> {
+        let Some(node) = self.stack.pop() else {
+            return Err(GreenBuildError::InvalidStructure);
+        };
+        let element = GreenElement::Node(node.finish());
+        if let Some(parent) = self.stack.last_mut() {
+            parent.push_element(element);
+        } else if let GreenElement::Node(node) = element {
+            self.finished = Some(node);
+        }
+        Ok(())
+    }
+
+    fn finish_root(self) -> Result<GreenNode, GreenBuildError> {
+        if !self.stack.is_empty() || self.offset != self.source.len() {
+            return Err(GreenBuildError::InvalidStructure);
+        }
+        self.finished.ok_or(GreenBuildError::InvalidStructure)
     }
 }
 
@@ -431,7 +598,23 @@ impl<'a> SyntaxNode<'a> {
     fn node_key_kind(&self) -> NodeSyntaxKind {
         match self.kind() {
             SyntaxKind::SourceFile => NodeSyntaxKind::Module,
-            SyntaxKind::Delimited { .. } => NodeSyntaxKind::Syntax,
+            SyntaxKind::Module => NodeSyntaxKind::Module,
+            SyntaxKind::Item
+            | SyntaxKind::Attribute
+            | SyntaxKind::Function
+            | SyntaxKind::Struct
+            | SyntaxKind::Union
+            | SyntaxKind::Enum
+            | SyntaxKind::Trait => NodeSyntaxKind::Item,
+            SyntaxKind::Type => NodeSyntaxKind::Type,
+            SyntaxKind::Expr => NodeSyntaxKind::Expr,
+            SyntaxKind::Stmt => NodeSyntaxKind::Stmt,
+            SyntaxKind::Pattern => NodeSyntaxKind::Pattern,
+            SyntaxKind::Param => NodeSyntaxKind::Param,
+            SyntaxKind::Unparsed
+            | SyntaxKind::Missing
+            | SyntaxKind::Error
+            | SyntaxKind::Delimited { .. } => NodeSyntaxKind::Syntax,
             SyntaxKind::Token(_) | SyntaxKind::Whitespace | SyntaxKind::LineComment => {
                 NodeSyntaxKind::Token
             }
@@ -506,61 +689,41 @@ fn syntax_kind(kind: LosslessTokenKind) -> SyntaxKind {
 }
 
 fn build_green_root(source: &str, tokens: Vec<LosslessToken>) -> GreenNode {
-    let end = tokens.last().map(|token| token.span.end).unwrap_or(0);
-    let mut root = NodeBuilder::new(SyntaxKind::SourceFile, Span::new(0, end));
+    let mut events = Vec::with_capacity(tokens.len() * 2 + 2);
+    events.push(GreenEvent::Start(SyntaxKind::SourceFile));
     let mut stack = Vec::new();
     for token in tokens {
-        let kind = syntax_kind(token.kind);
-        let green_token = green_token(source, kind, token.span);
-        match delimiter_open(green_token.kind()) {
+        let kind = syntax_kind(token.kind.clone());
+        match delimiter_open(&kind) {
             Some(open) => {
-                let span = green_token.span();
-                let mut node = NodeBuilder::new(SyntaxKind::Delimited { open, close: None }, span);
-                node.children.push(GreenElement::Token(green_token));
-                stack.push(node);
+                events.push(GreenEvent::Start(SyntaxKind::Delimited {
+                    open: open.clone(),
+                    close: None,
+                }));
+                events.push(GreenEvent::Token(token));
+                stack.push(open);
             }
-            None if let Some(close) = delimiter_close(green_token.kind())
+            None if let Some(close) = delimiter_close(&kind)
                 && !stack.is_empty()
                 && stack
                     .last()
-                    .is_some_and(|node| delimiter_matches(&node.kind, &close)) =>
+                    .is_some_and(|open| delimiter_matches(open, &close)) =>
             {
-                let Some(mut node) = stack.pop() else {
-                    continue;
-                };
-                if let SyntaxKind::Delimited {
-                    close: node_close, ..
-                } = &mut node.kind
-                {
-                    *node_close = Some(close);
-                }
-                node.span.end = green_token.span().end;
-                node.children.push(GreenElement::Token(green_token));
-                let element = GreenElement::Node(node.finish());
-                if let Some(parent) = stack.last_mut() {
-                    parent.children.push(element);
-                } else {
-                    root.children.push(element);
-                }
+                events.push(GreenEvent::Token(token));
+                events.push(GreenEvent::Finish);
+                stack.pop();
             }
             None => {
-                if let Some(node) = stack.last_mut() {
-                    node.children.push(GreenElement::Token(green_token));
-                } else {
-                    root.children.push(GreenElement::Token(green_token));
-                }
+                events.push(GreenEvent::Token(token));
             }
         }
     }
-    while let Some(node) = stack.pop() {
-        let element = GreenElement::Node(node.finish());
-        if let Some(parent) = stack.last_mut() {
-            parent.children.push(element);
-        } else {
-            root.children.push(element);
-        }
+    while stack.pop().is_some() {
+        events.push(GreenEvent::Finish);
     }
-    root.finish()
+    events.push(GreenEvent::Finish);
+    build_green_from_events(source, events)
+        .expect("normalized lossless tokens form one source tree")
 }
 
 #[derive(Debug)]
@@ -579,12 +742,37 @@ impl NodeBuilder {
         }
     }
 
-    fn finish(self) -> GreenNode {
+    fn finish(mut self) -> GreenNode {
+        if let SyntaxKind::Delimited { open, close } = &mut self.kind {
+            *close = self.children.last().and_then(|child| match child {
+                GreenElement::Token(token) => match token.kind() {
+                    SyntaxKind::Token(candidate)
+                        if delimiter_matches(open, candidate) =>
+                    {
+                        Some(candidate.clone())
+                    }
+                    _ => None,
+                },
+                GreenElement::Node(_) => None,
+            });
+        }
         GreenNode {
             kind: self.kind,
             span: self.span,
             children: self.children,
         }
+    }
+
+    fn push_element(&mut self, element: GreenElement) {
+        let element_span = match &element {
+            GreenElement::Node(node) => node.span,
+            GreenElement::Token(token) => token.span,
+        };
+        if self.children.is_empty() {
+            self.span.start = element_span.start;
+        }
+        self.span.end = element_span.end;
+        self.children.push(element);
     }
 }
 
@@ -611,28 +799,12 @@ fn delimiter_close(kind: &SyntaxKind) -> Option<TokenKind> {
     }
 }
 
-fn delimiter_matches(kind: &SyntaxKind, close: &TokenKind) -> bool {
+fn delimiter_matches(kind: &TokenKind, close: &TokenKind) -> bool {
     matches!(
         (kind, close),
-        (
-            SyntaxKind::Delimited {
-                open: TokenKind::LParen,
-                ..
-            },
-            &TokenKind::RParen
-        ) | (
-            SyntaxKind::Delimited {
-                open: TokenKind::LBrace,
-                ..
-            },
-            &TokenKind::RBrace
-        ) | (
-            SyntaxKind::Delimited {
-                open: TokenKind::LBracket,
-                ..
-            },
-            &TokenKind::RBracket
-        )
+        (&TokenKind::LParen, &TokenKind::RParen)
+            | (&TokenKind::LBrace, &TokenKind::RBrace)
+            | (&TokenKind::LBracket, &TokenKind::RBracket)
     )
 }
 
@@ -1039,6 +1211,53 @@ mod tests {
                 Some(NodePosition::ChildPath(path)) if !path.steps().is_empty()
             )
         }));
+    }
+
+    #[test]
+    fn grammar_events_build_nodes_without_losing_source() {
+        let source = "fn main() {}";
+        let tokens = tokenize_lossless(source);
+        let mut events = vec![GreenEvent::Start(SyntaxKind::SourceFile)];
+        events.push(GreenEvent::Start(SyntaxKind::Function));
+        events.extend(tokens.into_iter().map(GreenEvent::Token));
+        events.push(GreenEvent::Finish);
+        events.push(GreenEvent::Finish);
+
+        let tree = SyntaxTree::from_green_events(source, None, events).expect("valid events");
+        assert_eq!(tree.full_text(), source);
+        assert!(matches!(
+            tree.root().child_nodes().first().map(SyntaxNode::kind),
+            Some(SyntaxKind::Function)
+        ));
+    }
+
+    #[test]
+    fn grammar_events_reject_unbalanced_or_out_of_order_nodes() {
+        let source = "fn";
+        let error =
+            SyntaxTree::from_green_events(source, None, [GreenEvent::Start(SyntaxKind::Function)])
+                .expect_err("missing source root and finish");
+        assert_eq!(error, GreenBuildError::InvalidStructure);
+    }
+
+    #[test]
+    fn grammar_events_retain_zero_width_missing_nodes() {
+        let source = "fn";
+        let tokens = tokenize_lossless(source);
+        let mut events = vec![
+            GreenEvent::Start(SyntaxKind::SourceFile),
+            GreenEvent::Start(SyntaxKind::Missing),
+            GreenEvent::Finish,
+        ];
+        events.extend(tokens.into_iter().map(GreenEvent::Token));
+        events.push(GreenEvent::Finish);
+
+        let tree = SyntaxTree::from_green_events(source, None, events).expect("valid events");
+        let children = tree.root().child_nodes();
+        let missing = children.first().expect("missing node");
+        assert_eq!(missing.kind(), &SyntaxKind::Missing);
+        assert_eq!(missing.span(), Span::new(0, 0));
+        assert_eq!(tree.full_text(), source);
     }
 
     #[test]
