@@ -170,6 +170,7 @@ impl GrammarParser {
                 break;
             }
             let kind = self.current_kind();
+            let mut closes_item = delimiters.is_empty() && kind == TokenKind::Semicolon;
             match kind {
                 TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
                     delimiters.push(kind);
@@ -178,10 +179,14 @@ impl GrammarParser {
                     if delimiters.last().is_some_and(|open| closes(open, &kind)) =>
                 {
                     delimiters.pop();
+                    closes_item = delimiters.is_empty() && kind == TokenKind::RBrace;
                 }
                 _ => {}
             }
             self.bump();
+            if closes_item {
+                break;
+            }
         }
         self.events.push(GreenEvent::Finish);
     }
@@ -343,10 +348,27 @@ mod tests {
         let children = parsed.tree.root().child_nodes();
         assert_eq!(children.len(), 2);
         assert_eq!(children[0].kind(), &SyntaxKind::Attribute);
-        assert!(children[0]
-            .child_nodes()
-            .iter()
-            .any(|child| child.kind() == &SyntaxKind::Missing));
+        assert!(
+            children[0]
+                .child_nodes()
+                .iter()
+                .any(|child| child.kind() == &SyntaxKind::Missing)
+        );
         assert_eq!(children[1].kind(), &SyntaxKind::Module);
+    }
+
+    #[test]
+    fn unmigrated_items_are_kept_at_top_level_boundaries() {
+        let source = "fn first() {}\nfn second();\nmodule next;";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 3);
+        assert!(
+            children[..2]
+                .iter()
+                .all(|child| child.kind() == &SyntaxKind::Unparsed)
+        );
+        assert_eq!(children[2].kind(), &SyntaxKind::Module);
     }
 }
