@@ -228,8 +228,11 @@ binding patterns, closing delimiters, and missing names, including their
 rule-specific help. A lexical-error token no longer produces a secondary
 missing-semicolon diagnostic at the same recovery point. Invalid expressions at
 a statement boundary now recover locally and keep later statements and
-top-level declarations, with parser AST and driver report coverage. Statement
-recovery now tracks nested parentheses, brackets, and braces, so a failed
+top-level declarations, with parser AST and driver report coverage. Top-level
+item recovery also tracks nested parentheses and brackets, so a malformed
+declaration cannot stop at a nested semicolon before the next valid item; parser
+and driver coverage pin the retained declaration. Statement recovery now tracks
+nested parentheses, brackets, and braces, so a failed
 control-flow expression cannot stop at a semicolon inside its discarded body;
 the enclosing block and later declarations remain parseable with parser AST and
 driver report coverage. Statement-keyword recovery also consumes a terminator

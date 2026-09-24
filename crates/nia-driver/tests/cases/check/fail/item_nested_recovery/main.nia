@@ -1,0 +1,3 @@
+extern @ (bad; value);
+
+fn later() () {}
