@@ -1782,7 +1782,7 @@ fn unterminated_type_arguments_recover_at_the_outer_parameter_boundary() {
 #[test]
 fn unterminated_struct_body_recovers_at_the_next_item() {
     let (module, errors) = parse_module(
-        "struct Recovered { kept: i32,\nunion AlsoRecovered { value: i32,\nfn later() () {}",
+        "struct Recovered { kept: i32,\nunion AlsoRecovered { value: i32,\nenum YetRecovered { Kept,\nfn later() () {}",
     );
     assert_eq!(
         errors
@@ -1796,6 +1796,14 @@ fn unterminated_struct_body_recovers_at_the_next_item() {
         errors
             .iter()
             .filter(|error| error.message.contains("expected `}` after union body"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected `}` after enum body"))
             .count(),
         1,
         "{errors:?}"

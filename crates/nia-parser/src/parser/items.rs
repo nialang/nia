@@ -888,7 +888,10 @@ impl Parser {
         self.expect(TokenKind::LBrace, "expected `{` after enum name")?;
         let mut variants = Vec::new();
         let mut is_open = false;
-        while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+        while !self.at(TokenKind::RBrace)
+            && !self.at(TokenKind::Eof)
+            && !self.at_top_level_item_keyword()
+        {
             if self.at(TokenKind::Underscore) {
                 let marker = self.bump();
                 if is_open {
