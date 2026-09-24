@@ -51,9 +51,11 @@ impl Parser {
                         ParseErrorKind::Grammar,
                         "expected `,` or `]` after generic parameter",
                     );
-                    while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
-                        self.bump();
-                    }
+                    // An identifier here is an unambiguous start of the next
+                    // type or const parameter. Keep it as a local recovery
+                    // boundary so a missing separator does not discard valid
+                    // parameters that follow the malformed entry.
+                    continue;
                 }
                 break;
             }
