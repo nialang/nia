@@ -9,7 +9,7 @@ root diagnostic:
 error[E0101]: expected `,` or `->` after closure parameter; found `second`
   --> fail/closure_parameter_delimiter_recovery/main.nia:2:29
   |
-2 |     let value = \first: i32 second: bool -> first;
+2 |     let value = \first: i32 second: bool -> second;
   |                             ^^^^^^ expected `,` or `->` after closure parameter; found `second`
 
 summary: 1 error, 0 warnings

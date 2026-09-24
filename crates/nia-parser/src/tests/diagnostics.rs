@@ -1315,7 +1315,7 @@ fn extend_member_parameter_recovery_keeps_later_members_and_items() {
 #[test]
 fn closure_parameter_delimiter_recovery_keeps_the_function() {
     let (module, errors) = parse_module(
-        "fn retained() () { let value = \\first: i32 second: bool -> first; }\nfn later() () {}",
+        "fn retained() () { let value = \\first: i32 second: bool -> second; }\nfn later() () {}",
     );
     assert_eq!(
         errors
@@ -1330,7 +1330,15 @@ fn closure_parameter_delimiter_recovery_keeps_the_function() {
     let ItemKind::Function(retained) = &module.items[0].kind else {
         panic!("expected retained function");
     };
-    assert!(retained.body.is_some());
+    let body = retained.body.as_ref().expect("expected retained body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected closure binding");
+    };
+    let ExprKind::Closure { params, .. } = &binding.value.as_ref().expect("closure").kind else {
+        panic!("expected closure expression");
+    };
+    assert_eq!(params.len(), 2);
+    assert_eq!(params[1].name, Some(sym("second")));
     let ItemKind::Function(later) = &module.items[1].kind else {
         panic!("expected later function");
     };
