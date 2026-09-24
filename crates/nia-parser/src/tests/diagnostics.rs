@@ -878,6 +878,30 @@ fn match_pattern_recovery_keeps_later_patterns_and_statements() {
 }
 
 #[test]
+fn match_pattern_delimiter_recovery_keeps_later_patterns_and_arms() {
+    let (module, errors) =
+        parse_module("fn main(value: bool) () { match value { true false => (), _ => (), } }");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0]
+            .message
+            .contains("expected `,` or `=>` after match pattern"),
+        "{errors:?}"
+    );
+    let ItemKind::Function(main) = &module.items[0].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("expected body");
+    let Some(tail) = &body.tail else {
+        panic!("expected match tail");
+    };
+    let ExprKind::Match(matched) = &tail.kind else {
+        panic!("expected match expression");
+    };
+    assert_eq!(matched.arms.len(), 2, "{errors:?}");
+}
+
+#[test]
 fn match_arm_body_recovery_keeps_later_arms_and_statements() {
     let (module, errors) = parse_module(
         "fn main(value: bool) () { match value { true => , false => (), } later(); }\nfn later() () {}",
