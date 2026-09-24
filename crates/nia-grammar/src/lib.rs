@@ -209,7 +209,7 @@ impl GrammarParser {
             Some(TokenKind::Trait) => SyntaxKind::Trait,
             _ => return,
         };
-        self.events.push(GreenEvent::Start(kind));
+        self.events.push(GreenEvent::Start(kind.clone()));
         while matches!(self.current_kind(), TokenKind::Pub | TokenKind::Extern) {
             self.bump();
         }
@@ -222,6 +222,20 @@ impl GrammarParser {
         self.consume_angle_group();
         self.consume_header_until_body();
         match self.current_kind() {
+            TokenKind::LBrace
+                if matches!(
+                    &kind,
+                    SyntaxKind::Struct | SyntaxKind::Union | SyntaxKind::Enum
+                ) =>
+            {
+                if !self.parse_braced_members(if kind == SyntaxKind::Enum {
+                    SyntaxKind::Variant
+                } else {
+                    SyntaxKind::Field
+                }) {
+                    self.missing("expected `}` after declaration body");
+                }
+            }
             TokenKind::LBrace | TokenKind::LParen => {
                 if !self.consume_balanced_group() {
                     self.missing("expected closing declaration delimiter");
@@ -238,6 +252,66 @@ impl GrammarParser {
             }
         }
         self.events.push(GreenEvent::Finish);
+    }
+
+    fn parse_braced_members(&mut self, member_kind: SyntaxKind) -> bool {
+        self.events.push(GreenEvent::Start(SyntaxKind::Delimited {
+            open: TokenKind::LBrace,
+            close: None,
+        }));
+        self.bump();
+        while !self.at(TokenKind::Eof) {
+            if self.at(TokenKind::RBrace) {
+                self.bump();
+                self.events.push(GreenEvent::Finish);
+                return true;
+            }
+            if is_item_start(&self.current_kind()) {
+                self.events.push(GreenEvent::Start(SyntaxKind::Missing));
+                self.events.push(GreenEvent::Finish);
+                self.events.push(GreenEvent::Finish);
+                return false;
+            }
+            self.emit_trivia_before_current();
+            self.events.push(GreenEvent::Start(member_kind.clone()));
+            let mut delimiters = Vec::new();
+            while !self.at(TokenKind::Eof) {
+                let kind = self.current_kind();
+                if delimiters.is_empty()
+                    && (matches!(kind, TokenKind::Comma | TokenKind::RBrace)
+                        || is_item_start(&kind))
+                {
+                    break;
+                }
+                match kind {
+                    TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                        delimiters.push(kind);
+                    }
+                    TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace
+                        if delimiters.last().is_some_and(|open| closes(open, &kind)) =>
+                    {
+                        delimiters.pop();
+                    }
+                    _ => {}
+                }
+                self.bump();
+            }
+            self.events.push(GreenEvent::Finish);
+            if self.at(TokenKind::Comma) {
+                self.bump();
+            } else if self.at(TokenKind::RBrace) {
+                continue;
+            } else if self.at(TokenKind::Eof) {
+                self.events.push(GreenEvent::Start(SyntaxKind::Missing));
+                self.events.push(GreenEvent::Finish);
+                self.events.push(GreenEvent::Finish);
+                return false;
+            }
+        }
+        self.events.push(GreenEvent::Start(SyntaxKind::Missing));
+        self.events.push(GreenEvent::Finish);
+        self.events.push(GreenEvent::Finish);
+        false
     }
 
     fn consume_angle_group(&mut self) {
@@ -673,5 +747,55 @@ mod tests {
         assert_eq!(children.len(), 2);
         assert_eq!(children[0].kind(), &SyntaxKind::Struct);
         assert_eq!(children[1].kind(), &SyntaxKind::Module);
+    }
+
+    #[test]
+    fn aggregate_bodies_have_field_and_variant_nodes() {
+        let source = "struct Point { x: i32, y: i32 }\nenum Color { Red, Green }";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+        let children = parsed.tree.root().child_nodes();
+        let struct_body = children[0]
+            .child_nodes()
+            .into_iter()
+            .find(|child| {
+                matches!(
+                    child.kind(),
+                    SyntaxKind::Delimited {
+                        open: TokenKind::LBrace,
+                        ..
+                    }
+                )
+            })
+            .expect("struct body");
+        assert_eq!(
+            struct_body
+                .child_nodes()
+                .iter()
+                .filter(|child| child.kind() == &SyntaxKind::Field)
+                .count(),
+            2
+        );
+        let enum_body = children[1]
+            .child_nodes()
+            .into_iter()
+            .find(|child| {
+                matches!(
+                    child.kind(),
+                    SyntaxKind::Delimited {
+                        open: TokenKind::LBrace,
+                        ..
+                    }
+                )
+            })
+            .expect("enum body");
+        assert_eq!(
+            enum_body
+                .child_nodes()
+                .iter()
+                .filter(|child| child.kind() == &SyntaxKind::Variant)
+                .count(),
+            2
+        );
     }
 }

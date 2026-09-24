@@ -411,9 +411,9 @@ to AST. Existing diagnostic fixtures remain the parity oracle during migration,
 but the token-cursor productions are removed as their grammar counterparts land.
 `Unparsed` nodes mark only an unfinished migration region and are not a permanent
 second parser model. Attributes, module declarations, function declaration
-boundaries, and struct/union/enum/trait declaration headers now emit grammar nodes
-in production; the next migration stage covers fields, variants, members, and
-nested recovery.
+boundaries, struct/union/enum/trait declaration headers, and struct/union/enum
+field or variant boundaries now emit grammar nodes in production; the next
+migration stage covers trait members and deeper field/variant recovery.
 Error recovery targets in optional, error-union, tuple, pointer, and null
 patterns now suppress target-shape and match-coverage consequences while
 independent errors in the arm bodies remain checkable; an end-to-end snapshot

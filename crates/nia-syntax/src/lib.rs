@@ -158,6 +158,12 @@ pub enum SyntaxKind {
     Pattern,
     /// Parameter grammar node.
     Param,
+    /// Aggregate field grammar node.
+    Field,
+    /// Enum variant grammar node.
+    Variant,
+    /// Trait or extension member grammar node.
+    Member,
     /// Explicit missing construct inserted by recovery.
     Missing,
     /// Malformed source region retained by recovery.
@@ -611,6 +617,7 @@ impl<'a> SyntaxNode<'a> {
             SyntaxKind::Stmt => NodeSyntaxKind::Stmt,
             SyntaxKind::Pattern => NodeSyntaxKind::Pattern,
             SyntaxKind::Param => NodeSyntaxKind::Param,
+            SyntaxKind::Field | SyntaxKind::Variant | SyntaxKind::Member => NodeSyntaxKind::Syntax,
             SyntaxKind::Unparsed
             | SyntaxKind::Missing
             | SyntaxKind::Error
