@@ -207,6 +207,7 @@ impl GrammarParser {
             Some(TokenKind::Union) => SyntaxKind::Union,
             Some(TokenKind::Enum) => SyntaxKind::Enum,
             Some(TokenKind::Trait) => SyntaxKind::Trait,
+            Some(TokenKind::Extend) => SyntaxKind::Extend,
             _ => return,
         };
         self.events.push(GreenEvent::Start(kind.clone()));
@@ -214,7 +215,10 @@ impl GrammarParser {
             self.bump();
         }
         self.bump();
-        if self.at(TokenKind::Ident) {
+        if kind == SyntaxKind::Extend {
+            // `extend` names its target in the header rather than declaring a
+            // new nominal item name.
+        } else if self.at(TokenKind::Ident) {
             self.bump();
         } else {
             self.missing("expected declaration name");
@@ -233,6 +237,11 @@ impl GrammarParser {
                 } else {
                     SyntaxKind::Field
                 }) {
+                    self.missing("expected `}` after declaration body");
+                }
+            }
+            TokenKind::LBrace if matches!(&kind, SyntaxKind::Trait | SyntaxKind::Extend) => {
+                if !self.parse_trait_members() {
                     self.missing("expected `}` after declaration body");
                 }
             }
@@ -266,7 +275,7 @@ impl GrammarParser {
                 self.events.push(GreenEvent::Finish);
                 return true;
             }
-            if is_item_start(&self.current_kind()) {
+            if is_outer_recovery_start(&self.current_kind()) {
                 self.events.push(GreenEvent::Start(SyntaxKind::Missing));
                 self.events.push(GreenEvent::Finish);
                 self.events.push(GreenEvent::Finish);
@@ -301,6 +310,66 @@ impl GrammarParser {
                 self.bump();
             } else if self.at(TokenKind::RBrace) {
                 continue;
+            } else if self.at(TokenKind::Eof) {
+                self.events.push(GreenEvent::Start(SyntaxKind::Missing));
+                self.events.push(GreenEvent::Finish);
+                self.events.push(GreenEvent::Finish);
+                return false;
+            }
+        }
+        self.events.push(GreenEvent::Start(SyntaxKind::Missing));
+        self.events.push(GreenEvent::Finish);
+        self.events.push(GreenEvent::Finish);
+        false
+    }
+
+    fn parse_trait_members(&mut self) -> bool {
+        self.events.push(GreenEvent::Start(SyntaxKind::Delimited {
+            open: TokenKind::LBrace,
+            close: None,
+        }));
+        self.bump();
+        while !self.at(TokenKind::Eof) {
+            if self.at(TokenKind::RBrace) {
+                self.bump();
+                self.events.push(GreenEvent::Finish);
+                return true;
+            }
+            if is_outer_recovery_start(&self.current_kind()) {
+                self.events.push(GreenEvent::Start(SyntaxKind::Missing));
+                self.events.push(GreenEvent::Finish);
+                self.events.push(GreenEvent::Finish);
+                return false;
+            }
+            self.emit_trivia_before_current();
+            self.events.push(GreenEvent::Start(SyntaxKind::Member));
+            let mut delimiters = Vec::new();
+            let mut consumed = false;
+            while !self.at(TokenKind::Eof) {
+                let kind = self.current_kind();
+                if delimiters.is_empty()
+                    && (matches!(kind, TokenKind::Semicolon | TokenKind::RBrace)
+                        || (consumed && is_trait_member_start(&kind)))
+                {
+                    break;
+                }
+                match kind {
+                    TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                        delimiters.push(kind);
+                    }
+                    TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace
+                        if delimiters.last().is_some_and(|open| closes(open, &kind)) =>
+                    {
+                        delimiters.pop();
+                    }
+                    _ => {}
+                }
+                self.bump();
+                consumed = true;
+            }
+            self.events.push(GreenEvent::Finish);
+            if self.at(TokenKind::Semicolon) {
+                self.bump();
             } else if self.at(TokenKind::Eof) {
                 self.events.push(GreenEvent::Start(SyntaxKind::Missing));
                 self.events.push(GreenEvent::Finish);
@@ -489,7 +558,13 @@ impl GrammarParser {
     fn is_aggregate_start(&self) -> bool {
         matches!(
             self.declaration_keyword(),
-            Some(TokenKind::Struct | TokenKind::Union | TokenKind::Enum | TokenKind::Trait)
+            Some(
+                TokenKind::Struct
+                    | TokenKind::Union
+                    | TokenKind::Enum
+                    | TokenKind::Trait
+                    | TokenKind::Extend,
+            )
         )
     }
 
@@ -588,6 +663,27 @@ fn is_item_start(kind: &TokenKind) -> bool {
             | TokenKind::Const
             | TokenKind::Static
             | TokenKind::Pub
+    )
+}
+
+fn is_outer_recovery_start(kind: &TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Module
+            | TokenKind::Using
+            | TokenKind::Extern
+            | TokenKind::Struct
+            | TokenKind::Union
+            | TokenKind::Trait
+            | TokenKind::Extend
+            | TokenKind::Enum
+    )
+}
+
+fn is_trait_member_start(kind: &TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Type | TokenKind::Const | TokenKind::Fn | TokenKind::Pub
     )
 }
 
@@ -797,5 +893,49 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[test]
+    fn trait_and_extend_bodies_have_member_nodes() {
+        let source = "trait Display { type Output; const FLAG: bool; fn show(); }\nextend Point { fn show() {} }\nmodule next;";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 3);
+        for declaration in &children[..2] {
+            let body = declaration
+                .child_nodes()
+                .into_iter()
+                .find(|child| {
+                    matches!(
+                        child.kind(),
+                        SyntaxKind::Delimited {
+                            open: TokenKind::LBrace,
+                            ..
+                        }
+                    )
+                })
+                .expect("member body");
+            assert!(
+                !body
+                    .child_nodes()
+                    .iter()
+                    .filter(|child| child.kind() == &SyntaxKind::Member)
+                    .collect::<Vec<_>>()
+                    .is_empty()
+            );
+        }
+        assert_eq!(children[2].kind(), &SyntaxKind::Module);
+    }
+
+    #[test]
+    fn unterminated_trait_body_recovers_at_following_item() {
+        let source = "trait Display { fn show();\nmodule next;";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert_eq!(parsed.errors.len(), 1);
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].kind(), &SyntaxKind::Trait);
+        assert_eq!(children[1].kind(), &SyntaxKind::Module);
     }
 }

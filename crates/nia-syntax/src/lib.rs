@@ -148,6 +148,8 @@ pub enum SyntaxKind {
     Enum,
     /// Trait declaration grammar node.
     Trait,
+    /// Extension declaration grammar node.
+    Extend,
     /// Type grammar node.
     Type,
     /// Expression grammar node.
@@ -611,7 +613,8 @@ impl<'a> SyntaxNode<'a> {
             | SyntaxKind::Struct
             | SyntaxKind::Union
             | SyntaxKind::Enum
-            | SyntaxKind::Trait => NodeSyntaxKind::Item,
+            | SyntaxKind::Trait
+            | SyntaxKind::Extend => NodeSyntaxKind::Item,
             SyntaxKind::Type => NodeSyntaxKind::Type,
             SyntaxKind::Expr => NodeSyntaxKind::Expr,
             SyntaxKind::Stmt => NodeSyntaxKind::Stmt,
