@@ -460,6 +460,8 @@ expressions now have nested grammar nodes with explicit missing-node recovery.
 Trait and extension members now retain nested associated type, associated value,
 method, parameter, return type, and method body nodes with member-boundary
 recovery.
+Generic declaration parameter lists now retain delimiter, parameter, and bound
+type nodes with recovery at malformed separators and following top-level items.
 Top-level `using` declarations now also have grammar nodes with nested selector
 delimiters and outer-item recovery.
 Type aliases and const/static bindings now use the same declaration boundary and

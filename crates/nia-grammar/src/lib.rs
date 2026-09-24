@@ -238,6 +238,12 @@ impl GrammarParser {
         } else {
             self.missing("expected function name");
         }
+        self.parse_generic_parameter_list();
+        if is_top_level_recovery_start(&self.current_kind()) {
+            self.missing("expected `(` after function name");
+            self.events.push(GreenEvent::Finish);
+            return;
+        }
         self.consume_balanced_until(&[TokenKind::LParen, TokenKind::LBrace, TokenKind::Semicolon]);
         if self.at(TokenKind::LParen) {
             self.parse_parameter_list();
@@ -269,7 +275,7 @@ impl GrammarParser {
         } else {
             self.missing("expected type alias name");
         }
-        self.consume_angle_group();
+        self.parse_generic_parameter_list();
         self.consume_until_terminator(TokenKind::Semicolon);
         self.events.push(GreenEvent::Finish);
     }
@@ -331,14 +337,13 @@ impl GrammarParser {
         }
         self.bump();
         if kind == SyntaxKind::Extend {
-            // `extend` names its target in the header rather than declaring a
-            // new nominal item name.
+            self.parse_generic_parameter_list();
         } else if self.at(TokenKind::Ident) {
             self.bump();
+            self.parse_generic_parameter_list();
         } else {
             self.missing("expected declaration name");
         }
-        self.consume_angle_group();
         self.consume_header_until_body();
         match self.current_kind() {
             TokenKind::LBrace
@@ -607,6 +612,89 @@ impl GrammarParser {
         }
     }
 
+    fn parse_generic_parameter_list(&mut self) {
+        if !self.at(TokenKind::LBracket) {
+            return;
+        }
+        self.events.push(GreenEvent::Start(SyntaxKind::Delimited {
+            open: TokenKind::LBracket,
+            close: None,
+        }));
+        self.bump();
+        while !self.at(TokenKind::Eof) && !self.at(TokenKind::RBracket) {
+            if is_top_level_recovery_start(&self.current_kind()) {
+                self.missing("expected `]` after generic parameters");
+                break;
+            }
+            if self.at(TokenKind::Comma) {
+                self.bump();
+                continue;
+            }
+            self.events
+                .push(GreenEvent::Start(SyntaxKind::GenericParam));
+            if self.at(TokenKind::Ident) {
+                self.bump();
+            } else {
+                self.missing("expected generic parameter name");
+            }
+            if self.at(TokenKind::Colon) {
+                self.bump();
+                self.events.push(GreenEvent::Start(SyntaxKind::Type));
+                self.consume_generic_argument_tokens();
+                self.events.push(GreenEvent::Finish);
+            }
+            self.events.push(GreenEvent::Finish);
+            if self.at(TokenKind::Comma) {
+                self.bump();
+            } else if !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
+                self.missing("expected `,` or `]` after generic parameter");
+                self.consume_generic_list_boundary();
+            }
+        }
+        if self.at(TokenKind::RBracket) {
+            self.bump();
+        } else {
+            self.missing("expected `]` after generic parameters");
+        }
+        self.events.push(GreenEvent::Finish);
+    }
+
+    fn consume_generic_argument_tokens(&mut self) {
+        let mut delimiters = Vec::new();
+        while !self.at(TokenKind::Eof) {
+            let kind = self.current_kind();
+            if delimiters.is_empty()
+                && (matches!(kind, TokenKind::Comma | TokenKind::RBracket)
+                    || is_top_level_recovery_start(&kind))
+            {
+                return;
+            }
+            match kind {
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                    delimiters.push(kind);
+                }
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace
+                    if delimiters.last().is_some_and(|open| closes(open, &kind)) =>
+                {
+                    delimiters.pop();
+                }
+                _ => {}
+            }
+            self.bump();
+        }
+    }
+
+    fn consume_generic_list_boundary(&mut self) {
+        while !self.at(TokenKind::Eof)
+            && !matches!(self.current_kind(), TokenKind::Comma | TokenKind::RBracket)
+        {
+            if is_top_level_recovery_start(&self.current_kind()) {
+                return;
+            }
+            self.bump();
+        }
+    }
+
     fn parse_associated_type_member(&mut self) {
         self.events.push(GreenEvent::Start(SyntaxKind::TypeAlias));
         self.bump();
@@ -615,7 +703,7 @@ impl GrammarParser {
         } else {
             self.missing("expected associated type name");
         }
-        self.consume_generic_group();
+        self.parse_generic_parameter_list();
         if self.at(TokenKind::Eq) {
             self.bump();
             self.events.push(GreenEvent::Start(SyntaxKind::Type));
@@ -1476,6 +1564,55 @@ mod tests {
         assert_eq!(children[1].kind(), &SyntaxKind::Binding);
         assert_eq!(children[2].kind(), &SyntaxKind::Binding);
         assert_eq!(children[3].kind(), &SyntaxKind::Module);
+    }
+
+    #[test]
+    fn generic_parameter_lists_have_structured_nodes() {
+        let source =
+            "fn id[T, N: usize](value: T) T { value }\nstruct Pair[T, U] { first: T, second: U }";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 2);
+        for declaration in children {
+            let generic_list = declaration
+                .child_nodes()
+                .into_iter()
+                .find(|child| {
+                    matches!(
+                        child.kind(),
+                        SyntaxKind::Delimited {
+                            open: TokenKind::LBracket,
+                            ..
+                        }
+                    )
+                })
+                .expect("generic parameter list");
+            assert_eq!(
+                generic_list
+                    .child_nodes()
+                    .iter()
+                    .filter(|child| child.kind() == &SyntaxKind::GenericParam)
+                    .count(),
+                2
+            );
+        }
+    }
+
+    #[test]
+    fn unterminated_generic_parameters_recover_at_following_item() {
+        let source = "fn broken[T(value: T) T;\nmodule next;";
+        let parsed = parse(source, None).expect("valid event stream");
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].kind(), &SyntaxKind::Function);
+        assert_eq!(children[1].kind(), &SyntaxKind::Module);
+        assert!(
+            parsed
+                .errors
+                .iter()
+                .any(|error| error.message.contains("expected `]`"))
+        );
     }
 
     #[test]
