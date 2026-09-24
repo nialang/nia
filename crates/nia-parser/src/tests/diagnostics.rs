@@ -635,7 +635,40 @@ fn generic_parameter_delimiter_recovery_keeps_the_function() {
     let ItemKind::Function(retained) = &module.items[0].kind else {
         panic!("expected retained function");
     };
-    assert_eq!(retained.generics.len(), 1);
+    assert_eq!(retained.generics.len(), 2);
+    assert_eq!(
+        nia_ast::generic_param_names(&retained.generics),
+        vec![sym("T"), sym("U")]
+    );
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
+fn generic_parameter_delimiter_recovery_keeps_later_parameters() {
+    let (module, errors) =
+        parse_module("fn retained[T U, N: i32 M: bool]() () {}\nfn later() () {}");
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error
+                .message
+                .contains("expected `,` or `]` after generic parameter"))
+            .count(),
+        2,
+        "{errors:?}"
+    );
+    let ItemKind::Function(retained) = &module.items[0].kind else {
+        panic!("expected retained function");
+    };
+    assert_eq!(
+        nia_ast::generic_param_names(&retained.generics),
+        vec![sym("T"), sym("U"), sym("N"), sym("M")]
+    );
+    assert!(retained.generics[2].is_const());
+    assert!(retained.generics[3].is_const());
     let ItemKind::Function(later) = &module.items[1].kind else {
         panic!("expected later function");
     };

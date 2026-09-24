@@ -3,13 +3,25 @@ code: E0101
 summary: expected `,` or `]` after generic parameter; found `U`
 label: 14..15 Primary Source expected `,` or `]` after generic parameter; found `U`
 
+path: fail/generic_parameter_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `]` after generic parameter; found `M`
+label: 24..25 Primary Source expected `,` or `]` after generic parameter; found `M`
+
 report:
 diagnostics:
 root diagnostic:
 error[E0101]: expected `,` or `]` after generic parameter; found `U`
   --> fail/generic_parameter_delimiter_recovery/main.nia:1:15
   |
-1 | fn retained[T U]() () {}
+1 | fn retained[T U, N: i32 M: bool]() () {}
   |               ^ expected `,` or `]` after generic parameter; found `U`
 
-summary: 1 error, 0 warnings
+root diagnostic:
+error[E0101]: expected `,` or `]` after generic parameter; found `M`
+  --> fail/generic_parameter_delimiter_recovery/main.nia:1:25
+  |
+1 | fn retained[T U, N: i32 M: bool]() () {}
+  |                         ^ expected `,` or `]` after generic parameter; found `M`
+
+summary: 2 errors, 0 warnings
