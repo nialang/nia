@@ -1211,7 +1211,14 @@ fn type_argument_delimiter_recovery_keeps_the_function() {
     let ItemKind::Function(retained) = &module.items[0].kind else {
         panic!("expected retained function");
     };
-    assert!(retained.params[0].ty.is_some());
+    let Some(TypeRef {
+        kind: TypeKind::Path { segments },
+        ..
+    }) = retained.params[0].ty.as_ref()
+    else {
+        panic!("expected path parameter type");
+    };
+    assert_eq!(segments[0].args.len(), 2);
     let ItemKind::Function(later) = &module.items[1].kind else {
         panic!("expected later function");
     };
