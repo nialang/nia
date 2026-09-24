@@ -306,6 +306,8 @@ They also diagnose a missing comma before a clearly identifiable next capture
 and continue parsing that capture.
 Bracket argument lists now skip a missing argument at a comma and retain later
 arguments, the surrounding type or expression, and following top-level items.
+They also diagnose a missing separator between valid arguments and retain the
+remaining arguments and following items, with parser and driver coverage.
 Match arm pattern lists now skip a missing pattern at a comma and retain the
 later patterns, arm body, and following statements.
 Tuple and nominal tuple match patterns now skip a missing field at a comma and
