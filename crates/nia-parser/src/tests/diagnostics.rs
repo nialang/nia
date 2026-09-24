@@ -1396,6 +1396,36 @@ fn type_parameter_delimiter_recovery_keeps_the_function() {
 }
 
 #[test]
+fn supertrait_delimiter_recovery_keeps_later_traits() {
+    let (module, errors) = parse_module(
+        "trait Base {}
+         trait Other {}
+         trait Derived: Base Other {}
+         fn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected `+` after supertrait"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Trait(derived) = &module.items[2].kind else {
+        panic!("expected derived trait");
+    };
+    assert_eq!(derived.supertraits.len(), 2);
+    let ItemKind::Trait(other) = &module.items[1].kind else {
+        panic!("expected other trait");
+    };
+    assert_eq!(other.name, sym("Other"));
+    let ItemKind::Function(later) = &module.items[3].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn classifies_parse_errors_by_grammar_rule_not_message_text() {
     let cases = [
         (

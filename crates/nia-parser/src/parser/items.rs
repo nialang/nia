@@ -563,9 +563,33 @@ impl Parser {
         if self.eat(TokenKind::Colon).is_none() {
             return supertraits;
         }
-        while let Some(supertrait) =
-            self.parse_type_until(&[TokenKind::Plus, TokenKind::Where, TokenKind::LBrace])
+        while !self.at(TokenKind::Where) && !self.at(TokenKind::LBrace) && !self.at(TokenKind::Eof)
         {
+            let checkpoint = self.checkpoint();
+            let errors_len = self.errors.len();
+            if let Some(supertrait) = self.parse_type()
+                && (self.at(TokenKind::Plus)
+                    || self.at(TokenKind::Where)
+                    || self.at(TokenKind::LBrace)
+                    || self.type_can_start())
+            {
+                supertraits.push(supertrait);
+                if self.eat(TokenKind::Plus).is_some() {
+                    continue;
+                }
+                if self.type_can_start() {
+                    self.expected_here(ParseErrorKind::Grammar, "expected `+` after supertrait");
+                    continue;
+                }
+                break;
+            }
+            self.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            let Some(supertrait) =
+                self.parse_type_until(&[TokenKind::Plus, TokenKind::Where, TokenKind::LBrace])
+            else {
+                break;
+            };
             supertraits.push(supertrait);
             if self.eat(TokenKind::Plus).is_none() {
                 break;
