@@ -1,0 +1,5 @@
+trait Base {}
+trait Other {}
+trait Derived: Base Other {}
+
+fn later() () {}

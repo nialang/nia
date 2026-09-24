@@ -295,6 +295,9 @@ recover a missing comma before `->` without losing the enclosing function.
 Trait and extension member parameter lists reuse the same local recovery and
 now have parser and driver coverage proving later methods and top-level items
 survive.
+Supertrait lists now apply the same local synchronization when a clearly
+identifiable next type is missing `+`, retaining both supertraits and the
+following declarations with parser and driver coverage.
 They also skip a missing parameter name at a comma and retain later parameters
 and the closure body with parser and driver coverage.
 Function pointer, callable interface, and tuple type element lists now report
