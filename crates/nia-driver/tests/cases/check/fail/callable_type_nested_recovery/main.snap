@@ -1,0 +1,31 @@
+path: fail/callable_type_nested_recovery/main.nia
+code: E0101
+summary: expected type
+label: 25..26 Primary Source expected type
+help: provide a type name or type expression here
+
+path: fail/callable_type_nested_recovery/main.nia
+code: E0101
+summary: expected type
+label: 60..61 Primary Source expected type
+help: provide a type name or type expression here
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected type
+  --> fail/callable_type_nested_recovery/main.nia:1:26
+  |
+1 | fn retained(pointer: &fn(@ (bad, value), i32), callable: Fn(@ (bad, value), bool)) () {}
+  |                          ^ expected type
+help: provide a type name or type expression here
+
+root diagnostic:
+error[E0101]: expected type
+  --> fail/callable_type_nested_recovery/main.nia:1:61
+  |
+1 | fn retained(pointer: &fn(@ (bad, value), i32), callable: Fn(@ (bad, value), bool)) () {}
+  |                                                             ^ expected type
+help: provide a type name or type expression here
+
+summary: 2 errors, 0 warnings
