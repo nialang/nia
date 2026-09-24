@@ -356,6 +356,17 @@ nodes/tokens, preserves trivia and full source text, groups delimiter subtrees, 
 exposes conservative partial reparsing for token/trivia edits. Red syntax tokens
 carry source-versioned child paths used by diagnostics and AST lowering.
 
+### `nia-grammar`
+
+Owns grammar recognition and recovery events above the lossless syntax layer. It
+emits grammar-shaped green nodes, explicit zero-width `Missing` nodes, and retained
+`Error` regions while preserving every source token and trivia element. It does not
+depend on AST, symbols, item trees, or semantic products. Grammar productions are
+migrated here incrementally; `Unparsed` regions are temporary migration boundaries,
+not a second long-term parser model. Each migrated production must retain source
+spans and recovery behavior required by the parser diagnostics contract before its
+token-cursor implementation is removed.
+
 ### `nia-ast`
 
 Defines the parsed syntax tree. AST nodes represent source structure and spans but
@@ -365,10 +376,11 @@ span/node-key identity.
 
 ### `nia-parser`
 
-Builds AST from red tokens and reports parse errors. Owns grammar decisions, local
-parse recovery, and syntax-to-AST lowering. Records `NodeOriginTable` mappings from
-AST spans to red/green child-path ranges. Parser checkpoints roll back token position
-and origin-table mutations together.
+Lowers the grammar tree into AST and reports parse errors that belong to AST
+construction. During the grammar migration it provides parity tests against the
+grammar crate and retains only productions not yet moved. It records
+`NodeOriginTable` mappings from AST spans to red/green child-path ranges. Parser
+checkpoints roll back token position and origin-table mutations together.
 
 Expression bracket suffixes are parsed in syntax-preserving form; semantic
 disambiguation of generic instantiation vs indexing happens later.

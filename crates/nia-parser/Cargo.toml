@@ -18,3 +18,6 @@ nia-symbol-table.workspace = true
 
 [lib]
 path = "src/lib.rs"
+
+[dev-dependencies]
+nia-grammar.workspace = true
