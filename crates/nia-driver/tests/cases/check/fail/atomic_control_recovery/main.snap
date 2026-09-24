@@ -1,0 +1,31 @@
+path: fail/atomic_control_recovery/main.nia
+code: E0201
+summary: unknown value `missing_order`
+label: 90..103 Primary Source no value named `missing_order` is visible in this scope
+help: check the spelling, import `missing_order`, or declare it before this use
+
+path: fail/atomic_control_recovery/main.nia
+code: E0201
+summary: unknown value `missing_operation`
+label: 155..172 Primary Source no value named `missing_operation` is visible in this scope
+help: check the spelling, import `missing_operation`, or declare it before this use
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown value `missing_order`
+  --> fail/atomic_control_recovery/main.nia:3:47
+  |
+3 |     _ = std::builtin::atomicLoad[i32](&value, missing_order);
+  |                                               ^^^^^^^^^^^^^ no value named `missing_order` is visible in this scope
+help: check the spelling, import `missing_order`, or declare it before this use
+
+root diagnostic:
+error[E0201]: unknown value `missing_operation`
+  --> fail/atomic_control_recovery/main.nia:4:50
+  |
+4 |     _ = std::builtin::atomicRmw[i32](&mut value, missing_operation, 1i32, 1usize);
+  |                                                  ^^^^^^^^^^^^^^^^^ no value named `missing_operation` is visible in this scope
+help: check the spelling, import `missing_operation`, or declare it before this use
+
+summary: 2 errors, 0 warnings

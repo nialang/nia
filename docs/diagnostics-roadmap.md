@@ -137,6 +137,9 @@ Atomic builtins now stop type-dependent checks on that recovery sentinel while
 retaining independent pointer-shape and operation-code errors. Invalid RMW
 operation codes have a dedicated diagnostic code so an earlier type-resolution
 failure does not hide them in per-module phase gating.
+Atomic ordering and RMW operation arguments now also stop const-integer
+validation when name resolution has already produced an Error recovery value;
+an unresolved control argument remains a single name-resolution diagnostic.
 The unaligned-load builtin also ignores an Error recovery pointer instead of
 reporting a secondary byte-pointer mismatch.
 The slice-length builtin likewise suppresses its slice-pointer shape error

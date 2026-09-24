@@ -1414,7 +1414,10 @@ impl<'a> BodyChecker<'a> {
         name: &str,
         context: AtomicOrderContext,
     ) -> Option<CheckedAtomicOrder> {
-        self.check_expr(expr);
+        let actual = self.check_expr(expr);
+        if self.is_error_recovery_ty(actual) {
+            return None;
+        }
         let value = self.const_int_arg(expr, "atomic ordering")?;
         let order = match value {
             0 => CheckedAtomicOrder::Unordered,
@@ -1453,7 +1456,10 @@ impl<'a> BodyChecker<'a> {
         name: &str,
         ty: InternedTyId,
     ) -> Option<CheckedAtomicRmwOp> {
-        self.check_expr(expr);
+        let actual = self.check_expr(expr);
+        if self.is_error_recovery_ty(actual) {
+            return None;
+        }
         let value = self.const_int_arg(expr, "atomic read-modify-write operation")?;
         let op = match value {
             0 => CheckedAtomicRmwOp::Xchg,

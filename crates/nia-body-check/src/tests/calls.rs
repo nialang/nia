@@ -1460,6 +1460,41 @@ fn invalid() () {
 }
 
 #[test]
+fn atomic_builtins_do_not_const_check_unresolved_control_arguments() {
+    let checked = pipeline(
+        r#"
+fn invalid() () {
+    let mut value = 0i32;
+    _ = std::builtin::atomicLoad[i32](value, missing_order);
+    _ = std::builtin::atomicRmw[i32](&mut value, missing_operation, 1i32, 1usize);
+}
+"#,
+    );
+
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| summary.contains("unknown value"))
+            .count(),
+        2,
+        "{summaries:?}"
+    );
+    assert!(
+        summaries.iter().all(|summary| {
+            !summary.contains("compile-time integer constant")
+                && !summary.contains("invalid atomic ordering")
+                && !summary.contains("invalid atomic RMW operation")
+        }),
+        "{summaries:?}"
+    );
+}
+
+#[test]
 fn rejects_non_atomic_builtin_value_types() {
     let checked = pipeline(
         r#"
