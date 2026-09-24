@@ -166,6 +166,10 @@ pub enum SyntaxKind {
     Pattern,
     /// Parameter grammar node.
     Param,
+    /// Generic declaration parameter grammar node.
+    GenericParam,
+    /// Generic instantiation argument grammar node.
+    GenericArg,
     /// Aggregate field grammar node.
     Field,
     /// Enum variant grammar node.
@@ -629,7 +633,11 @@ impl<'a> SyntaxNode<'a> {
             SyntaxKind::Stmt => NodeSyntaxKind::Stmt,
             SyntaxKind::Pattern => NodeSyntaxKind::Pattern,
             SyntaxKind::Param => NodeSyntaxKind::Param,
-            SyntaxKind::Field | SyntaxKind::Variant | SyntaxKind::Member => NodeSyntaxKind::Syntax,
+            SyntaxKind::Field
+            | SyntaxKind::Variant
+            | SyntaxKind::Member
+            | SyntaxKind::GenericParam
+            | SyntaxKind::GenericArg => NodeSyntaxKind::Syntax,
             SyntaxKind::Unparsed
             | SyntaxKind::Missing
             | SyntaxKind::Error
