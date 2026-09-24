@@ -563,11 +563,21 @@ impl<'a> BodyChecker<'a> {
 
     fn offset_field_name(&mut self, arg: &Expr) -> Option<SymbolId> {
         let ExprKind::String(literal) = &arg.kind else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                arg.span,
-                "builtin `offset` field name must be a string literal",
-            ));
+            let has_recovery_type = self
+                .expr_ty(arg)
+                .is_some_and(|actual| self.is_error_recovery_ty(actual))
+                || matches!(&arg.kind, ExprKind::Ident(_) | ExprKind::Qualified { .. })
+                    && matches!(
+                        self.local_use(arg),
+                        Some(nia_local_resolve::LocalUse::Unresolved)
+                    );
+            if !has_recovery_type {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    arg.span,
+                    "builtin `offset` field name must be a string literal",
+                ));
+            }
             return None;
         };
         let Some(scalars) = crate::literals::decode_string_literal(literal) else {

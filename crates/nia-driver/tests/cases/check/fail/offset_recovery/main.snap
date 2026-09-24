@@ -1,0 +1,17 @@
+path: fail/offset_recovery/main.nia
+code: E0201
+summary: unknown value `missing`
+label: 79..86 Primary Source no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown value `missing`
+  --> fail/offset_recovery/main.nia:4:37
+  |
+4 |     _ = std::builtin::offset[Point](missing);
+  |                                     ^^^^^^^ no value named `missing` is visible in this scope
+help: check the spelling, import `missing`, or declare it before this use
+
+summary: 1 error, 0 warnings

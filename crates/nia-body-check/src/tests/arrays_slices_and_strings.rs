@@ -558,6 +558,38 @@ fn memset_non_byte() () {
 }
 
 #[test]
+fn offset_preserves_unresolved_field_name_root() {
+    let checked = pipeline(
+        r#"
+struct Point { x: i32 }
+
+fn main() () {
+    _ = std::builtin::offset[Point](missing);
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| summary.contains("unknown value"))
+            .count(),
+        1,
+        "{summaries:?}"
+    );
+    assert!(
+        summaries
+            .iter()
+            .all(|summary| !summary.contains("field name must be a string literal")),
+        "{summaries:?}"
+    );
+}
+
+#[test]
 fn rejects_bare_range_index_and_readonly_slice_assignment() {
     let checked = pipeline(
         r#"
