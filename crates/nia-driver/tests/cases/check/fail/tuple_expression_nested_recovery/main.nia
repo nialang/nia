@@ -1,0 +1,6 @@
+fn main() () {
+    let tuple = (@ (bad, value), true);
+    later();
+}
+
+fn later() () {}
