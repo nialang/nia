@@ -371,6 +371,38 @@ fn tuple_expression_delimiter_recovery_keeps_later_elements_and_statements() {
 }
 
 #[test]
+fn pattern_delimiter_recovery_keeps_later_patterns_and_arms() {
+    let (module, errors) = parse_module(
+        "struct Pair(bool, bool)\nstruct Point { x: bool, y: bool }\nfn main(value: (bool, bool)) () { match value { (true false) => (), Pair(true false) => (), Point { x: true y: false } => (), _ => (), } }",
+    );
+    assert_eq!(errors.len(), 3, "{errors:?}");
+    assert!(
+        errors.iter().take(2).all(|error| error
+            .message
+            .contains("expected `,` or `)` after tuple pattern")),
+        "{errors:?}"
+    );
+    assert!(
+        errors[2]
+            .message
+            .contains("expected `,` or `}` after nominal pattern field"),
+        "{errors:?}"
+    );
+    let ItemKind::Function(main) = &module.items[2].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("expected body");
+    assert!(body.stmts.is_empty(), "{errors:?}");
+    let Some(tail) = &body.tail else {
+        panic!("expected match tail");
+    };
+    let ExprKind::Match(matched) = &tail.kind else {
+        panic!("expected match expression");
+    };
+    assert_eq!(matched.arms.len(), 4, "{errors:?}");
+}
+
+#[test]
 fn call_argument_recovery_keeps_later_arguments_and_statements() {
     let (module, errors) = parse_module(
         "fn main() () { consume(, 1,, true); later(); } fn later() () {} fn consume(a: i32, b: bool) () {}",

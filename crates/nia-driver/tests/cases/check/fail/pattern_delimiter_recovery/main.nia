@@ -1,0 +1,14 @@
+struct Pair(bool, bool)
+struct Point {
+    x: bool,
+    y: bool,
+}
+
+fn main(value: (bool, bool)) () {
+    match value {
+        (true false) => (),
+        Pair(true false) => (),
+        Point { x: true y: false } => (),
+        _ => (),
+    }
+}

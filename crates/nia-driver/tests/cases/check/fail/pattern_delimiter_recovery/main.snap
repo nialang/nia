@@ -1,0 +1,39 @@
+path: fail/pattern_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `)` after tuple pattern; found `false`
+label: 134..139 Primary Source expected `,` or `)` after tuple pattern; found `false`
+
+path: fail/pattern_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `)` after tuple pattern; found `false`
+label: 166..171 Primary Source expected `,` or `)` after tuple pattern; found `false`
+
+path: fail/pattern_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `}` after nominal pattern field; found `y`
+label: 204..205 Primary Source expected `,` or `}` after nominal pattern field; found `y`
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `,` or `)` after tuple pattern; found `false`
+  --> fail/pattern_delimiter_recovery/main.nia:9:15
+  |
+9 |         (true false) => (),
+  |               ^^^^^ expected `,` or `)` after tuple pattern; found `false`
+
+root diagnostic:
+error[E0101]: expected `,` or `)` after tuple pattern; found `false`
+   --> fail/pattern_delimiter_recovery/main.nia:10:19
+   |
+10 |         Pair(true false) => (),
+   |                   ^^^^^ expected `,` or `)` after tuple pattern; found `false`
+
+root diagnostic:
+error[E0101]: expected `,` or `}` after nominal pattern field; found `y`
+   --> fail/pattern_delimiter_recovery/main.nia:11:25
+   |
+11 |         Point { x: true y: false } => (),
+   |                         ^ expected `,` or `}` after nominal pattern field; found `y`
+
+summary: 3 errors, 0 warnings
