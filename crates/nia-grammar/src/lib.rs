@@ -397,30 +397,26 @@ impl GrammarParser {
                 return false;
             }
             self.emit_trivia_before_current();
+            let member_start = self.position;
             self.events.push(GreenEvent::Start(member_kind.clone()));
-            let mut delimiters = Vec::new();
-            while !self.at(TokenKind::Eof) {
-                let kind = self.current_kind();
-                if delimiters.is_empty()
-                    && (matches!(kind, TokenKind::Comma | TokenKind::RBrace)
-                        || is_item_start(&kind))
-                {
-                    break;
-                }
-                match kind {
-                    TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
-                        delimiters.push(kind);
-                    }
-                    TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace
-                        if delimiters.last().is_some_and(|open| closes(open, &kind)) =>
-                    {
-                        delimiters.pop();
-                    }
-                    _ => {}
+            if member_kind == SyntaxKind::Field {
+                self.parse_field_member();
+            } else {
+                self.parse_variant_member();
+            }
+            self.events.push(GreenEvent::Finish);
+            // Recovery helpers may intentionally stop before a top-level item so
+            // the enclosing parser can own it. Ensure malformed member input
+            // cannot leave this loop at the same token forever.
+            if self.position == member_start {
+                if is_top_level_recovery_start(&self.current_kind()) {
+                    self.events.push(GreenEvent::Start(SyntaxKind::Missing));
+                    self.events.push(GreenEvent::Finish);
+                    self.events.push(GreenEvent::Finish);
+                    return false;
                 }
                 self.bump();
             }
-            self.events.push(GreenEvent::Finish);
             if self.at(TokenKind::Comma) {
                 self.bump();
             } else if self.at(TokenKind::RBrace) {
@@ -436,6 +432,82 @@ impl GrammarParser {
         self.events.push(GreenEvent::Finish);
         self.events.push(GreenEvent::Finish);
         false
+    }
+
+    fn parse_field_member(&mut self) {
+        if self.at(TokenKind::Ident) {
+            self.bump();
+        } else {
+            self.missing("expected field name");
+        }
+        if self.at(TokenKind::Colon) {
+            self.bump();
+            self.events.push(GreenEvent::Start(SyntaxKind::Type));
+            if matches!(self.current_kind(), TokenKind::Comma | TokenKind::RBrace) {
+                self.missing("expected field type");
+            } else {
+                self.consume_member_tokens();
+            }
+            self.events.push(GreenEvent::Finish);
+        } else {
+            self.events.push(GreenEvent::Start(SyntaxKind::Error));
+            self.consume_member_tokens();
+            self.events.push(GreenEvent::Finish);
+            self.missing("expected `:` after field name");
+        }
+    }
+
+    fn parse_variant_member(&mut self) {
+        if self.at(TokenKind::Ident) {
+            self.bump();
+        } else {
+            self.missing("expected enum variant");
+        }
+        if matches!(self.current_kind(), TokenKind::LParen | TokenKind::LBrace) {
+            self.consume_balanced_group_node();
+        }
+        if self.at(TokenKind::Eq) {
+            self.bump();
+            self.events.push(GreenEvent::Start(SyntaxKind::Expr));
+            self.consume_member_tokens();
+            self.events.push(GreenEvent::Finish);
+        }
+    }
+
+    fn consume_member_tokens(&mut self) {
+        let mut delimiters = Vec::new();
+        while !self.at(TokenKind::Eof) {
+            let kind = self.current_kind();
+            if delimiters.is_empty()
+                && (matches!(kind, TokenKind::Comma | TokenKind::RBrace) || is_item_start(&kind))
+            {
+                return;
+            }
+            match kind {
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                    delimiters.push(kind);
+                }
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace
+                    if delimiters.last().is_some_and(|open| closes(open, &kind)) =>
+                {
+                    delimiters.pop();
+                }
+                _ => {}
+            }
+            self.bump();
+        }
+    }
+
+    fn consume_balanced_group_node(&mut self) {
+        let open = self.current_kind();
+        self.events.push(GreenEvent::Start(SyntaxKind::Delimited {
+            open: open.clone(),
+            close: None,
+        }));
+        if !self.consume_balanced_group() {
+            self.missing("expected closing payload delimiter");
+        }
+        self.events.push(GreenEvent::Finish);
     }
 
     fn parse_trait_members(&mut self) -> bool {
@@ -1036,6 +1108,78 @@ mod tests {
                 .count(),
             2
         );
+        assert!(struct_body.child_nodes().iter().any(|field| {
+            field.kind() == &SyntaxKind::Field
+                && field
+                    .child_nodes()
+                    .iter()
+                    .any(|child| child.kind() == &SyntaxKind::Type)
+        }));
+        assert!(
+            enum_body
+                .child_nodes()
+                .iter()
+                .any(|variant| variant.kind() == &SyntaxKind::Variant)
+        );
+    }
+
+    #[test]
+    fn field_and_variant_recovery_inserts_missing_nodes() {
+        let source = "struct Point { x i32, : bool, y: i32 }\nenum Color { , Green = 2 }";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert!(!parsed.errors.is_empty());
+        let children = parsed.tree.root().child_nodes();
+        let struct_body = children[0]
+            .child_nodes()
+            .into_iter()
+            .find(|child| {
+                matches!(
+                    child.kind(),
+                    SyntaxKind::Delimited {
+                        open: TokenKind::LBrace,
+                        ..
+                    }
+                )
+            })
+            .expect("struct body");
+        assert!(struct_body.child_nodes().iter().any(|field| {
+            field.kind() == &SyntaxKind::Field
+                && field
+                    .child_nodes()
+                    .iter()
+                    .any(|child| child.kind() == &SyntaxKind::Missing)
+        }));
+        let enum_body = children[1]
+            .child_nodes()
+            .into_iter()
+            .find(|child| {
+                matches!(
+                    child.kind(),
+                    SyntaxKind::Delimited {
+                        open: TokenKind::LBrace,
+                        ..
+                    }
+                )
+            })
+            .expect("enum body");
+        assert!(enum_body.child_nodes().iter().any(|variant| {
+            variant.kind() == &SyntaxKind::Variant
+                && variant
+                    .child_nodes()
+                    .iter()
+                    .any(|child| child.kind() == &SyntaxKind::Missing)
+        }));
+    }
+
+    #[test]
+    fn aggregate_member_recovery_stops_before_following_item() {
+        let source = "struct Broken { value: fn next();\nfn after() {}";
+        let parsed = parse(source, None).expect("valid event stream");
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 3);
+        assert_eq!(children[0].kind(), &SyntaxKind::Struct);
+        assert_eq!(children[1].kind(), &SyntaxKind::Function);
+        assert_eq!(children[2].kind(), &SyntaxKind::Function);
     }
 
     #[test]
