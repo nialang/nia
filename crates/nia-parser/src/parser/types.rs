@@ -520,7 +520,10 @@ impl Parser {
 
     pub(super) fn parse_type_args_after_open(&mut self) -> Vec<TypeArg> {
         let mut args = Vec::new();
-        while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
+        while !self.at(TokenKind::RBracket)
+            && !self.at(TokenKind::Eof)
+            && !self.at_type_arg_recovery_boundary()
+        {
             let checkpoint = self.checkpoint();
             let errors_len = self.errors.len();
             if self.at(TokenKind::DotDot) || self.at(TokenKind::DotDotEq) {
@@ -691,7 +694,10 @@ impl Parser {
         if self.eat(TokenKind::Comma).is_some() {
             return true;
         }
-        if self.at(TokenKind::RBracket) || self.at(TokenKind::Eof) {
+        if self.at(TokenKind::RBracket)
+            || self.at(TokenKind::Eof)
+            || self.at_type_arg_recovery_boundary()
+        {
             return false;
         }
         self.expected_here(
@@ -764,10 +770,24 @@ impl Parser {
                     break;
                 }
                 _ => {
+                    if paren_depth == 0
+                        && bracket_depth == 0
+                        && brace_depth == 0
+                        && self.at_type_arg_recovery_boundary()
+                    {
+                        break;
+                    }
                     self.bump();
                 }
             }
         }
+    }
+
+    fn at_type_arg_recovery_boundary(&self) -> bool {
+        matches!(
+            self.peek().kind,
+            TokenKind::RParen | TokenKind::RBrace | TokenKind::Semicolon
+        ) || self.at_top_level_item_start()
     }
 
     fn rewind_tokens(&mut self, checkpoint: usize) {

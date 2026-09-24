@@ -307,6 +307,9 @@ function, and following declarations.
 Malformed explicit type arguments now recover through nested parentheses,
 brackets, and braces, retaining a later top-level argument and avoiding a
 second delimiter diagnostic for the same missing argument.
+Unterminated explicit type arguments now stop at an enclosing parameter or
+statement delimiter, retaining the current and following top-level items
+instead of consuming the rest of the module, with parser and driver coverage.
 Function parameter lists likewise synchronize a missing comma before `)` while
 preserving the current function and later top-level declarations.
 When the next parameter has a clear `name:` or receiver shape, recovery now
