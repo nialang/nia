@@ -1,0 +1,11 @@
+struct Point {
+    x: i32,
+    y: bool,
+}
+
+fn main() () {
+    let point = Point { x: @ (bad, value), y: true };
+    later();
+}
+
+fn later() () {}
