@@ -756,23 +756,7 @@ impl Parser {
                 break;
             }
             let mut bounds = Vec::new();
-            while let Some(bound) = self.parse_type_until(&[
-                TokenKind::Comma,
-                TokenKind::Plus,
-                TokenKind::LBrace,
-                TokenKind::Semicolon,
-                TokenKind::Struct,
-                TokenKind::Union,
-                TokenKind::Enum,
-                TokenKind::Trait,
-                TokenKind::Fn,
-                TokenKind::Extern,
-                TokenKind::Pub,
-                TokenKind::Using,
-                TokenKind::Module,
-                TokenKind::Static,
-                TokenKind::Type,
-            ]) {
+            while let Some(bound) = self.parse_where_bound_type() {
                 let end = bound.span.end;
                 bounds.push(bound);
                 if self.eat(TokenKind::Plus).is_some() {
@@ -786,10 +770,67 @@ impl Parser {
                 break;
             }
             if self.eat(TokenKind::Comma).is_none() {
+                if self.at(TokenKind::Ident)
+                    && matches!(self.tokens.nth_kind(1), Some(TokenKind::Colon))
+                {
+                    self.expected_here(
+                        ParseErrorKind::Grammar,
+                        "expected `,` after where predicate",
+                    );
+                    continue;
+                }
                 break;
             }
         }
         WhereClause { predicates }
+    }
+
+    fn parse_where_bound_type(&mut self) -> Option<TypeRef> {
+        let checkpoint = self.checkpoint();
+        let errors_len = self.errors.len();
+        if let Some(ty) = self.parse_type()
+            && (self.at(TokenKind::Comma)
+                || self.at(TokenKind::Plus)
+                || self.at(TokenKind::LBrace)
+                || self.at(TokenKind::Semicolon)
+                || matches!(
+                    self.peek().kind,
+                    TokenKind::Struct
+                        | TokenKind::Union
+                        | TokenKind::Enum
+                        | TokenKind::Trait
+                        | TokenKind::Fn
+                        | TokenKind::Extern
+                        | TokenKind::Pub
+                        | TokenKind::Using
+                        | TokenKind::Module
+                        | TokenKind::Static
+                        | TokenKind::Type
+                )
+                || (self.at(TokenKind::Ident)
+                    && matches!(self.tokens.nth_kind(1), Some(TokenKind::Colon))))
+        {
+            return Some(ty);
+        }
+        self.rewind(checkpoint);
+        self.errors.truncate(errors_len);
+        self.parse_type_until(&[
+            TokenKind::Comma,
+            TokenKind::Plus,
+            TokenKind::LBrace,
+            TokenKind::Semicolon,
+            TokenKind::Struct,
+            TokenKind::Union,
+            TokenKind::Enum,
+            TokenKind::Trait,
+            TokenKind::Fn,
+            TokenKind::Extern,
+            TokenKind::Pub,
+            TokenKind::Using,
+            TokenKind::Module,
+            TokenKind::Static,
+            TokenKind::Type,
+        ])
     }
 }
 
