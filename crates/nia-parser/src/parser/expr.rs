@@ -413,6 +413,7 @@ impl Parser {
             if self.eat(TokenKind::LParen).is_some() {
                 let mut args = Vec::new();
                 while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+                    let checkpoint = self.checkpoint();
                     if let Some(arg) =
                         self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RParen])
                     {
@@ -428,7 +429,10 @@ impl Parser {
                             break;
                         }
                     } else if self.eat(TokenKind::Comma).is_none() {
-                        break;
+                        if self.at(TokenKind::RParen) || self.at(TokenKind::Eof) {
+                            break;
+                        }
+                        self.recover_to_comma_or_rparen_with_progress(checkpoint);
                     }
                 }
                 let end = self

@@ -1,0 +1,13 @@
+fn main(value: (bool, bool, bool)) () {
+    match value {
+        (true, @ (bad, value), false) => (),
+        _ => (),
+    }
+    let (first, @ (bad, value), retained) = value;
+    consume(true, @ (bad, value), 1);
+    later();
+}
+
+fn typed(value: (bool, @ (bad, value), i32)) () {}
+fn consume(first: bool, second: i32, third: i32) () {}
+fn later() () {}

@@ -371,6 +371,9 @@ parser and driver coverage.
 Function pointer and callable interface parameter lists now apply the same
 nested synchronization for malformed first parameters, retaining later
 parameters and declarations with parser and driver coverage.
+Tuple pattern/type lists and ordinary call arguments also synchronize malformed
+later entries across nested delimiters, retaining the remaining entries and
+following statements with parser and driver coverage.
 Named struct, union, and enum payload fields likewise diagnose a missing
 separator between valid fields, retaining later fields and following items
 with parser and driver coverage.
