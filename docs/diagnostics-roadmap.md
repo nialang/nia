@@ -275,6 +275,9 @@ Struct literal recovery also tracks nested parentheses, brackets, and braces,
 so an invalid field expression cannot treat a comma inside its discarded
 nested expression as the next field boundary; later fields and statements
 remain parseable with parser and driver coverage.
+Array literal recovery uses the same nested delimiter synchronization for
+malformed elements, preserving later elements and following statements with
+parser and driver coverage.
 Function pointer and callable interface type parameter lists likewise retain
 later parameters and the enclosing function after missing types at commas, with
 parser and driver coverage.

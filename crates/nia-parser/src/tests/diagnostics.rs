@@ -584,6 +584,36 @@ fn array_and_struct_literal_recovery_keeps_later_members() {
 }
 
 #[test]
+fn array_literal_recovery_ignores_nested_element_delimiters() {
+    let (module, errors) = parse_module(
+        "fn main() () { let array = [@ (bad, value), true]; later(); } fn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected expression"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Function(main) = &module.items[0].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("expected body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected binding: {body:?}");
+    };
+    let ExprKind::ArrayLiteral {
+        elems: nia_ast::ArrayElements::List(elems),
+    } = &binding.value.as_ref().expect("array").kind
+    else {
+        panic!("expected array literal");
+    };
+    assert_eq!(elems.len(), 1, "{errors:?}");
+    assert_eq!(body.stmts.len(), 2, "{errors:?}");
+}
+
+#[test]
 fn aggregate_literal_delimiter_recovery_keeps_later_members_and_statements() {
     let (module, errors) = parse_module(
         "struct Point { x: i32, y: bool }\nfn main() () { let array = [true false]; let point = Point { x: 1i32 y: true }; later(); } fn later() () {}",
