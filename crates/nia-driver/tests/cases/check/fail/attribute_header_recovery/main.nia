@@ -1,0 +1,4 @@
+@[broken.]
+fn retained() () {}
+
+fn later() () {}
