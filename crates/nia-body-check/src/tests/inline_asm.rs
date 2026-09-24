@@ -173,6 +173,7 @@ fn main() () {
         options: [missing_option],
     });
 }
+
 "#,
     );
     let summaries = checked
@@ -192,6 +193,46 @@ fn main() () {
         summaries.iter().all(|summary| {
             !summary.contains("must be a byte string literal")
                 && !summary.contains("must be byte string literals")
+        }),
+        "{summaries:?}"
+    );
+}
+
+#[test]
+fn inline_asm_preserves_unresolved_literal_container_roots() {
+    let checked = asm_pipeline(
+        r#"
+fn main() () {
+    std::builtin::asm(missing_config);
+    std::builtin::asm(.{
+        inputs: missing_inputs,
+        outputs: missing_outputs,
+        clobbers: missing_clobbers,
+        options: missing_options,
+    });
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| summary.contains("unknown value"))
+            .count(),
+        5,
+        "{summaries:?}"
+    );
+    assert!(
+        summaries.iter().all(|summary| {
+            !summary.contains("expects an `AsmConfig` literal")
+                && !summary.contains("expects an `AsmInputs` literal")
+                && !summary.contains("expects an `AsmOutputs` literal")
+                && !summary.contains("must be an array literal")
+                && !summary.contains("must be a list of byte string literals")
         }),
         "{summaries:?}"
     );
