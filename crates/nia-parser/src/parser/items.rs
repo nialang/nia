@@ -95,7 +95,7 @@ impl Parser {
                 // the following item parseable instead of letting the item
                 // recovery loop treat the bracket as a second top-level error.
                 self.origins.rollback(checkpoint.origin);
-                self.recover_to_comma_or_rbracket_with_progress(checkpoint);
+                self.recover_to_attribute_boundary_with_progress(checkpoint);
                 self.eat(TokenKind::RBracket);
             }
         }

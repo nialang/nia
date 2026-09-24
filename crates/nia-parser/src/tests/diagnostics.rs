@@ -1256,6 +1256,28 @@ fn malformed_attribute_header_recovers_before_the_attributed_item() {
 }
 
 #[test]
+fn unterminated_attribute_header_recovers_at_the_next_item() {
+    let (module, errors) = parse_module("@[broken.\nfn retained() () {}\nfn later() () {}");
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected attribute path segment"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    let ItemKind::Function(retained) = &module.items[0].kind else {
+        panic!("expected retained function");
+    };
+    assert_eq!(retained.name, sym("retained"));
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn closure_capture_recovery_keeps_later_captures_and_items() {
     let (module, errors) = parse_module(
         "fn retained() () { let closure = \\[kept, , later] value -> kept; }\nfn after() () {}",
