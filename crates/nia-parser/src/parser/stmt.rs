@@ -318,7 +318,16 @@ impl Parser {
             if self.at(TokenKind::FatArrow) {
                 break;
             }
-            self.expect(TokenKind::Comma, "expected `,` or `=>` after match pattern")?;
+            if self.eat(TokenKind::Comma).is_none() {
+                if self.pattern_can_start(&self.peek().kind) {
+                    self.expected_here(
+                        ParseErrorKind::Grammar,
+                        "expected `,` or `=>` after match pattern",
+                    );
+                    continue;
+                }
+                self.expect(TokenKind::Comma, "expected `,` or `=>` after match pattern")?;
+            }
             if self.at(TokenKind::FatArrow) {
                 self.error_here("trailing comma is not allowed in match pattern list");
                 break;

@@ -310,6 +310,8 @@ They also diagnose a missing separator between valid arguments and retain the
 remaining arguments and following items, with parser and driver coverage.
 Match arm pattern lists now skip a missing pattern at a comma and retain the
 later patterns, arm body, and following statements.
+They also diagnose a missing separator between valid patterns and retain the
+remaining patterns and arms, with parser and driver coverage.
 Tuple and nominal tuple match patterns now skip a missing field at a comma and
 retain later fields and arms; parser and driver snapshots cover both recovered
 shapes.

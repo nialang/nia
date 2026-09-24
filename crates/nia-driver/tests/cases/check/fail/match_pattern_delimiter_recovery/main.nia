@@ -1,0 +1,6 @@
+fn main(value: bool) () {
+    match value {
+        true false => (),
+        _ => (),
+    }
+}
