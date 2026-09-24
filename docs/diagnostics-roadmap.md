@@ -290,8 +290,9 @@ preserving the current function and later top-level declarations.
 When the next parameter has a clear `name:` or receiver shape, recovery now
 retains that parameter in the AST and continues checking its use; parser
 coverage and the function-parameter driver snapshot pin this behavior.
-Closure parameter lists use the same next-parameter boundary detection and
-recover a missing comma before `->` without losing the enclosing function.
+Closure parameter lists use the same local recovery and retain a clearly
+identifiable next parameter after a missing comma before `->`, while preserving
+the enclosing closure and function.
 Trait and extension member parameter lists reuse the same local recovery and
 now have parser and driver coverage proving later methods and top-level items
 survive.

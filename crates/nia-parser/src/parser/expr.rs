@@ -1332,14 +1332,22 @@ impl Parser {
                 .map_or_else(|| self.previous_end(), |ty| ty.span.end);
             params.push(self.make_param(Span::new(start, end), None, Some(name), ty));
             if self.eat(TokenKind::Comma).is_none() {
-                if !self.at(TokenKind::ThinArrow) && !self.at(TokenKind::Eof) {
+                if self.at(TokenKind::ThinArrow) || self.at(TokenKind::Eof) {
+                    break;
+                }
+                if self.at(TokenKind::Ident) {
                     self.expected_here(
                         ParseErrorKind::Grammar,
                         "expected `,` or `->` after closure parameter",
                     );
-                    while !self.at(TokenKind::ThinArrow) && !self.at(TokenKind::Eof) {
-                        self.bump();
-                    }
+                    continue;
+                }
+                self.expected_here(
+                    ParseErrorKind::Grammar,
+                    "expected `,` or `->` after closure parameter",
+                );
+                while !self.at(TokenKind::ThinArrow) && !self.at(TokenKind::Eof) {
+                    self.bump();
                 }
                 break;
             }
