@@ -425,12 +425,15 @@ impl QueryKey<LoaderContext> for SyntaxModuleQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         let source = db.get(SourceTextQuery(self.0.id))?;
-        Ok(source
+        let text = source
             .file
             .as_ref()
             .filter(|file| file.version() == self.0)
-            .map(|file| nia_syntax::parse_source(&file.text, Some(file.version())))
-            .unwrap_or_else(|| nia_syntax::parse_source("", Some(self.0))))
+            .map_or("", |file| file.text.as_ref());
+        let tree = nia_grammar::parse(text, Some(self.0)).map_err(|error| {
+            db.invalid_input(self, format!("failed to build grammar tree: {error:?}"))
+        })?;
+        Ok(tree.tree)
     }
 }
 
