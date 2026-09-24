@@ -1876,6 +1876,41 @@ fn supertrait_delimiter_recovery_keeps_later_traits() {
 }
 
 #[test]
+fn supertrait_recovery_keeps_traits_after_missing_separator_entries() {
+    let (module, errors) = parse_module(
+        "trait Base {}\ntrait Other {}\ntrait Derived: Base, Other {}\ntrait Leading: , Base {}\nfn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected `+` after supertrait"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected type"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Trait(derived) = &module.items[2].kind else {
+        panic!("expected derived trait");
+    };
+    assert_eq!(derived.supertraits.len(), 2, "{errors:?}");
+    let ItemKind::Trait(leading) = &module.items[3].kind else {
+        panic!("expected leading trait");
+    };
+    assert_eq!(leading.supertraits.len(), 1, "{errors:?}");
+    let ItemKind::Function(later) = &module.items[4].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn item_recovery_ignores_nested_statement_delimiters() {
     let (module, errors) = parse_module("extern @ (bad; value);\nfn later() () {}");
     assert_eq!(errors.len(), 1, "{errors:?}");

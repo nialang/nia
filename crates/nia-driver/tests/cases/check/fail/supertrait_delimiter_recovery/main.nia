@@ -1,5 +1,7 @@
 trait Base {}
 trait Other {}
 trait Derived: Base Other {}
+trait CommaSeparated: Base, Other {}
+trait LeadingComma: , Base {}
 
 fn later() () {}

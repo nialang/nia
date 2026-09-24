@@ -569,12 +569,17 @@ impl Parser {
             let errors_len = self.errors.len();
             if let Some(supertrait) = self.parse_type()
                 && (self.at(TokenKind::Plus)
+                    || self.at(TokenKind::Comma)
                     || self.at(TokenKind::Where)
                     || self.at(TokenKind::LBrace)
                     || self.type_can_start())
             {
                 supertraits.push(supertrait);
                 if self.eat(TokenKind::Plus).is_some() {
+                    continue;
+                }
+                if self.eat(TokenKind::Comma).is_some() {
+                    self.error_here_as(ParseErrorKind::Grammar, "expected `+` after supertrait");
                     continue;
                 }
                 if self.type_can_start() {
@@ -585,15 +590,26 @@ impl Parser {
             }
             self.rewind(checkpoint);
             self.errors.truncate(errors_len);
-            let Some(supertrait) =
-                self.parse_type_until(&[TokenKind::Plus, TokenKind::Where, TokenKind::LBrace])
-            else {
+            let Some(supertrait) = self.parse_type_until(&[
+                TokenKind::Plus,
+                TokenKind::Comma,
+                TokenKind::Where,
+                TokenKind::LBrace,
+            ]) else {
+                if self.eat(TokenKind::Comma).is_some() {
+                    continue;
+                }
                 break;
             };
             supertraits.push(supertrait);
-            if self.eat(TokenKind::Plus).is_none() {
-                break;
+            if self.eat(TokenKind::Plus).is_some() {
+                continue;
             }
+            if self.eat(TokenKind::Comma).is_some() {
+                self.error_here_as(ParseErrorKind::Grammar, "expected `+` after supertrait");
+                continue;
+            }
+            break;
         }
         supertraits
     }
