@@ -664,19 +664,42 @@ impl Parser {
     }
 
     fn recover_to_comma_or_rbracket_with_progress(&mut self, checkpoint: ParserCheckpoint) {
+        let mut paren_depth = 0usize;
         let mut bracket_depth = 0usize;
+        let mut brace_depth = 0usize;
         while !self.at(TokenKind::Eof) {
             match self.peek().kind {
+                TokenKind::LParen => {
+                    paren_depth += 1;
+                    self.bump();
+                }
+                TokenKind::RParen if paren_depth > 0 => {
+                    paren_depth -= 1;
+                    self.bump();
+                }
                 TokenKind::LBracket => {
                     bracket_depth += 1;
                     self.bump();
                 }
-                TokenKind::RBracket if bracket_depth == 0 => break,
                 TokenKind::RBracket => {
-                    bracket_depth -= 1;
+                    if bracket_depth > 0 {
+                        bracket_depth -= 1;
+                        self.bump();
+                    } else if paren_depth == 0 && brace_depth == 0 {
+                        break;
+                    } else {
+                        self.bump();
+                    }
+                }
+                TokenKind::LBrace => {
+                    brace_depth += 1;
                     self.bump();
                 }
-                TokenKind::Comma if bracket_depth == 0 => {
+                TokenKind::RBrace if brace_depth > 0 => {
+                    brace_depth -= 1;
+                    self.bump();
+                }
+                TokenKind::Comma if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
                     self.bump();
                     break;
                 }

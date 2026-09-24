@@ -1039,6 +1039,34 @@ fn bracket_argument_delimiter_recovery_keeps_later_arguments_and_items() {
 }
 
 #[test]
+fn bracket_argument_recovery_ignores_nested_argument_delimiters() {
+    let (module, errors) = parse_module(
+        "fn main() () { let value = target[@ (bad, value), true]; later(); } fn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected bracket argument"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Function(main) = &module.items[0].kind else {
+        panic!("expected main function");
+    };
+    let body = main.body.as_ref().expect("expected body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected binding: {body:?}");
+    };
+    let ExprKind::BracketSuffix { args, .. } = &binding.value.as_ref().expect("value").kind else {
+        panic!("expected bracket suffix");
+    };
+    assert_eq!(args.len(), 1, "{errors:?}");
+    assert!(args[0].expr.is_some(), "{errors:?}");
+    assert_eq!(body.stmts.len(), 2, "{errors:?}");
+}
+
+#[test]
 fn match_pattern_recovery_keeps_later_patterns_and_statements() {
     let (module, errors) = parse_module(
         "fn main(value: bool) () { match value { , true => (), false => (), } later(); }\nfn later() () {}",
