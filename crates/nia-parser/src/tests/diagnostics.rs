@@ -1759,6 +1759,27 @@ fn type_argument_recovery_keeps_later_arguments_after_nested_tokens() {
 }
 
 #[test]
+fn unterminated_type_arguments_recover_at_the_outer_parameter_boundary() {
+    let (module, errors) = parse_module("fn retained(value: Wrapper[i32) () {}\nfn later() () {}");
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected `]` after type arguments"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let ItemKind::Function(retained) = &module.items[0].kind else {
+        panic!("expected retained function");
+    };
+    assert_eq!(retained.name, sym("retained"));
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn function_parameter_delimiter_recovery_keeps_the_function() {
     let (module, errors) =
         parse_module("fn retained(first: i32 second: bool) () {}\nfn later() () {}");

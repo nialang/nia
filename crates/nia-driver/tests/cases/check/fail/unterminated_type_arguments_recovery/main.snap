@@ -1,0 +1,17 @@
+path: fail/unterminated_type_arguments_recovery/main.nia
+code: E0101
+summary: expected `]` after type arguments; found `)`
+label: 30..31 Primary Source expected `]` after type arguments; found `)`
+help: check that the surrounding delimiters are balanced
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `]` after type arguments; found `)`
+  --> fail/unterminated_type_arguments_recovery/main.nia:1:31
+  |
+1 | fn retained(value: Wrapper[i32) () {}
+  |                               ^ expected `]` after type arguments; found `)`
+help: check that the surrounding delimiters are balanced
+
+summary: 1 error, 0 warnings
