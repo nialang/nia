@@ -2,7 +2,8 @@
 //! Grammar recognition and recovery events for Nia source.
 //!
 //! Grammar owns parse decisions; `nia-syntax` owns green/red storage, while
-//! `nia-parser` owns AST lowering. The first production covers module items.
+//! `nia-parser` owns AST lowering. Migrated productions currently include
+//! attributes, module declarations, and function declaration boundaries.
 
 use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind, tokenize_lossless};
 use nia_source::SourceVersion;
@@ -73,6 +74,8 @@ impl GrammarParser {
             } else if self.at(TokenKind::Module) {
                 self.emit_trivia_before_current();
                 self.parse_module_item();
+            } else if self.is_function_start() {
+                self.parse_function_item();
             } else {
                 self.parse_unmigrated_item();
             }
@@ -161,6 +164,119 @@ impl GrammarParser {
         self.events.push(GreenEvent::Finish);
     }
 
+    fn parse_function_item(&mut self) {
+        self.emit_trivia_before_current();
+        self.events.push(GreenEvent::Start(SyntaxKind::Function));
+        while matches!(
+            self.current_kind(),
+            TokenKind::Pub | TokenKind::Extern | TokenKind::Const
+        ) {
+            self.bump();
+        }
+        self.bump();
+        if self.at(TokenKind::Ident) {
+            self.bump();
+        } else {
+            self.missing("expected function name");
+        }
+        self.consume_balanced_until(&[TokenKind::LParen, TokenKind::LBrace, TokenKind::Semicolon]);
+        if self.at(TokenKind::LParen) {
+            self.parse_parameter_list();
+        } else {
+            self.missing("expected `(` after function name");
+        }
+        self.consume_balanced_until(&[TokenKind::LBrace, TokenKind::Semicolon]);
+        if self.at(TokenKind::LBrace) {
+            self.consume_balanced_group();
+        } else if self.at(TokenKind::Semicolon) {
+            self.bump();
+        } else {
+            self.missing("expected function body or `;`");
+        }
+        self.events.push(GreenEvent::Finish);
+    }
+
+    fn parse_parameter_list(&mut self) {
+        self.events.push(GreenEvent::Start(SyntaxKind::Delimited {
+            open: TokenKind::LParen,
+            close: None,
+        }));
+        self.bump();
+        while !self.at(TokenKind::Eof) {
+            if self.at(TokenKind::RParen) {
+                self.bump();
+                self.events.push(GreenEvent::Finish);
+                return;
+            }
+            if self.at(TokenKind::LBrace) {
+                break;
+            }
+            if self.at(TokenKind::Comma) {
+                self.bump();
+                continue;
+            }
+            self.events.push(GreenEvent::Start(SyntaxKind::Param));
+            let before = self.position;
+            let mut delimiters = Vec::new();
+            while !self.at(TokenKind::Eof) {
+                let kind = self.current_kind();
+                if delimiters.is_empty()
+                    && matches!(
+                        kind,
+                        TokenKind::Comma | TokenKind::RParen | TokenKind::LBrace
+                    )
+                {
+                    break;
+                }
+                match kind {
+                    TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                        delimiters.push(kind);
+                    }
+                    TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace
+                        if delimiters.last().is_some_and(|open| closes(open, &kind)) =>
+                    {
+                        delimiters.pop();
+                    }
+                    _ => {}
+                }
+                self.bump();
+            }
+            if self.position == before {
+                self.missing("expected parameter");
+            }
+            self.events.push(GreenEvent::Finish);
+        }
+        self.missing("expected `)` after parameters");
+        self.events.push(GreenEvent::Finish);
+    }
+
+    fn consume_balanced_until(&mut self, stops: &[TokenKind]) {
+        while !self.at(TokenKind::Eof) && !stops.contains(&self.current_kind()) {
+            self.bump();
+        }
+    }
+
+    fn consume_balanced_group(&mut self) {
+        let open = self.current_kind();
+        self.bump();
+        let mut delimiters = vec![open];
+        while !self.at(TokenKind::Eof) && !delimiters.is_empty() {
+            let kind = self.current_kind();
+            match kind {
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                    delimiters.push(kind);
+                }
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace
+                    if delimiters.last().is_some_and(|open| closes(open, &kind)) =>
+                {
+                    delimiters.pop();
+                }
+                _ => {}
+            }
+            self.bump();
+        }
+    }
+
     fn parse_unmigrated_item(&mut self) {
         self.emit_trivia_before_current();
         self.events.push(GreenEvent::Start(SyntaxKind::Unparsed));
@@ -193,6 +309,31 @@ impl GrammarParser {
 
     fn at(&self, kind: TokenKind) -> bool {
         self.current_kind() == kind
+    }
+
+    fn is_function_start(&self) -> bool {
+        let mut offset = 0;
+        while matches!(
+            self.kind_at(offset),
+            Some(TokenKind::Pub | TokenKind::Extern | TokenKind::Const)
+        ) {
+            if self.kind_at(offset) == Some(TokenKind::Pub)
+                && self.kind_at(offset + 1) == Some(TokenKind::LParen)
+            {
+                return false;
+            }
+            offset += 1;
+        }
+        self.kind_at(offset) == Some(TokenKind::Fn)
+    }
+
+    fn kind_at(&self, offset: usize) -> Option<TokenKind> {
+        self.significant
+            .get(self.position + offset)
+            .and_then(|&index| match &self.tokens[index].kind {
+                LosslessTokenKind::Token(kind) => Some(kind.clone()),
+                LosslessTokenKind::Whitespace | LosslessTokenKind::LineComment => None,
+            })
     }
 
     fn current_kind(&self) -> TokenKind {
@@ -276,7 +417,6 @@ fn is_item_start(kind: &TokenKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_syntax::GreenElement;
 
     #[test]
     fn module_items_have_grammar_nodes_and_trivia_remains_lossless() {
@@ -308,24 +448,20 @@ mod tests {
     }
 
     #[test]
-    fn unmigrated_function_is_preserved_without_false_grammar_errors() {
+    fn function_items_have_grammar_nodes_without_false_errors() {
         let source = "pub fn main() () { module_name(); }\nmodule next;";
         let parsed = parse(source, None).expect("valid event stream");
         assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
         assert_eq!(parsed.tree.full_text(), source);
-        let children = parsed.tree.green_root().children();
-        assert!(children.iter().any(|child| matches!(
-            child,
-            GreenElement::Node(node) if node.kind() == &SyntaxKind::Unparsed
-        )));
-        assert!(
-            parsed
-                .tree
-                .root()
-                .child_nodes()
-                .iter()
-                .any(|item| item.kind() == &SyntaxKind::Module)
-        );
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].kind(), &SyntaxKind::Function);
+        assert_eq!(children[1].kind(), &SyntaxKind::Module);
+        assert!(children[0].child_nodes().iter().any(|child| child.kind()
+            == &SyntaxKind::Delimited {
+                open: TokenKind::LParen,
+                close: Some(TokenKind::RParen),
+            }));
     }
 
     #[test]
@@ -358,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn unmigrated_items_are_kept_at_top_level_boundaries() {
+    fn function_items_are_kept_at_top_level_boundaries() {
         let source = "fn first() {}\nfn second();\nmodule next;";
         let parsed = parse(source, None).expect("valid event stream");
         assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
@@ -367,8 +503,30 @@ mod tests {
         assert!(
             children[..2]
                 .iter()
-                .all(|child| child.kind() == &SyntaxKind::Unparsed)
+                .all(|child| child.kind() == &SyntaxKind::Function)
         );
         assert_eq!(children[2].kind(), &SyntaxKind::Module);
+    }
+
+    #[test]
+    fn function_recovery_keeps_later_items_visible() {
+        let source = "fn broken(value { 0 }\nmodule next;";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert_eq!(parsed.errors.len(), 1);
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].kind(), &SyntaxKind::Function);
+        assert_eq!(children[1].kind(), &SyntaxKind::Module);
+        assert!(children[0].child_nodes().iter().any(|child| {
+            child.kind()
+                == &SyntaxKind::Delimited {
+                    open: TokenKind::LParen,
+                    close: None,
+                }
+                && child
+                    .child_nodes()
+                    .iter()
+                    .any(|nested| nested.kind() == &SyntaxKind::Missing)
+        }));
     }
 }
