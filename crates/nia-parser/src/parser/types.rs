@@ -653,6 +653,9 @@ impl Parser {
             ParseErrorKind::Grammar,
             "expected `,` or `]` after type argument",
         );
+        if self.type_can_start() || self.expr_can_start(&self.peek().kind) {
+            return true;
+        }
         while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
             self.bump();
         }
