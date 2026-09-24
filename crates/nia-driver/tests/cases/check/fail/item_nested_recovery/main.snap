@@ -1,0 +1,15 @@
+path: fail/item_nested_recovery/main.nia
+code: E0101
+summary: expected `struct`, `union`, `fn`, or `static` after `extern`
+label: 7..8 Primary Source expected `struct`, `union`, `fn`, or `static` after `extern`
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `struct`, `union`, `fn`, or `static` after `extern`
+  --> fail/item_nested_recovery/main.nia:1:8
+  |
+1 | extern @ (bad; value);
+  |        ^ expected `struct`, `union`, `fn`, or `static` after `extern`
+
+summary: 1 error, 0 warnings

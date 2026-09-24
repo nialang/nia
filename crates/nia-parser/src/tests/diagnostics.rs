@@ -1559,6 +1559,16 @@ fn supertrait_delimiter_recovery_keeps_later_traits() {
 }
 
 #[test]
+fn item_recovery_ignores_nested_statement_delimiters() {
+    let (module, errors) = parse_module("extern @ (bad; value);\nfn later() () {}");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    let ItemKind::Function(later) = &module.items[0].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn classifies_parse_errors_by_grammar_rule_not_message_text() {
     let cases = [
         (
