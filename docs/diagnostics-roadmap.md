@@ -416,6 +416,9 @@ field or variant boundaries now emit grammar nodes in production; the next
 migration stage covers trait/extension members and deeper field/variant recovery.
 Field names and types, enum variant names, payload delimiters, and initializer
 expressions now have nested grammar nodes with explicit missing-node recovery.
+Trait and extension members now retain nested associated type, associated value,
+method, parameter, return type, and method body nodes with member-boundary
+recovery.
 Top-level `using` declarations now also have grammar nodes with nested selector
 delimiters and outer-item recovery.
 Type aliases and const/static bindings now use the same declaration boundary and
