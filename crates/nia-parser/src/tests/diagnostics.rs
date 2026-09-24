@@ -756,6 +756,44 @@ fn callable_type_recovery_keeps_later_parameters_and_the_function() {
 }
 
 #[test]
+fn callable_type_recovery_keeps_parameters_after_nested_invalid_first_type() {
+    let (module, errors) = parse_module(
+        "fn retained(pointer: &fn(@ (bad, value), i32), callable: Fn(@ (bad, value), bool)) () {}\nfn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected type"))
+            .count(),
+        2,
+        "{errors:?}"
+    );
+    let ItemKind::Function(retained) = &module.items[0].kind else {
+        panic!("expected retained function");
+    };
+    let Some(TypeRef {
+        kind: TypeKind::FunctionPointer { params, .. },
+        ..
+    }) = retained.params[0].ty.as_ref()
+    else {
+        panic!("expected function pointer type");
+    };
+    assert_eq!(params.len(), 1, "{errors:?}");
+    let Some(TypeRef {
+        kind: TypeKind::Callable { params, .. },
+        ..
+    }) = retained.params[1].ty.as_ref()
+    else {
+        panic!("expected callable type");
+    };
+    assert_eq!(params.len(), 1, "{errors:?}");
+    let ItemKind::Function(later) = &module.items[1].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn generic_parameter_recovery_keeps_later_parameters_and_the_function() {
     let (module, errors) = parse_module("fn retained[, Kept]() () {}\nfn later() () {}");
     assert_eq!(

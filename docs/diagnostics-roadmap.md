@@ -368,6 +368,9 @@ parser and driver coverage pin the recovered boundary.
 Tuple type parsing applies the same nested synchronization when its first type
 fails, retaining later tuple elements and the enclosing declarations with
 parser and driver coverage.
+Function pointer and callable interface parameter lists now apply the same
+nested synchronization for malformed first parameters, retaining later
+parameters and declarations with parser and driver coverage.
 Named struct, union, and enum payload fields likewise diagnose a missing
 separator between valid fields, retaining later fields and following items
 with parser and driver coverage.

@@ -1,0 +1,3 @@
+fn retained(pointer: &fn(@ (bad, value), i32), callable: Fn(@ (bad, value), bool)) () {}
+
+fn later() () {}

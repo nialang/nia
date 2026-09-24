@@ -312,13 +312,14 @@ impl Parser {
                     is_variadic = true;
                     break;
                 }
+                let checkpoint = self.checkpoint();
                 if let Some(param) = self.parse_type_with_mode(mode) {
                     params.push(param);
                     if !self.eat_type_parameter_delimiter() {
                         break;
                     }
-                } else if self.eat(TokenKind::Comma).is_none() {
-                    break;
+                } else {
+                    self.recover_to_comma_or_rparen_with_progress(checkpoint);
                 }
             }
             self.expect(TokenKind::RParen, "expected `)` in function pointer type")?;
@@ -435,13 +436,14 @@ impl Parser {
                 self.error_here("callable interface types cannot be variadic");
                 break;
             }
+            let checkpoint = self.checkpoint();
             if let Some(param) = self.parse_type_with_mode(mode) {
                 params.push(param);
                 if !self.eat_type_parameter_delimiter() {
                     break;
                 }
-            } else if self.eat(TokenKind::Comma).is_none() {
-                break;
+            } else {
+                self.recover_to_comma_or_rparen_with_progress(checkpoint);
             }
         }
         self.expect(TokenKind::RParen, "expected `)` in callable type")?;
