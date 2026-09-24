@@ -746,9 +746,7 @@ impl NodeBuilder {
         if let SyntaxKind::Delimited { open, close } = &mut self.kind {
             *close = self.children.last().and_then(|child| match child {
                 GreenElement::Token(token) => match token.kind() {
-                    SyntaxKind::Token(candidate)
-                        if delimiter_matches(open, candidate) =>
-                    {
+                    SyntaxKind::Token(candidate) if delimiter_matches(open, candidate) => {
                         Some(candidate.clone())
                     }
                     _ => None,
@@ -768,10 +766,12 @@ impl NodeBuilder {
             GreenElement::Node(node) => node.span,
             GreenElement::Token(token) => token.span,
         };
-        if self.children.is_empty() {
-            self.span.start = element_span.start;
+        if element_span.start != element_span.end {
+            if self.children.is_empty() {
+                self.span.start = element_span.start;
+            }
+            self.span.end = element_span.end;
         }
-        self.span.end = element_span.end;
         self.children.push(element);
     }
 }
@@ -1258,6 +1258,23 @@ mod tests {
         assert_eq!(missing.kind(), &SyntaxKind::Missing);
         assert_eq!(missing.span(), Span::new(0, 0));
         assert_eq!(tree.full_text(), source);
+    }
+
+    #[test]
+    fn zero_width_recovery_does_not_shrink_parent_span() {
+        let source = "module module next;";
+        let tokens = tokenize_lossless(source);
+        let mut events = vec![GreenEvent::Start(SyntaxKind::SourceFile)];
+        events.push(GreenEvent::Start(SyntaxKind::Module));
+        events.push(GreenEvent::Start(SyntaxKind::Missing));
+        events.push(GreenEvent::Finish);
+        events.extend(tokens.into_iter().map(GreenEvent::Token));
+        events.push(GreenEvent::Finish);
+        events.push(GreenEvent::Finish);
+        let tree = SyntaxTree::from_green_events(source, None, events).expect("valid event stream");
+        let children = tree.root().child_nodes();
+        let module = children.first().expect("module node");
+        assert_eq!(module.span(), Span::new(0, source.len()));
     }
 
     #[test]
