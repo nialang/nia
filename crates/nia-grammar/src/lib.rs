@@ -76,6 +76,8 @@ impl GrammarParser {
                 self.parse_module_item();
             } else if self.is_function_start() {
                 self.parse_function_item();
+            } else if self.is_aggregate_start() {
+                self.parse_aggregate_item();
             } else {
                 self.parse_unmigrated_item();
             }
@@ -187,13 +189,92 @@ impl GrammarParser {
         }
         self.consume_balanced_until(&[TokenKind::LBrace, TokenKind::Semicolon]);
         if self.at(TokenKind::LBrace) {
-            self.consume_balanced_group();
+            if !self.consume_balanced_group() {
+                self.missing("expected `}` after function body");
+            }
         } else if self.at(TokenKind::Semicolon) {
             self.bump();
         } else {
             self.missing("expected function body or `;`");
         }
         self.events.push(GreenEvent::Finish);
+    }
+
+    fn parse_aggregate_item(&mut self) {
+        self.emit_trivia_before_current();
+        let kind = match self.declaration_keyword() {
+            Some(TokenKind::Struct) => SyntaxKind::Struct,
+            Some(TokenKind::Union) => SyntaxKind::Union,
+            Some(TokenKind::Enum) => SyntaxKind::Enum,
+            Some(TokenKind::Trait) => SyntaxKind::Trait,
+            _ => return,
+        };
+        self.events.push(GreenEvent::Start(kind));
+        while matches!(self.current_kind(), TokenKind::Pub | TokenKind::Extern) {
+            self.bump();
+        }
+        self.bump();
+        if self.at(TokenKind::Ident) {
+            self.bump();
+        } else {
+            self.missing("expected declaration name");
+        }
+        self.consume_angle_group();
+        self.consume_header_until_body();
+        match self.current_kind() {
+            TokenKind::LBrace | TokenKind::LParen => {
+                if !self.consume_balanced_group() {
+                    self.missing("expected closing declaration delimiter");
+                }
+            }
+            TokenKind::Semicolon => self.bump(),
+            TokenKind::Eof => self.missing("expected declaration body"),
+            _ => {
+                self.missing("expected declaration body");
+                if is_item_start(&self.current_kind()) {
+                    self.events.push(GreenEvent::Start(SyntaxKind::Error));
+                    self.events.push(GreenEvent::Finish);
+                }
+            }
+        }
+        self.events.push(GreenEvent::Finish);
+    }
+
+    fn consume_angle_group(&mut self) {
+        if !self.at(TokenKind::Lt) {
+            return;
+        }
+        self.bump();
+        let mut depth = 1usize;
+        while !self.at(TokenKind::Eof) && depth != 0 {
+            match self.current_kind() {
+                TokenKind::Lt => depth += 1,
+                TokenKind::Gt => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+            self.bump();
+        }
+    }
+
+    fn consume_header_until_body(&mut self) {
+        let mut angle_depth = 0usize;
+        while !self.at(TokenKind::Eof) {
+            let kind = self.current_kind();
+            if angle_depth == 0
+                && matches!(
+                    kind,
+                    TokenKind::LBrace | TokenKind::LParen | TokenKind::Semicolon
+                )
+            {
+                return;
+            }
+            match kind {
+                TokenKind::Lt => angle_depth += 1,
+                TokenKind::Gt if angle_depth > 0 => angle_depth -= 1,
+                _ => {}
+            }
+            self.bump();
+        }
     }
 
     fn parse_parameter_list(&mut self) {
@@ -256,12 +337,15 @@ impl GrammarParser {
         }
     }
 
-    fn consume_balanced_group(&mut self) {
+    fn consume_balanced_group(&mut self) -> bool {
         let open = self.current_kind();
         self.bump();
         let mut delimiters = vec![open];
         while !self.at(TokenKind::Eof) && !delimiters.is_empty() {
             let kind = self.current_kind();
+            if delimiters.len() == 1 && is_item_start(&kind) {
+                return false;
+            }
             match kind {
                 TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
                     delimiters.push(kind);
@@ -275,6 +359,7 @@ impl GrammarParser {
             }
             self.bump();
         }
+        delimiters.is_empty()
     }
 
     fn parse_unmigrated_item(&mut self) {
@@ -325,6 +410,24 @@ impl GrammarParser {
             offset += 1;
         }
         self.kind_at(offset) == Some(TokenKind::Fn)
+    }
+
+    fn is_aggregate_start(&self) -> bool {
+        matches!(
+            self.declaration_keyword(),
+            Some(TokenKind::Struct | TokenKind::Union | TokenKind::Enum | TokenKind::Trait)
+        )
+    }
+
+    fn declaration_keyword(&self) -> Option<TokenKind> {
+        let mut offset = 0;
+        while matches!(
+            self.kind_at(offset),
+            Some(TokenKind::Pub | TokenKind::Extern)
+        ) {
+            offset += 1;
+        }
+        self.kind_at(offset)
     }
 
     fn kind_at(&self, offset: usize) -> Option<TokenKind> {
@@ -528,5 +631,47 @@ mod tests {
                     .iter()
                     .any(|nested| nested.kind() == &SyntaxKind::Missing)
         }));
+    }
+
+    #[test]
+    fn aggregate_headers_have_distinct_nodes_and_preserve_following_items() {
+        let source = "struct Point<T> { x: T }\nunion Value { i: i32 }\nenum Color: u8 { Red }\ntrait Display: Show { }\nmodule next;";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 5);
+        assert_eq!(children[0].kind(), &SyntaxKind::Struct);
+        assert_eq!(children[1].kind(), &SyntaxKind::Union);
+        assert_eq!(children[2].kind(), &SyntaxKind::Enum);
+        assert_eq!(children[3].kind(), &SyntaxKind::Trait);
+        assert_eq!(children[4].kind(), &SyntaxKind::Module);
+    }
+
+    #[test]
+    fn aggregate_header_recovery_keeps_later_items_visible() {
+        let source = "struct { x: i32 }\nmodule next;";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert_eq!(parsed.errors.len(), 1);
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].kind(), &SyntaxKind::Struct);
+        assert!(
+            children[0]
+                .child_nodes()
+                .iter()
+                .any(|child| child.kind() == &SyntaxKind::Missing)
+        );
+        assert_eq!(children[1].kind(), &SyntaxKind::Module);
+    }
+
+    #[test]
+    fn unterminated_aggregate_body_recovers_at_following_item() {
+        let source = "struct Point { x: i32\nmodule next;";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert_eq!(parsed.errors.len(), 1);
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].kind(), &SyntaxKind::Struct);
+        assert_eq!(children[1].kind(), &SyntaxKind::Module);
     }
 }
