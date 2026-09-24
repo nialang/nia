@@ -146,6 +146,9 @@ impl<'a> BodyChecker<'a> {
 
     fn check_asm_operand_type(&mut self, span: Span, ty: InternedTyId, context: &str) {
         let ty = self.normalization.normalize(ty);
+        if self.is_error_recovery_ty(ty) {
+            return;
+        }
         match self.interner.get(ty) {
             Some(TyKind::Primitive(PrimitiveTy::Never) | TyKind::Opaque) => {
                 self.diagnostics.push(Diagnostic::user_error_at(

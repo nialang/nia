@@ -447,6 +447,10 @@ unresolved value keeps only its name-resolution root.
 Layout builtins now suppress their `Sized` obligation when the explicit type
 argument is an Error recovery, preserving only the unknown-type root with body
 check and driver snapshot coverage.
+Inline assembly operand validation now suppresses aggregate-shape diagnostics
+when an operand's structural type contains an Error recovery, preserving the
+underlying unresolved value as the sole root while still reporting shape errors
+for resolved aggregate operands.
 Qualified associated function-pointer references now reuse the restricted
 extension-method visibility contract used by calls, preserving the declaration
 location for private and restricted methods instead of silently returning a
