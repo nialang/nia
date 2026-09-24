@@ -449,15 +449,22 @@ impl Parser {
                 fields.push(first);
             }
             if self.eat(TokenKind::Comma).is_none() {
-                let first = fields.pop()?;
-                self.expect(
-                    TokenKind::RParen,
-                    "expected `)` after parenthesized pattern",
-                )?;
-                return Some(Pattern {
-                    span: Span::new(start, self.previous_end()),
-                    kind: first.kind,
-                });
+                if self.pattern_can_start(&self.peek().kind) {
+                    self.expected_here(
+                        ParseErrorKind::Grammar,
+                        "expected `,` or `)` after tuple pattern",
+                    );
+                } else {
+                    let first = fields.pop()?;
+                    self.expect(
+                        TokenKind::RParen,
+                        "expected `)` after parenthesized pattern",
+                    )?;
+                    return Some(Pattern {
+                        span: Span::new(start, self.previous_end()),
+                        kind: first.kind,
+                    });
+                }
             }
             while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
                 if let Some(field) =
@@ -465,6 +472,13 @@ impl Parser {
                 {
                     fields.push(field);
                     if self.eat(TokenKind::Comma).is_none() {
+                        if self.pattern_can_start(&self.peek().kind) {
+                            self.expected_here(
+                                ParseErrorKind::Grammar,
+                                "expected `,` or `)` after tuple pattern",
+                            );
+                            continue;
+                        }
                         break;
                     }
                 } else if self.eat(TokenKind::Comma).is_none() {
@@ -642,24 +656,31 @@ impl Parser {
                 });
             }
             if self.eat(TokenKind::Comma).is_none() {
-                let first = first?;
-                self.expect(
-                    TokenKind::RParen,
-                    "expected `)` after parenthesized pattern",
-                )?;
-                if let PatternKind::Bind { name, .. } = first.kind {
-                    let span = Span::new(start, self.previous_end());
+                if self.pattern_can_start(&self.peek().kind) {
+                    self.expected_here(
+                        ParseErrorKind::Grammar,
+                        "expected `,` or `)` after tuple pattern",
+                    );
+                } else {
+                    let first = first?;
+                    self.expect(
+                        TokenKind::RParen,
+                        "expected `)` after parenthesized pattern",
+                    )?;
+                    if let PatternKind::Bind { name, .. } = first.kind {
+                        let span = Span::new(start, self.previous_end());
+                        return Some(Pattern {
+                            span,
+                            kind: PatternKind::Expr(Box::new(
+                                self.make_expr(first.span, ExprKind::Ident(name)),
+                            )),
+                        });
+                    }
                     return Some(Pattern {
-                        span,
-                        kind: PatternKind::Expr(Box::new(
-                            self.make_expr(first.span, ExprKind::Ident(name)),
-                        )),
+                        span: Span::new(start, self.previous_end()),
+                        kind: first.kind,
                     });
                 }
-                return Some(Pattern {
-                    span: Span::new(start, self.previous_end()),
-                    kind: first.kind,
-                });
             }
             let mut fields = first.into_iter().collect::<Vec<_>>();
             while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
@@ -669,6 +690,13 @@ impl Parser {
                     fields.push(field);
                 }
                 if self.eat(TokenKind::Comma).is_none() {
+                    if self.pattern_can_start(&self.peek().kind) {
+                        self.expected_here(
+                            ParseErrorKind::Grammar,
+                            "expected `,` or `)` after tuple pattern",
+                        );
+                        continue;
+                    }
                     break;
                 }
             }
@@ -775,6 +803,13 @@ impl Parser {
                     continue;
                 }
                 if self.eat(TokenKind::Comma).is_none() {
+                    if self.pattern_can_start(&self.peek().kind) {
+                        self.expected_here(
+                            ParseErrorKind::Grammar,
+                            "expected `,` or `)` after tuple pattern",
+                        );
+                        continue;
+                    }
                     break;
                 }
             }
@@ -847,6 +882,13 @@ impl Parser {
                     pattern,
                 });
                 if self.eat(TokenKind::Comma).is_none() {
+                    if self.at(TokenKind::Ident) {
+                        self.expected_here(
+                            ParseErrorKind::Grammar,
+                            "expected `,` or `}` after nominal pattern field",
+                        );
+                        continue;
+                    }
                     break;
                 }
             }
@@ -903,6 +945,32 @@ impl Parser {
                 .tokens
                 .nth_kind(1)
                 .is_some_and(|kind| *kind == TokenKind::Bang || stops.contains(kind))
+    }
+
+    fn pattern_can_start(&self, kind: &TokenKind) -> bool {
+        matches!(
+            kind,
+            TokenKind::Integer
+                | TokenKind::Float
+                | TokenKind::String
+                | TokenKind::ByteString
+                | TokenKind::Char
+                | TokenKind::ByteChar
+                | TokenKind::True
+                | TokenKind::False
+                | TokenKind::Null
+                | TokenKind::Ident
+                | TokenKind::SelfValue
+                | TokenKind::Pkg
+                | TokenKind::Super
+                | TokenKind::Underscore
+                | TokenKind::LParen
+                | TokenKind::Question
+                | TokenKind::Bang
+                | TokenKind::Amp
+                | TokenKind::Mut
+                | TokenKind::Minus
+        )
     }
 
     fn parse_match_arm_body(&mut self) -> Option<MatchArmBody> {

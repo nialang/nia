@@ -310,7 +310,9 @@ retain later fields and arms; parser and driver snapshots cover both recovered
 shapes.
 Named nominal match patterns likewise synchronize a missing field pattern at a
 comma or closing brace, retaining later fields and arms with parser and driver
-coverage.
+coverage. Tuple, nominal tuple, and named nominal patterns also diagnose a
+missing separator between valid fields and retain the remaining fields and
+match arms, with parser and driver coverage.
 Enum variant lists now recover a missing variant name at a comma or closing
 brace, retaining later variants and following top-level declarations with
 parser and driver coverage.
