@@ -1,3 +1,5 @@
-fn retained(first: i32 second: bool) () {}
+fn retained(first: i32 second: bool) () {
+    if second {}
+}
 
 fn later() () {}

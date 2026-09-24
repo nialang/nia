@@ -1242,7 +1242,8 @@ fn function_parameter_delimiter_recovery_keeps_the_function() {
     let ItemKind::Function(retained) = &module.items[0].kind else {
         panic!("expected retained function");
     };
-    assert_eq!(retained.params.len(), 1);
+    assert_eq!(retained.params.len(), 2);
+    assert_eq!(retained.params[1].name, Some(sym("second")));
     let ItemKind::Function(later) = &module.items[1].kind else {
         panic!("expected later function");
     };
@@ -1268,7 +1269,11 @@ fn trait_member_parameter_recovery_keeps_later_members_and_items() {
         panic!("expected retained trait");
     };
     assert_eq!(retained.methods.len(), 2);
-    assert_eq!(retained.methods[0].function.params.len(), 1);
+    assert_eq!(retained.methods[0].function.params.len(), 2);
+    assert_eq!(
+        retained.methods[0].function.params[1].name,
+        Some(sym("second"))
+    );
     assert_eq!(retained.methods[1].function.name, sym("good"));
     let ItemKind::Function(later) = &module.items[1].kind else {
         panic!("expected later function");
@@ -1295,7 +1300,11 @@ fn extend_member_parameter_recovery_keeps_later_members_and_items() {
         panic!("expected retained extension");
     };
     assert_eq!(retained.methods.len(), 2);
-    assert_eq!(retained.methods[0].function.params.len(), 1);
+    assert_eq!(retained.methods[0].function.params.len(), 2);
+    assert_eq!(
+        retained.methods[0].function.params[1].name,
+        Some(sym("second"))
+    );
     assert_eq!(retained.methods[1].function.name, sym("good"));
     let ItemKind::Function(later) = &module.items[2].kind else {
         panic!("expected later function");

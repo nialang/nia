@@ -1007,27 +1007,53 @@ impl Parser {
                 params.push(param);
             } else {
                 self.origins.rollback(checkpoint.origin);
+                if self.eat(TokenKind::Comma).is_some() {
+                    continue;
+                }
+                if self.at(TokenKind::RParen)
+                    || self.at(TokenKind::LBrace)
+                    || self.at(TokenKind::Eof)
+                {
+                    break;
+                }
+                self.recover_to_comma_or_rparen_with_progress(checkpoint);
+                continue;
             }
             if self.eat(TokenKind::Comma).is_none() {
-                if !self.at(TokenKind::RParen)
-                    && !self.at(TokenKind::LBrace)
-                    && !self.at(TokenKind::Eof)
+                if self.at(TokenKind::RParen)
+                    || self.at(TokenKind::LBrace)
+                    || self.at(TokenKind::Eof)
                 {
+                    break;
+                }
+                if self.parameter_can_start() {
                     self.expected_here(
                         ParseErrorKind::Grammar,
                         "expected `,` or `)` after parameter",
                     );
-                    while !self.at(TokenKind::RParen)
-                        && !self.at(TokenKind::LBrace)
-                        && !self.at(TokenKind::Eof)
-                    {
-                        self.bump();
-                    }
+                    continue;
+                }
+                self.expected_here(
+                    ParseErrorKind::Grammar,
+                    "expected `,` or `)` after parameter",
+                );
+                while !self.at(TokenKind::RParen)
+                    && !self.at(TokenKind::LBrace)
+                    && !self.at(TokenKind::Eof)
+                {
+                    self.bump();
                 }
                 break;
             }
         }
         (params, is_variadic)
+    }
+
+    fn parameter_can_start(&self) -> bool {
+        self.at(TokenKind::Amp)
+            || self.at(TokenKind::SelfValue)
+            || (self.at(TokenKind::Ident)
+                && matches!(self.tokens.nth_kind(1), Some(TokenKind::Colon)))
     }
 
     pub(super) fn parse_param(&mut self) -> Option<Param> {

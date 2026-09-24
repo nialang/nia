@@ -287,6 +287,9 @@ retain clearly identifiable later type or const arguments, the enclosing
 function, and following declarations.
 Function parameter lists likewise synchronize a missing comma before `)` while
 preserving the current function and later top-level declarations.
+When the next parameter has a clear `name:` or receiver shape, recovery now
+retains that parameter in the AST and continues checking its use; parser
+coverage and the function-parameter driver snapshot pin this behavior.
 Closure parameter lists use the same next-parameter boundary detection and
 recover a missing comma before `->` without losing the enclosing function.
 Trait and extension member parameter lists reuse the same local recovery and
