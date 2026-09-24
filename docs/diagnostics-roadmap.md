@@ -317,10 +317,16 @@ Using selector groups now synchronize an invalid member at the next comma or
 closing brace, retaining later selectors and the following top-level item.
 They also diagnose a missing separator between valid selectors and retain the
 remaining selectors and following items, with parser and driver coverage.
+Using selector recovery tracks nested parentheses, brackets, and braces, so an
+invalid nested selector cannot consume a later top-level selector; parser and
+driver coverage pin that boundary.
 Attribute argument lists now synchronize a missing expression at the next
 comma or closing parenthesis, retaining later arguments and the attributed
 item. They also diagnose a missing separator between valid arguments and retain
 the remaining arguments and attributed item, with parser and driver coverage.
+Attribute argument recovery likewise tracks nested parentheses, brackets, and
+braces, retaining later arguments and the attributed item after a malformed
+nested expression.
 Closure capture lists now synchronize a missing capture name at the next comma
 or closing bracket, retaining later captures and the enclosing closure.
 They also diagnose a missing comma before a clearly identifiable next capture

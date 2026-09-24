@@ -1,0 +1,3 @@
+using {(bad, value), kept};
+
+fn after() () {}
