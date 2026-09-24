@@ -623,10 +623,23 @@ impl Parser {
                 (None, None) => {
                     self.rewind(checkpoint);
                     self.errors.truncate(errors_len);
+                    let errors_before_expr = self.errors.len();
                     if let Some(expr) =
                         self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RBracket])
                     {
                         args.push(TypeArg::Const(expr));
+                    } else {
+                        if self.errors.len() == errors_before_expr {
+                            self.error_here_as(
+                                ParseErrorKind::ExpectedExpression,
+                                "expected expression",
+                            );
+                        }
+                        self.skip_to_type_arg_boundary();
+                        if self.eat(TokenKind::Comma).is_some() {
+                            continue;
+                        }
+                        break;
                     }
                 }
             }
@@ -656,8 +669,9 @@ impl Parser {
         if self.type_can_start() || self.expr_can_start(&self.peek().kind) {
             return true;
         }
-        while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
-            self.bump();
+        self.skip_to_type_arg_boundary();
+        if self.eat(TokenKind::Comma).is_some() {
+            return true;
         }
         false
     }
@@ -683,8 +697,44 @@ impl Parser {
     }
 
     fn skip_to_type_arg_boundary(&mut self) {
-        while !self.at_type_arg_boundary() {
-            self.bump();
+        let mut paren_depth = 0usize;
+        let mut bracket_depth = 0usize;
+        let mut brace_depth = 0usize;
+        while !self.at(TokenKind::Eof) {
+            match self.peek().kind {
+                TokenKind::LParen => {
+                    paren_depth += 1;
+                    self.bump();
+                }
+                TokenKind::RParen if paren_depth > 0 => {
+                    paren_depth -= 1;
+                    self.bump();
+                }
+                TokenKind::LBracket => {
+                    bracket_depth += 1;
+                    self.bump();
+                }
+                TokenKind::RBracket if bracket_depth > 0 => {
+                    bracket_depth -= 1;
+                    self.bump();
+                }
+                TokenKind::LBrace => {
+                    brace_depth += 1;
+                    self.bump();
+                }
+                TokenKind::RBrace if brace_depth > 0 => {
+                    brace_depth -= 1;
+                    self.bump();
+                }
+                TokenKind::Comma | TokenKind::RBracket
+                    if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 =>
+                {
+                    break;
+                }
+                _ => {
+                    self.bump();
+                }
+            }
         }
     }
 

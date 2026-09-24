@@ -1328,6 +1328,29 @@ fn type_argument_delimiter_recovery_keeps_the_function() {
 }
 
 #[test]
+fn type_argument_recovery_keeps_later_arguments_after_nested_tokens() {
+    let (module, errors) = parse_module(
+        "struct Wrapper[T, U] {}\nfn retained(value: Wrapper[@ (bad, value), bool]) () {}\nfn later() () {}",
+    );
+    assert!(!errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(retained) = &module.items[1].kind else {
+        panic!("expected retained function");
+    };
+    let Some(TypeRef {
+        kind: TypeKind::Path { segments },
+        ..
+    }) = retained.params[0].ty.as_ref()
+    else {
+        panic!("expected path parameter type");
+    };
+    assert_eq!(segments[0].args.len(), 1, "{errors:?}");
+    let ItemKind::Function(later) = &module.items[2].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn function_parameter_delimiter_recovery_keeps_the_function() {
     let (module, errors) =
         parse_module("fn retained(first: i32 second: bool) () {}\nfn later() () {}");
