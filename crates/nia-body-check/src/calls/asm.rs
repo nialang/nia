@@ -42,11 +42,14 @@ impl<'a> BodyChecker<'a> {
                 Some(AsmConfigField::Code) => {
                     has_code = true;
                     if !matches!(field.value.kind, ExprKind::ByteString(_)) {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::TYPE_CHECK,
-                            field.value.span,
-                            "`asm` field `code` must be a byte string literal",
-                        ));
+                        let value_ty = self.check_expr(&field.value);
+                        if !self.is_error_recovery_ty(value_ty) {
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                codes::TYPE_CHECK,
+                                field.value.span,
+                                "`asm` field `code` must be a byte string literal",
+                            ));
+                        }
                     }
                 }
                 Some(AsmConfigField::Inputs) => self.check_asm_inputs(&field.value),
@@ -242,11 +245,14 @@ impl<'a> BodyChecker<'a> {
         };
         for elem in elems {
             if !matches!(elem.kind, ExprKind::ByteString(_)) {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    elem.span,
-                    "`asm` clobbers must be byte string literals",
-                ));
+                let value_ty = self.check_expr(elem);
+                if !self.is_error_recovery_ty(value_ty) {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        elem.span,
+                        "`asm` clobbers must be byte string literals",
+                    ));
+                }
             }
         }
     }
@@ -261,12 +267,14 @@ impl<'a> BodyChecker<'a> {
                     if let ExprKind::ByteString(text) = &elem.kind {
                         self.check_asm_option_name(elem.span, text);
                     } else {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::TYPE_CHECK,
-                            elem.span,
-                            "`asm` options must be byte string literals",
-                        ));
-                        self.check_expr(elem);
+                        let value_ty = self.check_expr(elem);
+                        if !self.is_error_recovery_ty(value_ty) {
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                codes::TYPE_CHECK,
+                                elem.span,
+                                "`asm` options must be byte string literals",
+                            ));
+                        }
                     }
                 }
             }
@@ -279,12 +287,14 @@ impl<'a> BodyChecker<'a> {
                 self.check_expr(expr);
             }
             _ => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    expr.span,
-                    "`asm` field `options` must be a byte string literal or array literal",
-                ));
-                self.check_expr(expr);
+                let value_ty = self.check_expr(expr);
+                if !self.is_error_recovery_ty(value_ty) {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        expr.span,
+                        "`asm` field `options` must be a byte string literal or array literal",
+                    ));
+                }
             }
         }
     }

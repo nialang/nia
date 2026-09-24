@@ -161,3 +161,38 @@ fn main() () {
         "{summaries:?}"
     );
 }
+
+#[test]
+fn inline_asm_preserves_unresolved_literal_field_roots() {
+    let checked = asm_pipeline(
+        r#"
+fn main() () {
+    std::builtin::asm(.{
+        code: missing_code,
+        clobbers: [missing_clobber],
+        options: [missing_option],
+    });
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| summary.contains("unknown value"))
+            .count(),
+        3,
+        "{summaries:?}"
+    );
+    assert!(
+        summaries.iter().all(|summary| {
+            !summary.contains("must be a byte string literal")
+                && !summary.contains("must be byte string literals")
+        }),
+        "{summaries:?}"
+    );
+}
