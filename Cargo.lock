@@ -904,6 +904,7 @@ dependencies = [
  "nia-compiler-query",
  "nia-defs",
  "nia-diagnostic",
+ "nia-grammar",
  "nia-ice",
  "nia-ids",
  "nia-imports",
