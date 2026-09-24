@@ -340,7 +340,7 @@ fn reports_malformed_tuple_types_values_and_patterns() {
     for (source, expected) in [
         (
             "fn malformed() () { let value = 1 as (i32, bool u8); }",
-            "expected `)` after tuple type",
+            "expected `,` or `)` after type parameter",
         ),
         (
             "fn value() () { let pair = (1, true false); }",

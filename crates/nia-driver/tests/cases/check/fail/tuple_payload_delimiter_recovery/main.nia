@@ -1,0 +1,4 @@
+struct Pair(i32 bool)
+enum Value { Broken(i32 bool), Kept }
+
+fn later() () {}
