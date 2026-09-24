@@ -338,6 +338,9 @@ remaining selectors and following items, with parser and driver coverage.
 Using selector recovery tracks nested parentheses, brackets, and braces, so an
 invalid nested selector cannot consume a later top-level selector; parser and
 driver coverage pin that boundary.
+Unterminated using selector groups now stop at the next top-level item while
+retaining the missing-closing-delimiter diagnostic and the following item, with
+parser and driver coverage.
 Attribute argument lists now synchronize a missing expression at the next
 comma or closing parenthesis, retaining later arguments and the attributed
 item. They also diagnose a missing separator between valid arguments and retain

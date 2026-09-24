@@ -202,12 +202,15 @@ impl Parser {
     pub(super) fn parse_using_after_keyword(&mut self) -> Option<UsingItem> {
         if self.eat(TokenKind::LBrace).is_some() {
             let mut items = Vec::new();
-            while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+            while !self.at(TokenKind::RBrace)
+                && !self.at(TokenKind::Eof)
+                && !self.at_top_level_item_start()
+            {
                 let checkpoint = self.checkpoint();
                 if let Some(item) = self.parse_using_group_item() {
                     items.push(item);
                 } else {
-                    self.recover_to_comma_or_rbrace_with_progress(checkpoint);
+                    self.recover_to_using_boundary_with_progress(checkpoint);
                     continue;
                 }
                 if self.eat(TokenKind::Comma).is_none() {
@@ -268,12 +271,15 @@ impl Parser {
             UsingSelector::Wildcard { span: star.span }
         } else if self.eat(TokenKind::LBrace).is_some() {
             let mut items = Vec::new();
-            while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+            while !self.at(TokenKind::RBrace)
+                && !self.at(TokenKind::Eof)
+                && !self.at_top_level_item_start()
+            {
                 let checkpoint = self.checkpoint();
                 if let Some(item) = self.parse_using_group_item() {
                     items.push(item);
                 } else {
-                    self.recover_to_comma_or_rbrace_with_progress(checkpoint);
+                    self.recover_to_using_boundary_with_progress(checkpoint);
                     continue;
                 }
                 if self.eat(TokenKind::Comma).is_none() {
@@ -322,12 +328,15 @@ impl Parser {
                 UsingSelector::Wildcard { span: star.span }
             } else if self.eat(TokenKind::LBrace).is_some() {
                 let mut items = Vec::new();
-                while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+                while !self.at(TokenKind::RBrace)
+                    && !self.at(TokenKind::Eof)
+                    && !self.at_top_level_item_start()
+                {
                     let checkpoint = self.checkpoint();
                     if let Some(item) = self.parse_using_group_item() {
                         items.push(item);
                     } else {
-                        self.recover_to_comma_or_rbrace_with_progress(checkpoint);
+                        self.recover_to_using_boundary_with_progress(checkpoint);
                         continue;
                     }
                     if self.eat(TokenKind::Comma).is_none() {

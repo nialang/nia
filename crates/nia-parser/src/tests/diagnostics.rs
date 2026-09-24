@@ -1113,6 +1113,29 @@ fn using_group_recovery_keeps_later_members_and_items() {
 }
 
 #[test]
+fn unterminated_using_group_recovers_at_the_next_item() {
+    let (module, errors) = parse_module("using {kept, ,\nfn later() () {}");
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected name in `using`"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("expected `}` after using group")),
+        "{errors:?}"
+    );
+    let ItemKind::Function(later) = &module.items[0].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn using_group_delimiter_recovery_keeps_later_members_and_items() {
     let (module, errors) = parse_module("using {kept later};\nfn after() () {}");
     assert_eq!(errors.len(), 1, "{errors:?}");
