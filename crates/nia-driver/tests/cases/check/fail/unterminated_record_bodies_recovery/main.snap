@@ -1,0 +1,31 @@
+path: fail/unterminated_record_bodies_recovery/main.nia
+code: E0101
+summary: expected `}` after struct body; found `union`
+label: 30..35 Primary Source expected `}` after struct body; found `union`
+help: check that the surrounding delimiters are balanced
+
+path: fail/unterminated_record_bodies_recovery/main.nia
+code: E0101
+summary: expected `}` after union body; found `fn`
+label: 64..66 Primary Source expected `}` after union body; found `fn`
+help: check that the surrounding delimiters are balanced
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `}` after struct body; found `union`
+  --> fail/unterminated_record_bodies_recovery/main.nia:2:1
+  |
+2 | union AlsoRecovered { value: i32,
+  | ^^^^^ expected `}` after struct body; found `union`
+help: check that the surrounding delimiters are balanced
+
+root diagnostic:
+error[E0101]: expected `}` after union body; found `fn`
+  --> fail/unterminated_record_bodies_recovery/main.nia:3:1
+  |
+3 | fn later() () {}
+  | ^^ expected `}` after union body; found `fn`
+help: check that the surrounding delimiters are balanced
+
+summary: 2 errors, 0 warnings

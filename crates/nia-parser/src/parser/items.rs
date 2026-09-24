@@ -454,11 +454,20 @@ impl Parser {
         let where_clause = self.parse_where_clause();
         self.expect(TokenKind::LBrace, "expected `{` after struct name")?;
         let mut fields = Vec::new();
-        while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+        while !self.at(TokenKind::RBrace)
+            && !self.at(TokenKind::Eof)
+            && !self.at_top_level_item_boundary_except_fn()
+        {
             if self.at(TokenKind::Fn) {
-                self.error_here("methods must be declared in an `extend Type { ... }` block");
                 let checkpoint = self.checkpoint();
+                let errors_len = self.errors.len();
+                self.error_here("methods must be declared in an `extend Type { ... }` block");
                 self.recover_to_member_boundary_with_progress(checkpoint);
+                if self.at_top_level_item_start() || self.at(TokenKind::Eof) {
+                    self.rewind(checkpoint);
+                    self.errors.truncate(errors_len);
+                    break;
+                }
                 continue;
             }
             let checkpoint = self.checkpoint();
@@ -487,11 +496,20 @@ impl Parser {
         let where_clause = self.parse_where_clause();
         self.expect(TokenKind::LBrace, "expected `{` after union name")?;
         let mut fields = Vec::new();
-        while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+        while !self.at(TokenKind::RBrace)
+            && !self.at(TokenKind::Eof)
+            && !self.at_top_level_item_boundary_except_fn()
+        {
             if self.at(TokenKind::Fn) {
-                self.error_here("methods must be declared in an `extend Type { ... }` block");
                 let checkpoint = self.checkpoint();
+                let errors_len = self.errors.len();
+                self.error_here("methods must be declared in an `extend Type { ... }` block");
                 self.recover_to_member_boundary_with_progress(checkpoint);
+                if self.at_top_level_item_start() || self.at(TokenKind::Eof) {
+                    self.rewind(checkpoint);
+                    self.errors.truncate(errors_len);
+                    break;
+                }
                 continue;
             }
             let checkpoint = self.checkpoint();

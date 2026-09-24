@@ -583,22 +583,30 @@ impl Parser {
 
     fn at_top_level_item_start(&self) -> bool {
         (self.at(TokenKind::At) && matches!(self.tokens.nth_kind(1), Some(TokenKind::LBracket)))
-            || matches!(
-                self.peek().kind,
-                TokenKind::Module
-                    | TokenKind::Using
-                    | TokenKind::Extern
-                    | TokenKind::Struct
-                    | TokenKind::Union
-                    | TokenKind::Trait
-                    | TokenKind::Extend
-                    | TokenKind::Enum
-                    | TokenKind::Type
-                    | TokenKind::Fn
-                    | TokenKind::Const
-                    | TokenKind::Static
-                    | TokenKind::Pub
-            )
+            || self.at_top_level_item_keyword()
+    }
+
+    fn at_top_level_item_keyword(&self) -> bool {
+        matches!(
+            self.peek().kind,
+            TokenKind::Module
+                | TokenKind::Using
+                | TokenKind::Extern
+                | TokenKind::Struct
+                | TokenKind::Union
+                | TokenKind::Trait
+                | TokenKind::Extend
+                | TokenKind::Enum
+                | TokenKind::Type
+                | TokenKind::Fn
+                | TokenKind::Const
+                | TokenKind::Static
+                | TokenKind::Pub
+        )
+    }
+
+    fn at_top_level_item_boundary_except_fn(&self) -> bool {
+        self.at_top_level_item_keyword() && !self.at(TokenKind::Fn)
     }
 
     fn bump(&mut self) -> SyntaxToken {

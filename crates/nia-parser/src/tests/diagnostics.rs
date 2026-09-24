@@ -1780,6 +1780,35 @@ fn unterminated_type_arguments_recover_at_the_outer_parameter_boundary() {
 }
 
 #[test]
+fn unterminated_struct_body_recovers_at_the_next_item() {
+    let (module, errors) = parse_module(
+        "struct Recovered { kept: i32,\nunion AlsoRecovered { value: i32,\nfn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected `}` after struct body"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected `}` after union body"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    assert!(
+        module.items.iter().any(|item| {
+            matches!(&item.kind, ItemKind::Function(function) if function.name == sym("later"))
+        }),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn function_parameter_delimiter_recovery_keeps_the_function() {
     let (module, errors) =
         parse_module("fn retained(first: i32 second: bool) () {}\nfn later() () {}");
