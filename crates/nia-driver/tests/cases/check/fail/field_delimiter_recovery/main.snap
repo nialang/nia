@@ -1,0 +1,27 @@
+path: fail/field_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `}` after field; found `second`
+label: 30..36 Primary Source expected `,` or `}` after field; found `second`
+
+path: fail/field_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` or `}` after field; found `second`
+label: 89..95 Primary Source expected `,` or `}` after field; found `second`
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `,` or `}` after field; found `second`
+  --> fail/field_delimiter_recovery/main.nia:1:31
+  |
+1 | struct Recovered { first: i32 second: bool, third: u8 }
+  |                               ^^^^^^ expected `,` or `}` after field; found `second`
+
+root diagnostic:
+error[E0101]: expected `,` or `}` after field; found `second`
+  --> fail/field_delimiter_recovery/main.nia:2:34
+  |
+2 | enum Payload { Item { first: i32 second: bool, third: u8 } }
+  |                                  ^^^^^^ expected `,` or `}` after field; found `second`
+
+summary: 2 errors, 0 warnings

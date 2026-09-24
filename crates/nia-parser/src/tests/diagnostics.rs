@@ -323,6 +323,46 @@ fn enum_variant_delimiter_recovery_keeps_later_variants() {
 }
 
 #[test]
+fn field_delimiter_recovery_keeps_later_fields_and_items() {
+    let (module, errors) = parse_module(
+        "struct Recovered { first: i32 second: bool, third: u8 }\nenum Payload { Item { first: i32 second: bool, third: u8 } }\nfn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected `,` or `}` after field"))
+            .count(),
+        2,
+        "{errors:?}"
+    );
+    let ItemKind::Struct(recovered) = &module.items[0].kind else {
+        panic!("expected recovered struct");
+    };
+    assert_eq!(
+        recovered
+            .fields
+            .iter()
+            .map(|field| field.name)
+            .collect::<Vec<_>>(),
+        vec![sym("first"), sym("second"), sym("third")]
+    );
+    let ItemKind::Enum(payload) = &module.items[1].kind else {
+        panic!("expected recovered enum");
+    };
+    let EnumVariantPayload::Named(fields) = &payload.variants[0].payload else {
+        panic!("expected named enum payload");
+    };
+    assert_eq!(
+        fields.iter().map(|field| field.name).collect::<Vec<_>>(),
+        vec![sym("first"), sym("second"), sym("third")]
+    );
+    let ItemKind::Function(later) = &module.items[2].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn tuple_type_recovery_keeps_later_elements_and_the_function() {
     let (module, errors) = parse_module("fn retained(value: (, i32,, bool)) () {}\nfn later() {}");
     assert_eq!(

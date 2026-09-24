@@ -1,0 +1,4 @@
+struct Recovered { first: i32 second: bool, third: u8 }
+enum Payload { Item { first: i32 second: bool, third: u8 } }
+
+fn later() () {}

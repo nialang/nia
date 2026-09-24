@@ -754,9 +754,30 @@ impl Parser {
             .map_or_else(|| self.peek().span.start, |attr| attr.span.start);
         let name = self.expect_name(TokenKind::Ident, "expected field name")?;
         self.expect(TokenKind::Colon, "expected `:` after field name")?;
-        let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RBrace])?;
-        self.eat(TokenKind::Comma);
+        let ty = self.parse_field_type()?;
+        if self.eat(TokenKind::Comma).is_none()
+            && self.at(TokenKind::Ident)
+            && matches!(self.tokens.nth_kind(1), Some(TokenKind::Colon))
+        {
+            self.expected_here(ParseErrorKind::Grammar, "expected `,` or `}` after field");
+        }
         Some(self.make_field(name, ty.clone(), attributes, Span::new(start, ty.span.end)))
+    }
+
+    fn parse_field_type(&mut self) -> Option<TypeRef> {
+        let checkpoint = self.checkpoint();
+        let errors_len = self.errors.len();
+        if let Some(ty) = self.parse_type()
+            && (self.at(TokenKind::Comma)
+                || self.at(TokenKind::RBrace)
+                || (self.at(TokenKind::Ident)
+                    && matches!(self.tokens.nth_kind(1), Some(TokenKind::Colon))))
+        {
+            return Some(ty);
+        }
+        self.rewind(checkpoint);
+        self.errors.truncate(errors_len);
+        self.parse_type_until(&[TokenKind::Comma, TokenKind::RBrace])
     }
 
     fn parse_enum(&mut self) -> Option<EnumItem> {
