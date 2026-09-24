@@ -129,6 +129,13 @@ impl Parser {
                     continue;
                 }
                 if self.eat(TokenKind::Comma).is_none() {
+                    if self.at_namespace_segment() {
+                        self.expected_here(
+                            ParseErrorKind::Grammar,
+                            "expected `,` or `}` after using selector",
+                        );
+                        continue;
+                    }
                     break;
                 }
             }
@@ -194,6 +201,13 @@ impl Parser {
                     continue;
                 }
                 if self.eat(TokenKind::Comma).is_none() {
+                    if self.at_namespace_segment() {
+                        self.expected_here(
+                            ParseErrorKind::Grammar,
+                            "expected `,` or `}` after using selector",
+                        );
+                        continue;
+                    }
                     break;
                 }
             }
@@ -300,6 +314,13 @@ impl Parser {
                         continue;
                     }
                     if self.eat(TokenKind::Comma).is_none() {
+                        if self.at_namespace_segment() {
+                            self.expected_here(
+                                ParseErrorKind::Grammar,
+                                "expected `,` or `}` after using selector",
+                            );
+                            continue;
+                        }
                         break;
                     }
                 }
