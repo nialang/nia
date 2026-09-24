@@ -345,6 +345,9 @@ the remaining arguments and attributed item, with parser and driver coverage.
 Attribute argument recovery likewise tracks nested parentheses, brackets, and
 braces, retaining later arguments and the attributed item after a malformed
 nested expression.
+Malformed attribute headers now recover through their closing bracket and keep
+the attributed item and following declarations parseable without a duplicate
+top-level item error, with parser and driver coverage.
 Closure capture lists now synchronize a missing capture name at the next comma
 or closing bracket, retaining later captures and the enclosing closure.
 They also diagnose a missing comma before a clearly identifiable next capture

@@ -87,7 +87,16 @@ impl Parser {
         let mut attributes = Vec::new();
         while self.at(TokenKind::At) && matches!(self.tokens.nth_kind(1), Some(TokenKind::LBracket))
         {
-            attributes.push(self.parse_attribute()?);
+            let checkpoint = self.checkpoint();
+            if let Some(attribute) = self.parse_attribute() {
+                attributes.push(attribute);
+            } else {
+                // A malformed attribute is local to its closing bracket. Keep
+                // the following item parseable instead of letting the item
+                // recovery loop treat the bracket as a second top-level error.
+                self.recover_to_comma_or_rbracket_with_progress(checkpoint);
+                self.eat(TokenKind::RBracket);
+            }
         }
         Some(attributes)
     }
