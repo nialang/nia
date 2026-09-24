@@ -452,27 +452,40 @@ impl Parser {
                 });
             }
             let mut fields = Vec::new();
-            if let Some(first) =
-                self.parse_irrefutable_pattern_until(&[TokenKind::Comma, TokenKind::RParen])
-            {
-                fields.push(first);
+            let first_checkpoint = self.checkpoint();
+            let first =
+                self.parse_irrefutable_pattern_until(&[TokenKind::Comma, TokenKind::RParen]);
+            let first_failed = first.is_none();
+            if first_failed && !self.at(TokenKind::RParen) {
+                self.recover_to_comma_or_rparen_with_progress(first_checkpoint);
             }
-            if self.eat(TokenKind::Comma).is_none() {
-                if self.pattern_can_start(&self.peek().kind) {
-                    self.expected_here(
-                        ParseErrorKind::Grammar,
-                        "expected `,` or `)` after tuple pattern",
-                    );
-                } else {
-                    let first = fields.pop()?;
-                    self.expect(
-                        TokenKind::RParen,
-                        "expected `)` after parenthesized pattern",
-                    )?;
+            if first_failed {
+                if self.at(TokenKind::RParen) {
+                    let end = self.expect(TokenKind::RParen, "expected `)` after tuple pattern")?;
                     return Some(Pattern {
-                        span: Span::new(start, self.previous_end()),
-                        kind: first.kind,
+                        span: Span::new(start, end.end),
+                        kind: PatternKind::Tuple(fields),
                     });
+                }
+            } else if let Some(first) = first {
+                fields.push(first);
+                if self.eat(TokenKind::Comma).is_none() {
+                    if self.pattern_can_start(&self.peek().kind) {
+                        self.expected_here(
+                            ParseErrorKind::Grammar,
+                            "expected `,` or `)` after tuple pattern",
+                        );
+                    } else {
+                        let first = fields.pop()?;
+                        self.expect(
+                            TokenKind::RParen,
+                            "expected `)` after parenthesized pattern",
+                        )?;
+                        return Some(Pattern {
+                            span: Span::new(start, self.previous_end()),
+                            kind: first.kind,
+                        });
+                    }
                 }
             }
             while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
@@ -656,15 +669,20 @@ impl Parser {
                     kind: PatternKind::Tuple(Vec::new()),
                 });
             }
+            let first_checkpoint = self.checkpoint();
             let first = self.parse_pattern_until(&[TokenKind::Comma, TokenKind::RParen]);
-            if first.is_none() && self.at(TokenKind::RParen) {
+            let first_failed = first.is_none();
+            if first_failed && !self.at(TokenKind::RParen) {
+                self.recover_to_comma_or_rparen_with_progress(first_checkpoint);
+            }
+            if first_failed && self.at(TokenKind::RParen) {
                 let end = self.expect(TokenKind::RParen, "expected `)` after tuple pattern")?;
                 return Some(Pattern {
                     span: Span::new(start, end.end),
                     kind: PatternKind::Tuple(Vec::new()),
                 });
             }
-            if self.eat(TokenKind::Comma).is_none() {
+            if !first_failed && self.eat(TokenKind::Comma).is_none() {
                 if self.pattern_can_start(&self.peek().kind) {
                     self.expected_here(
                         ParseErrorKind::Grammar,
