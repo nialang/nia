@@ -74,6 +74,8 @@ impl GrammarParser {
             } else if self.at(TokenKind::Module) {
                 self.emit_trivia_before_current();
                 self.parse_module_item();
+            } else if self.at(TokenKind::Using) {
+                self.parse_using_item();
             } else if self.is_function_start() {
                 self.parse_function_item();
             } else if self.is_aggregate_start() {
@@ -162,6 +164,57 @@ impl GrammarParser {
             if self.at(TokenKind::Semicolon) {
                 self.bump();
             }
+        }
+        self.events.push(GreenEvent::Finish);
+    }
+
+    fn parse_using_item(&mut self) {
+        self.emit_trivia_before_current();
+        self.events.push(GreenEvent::Start(SyntaxKind::Using));
+        self.bump();
+        let mut delimiters = Vec::new();
+        while !self.at(TokenKind::Eof) {
+            let kind = self.current_kind();
+            if delimiters.is_empty() && kind == TokenKind::Semicolon {
+                self.bump();
+                self.events.push(GreenEvent::Finish);
+                return;
+            }
+            if is_outer_recovery_start(&kind) {
+                self.missing("expected `;` after using declaration");
+                while delimiters.pop().is_some() {
+                    self.events.push(GreenEvent::Start(SyntaxKind::Missing));
+                    self.events.push(GreenEvent::Finish);
+                    self.events.push(GreenEvent::Finish);
+                }
+                self.events.push(GreenEvent::Finish);
+                return;
+            }
+            match kind {
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                    self.events.push(GreenEvent::Start(SyntaxKind::Delimited {
+                        open: kind.clone(),
+                        close: None,
+                    }));
+                    delimiters.push(kind);
+                }
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace
+                    if delimiters.last().is_some_and(|open| closes(open, &kind)) =>
+                {
+                    delimiters.pop();
+                    self.bump();
+                    self.events.push(GreenEvent::Finish);
+                    continue;
+                }
+                _ => {}
+            }
+            self.bump();
+        }
+        self.missing("expected `;` after using declaration");
+        while delimiters.pop().is_some() {
+            self.events.push(GreenEvent::Start(SyntaxKind::Missing));
+            self.events.push(GreenEvent::Finish);
+            self.events.push(GreenEvent::Finish);
         }
         self.events.push(GreenEvent::Finish);
     }
@@ -936,6 +989,35 @@ mod tests {
         let children = parsed.tree.root().child_nodes();
         assert_eq!(children.len(), 2);
         assert_eq!(children[0].kind(), &SyntaxKind::Trait);
+        assert_eq!(children[1].kind(), &SyntaxKind::Module);
+    }
+
+    #[test]
+    fn using_declarations_have_grammar_nodes_and_preserve_groups() {
+        let source = "using math::{Vec, Result as R};\nmodule next;";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].kind(), &SyntaxKind::Using);
+        assert!(children[0].child_nodes().iter().any(|child| matches!(
+            child.kind(),
+            SyntaxKind::Delimited {
+                open: TokenKind::LBrace,
+                ..
+            }
+        )));
+        assert_eq!(children[1].kind(), &SyntaxKind::Module);
+    }
+
+    #[test]
+    fn unterminated_using_recovers_at_following_item() {
+        let source = "using math::{Vec, Result\nmodule next;";
+        let parsed = parse(source, None).expect("valid event stream");
+        assert_eq!(parsed.errors.len(), 1);
+        let children = parsed.tree.root().child_nodes();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].kind(), &SyntaxKind::Using);
         assert_eq!(children[1].kind(), &SyntaxKind::Module);
     }
 }

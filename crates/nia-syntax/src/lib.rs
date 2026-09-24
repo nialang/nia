@@ -134,6 +134,8 @@ pub enum SyntaxKind {
     Unparsed,
     /// Complete module grammar node.
     Module,
+    /// Module using/import declaration grammar node.
+    Using,
     /// Top-level or nested declaration grammar node.
     Item,
     /// Attribute grammar node.
@@ -607,6 +609,7 @@ impl<'a> SyntaxNode<'a> {
         match self.kind() {
             SyntaxKind::SourceFile => NodeSyntaxKind::Module,
             SyntaxKind::Module => NodeSyntaxKind::Module,
+            SyntaxKind::Using => NodeSyntaxKind::Item,
             SyntaxKind::Item
             | SyntaxKind::Attribute
             | SyntaxKind::Function
