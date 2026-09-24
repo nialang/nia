@@ -932,6 +932,34 @@ fn generic_parameter_recovery_keeps_later_parameters_and_the_function() {
 }
 
 #[test]
+fn generic_const_parameter_recovery_reports_missing_type_and_keeps_later_parameters() {
+    let (module, errors) = parse_module(
+        "fn retained[Missing: , Kept: i32]() () {}\nfn terminal[Missing: ]() () {}\nfn later() () {}",
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.message.contains("expected type"))
+            .count(),
+        2,
+        "{errors:?}"
+    );
+    let ItemKind::Function(retained) = &module.items[0].kind else {
+        panic!("expected retained function");
+    };
+    assert_eq!(retained.generics.len(), 1, "{errors:?}");
+    assert_eq!(retained.generics[0].name, sym("Kept"));
+    let ItemKind::Function(terminal) = &module.items[1].kind else {
+        panic!("expected terminal function");
+    };
+    assert!(terminal.generics.is_empty(), "{errors:?}");
+    let ItemKind::Function(later) = &module.items[2].kind else {
+        panic!("expected later function");
+    };
+    assert_eq!(later.name, sym("later"));
+}
+
+#[test]
 fn where_predicate_recovery_keeps_later_predicates_and_the_function() {
     let (module, errors) = parse_module("fn retained[T]() () where : T, T: T {}\nfn later() () {}");
     assert_eq!(

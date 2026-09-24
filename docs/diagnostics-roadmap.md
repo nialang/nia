@@ -289,6 +289,9 @@ later parameters and the enclosing function, and have parser and driver
 coverage. They also synchronize missing commas between clearly identifiable
 parameters and before the closing bracket, retaining later parameters while
 keeping the enclosing function parseable.
+Const generic parameters now diagnose a missing bound type at a local comma or
+closing-bracket boundary, retain later parameters, and keep the enclosing
+function parseable with parser and driver coverage.
 `where` predicate lists use the same local recovery for a missing predicate
 type, retaining later predicates and following functions with parser and driver
 coverage. They also recognize a clearly identifiable next predicate after a

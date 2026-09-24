@@ -23,8 +23,20 @@ impl Parser {
                     continue;
                 };
                 if self.eat(TokenKind::Colon).is_some() {
+                    let checkpoint = self.checkpoint();
+                    let errors_len = self.errors.len();
                     if let Some(ty) = self.parse_type() {
                         generics.push(nia_ast::GenericParam::const_param(name, token.span, ty));
+                    } else {
+                        if self.errors.len() == errors_len {
+                            self.error_here_as(ParseErrorKind::ExpectedType, "expected type");
+                        }
+                        if !self.at(TokenKind::Comma)
+                            && !self.at(TokenKind::RBracket)
+                            && !self.at(TokenKind::Eof)
+                        {
+                            self.recover_to_comma_or_rbracket_with_progress(checkpoint);
+                        }
                     }
                 } else {
                     generics.push(nia_ast::GenericParam::type_param(name, token.span));

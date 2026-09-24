@@ -1,3 +1,7 @@
 fn retained[, Kept]() () {}
 
+fn const_retained[Missing: , Kept: i32]() () {}
+
+fn const_terminal[Missing: ]() () {}
+
 fn later() () {}
