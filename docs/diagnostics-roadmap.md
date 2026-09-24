@@ -275,7 +275,9 @@ parameters and before the closing bracket, retaining later parameters while
 keeping the enclosing function parseable.
 `where` predicate lists use the same local recovery for a missing predicate
 type, retaining later predicates and following functions with parser and driver
-coverage.
+coverage. They also recognize a clearly identifiable next predicate after a
+missing comma, preserving its bounds and the enclosing function with parser and
+driver coverage.
 Associated type binding arguments also recover a missing binding value at a
 comma, retain later arguments and the enclosing function, and have parser and
 driver coverage; the recovery path suppresses the parser's generic expected

@@ -1,0 +1,15 @@
+path: fail/where_predicate_delimiter_recovery/main.nia
+code: E0101
+summary: expected `,` after where predicate; found `U`
+label: 34..35 Primary Source expected `,` after where predicate; found `U`
+
+report:
+diagnostics:
+root diagnostic:
+error[E0101]: expected `,` after where predicate; found `U`
+  --> fail/where_predicate_delimiter_recovery/main.nia:1:35
+  |
+1 | fn retained[T]() () where T: Copy U: Clone, V: Send {}
+  |                                   ^ expected `,` after where predicate; found `U`
+
+summary: 1 error, 0 warnings

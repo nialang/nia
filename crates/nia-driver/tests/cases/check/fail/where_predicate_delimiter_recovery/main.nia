@@ -1,0 +1,3 @@
+fn retained[T]() () where T: Copy U: Clone, V: Send {}
+
+fn later() () {}
