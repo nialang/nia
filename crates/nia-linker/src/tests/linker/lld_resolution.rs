@@ -35,6 +35,42 @@ fn lld_invocation_uses_gnu_like_arguments() {
 }
 
 #[test]
+fn lld_link_invocation_uses_coff_arguments() {
+    let options = LinkOptions {
+        linker: ExecutableLinker::with_program_and_flavor("lld-link.exe", LinkerFlavor::LldLink),
+        ..LinkOptions::default()
+    }
+    .add_library_path("C:/lib")
+    .add_library("kernel32");
+    let invocation = options
+        .invocation(&link_inputs("main.obj"), PathBuf::from("main.exe"))
+        .expect("link invocation");
+    assert_eq!(invocation.program, "lld-link.exe");
+    assert!(invocation.args.iter().any(|arg| arg == "/ENTRY:_start"));
+    assert!(
+        invocation
+            .args
+            .iter()
+            .any(|arg| arg == "/SUBSYSTEM:CONSOLE")
+    );
+    assert!(invocation.args.iter().any(|arg| arg == "main.obj"));
+    assert!(invocation.args.iter().any(|arg| arg == "/LIBPATH:C:/lib"));
+    assert!(
+        invocation
+            .args
+            .iter()
+            .any(|arg| arg == "/DEFAULTLIB:kernel32")
+    );
+    assert!(
+        invocation
+            .args
+            .iter()
+            .any(|arg| arg == "/DEFAULTLIB:kernel32.lib")
+    );
+    assert!(invocation.args.iter().any(|arg| arg == "/OUT:main.exe"));
+}
+
+#[test]
 #[cfg(target_os = "linux")]
 fn lld_invocation_adds_native_linux_library_paths() {
     let options = LinkOptions {
@@ -194,5 +230,6 @@ fn self_hosted_elf_flavor_is_reserved() {
 fn linker_flavors_have_stable_user_names() {
     assert_eq!(LinkerFlavor::Gnu.to_string(), "gnu");
     assert_eq!(LinkerFlavor::Lld.to_string(), "lld");
+    assert_eq!(LinkerFlavor::LldLink.to_string(), "lld-link");
     assert_eq!(LinkerFlavor::SelfHostedElf.to_string(), "self-hosted-elf");
 }

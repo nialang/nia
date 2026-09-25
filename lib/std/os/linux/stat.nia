@@ -164,7 +164,7 @@ extend Statx {
             blockSize,
             atime,
             self.mtime.asTimestamp().?,
-            self.ctime.asTimestamp().?,
+            ?self.ctime.asTimestamp().?,
         )
     }
 }

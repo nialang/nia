@@ -266,7 +266,7 @@ impl PersistentWorkProductCache {
                     ));
                 }
             }
-            fs::rename(&staged, &path)?;
+            nia_compat::replace_path(&staged, &path)?;
             Ok(())
         })();
         if result.is_err() || staged.exists() {
@@ -912,7 +912,7 @@ mod tests {
         let mut observed = File::open(&path).expect("open observed entry");
         let replacement = root.join("replacement.tmp");
         fs::write(&replacement, b"replacement").expect("write replacement");
-        fs::rename(replacement, &path).expect("install replacement");
+        nia_compat::replace_path(replacement, &path).expect("install replacement");
 
         retire_corrupt(&path, &mut observed);
 

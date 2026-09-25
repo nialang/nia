@@ -511,6 +511,10 @@ impl FrontendCacheNamespace {
                 builder.write_str(runtime.entry_point().module_identity());
                 builder.write_str(runtime.entry_point().definition_name());
                 builder.write_str(runtime.entry_point().linker_symbol());
+                builder.write_u64(runtime.required_exports().len() as u64);
+                for symbol in runtime.required_exports() {
+                    builder.write_str(symbol);
+                }
                 builder.write_u64(runtime.dependencies().len() as u64);
                 for dependency in runtime.dependencies() {
                     builder.write_u8(match dependency {

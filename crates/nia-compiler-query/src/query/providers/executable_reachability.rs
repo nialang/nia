@@ -1592,7 +1592,32 @@ fn executable_root_defs(
                     ),
                 )
             })?;
-            Ok((vec![start], Vec::new()))
+            let mut functions = vec![start];
+            for export in runtime.required_exports() {
+                let symbol = db
+                    .context()
+                    .loader_facts()
+                    .symbols()
+                    .intern(export)
+                    .map_err(|error| {
+                        db.invalid_input(
+                            &CompilerRuntimeQuery,
+                            format!("runtime export name is invalid: {error}"),
+                        )
+                    })?;
+                let definition =
+                    named_top_level_function(db, module_id, symbol)?.ok_or_else(|| {
+                        db.invalid_input(
+                            &CompilerRuntimeQuery,
+                            format!(
+                                "runtime export `{export}` is absent from {}",
+                                runtime.entry_point().module_identity()
+                            ),
+                        )
+                    })?;
+                functions.push(definition);
+            }
+            Ok((functions, Vec::new()))
         }
     }
 }

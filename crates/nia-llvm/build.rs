@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn llvm_config() -> OsString {
-    env::var_os("DEP_LLVM_22_CONFIG_PATH").unwrap_or_else(|| OsString::from("llvm-config"))
+    env::var_os("DEP_LLVM_23_CONFIG_PATH").unwrap_or_else(|| OsString::from("llvm-config"))
 }
 
 fn llvm_config_output(arguments: &[&str]) -> String {
@@ -35,7 +35,7 @@ fn llvm_config_output(arguments: &[&str]) -> String {
 
 fn main() {
     println!("cargo:rerun-if-changed=src/llvm_lto_bridge.cpp");
-    println!("cargo:rerun-if-env-changed=LLVM_SYS_221_PREFIX");
+    println!("cargo:rerun-if-env-changed=LLVM_SYS_231_PREFIX");
 
     let includedir = llvm_config_output(&["--includedir"]);
     let cxxflags = llvm_config_output(&["--cxxflags"]);

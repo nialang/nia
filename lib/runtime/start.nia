@@ -1,2 +1,7 @@
-@[if os == "linux" and (arch == "x86_64" or arch == "x86")]
 pub(pkg) module freestanding;
+@[if os == "linux" and arch == "x86_64"]
+using pkg::start::freestanding::linux::x86_64;
+@[if os == "linux" and arch == "x86"]
+using pkg::start::freestanding::linux::x86;
+@[if os == "windows" and arch == "x86_64"]
+using pkg::start::freestanding::windows::x86_64;

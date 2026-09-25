@@ -212,6 +212,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert!(ir.contains("call void @_N"), "{ir}");
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emits_std_file_writer_without_runtime_backend_plumbing() {
     let root = temp_dir("emits_std_file_writer_without_runtime_backend_plumbing");

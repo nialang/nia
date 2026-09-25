@@ -1,7 +1,10 @@
 pub(pkg) module linux;
+pub(pkg) module windows;
 
 @[if os == "linux"]
 using pkg::os::linux as platform;
+@[if os == "windows"]
+using pkg::os::windows as platform;
 using pkg::builtin;
 
 pub(pkg) const maxPathBytes: usize = platform::maxPathBytes;
@@ -115,6 +118,7 @@ pub(pkg) struct DirectoryReader {
     start: usize,
     end: usize,
     done: bool,
+    platform: platform::DirectoryReader,
 }
 
 pub(pkg) struct FileHandle {
@@ -248,6 +252,10 @@ pub(pkg) fn metadataAtBeneath(dir: FileHandle, path: &u8, followSymlinks: bool) 
         followSymlinks,
     ).?;
     !metadata.asOsMetadata()
+}
+
+pub(pkg) fn initPlatformDirectoryReader() platform::DirectoryReader {
+    platform::initDirectoryReader()
 }
 
 pub(pkg) fn mapPages(len: usize, align: usize) Error!platform::MappedPages {
@@ -411,7 +419,7 @@ extend platform::FileMetadata {
             self.blockSize(),
             self.atime().map(&\value -> value.asOsTimestamp()),
             self.mtime().asOsTimestamp(),
-            ?self.ctime().asOsTimestamp(),
+            self.ctime().map(&\value -> value.asOsTimestamp()),
         )
     }
 }
@@ -452,7 +460,7 @@ extend DirectoryEntry {
 
 extend DirectoryReader {
     pub(pkg) fn init(buffer: &mut [u8]) DirectoryReader {
-        .{ buffer, start: 0, end: 0, done: false }
+        .{ buffer, start: 0, end: 0, done: false, platform: initPlatformDirectoryReader() }
     }
 
     pub(pkg) fn isDone(&self) bool {
@@ -464,7 +472,7 @@ extend DirectoryReader {
             return null;
         }
         if self.start >= self.end {
-            let result = handle.readDirEntries(self.buffer);
+            let result = handle.readDirEntries(&mut self.platform, self.buffer);
             if result is !value {
                 self.start = 0;
                 self.end = value;
@@ -614,8 +622,8 @@ extend FileHandle {
         !metadata.asOsMetadata()
     }
 
-    fn readDirEntries(&self, buffer: &mut [u8]) Error!usize {
-        let n = self.platform().readDirEntries(buffer).?;
+    fn readDirEntries(&self, reader: &mut platform::DirectoryReader, buffer: &mut [u8]) Error!usize {
+        let n = platform::readDirEntries(reader, self.platform(), buffer).?;
         if n > buffer.len() {
             return .Invalid!;
         }

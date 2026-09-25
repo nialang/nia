@@ -118,8 +118,10 @@ impl Driver {
     ) -> DriverOutput<LinkedExecutableWithSourceManifest> {
         let mut request = request;
         request.link_options.target = LinkTarget::from_target_config(&self.config.artifact_target);
-        if request.link_options.linker.flavor == nia_linker::LinkerFlavor::Lld
-            && request.link_options.linker.program.is_empty()
+        if matches!(
+            request.link_options.linker.flavor,
+            nia_linker::LinkerFlavor::Lld | nia_linker::LinkerFlavor::LldLink
+        ) && request.link_options.linker.program.is_empty()
             && let Some(lld) = self.config.toolchain.bundled_lld()
         {
             request.link_options.linker = request

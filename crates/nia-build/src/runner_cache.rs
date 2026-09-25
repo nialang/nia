@@ -3,7 +3,6 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -124,16 +123,35 @@ fn install_file(path: &std::path::Path, bytes: &[u8], executable: bool) -> io::R
             .open(&temporary)?;
         file.write_all(bytes)?;
         file.sync_all()?;
-        if executable {
-            file.set_permissions(fs::Permissions::from_mode(0o755))?;
-        }
+        mark_executable(&file, executable)?;
         drop(file);
-        fs::rename(&temporary, path)
+        nia_compat::replace_path(&temporary, path)
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
     }
     result
+}
+
+#[cfg(unix)]
+fn mark_executable(file: &fs::File, executable: bool) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    if executable {
+        file.set_permissions(fs::Permissions::from_mode(0o755))?;
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn mark_executable(_file: &fs::File, _executable: bool) -> io::Result<()> {
+    // Windows determines executability from the PE image rather than mode
+    // bits. The linked runner is already a native executable at this point.
+    Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn mark_executable(_file: &fs::File, _executable: bool) -> io::Result<()> {
+    Ok(())
 }
 
 fn retire(path: &std::path::Path) {
@@ -304,6 +322,8 @@ mod tests {
     use nia_driver::TimingMode;
     use nia_target_config::{BuildProfile, CompilationMode};
     use nia_timing::TimingFormat;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt as _;
     use std::sync::Arc;
 
     fn invocation(root: &std::path::Path) -> BuildInvocation {
@@ -429,6 +449,7 @@ mod tests {
             fs::read(&invocation.runner_executable).unwrap(),
             b"runner executable"
         );
+        #[cfg(unix)]
         assert_ne!(
             fs::metadata(&invocation.runner_executable)
                 .unwrap()

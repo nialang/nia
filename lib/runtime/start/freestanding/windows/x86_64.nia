@@ -1,0 +1,280 @@
+using entry;
+using std::os;
+using std::process;
+
+const startupCapacity: usize = 32768;
+const startupPointerCapacity: usize = startupCapacity / 2 + 1;
+const startupByteCapacity: usize = startupCapacity * 3;
+const replacementCharacter: u32 = 0xfffd;
+const highSurrogateStart: u16 = 0xd800;
+const highSurrogateEnd: u16 = 0xdbff;
+const lowSurrogateStart: u16 = 0xdc00;
+const lowSurrogateEnd: u16 = 0xdfff;
+
+extern fn GetCommandLineW() &u16;
+extern fn GetEnvironmentStringsW() &u16;
+extern fn FreeEnvironmentStringsW(environment: &u16) i32;
+
+static mut startupArgumentBytes: [u8; startupByteCapacity] = [0; startupByteCapacity];
+static mut startupWideArgument: [u16; startupCapacity] = [0; startupCapacity];
+static mut startupEnvironmentBytes: [u8; startupByteCapacity] = [0; startupByteCapacity];
+
+fn callUserMain(init: process::Init) process::ExitCode {
+    if entry::main(init) is error! {
+        return error;
+    }
+    process::ExitCode(0)
+}
+
+extern fn niaWindowsStart() () {
+    let mut argumentPointers: [&u8; startupPointerCapacity] = [0usize as &u8; startupPointerCapacity];
+    let argc = parseArguments(
+        GetCommandLineW(),
+        &mut startupWideArgument[..],
+        &mut startupArgumentBytes[..],
+        &mut argumentPointers[..],
+    );
+
+    let mut environmentPointers: [&u8; startupPointerCapacity] = [0usize as &u8; startupPointerCapacity];
+    let environment = GetEnvironmentStringsW();
+    let envc = if environment as usize == 0 {
+        0
+    } else {
+        let count = parseEnvironment(
+            environment,
+            &mut startupWideArgument[..],
+            &mut startupEnvironmentBytes[..],
+            &mut environmentPointers[..],
+        );
+        _ = FreeEnvironmentStringsW(environment);
+        count
+    };
+
+    let init = process::Init::init(
+        argc,
+        &argumentPointers[0],
+        if envc == 0 { 0usize as &&u8 } else { &environmentPointers[0] },
+    );
+    os::exit(callUserMain(init).0);
+    loop {}
+}
+
+fn parseArguments(
+    command: &u16,
+    wide: &mut [u16],
+    bytes: &mut [u8],
+    pointers: &mut [&u8],
+) usize {
+    let mut input: usize = 0;
+    let mut output: usize = 0;
+    let mut count: usize = 0;
+    let length = wideStringLength(command);
+
+    while input < length {
+        skipCommandWhitespace(command, &mut input, length);
+        if input == length { break; }
+        if count + 1 >= pointers.len() { break; }
+
+        let start = output;
+        let mut wideLength: usize = 0;
+        let mut inQuotes = false;
+        let mut started = false;
+        while input < length {
+            let unit = command[input];
+            if not inQuotes and isCommandWhitespace(unit) { break; }
+            started = true;
+
+            if unit == 92 {
+                let slashStart = input;
+                while input < length and command[input] == 92 { input += 1; }
+                let slashCount = input - slashStart;
+                if input < length and command[input] == 34 {
+                    appendWideRun(wide, &mut wideLength, 92, slashCount / 2);
+                    if slashCount % 2 == 1 {
+                        appendWideUnit(wide, &mut wideLength, 34);
+                        input += 1;
+                    } else {
+                        inQuotes = not inQuotes;
+                        input += 1;
+                    }
+                } else {
+                    appendWideRun(wide, &mut wideLength, 92, slashCount);
+                }
+            } else if unit == 34 {
+                if inQuotes and input + 1 < length and command[input + 1] == 34 {
+                    appendWideUnit(wide, &mut wideLength, 34);
+                    input += 2;
+                } else {
+                    inQuotes = not inQuotes;
+                    input += 1;
+                }
+            } else {
+                appendWideUnit(wide, &mut wideLength, unit);
+                input += 1;
+            }
+        }
+
+        if started {
+            pointers[count] = &bytes[start];
+            output = encodeWideToUtf8(wide, wideLength, bytes, output);
+            bytes[output] = 0;
+            output += 1;
+            count += 1;
+        }
+        skipCommandWhitespace(command, &mut input, length);
+    }
+
+    pointers[count] = 0usize as &u8;
+    count
+}
+
+fn parseEnvironment(
+    environment: &u16,
+    wide: &mut [u16],
+    bytes: &mut [u8],
+    pointers: &mut [&u8],
+) usize {
+    let mut input: usize = 0;
+    let mut output: usize = 0;
+    let mut count: usize = 0;
+    loop {
+        let length = wideStringLength(&environment[input]);
+        if length == 0 { break; }
+        if count + 1 >= pointers.len() { break; }
+        let mut index: usize = 0;
+        while index < length {
+            wide[index] = environment[input + index];
+            index += 1;
+        }
+        pointers[count] = &bytes[output];
+        output = encodeWideToUtf8(wide, length, bytes, output);
+        bytes[output] = 0;
+        output += 1;
+        count += 1;
+        input += length + 1;
+    }
+    pointers[count] = 0usize as &u8;
+    count
+}
+
+fn encodeWideToUtf8(wide: &[u16], length: usize, bytes: &mut [u8], output: usize) usize {
+    let mut input: usize = 0;
+    let mut cursor = output;
+    while input < length {
+        let first = wide[input] as u32;
+        let mut scalar = first;
+        input += 1;
+        if first >= highSurrogateStart as u32 and first <= highSurrogateEnd as u32 {
+            if input < length {
+                let second = wide[input] as u32;
+                if second >= lowSurrogateStart as u32 and second <= lowSurrogateEnd as u32 {
+                    scalar = 0x10000 + ((first - 0xd800) << 10) + (second - 0xdc00);
+                    input += 1;
+                } else {
+                    scalar = replacementCharacter;
+                }
+            } else {
+                scalar = replacementCharacter;
+            }
+        } else if first >= lowSurrogateStart as u32 and first <= lowSurrogateEnd as u32 {
+            scalar = replacementCharacter;
+        }
+
+        if scalar <= 0x7f {
+            bytes[cursor] = scalar as u8;
+            cursor += 1;
+        } else if scalar <= 0x7ff {
+            bytes[cursor] = (0xc0 | (scalar >> 6)) as u8;
+            bytes[cursor + 1] = (0x80 | (scalar & 0x3f)) as u8;
+            cursor += 2;
+        } else if scalar <= 0xffff {
+            bytes[cursor] = (0xe0 | (scalar >> 12)) as u8;
+            bytes[cursor + 1] = (0x80 | ((scalar >> 6) & 0x3f)) as u8;
+            bytes[cursor + 2] = (0x80 | (scalar & 0x3f)) as u8;
+            cursor += 3;
+        } else {
+            bytes[cursor] = (0xf0 | (scalar >> 18)) as u8;
+            bytes[cursor + 1] = (0x80 | ((scalar >> 12) & 0x3f)) as u8;
+            bytes[cursor + 2] = (0x80 | ((scalar >> 6) & 0x3f)) as u8;
+            bytes[cursor + 3] = (0x80 | (scalar & 0x3f)) as u8;
+            cursor += 4;
+        }
+    }
+    cursor
+}
+
+fn wideStringLength(text: &u16) usize {
+    let mut length: usize = 0;
+    while text[length] != 0 { length += 1; }
+    length
+}
+
+fn isCommandWhitespace(unit: u16) bool {
+    unit == 32 or unit == 9
+}
+
+fn skipCommandWhitespace(command: &u16, input: &mut usize, length: usize) () {
+    while input.* < length and isCommandWhitespace(command[input.*]) {
+        input.* += 1;
+    }
+}
+
+fn appendWideUnit(wide: &mut [u16], length: &mut usize, unit: u16) () {
+    if length.* < wide.len() {
+        wide[length.*] = unit;
+        length.* += 1;
+    }
+}
+
+fn appendWideRun(wide: &mut [u16], length: &mut usize, unit: u16, count: usize) () {
+    let mut index: usize = 0;
+    while index < count {
+        appendWideUnit(wide, length, unit);
+        index += 1;
+    }
+}
+
+@[naked]
+pub extern fn _start() () {
+    std::builtin::asm(.{
+        code:
+            b"sub rsp, 40\n"
+            b"call $0\n"
+            b"ud2",
+        inputs: .{ reg: &niaWindowsStart },
+        clobbers: [b"rax", b"rcx", b"rdx", b"r8", b"r9", b"r10", b"r11", b"memory"],
+        options: [b"volatile"],
+    });
+    loop {}
+}
+
+// LLVM's Win64 lowering calls this for stack frames that cross guard pages.
+// RAX contains the requested frame size. The probe walks towards the new
+// stack pointer without changing RSP and preserves Win64 argument registers.
+@[naked]
+pub extern fn __chkstk() () {
+    std::builtin::asm(.{
+        code:
+            b"push rcx\n"
+            b"push rax\n"
+            b"cmp rax, 0x1000\n"
+            b"lea rcx, [rsp + 16]\n"
+            b"jb .Lnia_chkstk_tail\n"
+            b".Lnia_chkstk_loop:\n"
+            b"sub rcx, 0x1000\n"
+            b"test byte ptr [rcx], 0\n"
+            b"sub rax, 0x1000\n"
+            b"cmp rax, 0x1000\n"
+            b"jae .Lnia_chkstk_loop\n"
+            b".Lnia_chkstk_tail:\n"
+            b"sub rcx, rax\n"
+            b"test byte ptr [rcx], 0\n"
+            b"pop rax\n"
+            b"pop rcx\n"
+            b"ret",
+        inputs: .{},
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    loop {}
+}

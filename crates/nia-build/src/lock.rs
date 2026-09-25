@@ -27,7 +27,12 @@ const MAX_LOCK_OWNER_BYTES: usize = 128;
 const MAX_PROC_STAT_BYTES: usize = 4096;
 const OUTPUT_LOCK_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.build.output-lock");
 static LOCK_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+use windows_sys::Win32::{
+    Foundation::{CloseHandle, FILETIME},
+    System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+};
+#[cfg(all(not(target_os = "linux"), not(windows)))]
 static PROCESS_GENERATION: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,7 +63,12 @@ impl ProcessIdentity {
         process_start_time(self.pid) == Some(self.start_time)
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    pub(crate) fn is_alive(self) -> bool {
+        process_start_time(self.pid) == Some(self.start_time)
+    }
+
+    #[cfg(all(not(target_os = "linux"), not(windows)))]
     pub(crate) fn is_alive(self) -> bool {
         true
     }
@@ -293,7 +303,36 @@ fn process_start_time(pid: u32) -> Option<u64> {
         .ok()
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+fn process_start_time(pid: u32) -> Option<u64> {
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        return None;
+    }
+    let mut creation = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let mut exit = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let mut kernel = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let mut user = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let result =
+        unsafe { GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user) };
+    unsafe { CloseHandle(handle) };
+    (result != 0)
+        .then(|| u64::from(creation.dwLowDateTime) | (u64::from(creation.dwHighDateTime) << 32))
+}
+
+#[cfg(all(not(target_os = "linux"), not(windows)))]
 fn process_start_time(_pid: u32) -> Option<u64> {
     // Platforms without a process start-time API still need one stable
     // per-process generation so PID reuse cannot collide with persisted names.

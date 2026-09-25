@@ -4,24 +4,28 @@ set -euo pipefail
 # Build the release compiler against the pinned, static LLVM prefix and reject
 # a release artifact that accidentally carries a shared LLVM dependency.
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-llvm_prefix="${LLVM_SYS_221_PREFIX:-${repo_root}/target/llvm-static/install}"
+llvm_prefix="${LLVM_SYS_231_PREFIX:-${repo_root}/target/llvm-static/install}"
 binary="${repo_root}/target/release/nia"
 
 llvm_config="${llvm_prefix}/bin/llvm-config"
-lld="${llvm_prefix}/bin/ld.lld"
+lld_name=ld.lld
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) lld_name=lld-link.exe ;;
+esac
+lld="${llvm_prefix}/bin/${lld_name}"
 if [[ ! -x "${llvm_config}" ]]; then
     printf 'static LLVM prefix is missing: %s\n' "${llvm_prefix}" >&2
-    printf 'run tools/llvm/build-static.sh first or set LLVM_SYS_221_PREFIX\n' >&2
+    printf 'run tools/llvm/build-static.sh first or set LLVM_SYS_231_PREFIX\n' >&2
     exit 1
 fi
 if [[ ! -x "${lld}" ]]; then
-    printf 'static LLVM prefix is missing ld.lld: %s\n' "${lld}" >&2
+    printf 'static LLVM prefix is missing %s: %s\n' "${lld_name}" "${lld}" >&2
     exit 1
 fi
 
 version="$("${llvm_config}" --version)"
-if [[ "${version}" != 22.1.0 ]]; then
-    printf 'expected LLVM 22.1.0, found %s\n' "${version}" >&2
+if [[ "${version}" != 23.1.2 ]]; then
+    printf 'expected LLVM 23.1.2, found %s\n' "${version}" >&2
     exit 1
 fi
 if [[ "$("${llvm_config}" --shared-mode)" != static ]]; then
@@ -30,7 +34,7 @@ if [[ "$("${llvm_config}" --shared-mode)" != static ]]; then
 fi
 
 cd "${repo_root}"
-LLVM_SYS_221_PREFIX="${llvm_prefix}" \
+LLVM_SYS_231_PREFIX="${llvm_prefix}" \
     cargo build --release -p nia-cli --no-default-features --features llvm-static
 
 if [[ ! -x "${binary}" ]]; then

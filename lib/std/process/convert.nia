@@ -5,7 +5,7 @@ using pkg::process::types;
 using types::{ProcessId, SpawnError, SpawnStage, SystemError};
 
 const fn processIdFromOs(pid: os::ProcessId) ProcessId {
-    .fromRaw(pid.raw())
+    .fromOs(pid)
 }
 
 extend os::Error : builtin::IntoError[SystemError] {

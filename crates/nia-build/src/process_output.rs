@@ -86,7 +86,16 @@ pub(crate) fn prepare_process_group(command: &mut Command) {
     command.process_group(0);
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+pub(crate) fn prepare_process_group(command: &mut Command) {
+    use std::os::windows::process::CommandExt as _;
+    // CREATE_NEW_PROCESS_GROUP gives taskkill /T a stable root even when the
+    // child launches through cmd.exe or another Windows command host.
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    command.creation_flags(CREATE_NEW_PROCESS_GROUP);
+}
+
+#[cfg(all(not(unix), not(windows)))]
 pub(crate) fn prepare_process_group(_command: &mut Command) {}
 
 #[cfg(unix)]
@@ -98,7 +107,13 @@ pub(crate) fn terminate_process_tree(child: &mut Child) {
     terminate_process_group(group);
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+pub(crate) fn terminate_process_tree(child: &mut Child) {
+    terminate_process_descendants(child.id());
+    let _ = child.kill();
+}
+
+#[cfg(all(not(unix), not(windows)))]
 pub(crate) fn terminate_process_tree(child: &mut Child) {
     let _ = child.kill();
 }
@@ -110,7 +125,14 @@ pub(crate) fn terminate_process_descendants(group: u32) {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+pub(crate) fn terminate_process_descendants(group: u32) {
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &group.to_string(), "/T", "/F"])
+        .status();
+}
+
+#[cfg(all(not(unix), not(windows)))]
 pub(crate) fn terminate_process_descendants(_group: u32) {}
 
 #[cfg(unix)]

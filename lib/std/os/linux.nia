@@ -19,6 +19,15 @@ using pkg::os::linux::types;
 
 pub using memory::MappedPages;
 
+pub struct DirectoryReader {}
+
+pub fn initDirectoryReader() DirectoryReader { .{} }
+
+pub fn readDirEntries(reader: &mut DirectoryReader, handle: FileDescriptor, buffer: &mut [u8]) Errno!usize {
+    _ = reader;
+    handle.readDirEntries(buffer)
+}
+
 pub using types::{
     DirectoryEntry,
     Errno,

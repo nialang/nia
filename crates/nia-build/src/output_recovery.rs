@@ -110,9 +110,9 @@ impl OutputTransactionJournal {
                 Ok(()) => {
                     let result = (|| {
                         write_synced_new(&temporary.join("journal.bin"), &encoded)?;
-                        fs::File::open(&temporary)?.sync_all()?;
-                        fs::rename(&temporary, &directory)?;
-                        fs::File::open(&root)?.sync_all()
+                        nia_compat::sync_directory(&temporary)?;
+                        nia_compat::replace_path(&temporary, &directory)?;
+                        nia_compat::sync_directory(&root)
                     })();
                     if result.is_err() || temporary.exists() {
                         let _ = fs::remove_dir_all(&temporary);
@@ -136,8 +136,8 @@ impl OutputTransactionJournal {
         let prepared = self.directory.join("prepared.bin");
         let result = (|| {
             write_synced_new(&temporary, &encoded)?;
-            fs::rename(&temporary, &prepared)?;
-            fs::File::open(&self.directory)?.sync_all()
+            nia_compat::replace_path(&temporary, &prepared)?;
+            nia_compat::sync_directory(&self.directory)
         })();
         if result.is_err() || temporary.exists() {
             let _ = fs::remove_file(&temporary);
@@ -329,7 +329,7 @@ fn rollback_interrupted(
         if *had_previous {
             if backup_exists {
                 if destination_exists {
-                    fs::rename(&destination, &temporary).map_err(|error| {
+                    nia_compat::replace_path(&destination, &temporary).map_err(|error| {
                         recovery_error(
                             journal,
                             &destination,
@@ -338,7 +338,7 @@ fn rollback_interrupted(
                         )
                     })?;
                 }
-                fs::rename(&backup, &destination).map_err(|error| {
+                nia_compat::replace_path(&backup, &destination).map_err(|error| {
                     recovery_error(journal, &destination, "restore previous output for", error)
                 })?;
             } else if !temporary_exists || !destination_exists {
@@ -365,7 +365,7 @@ fn rollback_interrupted(
                 ));
             }
         } else if destination_exists {
-            fs::rename(&destination, &temporary).map_err(|error| {
+            nia_compat::replace_path(&destination, &temporary).map_err(|error| {
                 recovery_error(
                     journal,
                     &destination,
@@ -394,11 +394,9 @@ fn rollback_interrupted(
         })
         .collect();
     for parent in parents {
-        fs::File::open(&parent)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| {
-                recovery_error(journal, &parent, "sync rolled-back directory for", error)
-            })?;
+        nia_compat::sync_directory(&parent).map_err(|error| {
+            recovery_error(journal, &parent, "sync rolled-back directory for", error)
+        })?;
     }
     Ok(())
 }
@@ -845,7 +843,7 @@ fn sync_parent(path: &Path) -> io::Result<()> {
     let Some(parent) = path.parent() else {
         return Ok(());
     };
-    fs::File::open(parent)?.sync_all()
+    nia_compat::sync_directory(parent)
 }
 
 fn recovery_error(
@@ -991,17 +989,17 @@ mod tests {
             .journal
             .mark_prepared(&[true, false, true])
             .expect("mark prepared");
-        fs::rename(
+        nia_compat::replace_path(
             &transaction.destinations[0],
             transaction.staged.join("backup-0"),
         )
         .expect("back up first");
-        fs::rename(
+        nia_compat::replace_path(
             transaction.staged.join("output-0"),
             &transaction.destinations[0],
         )
         .expect("install first");
-        fs::rename(
+        nia_compat::replace_path(
             transaction.staged.join("output-1"),
             &transaction.destinations[1],
         )
@@ -1039,12 +1037,13 @@ mod tests {
             .journal
             .mark_prepared(&[true])
             .expect("mark prepared");
-        fs::rename(
+        nia_compat::replace_path(
             &transaction.destinations[0],
             transaction.staged.join("backup-0"),
         )
         .expect("back up directory");
-        fs::rename(&temporary, &transaction.destinations[0]).expect("install directory");
+        nia_compat::replace_path(&temporary, &transaction.destinations[0])
+            .expect("install directory");
 
         recover_interrupted_output_transactions(&transaction.cache_dir, &transaction.build_dir)
             .expect("recover");
@@ -1071,7 +1070,8 @@ mod tests {
             .journal
             .mark_prepared(&[false])
             .expect("mark prepared");
-        fs::rename(&temporary, &transaction.destinations[0]).expect("install directory");
+        nia_compat::replace_path(&temporary, &transaction.destinations[0])
+            .expect("install directory");
 
         recover_interrupted_output_transactions(&transaction.cache_dir, &transaction.build_dir)
             .expect("recover");
@@ -1110,18 +1110,18 @@ mod tests {
             .mark_prepared(&[true, true, false])
             .expect("mark prepared");
         for index in 0..2 {
-            fs::rename(
+            nia_compat::replace_path(
                 &transaction.destinations[index],
                 transaction.staged.join(format!("backup-{index}")),
             )
             .expect("back up previous output");
-            fs::rename(
+            nia_compat::replace_path(
                 transaction.staged.join(format!("output-{index}")),
                 &transaction.destinations[index],
             )
             .expect("install replacement");
         }
-        fs::rename(
+        nia_compat::replace_path(
             transaction.staged.join("output-2"),
             &transaction.destinations[2],
         )
@@ -1209,17 +1209,18 @@ mod tests {
             .journal
             .mark_prepared(&[true])
             .expect("mark prepared");
-        fs::rename(
+        nia_compat::replace_path(
             &transaction.destinations[0],
             transaction.staged.join("backup-0"),
         )
         .expect("back up old");
-        fs::rename(
+        nia_compat::replace_path(
             transaction.staged.join("output-0"),
             &transaction.destinations[0],
         )
         .expect("install new");
-        fs::rename(&transaction.staged, &transaction.committed).expect("accept transaction");
+        nia_compat::replace_path(&transaction.staged, &transaction.committed)
+            .expect("accept transaction");
 
         recover_interrupted_output_transactions(&transaction.cache_dir, &transaction.build_dir)
             .expect("recover");
@@ -1247,13 +1248,15 @@ mod tests {
             .journal
             .mark_prepared(&[true])
             .expect("mark prepared");
-        fs::rename(
+        nia_compat::replace_path(
             &transaction.destinations[0],
             transaction.staged.join("backup-0"),
         )
         .expect("back up old directory");
-        fs::rename(&temporary, &transaction.destinations[0]).expect("install new directory");
-        fs::rename(&transaction.staged, &transaction.committed).expect("accept transaction");
+        nia_compat::replace_path(&temporary, &transaction.destinations[0])
+            .expect("install new directory");
+        nia_compat::replace_path(&transaction.staged, &transaction.committed)
+            .expect("accept transaction");
 
         recover_interrupted_output_transactions(&transaction.cache_dir, &transaction.build_dir)
             .expect("recover");

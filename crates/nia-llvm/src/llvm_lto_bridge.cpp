@@ -716,11 +716,12 @@ ThinResult *nia_llvm_run_thin_lto(const ThinInput *Inputs, size_t InputCount,
       [&, Inner](const lto::Config &FactoryConfig,
                  ModuleSummaryIndex &CombinedIndex,
                  const DenseMap<StringRef, GVSummaryMapTy> &ModuleSummaries,
-                 AddStreamFn AddStream, FileCache Cache) mutable {
+                 AddStreamFn AddStream, FileCache Cache,
+                 ArrayRef<StringRef> BitcodeLibFuncs) mutable {
         BackendStart = Clock::now();
         Result->Timings.ThinLinkNs = elapsedNs(RunStart, BackendStart);
         return Inner(FactoryConfig, CombinedIndex, ModuleSummaries,
-                     std::move(AddStream), std::move(Cache));
+                     std::move(AddStream), std::move(Cache), BitcodeLibFuncs);
       };
   lto::ThinBackend Backend(std::move(Factory), Parallelism);
   lto::LTO Lto(std::move(Config), std::move(Backend), 1);

@@ -436,7 +436,7 @@ impl GeneratedFileCache {
             file.sync_all()?;
             drop(file);
             self.install_immutable_entry(&staged, &path, identity)?;
-            fs::File::open(parent)?.sync_all()
+            nia_compat::sync_directory(parent)
         })();
         if result.is_err() || staged.exists() {
             let _ = fs::remove_file(&staged);
@@ -546,34 +546,54 @@ impl GeneratedFileCache {
     ) -> io::Result<()> {
         let _lock = self.acquire_mutation_lock(path)?;
         let max_bytes = identity.encoded_len()?;
-        for _ in 0..4 {
-            match fs::hard_link(staged, path) {
-                Ok(()) => return Ok(()),
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                    match read_bounded_cache_entry(path, max_bytes) {
-                        Ok(BoundedCacheEntry::Bytes(encoded))
-                            if decode_entry(&encoded)
-                                .is_some_and(|entry| entry_matches(&entry, identity)) =>
-                        {
-                            return Ok(());
-                        }
-                        Ok(BoundedCacheEntry::Bytes(_) | BoundedCacheEntry::Oversized) => {}
-                        Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                        Err(error) => return Err(error),
-                    }
-                    match fs::remove_file(path) {
-                        Ok(()) => {}
-                        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                        Err(error) => return Err(error),
-                    }
+        #[cfg(windows)]
+        {
+            match read_bounded_cache_entry(path, max_bytes) {
+                Ok(BoundedCacheEntry::Bytes(encoded))
+                    if decode_entry(&encoded)
+                        .is_some_and(|entry| entry_matches(&entry, identity)) =>
+                {
+                    return Ok(());
                 }
+                Ok(BoundedCacheEntry::Bytes(_) | BoundedCacheEntry::Oversized) => {
+                    let _ = fs::remove_file(path);
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error),
             }
+            return nia_compat::replace_path(staged, path);
         }
-        Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            "generated-file cache entry changed during publication",
-        ))
+        #[cfg(not(windows))]
+        {
+            for _ in 0..4 {
+                match fs::hard_link(staged, path) {
+                    Ok(()) => return Ok(()),
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                        match read_bounded_cache_entry(path, max_bytes) {
+                            Ok(BoundedCacheEntry::Bytes(encoded))
+                                if decode_entry(&encoded)
+                                    .is_some_and(|entry| entry_matches(&entry, identity)) =>
+                            {
+                                return Ok(());
+                            }
+                            Ok(BoundedCacheEntry::Bytes(_) | BoundedCacheEntry::Oversized) => {}
+                            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                            Err(error) => return Err(error),
+                        }
+                        match fs::remove_file(path) {
+                            Ok(()) => {}
+                            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                            Err(error) => return Err(error),
+                        }
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "generated-file cache entry changed during publication",
+            ))
+        }
     }
 
     fn retire_bounded_corrupt(

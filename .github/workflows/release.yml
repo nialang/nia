@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 180
     env:
       CARGO_TERM_COLOR: always
-      LLVM_SYS_221_PREFIX: ${{ github.workspace }}/target/llvm-static/install
+      LLVM_SYS_231_PREFIX: ${{ github.workspace }}/target/llvm-static/install
 
     steps:
       - name: Check out repository

@@ -177,6 +177,7 @@ fn static_gnu_invocation_selects_static_libraries_before_library_search() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn dynamic_gnu_invocation_can_mix_static_and_dynamic_libraries() {
     let options = LinkOptions {
         linker: ExecutableLinker::with_program("ld"),
