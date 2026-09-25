@@ -199,6 +199,8 @@ pub enum LinkerFlavor {
     Gnu,
     /// LLVM `ld.lld` using the GNU-compatible command line.
     Lld,
+    /// LLVM `lld-link` using the Windows COFF command line.
+    LldLink,
     /// Reserved future in-process ELF linker.
     SelfHostedElf,
 }
@@ -208,6 +210,7 @@ impl std::fmt::Display for LinkerFlavor {
         f.write_str(match self {
             Self::Gnu => "gnu",
             Self::Lld => "lld",
+            Self::LldLink => "lld-link",
             Self::SelfHostedElf => "self-hosted-elf",
         })
     }
@@ -290,13 +293,22 @@ pub struct ExecutableLinker {
 }
 
 impl ExecutableLinker {
-    /// Selects `NIA_LINKER` when set, otherwise GNU `ld`.
+    /// Selects `NIA_LINKER` when set, otherwise the host-native linker.
     pub fn native() -> Self {
         if let Ok(program) = env::var("NIA_LINKER")
             && !program.is_empty()
         {
+            #[cfg(windows)]
+            return Self::with_program_and_flavor(program, LinkerFlavor::LldLink);
+            #[cfg(not(windows))]
             return Self::with_program(program);
         }
+        #[cfg(windows)]
+        {
+            // LLVM's COFF linker is shipped alongside Windows Nia releases.
+            return Self::lld_link();
+        }
+        #[cfg(not(windows))]
         Self::with_program("ld")
     }
 
@@ -323,6 +335,15 @@ impl ExecutableLinker {
         Self {
             program: String::new(),
             flavor: LinkerFlavor::Lld,
+            bundled_program: None,
+        }
+    }
+
+    /// Selects discoverable Windows COFF LLD, honoring `NIA_LLD` before PATH.
+    pub fn lld_link() -> Self {
+        Self {
+            program: String::new(),
+            flavor: LinkerFlavor::LldLink,
             bundled_program: None,
         }
     }
@@ -1032,6 +1053,7 @@ impl LinkOptions {
             LinkerFlavor::Gnu | LinkerFlavor::Lld => {
                 self.gnu_like_invocation(&linker, inputs, output)
             }
+            LinkerFlavor::LldLink => self.coff_invocation(&linker, inputs, output),
             LinkerFlavor::SelfHostedElf => {
                 Err(LinkerConfigError::UnsupportedFlavor(self.linker.flavor))
             }
@@ -1115,6 +1137,50 @@ impl LinkOptions {
         })
     }
 
+    fn coff_invocation(
+        &self,
+        linker: &ResolvedLinker,
+        inputs: &IncrementalLinkInputs<PathBuf>,
+        output: PathBuf,
+    ) -> Result<LinkerInvocation, LinkerConfigError> {
+        let mut args = vec!["/NOLOGO".to_string()];
+        if let Some(entry) = &self.entry {
+            args.push(format!("/ENTRY:{entry}"));
+        }
+        if self.target.os == "windows" {
+            args.push("/SUBSYSTEM:CONSOLE".to_string());
+        }
+        args.extend(
+            inputs
+                .as_slice()
+                .iter()
+                .map(|input| input.object.to_string_lossy().into_owned()),
+        );
+        args.extend(
+            self.static_archives
+                .iter()
+                .map(|archive| archive.path.to_string_lossy().into_owned()),
+        );
+        for path in self.default_library_paths_for_linker(linker) {
+            args.push(format!("/LIBPATH:{path}"));
+        }
+        for path in &self.library_paths {
+            args.push(format!("/LIBPATH:{path}"));
+        }
+        for library in &self.libraries {
+            args.push(format!("/DEFAULTLIB:{}", library.name));
+        }
+        if self.target.os == "windows" {
+            args.push("/DEFAULTLIB:kernel32.lib".to_string());
+        }
+        args.extend(self.raw_args.iter().cloned());
+        args.push(format!("/OUT:{}", output.to_string_lossy()));
+        Ok(LinkerInvocation {
+            program: linker.program.clone(),
+            args,
+        })
+    }
+
     fn push_gnu_like_libraries(&self, args: &mut Vec<String>) {
         let mut current_mode = LibraryLinkMode::Default;
         for library in &self.libraries {
@@ -1154,11 +1220,57 @@ impl LinkOptions {
     }
 
     fn default_library_paths_for_linker(&self, linker: &ResolvedLinker) -> Vec<String> {
+        if linker.flavor == LinkerFlavor::LldLink && self.target.os == "windows" {
+            return native_windows_library_paths();
+        }
         if linker.flavor != LinkerFlavor::Lld || self.sysroot.is_some() || !self.target.is_host() {
             return Vec::new();
         }
         native_linux_library_paths()
     }
+}
+
+#[cfg(windows)]
+fn native_windows_library_paths() -> Vec<String> {
+    let mut paths = env::var_os("LIB")
+        .map(|value| env::split_paths(&value).collect::<Vec<_>>())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|path| path.join("kernel32.lib").is_file())
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    if !paths.is_empty() {
+        paths.sort();
+        paths.dedup();
+        return paths;
+    }
+
+    let Some(program_files) = env::var_os("ProgramFiles(x86)") else {
+        return paths;
+    };
+    let kits = PathBuf::from(program_files).join("Windows Kits/10/Lib");
+    let Ok(versions) = fs::read_dir(kits) else {
+        return paths;
+    };
+    let mut versions = versions
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect::<Vec<_>>();
+    versions.sort();
+    for version in versions.into_iter().rev() {
+        let path = version.join("um/x64");
+        if path.join("kernel32.lib").is_file() {
+            paths.push(path.to_string_lossy().into_owned());
+            break;
+        }
+    }
+    paths
+}
+
+#[cfg(not(windows))]
+fn native_windows_library_paths() -> Vec<String> {
+    Vec::new()
 }
 
 fn gnu_emulation_for_target(target: &LinkTarget) -> Option<&'static str> {
@@ -1239,6 +1351,7 @@ const fn linker_flavor_tag(flavor: LinkerFlavor) -> u8 {
         LinkerFlavor::Gnu => 0,
         LinkerFlavor::Lld => 1,
         LinkerFlavor::SelfHostedElf => 2,
+        LinkerFlavor::LldLink => 3,
     }
 }
 
@@ -1268,6 +1381,10 @@ impl ExecutableLinker {
             }),
             LinkerFlavor::Lld => Ok(ResolvedLinker {
                 program: resolve_lld_program(&self.program, self.bundled_program.as_deref())?,
+                flavor: self.flavor,
+            }),
+            LinkerFlavor::LldLink => Ok(ResolvedLinker {
+                program: resolve_lld_link_program(&self.program, self.bundled_program.as_deref())?,
                 flavor: self.flavor,
             }),
             LinkerFlavor::SelfHostedElf => Err(LinkerConfigError::UnsupportedFlavor(self.flavor)),
@@ -1358,6 +1475,31 @@ fn resolve_lld_program(
         flavor: LinkerFlavor::Lld,
         program: "ld.lld".to_string(),
     })
+}
+
+fn resolve_lld_link_program(
+    program: &str,
+    bundled_program: Option<&str>,
+) -> Result<String, LinkerConfigError> {
+    if !program.is_empty() {
+        return Ok(program.to_string());
+    }
+    if let Ok(program) = env::var("NIA_LLD")
+        && !program.is_empty()
+    {
+        return Ok(program);
+    }
+    if let Some(program) = bundled_program
+        && is_executable_file(Path::new(program))
+    {
+        return Ok(program.to_string());
+    }
+    find_program_on_path("lld-link")
+        .or_else(|| find_program_on_path("lld-link.exe"))
+        .ok_or_else(|| LinkerConfigError::LinkerNotFound {
+            flavor: LinkerFlavor::LldLink,
+            program: "lld-link".to_string(),
+        })
 }
 
 fn find_program_on_path(program: &str) -> Option<String> {
@@ -1693,6 +1835,7 @@ fn default_host_abi() -> String {
 fn default_abi_for_os(os: &str) -> String {
     match os {
         "linux" => "gnu".to_string(),
+        "windows" => "msvc".to_string(),
         _ => String::new(),
     }
 }

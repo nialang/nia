@@ -361,7 +361,7 @@ result is itself machine-readable JSON.
 
 `.github/workflows/performance.yml` defines the managed Linux LLVM performance
 job. It follows the newest Rust stable release, reports the resolved toolchain
-identity, and installs the current Fedora-derived LLVM 22 identity on
+identity, and installs the current Fedora-derived LLVM 23 identity on
 `ubuntu-24.04`. It runs every workload three times with
 the controlled `github-hosted-ubuntu-24.04-x64` runner class, and downloads the
 most recent completed main-branch artifact that contains a fully collected

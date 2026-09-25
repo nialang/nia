@@ -165,6 +165,12 @@ impl TargetMachine {
         Ok(())
     }
 
+    /// Returns the triple configured on this target machine.
+    pub fn target_triple(&self) -> LlvmResult<String> {
+        let triple = unsafe { llvm_sys::target_machine::LLVMGetTargetMachineTriple(self.raw) };
+        llvm_owned_string(triple)
+    }
+
     /// Runs a typed, module-local optimization before object emission.
     ///
     /// Nia emits separate LLVM modules for separate codegen units. The

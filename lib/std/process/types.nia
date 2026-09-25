@@ -96,7 +96,7 @@ pub enum SystemError: i32 {
 }
 
 pub struct ProcessId {
-    raw: i32,
+    platform: os::ProcessId,
 }
 
 pub enum Signal: i32 {
@@ -238,10 +238,18 @@ pub struct Init {
 
 extend ProcessId {
     pub(pkg) const fn fromRaw(raw: i32) ProcessId {
-        .{ raw }
+        .{ platform: os::ProcessId::fromRaw(raw) }
+    }
+
+    pub(pkg) const fn fromOs(platform: os::ProcessId) ProcessId {
+        .{ platform }
+    }
+
+    pub(pkg) const fn os(&self) os::ProcessId {
+        self.platform
     }
 
     pub const fn raw(&self) i32 {
-        self.raw
+        self.platform.raw()
     }
 }

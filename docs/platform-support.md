@@ -21,16 +21,21 @@ linker integration, or a tested runtime for it.
 The repository is exercised in these environments:
 
 - the maintainer's current Fedora Linux x86_64 environment;
+- the maintainer's Windows x86_64 MSVC host for workspace compilation,
+  cache/publication, compiler-host tests, and the maintained Windows freestanding
+  executable workflow; and
 - managed `ubuntu-24.04` x86_64 correctness and performance workflows using
-  LLVM 22; and
+  LLVM 23; and
 - freestanding Linux x86_64 executable tests using toolchain runtime startup
   source and a target linker without CRT startup; and
+- freestanding Windows x86_64 executable tests using the toolchain startup,
+  `lld-link`, and direct Win32 process/file output primitives; and
 - experimental i686 workspace compilation and selected freestanding executable
   tests using runtime-owned `int 0x80` startup/syscall source.
 
 The i686 LLVM-backed matrix requires an LLVM installation whose headers include
-the target-width configuration (for the current LLVM 22 packages,
-`LLVM_SYS_221_PREFIX=/usr/lib/llvm22`). A distro prefix that exposes only the
+the target-width configuration (for the current LLVM 23 packages,
+`LLVM_SYS_231_PREFIX=/usr/lib/llvm23`). A distro prefix that exposes only the
 x86_64 `llvm-config` headers is not sufficient for 32-bit C-wrapper builds.
 
 Native object emission is limited by the targets built into the selected LLVM
@@ -66,10 +71,19 @@ environment.
 
 The project does not claim support for:
 
-- Windows or macOS compiler hosts;
+- complete Windows filesystem/process standard-library coverage. Windows
+  freestanding startup, child creation with redirected standard streams,
+  explicit environments, waiting, and termination have executable coverage;
+  broader filesystem behavior and Windows-specific process semantics remain
+  staged and require focused tests before they are treated as maintained;
+- Windows does not expose POSIX child signals. Nia accepts `Signal::Term` and
+  `Signal::Kill` as termination requests and implements both with
+  `TerminateProcess`, reporting the resulting Windows exit code rather than a
+  POSIX signal termination;
+- macOS compiler hosts;
 - stable target-triple selection or cross-compilation behavior;
-- complete freestanding executable startup outside Linux x86_64 and experimental
-  i686 coverage;
+- complete freestanding executable startup outside Linux x86_64, Windows x86_64,
+  and experimental i686 coverage;
 - a complete bare-metal build workflow;
 - LLVM-backed wasm32 compilation or executable runtime support. The pure-Rust
   frontend, semantic, query, and maintenance owners are checked for wasm32,

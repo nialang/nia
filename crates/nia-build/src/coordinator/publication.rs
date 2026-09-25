@@ -265,17 +265,15 @@ pub(super) fn publish_staged_outputs_with(
                 installed: false,
             });
         }
-        fs::File::open(&staged.directory)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| {
-                staged_output_io(
-                    action,
-                    &staged.directory,
-                    "sync prepared transaction",
-                    error,
-                    None,
-                )
-            })?;
+        nia_compat::sync_directory(&staged.directory).map_err(|error| {
+            staged_output_io(
+                action,
+                &staged.directory,
+                "sync prepared transaction",
+                error,
+                None,
+            )
+        })?;
         staged
             .journal
             .mark_prepared(
@@ -320,12 +318,12 @@ pub(super) fn publish_staged_outputs_with(
                 )
             })?;
             if publication.had_previous {
-                fs::rename(&output.destination, &output.backup).map_err(|error| {
+                nia_compat::replace_path(&output.destination, &output.backup).map_err(|error| {
                     staged_output_io(action, &output.destination, "back up previous", error, None)
                 })?;
                 publication.backed_up = true;
             }
-            fs::rename(&output.temporary, &output.destination).map_err(|error| {
+            nia_compat::replace_path(&output.temporary, &output.destination).map_err(|error| {
                 staged_output_io(action, &output.destination, "install", error, None)
             })?;
             publication.installed = true;
@@ -336,19 +334,17 @@ pub(super) fn publish_staged_outputs_with(
             .filter_map(|output| output.destination.parent())
             .collect();
         for parent in parents {
-            fs::File::open(parent)
-                .and_then(|directory| directory.sync_all())
-                .map_err(|error| {
-                    staged_output_io(
-                        action,
-                        parent,
-                        "sync committed output directory for",
-                        error,
-                        None,
-                    )
-                })?;
+            nia_compat::sync_directory(parent).map_err(|error| {
+                staged_output_io(
+                    action,
+                    parent,
+                    "sync committed output directory for",
+                    error,
+                    None,
+                )
+            })?;
         }
-        fs::rename(&staged.directory, &staged.committed_directory).map_err(|error| {
+        nia_compat::replace_path(&staged.directory, &staged.committed_directory).map_err(|error| {
             staged_output_io(
                 action,
                 &staged.directory,
@@ -361,7 +357,7 @@ pub(super) fn publish_staged_outputs_with(
     match committed {
         Ok(()) => {
             if let Some(parent) = staged.committed_directory.parent() {
-                let _ = fs::File::open(parent).and_then(|directory| directory.sync_all());
+                let _ = nia_compat::sync_directory(parent);
             }
             let committed_cleaned = match fs::remove_dir_all(&staged.committed_directory) {
                 Ok(()) => true,
@@ -369,7 +365,7 @@ pub(super) fn publish_staged_outputs_with(
                 Err(_) => false,
             };
             if let Some(parent) = staged.committed_directory.parent() {
-                let _ = fs::File::open(parent).and_then(|directory| directory.sync_all());
+                let _ = nia_compat::sync_directory(parent);
             }
             if committed_cleaned {
                 let _ = staged.journal.cleanup();
@@ -387,7 +383,7 @@ fn validate_and_sync_transaction_output(
     let metadata = fs::symlink_metadata(path)?;
     match kind {
         TransactionOutputKind::File if metadata.file_type().is_file() => {
-            fs::File::open(path)?.sync_all()
+            nia_compat::sync_file(path)
         }
         TransactionOutputKind::Directory if metadata.file_type().is_dir() => {
             validate_and_sync_transaction_directory(path)
@@ -411,7 +407,7 @@ fn validate_and_sync_transaction_directory(path: &Path) -> io::Result<()> {
     for entry in entries {
         let metadata = fs::symlink_metadata(&entry)?;
         if metadata.file_type().is_file() {
-            fs::File::open(&entry)?.sync_all()?;
+            nia_compat::sync_file(&entry)?;
         } else if metadata.file_type().is_dir() {
             validate_and_sync_transaction_directory(&entry)?;
         } else {
@@ -426,7 +422,7 @@ fn validate_and_sync_transaction_directory(path: &Path) -> io::Result<()> {
             ));
         }
     }
-    fs::File::open(path)?.sync_all()
+    nia_compat::sync_directory(path)
 }
 
 fn rollback_staged_outputs(
@@ -440,7 +436,7 @@ fn rollback_staged_outputs(
     // each installed output is moved aside and its predecessor restored.
     for (output, publication) in staged.outputs.iter().zip(&publications).rev() {
         if publication.installed
-            && let Err(error) = fs::rename(&output.destination, &output.temporary)
+            && let Err(error) = nia_compat::replace_path(&output.destination, &output.temporary)
         {
             return Err(staged_output_io(
                 action,
@@ -451,7 +447,7 @@ fn rollback_staged_outputs(
             ));
         }
         if publication.backed_up
-            && let Err(error) = fs::rename(&output.backup, &output.destination)
+            && let Err(error) = nia_compat::replace_path(&output.backup, &output.destination)
         {
             return Err(staged_output_io(
                 action,
@@ -468,7 +464,7 @@ fn rollback_staged_outputs(
         .filter_map(|output| output.destination.parent())
         .collect();
     for parent in parents {
-        if let Err(error) = fs::File::open(parent).and_then(|directory| directory.sync_all()) {
+        if let Err(error) = nia_compat::sync_directory(parent) {
             return Err(staged_output_io(
                 action,
                 parent,
@@ -500,7 +496,7 @@ pub(super) fn cleanup_staged_outputs(
         }
     }
     if let Some(parent) = staged.directory.parent()
-        && let Err(error) = fs::File::open(parent).and_then(|directory| directory.sync_all())
+        && let Err(error) = nia_compat::sync_directory(parent)
     {
         return Err(staged_output_io(
             action,
@@ -576,10 +572,9 @@ pub(super) fn write_generated_file(
             .sync_all()
             .map_err(|error| generated_io(action, &temporary_path, "sync", error))?;
         drop(temporary);
-        fs::rename(&temporary_path, output)
+        nia_compat::replace_path(&temporary_path, output)
             .map_err(|error| generated_io(action, output, "publish", error))?;
-        fs::File::open(parent)
-            .and_then(|directory| directory.sync_all())
+        nia_compat::sync_directory(parent)
             .map_err(|error| generated_io(action, parent, "sync parent directory for", error))
     })();
     if result.is_err() {

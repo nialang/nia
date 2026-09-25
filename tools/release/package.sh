@@ -28,7 +28,11 @@ fi
 "${repo_root}/tools/release/build.sh"
 
 binary="${repo_root}/target/release/nia"
-lld="${LLVM_SYS_221_PREFIX:-${repo_root}/target/llvm-static/install}/bin/ld.lld"
+lld_name=ld.lld
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) lld_name=lld-link.exe ;;
+esac
+lld="${LLVM_SYS_231_PREFIX:-${repo_root}/target/llvm-static/install}/bin/${lld_name}"
 resource_root="${repo_root}/lib"
 for required in "${binary}" "${lld}" "${resource_root}/toolchain.meta" \
     "${resource_root}/std/pkg.nia" "${resource_root}/runtime/start.nia"; do
@@ -45,12 +49,12 @@ mkdir -p "${stage_root}/bin" "${stage_root}/lib" "${stage_root}/libexec"
 
 install -m 0755 "${binary}" "${stage_root}/bin/nia"
 cp -a "${resource_root}/." "${stage_root}/lib/"
-install -m 0755 "${lld}" "${stage_root}/libexec/ld.lld"
+install -m 0755 "${lld}" "${stage_root}/libexec/${lld_name}"
 install -m 0644 "${repo_root}/README.md" "${stage_root}/README.md"
 install -m 0644 "${repo_root}/LICENSE.md" "${stage_root}/LICENSE.md"
 
 git_revision="$(git -C "${repo_root}" rev-parse HEAD)"
-llvm_version="$("${LLVM_SYS_221_PREFIX:-${repo_root}/target/llvm-static/install}/bin/llvm-config" --version)"
+llvm_version="$("${LLVM_SYS_231_PREFIX:-${repo_root}/target/llvm-static/install}/bin/llvm-config" --version)"
 {
     printf 'nia-version=%s\n' "${version}"
     printf 'git-revision=%s\n' "${git_revision}"

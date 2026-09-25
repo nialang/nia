@@ -777,7 +777,7 @@ impl DriverActionExecutor {
             )
             .map(|()| None);
         }
-        if let Err(error) = fs::File::open(&temporary).and_then(|file| file.sync_all()) {
+        if let Err(error) = nia_compat::sync_file(&temporary) {
             return cleanup_staged_outputs(
                 action,
                 staged,

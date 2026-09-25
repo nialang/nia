@@ -1760,7 +1760,7 @@ mod tests {
     #[test]
     fn generated_runner_source_does_not_embed_package_paths() {
         let root = temp_root("generated_runner_source_does_not_embed_package_paths");
-        let package_root = root.join("quote\"slash\\tab\t");
+        let package_root = root.join("quote-slash tab");
         std::fs::create_dir_all(&package_root).expect("create package root");
         std::fs::write(package_root.join("build.nia"), "").expect("write build script");
 

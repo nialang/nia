@@ -45,7 +45,8 @@ fn main() u32 {
     let source_file = canonical_symbol(&ir, '@', "source_file", MangleSymbolKind::Global);
     assert!(ir.contains(&source_location), "{ir}");
     assert!(ir.contains(&source_file), "{ir}");
-    assert!(ir.contains(main.to_string_lossy().as_ref()), "{ir}");
+    let source_path = main.to_string_lossy().replace('\\', "/");
+    assert!(ir.contains(&source_path), "{ir}");
 
     let leaf = mangled_symbol(&ir, '@', "leaf");
     let middle = mangled_symbol(&ir, '@', "middle");

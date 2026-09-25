@@ -27,5 +27,8 @@ nia-target-config.workspace = true
 nia-timing.workspace = true
 nia-toolchain.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
 [lib]
 path = "src/lib.rs"

@@ -307,7 +307,7 @@ impl CompilerCheckCache {
             file.sync_all()?;
             drop(file);
             self.install_immutable_entry(&staged, &path, identity)?;
-            fs::File::open(parent)?.sync_all()
+            nia_compat::sync_directory(parent)
         })();
         if result.is_err() || staged.exists() {
             let _ = fs::remove_file(&staged);

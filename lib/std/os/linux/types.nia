@@ -108,7 +108,7 @@ pub struct FileMetadata {
     blockSize: u32,
     atime: ?Timestamp,
     mtime: Timestamp,
-    ctime: Timestamp,
+    ctime: ?Timestamp,
 }
 
 pub struct FileDescriptor {
@@ -435,7 +435,7 @@ extend FileMetadata {
         blockSize: u32,
         atime: ?Timestamp,
         mtime: Timestamp,
-        ctime: Timestamp,
+        ctime: ?Timestamp,
     ) FileMetadata {
         .{ kind, inode, nlink, size, mode, blockSize, atime, mtime, ctime }
     }
@@ -472,7 +472,7 @@ extend FileMetadata {
         self.mtime
     }
 
-    pub fn ctime(&self) Timestamp {
+    pub fn ctime(&self) ?Timestamp {
         self.ctime
     }
 }

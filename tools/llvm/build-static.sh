@@ -7,7 +7,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 llvm_repository="${LLVM_REPOSITORY:-https://github.com/llvm/llvm-project.git}"
-llvm_release_tag="${LLVM_RELEASE_TAG:-llvmorg-22.1.0}"
+llvm_release_tag="${LLVM_RELEASE_TAG:-llvmorg-23.1.2}"
 llvm_source_root="${LLVM_SOURCE_ROOT:-${repo_root}/target/llvm-source}"
 llvm_build_root="${LLVM_BUILD_ROOT:-${repo_root}/target/llvm-static/build}"
 llvm_install_root="${LLVM_INSTALL_ROOT:-${repo_root}/target/llvm-static/install}"

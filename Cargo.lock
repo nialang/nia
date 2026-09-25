@@ -142,9 +142,9 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
 name = "llvm-sys"
-version = "221.0.1"
+version = "231.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2abcc34a3b190f03c2a61b555f218f529589ff13657bdd2ff8ac3e85f2abe6bb"
+checksum = "c0475bc87fdfb41f07d459d26d01534dbf24f51260dc8a38b661988e5e6b3432"
 dependencies = [
  "anyhow",
  "cc",
@@ -354,6 +354,7 @@ dependencies = [
  "nia-target-config",
  "nia-timing",
  "nia-toolchain",
+ "windows-sys",
 ]
 
 [[package]]
@@ -433,6 +434,9 @@ dependencies = [
 [[package]]
 name = "nia-compat"
 version = "0.2.0-dev"
+dependencies = [
+ "windows-sys",
+]
 
 [[package]]
 name = "nia-compiler-query"
@@ -1572,6 +1576,15 @@ name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
+
+[[package]]
+name = "windows-sys"
+version = "0.61.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
+dependencies = [
+ "windows-link",
+]
 
 [[package]]
 name = "winnow"

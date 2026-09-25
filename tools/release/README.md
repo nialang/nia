@@ -1,7 +1,7 @@
 # Nia Release Build
 
 `build.sh` is the release compiler build entry point. It requires the pinned
-LLVM 22.1.0 static prefix produced by [`../llvm/build-static.sh`](../llvm/README.md),
+LLVM 23.1.2 static prefix produced by [`../llvm/build-static.sh`](../llvm/README.md),
 builds `nia-cli` with the `llvm-static` feature, and rejects a binary with a
 shared LLVM or LLD dependency. Standard-library sources remain part of the
 toolchain resources and are compiled through the normal source pipeline.
@@ -12,7 +12,7 @@ Run it from any directory:
 tools/release/build.sh
 ```
 
-Set `LLVM_SYS_221_PREFIX` when the static prefix is outside the repository.
+Set `LLVM_SYS_231_PREFIX` when the static prefix is outside the repository.
 The release compiler still has normal host dependencies such as libc and the
 C++ runtime. Target programs may additionally require a target sysroot, CRT,
 and linker runtime; those are separate from the compiler's LLVM linkage.
@@ -22,7 +22,8 @@ and linker runtime; those are separate from the compiler's LLVM linkage.
 `package.sh` assembles the relocatable `linux-x86_64` archive used by the
 GitHub release workflow. It invokes `build.sh`, copies the compiler into
 `bin/nia`, the standard-library resources into `lib/`, and the bundled LLD
-into `libexec/ld.lld`, then writes a reproducible tarball and `SHA256SUMS`:
+into `libexec/ld.lld` (or `libexec/lld-link.exe` on Windows), then writes a
+reproducible tarball and `SHA256SUMS`:
 
 ```sh
 tools/release/package.sh
@@ -37,7 +38,7 @@ nia-<version>-linux-x86_64/
 ├── lib/toolchain.meta
 ├── lib/std/
 ├── lib/runtime/
-└── libexec/ld.lld
+└── libexec/ld.lld (Linux) or lld-link.exe (Windows)
 ```
 
 Keep the relative `bin`, `lib`, and `libexec` layout intact so compiler

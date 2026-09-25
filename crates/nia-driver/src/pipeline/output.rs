@@ -67,7 +67,7 @@ pub(super) fn install_streamed_output(source: &Path, output: &Path) -> io::Resul
         }
         staged_file.sync_all()?;
         drop(staged_file);
-        fs::rename(&staged, output)
+        nia_compat::replace_path(&staged, output)
     })();
     if result.is_err() || staged.exists() {
         let _ = fs::remove_file(&staged);

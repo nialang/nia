@@ -8,6 +8,81 @@
 /// Version of the compiler crate set used in toolchain compatibility checks.
 pub const COMPILER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Replaces a filesystem destination with a fully written sibling path.
+/// Windows' `rename` does not replace an existing destination, so all cache
+/// and publication owners use this boundary instead of relying on host
+/// rename behavior.
+pub fn replace_path(
+    source: impl AsRef<std::path::Path>,
+    destination: impl AsRef<std::path::Path>,
+) -> std::io::Result<()> {
+    let source = source.as_ref();
+    let destination = destination.as_ref();
+    #[cfg(not(windows))]
+    {
+        std::fs::rename(source, destination)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let source = source
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let destination = destination
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let ok = unsafe {
+            windows_sys::Win32::Storage::FileSystem::MoveFileExW(
+                source.as_ptr(),
+                destination.as_ptr(),
+                windows_sys::Win32::Storage::FileSystem::MOVEFILE_REPLACE_EXISTING
+                    | windows_sys::Win32::Storage::FileSystem::MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        if ok == 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Flushes a directory entry where the host exposes directory fsync.
+/// Windows does not permit opening directories through the standard File API;
+/// file contents and `MoveFileExW(...WRITE_THROUGH)` still provide the
+/// publication durability available on that platform.
+pub fn sync_directory(path: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(not(windows))]
+    {
+        std::fs::File::open(path)?.sync_all()
+    }
+    #[cfg(windows)]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
+/// Synchronizes an existing file when the host permits flushing a read-only
+/// handle. Windows requires write access for `FlushFileBuffers`; validation
+/// callers only need to observe a complete file there because writers already
+/// flush their writable handles before publication.
+pub fn sync_file(path: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(not(windows))]
+    {
+        std::fs::File::open(path)?.sync_all()
+    }
+    #[cfg(windows)]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
 /// Release-scoped compatibility epoch shared by every persisted compiler
 /// product and ABI boundary. The epoch is derived from the public release
 /// line (`0.1.x` => 1, `0.2.x` => 2, `1.0.x` => 1000) rather than from the
@@ -304,9 +379,33 @@ pub fn toolchain_manifest() -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, fs, path::PathBuf};
+    use std::{
+        collections::BTreeSet,
+        fs,
+        path::PathBuf,
+        sync::atomic::{AtomicU64, Ordering},
+    };
 
     use super::{COMPILER_VERSION, RELEASE_COMPATIBILITY, formats, toolchain_manifest};
+
+    static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn replace_path_replaces_an_existing_destination() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-compat-replace-{}-{}",
+            std::process::id(),
+            TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).expect("create temporary root");
+        let source = root.join("source");
+        let destination = root.join("destination");
+        fs::write(&source, b"new").expect("write source");
+        fs::write(&destination, b"old").expect("write destination");
+        super::replace_path(&source, &destination).expect("replace destination");
+        assert_eq!(fs::read(&destination).expect("read destination"), b"new");
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn release_compatibility_follows_public_release_line() {

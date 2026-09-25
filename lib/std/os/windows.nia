@@ -1,0 +1,1360 @@
+// Windows OS boundary for the standard library.
+//
+// This module deliberately keeps Win32 handles and error codes below the
+// platform facade. The rest of std::os sees the same typed contract as Linux.
+
+using pkg::math;
+
+pub const maxPathBytes: usize = 32768;
+
+const invalidHandle: usize = (-1) as usize;
+const stdInputHandle: i32 = -10;
+const stdOutputHandle: i32 = -11;
+const stdErrorHandle: i32 = -12;
+const waitObject0: u32 = 0;
+const waitTimeout: u32 = 258;
+const infinite: u32 = 0xffffffff;
+const signalTerm: i32 = 15;
+const signalKill: i32 = 9;
+const memCommit: u32 = 0x1000;
+const memReserve: u32 = 0x2000;
+const memRelease: u32 = 0x8000;
+const pageReadWrite: u32 = 0x04;
+const fileAttributeDirectory: u32 = 0x10;
+const fileFlagBackupSemantics: u32 = 0x02000000;
+const fileFlagOpenReparsePoint: u32 = 0x00200000;
+const fileReadAttributes: u32 = 0x80;
+const genericRead: u32 = 0x80000000;
+const genericWrite: u32 = 0x40000000;
+const fileShareRead: u32 = 0x00000001;
+const fileShareWrite: u32 = 0x00000002;
+const fileShareDelete: u32 = 0x00000004;
+const createNew: u32 = 1;
+const createAlways: u32 = 2;
+const openExisting: u32 = 3;
+const openAlways: u32 = 4;
+const truncateExisting: u32 = 5;
+const fileBegin: u32 = 0;
+const fileCurrent: u32 = 1;
+const fileEnd: u32 = 2;
+const errorAccessDenied: u32 = 5;
+const errorInvalidHandle: u32 = 6;
+const errorNotEnoughMemory: u32 = 8;
+const errorInvalidData: u32 = 13;
+const errorOutofmemory: u32 = 14;
+const errorAlreadyExists: u32 = 183;
+const errorFileNotFound: u32 = 2;
+const errorPathNotFound: u32 = 3;
+const errorNoMoreFiles: u32 = 18;
+const errorDirectory: u32 = 267;
+const errorNotSupported: u32 = 50;
+const invalidFileAttributes: u32 = 0xffffffff;
+const fileNameNormalized: u32 = 0;
+const getFileExInfoStandard: u32 = 0;
+const fileAttributeReadonly: u32 = 0x1;
+const windowsEpochTicks: u64 = 116444736000000000;
+const ticksPerSecond: u64 = 10000000;
+const handleFlagInherit: u32 = 1;
+const duplicateSameAccess: u32 = 2;
+const startupUseStdHandles: u32 = 0x100;
+const createUnicodeEnvironment: u32 = 0x400;
+const nullDeviceAccess: u32 = 0xc0000000;
+const codePageUtf8: u32 = 65001;
+const multiByteErrInvalidChars: u32 = 8;
+const findDataNameBytes: usize = 260;
+const findDataAlternateBytes: usize = 14;
+const directoryRecordHeader: usize = 8;
+const fileAttributeNormal: u32 = 0x80;
+const fileAttributeReparsePoint: u32 = 0x400;
+
+pub enum Errno: i32 {
+    PermissionDenied = 1,
+    NoEntry = 2,
+    Interrupted = 4,
+    Io = 5,
+    BadFd = 9,
+    NoChild = 10,
+    Again = 11,
+    NoMemory = 12,
+    Access = 13,
+    Fault = 14,
+    Busy = 16,
+    Exists = 17,
+    CrossDevice = 18,
+    NotDir = 20,
+    IsDir = 21,
+    Invalid = 22,
+    NoSpace = 28,
+    ReadOnly = 30,
+    BrokenPipe = 32,
+    OutOfRange = 34,
+    TooLong = 36,
+    Unsupported = 38,
+    SymlinkLoop = 40,
+    NotEmpty = 39,
+    _,
+}
+
+pub enum SpawnStage: i32 { Setup = 1, Stdio = 2, Cwd = 3, Exec = 4, _ }
+
+pub enum SpawnError {
+    Setup(Errno),
+    Stdio(Errno),
+    Cwd(Errno),
+    Exec(Errno),
+    Reap { stage: SpawnStage, primary: Errno, cause: Errno, pid: ProcessId },
+}
+
+pub enum OpenMode: i32 { ReadOnly = 0, WriteOnly = 1, ReadWrite = 2, _ }
+pub enum SeekWhence: usize { Start = 0, Current = 1, End = 2, _ }
+pub enum StdIo: i32 { Inherit = 1, Ignore = 2, Pipe = 3 }
+pub enum FileKind: i32 {
+    BlockDevice = 1, CharacterDevice = 2, Directory = 3, NamedPipe = 4,
+    Symlink = 5, File = 6, UnixSocket = 7, Unknown = 255, _
+}
+
+pub struct Timestamp { seconds: i64, nanos: u32 }
+pub struct FileMetadata {
+    kind: FileKind,
+    inode: u64,
+    nlink: u32,
+    size: u64,
+    mode: u32,
+    blockSize: u32,
+    atime: ?Timestamp,
+    mtime: Timestamp,
+    ctime: ?Timestamp,
+}
+pub struct DirectoryEntry { kind: FileKind, name: &[u8] }
+pub struct DirectoryReader { search: usize, data: FindData, hasData: bool, done: bool }
+
+// A Windows HANDLE is pointer-sized. Keeping it opaque prevents accidental
+// arithmetic in the facade while retaining a stable raw value for the ABI.
+pub struct FileDescriptor { handle: usize }
+pub struct ProcessId { pid: i32, handle: usize }
+pub struct WaitStatus { raw: i32 }
+pub struct SpawnResult { pid: ProcessId, stdin: ?FileDescriptor, stdout: ?FileDescriptor, stderr: ?FileDescriptor }
+pub struct SpawnAttempt { result: ?SpawnResult, error: ?SpawnError, pendingReap: ?ProcessId, pendingReapError: ?Errno }
+pub struct SpawnOptions { stdin: StdIo, stdout: StdIo, stderr: StdIo, cwd: ?&u8 }
+
+pub struct MappedPages { ptr: &mut u8, releasePtr: &mut u8, releaseSize: usize }
+
+extern fn GetLastError() u32;
+extern fn GetStdHandle(which: i32) usize;
+extern fn WriteFile(
+    handle: usize,
+    buffer: &u8,
+    length: u32,
+    written: &mut u32,
+    overlapped: usize,
+) i32;
+extern fn ReadFile(
+    handle: usize,
+    buffer: &mut u8,
+    length: u32,
+    read: &mut u32,
+    overlapped: usize,
+) i32;
+extern fn CloseHandle(handle: usize) i32;
+extern fn SetFilePointerEx(handle: usize, distance: i64, result: &mut i64, method: u32) i32;
+extern fn SetEndOfFile(handle: usize) i32;
+extern fn FlushFileBuffers(handle: usize) i32;
+extern fn GetCurrentDirectoryA(length: u32, buffer: &mut u8) u32;
+extern fn GetFinalPathNameByHandleA(
+    handle: usize,
+    buffer: &mut u8,
+    length: u32,
+    flags: u32,
+) u32;
+extern fn CreateFileA(
+    path: &u8,
+    access: u32,
+    share: u32,
+    security: usize,
+    disposition: u32,
+    flags: u32,
+    template: usize,
+) usize;
+extern fn CreateDirectoryA(path: &u8, security: usize) i32;
+extern fn DeleteFileA(path: &u8) i32;
+extern fn RemoveDirectoryA(path: &u8) i32;
+extern fn MoveFileExA(oldPath: &u8, newPath: &u8, flags: u32) i32;
+extern fn VirtualAlloc(address: usize, size: usize, allocationType: u32, protection: u32) usize;
+extern fn VirtualFree(address: usize, size: usize, freeType: u32) i32;
+extern fn GetSystemInfo(info: &mut SystemInfo) ();
+extern fn GetFileAttributesExA(path: &u8, infoLevel: u32, data: &mut FileAttributeData) i32;
+extern fn GetFileAttributesA(path: &u8) u32;
+extern fn SetFileAttributesA(path: &u8, attributes: u32) i32;
+extern fn GetFileInformationByHandle(handle: usize, info: &mut ByHandleFileInformation) i32;
+extern fn MultiByteToWideChar(
+    codePage: u32,
+    flags: u32,
+    source: &u8,
+    sourceLength: i32,
+    destination: &mut u16,
+    capacity: i32,
+) i32;
+extern fn CreateFileW(
+    path: &u16,
+    access: u32,
+    share: u32,
+    security: usize,
+    disposition: u32,
+    flags: u32,
+    template: usize,
+) usize;
+extern fn CreateDirectoryW(path: &u16, security: usize) i32;
+extern fn DeleteFileW(path: &u16) i32;
+extern fn RemoveDirectoryW(path: &u16) i32;
+extern fn MoveFileExW(oldPath: &u16, newPath: &u16, flags: u32) i32;
+extern fn GetFileAttributesW(path: &u16) u32;
+extern fn SetFileAttributesW(path: &u16, attributes: u32) i32;
+extern fn FindFirstFileA(pattern: &u8, data: &mut FindData) usize;
+extern fn FindNextFileA(search: usize, data: &mut FindData) i32;
+extern fn FindClose(search: usize) i32;
+extern fn SystemFunction036(buffer: &mut u8, length: u32) i32;
+extern fn ExitProcess(code: u32) ();
+extern fn WaitForSingleObject(handle: usize, milliseconds: u32) u32;
+extern fn GetExitCodeProcess(handle: usize, code: &mut u32) i32;
+extern fn TerminateProcess(handle: usize, code: u32) i32;
+extern fn CreatePipe(read: &mut usize, write: &mut usize, security: &mut SecurityAttributes, size: u32) i32;
+extern fn SetHandleInformation(handle: usize, mask: u32, flags: u32) i32;
+extern fn GetCurrentProcess() usize;
+extern fn DuplicateHandle(
+    sourceProcess: usize,
+    source: usize,
+    targetProcess: usize,
+    target: &mut usize,
+    access: u32,
+    inherit: i32,
+    options: u32,
+) i32;
+extern fn CreateProcessW(
+    application: &u16,
+    commandLine: &mut u16,
+    processSecurity: usize,
+    threadSecurity: usize,
+    inheritHandles: i32,
+    flags: u32,
+    environment: &u16,
+    cwd: &u16,
+    startup: &mut StartupInfo,
+    info: &mut ProcessInformation,
+) i32;
+
+pub extern struct SystemInfo {
+    processorArchitecture: u16,
+    reserved: u16,
+    pageSize: u32,
+    minimumApplicationAddress: usize,
+    maximumApplicationAddress: usize,
+    activeProcessorMask: usize,
+    numberOfProcessors: u32,
+    processorType: u32,
+    allocationGranularity: u32,
+    processorLevel: u16,
+    processorRevision: u16,
+}
+
+pub extern struct FileAttributeData {
+    attributes: u32,
+    creationLow: u32,
+    creationHigh: u32,
+    accessLow: u32,
+    accessHigh: u32,
+    writeLow: u32,
+    writeHigh: u32,
+    sizeHigh: u32,
+    sizeLow: u32,
+}
+
+pub extern struct FindData {
+    attributes: u32,
+    creationLow: u32,
+    creationHigh: u32,
+    accessLow: u32,
+    accessHigh: u32,
+    writeLow: u32,
+    writeHigh: u32,
+    sizeHigh: u32,
+    sizeLow: u32,
+    reserved0: u32,
+    reserved1: u32,
+    name: [u8; findDataNameBytes],
+    alternate: [u8; findDataAlternateBytes],
+}
+
+pub extern struct FileTime { low: u32, high: u32 }
+
+pub extern struct ByHandleFileInformation {
+    attributes: u32,
+    creation: FileTime,
+    accessed: FileTime,
+    modified: FileTime,
+    volumeSerial: u32,
+    sizeHigh: u32,
+    sizeLow: u32,
+    linkCount: u32,
+    fileIndexHigh: u32,
+    fileIndexLow: u32,
+}
+
+pub extern struct SecurityAttributes { length: u32, descriptor: usize, inherit: i32 }
+
+pub extern struct StartupInfo {
+    cb: u32,
+    reserved: usize,
+    desktop: usize,
+    title: usize,
+    x: u32,
+    y: u32,
+    xSize: u32,
+    ySize: u32,
+    xCountChars: u32,
+    yCountChars: u32,
+    fillAttribute: u32,
+    flags: u32,
+    showWindow: u16,
+    reserved2: u16,
+    reserved2Ptr: usize,
+    stdInput: usize,
+    stdOutput: usize,
+    stdError: usize,
+}
+
+pub extern struct ProcessInformation { process: usize, thread: usize, processId: u32, threadId: u32 }
+
+fn errno(code: u32) Errno {
+    match code {
+        (errorAccessDenied) => .PermissionDenied,
+        (errorFileNotFound | errorPathNotFound) => .NoEntry,
+        (errorInvalidHandle) => .BadFd,
+        (errorNotEnoughMemory | errorOutofmemory) => .NoMemory,
+        (errorAlreadyExists) => .Exists,
+        (errorDirectory) => .IsDir,
+        (errorNotSupported) => .Unsupported,
+        _ => .Io,
+    }
+}
+
+fn lastError() Errno { errno(GetLastError()) }
+
+extend FileDescriptor {
+    pub fn init(handle: usize) FileDescriptor { .{ handle } }
+    pub fn stdin() FileDescriptor { .init(GetStdHandle(stdInputHandle)) }
+    pub fn stdout() FileDescriptor { .init(GetStdHandle(stdOutputHandle)) }
+    pub fn stderr() FileDescriptor { .init(GetStdHandle(stdErrorHandle)) }
+    pub fn raw(&self) usize { self.handle }
+
+    pub fn writeSome(&self, bytes: &[u8]) Errno!usize {
+        if bytes.len() > u32::MAX as usize { return .OutOfRange!; }
+        let mut written: u32 = 0;
+        if WriteFile(self.handle, bytes.ptr(), bytes.len() as u32, &mut written, 0) == 0 {
+            return lastError()!;
+        }
+        !(written as usize)
+    }
+
+    pub fn readSome(&self, bytes: &mut [u8]) Errno!usize {
+        if bytes.len() > u32::MAX as usize { return .OutOfRange!; }
+        let mut read: u32 = 0;
+        if ReadFile(self.handle, bytes.ptrMut(), bytes.len() as u32, &mut read, 0) == 0 {
+            return lastError()!;
+        }
+        !(read as usize)
+    }
+
+    pub fn close(&self) Errno!() {
+        if self.handle == invalidHandle or CloseHandle(self.handle) == 0 { return lastError()!; }
+        !()
+    }
+
+    pub fn seek(&self, offset: i64, whence: SeekWhence) Errno!u64 {
+        let method = match whence { .Start => fileBegin, .Current => fileCurrent, .End => fileEnd, _ => return .Invalid!, };
+        let mut position: i64 = 0;
+        if SetFilePointerEx(self.handle, offset, &mut position, method) == 0 { return lastError()!; }
+        if position < 0 { return .OutOfRange!; }
+        !(position as u64)
+    }
+
+    pub fn truncate(&self, len: u64) Errno!() {
+        _ = self.seek(len as i64, .Start).?;
+        if SetEndOfFile(self.handle) == 0 { return lastError()!; }
+        !()
+    }
+
+    pub fn setPermissions(&self, permissions: u32) Errno!() {
+        let mut storage: [u8; maxPathBytes] = [0; maxPathBytes];
+        let length = GetFinalPathNameByHandleA(self.handle, &mut storage[0], storage.len() as u32, fileNameNormalized);
+        if length == 0 or length as usize >= storage.len() { return if length == 0 { lastError()! } else { .TooLong! }; }
+        storage[length as usize] = 0;
+        let path = &storage[0];
+        let mut attributes = GetFileAttributesA(path);
+        if attributes == invalidHandle as u32 { return lastError()!; }
+        if (permissions & 0o222) == 0 { attributes = attributes | fileAttributeReadonly; }
+        else { attributes = attributes & 0xfffffffe; }
+        if SetFileAttributesA(path, attributes) == 0 { return lastError()!; }
+        !()
+    }
+    pub fn sync(&self) Errno!() {
+        if FlushFileBuffers(self.handle) == 0 { return lastError()!; }
+        !()
+    }
+    pub fn syncData(&self) Errno!() { self.sync() }
+    pub fn metadata(&self) Errno!FileMetadata { metadataHandle(self.handle) }
+}
+
+pub fn initDirectoryReader() DirectoryReader {
+    .{ search: invalidHandle, data: .{
+        attributes: 0, creationLow: 0, creationHigh: 0, accessLow: 0, accessHigh: 0,
+        writeLow: 0, writeHigh: 0, sizeHigh: 0, sizeLow: 0, reserved0: 0, reserved1: 0,
+        name: [0; findDataNameBytes], alternate: [0; findDataAlternateBytes],
+    }, hasData: false, done: false }
+}
+
+pub fn readDirEntries(reader: &mut DirectoryReader, handle: FileDescriptor, buffer: &mut [u8]) Errno!usize {
+        if buffer.len() < directoryRecordHeader + 1 { return .Invalid!; }
+        if reader.done { return !0; }
+        let mut pathStorage: [u8; maxPathBytes] = [0; maxPathBytes];
+        let path = pathFromHandle(handle, &b".\0"[0], &mut pathStorage[..]).?;
+        let mut patternStorage: [u8; maxPathBytes] = [0; maxPathBytes];
+        let pattern = joinPath(path, &b"*\0"[0], &mut patternStorage[..]).?;
+        if reader.search == invalidHandle {
+            reader.search = FindFirstFileA(pattern, &mut reader.data);
+            if reader.search == invalidHandle { return lastError()!; }
+            reader.hasData = true;
+        }
+        let mut written: usize = 0;
+        while reader.hasData {
+            let nameLen = findNameLen(&reader.data.name);
+            if nameLen != 0 {
+                let recordLen = directoryRecordHeader + nameLen;
+                if recordLen > buffer.len() - written {
+                    if written == 0 { return .OutOfRange!; }
+                    return !written;
+                }
+                let kind = findDataKind(reader.data.attributes);
+                buffer[written] = kind as u8;
+                buffer[written + 1] = 0;
+                buffer[written + 2] = nameLen as u8;
+                buffer[written + 3] = (nameLen >> 8) as u8;
+                buffer[written + 4] = recordLen as u8;
+                buffer[written + 5] = (recordLen >> 8) as u8;
+                buffer[written + 6] = (recordLen >> 16) as u8;
+                buffer[written + 7] = (recordLen >> 24) as u8;
+                let mut index: usize = 0;
+                while index < nameLen { buffer[written + directoryRecordHeader + index] = reader.data.name[index]; index += 1; }
+                written += recordLen;
+            }
+            if FindNextFileA(reader.search, &mut reader.data) == 0 {
+            let code = GetLastError();
+                if code == errorNoMoreFiles { reader.done = true; _ = FindClose(reader.search); reader.search = invalidHandle; reader.hasData = false; return !written; }
+                if written != 0 { return !written; }
+                return errno(code)!;
+            }
+        }
+        !written
+}
+
+pub fn cwd() FileDescriptor {
+    let path = b".\0";
+    .init(CreateFileA(
+        &path[0],
+        0,
+        fileShareRead | fileShareWrite | fileShareDelete,
+        0,
+        openExisting,
+        fileFlagBackupSemantics,
+        0,
+    ))
+}
+
+pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
+    if buffer.len() == 0 or buffer.len() > u32::MAX as usize { return .Invalid!; }
+    let length = GetCurrentDirectoryA(buffer.len() as u32, buffer.ptrMut());
+    if length == 0 { return lastError()!; }
+    if length as usize >= buffer.len() { return .TooLong!; }
+    !&buffer[0..length as usize]
+}
+
+pub fn pageSize() usize {
+    let mut info: SystemInfo = .{
+        processorArchitecture: 0,
+        reserved: 0,
+        pageSize: 0,
+        minimumApplicationAddress: 0,
+        maximumApplicationAddress: 0,
+        activeProcessorMask: 0,
+        numberOfProcessors: 0,
+        processorType: 0,
+        allocationGranularity: 0,
+        processorLevel: 0,
+        processorRevision: 0,
+    };
+    GetSystemInfo(&mut info);
+    if info.pageSize == 0 { 4096 } else { info.pageSize as usize }
+}
+
+pub fn pageAlignedLen(len: usize) Errno!usize {
+    if len == 0 { return !0; }
+    match len.alignForward(pageSize()) { ?value => !value, null => .OutOfRange!, }
+}
+
+pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
+    if len == 0 or align == 0 or not align.isPowerOfTwo() { return .Invalid!; }
+    let aligned = pageAlignedLen(len).?;
+    let extra = if align > pageSize() { align - pageSize() } else { 0 };
+    let mapLen = match aligned.checkedAdd(extra) { ?value => value, null => return .OutOfRange!, };
+    let base = VirtualAlloc(0, mapLen, memCommit | memReserve, pageReadWrite);
+    if base == 0 { return lastError()!; }
+    let result = match (base as usize).alignForward(align) { ?value => value, null => { _ = VirtualFree(base, 0, memRelease); return .OutOfRange!; } };
+    !.{ ptr: result as &mut u8, releasePtr: base as &mut u8, releaseSize: mapLen }
+}
+
+pub fn unmapPages(ptr: &mut u8, len: usize) Errno!() {
+    if len == 0 or VirtualFree(ptr as usize, 0, memRelease) == 0 { return lastError()!; }
+    !()
+}
+
+pub fn random(bytes: &mut [u8]) Errno!() {
+    if bytes.len() > u32::MAX as usize { return .OutOfRange!; }
+    if bytes.len() == 0 { return !(); }
+    if SystemFunction036(bytes.ptrMut(), bytes.len() as u32) == 0 { return lastError()!; }
+    !()
+}
+
+pub fn openAt(dir: FileDescriptor, path: &u8, mode: OpenMode, create: bool, truncate: bool, exclusive: bool, permissions: u32) Errno!FileDescriptor {
+    openAtBeneath(dir, path, mode, false, create, truncate, exclusive, permissions, true)
+}
+
+pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: bool, create: bool, truncate: bool, exclusive: bool, permissions: u32, followSymlinks: bool) Errno!FileDescriptor {
+    let mut storage: [u8; maxPathBytes] = [0; maxPathBytes];
+    let native = pathFromHandle(dir, path, &mut storage[..]).?;
+    let access = if directory { 0 } else { match mode { .ReadOnly => genericRead, .WriteOnly => genericWrite, .ReadWrite => genericRead | genericWrite, _ => return .Invalid!, } };
+    let disposition = if create and exclusive { createNew } else if create and truncate { createAlways } else if create { openAlways } else if truncate { truncateExisting } else { openExisting };
+    let mut flags = if directory { fileFlagBackupSemantics } else { 0 };
+    if not followSymlinks { flags = flags | fileFlagOpenReparsePoint; }
+    let mut wideStorage: [u16; maxPathBytes] = [0; maxPathBytes];
+    let wide = utf8ToWide(native, &mut wideStorage[..]).?;
+    let handle = CreateFileW(wide, access, fileShareRead | fileShareWrite | fileShareDelete, 0, disposition, flags, 0);
+    if handle == invalidHandle { return lastError()!; }
+    !.init(handle)
+}
+
+pub fn createDirAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, permissions: u32) Errno!() {
+    _ = permissions;
+    let mut parentStorage: [u8; maxPathBytes] = [0; maxPathBytes];
+    let parentPath = pathFromHandle(dir, parent, &mut parentStorage[..]).?;
+    let mut storage: [u8; maxPathBytes] = [0; maxPathBytes];
+    let fullPath = joinPath(parentPath, name, &mut storage[..]).?;
+    let mut wideStorage: [u16; maxPathBytes] = [0; maxPathBytes];
+    let wide = utf8ToWide(fullPath, &mut wideStorage[..]).?;
+    if CreateDirectoryW(wide, 0) == 0 { return lastError()!; }
+    !()
+}
+
+pub fn deleteAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, directory: bool) Errno!() {
+    let mut parentStorage: [u8; maxPathBytes] = [0; maxPathBytes];
+    let parentPath = pathFromHandle(dir, parent, &mut parentStorage[..]).?;
+    let mut storage: [u8; maxPathBytes] = [0; maxPathBytes];
+    let fullPath = joinPath(parentPath, name, &mut storage[..]).?;
+    let mut wideStorage: [u16; maxPathBytes] = [0; maxPathBytes];
+    let wide = utf8ToWide(fullPath, &mut wideStorage[..]).?;
+    if directory { if RemoveDirectoryW(wide) == 0 { return lastError()!; } } else if DeleteFileW(wide) == 0 { return lastError()!; }
+    !()
+}
+
+pub fn renameAtBeneath(oldDir: FileDescriptor, oldParent: &u8, oldName: &u8, newDir: FileDescriptor, newParent: &u8, newName: &u8) Errno!() {
+    let mut oldParentStorage: [u8; maxPathBytes] = [0; maxPathBytes];
+    let oldParentPath = pathFromHandle(oldDir, oldParent, &mut oldParentStorage[..]).?;
+    let mut oldStorage: [u8; maxPathBytes] = [0; maxPathBytes];
+    let oldPath = joinPath(oldParentPath, oldName, &mut oldStorage[..]).?;
+    let mut newParentStorage: [u8; maxPathBytes] = [0; maxPathBytes];
+    let newParentPath = pathFromHandle(newDir, newParent, &mut newParentStorage[..]).?;
+    let mut newStorage: [u8; maxPathBytes] = [0; maxPathBytes];
+    let newPath = joinPath(newParentPath, newName, &mut newStorage[..]).?;
+    let mut oldWideStorage: [u16; maxPathBytes] = [0; maxPathBytes];
+    let oldWide = utf8ToWide(oldPath, &mut oldWideStorage[..]).?;
+    let mut newWideStorage: [u16; maxPathBytes] = [0; maxPathBytes];
+    let newWide = utf8ToWide(newPath, &mut newWideStorage[..]).?;
+    if MoveFileExW(oldWide, newWide, 1) == 0 { return lastError()!; }
+    !()
+}
+
+pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata {
+    let mut storage: [u8; maxPathBytes] = [0; maxPathBytes];
+    let fullPath = pathFromHandle(dir, path, &mut storage[..]).?;
+    metadataPath(fullPath, followSymlinks)
+}
+
+fn pathFromHandle(dir: FileDescriptor, path: &u8, storage: &mut [u8]) Errno!&u8 {
+    let pathLen = cStringLen(path);
+    if pathLen != 0 and (path[0] == b'\\' or path[0] == b'/' or (pathLen >= 2 and path[1] == b':')) {
+        return copyCString(path, storage);
+    }
+    let baseLen = GetFinalPathNameByHandleA(dir.handle, storage.ptrMut(), storage.len() as u32, fileNameNormalized);
+    if baseLen == 0 or baseLen as usize >= storage.len() { return if baseLen == 0 { lastError()! } else { .TooLong! }; }
+    let mut out = baseLen as usize;
+    if pathLen == 0 or (pathLen == 1 and path[0] == b'.') { storage[out] = 0; return !&storage[0]; }
+    if out != 0 and storage[out - 1] != b'\\' and storage[out - 1] != b'/' {
+        if out + 1 >= storage.len() { return .TooLong!; }
+        storage[out] = b'\\';
+        out += 1;
+    }
+    let mut index: usize = 0;
+    while index < pathLen {
+        if out + 1 >= storage.len() { return .TooLong!; }
+        storage[out] = if path[index] == b'/' { b'\\' } else { path[index] };
+        out += 1;
+        index += 1;
+    }
+    storage[out] = 0;
+    !&storage[0]
+}
+
+fn cStringLen(path: &u8) usize {
+    let mut length: usize = 0;
+    while path[length] != 0 { length += 1; }
+    length
+}
+
+fn copyCString(path: &u8, storage: &mut [u8]) Errno!&u8 {
+    let length = cStringLen(path);
+    if length + 1 > storage.len() { return .TooLong!; }
+    let mut index: usize = 0;
+    while index < length {
+        storage[index] = if path[index] == b'/' { b'\\' } else { path[index] };
+        index += 1;
+    }
+    storage[length] = 0;
+    !&storage[0]
+}
+
+fn joinPath(parent: &u8, child: &u8, storage: &mut [u8]) Errno!&u8 {
+    let mut out: usize = 0;
+    while parent[out] != 0 {
+        if out + 1 >= storage.len() { return .TooLong!; }
+        storage[out] = parent[out];
+        out += 1;
+    }
+    if out != 0 and storage[out - 1] != b'\\' and storage[out - 1] != b'/' {
+        if out + 1 >= storage.len() { return .TooLong!; }
+        storage[out] = b'\\';
+        out += 1;
+    }
+    let mut index: usize = 0;
+    while child[index] != 0 {
+        if out + 1 >= storage.len() { return .TooLong!; }
+        storage[out] = if child[index] == b'/' { b'\\' } else { child[index] };
+        out += 1;
+        index += 1;
+    }
+    storage[out] = 0;
+    !&storage[0]
+}
+
+fn metadataPath(path: &u8, followSymlinks: bool) Errno!FileMetadata {
+    let flags = fileFlagBackupSemantics | if followSymlinks { 0 } else { fileFlagOpenReparsePoint };
+    let mut wideStorage: [u16; maxPathBytes] = [0; maxPathBytes];
+    let wide = utf8ToWide(path, &mut wideStorage[..]).?;
+    let handle = CreateFileW(wide, fileReadAttributes, fileShareRead | fileShareWrite | fileShareDelete, 0, openExisting, flags, 0);
+    if handle == invalidHandle { return lastError()!; }
+    let result = metadataHandle(handle);
+    let closed = CloseHandle(handle);
+    if closed == 0 {
+        return match result { !value => { _ = value; lastError()! }, error! => error! };
+    }
+    result
+}
+
+fn utf8ToWide(text: &u8, storage: &mut [u16]) Errno!&u16 {
+    if storage.len() == 0 { return .Invalid!; }
+    let length = cStringLen(text);
+    if length == 0 { storage[0] = 0; return !&storage[0]; }
+    if length > i32::MAX as usize or storage.len() > i32::MAX as usize { return .TooLong!; }
+    let written = MultiByteToWideChar(
+        codePageUtf8,
+        multiByteErrInvalidChars,
+        text,
+        length as i32,
+        &mut storage[0],
+        storage.len() as i32,
+    );
+    if written == 0 { return lastError()!; }
+    if written as usize >= storage.len() { return .TooLong!; }
+    storage[written as usize] = 0;
+    !&storage[0]
+}
+
+fn fileTimeTicks(value: FileTime) u64 {
+    ((value.high as u64) << 32) | value.low as u64
+}
+
+fn fileTimeTimestamp(value: FileTime) Timestamp {
+    let ticks = fileTimeTicks(value);
+    if ticks >= windowsEpochTicks {
+        let unixTicks = ticks - windowsEpochTicks;
+        .init((unixTicks / ticksPerSecond) as i64, ((unixTicks % ticksPerSecond) * 100) as u32)
+    } else {
+        .init(0, 0)
+    }
+}
+
+fn metadataHandle(handle: usize) Errno!FileMetadata {
+    let mut info: ByHandleFileInformation = .{
+        attributes: 0,
+        creation: .{ low: 0, high: 0 },
+        accessed: .{ low: 0, high: 0 },
+        modified: .{ low: 0, high: 0 },
+        volumeSerial: 0,
+        sizeHigh: 0,
+        sizeLow: 0,
+        linkCount: 0,
+        fileIndexHigh: 0,
+        fileIndexLow: 0,
+    };
+    if GetFileInformationByHandle(handle, &mut info) == 0 { return lastError()!; }
+    let kind: FileKind = if (info.attributes & fileAttributeDirectory) != 0 { .Directory } else { .File };
+    let inode = ((info.fileIndexHigh as u64) << 32) | info.fileIndexLow as u64;
+    let size = ((info.sizeHigh as u64) << 32) | info.sizeLow as u64;
+    let permissions: u32 = if (info.attributes & fileAttributeReadonly) != 0 { 0o444 } else { 0o666 };
+    !.init(kind, inode, info.linkCount, size, permissions, 4096, ?fileTimeTimestamp(info.accessed), fileTimeTimestamp(info.modified), null)
+}
+pub fn dirEntryAt(buffer: &[u8], offset: usize) ?DirectoryEntry {
+    if parseDirectoryRecord(buffer, offset) is ?record { ?DirectoryEntry::init(record.kind, &buffer[record.nameStart..record.nameEnd]) } else { null }
+}
+pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize { parseDirectoryRecord(buffer, offset).map(&\record -> record.end) }
+
+struct DirectoryRecord { end: usize, kind: FileKind, nameStart: usize, nameEnd: usize }
+
+fn parseDirectoryRecord(buffer: &[u8], offset: usize) ?DirectoryRecord {
+    if offset >= buffer.len() or buffer.len() - offset < directoryRecordHeader { return null; }
+    let length = (buffer[offset + 4] as usize) | ((buffer[offset + 5] as usize) << 8) | ((buffer[offset + 6] as usize) << 16) | ((buffer[offset + 7] as usize) << 24);
+    if length <= directoryRecordHeader or length > buffer.len() - offset { return null; }
+    let nameLen = (buffer[offset + 2] as usize) | ((buffer[offset + 3] as usize) << 8);
+    if nameLen == 0 or nameLen > length - directoryRecordHeader { return null; }
+    ?. { end: offset + length, kind: buffer[offset] as FileKind, nameStart: offset + directoryRecordHeader, nameEnd: offset + directoryRecordHeader + nameLen }
+}
+
+fn findNameLen(name: &[u8]) usize {
+    let mut length: usize = 0;
+    while length < name.len() and name[length] != 0 { length += 1; }
+    length
+}
+
+fn findDataKind(attributes: u32) FileKind {
+    if (attributes & fileAttributeDirectory) != 0 { .Directory } else if (attributes & fileAttributeReparsePoint) != 0 { .Symlink } else { .File }
+}
+
+struct PipeHandles { read: usize, write: usize }
+struct StdioHandle { value: usize, owned: bool }
+
+fn closeHandle(handle: usize) () {
+    if handle != invalidHandle { _ = CloseHandle(handle); }
+}
+
+fn closeOwnedStdioHandle(handle: usize, mode: StdIo, inheritedOwned: bool) () {
+    if mode == .Ignore or inheritedOwned { closeHandle(handle); }
+}
+
+fn duplicateStandardHandle(which: i32) Errno!StdioHandle {
+    let source = GetStdHandle(which);
+    if source == 0 or source == invalidHandle {
+        !.{ value: source, owned: false }
+    } else {
+        let process = GetCurrentProcess();
+        let mut duplicate: usize = invalidHandle;
+        if DuplicateHandle(process, source, process, &mut duplicate, 0, 1, duplicateSameAccess) == 0 {
+            return lastError()!;
+        }
+        !.{ value: duplicate, owned: true }
+    }
+}
+
+fn closePipeParent(pipe: ?PipeHandles, stdin: bool) () {
+    if pipe is ?value {
+        closeHandle(if stdin { value.write } else { value.read });
+    }
+}
+
+fn closePipeChild(pipe: ?PipeHandles, stdin: bool) () {
+    if pipe is ?value {
+        closeHandle(if stdin { value.read } else { value.write });
+    }
+}
+
+fn openPipe() Errno!PipeHandles {
+    let mut security: SecurityAttributes = .{ length: pkg::builtin::size[SecurityAttributes]() as u32, descriptor: 0, inherit: 1 };
+    let mut read: usize = invalidHandle;
+    let mut write: usize = invalidHandle;
+    if CreatePipe(&mut read, &mut write, &mut security, 0) == 0 {
+        let error = lastError();
+        closeHandle(read);
+        closeHandle(write);
+        return error!;
+    }
+    if SetHandleInformation(read, handleFlagInherit, 0) == 0 {
+        closeHandle(read); closeHandle(write); return lastError()!;
+    }
+    !.{ read, write }
+}
+
+fn openNull() Errno!usize {
+    let path = b"NUL\0";
+    let handle = CreateFileA(&path[0], nullDeviceAccess, fileShareRead | fileShareWrite, 0, openExisting, 0, 0);
+    if handle == invalidHandle { return lastError()!; }
+    if SetHandleInformation(handle, handleFlagInherit, handleFlagInherit) == 0 { closeHandle(handle); return lastError()!; }
+    !handle
+}
+
+fn appendCommandArgument(storage: &mut [u16], cursor: &mut usize, text: &u8) Errno!() {
+    let mut wideStorage: [u16; maxPathBytes] = [0; maxPathBytes];
+    _ = utf8ToWide(text, &mut wideStorage[..]).?;
+
+    if cursor.* != 0 {
+        if cursor.* + 1 >= storage.len() { return .TooLong!; }
+        storage[cursor.*] = 32;
+        cursor.* += 1;
+    }
+
+    let length = wideStringLen(&wideStorage[0]);
+    let mut needsQuotes = length == 0;
+    let mut index: usize = 0;
+    while index < length {
+        if wideStorage[index] == 32 or wideStorage[index] == 9 or wideStorage[index] == 34 {
+            needsQuotes = true;
+        }
+        index += 1;
+    }
+
+    if needsQuotes { appendCommandUnit(storage, cursor, 34).?; }
+    index = 0;
+    while index < length {
+        if wideStorage[index] == 92 {
+            let start = index;
+            while index < length and wideStorage[index] == 92 { index += 1; }
+            let slashes = index - start;
+            if index == length {
+                let copies = if needsQuotes { slashes * 2 } else { slashes };
+                appendCommandSlashes(storage, cursor, copies).?;
+            } else if wideStorage[index] == 34 {
+                appendCommandSlashes(storage, cursor, slashes * 2 + 1).?;
+                appendCommandUnit(storage, cursor, 34).?;
+                index += 1;
+            } else {
+                appendCommandSlashes(storage, cursor, slashes).?;
+            }
+        } else if wideStorage[index] == 34 {
+            appendCommandSlashes(storage, cursor, 1).?;
+            appendCommandUnit(storage, cursor, 34).?;
+            index += 1;
+        } else {
+            appendCommandUnit(storage, cursor, wideStorage[index]).?;
+            index += 1;
+        }
+    }
+    if needsQuotes { appendCommandUnit(storage, cursor, 34).?; }
+    storage[cursor.*] = 0;
+    !()
+}
+
+fn appendCommandUnit(storage: &mut [u16], cursor: &mut usize, value: u16) Errno!() {
+    if cursor.* + 1 >= storage.len() { return .TooLong!; }
+    storage[cursor.*] = value;
+    cursor.* += 1;
+    !()
+}
+
+fn appendCommandSlashes(storage: &mut [u16], cursor: &mut usize, count: usize) Errno!() {
+    let mut index: usize = 0;
+    while index < count { appendCommandUnit(storage, cursor, 92).?; index += 1; }
+    !()
+}
+
+fn wideStringLen(text: &u16) usize {
+    let mut length: usize = 0;
+    while text[length] != 0 { length += 1; }
+    length
+}
+
+fn appendEnvironmentBlock(storage: &mut [u16], envp: &&u8) Errno!() {
+    let pointerSize = pkg::builtin::size[&u8]();
+    let mut cursor: usize = 0;
+    let mut entry = envp;
+    if envp == 0usize as &&u8 or entry.* == 0usize as &u8 {
+        if storage.len() < 2 { return .TooLong!; }
+        storage[0] = 0;
+        storage[1] = 0;
+        !()
+    } else {
+        while entry.* != 0usize as &u8 {
+            let mut wideStorage: [u16; maxPathBytes] = [0; maxPathBytes];
+            _ = utf8ToWide(entry.*, &mut wideStorage[..]).?;
+            let length = wideStringLen(&wideStorage[0]);
+            if cursor + length + 2 > storage.len() { return .TooLong!; }
+            let mut index: usize = 0;
+            while index < length {
+                storage[cursor] = wideStorage[index];
+                cursor += 1;
+                index += 1;
+            }
+            storage[cursor] = 0;
+            cursor += 1;
+            entry = ((entry as usize) + pointerSize) as &&u8;
+        }
+        if cursor >= storage.len() { return .TooLong!; }
+        storage[cursor] = 0;
+        !()
+    }
+}
+
+pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
+    let mut appStorage: [u16; maxPathBytes] = [0; maxPathBytes];
+    let application = match utf8ToWide(path, &mut appStorage[..]) {
+        !value => value,
+        error! => return .failure(.Setup(error)),
+    };
+
+    let mut commandStorage: [u16; maxPathBytes] = [0; maxPathBytes];
+    let mut commandLen: usize = 0;
+    let pointerSize = pkg::builtin::size[&u8]();
+    let mut cursor = argv;
+    while cursor.* != 0usize as &u8 {
+        if appendCommandArgument(&mut commandStorage[..], &mut commandLen, cursor.*) is error! {
+            return .failure(.Setup(error));
+        }
+        cursor = ((cursor as usize) + pointerSize) as &&u8;
+    }
+    if commandLen == 0 {
+        return .failure(.Setup(.Invalid));
+    }
+
+    let mut environmentStorage: [u16; maxPathBytes] = [0; maxPathBytes];
+    if appendEnvironmentBlock(&mut environmentStorage[..], envp) is error! {
+        return .failure(.Setup(error));
+    }
+
+    let mut cwdStorage: [u16; maxPathBytes] = [0; maxPathBytes];
+    let cwd = if options.cwd() is ?value {
+        match utf8ToWide(value, &mut cwdStorage[..]) {
+            !wide => wide,
+            error! => return .failure(.Cwd(error)),
+        }
+    } else {
+        0usize as &u16
+    };
+    if options.cwd() is ?_ {
+        let attributes = GetFileAttributesW(cwd);
+        if attributes == invalidFileAttributes {
+            return .failure(.Cwd(lastError()));
+        }
+        if (attributes & fileAttributeDirectory) == 0 {
+            return .failure(.Cwd(.NotDir));
+        }
+    }
+
+    let mut stdinPipe: ?PipeHandles = null;
+    let mut stdoutPipe: ?PipeHandles = null;
+    let mut stderrPipe: ?PipeHandles = null;
+    let mut stdinInheritedOwned = false;
+    let stdin = match options.stdin() {
+        .Pipe => {
+            let pipe = match openPipe() {
+                !value => value,
+                error! => return .failure(.Stdio(error)),
+            };
+            stdinPipe = ?pipe;
+            pipe.read
+        },
+        .Ignore => match openNull() {
+            !value => value,
+            error! => return .failure(.Stdio(error)),
+        },
+        .Inherit => match duplicateStandardHandle(stdInputHandle) {
+            !value => {
+                stdinInheritedOwned = value.owned;
+                value.value
+            },
+            error! => return .failure(.Stdio(error)),
+        },
+    };
+    let mut stdoutInheritedOwned = false;
+    let stdout = match options.stdout() {
+        .Pipe => {
+            let pipe = match openPipe() {
+                !value => value,
+                error! => {
+                    closeOwnedStdioHandle(stdin, options.stdin(), stdinInheritedOwned);
+                    closePipeParent(stdinPipe, true);
+                    closePipeChild(stdinPipe, true);
+                    return .failure(.Stdio(error));
+                },
+            };
+            stdoutPipe = ?pipe;
+            pipe.write
+        },
+        .Ignore => match openNull() {
+            !value => value,
+            error! => {
+                closeOwnedStdioHandle(stdin, options.stdin(), stdinInheritedOwned);
+                closePipeParent(stdinPipe, true);
+                closePipeChild(stdinPipe, true);
+                return .failure(.Stdio(error));
+            },
+        },
+        .Inherit => match duplicateStandardHandle(stdOutputHandle) {
+            !value => {
+                stdoutInheritedOwned = value.owned;
+                value.value
+            },
+            error! => {
+                closeOwnedStdioHandle(stdin, options.stdin(), stdinInheritedOwned);
+                closePipeParent(stdinPipe, true);
+                closePipeChild(stdinPipe, true);
+                return .failure(.Stdio(error));
+            },
+        },
+    };
+    let mut stderrInheritedOwned = false;
+    let stderr = match options.stderr() {
+        .Pipe => {
+            let pipe = match openPipe() {
+                !value => value,
+                error! => {
+                    closeOwnedStdioHandle(stdin, options.stdin(), stdinInheritedOwned);
+                    closeOwnedStdioHandle(stdout, options.stdout(), stdoutInheritedOwned);
+                    closePipeParent(stdinPipe, true);
+                    closePipeParent(stdoutPipe, false);
+                    closePipeChild(stdinPipe, true);
+                    closePipeChild(stdoutPipe, false);
+                    return .failure(.Stdio(error));
+                },
+            };
+            stderrPipe = ?pipe;
+            pipe.write
+        },
+        .Ignore => match openNull() {
+            !value => value,
+            error! => {
+                closeOwnedStdioHandle(stdin, options.stdin(), stdinInheritedOwned);
+                closeOwnedStdioHandle(stdout, options.stdout(), stdoutInheritedOwned);
+                closePipeParent(stdinPipe, true);
+                closePipeParent(stdoutPipe, false);
+                closePipeChild(stdinPipe, true);
+                closePipeChild(stdoutPipe, false);
+                return .failure(.Stdio(error));
+            },
+        },
+        .Inherit => match duplicateStandardHandle(stdErrorHandle) {
+            !value => {
+                stderrInheritedOwned = value.owned;
+                value.value
+            },
+            error! => {
+                closeOwnedStdioHandle(stdin, options.stdin(), stdinInheritedOwned);
+                closeOwnedStdioHandle(stdout, options.stdout(), stdoutInheritedOwned);
+                closePipeParent(stdinPipe, true);
+                closePipeParent(stdoutPipe, false);
+                closePipeChild(stdinPipe, true);
+                closePipeChild(stdoutPipe, false);
+                return .failure(.Stdio(error));
+            },
+        },
+    };
+    let mut startup: StartupInfo = .{
+        cb: pkg::builtin::size[StartupInfo]() as u32,
+        reserved: 0,
+        desktop: 0,
+        title: 0,
+        x: 0,
+        y: 0,
+        xSize: 0,
+        ySize: 0,
+        xCountChars: 0,
+        yCountChars: 0,
+        fillAttribute: 0,
+        flags: startupUseStdHandles,
+        showWindow: 0,
+        reserved2: 0,
+        reserved2Ptr: 0,
+        stdInput: stdin,
+        stdOutput: stdout,
+        stdError: stderr,
+    };
+    let mut info: ProcessInformation = .{
+        process: invalidHandle,
+        thread: invalidHandle,
+        processId: 0,
+        threadId: 0,
+    };
+    if CreateProcessW(
+        application,
+        &mut commandStorage[0],
+        0,
+        0,
+        1,
+        createUnicodeEnvironment,
+        &environmentStorage[0],
+        cwd,
+        &mut startup,
+        &mut info,
+    ) == 0 {
+        let error = lastError();
+        closeOwnedStdioHandle(stdin, options.stdin(), stdinInheritedOwned);
+        closeOwnedStdioHandle(stdout, options.stdout(), stdoutInheritedOwned);
+        closeOwnedStdioHandle(stderr, options.stderr(), stderrInheritedOwned);
+        closePipeParent(stdinPipe, true);
+        closePipeParent(stdoutPipe, false);
+        closePipeParent(stderrPipe, false);
+        closePipeChild(stdinPipe, true);
+        closePipeChild(stdoutPipe, false);
+        closePipeChild(stderrPipe, false);
+        return .failure(.Exec(error));
+    }
+    closeHandle(info.thread);
+    closeOwnedStdioHandle(stdin, options.stdin(), stdinInheritedOwned);
+    closeOwnedStdioHandle(stdout, options.stdout(), stdoutInheritedOwned);
+    closeOwnedStdioHandle(stderr, options.stderr(), stderrInheritedOwned);
+    closePipeChild(stdinPipe, true);
+    closePipeChild(stdoutPipe, false);
+    closePipeChild(stderrPipe, false);
+    let parentIn = stdinPipe.map(&\pipe -> FileDescriptor::init(pipe.write));
+    let parentOut = stdoutPipe.map(&\pipe -> FileDescriptor::init(pipe.read));
+    let parentErr = stderrPipe.map(&\pipe -> FileDescriptor::init(pipe.read));
+    .success(.init(ProcessId::fromHandle(info.processId as i32, info.process), parentIn, parentOut, parentErr))
+}
+
+pub fn wait(pid: ProcessId) Errno!WaitStatus {
+    let handle = pid.handle;
+    if handle == invalidHandle {
+        return .Invalid!;
+    }
+    let result = WaitForSingleObject(handle, infinite);
+    if result != waitObject0 {
+        return lastError()!;
+    }
+    let mut code: u32 = 0;
+    if GetExitCodeProcess(handle, &mut code) == 0 {
+        return lastError()!;
+    }
+    _ = CloseHandle(handle);
+    !.init(code as i32)
+}
+
+pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus {
+    if pid.handle == invalidHandle {
+        return .Invalid!;
+    }
+    let result = WaitForSingleObject(pid.handle, 0);
+    if result == waitTimeout {
+        return !null;
+    }
+    if result != waitObject0 {
+        return lastError()!;
+    }
+    let mut code: u32 = 0;
+    if GetExitCodeProcess(pid.handle, &mut code) == 0 {
+        return lastError()!;
+    }
+    _ = CloseHandle(pid.handle);
+    !(?.init(code as i32))
+}
+
+pub fn killWith(pid: ProcessId, signal: i32) Errno!() {
+    // Windows has no POSIX signal delivery for an arbitrary child process.
+    // Both supported termination requests therefore use TerminateProcess.
+    if signal != signalTerm and signal != signalKill {
+        return .Invalid!;
+    }
+    if pid.handle == invalidHandle {
+        return .Invalid!;
+    }
+    if TerminateProcess(pid.handle, 1) == 0 {
+        let error = GetLastError();
+        if error == errorAccessDenied and WaitForSingleObject(pid.handle, 0) == waitObject0 {
+            return !();
+        }
+        return errno(error)!;
+    }
+    !()
+}
+
+pub fn exit(code: i32) () {
+    ExitProcess(code as u32);
+    loop {}
+}
+
+extend Timestamp {
+    pub fn init(seconds: i64, nanos: u32) Timestamp {
+        .{ seconds, nanos }
+    }
+
+    pub fn seconds(&self) i64 {
+        self.seconds
+    }
+
+    pub fn nanos(&self) u32 {
+        self.nanos
+    }
+}
+
+extend FileMetadata {
+    pub fn init(
+        kind: FileKind,
+        inode: u64,
+        nlink: u32,
+        size: u64,
+        mode: u32,
+        blockSize: u32,
+        atime: ?Timestamp,
+        mtime: Timestamp,
+        ctime: ?Timestamp,
+    ) FileMetadata {
+        .{ kind, inode, nlink, size, mode, blockSize, atime, mtime, ctime }
+    }
+
+    pub fn kind(&self) FileKind { self.kind }
+    pub fn inode(&self) u64 { self.inode }
+    pub fn nlink(&self) u32 { self.nlink }
+    pub fn size(&self) u64 { self.size }
+    pub fn mode(&self) u32 { self.mode }
+    pub fn blockSize(&self) u32 { self.blockSize }
+    pub fn atime(&self) ?Timestamp { self.atime }
+    pub fn mtime(&self) Timestamp { self.mtime }
+    pub fn ctime(&self) ?Timestamp { self.ctime }
+}
+
+extend DirectoryEntry {
+    pub fn init(kind: FileKind, name: &[u8]) DirectoryEntry {
+        .{ kind, name }
+    }
+
+    pub fn kind(&self) FileKind { self.kind }
+    pub fn name(&self) &[u8] { self.name }
+}
+
+extend ProcessId {
+    pub const fn init(pid: i32) ProcessId {
+        .{ pid, handle: invalidHandle }
+    }
+
+    pub const fn fromHandle(pid: i32, handle: usize) ProcessId {
+        .{ pid, handle }
+    }
+
+    pub const fn raw(&self) i32 { self.pid }
+}
+
+extend WaitStatus {
+    pub fn init(raw: i32) WaitStatus {
+        .{ raw }
+    }
+
+    pub fn raw(&self) i32 { self.raw }
+    pub fn exited(&self) bool { true }
+    pub fn signaled(&self) bool { false }
+    pub fn stopped(&self) bool { false }
+    pub fn exitCode(&self) ?i32 { ?self.raw }
+    pub fn signal(&self) ?i32 { null }
+    pub fn stopSignal(&self) ?i32 { null }
+}
+
+extend SpawnResult {
+    pub fn init(
+        pid: ProcessId,
+        stdin: ?FileDescriptor,
+        stdout: ?FileDescriptor,
+        stderr: ?FileDescriptor,
+    ) SpawnResult {
+        .{ pid, stdin, stdout, stderr }
+    }
+
+    pub fn pid(&self) ProcessId { self.pid }
+    pub fn stdin(&self) ?FileDescriptor { self.stdin }
+    pub fn stdout(&self) ?FileDescriptor { self.stdout }
+    pub fn stderr(&self) ?FileDescriptor { self.stderr }
+}
+
+extend SpawnError {
+    pub fn fromStage(stage: SpawnStage, errno: Errno) SpawnError {
+        match stage {
+            .Setup => .Setup(errno),
+            .Stdio => .Stdio(errno),
+            .Cwd => .Cwd(errno),
+            .Exec => .Exec(errno),
+            _ => .Setup(errno),
+        }
+    }
+
+    pub fn stage(&self) SpawnStage {
+        match self.* {
+            .Setup(_) => .Setup,
+            .Stdio(_) => .Stdio,
+            .Cwd(_) => .Cwd,
+            .Exec(_) => .Exec,
+            .Reap { stage, primary: _, cause: _, pid: _ } => stage,
+        }
+    }
+
+    pub fn primary(&self) Errno {
+        match self.* {
+            .Setup(value) => value,
+            .Stdio(value) => value,
+            .Cwd(value) => value,
+            .Exec(value) => value,
+            .Reap { stage: _, primary, cause: _, pid: _ } => primary,
+        }
+    }
+}
+
+extend SpawnAttempt {
+    pub fn success(result: SpawnResult) SpawnAttempt {
+        .{ result: ?result, error: null, pendingReap: null, pendingReapError: null }
+    }
+
+    pub fn failure(error: SpawnError) SpawnAttempt {
+        .{ result: null, error: ?error, pendingReap: null, pendingReapError: null }
+    }
+
+    pub fn reapFailure(error: SpawnError, pid: ProcessId, cause: Errno) SpawnAttempt {
+        .{ result: null, error: ?error, pendingReap: ?pid, pendingReapError: ?cause }
+    }
+
+    pub fn finish(&mut self) SpawnError!SpawnResult {
+        match self.result {
+            ?value => {
+                self.result = null;
+                !value
+            },
+            null => match self.error {
+                ?value => {
+                    self.error = null;
+                    value!
+                },
+                null => .Setup(.Io)!,
+            },
+        }
+    }
+}
+
+extend SpawnOptions {
+    pub fn init() SpawnOptions {
+        .{ stdin: .Inherit, stdout: .Inherit, stderr: .Inherit, cwd: null }
+    }
+
+    pub fn stdin(&self) StdIo { self.stdin }
+    pub fn stdout(&self) StdIo { self.stdout }
+    pub fn stderr(&self) StdIo { self.stderr }
+    pub fn cwd(&self) ?&u8 { self.cwd }
+
+    pub fn setStdin(&mut self, value: StdIo) () { self.stdin = value }
+    pub fn setStdout(&mut self, value: StdIo) () { self.stdout = value }
+    pub fn setStderr(&mut self, value: StdIo) () { self.stderr = value }
+    pub fn setCwd(&mut self, value: &u8) () { self.cwd = ?value }
+}
+
+extend MappedPages {
+    pub fn ptr(&self) &mut u8 { self.ptr }
+    pub fn releasePtr(&self) &mut u8 { self.releasePtr }
+    pub fn releaseSize(&self) usize { self.releaseSize }
+}

@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::MaintainResult;
 
-const LLVM_SYS_PREFIX_ENV: &str = "LLVM_SYS_221_PREFIX";
+const LLVM_SYS_PREFIX_ENV: &str = "LLVM_SYS_231_PREFIX";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 /// One executable and the version output observed by the baseline process.

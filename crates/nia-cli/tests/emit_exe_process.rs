@@ -5,6 +5,260 @@ mod support;
 
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
+#[cfg(windows)]
+#[test]
+fn emit_exe_std_process_spawns_windows_child() {
+    let root = temp_dir("emit_exe_std_process_spawns_windows_child");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    let arguments: [&[char]; 3] = [&"/c", &"exit", &"0"];
+    let command = process::Command::init(
+        std::PathView::init(&"C:\\Windows\\System32\\cmd.exe"),
+        init.env(),
+    ).withArguments(&arguments);
+    let mut spawn = command.spawn();
+    let mut child = spawn.finish().?;
+    let term = child.wait().?;
+    if not term.succeeded() {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write Windows child process source");
+
+    let emit = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe Windows child process");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run emitted Windows child process executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[cfg(windows)]
+#[test]
+fn emit_exe_std_process_windows_spawn_uses_explicit_environment() {
+    let root = temp_dir("emit_exe_std_process_windows_spawn_uses_explicit_environment");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    let arguments: [&[char]; 3] = [&"/c", &"echo", &"%NIA_WINDOWS_EXPLICIT%"];
+    let environment: [process::EnvEntry; 1] = [
+        process::EnvEntry::init(&"NIA_WINDOWS_EXPLICIT", &"only-this-value"),
+    ];
+    let command = process::Command::init(
+        std::PathView::init(&"C:\\Windows\\System32\\cmd.exe"),
+        init.env(),
+    ).withArguments(&arguments)
+        .withEnvironment(&environment)
+        .withStdout(process::StdIo::Pipe);
+    let mut spawn = command.spawn();
+    let mut child = spawn.finish().?;
+    let mut stdout = match child.takeStdout() {
+        ?pipe => pipe,
+        null => return process::ExitCode(1)!,
+    };
+    let mut output: [u8; 17] = [0; 17];
+    stdout.readExact(&mut output[..]).?;
+    stdout.close().?;
+    let term = child.wait().?;
+    if not term.succeeded() {
+        return process::ExitCode(2)!;
+    }
+    let expected = b"only-this-value\r\n";
+    let mut index: usize = 0;
+    while index < expected.len() {
+        if output[index] != expected[index] {
+            return process::ExitCode(3)!;
+        }
+        index += 1;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write Windows explicit environment source");
+
+    let emit = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe Windows explicit environment");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+    let status =
+        Command::new(&exe).status_timeout("run emitted Windows explicit environment executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[cfg(windows)]
+#[test]
+fn emit_exe_std_process_windows_pipe_uses_parent_read_end() {
+    let root = temp_dir("emit_exe_std_process_windows_pipe_uses_parent_read_end");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    let arguments: [&[char]; 3] = [&"/c", &"echo", &"two words"];
+    let command = process::Command::init(
+        std::PathView::init(&"C:\\Windows\\System32\\cmd.exe"),
+        init.env(),
+    ).withArguments(&arguments).withStdout(process::StdIo::Pipe);
+    let mut spawn = command.spawn();
+    let mut child = spawn.finish().?;
+    let mut stdout = match child.takeStdout() {
+        ?pipe => pipe,
+        null => return process::ExitCode(1)!,
+    };
+    let mut output: [u8; 13] = [0; 13];
+    stdout.readExact(&mut output[..]).?;
+    stdout.close().?;
+    let term = child.wait().?;
+    if not term.succeeded() {
+        return process::ExitCode(2)!;
+    }
+    if output[0] != b'"' or output[1] != b't' or output[2] != b'w'
+        or output[3] != b'o' or output[4] != b' ' or output[5] != b'w'
+        or output[6] != b'o' or output[7] != b'r' or output[8] != b'd'
+        or output[9] != b's' or output[10] != b'"'
+        or output[11] != b'\r' or output[12] != b'\n'
+    {
+        return process::ExitCode(3)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write Windows child pipe source");
+
+    let emit = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe Windows child pipe");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run emitted Windows child pipe executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[cfg(windows)]
+#[test]
+fn emit_exe_windows_startup_decodes_arguments_and_environment() {
+    let root = temp_dir("emit_exe_windows_startup_decodes_arguments_and_environment");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    if init.argc() != 3 or init.env().len() == 0 {
+        return process::ExitCode(1)!;
+    }
+    let argument = match init.args().get(2) {
+        ?value => value,
+        null => return process::ExitCode(2)!,
+    };
+    let argumentBytes = argument.bytes();
+    if argumentBytes.len() != 7 or argumentBytes[0] != b't'
+        or argumentBytes[1] != b'w' or argumentBytes[2] != b'o'
+        or argumentBytes[3] != b' ' or argumentBytes[4] != 0xe4
+        or argumentBytes[5] != 0xbd or argumentBytes[6] != 0x8d
+    {
+        return process::ExitCode(3)!;
+    }
+    let mut found = false;
+    let mut index: usize = 0;
+    while index < init.env().len() {
+        let variable = match init.env().get(index) {
+            ?value => value,
+            null => return process::ExitCode(5)!,
+        };
+        let bytes = variable.bytes();
+        if bytes.len() == 32 and bytes[0] == b'N' and bytes[1] == b'I'
+            and bytes[2] == b'A' and bytes[3] == b'_' and bytes[4] == b'W'
+            and bytes[5] == b'I' and bytes[6] == b'N' and bytes[7] == b'D'
+            and bytes[8] == b'O' and bytes[9] == b'W' and bytes[10] == b'S'
+            and bytes[11] == b'_' and bytes[12] == b'S' and bytes[13] == b'E'
+            and bytes[14] == b'N' and bytes[15] == b'T' and bytes[16] == b'I'
+            and bytes[17] == b'N' and bytes[18] == b'E' and bytes[19] == b'L'
+            and bytes[20] == b'=' and bytes[21] == b'p' and bytes[22] == b'r'
+            and bytes[23] == b'e' and bytes[24] == b's' and bytes[25] == b'e'
+            and bytes[26] == b'n' and bytes[27] == b't' and bytes[28] == b'-'
+            and bytes[29] == 0xe4 and bytes[30] == 0xbd and bytes[31] == 0x8d
+        {
+            found = true;
+        }
+        index += 1;
+    }
+    if not found {
+        return process::ExitCode(4)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write Windows startup decoding source");
+
+    let emit = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe Windows startup decoding");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+    let status = Command::new(&exe)
+        .args(["alpha", "two 位"])
+        .env("NIA_WINDOWS_SENTINEL", "present-位")
+        .status_timeout("run emitted Windows startup decoding executable");
+    assert_eq!(status.code(), Some(0));
+}
+
 #[cfg(target_os = "linux")]
 fn deny_wait4(command: &mut Command) {
     use std::os::unix::process::CommandExt as _;
@@ -131,6 +385,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_command_spawn_and_wait() {
     let root = temp_dir("emit_exe_std_process_command_spawn_and_wait");
@@ -202,6 +457,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_command_wait_reports_exit_code() {
     let root = temp_dir("emit_exe_std_process_wait_reports_exit_code");
@@ -269,6 +525,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_command_encodes_text_arguments() {
     let root = temp_dir("emit_exe_std_process_command_encodes_text_arguments");
@@ -369,6 +626,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_command_paths_lower_with_dynamic_storage() {
     let root = temp_dir("emit_exe_std_process_command_paths_lower_with_dynamic_storage");
@@ -438,6 +696,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_command_configures_exact_environment() {
     let root = temp_dir("emit_exe_std_process_command_configures_exact_environment");
@@ -595,6 +854,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_command_keeps_native_invocation_storage_stable() {
     let root = temp_dir("emit_exe_std_process_command_keeps_native_invocation_storage_stable");
@@ -746,6 +1006,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_spawn_attempt_retries_all_staging_owners() {
     let root = temp_dir("emit_exe_std_process_spawn_attempt_retries_all_staging_owners");
@@ -981,6 +1242,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_command_can_ignore_stdout() {
     let root = temp_dir("emit_exe_std_process_command_can_ignore_stdout");
@@ -1040,6 +1302,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(output.stdout, b"ok");
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_command_can_ignore_stderr() {
     let root = temp_dir("emit_exe_std_process_command_can_ignore_stderr");
@@ -1100,6 +1363,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(output.stderr, b"");
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_command_can_ignore_all_stdio() {
     let root = temp_dir("emit_exe_std_process_command_can_ignore_all_stdio");
@@ -1162,6 +1426,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(output.stderr, b"");
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_command_spawn_reports_exec_error() {
     let root = temp_dir("emit_exe_std_process_command_spawn_reports_exec_error");
@@ -1214,6 +1479,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(output.status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_failed_spawn_cleans_pipe_handles() {
     let root = temp_dir("emit_exe_std_process_failed_spawn_cleans_pipe_handles");
@@ -1292,6 +1558,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(output.status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_command_can_pipe_stdout() {
     let root = temp_dir("emit_exe_std_process_command_can_pipe_stdout");
@@ -1389,6 +1656,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(output.status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_command_can_pipe_stderr() {
     let root = temp_dir("emit_exe_std_process_command_can_pipe_stderr");
@@ -1453,6 +1721,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(output.status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_pipe_stdout_reports_eof_after_child_exit() {
     let root = temp_dir("emit_exe_std_process_pipe_stdout_reports_eof_after_child_exit");
@@ -1545,6 +1814,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(output.status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_command_can_pipe_stdin_and_stdout() {
     let root = temp_dir("emit_exe_std_process_command_can_pipe_stdin_and_stdout");
@@ -1643,6 +1913,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(output.status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_wait_closes_owned_stdin_pipe() {
     let root = temp_dir("emit_exe_std_process_wait_closes_owned_stdin_pipe");
@@ -1702,6 +1973,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(output.status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_wait_is_repeatable() {
     let root = temp_dir("emit_exe_std_process_wait_is_repeatable");
@@ -1767,6 +2039,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(output.status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_try_wait_reports_exit() {
     let root = temp_dir("emit_exe_std_process_try_wait_reports_exit");
@@ -1852,6 +2125,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(output.status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_try_wait_keeps_owned_stdin_pipe_open() {
     let root = temp_dir("emit_exe_std_process_try_wait_keeps_owned_stdin_pipe_open");
@@ -1927,6 +2201,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(output.status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_kill_terminates_child() {
     let root = temp_dir("emit_exe_std_process_kill_terminates_child");
@@ -1980,7 +2255,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::ExitCode(6)!;
         },
     };
-    let cached_signal = match cached.signalCode() {
+    let cachedSignal = match cached.signalCode() {
         ?value => {
             value
         },
@@ -1988,7 +2263,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::ExitCode(7)!;
         },
     };
-    if cached_signal != 15 {
+    if cachedSignal != 15 {
         return process::ExitCode(8)!;
     }
     !()
@@ -2015,6 +2290,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(output.status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_kill_with_uses_requested_signal() {
     let root = temp_dir("emit_exe_std_process_kill_with_uses_requested_signal");
@@ -2080,8 +2356,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     };
     match cached {
-        ?cached_term => {
-            let cached_signal = match cached_term.signalCode() {
+        ?cachedTerm => {
+            let cachedSignal = match cachedTerm.signalCode() {
                 ?value => {
                     value
                 },
@@ -2089,7 +2365,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
                     return process::ExitCode(7)!;
                 },
             };
-            if cached_signal != 9 {
+            if cachedSignal != 9 {
                 return process::ExitCode(8)!;
             }
         },
@@ -2099,6 +2375,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
     !()
 }
+
 "#,
     )
     .expect("write test source");
@@ -2121,6 +2398,68 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(output.status.code(), Some(0));
 }
 
+#[cfg(windows)]
+#[test]
+fn emit_exe_std_process_windows_kill_with_uses_windows_termination_semantics() {
+    let root =
+        temp_dir("emit_exe_std_process_windows_kill_with_uses_windows_termination_semantics");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    let arguments: [&[char]; 2] = [&"-t", &"127.0.0.1"];
+    let command = process::Command::init(
+        std::PathView::init(&"C:\\Windows\\System32\\ping.exe"),
+        init.env(),
+    ).withArguments(&arguments)
+        .withStdout(process::StdIo::Ignore)
+        .withStderr(process::StdIo::Ignore);
+    let mut spawn = command.spawn();
+    let mut child = spawn.finish().?;
+    match child.killWith(999i32 as process::Signal) {
+        !value => {
+            _ = value;
+            return process::ExitCode(1)!;
+        },
+        process::Error::Kill(process::SystemError::Invalid)! => {},
+        error! => {
+            _ = error;
+            return process::ExitCode(2)!;
+        },
+    }
+    let term = child.killWith(process::Signal::Kill).?;
+    match term.exitCode() {
+        ?1 => {},
+        _ => return process::ExitCode(3)!,
+    }
+    !()
+}
+"#,
+    )
+    .expect("write Windows kill semantics source");
+
+    let emit = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe Windows kill semantics");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run emitted Windows kill semantics executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_command_can_set_cwd() {
     let root = temp_dir("emit_exe_std_process_command_can_set_cwd");
@@ -2180,6 +2519,7 @@ pub fn main(init: process::Init) process::ExitCode!() {{
     assert_eq!(output.status.code(), Some(0));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn emit_exe_std_process_command_reports_cwd_spawn_stage() {
     let root = temp_dir("emit_exe_std_process_command_reports_cwd_spawn_stage");
@@ -2240,7 +2580,7 @@ fn emit_exe_discards_indirect_return_call_in_loop() {
         r#"
 using std::process::{Init, ExitCode};
 
-fn should_skip(arg: std::process::Arg) bool {
+fn shouldSkip(arg: std::process::Arg) bool {
     _ = arg;
     false
 }
@@ -2257,7 +2597,7 @@ pub fn main(init: Init) ExitCode!() {
                 break;
             },
         };
-        if should_skip(path) {
+        if shouldSkip(path) {
             _ = paths.next();
             continue;
         }
@@ -2409,8 +2749,8 @@ fn hasUtf8Error(
 }
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let mut page_allocator = mem::PageAllocator::init();
-    let page: &mut mem::Allocator = &mut page_allocator;
+    let mut pageAllocator = mem::PageAllocator::init();
+    let page: &mut mem::Allocator = &mut pageAllocator;
 
     if std::CStringView::fromBytes(&b"nia\0") is !value {
         if value.len() != 3 {
@@ -2460,8 +2800,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     } else {
         return process::ExitCode(14)!;
     }
-    let cstr_bytes = b"nia\0";
-    let ptr = (&cstr_bytes).ptr();
+    let cstrBytes = b"nia\0";
+    let ptr = (&cstrBytes).ptr();
     if ptr[0] != b'n' or ptr[1] != b'i' or ptr[2] != b'a' or ptr[3] != 0u8 {
         return process::ExitCode(5)!;
     }
@@ -3124,6 +3464,19 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if r >= by {
         return process::ExitCode(2)!;
     }
+
+    let highBit = 1u128 << 127u32;
+    let max = u128::MAX;
+    if max / highBit != 1u128 or max % highBit != highBit - 1u128 {
+        return process::ExitCode(3)!;
+    }
+    let highDivisor = highBit + 5u128;
+    if max / highDivisor != 1u128 or max % highDivisor != highBit - 6u128 {
+        return process::ExitCode(4)!;
+    }
+    if 123u128 / highDivisor != 0u128 or 123u128 % highDivisor != 123u128 {
+        return process::ExitCode(5)!;
+    }
     !()
 }
 "#,
@@ -3172,33 +3525,60 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::ExitCode(2)!;
     }
 
-    let neg_base = -base;
-    let q1 = neg_base / divisor;
-    let r1 = neg_base % divisor;
-    if q1 * divisor + r1 != neg_base {
+    let negBase = -base;
+    let q1 = negBase / divisor;
+    let r1 = negBase % divisor;
+    if q1 * divisor + r1 != negBase {
         return process::ExitCode(3)!;
     }
     if r1 > 0i128 or r1 <= -divisor {
         return process::ExitCode(4)!;
     }
 
-    let neg_divisor = -divisor;
-    let q2 = base / neg_divisor;
-    let r2 = base % neg_divisor;
-    if q2 * neg_divisor + r2 != base {
+    let negDivisor = -divisor;
+    let q2 = base / negDivisor;
+    let r2 = base % negDivisor;
+    if q2 * negDivisor + r2 != base {
         return process::ExitCode(5)!;
     }
     if r2 < 0i128 or r2 >= divisor {
         return process::ExitCode(6)!;
     }
 
-    let q3 = neg_base / neg_divisor;
-    let r3 = neg_base % neg_divisor;
-    if q3 * neg_divisor + r3 != neg_base {
+    let q3 = negBase / negDivisor;
+    let r3 = negBase % negDivisor;
+    if q3 * negDivisor + r3 != negBase {
         return process::ExitCode(7)!;
     }
     if r3 > 0i128 or r3 <= -divisor {
         return process::ExitCode(8)!;
+    }
+
+    let min = i128::MIN;
+    let quarter = 1i128 << 126u32;
+    if min / quarter != -2i128 or min % quarter != 0i128 {
+        return process::ExitCode(9)!;
+    }
+    if min / -quarter != 2i128 or min % -quarter != 0i128 {
+        return process::ExitCode(10)!;
+    }
+    let highPositive = quarter + 17i128;
+    let highNegative = -highPositive;
+    let qPositive = min / highPositive;
+    let rPositive = min % highPositive;
+    if qPositive * highPositive + rPositive != min {
+        return process::ExitCode(11)!;
+    }
+    if rPositive > 0i128 or rPositive <= -highPositive {
+        return process::ExitCode(12)!;
+    }
+    let qNegative = min / highNegative;
+    let rNegative = min % highNegative;
+    if qNegative * highNegative + rNegative != min {
+        return process::ExitCode(13)!;
+    }
+    if rNegative > 0i128 or rNegative <= highNegative {
+        return process::ExitCode(14)!;
     }
 
     !()
@@ -3246,11 +3626,11 @@ fn pick(flag: bool) ExitCode {
     }
 }
 
-fn pick_result() fs::Error!ExitCode {
+fn pickResult() fs::Error!ExitCode {
     !pick(true)
 }
 
-fn fail_with_no_space() fs::Error!() {
+fn failWithNoSpace() fs::Error!() {
     fs::Error::NoSpace!
 }
 
@@ -3288,11 +3668,11 @@ pub fn main(init: process::Init) ExitCode!() {
     if (process::Error::Kill(process::SystemError::Invalid).intoError().0) != 22 {
         return ExitCode(9)!;
     }
-    let picked = pick_result().?;
+    let picked = pickResult().?;
     if picked.0 != 11 {
         return ExitCode(4)!;
     }
-    !(fail_with_no_space().?)
+    !(failWithNoSpace().?)
 }
 "#,
     )
@@ -3450,7 +3830,7 @@ fn emit_exe_can_use_std_math_checked_integer_helpers() {
 using std::math;
 using std::process;
 
-fn add_checked_same[T](lhs: T, rhs: T) ?T
+fn addCheckedSame[T](lhs: T, rhs: T) ?T
 where T: math::CheckedAdd[T, Output = T]
 {
     lhs.checkedAdd(rhs)
@@ -3459,7 +3839,7 @@ where T: math::CheckedAdd[T, Output = T]
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
-    match add_checked_same[u8](250u8, 5u8) {
+    match addCheckedSame[u8](250u8, 5u8) {
         ?value => { if value != 255u8 { return process::ExitCode(1)!; } },
         null => { return process::ExitCode(2)!; },
     }
@@ -3613,30 +3993,30 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if iter.remaining() != 2 {
         return process::ExitCode(11)!;
     }
-    let mut first_arg = match iter.next() {
+    let mut firstArg = match iter.next() {
         ?value => { value },
         null => { return process::ExitCode(2)!; },
     };
     if iter.remaining() != 1 {
         return process::ExitCode(12)!;
     }
-    let mut second_arg = match iter.next() {
+    let mut secondArg = match iter.next() {
         ?value => { value },
         null => { return process::ExitCode(3)!; },
     };
     if iter.remaining() != 0 {
         return process::ExitCode(13)!;
     }
-    if first_arg.isEmpty() or second_arg.isEmpty() {
+    if firstArg.isEmpty() or secondArg.isEmpty() {
         return process::ExitCode(26)!;
     }
-    let mut for_count = 0;
+    let mut forCount = 0;
     for arg in args.skipProgram() {
-        if for_count == 0 {
+        if forCount == 0 {
             if arg.len() != 3 {
                 return process::ExitCode(18)!;
             }
-        } else if for_count == 1 {
+        } else if forCount == 1 {
             match arg.parse[u16]() {
                 !value => {
                     if value != 1234 {
@@ -3650,13 +4030,13 @@ pub fn main(init: process::Init) process::ExitCode!() {
         } else {
             return process::ExitCode(21)!;
         }
-        for_count += 1;
+        forCount += 1;
     }
-    if for_count != 2 {
+    if forCount != 2 {
         return process::ExitCode(22)!;
     }
-    let mut first = first_arg.bytes();
-    let mut second = second_arg.bytes();
+    let mut first = firstArg.bytes();
+    let mut second = secondArg.bytes();
     if first.len() != 3 {
         return process::ExitCode(4)!;
     }
@@ -3666,13 +4046,13 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if second.len() != 4 {
         return process::ExitCode(6)!;
     }
-    match second_arg.parse[u16]() {
+    match secondArg.parse[u16]() {
         !value => { if value != 1234 {
                 return process::ExitCode(14)!;
             } },
         error! => { return process::ExitCode(15)!; },
     }
-    match second_arg.parseRadix[u16](16) {
+    match secondArg.parseRadix[u16](16) {
         !value => { if value != 0x1234 {
                 return process::ExitCode(16)!;
             } },
@@ -3680,7 +4060,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
     let mut storage: [u8; 16] = [0; 16];
     let mut writer = io::FixedBufferWriter::init(&mut storage[..]);
-    writer.print(&"{:_>5.2}", &[&first_arg]).?;
+    writer.print(&"{:_>5.2}", &[&firstArg]).?;
     let written = writer.written();
     if written.len() != 5 or written[0] != b'_' or written[1] != b'_' or written[2] != b'_' or written[3] != b'n' or written[4] != b'i' {
         return process::ExitCode(8)!;
@@ -3727,7 +4107,7 @@ fn emit_exe_exposes_process_env_as_values() {
         r#"
 using std::process;
 
-fn starts_with_needle(bytes: &[u8]) bool {
+fn startsWithNeedle(bytes: &[u8]) bool {
     let needle: &[u8] = &b"NIA_TEST_ENV=ok";
     if bytes.len() < needle.len() {
         return false;
@@ -3745,7 +4125,7 @@ fn starts_with_needle(bytes: &[u8]) bool {
 pub fn main(init: process::Init) process::ExitCode!() {
     let env = init.env();
     for item in env.iter() {
-        if starts_with_needle(item.bytes()) {
+        if startsWithNeedle(item.bytes()) {
             if item.isEmpty() {
                 return process::ExitCode(4)!;
             }
@@ -3798,7 +4178,7 @@ enum AppError: i32 {
     _
 }
 
-fn map_parse_error(error: ParseError) AppError {
+fn mapParseError(error: ParseError) AppError {
     _ = error;
     AppError::InvalidInput
 }
@@ -3808,17 +4188,17 @@ fn parse() ParseError!i32 {
 }
 
 extend[T] ParseError!T {
-    fn as_app_error(self) AppError!T {
+    fn asAppError(self) AppError!T {
         match self {
             !value => { !value },
-            err! => { map_parse_error(err)! },
+            err! => { mapParseError(err)! },
         }
     }
 }
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    match parse().as_app_error() {
+    match parse().asAppError() {
         !value => { return process::ExitCode(value)!; },
         err! => { return process::ExitCode(err as i32)!; },
     }
@@ -4062,16 +4442,16 @@ pub fn main(init: process::Init) process::ExitCode!() {
     left.* = 11;
     right.* = 99u64;
 
-    let mut left_again = slot[i32]();
-    let mut right_again = slot[u64]();
-    if left_again.* != 11 {
+    let mut leftAgain = slot[i32]();
+    let mut rightAgain = slot[u64]();
+    if leftAgain.* != 11 {
         return process::ExitCode(1)!;
     }
-    if right_again.* != 99u64 {
+    if rightAgain.* != 99u64 {
         return process::ExitCode(2)!;
     }
 
-    left_again.* = 7;
+    leftAgain.* = 7;
     if slot[i32]().* != 7 {
         return process::ExitCode(3)!;
     }

@@ -4,13 +4,13 @@
 script keeps the source and build trees under `target/` by default, so LLVM is
 not part of the Nia repository or its release archives.
 
-The default source is the `llvmorg-22.1.0` tag from `llvm-project`. Override
+The default source is the `llvmorg-23.1.2` tag from `llvm-project`. Override
 `LLVM_RELEASE_TAG` only when updating the pinned toolchain. The build disables
 optional compression, XML, terminal, and performance-monitoring libraries so a
 static `llvm-sys` link does not inherit distro-specific `-lz`, `-lzstd`, or
 `-lxml2` requirements.
 
-The resulting prefix is selected by `LLVM_SYS_221_PREFIX`. A release build
+The resulting prefix is selected by `LLVM_SYS_231_PREFIX`. A release build
 must use a static-only `llvm-sys` configuration and fail when the prefix does
 not provide static archives. Development builds may continue using the distro
 LLVM installation; release builds consume this prefix through

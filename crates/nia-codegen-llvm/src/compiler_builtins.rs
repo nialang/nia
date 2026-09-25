@@ -12,6 +12,7 @@ use nia_llvm::{
     lto::{emit_full_lto_bitcode, emit_thin_lto_bitcode},
     module::Linkage,
     target::TargetMachine,
+    types::BasicTypeEnum,
     values::{BasicMetadataValueEnum, BasicValueEnum, IntValue, PointerValue},
 };
 use nia_ty::{PrimitiveTy, TyKind};
@@ -508,7 +509,11 @@ pub(crate) fn emit_object(
     target
         .configure_module(&module)
         .map_err(|error| error.diagnostic())?;
-    emit_definitions(&context, &module, symbols)?;
+    let windows_i128_abi = target
+        .target_triple()
+        .map_err(diagnostic_from_llvm_error)?
+        .contains("windows");
+    emit_definitions(&context, &module, symbols, windows_i128_abi)?;
     module.verify().map_err(diagnostic_from_llvm_error)?;
     target
         .emit_object(&module)
@@ -529,7 +534,11 @@ pub(crate) fn emit_lto_bitcode(
     target
         .configure_module(&module)
         .map_err(|error| error.diagnostic())?;
-    emit_definitions(&context, &module, symbols)?;
+    let windows_i128_abi = target
+        .target_triple()
+        .map_err(diagnostic_from_llvm_error)?
+        .contains("windows");
+    emit_definitions(&context, &module, symbols, windows_i128_abi)?;
     module.verify().map_err(diagnostic_from_llvm_error)?;
     match pre_link.mode {
         crate::LtoMode::Thin => {
@@ -546,18 +555,19 @@ fn emit_definitions<'ctx>(
     context: &'ctx Context,
     module: &nia_llvm::module::Module<'ctx>,
     symbols: CompilerBuiltinSymbols,
+    windows_i128_abi: bool,
 ) -> Result<(), Diagnostic> {
     if symbols.u64_div_rem {
-        emit_wide_div_rem(context, module, 64, false)?;
+        emit_wide_div_rem(context, module, 64, false, false)?;
     }
     if symbols.i64_div_rem {
-        emit_wide_div_rem(context, module, 64, true)?;
+        emit_wide_div_rem(context, module, 64, true, false)?;
     }
     if symbols.u128_div_rem {
-        emit_wide_div_rem(context, module, 128, false)?;
+        emit_wide_div_rem(context, module, 128, false, windows_i128_abi)?;
     }
     if symbols.i128_div_rem {
-        emit_wide_div_rem(context, module, 128, true)?;
+        emit_wide_div_rem(context, module, 128, true, windows_i128_abi)?;
     }
     if symbols.u128_from_f32 {
         emit_i128_from_float(context, module, PrimitiveTy::F32, false)?;
@@ -1080,6 +1090,7 @@ fn emit_wide_div_rem<'ctx>(
     module: &nia_llvm::module::Module<'ctx>,
     bits: u32,
     signed: bool,
+    windows_i128_abi: bool,
 ) -> Result<(), Diagnostic> {
     let int_ty = context
         .custom_width_int_type(bits)
@@ -1095,9 +1106,23 @@ fn emit_wide_div_rem<'ctx>(
             )));
         }
     };
-    let fn_ty = int_ty
-        .fn_type(&[int_ty.into(), int_ty.into()], false)
-        .map_err(diagnostic_from_llvm_error)?;
+    let fn_ty = if windows_i128_abi && bits == 128 {
+        windows_i128_result_type(context)
+            .and_then(|result_ty| {
+                result_ty.fn_type(
+                    &[
+                        context.ptr_type(nia_llvm::AddressSpace(0)).into(),
+                        context.ptr_type(nia_llvm::AddressSpace(0)).into(),
+                    ],
+                    false,
+                )
+            })
+            .map_err(diagnostic_from_llvm_error)?
+    } else {
+        int_ty
+            .fn_type(&[int_ty.into(), int_ty.into()], false)
+            .map_err(diagnostic_from_llvm_error)?
+    };
     let div = module
         .add_function(div_name, fn_ty, Some(Linkage::External))
         .map_err(diagnostic_from_llvm_error)?;
@@ -1234,6 +1259,24 @@ fn emit_wide_div_rem<'ctx>(
         .build_store(shift, next_shift)
         .map_err(diagnostic_from_llvm_error)?;
     let rem_value = load_int(&builder, int_ty, remainder, "rem.load")?;
+    let rem_carry = builder
+        .build_right_shift(
+            rem_value,
+            int_ty
+                .const_int(u64::from(bits - 1), false)
+                .map_err(diagnostic_from_llvm_error)?,
+            false,
+            "rem.carry",
+        )
+        .and_then(|value| {
+            builder.build_int_compare(
+                IntPredicate::NE,
+                value,
+                int_ty.const_zero()?,
+                "rem.carry.set",
+            )
+        })
+        .map_err(diagnostic_from_llvm_error)?;
     let rem_shifted = builder
         .build_left_shift(
             rem_value,
@@ -1256,8 +1299,12 @@ fn emit_wide_div_rem<'ctx>(
     builder
         .build_store(remainder, rem_next)
         .map_err(diagnostic_from_llvm_error)?;
+    // Preserve the 129th bit separately so the remainder stays native-width.
+    let rem_at_least_divisor = builder
+        .build_int_compare(IntPredicate::UGE, rem_next, b, "rem.ge.divisor")
+        .map_err(diagnostic_from_llvm_error)?;
     let can_sub = builder
-        .build_int_compare(IntPredicate::UGE, rem_next, b, "cansub")
+        .build_or(rem_carry, rem_at_least_divisor, "cansub")
         .map_err(diagnostic_from_llvm_error)?;
     builder
         .build_conditional_branch(can_sub, sub_block, cont_block)
@@ -1313,11 +1360,11 @@ fn emit_wide_div_rem<'ctx>(
         .map_err(diagnostic_from_llvm_error)?;
 
     if signed {
-        emit_wide_builtin_wrapper(context, div, divmod, bits, true, false)?;
-        emit_wide_builtin_wrapper(context, rem, divmod, bits, true, true)?;
+        emit_wide_builtin_wrapper(context, div, divmod, bits, true, false, windows_i128_abi)?;
+        emit_wide_builtin_wrapper(context, rem, divmod, bits, true, true, windows_i128_abi)?;
     } else {
-        emit_wide_builtin_wrapper(context, div, divmod, bits, false, false)?;
-        emit_wide_builtin_wrapper(context, rem, divmod, bits, false, true)?;
+        emit_wide_builtin_wrapper(context, div, divmod, bits, false, false, windows_i128_abi)?;
+        emit_wide_builtin_wrapper(context, rem, divmod, bits, false, true, windows_i128_abi)?;
     }
     Ok(())
 }
@@ -1329,10 +1376,21 @@ fn emit_wide_builtin_wrapper<'ctx>(
     bits: u32,
     signed: bool,
     want_rem: bool,
+    windows_i128_abi: bool,
 ) -> Result<(), Diagnostic> {
     if signed {
-        return emit_signed_wide_builtin_wrapper(context, function, divmod, bits, want_rem);
+        return emit_signed_wide_builtin_wrapper(
+            context,
+            function,
+            divmod,
+            bits,
+            want_rem,
+            windows_i128_abi,
+        );
     }
+    let int_ty = context
+        .custom_width_int_type(bits)
+        .map_err(diagnostic_from_llvm_error)?;
     let i1_ty = context.bool_type();
     let entry = context
         .append_basic_block(function, "entry")
@@ -1344,15 +1402,35 @@ fn emit_wide_builtin_wrapper<'ctx>(
     let a = function
         .get_nth_param(0)
         .ok_or_else(|| diagnostic_from_llvm_error(LlvmError::ice("missing builtin param")))?
-        .map_err(diagnostic_from_llvm_error)?
-        .into_int_value()
         .map_err(diagnostic_from_llvm_error)?;
+    let a = if windows_i128_abi && bits == 128 {
+        builder
+            .build_load(
+                int_ty,
+                a.into_pointer_value().map_err(diagnostic_from_llvm_error)?,
+                "arg.a",
+            )
+            .and_then(BasicValueEnum::into_int_value)
+            .map_err(diagnostic_from_llvm_error)?
+    } else {
+        a.into_int_value().map_err(diagnostic_from_llvm_error)?
+    };
     let b = function
         .get_nth_param(1)
         .ok_or_else(|| diagnostic_from_llvm_error(LlvmError::ice("missing builtin param")))?
-        .map_err(diagnostic_from_llvm_error)?
-        .into_int_value()
         .map_err(diagnostic_from_llvm_error)?;
+    let b = if windows_i128_abi && bits == 128 {
+        builder
+            .build_load(
+                int_ty,
+                b.into_pointer_value().map_err(diagnostic_from_llvm_error)?,
+                "arg.b",
+            )
+            .and_then(BasicValueEnum::into_int_value)
+            .map_err(diagnostic_from_llvm_error)?
+    } else {
+        b.into_int_value().map_err(diagnostic_from_llvm_error)?
+    };
     let args: [BasicMetadataValueEnum<'ctx>; 3] = [
         a.into(),
         b.into(),
@@ -1367,6 +1445,14 @@ fn emit_wide_builtin_wrapper<'ctx>(
         .try_as_basic_value()
         .unwrap_basic()
         .map_err(diagnostic_from_llvm_error)?;
+    let result = if windows_i128_abi && bits == 128 {
+        let result_ty = windows_i128_result_type(context).map_err(diagnostic_from_llvm_error)?;
+        builder
+            .build_bit_cast(result, result_ty, "result.abi")
+            .map_err(diagnostic_from_llvm_error)?
+    } else {
+        result.into()
+    };
     builder
         .build_return(Some(&result))
         .map_err(diagnostic_from_llvm_error)?;
@@ -1379,6 +1465,7 @@ fn emit_signed_wide_builtin_wrapper<'ctx>(
     divmod: nia_llvm::values::FunctionValue<'ctx>,
     bits: u32,
     want_rem: bool,
+    windows_i128_abi: bool,
 ) -> Result<(), Diagnostic> {
     let int_ty = context
         .custom_width_int_type(bits)
@@ -1394,15 +1481,35 @@ fn emit_signed_wide_builtin_wrapper<'ctx>(
     let a = function
         .get_nth_param(0)
         .ok_or_else(|| diagnostic_from_llvm_error(LlvmError::ice("missing builtin param")))?
-        .map_err(diagnostic_from_llvm_error)?
-        .into_int_value()
         .map_err(diagnostic_from_llvm_error)?;
+    let a = if windows_i128_abi && bits == 128 {
+        builder
+            .build_load(
+                int_ty,
+                a.into_pointer_value().map_err(diagnostic_from_llvm_error)?,
+                "arg.a",
+            )
+            .and_then(BasicValueEnum::into_int_value)
+            .map_err(diagnostic_from_llvm_error)?
+    } else {
+        a.into_int_value().map_err(diagnostic_from_llvm_error)?
+    };
     let b = function
         .get_nth_param(1)
         .ok_or_else(|| diagnostic_from_llvm_error(LlvmError::ice("missing builtin param")))?
-        .map_err(diagnostic_from_llvm_error)?
-        .into_int_value()
         .map_err(diagnostic_from_llvm_error)?;
+    let b = if windows_i128_abi && bits == 128 {
+        builder
+            .build_load(
+                int_ty,
+                b.into_pointer_value().map_err(diagnostic_from_llvm_error)?,
+                "arg.b",
+            )
+            .and_then(BasicValueEnum::into_int_value)
+            .map_err(diagnostic_from_llvm_error)?
+    } else {
+        b.into_int_value().map_err(diagnostic_from_llvm_error)?
+    };
     let zero = int_ty.const_zero().map_err(diagnostic_from_llvm_error)?;
     let a_neg = builder
         .build_int_compare(IntPredicate::SLT, a, zero, "a.neg")
@@ -1462,10 +1569,24 @@ fn emit_signed_wide_builtin_wrapper<'ctx>(
         .map_err(diagnostic_from_llvm_error)?
         .into_int_value()
         .map_err(diagnostic_from_llvm_error)?;
+    let result = if windows_i128_abi && bits == 128 {
+        let result_ty = windows_i128_result_type(context).map_err(diagnostic_from_llvm_error)?;
+        builder
+            .build_bit_cast(result, result_ty, "result.abi")
+            .map_err(diagnostic_from_llvm_error)?
+    } else {
+        result.into()
+    };
     builder
         .build_return(Some(&result))
         .map_err(diagnostic_from_llvm_error)?;
     Ok(())
+}
+
+fn windows_i128_result_type<'ctx>(
+    context: &'ctx Context,
+) -> nia_llvm::LlvmResult<nia_llvm::types::VectorType<'ctx>> {
+    BasicTypeEnum::from(context.i64_type()).vector_type(2)
 }
 
 fn load_int<'ctx>(
@@ -1506,5 +1627,43 @@ mod tests {
         );
 
         assert_eq!(required_symbols(&index), CompilerBuiltinSymbols::default());
+    }
+
+    #[test]
+    fn windows_i128_builtins_use_the_compiler_rt_vector_abi() {
+        let context = Context::create().expect("create LLVM context");
+        let module = context
+            .create_module("nia.windows.compiler_builtins")
+            .expect("create LLVM module");
+        emit_definitions(
+            &context,
+            &module,
+            CompilerBuiltinSymbols {
+                u128_div_rem: true,
+                i128_div_rem: true,
+                ..CompilerBuiltinSymbols::default()
+            },
+            true,
+        )
+        .expect("emit Windows i128 builtins");
+        module.verify().expect("verify Windows builtin module");
+
+        let ir = module.ir_string().expect("render builtin IR");
+        for symbol in ["__udivti3", "__umodti3", "__divti3", "__modti3"] {
+            let signature = ir
+                .lines()
+                .find(|line| line.contains(&format!("@{symbol}(")))
+                .unwrap_or_else(|| panic!("missing {symbol} definition:\n{ir}"));
+            assert!(
+                signature.starts_with("define <2 x i64> ")
+                    && signature.contains("(ptr ")
+                    && signature.matches("ptr ").count() == 2,
+                "{symbol} does not use the Windows compiler-rt ABI:\n{signature}"
+            );
+        }
+        assert!(
+            ir.contains("%rem.carry") && !ir.contains("i129"),
+            "wide division must preserve carry without widening the remainder:\n{ir}"
+        );
     }
 }

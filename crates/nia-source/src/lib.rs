@@ -349,9 +349,18 @@ fn derived_child_path_text(parent_path: &str, child: &str, sibling: bool) -> Str
 
 /// Lexically normalizes `/`, `.`, and `..` path components.
 pub fn normalize_path(path: &str) -> String {
-    let absolute = path.starts_with('/');
+    let path = path.replace('\\', "/");
+    let path = path.strip_prefix("//?/").unwrap_or(&path);
+    let drive = path.as_bytes().get(1) == Some(&b':');
+    let absolute = path.starts_with('/') || drive;
     let mut parts = Vec::new();
-    for part in path.split('/') {
+    let mut components = path.split('/');
+    let prefix = if drive {
+        components.next().unwrap_or_default()
+    } else {
+        ""
+    };
+    for part in components {
         match part {
             "" | "." => {}
             ".." => {
@@ -364,8 +373,16 @@ pub fn normalize_path(path: &str) -> String {
             _ => parts.push(part),
         }
     }
-    let normalized = parts.join("/");
-    if absolute {
+    let normalized = if drive && !prefix.is_empty() {
+        if parts.is_empty() {
+            prefix.to_string()
+        } else {
+            format!("{prefix}/{}", parts.join("/"))
+        }
+    } else {
+        parts.join("/")
+    };
+    if absolute && !drive {
         format!("/{normalized}")
     } else {
         normalized
@@ -743,6 +760,15 @@ mod tests {
         assert_eq!(normalize_path("../../dep.nia"), "../../dep.nia");
         assert_eq!(normalize_path("/a/../../dep.nia"), "/dep.nia");
         assert_ne!(SourcePath::new("../dep.nia"), SourcePath::new("dep.nia"));
+    }
+
+    #[test]
+    fn source_path_normalization_handles_windows_extended_drive_paths() {
+        assert_eq!(
+            normalize_path(r"\\?\C:\Users\nia\lib\std\pkg.nia"),
+            "C:/Users/nia/lib/std/pkg.nia"
+        );
+        assert_eq!(normalize_path(r"C:\work\..\lib\pkg.nia"), "C:/lib/pkg.nia");
     }
 
     #[test]

@@ -74,8 +74,8 @@ owns startup, linking, package builds, and runtime selection.
 
 ## Build The Compiler
 
-The compiler is a Rust workspace and currently uses LLVM 22.1 through
-`llvm-sys`. Install Rust stable, LLVM 22.1, and make `llvm-config` available on
+The compiler is a Rust workspace and currently uses LLVM 23.1 through
+`llvm-sys`. Install Rust stable, LLVM 23.1, and make `llvm-config` available on
 `PATH`, then run:
 
 ```sh
@@ -86,8 +86,23 @@ For an LLVM installation outside the standard layout, set its prefix while
 building:
 
 ```sh
-LLVM_SYS_221_PREFIX=/path/to/llvm-22.1 cargo build --workspace
+LLVM_SYS_231_PREFIX=/path/to/llvm-23.1 cargo build --workspace
 ```
+
+On Windows, set the LLVM prefix and `bin` directory once at user scope so new
+PowerShell, Cargo, and IDE processes inherit them:
+
+```powershell
+$llvm = 'C:\Users\you\tools\llvm-23.1.2'
+[Environment]::SetEnvironmentVariable('LLVM_SYS_231_PREFIX', $llvm, 'User')
+$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+$llvmBin = Join-Path $llvm 'bin'
+if (($userPath -split ';') -notcontains $llvmBin) {
+  [Environment]::SetEnvironmentVariable('Path', "$userPath;$llvmBin", 'User')
+}
+```
+
+Restart existing terminals after changing user environment variables.
 
 Run the compiler directly from the checkout with the versioned standard-library
 resources:
@@ -96,6 +111,10 @@ resources:
 cargo run -p nia-cli -- --resource-root lib check examples/hello.nia \
   --runtime freestanding
 ```
+
+The resource tree includes freestanding startup for Linux x86 and Windows
+x86_64. Windows executable links use the LLVM COFF linker and the Windows SDK
+import libraries discovered from `LIB` or the installed Windows Kits.
 
 For repeated use, build the release binary and keep the checkout's `lib`
 directory beside it:
@@ -136,11 +155,12 @@ nia-<version>-linux-x86_64/
 ├── bin/nia
 ├── lib/toolchain.meta
 ├── lib/std/
-└── libexec/ld.lld
+└── libexec/ld.lld (Linux) or lld-link.exe (Windows)
 ```
 
-The archive includes the compiler, standard-library resources, and bundled
-`ld.lld`; no system LLVM installation is needed to run the packaged compiler.
+The archive includes the compiler, standard-library resources, and the bundled
+platform linker (`ld.lld` on Linux or `lld-link.exe` on Windows); no system LLVM
+installation is needed to run the packaged compiler.
 
 ## Command Workflows
 

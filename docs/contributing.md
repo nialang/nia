@@ -131,11 +131,13 @@ Nia's normal compiler behavior should be configured with CLI flags or typed API
 options, not hidden environment variables. Environment variables that remain in
 the tree are grouped here so their role stays explicit:
 
-- `NIA_LINKER`: user-facing override for the executable linker.
-- `NIA_LLD`: user-facing override for the `ld.lld` executable used by the lld
-  linker flavor.
+- `NIA_LINKER`: user-facing override for the executable linker. Windows
+  overrides use the COFF `lld-link` argument contract; Linux overrides use the
+  GNU contract.
+- `NIA_LLD`: user-facing override for the `ld.lld` or `lld-link` executable
+  selected by the platform linker flavor.
 - `NO_COLOR`: standard terminal convention respected by CLI help rendering.
-- `LLVM_SYS_221_PREFIX`: `llvm-sys` build-time override for non-standard LLVM
+- `LLVM_SYS_231_PREFIX`: `llvm-sys` build-time override for non-standard LLVM
   installations.
 - `NIA_TEST_RESOURCE_TRACE=1`: test-only diagnostics for permit waits and the
   peak process count/RSS observed for each managed command. It is useful when

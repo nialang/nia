@@ -51,6 +51,28 @@ static TEST_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 #[cfg(target_os = "linux")]
 static LINUX_PAGE_SIZE: OnceLock<usize> = OnceLock::new();
 
+#[cfg(windows)]
+#[repr(C)]
+struct WindowsFileTime {
+    low: u32,
+    high: u32,
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn OpenProcess(access: u32, inherit_handle: i32, process_id: u32) -> *mut core::ffi::c_void;
+    fn GetExitCodeProcess(process: *mut core::ffi::c_void, exit_code: *mut u32) -> i32;
+    fn GetProcessTimes(
+        process: *mut core::ffi::c_void,
+        creation: *mut WindowsFileTime,
+        exit: *mut WindowsFileTime,
+        kernel: *mut WindowsFileTime,
+        user: *mut WindowsFileTime,
+    ) -> i32;
+    fn CloseHandle(handle: *mut core::ffi::c_void) -> i32;
+}
+
 thread_local! {
     // Explicit test-wide sessions already reserve the process budget for all
     // commands issued by that test. Command helpers must not acquire a second
@@ -95,16 +117,36 @@ impl Drop for TestDir {
 
 /// Creates a process/thread-unique temporary directory for one test.
 pub fn test_dir(name: &str) -> TestDir {
-    let id = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!(
-        "nia-test-{name}-{}-{:?}-{id}",
-        std::process::id(),
-        std::thread::current().id(),
-    ));
-    let _ = fs::remove_dir_all(&path);
-    fs::create_dir_all(&path)
-        .unwrap_or_else(|error| panic!("create test directory {}: {error}", path.display()));
-    TestDir { path }
+    let name = test_dir_component(name);
+    loop {
+        let id = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path =
+            std::env::temp_dir().join(format!("nia-test-{name}-{}-{id}", std::process::id(),));
+        match fs::create_dir(&path) {
+            Ok(()) => return TestDir { path },
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => panic!("create test directory {}: {error}", path.display()),
+        }
+    }
+}
+
+fn test_dir_component(name: &str) -> String {
+    let component: String = name
+        .chars()
+        .take(64)
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if component.is_empty() {
+        "test".to_owned()
+    } else {
+        component
+    }
 }
 
 /// A compiler-side test command and its heavier build variant.
@@ -1015,7 +1057,38 @@ fn process_is_alive(pid: u32, expected_start_time: u64) -> Option<bool> {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+fn process_is_alive(pid: u32, expected_start_time: u64) -> Option<bool> {
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const STILL_ACTIVE: u32 = 259;
+    // SAFETY: the returned process handle is closed before this function returns.
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        return Some(false);
+    }
+    let mut exit_code = 0;
+    // SAFETY: both output pointers refer to live values for the duration of the call.
+    let queried = unsafe { GetExitCodeProcess(process, &mut exit_code) } != 0;
+    let mut creation = WindowsFileTime { low: 0, high: 0 };
+    let mut exit = WindowsFileTime { low: 0, high: 0 };
+    let mut kernel = WindowsFileTime { low: 0, high: 0 };
+    let mut user = WindowsFileTime { low: 0, high: 0 };
+    // SAFETY: each FILETIME output points to a correctly sized writable value.
+    let timed =
+        unsafe { GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user) } != 0;
+    // SAFETY: process is a live handle returned by OpenProcess above.
+    unsafe { CloseHandle(process) };
+    if !queried || !timed {
+        return None;
+    }
+    if exit_code != STILL_ACTIVE {
+        return Some(false);
+    }
+    let actual_start = ((creation.high as u64) << 32) | creation.low as u64;
+    Some(expected_start_time == 0 || expected_start_time == actual_start)
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
 fn process_is_alive(_pid: u32, _expected_start_time: u64) -> Option<bool> {
     None
 }
@@ -1041,7 +1114,27 @@ fn parse_process_start_time(stat: &str) -> Option<u64> {
         .ok()
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+fn process_start_time(pid: u32) -> Option<u64> {
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    // SAFETY: the returned process handle is closed before this function returns.
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        return None;
+    }
+    let mut creation = WindowsFileTime { low: 0, high: 0 };
+    let mut exit = WindowsFileTime { low: 0, high: 0 };
+    let mut kernel = WindowsFileTime { low: 0, high: 0 };
+    let mut user = WindowsFileTime { low: 0, high: 0 };
+    // SAFETY: each FILETIME output points to a correctly sized writable value.
+    let timed =
+        unsafe { GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user) } != 0;
+    // SAFETY: process is a live handle returned by OpenProcess above.
+    unsafe { CloseHandle(process) };
+    timed.then_some(((creation.high as u64) << 32) | creation.low as u64)
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
 fn process_start_time(_pid: u32) -> Option<u64> {
     None
 }
@@ -1129,6 +1222,13 @@ mod tests {
         fs::write(directory.join("owned"), b"test").expect("write test directory fixture");
         drop(directory);
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_directory_names_cannot_escape_the_system_temp_directory() {
+        assert_eq!(test_dir_component("../outside\\test"), "---outside-test");
+        assert_eq!(test_dir_component(""), "test");
+        assert!(test_dir_component(&"x".repeat(100)).len() <= 64);
     }
 
     #[test]

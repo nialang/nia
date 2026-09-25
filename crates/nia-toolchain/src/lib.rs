@@ -4,7 +4,8 @@
 //! A layout binds one compiler executable to a canonical resource root, a
 //! versioned manifest, the standard library, and runtime startup modules.
 //! Installed toolchains use a portable prefix: `bin/nia`, `lib/`, and
-//! `libexec/ld.lld` are siblings under the installation root.
+//! `libexec/ld.lld` (or `libexec/lld-link.exe` on Windows) are siblings under
+//! the installation root.
 //! Compatibility identity deliberately excludes filesystem paths so an intact
 //! installation can be relocated without invalidating compiler caches.
 
@@ -130,6 +131,7 @@ pub struct SourceRuntimeSpec {
     package_root_identity: String,
     package: nia_package_metadata::PackageId,
     entry_point: RuntimeEntryPoint,
+    required_exports: Vec<String>,
     target: TargetConfig,
     dependencies: Vec<RuntimeDependency>,
 }
@@ -153,6 +155,11 @@ impl SourceRuntimeSpec {
     /// Exact external entry point supplied by this runtime.
     pub fn entry_point(&self) -> &RuntimeEntryPoint {
         &self.entry_point
+    }
+
+    /// Additional runtime-owned C ABI definitions required by native codegen.
+    pub fn required_exports(&self) -> &[String] {
+        &self.required_exports
     }
 
     /// Target configuration for which this runtime was selected.
@@ -205,6 +212,7 @@ impl RuntimeSpec {
         let implementation = match (target.os.as_str(), target.arch.as_str()) {
             ("linux", "x86_64") => "x86_64",
             ("linux", "x86" | "i386" | "i586" | "i686") => "x86",
+            ("windows", "x86_64") => "x86_64",
             _ => {
                 return Err(RuntimeSpecError::UnsupportedTarget {
                     arch: target.arch.clone(),
@@ -222,10 +230,16 @@ impl RuntimeSpec {
             },
             entry_point: RuntimeEntryPoint {
                 module_identity: format!(
-                    "toolchain:/runtime/start/freestanding/linux/{implementation}.nia"
+                    "toolchain:/runtime/start/freestanding/{}/{implementation}.nia",
+                    target.os
                 ),
                 definition_name: "_start".to_string(),
                 linker_symbol: "_start".to_string(),
+            },
+            required_exports: if target.os == "windows" {
+                vec!["__chkstk".to_string()]
+            } else {
+                Vec::new()
             },
             target: target.clone(),
             dependencies: vec![
@@ -372,9 +386,13 @@ impl ToolchainLayout {
             &freestanding_package_root,
             ResourceRole::FreestandingRuntime,
         )?;
-        let bundled_lld = resource_root
-            .parent()
-            .map(|prefix| prefix.join("libexec/ld.lld"));
+        let bundled_lld = resource_root.parent().and_then(|prefix| {
+            #[cfg(windows)]
+            let candidates = [prefix.join("libexec/lld-link.exe")];
+            #[cfg(not(windows))]
+            let candidates = [prefix.join("libexec/ld.lld")];
+            candidates.into_iter().find(|path| path.exists())
+        });
         let bundled_lld = match bundled_lld {
             Some(path) if path.exists() => {
                 Some(validate_optional_file(&path, ResourceRole::BundledLinker)?)
@@ -926,6 +944,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     fn freestanding_runtime_has_stable_source_and_abi_identities() {
         let root = temp_dir("freestanding_runtime_spec");
         let executable = write_layout(&root);
@@ -940,7 +959,11 @@ mod tests {
             source.package().canonical_text(),
             runtime_symbol_package_identity()
         );
-        assert_eq!(source.package_root(), root.join("lib/runtime/pkg.nia"));
+        let expected_runtime_root = root
+            .join("lib/runtime/pkg.nia")
+            .canonicalize()
+            .unwrap_or_else(|_| root.join("lib/runtime/pkg.nia"));
+        assert_eq!(source.package_root(), expected_runtime_root);
         let implementation = if target.arch == "x86_64" {
             "x86_64"
         } else {
@@ -948,10 +971,18 @@ mod tests {
         };
         assert_eq!(
             source.entry_point().module_identity(),
-            format!("toolchain:/runtime/start/freestanding/linux/{implementation}.nia")
+            format!(
+                "toolchain:/runtime/start/freestanding/{}/{implementation}.nia",
+                target.os
+            )
         );
         assert_eq!(source.entry_point().definition_name(), "_start");
         assert_eq!(source.entry_point().linker_symbol(), "_start");
+        if target.os == "windows" {
+            assert_eq!(source.required_exports(), ["__chkstk"]);
+        } else {
+            assert!(source.required_exports().is_empty());
+        }
         assert_eq!(
             source.dependencies(),
             [
@@ -964,6 +995,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn runtime_selection_rejects_unsupported_and_mismatched_targets() {
         let unsupported = TargetConfig {
             arch: "aarch64".to_string(),
@@ -989,13 +1021,16 @@ mod tests {
     fn exposes_bundled_lld_from_release_layout() {
         let root = temp_dir("bundled_lld");
         let executable = write_layout(&root);
+        #[cfg(windows)]
+        let lld = root.join("libexec/lld-link.exe");
+        #[cfg(not(windows))]
         let lld = root.join("libexec/ld.lld");
         fs::create_dir_all(lld.parent().expect("lld parent")).expect("create lld directory");
         fs::write(&lld, b"lld").expect("write bundled lld");
 
         let layout = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
             .expect("release layout");
-        assert_eq!(layout.bundled_lld(), Some(lld.as_path()));
+        assert_eq!(layout.bundled_lld(), lld.canonicalize().ok().as_deref());
     }
 
     #[test]
