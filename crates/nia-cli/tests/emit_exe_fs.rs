@@ -96,11 +96,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if cwd.len() == 0usize {
         return process::ExitCode(2)!;
     }
-    if cwd[0] != b'/' {
-        return process::ExitCode(3)!;
-    }
     if cwd[cwd.len() - 1usize] == 0u8 {
-        return process::ExitCode(4)!;
+        return process::ExitCode(3)!;
     }
     !()
 }
@@ -345,6 +342,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
         fs::OperationError::Path {
             operation: fs::Operation::CreateFile,
             cause: fs::PathError::TooLong,
+        }! => {},
+        fs::OperationError::System {
+            operation: fs::Operation::CreateFile,
+            cause: fs::Error::TooLong,
         }! => {},
         error! => { _ = error; return process::ExitCode(4)!; },
     }
@@ -1620,7 +1621,6 @@ pub fn main(init: process::Init) process::ExitCode!() {
 #[test]
 fn emit_exe_std_fs_file_set_permissions() {
     let root = temp_dir("emit_exe_std_fs_file_set_permissions");
-    let data_path = root.join("data.txt");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
