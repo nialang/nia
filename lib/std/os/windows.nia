@@ -48,6 +48,8 @@ const errorPathNotFound: u32 = 3;
 const errorNoMoreFiles: u32 = 18;
 const errorDirectory: u32 = 267;
 const errorNotSupported: u32 = 50;
+const errorFilenameExcedRange: u32 = 206;
+const errorInvalidName: u32 = 123;
 const invalidFileAttributes: u32 = 0xffffffff;
 const fileNameNormalized: u32 = 0;
 const getFileExInfoStandard: u32 = 0;
@@ -325,13 +327,15 @@ pub extern struct StartupInfo {
 pub extern struct ProcessInformation { process: usize, thread: usize, processId: u32, threadId: u32 }
 
 fn errno(code: u32) Errno {
+    if code == errorFileNotFound or code == errorPathNotFound { return .NoEntry; }
+    if code == errorNotEnoughMemory or code == errorOutofmemory { return .NoMemory; }
     match code {
         (errorAccessDenied) => .PermissionDenied,
-        (errorFileNotFound | errorPathNotFound) => .NoEntry,
         (errorInvalidHandle) => .BadFd,
-        (errorNotEnoughMemory | errorOutofmemory) => .NoMemory,
         (errorAlreadyExists) => .Exists,
         (errorDirectory) => .IsDir,
+        (errorFilenameExcedRange) => .TooLong,
+        (errorInvalidName) => .TooLong,
         (errorNotSupported) => .Unsupported,
         _ => .Io,
     }
@@ -538,6 +542,19 @@ pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: 
     let wide = utf8ToWide(native, &mut wideStorage[..]).?;
     let handle = CreateFileW(wide, access, fileShareRead | fileShareWrite | fileShareDelete, 0, disposition, flags, 0);
     if handle == invalidHandle { return lastError()!; }
+    if directory {
+        let metadata = match metadataHandle(handle) {
+            !value => value,
+            error! => {
+                _ = CloseHandle(handle);
+                return error!;
+            },
+        };
+        if metadata.kind() != .Directory {
+            _ = CloseHandle(handle);
+            return .NotDir!;
+        }
+    }
     !.init(handle)
 }
 

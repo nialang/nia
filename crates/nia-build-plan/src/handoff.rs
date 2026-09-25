@@ -165,12 +165,23 @@ pub fn publish_build_plan(path: &Path, plan: &BuildPlan) -> Result<(), PlanHando
         error,
     })?;
     cleanup.published = true;
-    fs::File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| PlanHandoffError::SyncDirectory {
-            path: parent.to_path_buf(),
-            error,
-        })
+    sync_parent_directory(parent).map_err(|error| PlanHandoffError::SyncDirectory {
+        path: parent.to_path_buf(),
+        error,
+    })
+}
+
+#[cfg(not(windows))]
+fn sync_parent_directory(parent: &Path) -> io::Result<()> {
+    fs::File::open(parent).and_then(|directory| directory.sync_all())
+}
+
+#[cfg(windows)]
+fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
+    // Windows does not expose a portable directory fsync operation. The
+    // temporary file is flushed before rename; the rename itself is the
+    // durable publication boundary supported by the Win32 filesystem API.
+    Ok(())
 }
 
 /// Reads a bounded plan payload and revalidates its canonical semantic form.
