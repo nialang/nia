@@ -67,6 +67,12 @@ fn lld_link_invocation_uses_coff_arguments() {
             .iter()
             .any(|arg| arg == "/DEFAULTLIB:kernel32.lib")
     );
+    assert!(
+        invocation
+            .args
+            .iter()
+            .any(|arg| arg == "/DEFAULTLIB:advapi32.lib")
+    );
     assert!(invocation.args.iter().any(|arg| arg == "/OUT:main.exe"));
 }
 
