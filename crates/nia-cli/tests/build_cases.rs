@@ -483,41 +483,86 @@ fn assert_configured_build_success(
                 nia_build::CommandEnvironmentPolicy::Clear
             );
             assert_eq!(*cache_policy, nia_build::CommandCachePolicy::DeclaredInputs);
-            assert_eq!(
-                program,
-                &nia_build::CommandProgram::Search("sh".to_string())
-            );
-            assert_eq!(
-                arguments,
-                &[
-                    nia_build::CommandArgument::Literal("-c".to_string()),
-                    nia_build::CommandArgument::Literal(
-                        "test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && test -d \"$6\" && test -s \"$7\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""
-                            .to_string()
-                    ),
-                    nia_build::CommandArgument::Literal("nia-build-tool".to_string()),
-                    nia_build::CommandArgument::InputPath(inputs[0].clone()),
-                    nia_build::CommandArgument::OutputPath(outputs[1].clone()),
-                    nia_build::CommandArgument::OutputPath(outputs[0].clone()),
-                    nia_build::CommandArgument::InputPath(inputs[1].clone()),
-                    nia_build::CommandArgument::InputPath(inputs[4].clone()),
-                    nia_build::CommandArgument::InputPath(inputs[3].clone()),
-                    nia_build::CommandArgument::InputPath(inputs[2].clone()),
-                ]
-            );
+            if cfg!(windows) {
+                assert_eq!(
+                    program,
+                    &nia_build::CommandProgram::Search("cmd.exe".to_string())
+                );
+                assert_eq!(arguments.len(), 12);
+                assert_eq!(
+                    arguments[0],
+                    nia_build::CommandArgument::Literal("/d".to_string())
+                );
+                assert_eq!(
+                    arguments[1],
+                    nia_build::CommandArgument::Literal("/s".to_string())
+                );
+                assert_eq!(
+                    arguments[2],
+                    nia_build::CommandArgument::Literal("/c".to_string())
+                );
+                assert!(matches!(
+                    arguments[3],
+                    nia_build::CommandArgument::InputPath(ref path)
+                        if matches!(
+                            path.root(),
+                            nia_build::LogicalPathRoot::Package(package)
+                                if package.as_str() == "assets"
+                        ) && path.protocol_path() == "tool.cmd"
+                ));
+            } else {
+                assert_eq!(
+                    program,
+                    &nia_build::CommandProgram::Search("sh".to_string())
+                );
+                assert_eq!(
+                    arguments,
+                    &[
+                        nia_build::CommandArgument::Literal("-c".to_string()),
+                        nia_build::CommandArgument::Literal(
+                            "test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && test -d \"$6\" && test -s \"$7\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""
+                                .to_string()
+                        ),
+                        nia_build::CommandArgument::Literal("nia-build-tool".to_string()),
+                        nia_build::CommandArgument::InputPath(inputs[0].clone()),
+                        nia_build::CommandArgument::OutputPath(outputs[1].clone()),
+                        nia_build::CommandArgument::OutputPath(outputs[0].clone()),
+                        nia_build::CommandArgument::InputPath(inputs[1].clone()),
+                        nia_build::CommandArgument::InputPath(inputs[4].clone()),
+                        nia_build::CommandArgument::InputPath(inputs[3].clone()),
+                        nia_build::CommandArgument::InputPath(inputs[2].clone()),
+                    ]
+                );
+            }
             assert!(matches!(
                 working_directory.root(),
                 nia_build::LogicalPathRoot::Package(package) if package.as_str() == "root"
             ));
             assert!(working_directory.components().is_empty());
-            assert_eq!(
-                environment,
-                &[nia_build::EnvironmentInput {
-                    name: "MODE".to_string(),
-                    value: Some("fixture".to_string()),
-                }]
-            );
-            assert_eq!(inputs.len(), 5);
+            if cfg!(windows) {
+                assert_eq!(
+                    environment,
+                    &[
+                        nia_build::EnvironmentInput {
+                            name: "MODE".to_string(),
+                            value: Some("fixture".to_string()),
+                        },
+                        nia_build::EnvironmentInput {
+                            name: "SystemRoot".to_string(),
+                            value: Some("C:\\Windows".to_string()),
+                        },
+                    ]
+                );
+            } else {
+                assert_eq!(
+                    environment,
+                    &[nia_build::EnvironmentInput {
+                        name: "MODE".to_string(),
+                        value: Some("fixture".to_string()),
+                    }]
+                );
+            }
+            assert_eq!(inputs.len(), 6);
             assert!(matches!(
                 inputs[0].root(),
                 nia_build::LogicalPathRoot::Package(package) if package.as_str() == "assets"
@@ -525,24 +570,29 @@ fn assert_configured_build_success(
             assert_eq!(inputs[0].protocol_path(), "tool-input.txt");
             assert!(matches!(
                 inputs[1].root(),
-                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "app"
+                nia_build::LogicalPathRoot::Package(package) if package.as_str() == "assets"
             ));
-            assert!(inputs[1].components().is_empty());
+            assert_eq!(inputs[1].protocol_path(), "tool.cmd");
             assert!(matches!(
                 inputs[2].root(),
-                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "archive"
+                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "app"
             ));
             assert!(inputs[2].components().is_empty());
             assert!(matches!(
                 inputs[3].root(),
-                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "objects"
+                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "archive"
             ));
             assert!(inputs[3].components().is_empty());
             assert!(matches!(
                 inputs[4].root(),
-                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "worker"
+                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "objects"
             ));
             assert!(inputs[4].components().is_empty());
+            assert!(matches!(
+                inputs[5].root(),
+                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "worker"
+            ));
+            assert!(inputs[5].components().is_empty());
             assert_eq!(outputs.len(), 2);
             assert!(matches!(
                 outputs[0].root(),
@@ -907,7 +957,8 @@ fn assert_runner_error(
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("build runner"), "{stderr}");
     assert!(
-        stderr.contains(&format!("exit status: {runner_status}")),
+        stderr.contains(&format!("exit status: {runner_status}"))
+            || stderr.contains(&format!("exit code: {runner_status}")),
         "{stderr}"
     );
     if contract == "unknown-step" {

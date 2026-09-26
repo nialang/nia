@@ -390,7 +390,7 @@ impl ArchiveTool {
                 }
             });
         }
-        for program in ["llvm-ar", "ar"] {
+        for program in ["llvm-ar", "llvm-ar.exe", "ar", "ar.exe"] {
             if let Some(found) = find_program_on_path(program) {
                 return Ok(found);
             }
@@ -1172,6 +1172,7 @@ impl LinkOptions {
         }
         if self.target.os == "windows" {
             args.push("/DEFAULTLIB:kernel32.lib".to_string());
+            args.push("/DEFAULTLIB:advapi32.lib".to_string());
         }
         args.extend(self.raw_args.iter().cloned());
         args.push(format!("/OUT:{}", output.to_string_lossy()));

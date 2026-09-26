@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#[cfg(windows)]
+use std::os::windows::process::CommandExt as _;
 use std::process::Command;
 
 mod support;
@@ -808,13 +810,21 @@ pub fn main(init: process::Init) process::ExitCode!() {
         String::from_utf8_lossy(&emit.stderr)
     );
 
+    #[cfg(unix)]
     let status = Command::new("/bin/sh")
         .arg("-c")
         .arg("exec 2>&-; exec \"$1\"")
         .arg("sh")
         .arg(&exe)
         .status_timeout("run emitted std debug error executable with closed stderr");
+    #[cfg(windows)]
+    let status = Command::new(&exe)
+        .creation_flags(0x08000000)
+        .status_timeout("run emitted std debug error executable with closed stderr");
+    #[cfg(unix)]
     assert_eq!(status.code(), Some(0));
+    #[cfg(windows)]
+    assert_eq!(status.code(), Some(3));
 }
 
 #[test]

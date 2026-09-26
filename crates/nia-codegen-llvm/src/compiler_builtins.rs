@@ -30,6 +30,7 @@ pub(crate) fn required_symbols(index: &ProgramIndex) -> CompilerBuiltinSymbols {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct CompilerBuiltinSymbols {
+    pub(crate) windows_fltused: bool,
     pub(crate) u64_div_rem: bool,
     pub(crate) i64_div_rem: bool,
     pub(crate) u128_div_rem: bool,
@@ -46,7 +47,8 @@ pub(crate) struct CompilerBuiltinSymbols {
 
 impl CompilerBuiltinSymbols {
     pub(crate) fn any(self) -> bool {
-        self.u64_div_rem
+        self.windows_fltused
+            || self.u64_div_rem
             || self.i64_div_rem
             || self.u128_div_rem
             || self.i128_div_rem
@@ -66,6 +68,7 @@ impl CompilerBuiltinSymbols {
     /// it to reserve only helpers that the compiler-builtins object will own.
     pub(crate) fn external_definitions(self) -> impl Iterator<Item = &'static str> {
         [
+            self.windows_fltused.then_some("_fltused"),
             self.u64_div_rem.then_some("__udivdi3"),
             self.u64_div_rem.then_some("__umoddi3"),
             self.i64_div_rem.then_some("__divdi3"),
@@ -191,6 +194,14 @@ impl CompilerBuiltinCollector {
     }
 
     fn collect_expr(&mut self, index: &ProgramIndex, expr: &FunctionExpr) {
+        if cfg!(windows)
+            && matches!(
+                index.ty_kind(expr.ty),
+                Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
+            )
+        {
+            self.symbols.windows_fltused = true;
+        }
         match &expr.kind {
             FunctionExprKind::Binary { lhs, op, rhs } => {
                 self.collect_binary(index, lhs, *op);
@@ -557,6 +568,18 @@ fn emit_definitions<'ctx>(
     symbols: CompilerBuiltinSymbols,
     windows_i128_abi: bool,
 ) -> Result<(), Diagnostic> {
+    if symbols.windows_fltused {
+        let global = module
+            .add_global(context.i32_type().into(), None, "_fltused")
+            .map_err(diagnostic_from_llvm_error)?;
+        let zero = context
+            .i32_type()
+            .const_int(0, false)
+            .map_err(diagnostic_from_llvm_error)?;
+        global
+            .set_initializer(&zero)
+            .map_err(diagnostic_from_llvm_error)?;
+    }
     if symbols.u64_div_rem {
         emit_wide_div_rem(context, module, 64, false, false)?;
     }
@@ -570,28 +593,28 @@ fn emit_definitions<'ctx>(
         emit_wide_div_rem(context, module, 128, true, windows_i128_abi)?;
     }
     if symbols.u128_from_f32 {
-        emit_i128_from_float(context, module, PrimitiveTy::F32, false)?;
+        emit_i128_from_float(context, module, PrimitiveTy::F32, false, windows_i128_abi)?;
     }
     if symbols.u128_from_f64 {
-        emit_i128_from_float(context, module, PrimitiveTy::F64, false)?;
+        emit_i128_from_float(context, module, PrimitiveTy::F64, false, windows_i128_abi)?;
     }
     if symbols.i128_from_f32 {
-        emit_i128_from_float(context, module, PrimitiveTy::F32, true)?;
+        emit_i128_from_float(context, module, PrimitiveTy::F32, true, windows_i128_abi)?;
     }
     if symbols.i128_from_f64 {
-        emit_i128_from_float(context, module, PrimitiveTy::F64, true)?;
+        emit_i128_from_float(context, module, PrimitiveTy::F64, true, windows_i128_abi)?;
     }
     if symbols.f32_from_u128 {
-        emit_i128_to_float(context, module, PrimitiveTy::F32, false)?;
+        emit_i128_to_float(context, module, PrimitiveTy::F32, false, windows_i128_abi)?;
     }
     if symbols.f64_from_u128 {
-        emit_i128_to_float(context, module, PrimitiveTy::F64, false)?;
+        emit_i128_to_float(context, module, PrimitiveTy::F64, false, windows_i128_abi)?;
     }
     if symbols.f32_from_i128 {
-        emit_i128_to_float(context, module, PrimitiveTy::F32, true)?;
+        emit_i128_to_float(context, module, PrimitiveTy::F32, true, windows_i128_abi)?;
     }
     if symbols.f64_from_i128 {
-        emit_i128_to_float(context, module, PrimitiveTy::F64, true)?;
+        emit_i128_to_float(context, module, PrimitiveTy::F64, true, windows_i128_abi)?;
     }
     Ok(())
 }
@@ -601,6 +624,7 @@ fn emit_i128_to_float<'ctx>(
     module: &nia_llvm::module::Module<'ctx>,
     target: PrimitiveTy,
     signed: bool,
+    windows_i128_abi: bool,
 ) -> Result<(), Diagnostic> {
     let (format, precision) = match target {
         PrimitiveTy::F32 => (
@@ -630,9 +654,16 @@ fn emit_i128_to_float<'ctx>(
         }
     };
     let i128_ty = context.i128_type();
+    let i128_argument_ty: BasicTypeEnum<'ctx> = if windows_i128_abi {
+        windows_i128_result_type(context)
+            .map_err(diagnostic_from_llvm_error)?
+            .into()
+    } else {
+        i128_ty.into()
+    };
     let fn_ty = format
         .target_ty
-        .fn_type(&[i128_ty.into()], false)
+        .fn_type(&[i128_argument_ty.into()], false)
         .map_err(diagnostic_from_llvm_error)?;
     let function_name = match (target, signed) {
         (PrimitiveTy::F32, true) => "__floattisf",
@@ -667,12 +698,19 @@ fn emit_i128_to_float<'ctx>(
         .create_builder()
         .map_err(diagnostic_from_llvm_error)?;
     builder.position_at_end(entry);
-    let value = function
+    let value: BasicValueEnum<'ctx> = function
         .get_nth_param(0)
         .ok_or_else(|| diagnostic_from_llvm_error(LlvmError::ice("missing builtin param")))?
         .map_err(diagnostic_from_llvm_error)?
-        .into_int_value()
-        .map_err(diagnostic_from_llvm_error)?;
+        .into();
+    let value = if windows_i128_abi {
+        builder
+            .build_bit_cast(value, i128_ty, "value.i128")
+            .and_then(BasicValueEnum::into_int_value)
+            .map_err(diagnostic_from_llvm_error)?
+    } else {
+        value.into_int_value().map_err(diagnostic_from_llvm_error)?
+    };
     let false_value = context
         .bool_type()
         .const_int(0, false)
@@ -963,6 +1001,7 @@ fn emit_i128_from_float<'ctx>(
     module: &nia_llvm::module::Module<'ctx>,
     source: PrimitiveTy,
     signed: bool,
+    windows_i128_abi: bool,
 ) -> Result<(), Diagnostic> {
     let source_ty = match source {
         PrimitiveTy::F32 => context.f32_type(),
@@ -975,7 +1014,14 @@ fn emit_i128_from_float<'ctx>(
     };
     let i64_ty = context.i64_type();
     let i128_ty = context.i128_type();
-    let fn_ty = i128_ty
+    let result_ty: BasicTypeEnum<'ctx> = if windows_i128_abi {
+        windows_i128_result_type(context)
+            .map_err(diagnostic_from_llvm_error)?
+            .into()
+    } else {
+        i128_ty.into()
+    };
+    let fn_ty = result_ty
         .fn_type(&[source_ty.into()], false)
         .map_err(diagnostic_from_llvm_error)?;
     let function_name = match (source, signed) {
@@ -1078,6 +1124,17 @@ fn emit_i128_from_float<'ctx>(
             .map_err(diagnostic_from_llvm_error)?
     } else {
         magnitude
+    };
+    let result = if windows_i128_abi {
+        builder
+            .build_bit_cast(
+                result,
+                windows_i128_result_type(context).map_err(diagnostic_from_llvm_error)?,
+                "result.abi",
+            )
+            .map_err(diagnostic_from_llvm_error)?
+    } else {
+        result.into()
     };
     builder
         .build_return(Some(&result))
@@ -1641,6 +1698,8 @@ mod tests {
             CompilerBuiltinSymbols {
                 u128_div_rem: true,
                 i128_div_rem: true,
+                u128_from_f64: true,
+                f64_from_u128: true,
                 ..CompilerBuiltinSymbols::default()
             },
             true,
@@ -1662,8 +1721,38 @@ mod tests {
             );
         }
         assert!(
+            ir.contains("define <2 x i64> @__fixunsdfti(double "),
+            "Windows float-to-i128 helper must return the vector ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("define double @__floatuntidf(<2 x i64> "),
+            "Windows i128-to-float helper must accept the vector ABI:\n{ir}"
+        );
+        assert!(
             ir.contains("%rem.carry") && !ir.contains("i129"),
             "wide division must preserve carry without widening the remainder:\n{ir}"
         );
+    }
+
+    #[test]
+    fn windows_builtin_runtime_defines_fltused_as_data() {
+        let context = Context::create().expect("create LLVM context");
+        let module = context
+            .create_module("nia.windows.fltused")
+            .expect("create LLVM module");
+        emit_definitions(
+            &context,
+            &module,
+            CompilerBuiltinSymbols {
+                windows_fltused: true,
+                ..CompilerBuiltinSymbols::default()
+            },
+            true,
+        )
+        .expect("emit Windows ABI support");
+
+        module.verify().expect("verify Windows ABI support");
+        let ir = module.ir_string().expect("render Windows ABI support");
+        assert!(ir.contains("@_fltused = global i32 0"), "{ir}");
     }
 }
