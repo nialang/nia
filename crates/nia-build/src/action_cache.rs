@@ -161,7 +161,18 @@ enum BoundedCacheEntry {
 /// Reads at most `max_bytes + 1` bytes so growth after the metadata check cannot
 /// turn a bounded cache lookup into an unbounded allocation.
 fn read_bounded_cache_entry(path: &Path, max_bytes: usize) -> io::Result<BoundedCacheEntry> {
-    let mut file = fs::File::open(path)?;
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt as _;
+
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    options.share_mode(
+        windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ
+            | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE
+            | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE,
+    );
+    let mut file = options.open(path)?;
     let metadata_len = file.metadata()?.len();
     let max_bytes_u64 = u64::try_from(max_bytes).unwrap_or(u64::MAX);
     if metadata_len > max_bytes_u64 {
@@ -413,9 +424,6 @@ impl GeneratedFileCache {
         payload: &[u8],
     ) -> io::Result<()> {
         identity.validate_payload(payload)?;
-        if matches!(self.lookup(identity)?, GeneratedFileCacheLookup::Hit(_)) {
-            return Ok(());
-        }
         let path = self.path(identity.fingerprints);
         let parent = path
             .parent()
@@ -548,20 +556,31 @@ impl GeneratedFileCache {
         let max_bytes = identity.encoded_len()?;
         #[cfg(windows)]
         {
-            match read_bounded_cache_entry(path, max_bytes) {
-                Ok(BoundedCacheEntry::Bytes(encoded))
-                    if decode_entry(&encoded)
-                        .is_some_and(|entry| entry_matches(&entry, identity)) =>
-                {
-                    return Ok(());
+            for _ in 0..512 {
+                match fs::hard_link(staged, path) {
+                    Ok(()) => return Ok(()),
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                        match read_bounded_cache_entry(path, max_bytes) {
+                            Ok(BoundedCacheEntry::Bytes(encoded))
+                                if decode_entry(&encoded)
+                                    .is_some_and(|entry| entry_matches(&entry, identity)) =>
+                            {
+                                return Ok(());
+                            }
+                            Ok(_) | Err(_) => {}
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                    Err(error) => return Err(error),
                 }
-                Ok(BoundedCacheEntry::Bytes(_) | BoundedCacheEntry::Oversized) => {
-                    let _ = fs::remove_file(path);
-                }
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
             }
-            return nia_compat::replace_path(staged, path);
+            Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "generated-file cache entry publication timed out",
+            ))
         }
         #[cfg(not(windows))]
         {
@@ -751,7 +770,18 @@ fn scan_generated_file_entry(
     path: &Path,
     expected: &GeneratedFileCacheIdentity,
 ) -> io::Result<Option<ScannedEntry>> {
-    let mut file = fs::File::open(path)?;
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt as _;
+
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    options.share_mode(
+        windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ
+            | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE
+            | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE,
+    );
+    let mut file = options.open(path)?;
     let metadata_len = file.metadata()?.len();
     let mut magic = [0; 8];
     if !read_exact_or_corrupt(&mut file, &mut magic)? || magic != *GENERATED_FILE_ENTRY.magic {

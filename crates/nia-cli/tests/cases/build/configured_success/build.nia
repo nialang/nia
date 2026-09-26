@@ -116,30 +116,60 @@ fn configure(b: &mut build::Build) build::Error!() {
         archive,
         build::BuildPathView::init(&"install/libconfigured.a"),
     ).?;
-    let toolArguments = [
-        build::CommandArgument::literal(&"-c"),
-        build::CommandArgument::literal(&"test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && test -d \"$6\" && test -s \"$7\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""),
-        build::CommandArgument::literal(&"nia-build-tool"),
-        build::CommandArgument::packageInput(assets, fs::PathView::init(&"tool-input.txt")),
-        build::CommandArgument::buildOutput(build::BuildPathView::init(&"transformed.txt")),
-        build::CommandArgument::buildOutput(build::BuildPathView::init(&"transformed.meta")),
-        build::CommandArgument::artifactInput(app),
-        build::CommandArgument::artifactInput(worker),
-        build::CommandArgument::objectInput(objects),
-        build::CommandArgument::staticArchiveInput(archive),
-    ];
     let toolEnvironment = [
         build::CommandEnvironmentInput::init(&"MODE", &"fixture"),
     ];
-    let toolStep = b.addExternalCommandStep(
-        &toolStepName,
-        build::ExternalCommandOptions::search(&"sh")
-            .withArguments(&toolArguments)
-            .withEnvironment(&toolEnvironment)
-            .withClearedEnvironment()
-            .withDeclaredInputCache()
-            .withResourceClass(build::ActionResourceClass::Io),
-    ).?;
+    let toolStep = (if b.hostTarget().os().equals(&"windows") {
+        let windowsEnvironment = [
+            build::CommandEnvironmentInput::init(&"MODE", &"fixture"),
+            build::CommandEnvironmentInput::init(&"SystemRoot", &"C:\\Windows"),
+        ];
+        let toolArguments = [
+            build::CommandArgument::literal(&"/d"),
+            build::CommandArgument::literal(&"/s"),
+            build::CommandArgument::literal(&"/c"),
+            build::CommandArgument::packageInput(assets, fs::PathView::init(&"tool.cmd")),
+            build::CommandArgument::literal(&"nia-build-tool"),
+            build::CommandArgument::packageInput(assets, fs::PathView::init(&"tool-input.txt")),
+            build::CommandArgument::buildOutput(build::BuildPathView::init(&"transformed.txt")),
+            build::CommandArgument::buildOutput(build::BuildPathView::init(&"transformed.meta")),
+            build::CommandArgument::artifactInput(app),
+            build::CommandArgument::artifactInput(worker),
+            build::CommandArgument::objectInput(objects),
+            build::CommandArgument::staticArchiveInput(archive),
+        ];
+        b.addExternalCommandStep(
+            &toolStepName,
+            build::ExternalCommandOptions::search(&"cmd.exe")
+                .withArguments(&toolArguments)
+                .withEnvironment(&windowsEnvironment)
+                .withClearedEnvironment()
+                .withDeclaredInputCache()
+                .withResourceClass(build::ActionResourceClass::Io),
+        )
+    } else {
+        let toolArguments = [
+            build::CommandArgument::literal(&"-c"),
+            build::CommandArgument::literal(&"test \"$MODE\" = fixture && test -s \"$4\" && test -s \"$5\" && test -d \"$6\" && test -s \"$7\" && tr a-z A-Z < \"$1\" > \"$2\" && printf 'source=tool-input\\n' > \"$3\""),
+            build::CommandArgument::literal(&"nia-build-tool"),
+            build::CommandArgument::packageInput(assets, fs::PathView::init(&"tool-input.txt")),
+            build::CommandArgument::buildOutput(build::BuildPathView::init(&"transformed.txt")),
+            build::CommandArgument::buildOutput(build::BuildPathView::init(&"transformed.meta")),
+            build::CommandArgument::artifactInput(app),
+            build::CommandArgument::artifactInput(worker),
+            build::CommandArgument::objectInput(objects),
+            build::CommandArgument::staticArchiveInput(archive),
+        ];
+        b.addExternalCommandStep(
+            &toolStepName,
+            build::ExternalCommandOptions::search(&"sh")
+                .withArguments(&toolArguments)
+                .withEnvironment(&toolEnvironment)
+                .withClearedEnvironment()
+                .withDeclaredInputCache()
+                .withResourceClass(build::ActionResourceClass::Io),
+        )
+    }).?;
     b.dependOn(toolStep, installStep).?;
     b.dependOn(toolStep, runStep).?;
     b.dependOn(toolStep, hostRunStep).?;

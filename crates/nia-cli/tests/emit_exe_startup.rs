@@ -47,9 +47,19 @@ fn emit_exe_entry_name_is_chosen_by_selected_runtime_not_compiler() {
     let std_start_freestanding_linux = resource_root.join("runtime/start/freestanding/linux.nia");
     let std_start_linux_x86_64 = resource_root.join("runtime/start/freestanding/linux/x86_64.nia");
     let std_start_linux_x86 = resource_root.join("runtime/start/freestanding/linux/x86.nia");
+    let std_start_freestanding_windows =
+        resource_root.join("runtime/start/freestanding/windows.nia");
+    let std_start_windows_x86_64 =
+        resource_root.join("runtime/start/freestanding/windows/x86_64.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::create_dir_all(std_start_linux_x86_64.parent().expect("std start parent"))
         .expect("create custom runtime dir");
+    std::fs::create_dir_all(
+        std_start_windows_x86_64
+            .parent()
+            .expect("std Windows start parent"),
+    )
+    .expect("create custom Windows runtime dir");
     std::fs::create_dir_all(std_builtin.parent().expect("custom std builtin parent"))
         .expect("create custom std library dir");
     let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -91,10 +101,14 @@ pub fn asm(config: AsmConfig) ();
         r#"
 @[if os == "linux" and (arch == "x86_64" or arch == "x86")]
 pub(pkg) module freestanding;
+@[if os == "windows" and arch == "x86_64"]
+pub(pkg) module freestanding;
 @[if os == "linux" and arch == "x86_64"]
 using pkg::start::freestanding::linux::x86_64;
 @[if os == "linux" and arch == "x86"]
 using pkg::start::freestanding::linux::x86;
+@[if os == "windows" and arch == "x86_64"]
+using pkg::start::freestanding::windows::x86_64;
 "#,
     )
     .expect("write custom std start facade");
@@ -103,9 +117,16 @@ using pkg::start::freestanding::linux::x86;
         r#"
 @[if os == "linux"]
 pub(pkg) module linux;
+@[if os == "windows"]
+pub(pkg) module windows;
 "#,
     )
     .expect("write custom std freestanding facade");
+    std::fs::write(
+        &std_start_freestanding_windows,
+        "@[if arch == \"x86_64\"]\npub(pkg) module x86_64;\n",
+    )
+    .expect("write custom std Windows freestanding facade");
     std::fs::write(
         &std_start_freestanding_linux,
         r#"
@@ -190,6 +211,11 @@ extern fn customStart() () {
 "#,
     )
     .expect("write custom i686 std start");
+    std::fs::write(
+        &std_start_windows_x86_64,
+        "using entry;\n\nextern fn ExitProcess(code: u32) ();\n\n@[naked]\npub extern fn _start() () {\n    std::builtin::asm(.{ code: b\"sub rsp, 40\\ncall $0\\nud2\", inputs: .{ reg: &customStart }, clobbers: [b\"memory\"], options: [b\"volatile\"] });\n    loop {}\n}\n\n@[naked]\npub extern fn __chkstk() () {\n    std::builtin::asm(.{ code: b\"ret\", options: [b\"volatile\"] });\n    loop {}\n}\n\nextern fn customStart() () { ExitProcess(11u32); loop {} }\n",
+    )
+    .expect("write custom Windows std start");
     std::fs::write(
         &main,
         r#"

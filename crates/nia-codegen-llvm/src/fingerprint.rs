@@ -133,6 +133,7 @@ fn compiler_builtins_fingerprint_inner(
     }
 
     let mut definition = QueryFingerprintBuilder::new(BUILTINS_DEFINITION_DOMAIN);
+    definition.write_u8(u8::from(symbols.windows_fltused));
     definition.write_u8(u8::from(symbols.u128_div_rem));
     definition.write_u8(u8::from(symbols.i128_div_rem));
     definition.write_u8(u8::from(symbols.u128_from_f32));

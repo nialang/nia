@@ -214,6 +214,7 @@ extern fn SetFileAttributesW(path: &u16, attributes: u32) i32;
 extern fn FindFirstFileA(pattern: &u8, data: &mut FindData) usize;
 extern fn FindNextFileA(search: usize, data: &mut FindData) i32;
 extern fn FindClose(search: usize) i32;
+@[linkName("RtlGenRandom")]
 extern fn SystemFunction036(buffer: &mut u8, length: u32) i32;
 extern fn ExitProcess(code: u32) ();
 extern fn WaitForSingleObject(handle: usize, milliseconds: u32) u32;
