@@ -191,21 +191,27 @@ fn execute_scheduled_action(
         Ok(cache) => {
             trace(format_args!(
                 "pid={} action_finished name={} elapsed={:?} result=success",
-                std::process::id(), action.key.name(), started.elapsed()
+                std::process::id(),
+                action.key.name(),
+                started.elapsed()
             ));
             ActionOutcome::Succeeded(cache)
         }
         Err(error) if is_cancellation_error(&error) => {
             trace(format_args!(
                 "pid={} action_finished name={} elapsed={:?} result=cancelled",
-                std::process::id(), action.key.name(), started.elapsed()
+                std::process::id(),
+                action.key.name(),
+                started.elapsed()
             ));
             ActionOutcome::Cancelled
         }
         Err(error) => {
             trace(format_args!(
                 "pid={} action_finished name={} elapsed={:?} result=error error={error}",
-                std::process::id(), action.key.name(), started.elapsed()
+                std::process::id(),
+                action.key.name(),
+                started.elapsed()
             ));
             cancellation.cancel_later_actions();
             ActionOutcome::Failed(error)
