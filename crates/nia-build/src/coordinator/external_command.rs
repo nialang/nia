@@ -627,7 +627,10 @@ pub(super) fn execute_external_command(
         if trace {
             eprintln!(
                 "[nia-build-trace] pid={} external_finished action={} elapsed={:?} status={} result=error",
-                std::process::id(), action.key.name(), started.elapsed(), status
+                std::process::id(),
+                action.key.name(),
+                started.elapsed(),
+                status
             );
         }
         return Err(error(ExternalCommandFailure::Exit {
