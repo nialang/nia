@@ -64,7 +64,7 @@ jobs:
       - name: Install LLVM 23.1 toolchain
         run: |
           sudo apt-get update
-            sudo apt-get install --yes curl gnupg gcc-multilib g++-multilib libc6-dev-i386
+          sudo apt-get install --yes curl gnupg gcc-multilib g++-multilib libc6-dev-i386
           curl --fail --silent --show-error --location \
             https://apt.llvm.org/llvm-snapshot.gpg.key \
             --output "${RUNNER_TEMP}/llvm-snapshot.gpg.key"
@@ -119,81 +119,15 @@ jobs:
             --target i686-unknown-linux-gnu
 
       - name: Run build/std integration suites
-        shell: bash
+        timeout-minutes: 30
         run: |
-          set -euo pipefail
-          mkdir -p target/nia-suite-diagnostics
+          cargo test -p nia-cli --test build_cases --no-default-features -- --nocapture
+          cargo test -p nia-cli --test toolchain_relocation --no-default-features -- --nocapture
+          cargo test -p nia-cli --test commands --no-default-features -- --nocapture
 
-          run_with_diagnostics() {
-            local label="$1"
-            shift
-            local log="target/nia-suite-diagnostics/${label}.log"
-            local pid
-            "$@" >"$log" 2>&1 &
-            local pid=$!
-            while kill -0 "$pid" 2>/dev/null; do
-              echo "[$label] still running pid=$pid"
-              {
-                echo "timestamp=$(date --iso-8601=seconds) label=$label pid=$pid"
-                ps -eLf
-                echo '--- process tree ---'
-                pstree -ap
-                for nia_pid in $(pgrep -x nia || true); do
-                  echo "--- nia pid=$nia_pid ---"
-                  cat "/proc/$nia_pid/status" || true
-                  ps -L -p "$nia_pid" -o pid,tid,stat,wchan:32,comm || true
-                  for tid in $(ls "/proc/$nia_pid/task" 2>/dev/null || true); do
-                    echo "thread=$tid wchan=$(cat "/proc/$nia_pid/task/$tid/wchan" 2>/dev/null || true)"
-                    cat "/proc/$nia_pid/task/$tid/stack" 2>/dev/null || true
-                  done
-                done
-              } > "target/nia-suite-diagnostics/${label}-process-state.txt"
-              sleep 30
-            done
-            wait "$pid"
-          }
-
-          run_with_diagnostics build_cases \
-            timeout --signal=TERM --kill-after=30s 15m \
-              cargo test -p nia-cli --test build_cases --no-default-features -- --nocapture
-          run_with_diagnostics toolchain_relocation \
-            timeout --signal=TERM --kill-after=30s 15m \
-              cargo test -p nia-cli --test toolchain_relocation --no-default-features -- --nocapture
-          run_with_diagnostics commands \
-            timeout --signal=TERM --kill-after=30s 15m \
-              cargo test -p nia-cli --test commands --no-default-features -- --nocapture
-
-      - name: Run workspace unit tests
-        run: cargo test --workspace --lib --bins
-
-      - name: Run default-feature configured build case with a hard timeout
-        shell: bash
-        env:
-          NIA_BUILD_TRACE: "1"
-          NIA_TEST_RESOURCE_TRACE: "1"
-        run: |
-          set -euo pipefail
-          dump_process_state() {
-            mkdir -p target/nia-timeout
-            {
-              date --iso-8601=seconds
-              ps -eLf
-              echo '--- pstree ---'
-              pstree -ap
-              for pid in $(pgrep -x nia || true); do
-                echo "--- nia pid=$pid ---"
-                cat "/proc/$pid/status" || true
-                cat "/proc/$pid/wchan" || true
-                ps -L -p "$pid" -o pid,tid,stat,wchan:32,comm || true
-                for tid in $(ls "/proc/$pid/task" 2>/dev/null || true); do
-                  echo "thread $tid wchan=$(cat "/proc/$pid/task/$tid/wchan" 2>/dev/null || true)"
-                  cat "/proc/$pid/task/$tid/stack" 2>/dev/null || true
-                done
-              done
-            } > target/nia-timeout/process-state.txt
-          trap dump_process_state EXIT
-          timeout --signal=TERM --kill-after=30s 10m \
-            cargo test -p nia-cli --test build_cases configured_success -- --exact --nocapture
+      - name: Run workspace tests
+        timeout-minutes: 60
+        run: cargo test --workspace
 
       - name: Build release compiler
         run: cargo build --release -p nia-cli
@@ -212,10 +146,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: nia-build-std-evidence
-          path: |
-            target/nia-build-baseline/hosted.json
-            target/nia-timeout/process-state.txt
-            target/nia-suite-diagnostics
+          path: target/nia-build-baseline/hosted.json
           if-no-files-found: warn
           retention-days: 14
 
