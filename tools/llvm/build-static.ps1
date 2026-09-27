@@ -48,8 +48,8 @@ if (-not (Test-Path $cmake) -or -not (Test-Path (Join-Path $ninja 'ninja.exe')))
     throw 'CMake and Ninja from the Visual Studio C++ workload are required.'
 }
 if (-not $sdkBin) { throw 'A Windows SDK bin directory with rc.exe was not found.' }
-$resourceCompiler = Join-Path $sdkBin 'rc.exe'
-$manifestTool = Join-Path $sdkBin 'mt.exe'
+$resourceCompiler = ((Resolve-Path (Join-Path $sdkBin 'rc.exe')).Path -replace '\\', '/')
+$manifestTool = ((Resolve-Path (Join-Path $sdkBin 'mt.exe')).Path -replace '\\', '/')
 if (-not (Test-Path $manifestTool)) { throw 'A Windows SDK bin directory with mt.exe was not found.' }
 
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
