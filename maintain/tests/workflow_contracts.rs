@@ -88,6 +88,7 @@ fn performance_workflow_uses_rust_baselines_and_preserves_evidence() {
         assert!(workflow.contains(command), "missing command {command}");
     }
     assert!(!workflow.contains("--allow-machine-mismatch"));
+    assert!(workflow.contains("llvm-toolchain-noble-23"));
     assert!(workflow.contains("artifact_name=nia-perf-baseline"));
     assert!(workflow.contains("steps.comparison.outcome"));
     assert!(workflow.contains("name: nia-perf-candidate"));
