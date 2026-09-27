@@ -22,6 +22,10 @@ use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use crate::LogicalPath;
 
 const STALE_AFTER: Duration = Duration::from_secs(15 * 60);
+// Delete-pending names clear as soon as the releasing handle closes; a denial
+// that outlives this bound is a real permission failure.
+#[cfg(windows)]
+const DELETE_PENDING_TOLERANCE: Duration = Duration::from_secs(5);
 // pid, process generation, acquisition sequence, separators, and newline fit
 // comfortably inside this protocol budget.
 const MAX_LOCK_OWNER_BYTES: usize = 128;
@@ -107,6 +111,8 @@ impl ScopedFileLock {
         }
         let start = Instant::now();
         let mut sleep = Duration::from_millis(10);
+        #[cfg(windows)]
+        let mut denied_since = None::<Instant>;
         loop {
             if is_cancelled() {
                 return Ok(None);
@@ -135,7 +141,24 @@ impl ScopedFileLock {
                     }));
                 }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    #[cfg(windows)]
+                    {
+                        denied_since = None;
+                    }
                     reclaim_stale_lock(&path, STALE_AFTER);
+                }
+                // A released owner unlinks the path while its handle is still
+                // open. Until that handle closes, Windows keeps the name in a
+                // delete-pending state and `create_new` reports access denial
+                // instead of existence; it is the same contention, not a
+                // permission failure.
+                #[cfg(windows)]
+                Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                    if denied_since.get_or_insert_with(Instant::now).elapsed()
+                        >= DELETE_PENDING_TOLERANCE
+                    {
+                        return Err(error);
+                    }
                 }
                 Err(error) => return Err(error),
             }
