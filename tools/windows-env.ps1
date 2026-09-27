@@ -35,7 +35,10 @@ $vcRoot = Join-Path $vsRoot 'VC\Tools\MSVC'
 $vcTools = Get-ChildItem $vcRoot -Directory | Sort-Object Name -Descending | Select-Object -First 1
 $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
 $sdkRoot = Join-Path $programFilesX86 'Windows Kits\10\Lib'
-$sdk = Get-ChildItem $sdkRoot -Directory | Sort-Object Name -Descending | Select-Object -First 1
+$sdk = Get-ChildItem $sdkRoot -Directory |
+    Where-Object { $_.Name -match '^\d+\.' } |
+    Sort-Object Name -Descending |
+    Select-Object -First 1
 if (-not $vcTools -or -not $sdk) {
     throw 'The MSVC or Windows SDK library directories were not found.'
 }

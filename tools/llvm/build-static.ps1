@@ -32,7 +32,10 @@ if (-not $vsRoot) { throw 'Visual Studio with the x64 MSVC tools was not found.'
 $vcRoot = Join-Path $vsRoot 'VC\Tools\MSVC'
 $vcTools = Get-ChildItem $vcRoot -Directory | Sort-Object Name -Descending | Select-Object -First 1
 $sdkRoot = Join-Path $programFilesX86 'Windows Kits\10\Lib'
-$sdk = Get-ChildItem $sdkRoot -Directory | Sort-Object Name -Descending | Select-Object -First 1
+$sdk = Get-ChildItem $sdkRoot -Directory |
+    Where-Object { $_.Name -match '^\d+\.' } |
+    Sort-Object Name -Descending |
+    Select-Object -First 1
 if (-not $vcTools -or -not $sdk) { throw 'The MSVC or Windows SDK library directories were not found.' }
 $sdkInclude = Join-Path (Join-Path $programFilesX86 'Windows Kits\10\Include') $sdk.Name
 
