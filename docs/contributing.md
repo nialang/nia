@@ -70,6 +70,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
+On Windows, run the same gates from a PowerShell session prepared by
+`. .\tools\windows-env.ps1`, and pass `--no-default-features` to the Clippy
+and test commands as the managed Windows workflow does.
+
 For a release compiler, build the pinned static LLVM prefix first and invoke
 `tools/release/build.sh`. Do not use the default development feature for a
 release artifact:

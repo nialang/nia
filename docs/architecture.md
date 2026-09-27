@@ -793,11 +793,14 @@ results, not reported as cold compiler throughput.
 
 ### `nia-linker`
 
-Invokes the system linker to produce executables. Handles linker selection (lld, system
-ld), link arguments, library paths, and startup objects. The default Linux x86_64
-runtime exports `_start` and calls the Nia-level root entry contract from toolchain-owned
-runtime source. The source is mounted as a private child of the toolchain-owned runtime
-package identity; this logical mount is not a public import or standard-library ownership.
+Invokes the system linker to produce executables. Handles linker selection (`ld.lld` or
+system `ld` for ELF targets, `lld-link` with the COFF argument contract for Windows
+targets), link arguments, library paths, and startup objects. Bare tool names resolve
+with the host executable suffix, so a host never selects a foreign executable exposed on
+`PATH`. The default Linux x86_64 runtime exports `_start` and calls the Nia-level root
+entry contract from toolchain-owned runtime source. The source is mounted as a private
+child of the toolchain-owned runtime package identity; this logical mount is not a public
+import or standard-library ownership.
 
 Package inputs are compiled from source for the selected target, profile, and normal/test
 mode. Object and executable results may be reused through private,

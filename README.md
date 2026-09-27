@@ -129,9 +129,10 @@ cargo run -p nia-cli -- --resource-root lib check examples/hello.nia \
   --runtime freestanding
 ```
 
-The resource tree includes freestanding startup for Linux x86 and Windows
-x86_64. Windows executable links use the LLVM COFF linker and the Windows SDK
-import libraries discovered from `LIB` or the installed Windows Kits.
+The resource tree includes freestanding startup for Linux x86_64, Linux i686,
+and Windows x86_64. Windows executable links use the LLVM COFF linker and the
+Windows SDK import libraries discovered from `LIB` or the installed Windows
+Kits.
 
 For repeated use, build the release binary and keep the checkout's `lib`
 directory beside it:
@@ -172,12 +173,13 @@ nia-<version>-linux-x86_64/
 ├── bin/nia
 ├── lib/toolchain.meta
 ├── lib/std/
-└── libexec/ld.lld (Linux) or lld-link.exe (Windows)
+└── libexec/ld.lld
 ```
 
 The archive includes the compiler, standard-library resources, and the bundled
-platform linker (`ld.lld` on Linux or `lld-link.exe` on Windows); no system LLVM
-installation is needed to run the packaged compiler.
+`ld.lld` linker; no system LLVM installation is needed to run the packaged
+compiler. Windows release archives are not published yet; build the Windows
+compiler from source as described above.
 
 ## Command Workflows
 
@@ -256,8 +258,10 @@ Compiler and repository contributors should use:
 
 Nia is maintainer-tested. The supported release package targets Linux
 x86_64 on Ubuntu 24.04-class systems; the maintained development environments
-also include the current Fedora Linux x86_64 setup. Freestanding executable
-coverage currently targets Linux x86_64, with experimental i686 coverage.
+also include the current Fedora Linux x86_64 setup and a Windows x86_64 MSVC
+host. Managed CI runs the full correctness matrix on both Ubuntu 24.04 and
+Windows Server 2022. Freestanding executable coverage targets Linux x86_64 and
+Windows x86_64, with experimental i686 coverage.
 
 The detailed support boundary, LLVM requirements, and target notes live in
 [Platform Support](docs/platform-support.md).
