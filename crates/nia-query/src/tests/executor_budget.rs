@@ -109,3 +109,56 @@ fn default_query_parallelism_is_bounded() {
     assert!(count >= 1);
     assert!(count <= DEFAULT_MAX_QUERY_EXECUTOR_PARALLELISM);
 }
+
+#[test]
+fn executor_shutdown_releases_workers_waiting_for_process_permits() {
+    // A worker observes queued work and waits for a process permit; the batch
+    // owner then runs that work itself while every permit stays held by the
+    // thread that later drops the executor. Shutdown must not join a worker
+    // that is still waiting for capacity it no longer needs.
+    let execution_budget = Arc::new(QueryExecutionBudget::owned(1));
+    let held = execution_budget
+        .acquire()
+        .expect("hold the only process permit");
+    let executor = QueryExecutor::new(
+        QuerySessionId::fresh().expect("fresh session id"),
+        NonZeroUsize::new(2).expect("non-zero parallelism"),
+        Arc::clone(&execution_budget),
+    );
+    let batch = 1;
+    executor
+        .submit_all(
+            (0..2)
+                .map(|_| QueryTask {
+                    batch,
+                    settle: Box::new(|_| {}),
+                })
+                .collect(),
+        )
+        .expect("submit tasks");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while execution_budget.shared.state.lock().waiting == 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "worker never waited for a process permit"
+        );
+        std::thread::yield_now();
+    }
+    while let Some(task) = executor.take_batch_task(batch) {
+        (task.settle)(None);
+    }
+
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        drop(executor);
+        sender.send(()).expect("report executor shutdown");
+    });
+    assert!(
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .is_ok(),
+        "executor shutdown joined a worker blocked on the process budget"
+    );
+    drop(held);
+    assert_eq!(execution_budget.shared.state.lock().waiting, 0);
+}
