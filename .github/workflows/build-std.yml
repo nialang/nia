@@ -154,7 +154,7 @@ jobs:
     timeout-minutes: 180
     env:
       CARGO_TERM_COLOR: always
-      LLVM_SOURCE_ROOT: ${{ runner.temp }}\llvm-project-23.1.2
+      LLVM_SOURCE_ROOT: ${{ github.workspace }}\target\llvm-source
       LLVM_BUILD_ROOT: ${{ github.workspace }}\target\llvm-static\build
       LLVM_INSTALL_ROOT: ${{ github.workspace }}\target\llvm-static\install
       LLVM_SYS_231_PREFIX: ${{ github.workspace }}\target\llvm-static\install
