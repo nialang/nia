@@ -68,6 +68,7 @@ fn build_std_workflow_runs_the_windows_static_llvm_matrix() {
     }
     assert!(workflow.contains("LLVM_SYS_231_PREFIX"));
     assert!(workflow.contains("LLVM_INSTALL_ROOT"));
+    assert!(workflow.contains("llvm-toolchain-noble-23"));
 }
 
 #[test]
