@@ -76,6 +76,19 @@ $env:INCLUDE = (@(
     $env:INCLUDE -split ';'
 ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique) -join ';'
 
+function ConvertTo-ShortPath([string] $path) {
+    $comspec = if ($env:ComSpec) { $env:ComSpec } else { Join-Path $env:SystemRoot 'System32\cmd.exe' }
+    if (-not (Test-Path $comspec)) { return $path }
+    (& $comspec /d /s /c "for %I in (`"$path`") do @echo %~sI").Trim()
+}
+
+$libraryPaths = @(
+    (Join-Path $vcTools.FullName 'lib\x64'),
+    (Join-Path $sdk.FullName 'um\x64'),
+    (Join-Path $sdk.FullName 'ucrt\x64')
+) | Where-Object { Test-Path $_ } | ForEach-Object { ConvertTo-ShortPath $_ }
+$linkerFlags = ($libraryPaths | ForEach-Object { "/LIBPATH:$_" }) -join ' '
+
 $jobs = if ($env:LLVM_BUILD_JOBS) { $env:LLVM_BUILD_JOBS } else { [Environment]::ProcessorCount }
 $cmakeArgs = @(
     '-S', (Join-Path $SourceRoot 'llvm'),
@@ -87,6 +100,8 @@ $cmakeArgs = @(
     '-DCMAKE_CXX_COMPILER=cl.exe',
     "-DCMAKE_RC_COMPILER=$resourceCompiler",
     "-DCMAKE_MT=$manifestTool",
+    "-DCMAKE_EXE_LINKER_FLAGS=$linkerFlags",
+    "-DCMAKE_SHARED_LINKER_FLAGS=$linkerFlags",
     '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded',
     '-DLLVM_ENABLE_PROJECTS=lld',
     '-DLLVM_TARGETS_TO_BUILD=X86',
