@@ -599,14 +599,6 @@ fn acquire_resources(
         memory_tokens(request.minimum_memory_bytes),
         request.minimum_memory_bytes,
     );
-    if resource_trace_enabled() {
-        trace_resource(format_args!(
-            "resource request slots={} memory_tokens={} workload_memory_mib={:.1}",
-            request.slots,
-            memory_tokens(request.minimum_memory_bytes),
-            bytes_to_mib(request.minimum_memory_bytes),
-        ));
-    }
     let scheduling = scheduling_pool.acquire(request.slots, 0);
     TestResourceSession::new([memory, scheduling])
 }
@@ -705,7 +697,6 @@ impl ResourcePool {
             };
         }
         let reserved_slots = requested_slots.clamp(1, self.capacity);
-        let started = Instant::now();
         let mut available = lock_unpoisoned(&self.available);
         while *available < reserved_slots {
             available = self
@@ -734,14 +725,6 @@ impl ResourcePool {
                 );
             }
         };
-        if resource_trace_enabled() {
-            trace_resource(format_args!(
-                "resource acquired root={} requested={} waited={:?}",
-                self.slot_root.display(),
-                reserved_slots,
-                started.elapsed(),
-            ));
-        }
         ResourceReservation {
             pool: self,
             reserved_slots,
