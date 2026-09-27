@@ -4,6 +4,16 @@
 use super::*;
 use crate::BuildStepSelection;
 
+fn trace_enabled() -> bool {
+    std::env::var_os("NIA_BUILD_TRACE").is_some_and(|value| value != "0")
+}
+
+fn trace(message: std::fmt::Arguments<'_>) {
+    if trace_enabled() {
+        eprintln!("[nia-build-trace] {message}");
+    }
+}
+
 /// Validates invocation targets, recovers interrupted output transactions, and
 /// executes the selected dependency closure in deterministic readiness waves.
 pub fn execute_build_plan(
@@ -169,10 +179,34 @@ fn execute_scheduled_action(
     if cancellation.is_cancelled() {
         return ActionOutcome::Cancelled;
     }
+    let started = Instant::now();
+    trace(format_args!(
+        "pid={} action_start name={} thread={:?} kind={:?}",
+        std::process::id(),
+        action.key.name(),
+        thread::current().id(),
+        action.kind
+    ));
     match executor.execute(action, cancellation) {
-        Ok(cache) => ActionOutcome::Succeeded(cache),
-        Err(error) if is_cancellation_error(&error) => ActionOutcome::Cancelled,
+        Ok(cache) => {
+            trace(format_args!(
+                "pid={} action_finished name={} elapsed={:?} result=success",
+                std::process::id(), action.key.name(), started.elapsed()
+            ));
+            ActionOutcome::Succeeded(cache)
+        }
+        Err(error) if is_cancellation_error(&error) => {
+            trace(format_args!(
+                "pid={} action_finished name={} elapsed={:?} result=cancelled",
+                std::process::id(), action.key.name(), started.elapsed()
+            ));
+            ActionOutcome::Cancelled
+        }
         Err(error) => {
+            trace(format_args!(
+                "pid={} action_finished name={} elapsed={:?} result=error error={error}",
+                std::process::id(), action.key.name(), started.elapsed()
+            ));
             cancellation.cancel_later_actions();
             ActionOutcome::Failed(error)
         }
@@ -280,7 +314,25 @@ fn execute_roots_closure(
                 wave_actions.push(action);
             }
         }
+        trace(format_args!(
+            "pid={} wave_start actions={}",
+            std::process::id(),
+            wave_actions
+                .iter()
+                .map(|action| action.key.name())
+                .collect::<Vec<_>>()
+                .join(",")
+        ));
         let outcomes = execute_batch(&wave_actions)?;
+        trace(format_args!(
+            "pid={} wave_finished actions={}",
+            std::process::id(),
+            wave_actions
+                .iter()
+                .map(|action| action.key.name())
+                .collect::<Vec<_>>()
+                .join(",")
+        ));
         if outcomes.len() != wave_actions.len() {
             return Err(inconsistent(
                 "coordinator action batch",

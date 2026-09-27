@@ -142,8 +142,17 @@ jobs:
           run_with_heartbeat commands \
             cargo test -p nia-cli --test commands --no-default-features -- --nocapture
 
-      - name: Run workspace tests
-        run: cargo test --workspace
+      - name: Run workspace unit tests
+        run: cargo test --workspace --lib --bins
+
+      - name: Run default-feature configured build case with a hard timeout
+        shell: bash
+        env:
+          NIA_BUILD_TRACE: "1"
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=30s 10m \
+            cargo test -p nia-cli --test build_cases configured_success -- --exact --nocapture
 
       - name: Build release compiler
         run: cargo build --release -p nia-cli

@@ -463,6 +463,17 @@ pub(super) fn execute_external_command(
     request: ResolvedExternalCommand<'_>,
     policy: ExternalExecutionPolicy,
 ) -> Result<(), CoordinatorError> {
+    let trace = std::env::var_os("NIA_BUILD_TRACE").is_some_and(|value| value != "0");
+    let started = Instant::now();
+    if trace {
+        eprintln!(
+            "[nia-build-trace] pid={} external_start action={} program={} args={:?}",
+            std::process::id(),
+            action.key.name(),
+            request.program,
+            request.arguments
+        );
+    }
     let error = |failure| {
         CoordinatorError::ExternalCommand(Box::new(ExternalCommandError {
             action: action.key.clone(),
@@ -613,11 +624,26 @@ pub(super) fn execute_external_command(
         }));
     }
     if !status.success() {
+        if trace {
+            eprintln!(
+                "[nia-build-trace] pid={} external_finished action={} elapsed={:?} status={} result=error",
+                std::process::id(), action.key.name(), started.elapsed(), status
+            );
+        }
         return Err(error(ExternalCommandFailure::Exit {
             status,
             stdout: stdout.tail,
             stderr: stderr.tail,
         }));
+    }
+    if trace {
+        eprintln!(
+            "[nia-build-trace] pid={} external_finished action={} elapsed={:?} status={}",
+            std::process::id(),
+            action.key.name(),
+            started.elapsed(),
+            status
+        );
     }
     Ok(())
 }
