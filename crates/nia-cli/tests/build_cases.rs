@@ -562,37 +562,61 @@ fn assert_configured_build_success(
                     }]
                 );
             }
-            assert_eq!(inputs.len(), 6);
             assert!(matches!(
                 inputs[0].root(),
                 nia_build::LogicalPathRoot::Package(package) if package.as_str() == "assets"
             ));
             assert_eq!(inputs[0].protocol_path(), "tool-input.txt");
-            assert!(matches!(
-                inputs[1].root(),
-                nia_build::LogicalPathRoot::Package(package) if package.as_str() == "assets"
-            ));
-            assert_eq!(inputs[1].protocol_path(), "tool.cmd");
-            assert!(matches!(
-                inputs[2].root(),
-                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "app"
-            ));
-            assert!(inputs[2].components().is_empty());
-            assert!(matches!(
-                inputs[3].root(),
-                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "archive"
-            ));
-            assert!(inputs[3].components().is_empty());
-            assert!(matches!(
-                inputs[4].root(),
-                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "objects"
-            ));
-            assert!(inputs[4].components().is_empty());
-            assert!(matches!(
-                inputs[5].root(),
-                nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "worker"
-            ));
-            assert!(inputs[5].components().is_empty());
+            if cfg!(windows) {
+                assert_eq!(inputs.len(), 6);
+                assert!(matches!(
+                    inputs[1].root(),
+                    nia_build::LogicalPathRoot::Package(package) if package.as_str() == "assets"
+                ));
+                assert_eq!(inputs[1].protocol_path(), "tool.cmd");
+                assert!(matches!(
+                    inputs[2].root(),
+                    nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "app"
+                ));
+                assert!(inputs[2].components().is_empty());
+                assert!(matches!(
+                    inputs[3].root(),
+                    nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "archive"
+                ));
+                assert!(inputs[3].components().is_empty());
+                assert!(matches!(
+                    inputs[4].root(),
+                    nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "objects"
+                ));
+                assert!(inputs[4].components().is_empty());
+                assert!(matches!(
+                    inputs[5].root(),
+                    nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "worker"
+                ));
+                assert!(inputs[5].components().is_empty());
+            } else {
+                assert_eq!(inputs.len(), 5);
+                assert!(matches!(
+                    inputs[1].root(),
+                    nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "app"
+                ));
+                assert!(inputs[1].components().is_empty());
+                assert!(matches!(
+                    inputs[2].root(),
+                    nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "archive"
+                ));
+                assert!(inputs[2].components().is_empty());
+                assert!(matches!(
+                    inputs[3].root(),
+                    nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "objects"
+                ));
+                assert!(inputs[3].components().is_empty());
+                assert!(matches!(
+                    inputs[4].root(),
+                    nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "worker"
+                ));
+                assert!(inputs[4].components().is_empty());
+            }
             assert_eq!(outputs.len(), 2);
             assert!(matches!(
                 outputs[0].root(),
