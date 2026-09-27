@@ -1621,6 +1621,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
 #[test]
 fn emit_exe_std_fs_file_set_permissions() {
     let root = temp_dir("emit_exe_std_fs_file_set_permissions");
+    #[cfg(unix)]
+    let data_path = root.join("data.txt");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
