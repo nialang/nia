@@ -104,6 +104,23 @@ if (($userPath -split ';') -notcontains $llvmBin) {
 
 Restart existing terminals after changing user environment variables.
 
+For an x64 MSVC build against the prebuilt Windows LLVM archives, dot-source
+the repository environment helper from a fresh PowerShell session. It discovers
+the installed Visual Studio and Windows SDK library paths and aligns Rust and
+the LLVM C++ bridge on the static MSVC runtime:
+
+```powershell
+. .\tools\windows-env.ps1
+cargo build -p nia-cli --no-default-features
+```
+
+The helper is session-scoped; it does not modify the repository or global
+environment variables.
+
+If an official LLVM Windows archive contains a library path from its build
+machine, the helper creates a temporary `target/llvm-config-wrapper` prefix
+and filters that missing path from `llvm-config --system-libs` automatically.
+
 Run the compiler directly from the checkout with the versioned standard-library
 resources:
 

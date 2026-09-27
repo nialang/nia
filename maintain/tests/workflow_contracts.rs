@@ -48,6 +48,29 @@ fn build_std_workflow_runs_complete_rust_maintenance_and_correctness_gates() {
 }
 
 #[test]
+fn build_std_workflow_runs_the_windows_static_llvm_matrix() {
+    let workflow = workflow("build-std.yml");
+    assert!(workflow.contains("name: Windows x64 correctness matrix"));
+    assert!(workflow.contains("runs-on: windows-2022"));
+    assert!(workflow.contains("tools/llvm/build-static.ps1"));
+    assert!(workflow.contains("windows-env.ps1"));
+    for command in [
+        "cargo maintain check",
+        "cargo fmt --all -- --check",
+        "cargo clippy --workspace --all-targets --no-default-features -- -D warnings",
+        "cargo test --workspace --no-default-features",
+        "cargo build --release -p nia-cli --no-default-features",
+    ] {
+        assert!(
+            workflow.contains(command),
+            "missing Windows command {command}"
+        );
+    }
+    assert!(workflow.contains("LLVM_SYS_231_PREFIX"));
+    assert!(workflow.contains("LLVM_INSTALL_ROOT"));
+}
+
+#[test]
 fn performance_workflow_uses_rust_baselines_and_preserves_evidence() {
     let workflow = workflow("performance.yml");
     for command in [

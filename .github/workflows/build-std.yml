@@ -12,6 +12,7 @@ on:
       - "examples/**"
       - "benchmarks/build/**"
       - "maintain/**"
+      - "tools/**"
   push:
     branches:
       - main
@@ -25,6 +26,7 @@ on:
       - "examples/**"
       - "benchmarks/build/**"
       - "maintain/**"
+      - "tools/**"
   workflow_dispatch:
 
 permissions:
@@ -145,3 +147,78 @@ jobs:
           path: target/nia-build-baseline/hosted.json
           if-no-files-found: warn
           retention-days: 14
+
+  windows:
+    name: Windows x64 correctness matrix
+    runs-on: windows-2022
+    timeout-minutes: 180
+    env:
+      CARGO_TERM_COLOR: always
+      LLVM_SOURCE_ROOT: ${{ runner.temp }}\llvm-project-23.1.2
+      LLVM_BUILD_ROOT: ${{ github.workspace }}\target\llvm-static\build
+      LLVM_INSTALL_ROOT: ${{ github.workspace }}\target\llvm-static\install
+      LLVM_SYS_231_PREFIX: ${{ github.workspace }}\target\llvm-static\install
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust stable
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --component rustfmt --no-self-update
+          rustup default stable
+          rustc --version --verbose
+          cargo --version
+
+      - name: Cache static LLVM prefix
+        id: llvm-cache
+        uses: actions/cache@v6
+        with:
+          path: target/llvm-static/install
+          key: nia-llvm-23.1.2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/llvm/build-static.ps1') }}
+
+      - name: Build pinned static LLVM
+        if: steps.llvm-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: .\tools\llvm\build-static.ps1
+
+      - name: Configure MSVC, Windows SDK, LLVM, and static CRT
+        shell: pwsh
+        run: |
+          . .\tools\windows-env.ps1
+          @(
+            "LLVM_SYS_231_PREFIX=$env:LLVM_SYS_231_PREFIX"
+            "LIB=$env:LIB"
+            "INCLUDE=$env:INCLUDE"
+            "CFLAGS=$env:CFLAGS"
+            "CXXFLAGS=$env:CXXFLAGS"
+            "RUSTFLAGS=$env:RUSTFLAGS"
+            "PATH=$env:PATH"
+          ) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Check maintenance tooling
+        shell: pwsh
+        run: cargo maintain check
+
+      - name: Format and lint
+        shell: pwsh
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+
+      - name: Run Windows workspace tests
+        shell: pwsh
+        run: cargo test --workspace --no-default-features
+
+      - name: Run Windows maintenance workflow contracts
+        shell: pwsh
+        run: cargo test -p nia-maintain --test workflow_contracts --no-default-features
+
+      - name: Build Windows release compiler
+        shell: pwsh
+        run: |
+          cargo build --release -p nia-cli --no-default-features
+          & .\target\release\nia.exe --version
