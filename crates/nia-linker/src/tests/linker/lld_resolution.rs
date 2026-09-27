@@ -38,6 +38,12 @@ fn lld_invocation_uses_gnu_like_arguments() {
 fn lld_link_invocation_uses_coff_arguments() {
     let options = LinkOptions {
         linker: ExecutableLinker::with_program_and_flavor("lld-link.exe", LinkerFlavor::LldLink),
+        // The COFF contract is target-owned, so it must hold on every host.
+        target: LinkTarget {
+            arch: "x86_64".to_string(),
+            os: "windows".to_string(),
+            abi: "msvc".to_string(),
+        },
         ..LinkOptions::default()
     }
     .add_library_path("C:/lib")
