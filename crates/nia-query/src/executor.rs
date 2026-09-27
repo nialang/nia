@@ -93,13 +93,32 @@ impl QueryExecutionBudget {
         })
     }
 
-    fn acquire(&self) -> nia_ice::IceResult<QueryExecutionPermit> {
+    pub(super) fn acquire(&self) -> nia_ice::IceResult<QueryExecutionPermit> {
+        self.acquire_unless(|| false)?
+            .ok_or_else(|| nia_ice::Ice::new("unconditional query permit wait was abandoned"))
+    }
+
+    /// Waits for a permit until `abandon` reports that the caller no longer
+    /// needs one. The predicate is re-evaluated under the budget lock on every
+    /// wake-up, so a waiter whose answer changed leaves at the next permit
+    /// release or explicit [`Self::notify_waiters`] instead of taking capacity.
+    fn acquire_unless(
+        &self,
+        mut abandon: impl FnMut() -> bool,
+    ) -> nia_ice::IceResult<Option<QueryExecutionPermit>> {
         let mut state = self.shared.state.lock();
         state.waiting += 1;
         loop {
             if let Some(ice) = state.failure.clone() {
                 state.waiting = state.waiting.saturating_sub(1);
                 return Err(ice);
+            }
+            // Outstanding jobserver requests stay valid after an abandoned
+            // wait: a later waiter consumes the delivery, and the helper
+            // releases it when nobody is waiting.
+            if abandon() {
+                state.waiting -= 1;
+                return Ok(None);
             }
             // A jobserver contributes one implicit slot plus its explicit tokens. Deliveries are
             // assigned before the implicit slot so an already-issued request cannot be stranded
@@ -118,22 +137,22 @@ impl QueryExecutionBudget {
                 state.active += 1;
                 self.shared.record_active(state.active);
                 drop(state);
-                return Ok(QueryExecutionPermit {
+                return Ok(Some(QueryExecutionPermit {
                     shared: Arc::clone(&self.shared),
                     implicit: false,
                     token: Some(token),
-                });
+                }));
             }
             if state.implicit_available {
                 state.implicit_available = false;
                 state.waiting -= 1;
                 state.active += 1;
                 self.shared.record_active(state.active);
-                return Ok(QueryExecutionPermit {
+                return Ok(Some(QueryExecutionPermit {
                     shared: Arc::clone(&self.shared),
                     implicit: true,
                     token: None,
-                });
+                }));
             }
             let represented_waiters = state.pending_requests + state.deliveries.len();
             let requests = state.waiting.saturating_sub(represented_waiters);
@@ -146,6 +165,11 @@ impl QueryExecutionBudget {
             }
             self.shared.ready.wait(&mut state);
         }
+    }
+
+    fn notify_waiters(&self) {
+        drop(self.shared.state.lock());
+        self.shared.ready.notify_all();
     }
 
     fn identity(&self) -> usize {
@@ -328,7 +352,7 @@ impl QueryExecutor {
         Ok(true)
     }
 
-    fn take_batch_task(&self, batch: usize) -> Option<QueryTask> {
+    pub(super) fn take_batch_task(&self, batch: usize) -> Option<QueryTask> {
         let mut state = self.shared.state.lock();
         let position = state.queue.iter().rposition(|task| task.batch == batch)?;
         state.queue.remove(position)
@@ -360,6 +384,11 @@ impl Drop for QueryExecutor {
             state.shutdown = true;
         }
         self.shared.ready.notify_all();
+        // Workers waiting for a process permit sleep on the shared budget, not
+        // on this executor. Wake them so a worker whose queued task was taken
+        // by a helping batch owner can abandon its wait instead of blocking the
+        // join below until another session releases capacity.
+        self.execution_budget.notify_waiters();
         let current_thread = std::thread::current().id();
         let handles = std::mem::take(&mut self.workers.lock().handles);
         for handle in handles {
@@ -387,7 +416,16 @@ impl QueryExecutorShared {
                     self.ready.wait(&mut state);
                 }
             }
-            let execution_permit = execution_budget.acquire();
+            // Waiting only while queued work remains keeps a worker from holding
+            // on to a permit request after a batch owner ran the task itself;
+            // otherwise the executor could not shut down while other threads
+            // hold every process permit.
+            let execution_permit =
+                match execution_budget.acquire_unless(|| self.state.lock().queue.is_empty()) {
+                    Ok(Some(permit)) => Ok(permit),
+                    Ok(None) => continue,
+                    Err(ice) => Err(ice),
+                };
             let task = {
                 let mut state = self.state.lock();
                 if state.active < self.parallelism {
