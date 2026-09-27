@@ -306,7 +306,7 @@ impl ExecutableLinker {
         #[cfg(windows)]
         {
             // LLVM's COFF linker is shipped alongside Windows Nia releases.
-            return Self::lld_link();
+            Self::lld_link()
         }
         #[cfg(not(windows))]
         Self::with_program("ld")

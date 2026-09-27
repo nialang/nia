@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::{path::Path, process::Command};
+use std::path::Path;
+
+#[cfg(unix)]
+use std::process::Command;
 
 #[allow(dead_code, unused_imports)]
 mod support;
 
 use nia_test_support::{
-    CaseManifest, CommandExt, CommandStatusExt, TestWorkload, case_directories,
-    fixture_relative_path,
+    CaseManifest, CommandExt, TestWorkload, case_directories, fixture_relative_path,
 };
+
+#[cfg(unix)]
+use nia_test_support::CommandStatusExt;
 
 #[test]
 fn linker_cases_match_expectations() {
@@ -204,6 +209,7 @@ fn cached_link(source: &Path, cache: &Path, linker: &Path, output: &Path) -> std
         .output_timeout_in_session("run typed link-result cache case")
 }
 
+#[cfg(unix)]
 fn assert_counters(report: &str, expected: &[&str]) {
     for expected in expected {
         let counter = format!("timing summary counter {expected}");
@@ -320,6 +326,7 @@ fn run_invocation(source: &Path, raw: &[String], structured: &[String]) {
 #[cfg(not(unix))]
 fn run_invocation(_source: &Path, _raw: &[String], _structured: &[String]) {}
 
+#[cfg(unix)]
 fn assert_args(path: &Path, expected: &[String]) {
     let args = std::fs::read_to_string(path).expect("read mock linker arguments");
     for expected in expected {
@@ -330,6 +337,7 @@ fn assert_args(path: &Path, expected: &[String]) {
     }
 }
 
+#[cfg(unix)]
 fn assert_success(output: &std::process::Output) {
     assert!(
         output.status.success(),
