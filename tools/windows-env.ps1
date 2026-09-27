@@ -56,8 +56,12 @@ $includePaths = @(
 
 $toolPaths = @(
     (Join-Path $vcTools.FullName 'bin\Hostx64\x64'),
-    (Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) "Windows Kits\10\bin\$($sdk.Name)\x64")
-) | Where-Object { Test-Path $_ }
+    (Get-ChildItem (Join-Path $programFilesX86 'Windows Kits\10\bin') -Directory |
+        Sort-Object Name -Descending |
+        ForEach-Object { Join-Path $_.FullName 'x64' } |
+        Where-Object { Test-Path (Join-Path $_ 'rc.exe') } |
+        Select-Object -First 1)
+) | Where-Object { $_ -and (Test-Path $_) }
 
 function ConvertTo-ShortPath([string] $path) {
     $comspec = if ($env:ComSpec) { $env:ComSpec } else { Join-Path $env:SystemRoot 'System32\cmd.exe' }

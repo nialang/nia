@@ -39,10 +39,18 @@ $sdkInclude = Join-Path (Join-Path $programFilesX86 'Windows Kits\10\Include') $
 $cmake = Join-Path $vsRoot 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
 $ninja = Join-Path $vsRoot 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja'
 $cl = Join-Path $vcTools.FullName 'bin\Hostx64\x64'
-$sdkBin = Join-Path $programFilesX86 "Windows Kits\10\bin\$($sdk.Name)\x64"
+$sdkBin = Get-ChildItem (Join-Path $programFilesX86 'Windows Kits\10\bin') -Directory |
+    Sort-Object Name -Descending |
+    ForEach-Object { Join-Path $_.FullName 'x64' } |
+    Where-Object { Test-Path (Join-Path $_ 'rc.exe') } |
+    Select-Object -First 1
 if (-not (Test-Path $cmake) -or -not (Test-Path (Join-Path $ninja 'ninja.exe'))) {
     throw 'CMake and Ninja from the Visual Studio C++ workload are required.'
 }
+if (-not $sdkBin) { throw 'A Windows SDK bin directory with rc.exe was not found.' }
+$resourceCompiler = Join-Path $sdkBin 'rc.exe'
+$manifestTool = Join-Path $sdkBin 'mt.exe'
+if (-not (Test-Path $manifestTool)) { throw 'A Windows SDK bin directory with mt.exe was not found.' }
 
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     $python = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Programs\Python') -Recurse -Filter python.exe -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
@@ -77,6 +85,8 @@ $cmakeArgs = @(
     "-DCMAKE_INSTALL_PREFIX=$InstallRoot",
     '-DCMAKE_C_COMPILER=cl.exe',
     '-DCMAKE_CXX_COMPILER=cl.exe',
+    "-DCMAKE_RC_COMPILER=$resourceCompiler",
+    "-DCMAKE_MT=$manifestTool",
     '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded',
     '-DLLVM_ENABLE_PROJECTS=lld',
     '-DLLVM_TARGETS_TO_BUILD=X86',
