@@ -20,10 +20,10 @@ and linker runtime; those are separate from the compiler's LLVM linkage.
 ## Linux package
 
 `package.sh` assembles the relocatable `linux-x86_64` archive used by the
-GitHub release workflow. It invokes `build.sh`, copies the compiler into
-`bin/nia`, the standard-library resources into `lib/`, and the bundled LLD
-into `libexec/ld.lld` (or `libexec/lld-link.exe` on Windows), then writes a
-reproducible tarball and `SHA256SUMS`:
+GitHub release workflow and runs only on a Linux host. It invokes `build.sh`,
+copies the compiler into `bin/nia`, the standard-library resources into
+`lib/`, and the bundled LLD into `libexec/ld.lld`, then writes a reproducible
+tarball and `SHA256SUMS`:
 
 ```sh
 tools/release/package.sh
@@ -38,8 +38,10 @@ nia-<version>-linux-x86_64/
 ├── lib/toolchain.meta
 ├── lib/std/
 ├── lib/runtime/
-└── libexec/ld.lld (Linux) or lld-link.exe (Windows)
+└── libexec/ld.lld
 ```
 
 Keep the relative `bin`, `lib`, and `libexec` layout intact so compiler
-relocation remains supported.
+relocation remains supported. The toolchain also resolves a sibling
+`libexec/lld-link.exe` on Windows, but no Windows archive is packaged or
+published yet.
