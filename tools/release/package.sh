@@ -18,6 +18,12 @@ if [[ "${platform}" != linux-x86_64 ]]; then
     printf 'unsupported release platform: %s\n' "${platform}" >&2
     exit 1
 fi
+# The archive name and bundled linker describe the host build, so a
+# linux-x86_64 archive can only be produced on that host.
+if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
+    printf 'linux-x86_64 archives must be packaged on a Linux x86_64 host\n' >&2
+    exit 1
+fi
 
 version="$(cd "${repo_root}" && cargo pkgid -p nia-cli | sed -n 's/.*#//p')"
 if [[ -z "${version}" ]]; then
@@ -29,9 +35,6 @@ fi
 
 binary="${repo_root}/target/release/nia"
 lld_name=ld.lld
-case "$(uname -s)" in
-    MINGW*|MSYS*|CYGWIN*) lld_name=lld-link.exe ;;
-esac
 lld="${LLVM_SYS_231_PREFIX:-${repo_root}/target/llvm-static/install}/bin/${lld_name}"
 resource_root="${repo_root}/lib"
 for required in "${binary}" "${lld}" "${resource_root}/toolchain.meta" \

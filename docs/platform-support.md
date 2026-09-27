@@ -26,6 +26,9 @@ The repository is exercised in these environments:
   executable workflow; and
 - managed `ubuntu-24.04` x86_64 correctness and performance workflows using
   LLVM 23; and
+- a managed `windows-2022` x86_64 correctness workflow that builds the pinned
+  static LLVM 23.1.2 prefix and runs formatting, strict Clippy, the complete
+  workspace test suite, and a release compiler build under MSVC; and
 - freestanding Linux x86_64 executable tests using toolchain runtime startup
   source and a target linker without CRT startup; and
 - freestanding Windows x86_64 executable tests using the toolchain startup,
@@ -57,9 +60,11 @@ Target sysroots, CRT objects, libc, and the target dynamic loader remain
 platform inputs rather than general host requirements.
 
 Ubuntu hosted runners install the matching LLVM release from `apt.llvm.org`.
-Ubuntu is an execution venue, not the version authority. Managed runs report
-the resolved Rust, Cargo, Clippy, rustfmt, and `llvm-config` identities so a
-failure is tied to its actual toolchain rather than a copied environment
+The Windows hosted runner builds the pinned static LLVM prefix with
+`tools/llvm/build-static.ps1` and caches it by that script's contents.
+Hosted runners are execution venues, not the version authority. Managed runs
+report the resolved Rust, Cargo, Clippy, rustfmt, and `llvm-config` identities
+so a failure is tied to its actual toolchain rather than a copied environment
 snapshot in this document.
 
 New upstream stable releases may expose diagnostics or build failures. The
@@ -81,6 +86,8 @@ The project does not claim support for:
   `TerminateProcess`, reporting the resulting Windows exit code rather than a
   POSIX signal termination;
 - macOS compiler hosts;
+- Windows release archives. Windows compilers are built from source; only the
+  Linux x86_64 archive is packaged and published;
 - stable target-triple selection or cross-compilation behavior;
 - complete freestanding executable startup outside Linux x86_64, Windows x86_64,
   and experimental i686 coverage;
