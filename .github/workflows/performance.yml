@@ -61,7 +61,7 @@ jobs:
             --output "${RUNNER_TEMP}/llvm-snapshot.gpg.key"
           gpg --dearmor < "${RUNNER_TEMP}/llvm-snapshot.gpg.key" \
             | sudo tee /usr/share/keyrings/apt.llvm.org.gpg >/dev/null
-          echo "deb [signed-by=/usr/share/keyrings/apt.llvm.org.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
+          echo "deb [signed-by=/usr/share/keyrings/apt.llvm.org.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
             | sudo tee /etc/apt/sources.list.d/llvm-23.list >/dev/null
           sudo apt-get update
           sudo apt-get install --yes llvm-23-dev lld-23
