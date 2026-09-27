@@ -82,12 +82,17 @@ function ConvertTo-ShortPath([string] $path) {
     (& $comspec /d /s /c "for %I in (`"$path`") do @echo %~sI").Trim()
 }
 
-$libraryPaths = @(
+$vcLibraryPath = ConvertTo-ShortPath (Join-Path $vcTools.FullName 'lib\x64')
+$sdkUmPath = ConvertTo-ShortPath (Join-Path $sdk.FullName 'um\x64')
+$sdkUcrtPath = ConvertTo-ShortPath (Join-Path $sdk.FullName 'ucrt\x64')
+foreach ($libraryPath in @(
     (Join-Path $vcTools.FullName 'lib\x64'),
     (Join-Path $sdk.FullName 'um\x64'),
     (Join-Path $sdk.FullName 'ucrt\x64')
-) | Where-Object { Test-Path $_ } | ForEach-Object { ConvertTo-ShortPath $_ }
-$linkerFlags = ($libraryPaths | ForEach-Object { "/LIBPATH:$_" }) -join ' '
+)) {
+    if (-not (Test-Path $libraryPath)) { throw "MSVC or Windows SDK library directory was not found: $libraryPath" }
+}
+$linkerFlags = "/LIBPATH:$vcLibraryPath /LIBPATH:$sdkUmPath /LIBPATH:$sdkUcrtPath"
 
 $jobs = if ($env:LLVM_BUILD_JOBS) { $env:LLVM_BUILD_JOBS } else { [Environment]::ProcessorCount }
 $cmakeArgs = @(
