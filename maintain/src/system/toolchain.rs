@@ -64,7 +64,10 @@ fn resolve_program(program: &Path) -> MaintainResult<PathBuf> {
 }
 
 fn program_candidates(program: &Path) -> Vec<PathBuf> {
+    #[cfg(windows)]
     let mut candidates = vec![program.to_path_buf()];
+    #[cfg(not(windows))]
+    let candidates = vec![program.to_path_buf()];
     #[cfg(windows)]
     if program.extension().is_none() {
         candidates.push(program.with_extension("exe"));
