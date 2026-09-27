@@ -2207,6 +2207,7 @@ fn cacheable_command_plan_with_input(
         .unwrap()
 }
 
+#[cfg(unix)]
 fn cacheable_path_tool_plan(invocation: &BuildInvocation) -> BuildPlan {
     let output = LogicalPath::new(LogicalPathRoot::Build, "path-tool.txt").unwrap();
     BuildPlan::freeze(BuildPlanDraft {

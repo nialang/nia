@@ -663,7 +663,7 @@ fn emit_i128_to_float<'ctx>(
     };
     let fn_ty = format
         .target_ty
-        .fn_type(&[i128_argument_ty.into()], false)
+        .fn_type(&[i128_argument_ty], false)
         .map_err(diagnostic_from_llvm_error)?;
     let function_name = match (target, signed) {
         (PrimitiveTy::F32, true) => "__floattisf",
@@ -701,8 +701,7 @@ fn emit_i128_to_float<'ctx>(
     let value: BasicValueEnum<'ctx> = function
         .get_nth_param(0)
         .ok_or_else(|| diagnostic_from_llvm_error(LlvmError::ice("missing builtin param")))?
-        .map_err(diagnostic_from_llvm_error)?
-        .into();
+        .map_err(diagnostic_from_llvm_error)?;
     let value = if windows_i128_abi {
         builder
             .build_bit_cast(value, i128_ty, "value.i128")
@@ -1508,7 +1507,7 @@ fn emit_wide_builtin_wrapper<'ctx>(
             .build_bit_cast(result, result_ty, "result.abi")
             .map_err(diagnostic_from_llvm_error)?
     } else {
-        result.into()
+        result
     };
     builder
         .build_return(Some(&result))

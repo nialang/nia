@@ -49,7 +49,7 @@ pub(crate) struct TransactionOutput {
 /// caller can report which durable state was rejected without guessing.
 #[derive(Debug)]
 pub struct OutputRecoveryError {
-    pub(crate) action: Option<ActionKey>,
+    pub(crate) action: Option<Box<ActionKey>>,
     pub(crate) journal: PathBuf,
     pub(crate) path: PathBuf,
     pub(crate) operation: &'static str,
@@ -276,7 +276,7 @@ fn recover_journal(
         remove_directory(journal, journal, "clean rolled-back journal for")
     })();
     result.map_err(|mut error: OutputRecoveryError| {
-        error.action = Some(action);
+        error.action = Some(Box::new(action));
         error
     })
 }
@@ -1396,7 +1396,10 @@ mod tests {
             .expect_err("changed journal must fail");
         worker.join().expect("recovery worker");
         assert_eq!(error.operation, "revalidate locked journal for");
-        assert_eq!(error.action.as_ref().map(ActionKey::name), Some("tool"));
+        assert_eq!(
+            error.action.as_ref().map(|action| action.name()),
+            Some("tool")
+        );
         assert_eq!(
             fs::read(&transaction.destinations[0]).expect("read destination"),
             b"accepted"
