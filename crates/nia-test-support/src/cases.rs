@@ -98,6 +98,17 @@ impl CaseManifest {
         })
     }
 
+    /// Removes and parses an optional `usize` value when present.
+    pub fn optional_usize(&mut self, key: &str) -> Option<usize> {
+        let value = self.values.remove(key)?;
+        Some(value.parse().unwrap_or_else(|error| {
+            panic!(
+                "{} must declare numeric {key}: {error}",
+                self.path.display()
+            )
+        }))
+    }
+
     /// Removes and parses a required `i32` value.
     pub fn required_i32(&mut self, key: &str) -> i32 {
         let value = self.required(key);

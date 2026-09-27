@@ -47,6 +47,15 @@ fn main() {
         .file("src/llvm_lto_bridge.cpp")
         .warnings(false);
 
+    // Keep the bridge's MSVC runtime aligned with the Rust target. The
+    // prebuilt Windows LLVM archives use /MT, while a locally built LLVM may
+    // use /MD; Rust's `crt-static` feature is the stable source of truth for
+    // the host binary and its C++ bridge.
+    let target_features = env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default();
+    if cfg!(target_env = "msvc") && target_features.split(',').any(|f| f == "crt-static") {
+        build.flag("/MT");
+    }
+
     for flag in shlex::split(&cxxflags).expect("llvm-config returned malformed C++ flags") {
         if flag.starts_with("-D") || flag == "-fno-exceptions" || flag == "-fno-rtti" {
             build.flag(&flag);

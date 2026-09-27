@@ -56,7 +56,8 @@ fn run_case(case_root: &Path) {
     );
     let snapshot_path = case_root.join(&case.source).with_extension("snap");
     let expected = fs::read_to_string(&snapshot_path)
-        .unwrap_or_else(|error| panic!("read {}: {error}", snapshot_path.display()));
+        .unwrap_or_else(|error| panic!("read {}: {error}", snapshot_path.display()))
+        .replace("\r\n", "\n");
     assert_eq!(
         diagnostic_snapshot(&cold.diagnostics, &workspace),
         expected,

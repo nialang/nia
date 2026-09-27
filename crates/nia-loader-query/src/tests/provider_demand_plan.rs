@@ -78,11 +78,17 @@ fn provider_demand_plan_remaps_logical_toolchain_paths_after_relocation() {
         })
         .expect("restored module-body demand");
     let expected = second_toolchain.resource_root().join("std/unicode.nia");
-    assert_eq!(restored.source_path.as_str(), expected.to_string_lossy());
+    assert_eq!(
+        normalized_test_path(restored.source_path.as_str()),
+        normalized_test_path(expected.to_string_lossy())
+    );
     let nia_compiler_query::ProviderRequest::ModuleBody { module_path } = &restored.request else {
         unreachable!();
     };
-    assert_eq!(module_path.as_str(), expected.to_string_lossy());
+    assert_eq!(
+        normalized_test_path(module_path.as_str()),
+        normalized_test_path(expected.to_string_lossy())
+    );
     assert!(
         !restored
             .source_path
@@ -146,11 +152,17 @@ fn provider_demand_plan_remaps_runtime_start_after_toolchain_relocation() {
         .parent()
         .expect("runtime package directory")
         .join("start.nia");
-    assert_eq!(restored.source_path.as_str(), expected.to_string_lossy());
+    assert_eq!(
+        normalized_test_path(restored.source_path.as_str()),
+        normalized_test_path(expected.to_string_lossy())
+    );
     let nia_compiler_query::ProviderRequest::ModuleBody { module_path } = &restored.request else {
         unreachable!();
     };
-    assert_eq!(module_path.as_str(), expected.to_string_lossy());
+    assert_eq!(
+        normalized_test_path(module_path.as_str()),
+        normalized_test_path(expected.to_string_lossy())
+    );
 }
 
 #[test]

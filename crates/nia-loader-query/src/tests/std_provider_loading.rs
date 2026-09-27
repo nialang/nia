@@ -322,9 +322,14 @@ fn main(dir: &fs::Dir, path: fs::RelativePathView) () {
 
     assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/fs/file.nia");
-    assert_module_loaded(&program, "lib/std/os/linux/fd.nia");
-    assert_module_loaded(&program, "lib/std/os/linux/stat.nia");
-    assert_module_loaded(&program, "lib/std/os/linux/types.nia");
+    if cfg!(windows) {
+        assert_module_loaded(&program, "lib/std/os/windows.nia");
+        assert_module_not_loaded(&program, "lib/std/os/linux/fd.nia");
+    } else {
+        assert_module_loaded(&program, "lib/std/os/linux/fd.nia");
+        assert_module_loaded(&program, "lib/std/os/linux/stat.nia");
+        assert_module_loaded(&program, "lib/std/os/linux/types.nia");
+    }
 }
 
 #[test]

@@ -36,12 +36,26 @@ pub fn replace_path(
             .chain(std::iter::once(0))
             .collect::<Vec<_>>();
         let ok = unsafe {
-            windows_sys::Win32::Storage::FileSystem::MoveFileExW(
-                source.as_ptr(),
+            windows_sys::Win32::Storage::FileSystem::ReplaceFileW(
                 destination.as_ptr(),
-                windows_sys::Win32::Storage::FileSystem::MOVEFILE_REPLACE_EXISTING
-                    | windows_sys::Win32::Storage::FileSystem::MOVEFILE_WRITE_THROUGH,
+                source.as_ptr(),
+                std::ptr::null(),
+                windows_sys::Win32::Storage::FileSystem::REPLACEFILE_WRITE_THROUGH,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
             )
+        };
+        let ok = if ok == 0 {
+            unsafe {
+                windows_sys::Win32::Storage::FileSystem::MoveFileExW(
+                    source.as_ptr(),
+                    destination.as_ptr(),
+                    windows_sys::Win32::Storage::FileSystem::MOVEFILE_REPLACE_EXISTING
+                        | windows_sys::Win32::Storage::FileSystem::MOVEFILE_WRITE_THROUGH,
+                )
+            }
+        } else {
+            ok
         };
         if ok == 0 {
             Err(std::io::Error::last_os_error())

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt;
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Read, Seek, SeekFrom, Write},
@@ -159,7 +161,7 @@ impl PersistentWorkProductCache {
             if path.extension().and_then(|value| value.to_str()) != Some(self.kind.extension) {
                 continue;
             }
-            let mut file = match File::open(&path) {
+            let mut file = match open_cache_file(&path) {
                 Ok(file) => file,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
                 Err(error) => return Err(error),
@@ -204,7 +206,7 @@ impl PersistentWorkProductCache {
         fingerprints: CodegenUnitFingerprintSet,
     ) -> io::Result<CodegenWorkProductLookup> {
         let path = self.path(key, fingerprints.fingerprint);
-        let mut file = match File::open(&path) {
+        let mut file = match open_cache_file(&path) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 return self.lookup_invalidation(key, fingerprints);
@@ -460,7 +462,7 @@ fn compare_installed(
     bytes: &[u8],
     kind: WorkProductKind,
 ) -> io::Result<InstalledEntry> {
-    let mut file = match File::open(path) {
+    let mut file = match open_cache_file(path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Ok(InstalledEntry::NotFound);
@@ -536,6 +538,14 @@ fn staged_path(path: &Path) -> PathBuf {
     ))
 }
 
+fn open_cache_file(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    options.share_mode(1 | 2 | 4);
+    options.open(path)
+}
+
 struct WorkProductMutationLock {
     _file: File,
 }
@@ -562,7 +572,7 @@ fn retire_corrupt(path: &Path, observed: &mut File) {
     let Ok(_lock) = WorkProductMutationLock::acquire(path) else {
         return;
     };
-    let Ok(mut current) = File::open(path) else {
+    let Ok(mut current) = open_cache_file(path) else {
         return;
     };
     if files_equal(observed, &mut current).unwrap_or(false) {
@@ -909,7 +919,7 @@ mod tests {
         fs::create_dir_all(&root).expect("create cache root");
         let path = root.join("entry.o");
         fs::write(&path, b"corrupt").expect("write corrupt entry");
-        let mut observed = File::open(&path).expect("open observed entry");
+        let mut observed = open_cache_file(&path).expect("open observed entry");
         let replacement = root.join("replacement.tmp");
         fs::write(&replacement, b"replacement").expect("write replacement");
         nia_compat::replace_path(replacement, &path).expect("install replacement");

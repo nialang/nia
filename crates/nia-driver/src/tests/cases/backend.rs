@@ -73,7 +73,8 @@ fn run_codegen_suite(driver: &crate::Driver, root: &Path) {
         );
         let snapshot_path = source.with_extension("snap");
         let expected = fs::read_to_string(&snapshot_path)
-            .unwrap_or_else(|error| panic!("read {}: {error}", snapshot_path.display()));
+            .unwrap_or_else(|error| panic!("read {}: {error}", snapshot_path.display()))
+            .replace("\r\n", "\n");
         assert_eq!(
             codegen_snapshot(&program, root),
             expected,
@@ -297,12 +298,23 @@ fn load_executable_case(case_root: &Path) -> ExecutableCase {
 
 impl BackendExecutionExpectations {
     fn load(manifest: &mut CaseManifest) -> Self {
+        let default_backend_finalization_executions =
+            manifest.optional_usize("backend-finalization-executions");
+        let windows_backend_finalization_executions =
+            manifest.optional_usize("backend-finalization-executions-windows");
+        let backend_finalization_executions = if cfg!(windows) {
+            windows_backend_finalization_executions
+                .or(default_backend_finalization_executions)
+                .expect("backend-finalization-executions must be declared")
+        } else {
+            default_backend_finalization_executions
+                .expect("backend-finalization-executions must be declared")
+        };
         Self {
             codegen_preparation_executions: manifest
                 .required_usize("codegen-preparation-executions"),
             backend_lowering_executions: manifest.required_usize("backend-lowering-executions"),
-            backend_finalization_executions: manifest
-                .required_usize("backend-finalization-executions"),
+            backend_finalization_executions,
         }
     }
 

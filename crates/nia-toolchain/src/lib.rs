@@ -209,6 +209,22 @@ impl RuntimeSpec {
         package_root: impl Into<PathBuf>,
         target: &TargetConfig,
     ) -> Result<Self, RuntimeSpecError> {
+        let required_exports = if target.os == "windows" {
+            vec!["__chkstk".to_string()]
+        } else {
+            Vec::new()
+        };
+        Self::source_from_package_root(package_root, target, required_exports)
+    }
+
+    /// Builds a source runtime with an explicit native export contract.
+    /// Alternate runtime implementations can omit exports supplied only by
+    /// the installed platform runtime.
+    pub fn source_from_package_root(
+        package_root: impl Into<PathBuf>,
+        target: &TargetConfig,
+        required_exports: impl IntoIterator<Item = String>,
+    ) -> Result<Self, RuntimeSpecError> {
         let implementation = match (target.os.as_str(), target.arch.as_str()) {
             ("linux", "x86_64") => "x86_64",
             ("linux", "x86" | "i386" | "i586" | "i686") => "x86",
@@ -236,11 +252,7 @@ impl RuntimeSpec {
                 definition_name: "_start".to_string(),
                 linker_symbol: "_start".to_string(),
             },
-            required_exports: if target.os == "windows" {
-                vec!["__chkstk".to_string()]
-            } else {
-                Vec::new()
-            },
+            required_exports: required_exports.into_iter().collect(),
             target: target.clone(),
             dependencies: vec![
                 RuntimeDependency::EntryPackage,

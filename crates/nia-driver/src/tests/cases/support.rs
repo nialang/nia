@@ -50,12 +50,20 @@ pub(super) fn assert_check_case_with_module_map(
         diagnostic_snapshot(&program.diagnostics, root)
     );
     let expected = fs::read_to_string(snapshot_path)
-        .unwrap_or_else(|error| panic!("read {}: {error}", snapshot_path.display()));
+        .unwrap_or_else(|error| panic!("read {}: {error}", snapshot_path.display()))
+        .replace("\r\n", "\n");
     let mut snapshot = diagnostic_snapshot(&program.diagnostics, root);
     if !program.diagnostics.is_empty() {
         snapshot.push_str("\nreport:\n");
         let report = crate::render_program_diagnostics(&program, None, None);
-        snapshot.push_str(&report.replace(&format!("{}/", root.display()), ""));
+        let root_prefixes = [
+            format!("{}/", root.display()),
+            format!("{}/", root.display().to_string().replace('\\', "/")),
+        ];
+        let report = root_prefixes
+            .iter()
+            .fold(report, |report, prefix| report.replace(prefix, ""));
+        snapshot.push_str(&report);
     }
     assert_eq!(
         snapshot,

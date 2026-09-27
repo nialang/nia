@@ -526,11 +526,12 @@ fn load_program_with_trait_provider_demand(
 }
 
 fn assert_module_loaded(program: &LoadedProgram, suffix: &str) {
+    let suffix = nia_source::normalize_path(suffix);
     assert!(
         program
             .modules
             .iter()
-            .any(|module| module.path.as_str().ends_with(suffix)),
+            .any(|module| nia_source::normalize_path(module.path.as_str()).ends_with(&suffix)),
         "missing module {suffix}: {:?}",
         program
             .modules
@@ -540,11 +541,16 @@ fn assert_module_loaded(program: &LoadedProgram, suffix: &str) {
     );
 }
 
+fn normalized_test_path(path: impl AsRef<str>) -> String {
+    nia_source::normalize_path(path.as_ref())
+}
+
 fn module_by_suffix<'a>(program: &'a LoadedProgram, suffix: &str) -> &'a ModuleNode {
+    let suffix = nia_source::normalize_path(suffix);
     program
         .graph
         .modules()
-        .find(|module| module.path.as_str().ends_with(suffix))
+        .find(|module| nia_source::normalize_path(module.path.as_str()).ends_with(&suffix))
         .unwrap_or_else(|| {
             panic!(
                 "missing module {suffix}: {:?}",
@@ -558,11 +564,12 @@ fn module_by_suffix<'a>(program: &'a LoadedProgram, suffix: &str) -> &'a ModuleN
 }
 
 fn assert_module_not_loaded(program: &LoadedProgram, suffix: &str) {
+    let suffix = nia_source::normalize_path(suffix);
     assert!(
         !program
             .modules
             .iter()
-            .any(|module| module.path.as_str().ends_with(suffix)),
+            .any(|module| nia_source::normalize_path(module.path.as_str()).ends_with(&suffix)),
         "unexpected module {suffix}: {:?}",
         program
             .modules

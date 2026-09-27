@@ -103,6 +103,7 @@
     "std/os/linux/x86/syscall.nia",
     "std/os/linux/x86_64.nia",
     "std/os/linux/x86_64/syscall.nia",
+    "std/os/windows.nia",
     "std/parse.nia",
     "std/parse/core.nia",
     "std/process.nia",
@@ -127,6 +128,8 @@
     "runtime/start/freestanding.nia",
     "runtime/start/freestanding/linux.nia",
     "runtime/start/freestanding/linux/x86.nia",
-    "runtime/start/freestanding/linux/x86_64.nia"
+    "runtime/start/freestanding/linux/x86_64.nia",
+    "runtime/start/freestanding/windows.nia",
+    "runtime/start/freestanding/windows/x86_64.nia"
   ]
 }

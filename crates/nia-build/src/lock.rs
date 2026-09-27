@@ -6,6 +6,8 @@
 
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
+#[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt;
 use std::{
     fs,
     io::{self, Read as _, Write as _},
@@ -109,11 +111,15 @@ impl ScopedFileLock {
             if is_cancelled() {
                 return Ok(None);
             }
-            match fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
+            let mut options = fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(windows)]
+            options.share_mode(
+                windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ
+                    | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE
+                    | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE,
+            );
+            match options.open(&path) {
                 Ok(file) => {
                     let (token, file) = match write_lock_owner(file) {
                         Ok(owner) => owner,
@@ -278,7 +284,15 @@ fn read_lock_owner(path: &Path) -> Option<ProcessIdentity> {
 /// Metadata is deliberately not trusted: a file that grows after opening is
 /// still rejected without allocating in proportion to its contents.
 fn read_bounded_utf8(path: &Path, max_bytes: usize) -> Option<String> {
-    let file = fs::File::open(path).ok()?;
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    options.share_mode(
+        windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ
+            | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE
+            | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE,
+    );
+    let file = options.open(path).ok()?;
     let mut bytes = Vec::new();
     file.take(u64::try_from(max_bytes).ok()?.saturating_add(1))
         .read_to_end(&mut bytes)

@@ -33,10 +33,20 @@ fn modules_under<'a, M: TestModulePath + 'a>(
     modules: impl IntoIterator<Item = &'a M>,
     root: &Path,
 ) -> usize {
-    let root = root.to_string_lossy();
+    let root = root
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
     modules
         .into_iter()
-        .filter(|module| module.path().as_str().starts_with(root.as_ref()))
+        .filter(|module| {
+            module
+                .path()
+                .as_str()
+                .replace('\\', "/")
+                .to_ascii_lowercase()
+                .starts_with(&root)
+        })
         .count()
 }
 

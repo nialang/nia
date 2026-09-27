@@ -1215,11 +1215,16 @@ fn main() i32 { 0 }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let call_depth_limit = if cfg!(windows) { 128 } else { 256 };
     assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("const evaluation exceeded the 256 call depth limit")),
+        program
+            .diagnostics
+            .iter()
+            .any(
+                |diagnostic| diagnostic.diagnostic.summary.contains(&format!(
+                    "const evaluation exceeded the {call_depth_limit} call depth limit"
+                ))
+            ),
         "{:?}",
         program.diagnostics
     );

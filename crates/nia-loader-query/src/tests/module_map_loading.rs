@@ -24,11 +24,10 @@ fn query_loader_uses_package_module_map() {
     assert_no_error_diagnostics(&program);
     assert_eq!(program.runtime, RuntimeSpec::Bare);
     assert!(program.graph.package_root(&sym("std")).is_some());
-    assert!(
-        program.modules.iter().any(
-            |module| module.path.as_str() == root.join("std/io.nia").to_string_lossy().as_ref()
-        )
-    );
+    assert!(program.modules.iter().any(|module| {
+        normalized_test_path(module.path.as_str())
+            == normalized_test_path(root.join("std/io.nia").to_string_lossy())
+    }));
 }
 
 #[test]
@@ -151,8 +150,8 @@ fn query_loader_injects_std_from_explicit_toolchain_layout() {
         )
         .expect("std module");
     assert_eq!(
-        std_module.path.as_str(),
-        test_toolchain_layout().std_module().to_string_lossy()
+        normalized_test_path(std_module.path.as_str()),
+        normalized_test_path(test_toolchain_layout().std_module().to_string_lossy())
     );
     assert!(!program.graph.package_facade_active(&sym("std")));
     assert_module_not_loaded(&program, "lib/std/build.nia");
@@ -214,6 +213,7 @@ fn query_loader_uses_only_the_relocated_toolchain_resource_tree() {
     assert_no_error_diagnostics(&program);
     let relocated_resources =
         std::fs::canonicalize(relocated_resources).expect("canonical relocated resource root");
+    let relocated_resources = normalized_test_path(relocated_resources.to_string_lossy());
     let std_modules = program
         .modules
         .iter()
@@ -223,7 +223,7 @@ fn query_loader_uses_only_the_relocated_toolchain_resource_tree() {
     assert!(
         std_modules
             .iter()
-            .all(|module| std::path::Path::new(module.path.as_str())
+            .all(|module| normalized_test_path(module.path.as_str())
                 .starts_with(&relocated_resources)),
         "{:?}",
         std_modules
