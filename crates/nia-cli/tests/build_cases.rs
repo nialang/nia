@@ -858,13 +858,19 @@ fn assert_configured_build_success(
     assert!(workspace.join(".nia-build/generated/helper.nia").is_file());
     assert!(workspace.join(".nia-build/generated/worker.nia").is_file());
     assert!(!workspace.join(".nia-build/worker").exists());
+    let transformed = std::fs::read(workspace.join(".nia-build/transformed.txt")).unwrap();
     assert_eq!(
-        std::fs::read(workspace.join(".nia-build/transformed.txt")).unwrap(),
-        b"EXTERNAL ROADMAP\n"
+        transformed
+            .strip_suffix(b"\r\n")
+            .or_else(|| transformed.strip_suffix(b"\n")),
+        Some(&b"EXTERNAL ROADMAP"[..])
     );
+    let metadata = std::fs::read(workspace.join(".nia-build/transformed.meta")).unwrap();
     assert_eq!(
-        std::fs::read(workspace.join(".nia-build/transformed.meta")).unwrap(),
-        b"source=tool-input\n"
+        metadata
+            .strip_suffix(b"\r\n")
+            .or_else(|| metadata.strip_suffix(b"\n")),
+        Some(&b"source=tool-input"[..])
     );
     assert!(
         std::fs::read_dir(workspace.join(".nia-build"))
