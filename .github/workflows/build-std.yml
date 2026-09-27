@@ -119,10 +119,28 @@ jobs:
             --target i686-unknown-linux-gnu
 
       - name: Run build/std integration suites
+        shell: bash
         run: |
-          cargo test -p nia-cli --test build_cases --no-default-features -- --nocapture
-          cargo test -p nia-cli --test toolchain_relocation --no-default-features -- --nocapture
-          cargo test -p nia-cli --test commands --no-default-features -- --nocapture
+          set -euo pipefail
+
+          run_with_heartbeat() {
+            local label="$1"
+            shift
+            "$@" &
+            local pid=$!
+            while kill -0 "$pid" 2>/dev/null; do
+              echo "[$label] still running"
+              sleep 30
+            done
+            wait "$pid"
+          }
+
+          run_with_heartbeat build_cases \
+            cargo test -p nia-cli --test build_cases --no-default-features -- --nocapture
+          run_with_heartbeat toolchain_relocation \
+            cargo test -p nia-cli --test toolchain_relocation --no-default-features -- --nocapture
+          run_with_heartbeat commands \
+            cargo test -p nia-cli --test commands --no-default-features -- --nocapture
 
       - name: Run workspace tests
         run: cargo test --workspace
