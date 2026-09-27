@@ -29,3 +29,14 @@ be set after increasing the WSL memory and swap allocation.
 The release package contains the Nia compiler and its `lib` resources, not
 this LLVM source tree. LLVM build inputs and the resolved source revision are
 release-build inputs and should be recorded in the release evidence.
+
+On Windows, use the PowerShell build entry point. It pins the source tree to
+the same LLVM release, configures the MSVC static runtime, and disables
+optional libraries that are not needed by Nia:
+
+    $env:LLVM_SOURCE_ROOT = 'D:\Downloads\llvm-project-23.1.2'
+    .\tools\llvm\build-static.ps1
+
+The source root may be a worktree from the main llvm-project clone. It must be
+checked out at the llvmorg-23.1.2 tag; the LLVM main branch is not used by this
+workspace.
