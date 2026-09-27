@@ -464,7 +464,6 @@ pub(super) fn execute_external_command(
     policy: ExternalExecutionPolicy,
 ) -> Result<(), CoordinatorError> {
     let trace = std::env::var_os("NIA_BUILD_TRACE").is_some_and(|value| value != "0");
-    let started = Instant::now();
     if trace {
         eprintln!(
             "[nia-build-trace] pid={} external_start action={} program={} args={:?}",
@@ -629,7 +628,6 @@ pub(super) fn execute_external_command(
                 "[nia-build-trace] pid={} external_finished action={} elapsed={:?} status={} result=error",
                 std::process::id(),
                 action.key.name(),
-                started.elapsed(),
                 status
             );
         }
@@ -644,7 +642,6 @@ pub(super) fn execute_external_command(
             "[nia-build-trace] pid={} external_finished action={} elapsed={:?} status={}",
             std::process::id(),
             action.key.name(),
-            started.elapsed(),
             status
         );
     }
