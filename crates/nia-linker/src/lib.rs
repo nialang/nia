@@ -390,7 +390,7 @@ impl ArchiveTool {
                 }
             });
         }
-        for program in ["llvm-ar", "llvm-ar.exe", "ar", "ar.exe"] {
+        for program in ["llvm-ar", "ar"] {
             if let Some(found) = find_program_on_path(program) {
                 return Ok(found);
             }
@@ -1495,12 +1495,10 @@ fn resolve_lld_link_program(
     {
         return Ok(program.to_string());
     }
-    find_program_on_path("lld-link")
-        .or_else(|| find_program_on_path("lld-link.exe"))
-        .ok_or_else(|| LinkerConfigError::LinkerNotFound {
-            flavor: LinkerFlavor::LldLink,
-            program: "lld-link".to_string(),
-        })
+    find_program_on_path("lld-link").ok_or_else(|| LinkerConfigError::LinkerNotFound {
+        flavor: LinkerFlavor::LldLink,
+        program: "lld-link".to_string(),
+    })
 }
 
 fn find_program_on_path(program: &str) -> Option<String> {
@@ -1508,11 +1506,17 @@ fn find_program_on_path(program: &str) -> Option<String> {
     if program_path.components().count() > 1 {
         return is_executable_file(program_path).then(|| program.to_string());
     }
+    // Bare names use the host executable suffix, so a Linux host never
+    // selects a foreign `.exe` that happens to be reachable through PATH.
+    let suffixed = (!env::consts::EXE_SUFFIX.is_empty() && program_path.extension().is_none())
+        .then(|| format!("{program}{}", env::consts::EXE_SUFFIX));
     let paths = env::var_os("PATH")?;
     for dir in env::split_paths(&paths) {
-        let candidate = dir.join(program);
-        if is_executable_file(&candidate) {
-            return Some(candidate.to_string_lossy().into_owned());
+        for name in suffixed.iter().map(String::as_str).chain([program]) {
+            let candidate = dir.join(name);
+            if is_executable_file(&candidate) {
+                return Some(candidate.to_string_lossy().into_owned());
+            }
         }
     }
     None
