@@ -184,6 +184,11 @@ impl LoadedProgramFixture {
             "pub(pkg) module freestanding;",
             SourceRevision::INITIAL,
         ));
+        let (platform, implementation_path) = if cfg!(windows) {
+            ("windows", "runtime/start/freestanding/windows/x86_64.nia")
+        } else {
+            ("linux", "runtime/start/freestanding/linux/x86_64.nia")
+        };
         let freestanding = self.add_child_with_source_path(
             start,
             "freestanding",
@@ -192,25 +197,25 @@ impl LoadedProgramFixture {
                 "runtime/start/freestanding.nia",
                 "toolchain:/runtime/start/freestanding.nia",
             ),
-            "pub(pkg) module linux;",
+            &format!("pub(pkg) module {platform};"),
         );
-        let linux = self.add_child_with_source_path(
+        let platform_module = self.add_child_with_source_path(
             freestanding,
-            "linux",
+            platform,
             nia_ids::Visibility::PublicPkg,
             SourcePath::with_identity(
-                "runtime/start/freestanding/linux.nia",
-                "toolchain:/runtime/start/freestanding/linux.nia",
+                format!("runtime/start/freestanding/{platform}.nia"),
+                format!("toolchain:/runtime/start/freestanding/{platform}.nia"),
             ),
             "pub(pkg) module x86_64;",
         );
         let implementation = self.add_child_with_source_path(
-            linux,
+            platform_module,
             "x86_64",
             nia_ids::Visibility::PublicPkg,
             SourcePath::with_identity(
-                "runtime/start/freestanding/linux/x86_64.nia",
-                "toolchain:/runtime/start/freestanding/linux/x86_64.nia",
+                implementation_path,
+                format!("toolchain:/{implementation_path}"),
             ),
             source,
         );
@@ -303,7 +308,7 @@ pub(super) fn loaded_module(id: ModuleId, path: &str, source: &str) -> LoadedMod
 }
 
 pub(super) fn test_freestanding_runtime() -> RuntimeSpec {
-    RuntimeSpec::freestanding_from_package_root("runtime/pkg.nia", &TargetConfig::host())
+    RuntimeSpec::source_from_package_root("runtime/pkg.nia", &TargetConfig::host(), [])
         .expect("host test runtime")
 }
 

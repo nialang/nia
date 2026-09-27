@@ -1798,6 +1798,7 @@ fn main(p: Pair) {}
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "verifies Linux kernel ABI layouts")]
 fn std_linux_filesystem_struct_layouts_match_kernel_abi() {
     let root = temp_dir("std_linux_filesystem_struct_layouts_match_kernel_abi");
     write(

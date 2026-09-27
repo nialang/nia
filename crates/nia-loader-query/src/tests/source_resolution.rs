@@ -23,12 +23,10 @@ _ = value;
     assert_no_error_diagnostics(&program);
     assert!(!program.graph.package_facade_active(&sym("std")));
     assert!(program.graph.package_root(&sym("std")).is_none());
-    assert!(
-        program
-            .modules
-            .iter()
-            .any(|module| module.path.as_str() == root.join("std/fmt.nia").to_string_lossy())
-    );
+    assert!(program.modules.iter().any(|module| {
+        normalized_test_path(module.path.as_str())
+            == normalized_test_path(root.join("std/fmt.nia").to_string_lossy())
+    }));
     assert_module_not_loaded(&program, "lib/std/builtin.nia");
     assert_module_not_loaded(&program, "lib/std/fmt.nia");
 }
@@ -54,8 +52,8 @@ fn query_loader_resolves_root_children_relative_to_entry_file() {
         .get(root_module.children[&sym("defs")])
         .expect("defs module");
     assert_eq!(
-        defs_module.path.as_str(),
-        root.join("defs.nia").to_string_lossy().as_ref()
+        normalized_test_path(defs_module.path.as_str()),
+        normalized_test_path(root.join("defs.nia").to_string_lossy())
     );
 }
 

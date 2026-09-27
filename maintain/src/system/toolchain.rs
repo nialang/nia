@@ -45,25 +45,33 @@ pub struct ToolchainIdentity {
 
 fn resolve_program(program: &Path) -> MaintainResult<PathBuf> {
     if program.is_absolute() || program.components().count() > 1 {
-        if !program.is_file() {
-            return Err(format!("executable does not exist: {}", program.display()));
+        for candidate in program_candidates(program) {
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
         }
-        return if program.is_absolute() {
-            Ok(program.to_path_buf())
-        } else {
-            env::current_dir()
-                .map(|directory| directory.join(program))
-                .map_err(|error| format!("failed to resolve {}: {error}", program.display()))
-        };
+        return Err(format!("executable does not exist: {}", program.display()));
     }
     let path = env::var_os("PATH").ok_or_else(|| "PATH is not set".to_owned())?;
     for directory in env::split_paths(&path) {
-        let candidate = directory.join(program);
-        if candidate.is_file() {
-            return Ok(candidate);
+        for candidate in program_candidates(&directory.join(program)) {
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
         }
     }
     Err(format!("failed to find executable {:?} in PATH", program))
+}
+
+fn program_candidates(program: &Path) -> Vec<PathBuf> {
+    let mut candidates = vec![program.to_path_buf()];
+    #[cfg(windows)]
+    if program.extension().is_none() {
+        candidates.push(program.with_extension("exe"));
+        candidates.push(program.with_extension("cmd"));
+        candidates.push(program.with_extension("bat"));
+    }
+    candidates
 }
 
 fn command_output(

@@ -74,13 +74,22 @@ fn child_module_path(owner: &Path, name: &str) -> PathBuf {
     owner.with_extension("").join(format!("{name}.nia"))
 }
 
-fn source_dependencies(path: &Path, std_root: &Path) -> MaintainResult<BTreeSet<PathBuf>> {
+fn source_dependencies(
+    path: &Path,
+    std_root: &Path,
+    runtime_root: &Path,
+) -> MaintainResult<BTreeSet<PathBuf>> {
     let source = fs::read_to_string(path)
         .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
     let mut dependencies = BTreeSet::new();
+    let package_root = if path.starts_with(runtime_root) {
+        runtime_root
+    } else {
+        std_root
+    };
     for line in source.lines() {
         if let Some(captures) = USING.captures(line) {
-            dependencies.insert(package_module_path(&captures[1], std_root));
+            dependencies.insert(package_module_path(&captures[1], package_root));
         }
         if let Some(captures) = MODULE.captures(line) {
             let child = child_module_path(path, &captures[1]);
@@ -115,7 +124,7 @@ pub fn build_host_closure(std_root: &Path) -> MaintainResult<Vec<String>> {
             ));
         }
         visited.insert(path.clone());
-        for dependency in source_dependencies(&path, std_root)? {
+        for dependency in source_dependencies(&path, std_root, &runtime_root)? {
             if !visited.contains(&dependency) {
                 queue.push_back(dependency);
             }

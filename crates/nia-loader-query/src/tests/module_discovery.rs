@@ -156,7 +156,10 @@ fn source_existence_change_rebuilds_missing_module_graph() {
     let defs_module = present
         .modules
         .iter()
-        .find(|module| module.path.as_str() == defs.to_string_lossy())
+        .find(|module| {
+            normalized_test_path(module.path.as_str())
+                == normalized_test_path(defs.to_string_lossy())
+        })
         .expect("present defs module");
     assert_eq!(
         defs_module.source_version.revision,

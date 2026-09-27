@@ -44,6 +44,11 @@ pub struct ConstError {
 /// Default total interpreter-step limit per outer evaluation session.
 pub const DEFAULT_CONST_EVAL_STEP_LIMIT: usize = 1_000_000;
 /// Default nested const-function call-depth limit.
+/// Windows reserves a smaller stack for ordinary Rust threads, so keep the
+/// guard below the point where a recursive evaluator frame can overflow it.
+#[cfg(windows)]
+pub const DEFAULT_CONST_EVAL_CALL_DEPTH_LIMIT: usize = 128;
+#[cfg(not(windows))]
 pub const DEFAULT_CONST_EVAL_CALL_DEPTH_LIMIT: usize = 256;
 
 #[derive(Debug, Clone)]

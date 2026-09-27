@@ -511,6 +511,11 @@ using std::io;
 using std::mem;
 using std::process;
 
+@[if os == "windows"]
+static catProgram = "C:\\Windows\\System32\\more.com";
+@[if os == "linux"]
+static catProgram = "/bin/cat";
+
 pub fn main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
     let page: &mut mem::Allocator = &mut pageAllocator;
@@ -689,7 +694,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let arguments: [&[char]; 1] = [path.text()];
-    let command = process::Command::init(fs::PathView::init(&"/bin/cat"), init.env())
+    let command = process::Command::init(fs::PathView::init(&catProgram[..]), init.env())
         .withArguments(&arguments)
         .withStdout(process::StdIo::Pipe);
     let mut spawn = command.spawn();

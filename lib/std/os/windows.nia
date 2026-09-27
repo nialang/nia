@@ -214,7 +214,10 @@ extern fn SetFileAttributesW(path: &u16, attributes: u32) i32;
 extern fn FindFirstFileA(pattern: &u8, data: &mut FindData) usize;
 extern fn FindNextFileA(search: usize, data: &mut FindData) i32;
 extern fn FindClose(search: usize) i32;
-@[linkName("RtlGenRandom")]
+// The Windows SDK import library exports the documented SystemFunction036
+// entry point. RtlGenRandom is the API's implementation alias, not the COFF
+// symbol name available to lld-link.
+@[linkName("SystemFunction036")]
 extern fn SystemFunction036(buffer: &mut u8, length: u32) i32;
 extern fn ExitProcess(code: u32) ();
 extern fn WaitForSingleObject(handle: usize, milliseconds: u32) u32;
