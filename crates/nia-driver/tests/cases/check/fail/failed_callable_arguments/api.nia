@@ -1,0 +1,6 @@
+pub struct Point {}
+
+extend Point {
+    fn hidden(value: i32) i32 { value }
+    fn hidden_method(&self, value: i32) i32 { value }
+}

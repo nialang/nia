@@ -756,16 +756,39 @@ pub(super) fn checked_module_diagnostics(
                 resolve_diagnostic_bundle(bundle),
             );
         }
-        let remaining = [
+        gate.append(
+            &mut diagnostics,
+            &checked.path,
             resolve_diagnostic_bundle(&checked.item_diagnostics),
-            resolve_diagnostic_bundle(&checked.const_diagnostics),
-            resolve_diagnostic_bundle(&checked.static_diagnostics),
+        );
+        let body = resolve_diagnostic_bundle(&checked.body_diagnostics);
+        let const_errors = resolve_diagnostic_bundle(&checked.const_diagnostics);
+        let duplicate_call_count = const_errors
+            .iter()
+            .filter(|diagnostic| redundant_const_call_argument(diagnostic, body))
+            .count();
+        let const_errors = const_errors
+            .iter()
+            .filter(|diagnostic| !redundant_const_call_argument(diagnostic, body))
+            .cloned()
+            .collect::<Vec<_>>();
+        gate.suppressed_downstream += duplicate_call_count;
+        gate.append(&mut diagnostics, &checked.path, &const_errors);
+        let static_errors = resolve_diagnostic_bundle(&checked.static_diagnostics);
+        gate.append(&mut diagnostics, &checked.path, static_errors);
+        let body = body
+            .iter()
+            .filter(|diagnostic| !redundant_static_data_body_error(diagnostic, static_errors))
+            .cloned()
+            .collect::<Vec<_>>();
+        gate.suppressed_downstream +=
+            resolve_diagnostic_bundle(&checked.body_diagnostics).len() - body.len();
+        for bundle in [
             resolve_diagnostic_bundle(&checked.layout_diagnostics),
             resolve_diagnostic_bundle(&checked.abi_diagnostics),
             resolve_diagnostic_bundle(&checked.flow_diagnostics),
-            resolve_diagnostic_bundle(&checked.body_diagnostics),
-        ];
-        for bundle in remaining {
+            body.as_slice(),
+        ] {
             gate.append(&mut diagnostics, &checked.path, bundle);
         }
         let extension_validation = db.get(ExtensionProviderValidationFactsQuery(checked.id))?;
@@ -783,6 +806,34 @@ pub(super) fn checked_module_diagnostics(
         suppressed_downstream += gate.suppressed_downstream;
     }
     Ok((diagnostics, suppressed_downstream))
+}
+
+fn redundant_const_call_argument(diagnostic: &Diagnostic, body: &[Diagnostic]) -> bool {
+    diagnostic.code.as_str() == "E0401"
+        && diagnostic.summary == "const call argument does not match expected type"
+        && diagnostic.primary_span().is_some_and(|span| {
+            body.iter().any(|candidate| {
+                candidate.code.as_str() == "E0301"
+                    && candidate
+                        .summary
+                        .starts_with("type mismatch in call argument ")
+                    && candidate.primary_span() == Some(span)
+            })
+        })
+}
+
+fn redundant_static_data_body_error(diagnostic: &Diagnostic, static_errors: &[Diagnostic]) -> bool {
+    diagnostic.code.as_str() == "E0301"
+        && diagnostic.summary == "global initializer is not representable as static data yet"
+        && diagnostic.primary_span().is_some_and(|span| {
+            static_errors.iter().any(|root| {
+                root.code.as_str() == "E0501"
+                    && root
+                        .summary
+                        .starts_with("global initializer is not static data:")
+                    && root.primary_span() == Some(span)
+            })
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1098,10 +1149,90 @@ pub(super) fn backend_lowering_diagnostics(
 
 #[cfg(test)]
 mod tests {
-    use super::{DiagnosticGate, suppresses_downstream};
+    use super::{
+        DiagnosticGate, redundant_const_call_argument, redundant_static_data_body_error,
+        suppresses_downstream,
+    };
     use nia_diagnostic::{Diagnostic, Severity, codes};
     use nia_source::SourcePath;
     use nia_span::Span;
+
+    #[test]
+    fn const_call_duplicate_requires_precise_body_evidence() {
+        let span = Span::new(8, 12);
+        let body = [Diagnostic::user_error_at(
+            codes::TYPE_CHECK,
+            span,
+            "type mismatch in call argument 1: expected i32, got bool",
+        )];
+        let generic = Diagnostic::user_error_at(
+            codes::CONST,
+            span,
+            "const call argument does not match expected type",
+        );
+        assert!(redundant_const_call_argument(&generic, &body));
+        assert!(!redundant_const_call_argument(&generic, &[]));
+        assert!(!redundant_const_call_argument(
+            &Diagnostic::user_error_at(
+                codes::CONST,
+                Span::new(7, 12),
+                "const call argument does not match expected type",
+            ),
+            &body,
+        ));
+        assert!(!redundant_const_call_argument(
+            &Diagnostic::user_error_at(
+                codes::CONST,
+                span,
+                "const call trait bound is not satisfied"
+            ),
+            &body,
+        ));
+        assert!(!redundant_const_call_argument(
+            &Diagnostic::user_error_at(codes::CONST, span, "embedded file is missing"),
+            &body,
+        ));
+        assert!(!redundant_const_call_argument(
+            &Diagnostic::user_error_at(codes::CONST, span, "integer out of range"),
+            &body,
+        ));
+    }
+
+    #[test]
+    fn static_data_consequence_requires_exact_static_root() {
+        let span = Span::new(8, 12);
+        let consequence = Diagnostic::user_error_at(
+            codes::TYPE_CHECK,
+            span,
+            "global initializer is not representable as static data yet",
+        );
+        let root = Diagnostic::user_error_at(
+            codes::STATIC_CHECK,
+            span,
+            "global initializer is not static data: function calls require const execution",
+        );
+        assert!(redundant_static_data_body_error(
+            &consequence,
+            std::slice::from_ref(&root)
+        ));
+        assert!(!redundant_static_data_body_error(&consequence, &[]));
+        assert!(!redundant_static_data_body_error(
+            &consequence,
+            &[Diagnostic::user_error_at(
+                codes::STATIC_CHECK,
+                Span::new(7, 12),
+                root.summary.clone(),
+            )],
+        ));
+        assert!(!redundant_static_data_body_error(
+            &Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                "type mismatch in call argument 1: expected i32, got bool",
+            ),
+            &[root],
+        ));
+    }
 
     #[test]
     fn phase_gate_suppresses_overlapping_errors_but_keeps_independent_roots() {

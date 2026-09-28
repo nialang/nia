@@ -20,7 +20,7 @@ struct ExecutableValueRefLookups<'a> {
     defs: Arc<DefCollection>,
     graph: QueryModuleGraphLookup<'a>,
     public_surfaces: QueryPublicSurfaceLookup<'a>,
-    using_scope: QueryUsingScopeLookup<'a>,
+    using_scope: Arc<LexicalUsingScopesValue>,
     program_defs: RefCell<HashMap<ModuleId, Arc<DefCollection>>>,
     program_defs_failure: RefCell<Option<QueryError>>,
     visible_extensions: RefCell<Option<Arc<VisibleExtensionsValue>>>,
@@ -34,7 +34,7 @@ impl<'a> ExecutableValueRefLookups<'a> {
             defs: module_defs_semantic(db, module_id)?,
             graph: QueryModuleGraphLookup::new(db)?,
             public_surfaces: QueryPublicSurfaceLookup::new(db),
-            using_scope: QueryUsingScopeLookup::new(db, module_id),
+            using_scope: db.get(ModuleLexicalUsingScopesQuery(module_id))?,
             program_defs: RefCell::new(HashMap::new()),
             program_defs_failure: RefCell::new(None),
             visible_extensions: RefCell::new(None),
@@ -73,7 +73,6 @@ impl<'a> ExecutableValueRefLookups<'a> {
             .take()
             .or_else(|| self.graph.take_failure())
             .or_else(|| self.public_surfaces.take_failure())
-            .or_else(|| self.using_scope.take_failure())
     }
 }
 
@@ -260,7 +259,7 @@ fn executable_value_ref_index_for_active_item_tree_with_lookups(
                     graph: Some(&lookups.graph),
                 },
                 &lookups.public_surfaces,
-                &lookups.using_scope,
+                &lookups.using_scope.scopes,
                 nia_value_resolve::ValueResolveOptions::with_store(
                     Some(&associated_values),
                     Some(&symbols),

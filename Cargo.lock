@@ -1067,10 +1067,13 @@ dependencies = [
 name = "nia-public-surface"
 version = "0.2.0-dev"
 dependencies = [
+ "nia-ast",
+ "nia-ast-walk",
  "nia-defs",
  "nia-diagnostic",
  "nia-ids",
  "nia-imports",
+ "nia-item-tree",
  "nia-parser",
  "nia-span",
  "nia-symbol",

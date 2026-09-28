@@ -1,0 +1,7 @@
+fn need(value: i32) i32 { value }
+
+fn inspect() () {
+    _ = std::builtin::size[&Missing]();
+    _ = std::builtin::align[(Other, i32)]();
+    _ = need(true);
+}

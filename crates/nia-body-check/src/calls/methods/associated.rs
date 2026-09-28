@@ -112,7 +112,11 @@ impl<'a> BodyChecker<'a> {
             });
         }
         if candidates.is_empty() && !inaccessible_candidates.is_empty() {
-            self.report_inaccessible_extension_method(span, name, &inaccessible_candidates);
+            self.report_inaccessible_extension_method(
+                Self::call_callee_span(expr),
+                name,
+                &inaccessible_candidates,
+            );
             for arg in args {
                 self.check_expr(arg);
             }
@@ -135,6 +139,9 @@ impl<'a> BodyChecker<'a> {
                         ))
                         .finish(),
                 );
+            }
+            for arg in args {
+                self.check_expr(arg);
             }
             return Some(self.error());
         };
@@ -322,12 +329,16 @@ impl<'a> BodyChecker<'a> {
             [candidate] => candidate,
             [] => return None,
             _ => {
+                let identities = self.trait_candidate_identities(name, &candidates);
                 let name = self.symbol_name(*name);
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
+                self.report_trait_method_candidates(
                     expr.span,
                     format!("ambiguous trait associated function `{name}`"),
-                ));
+                    identities,
+                );
+                for arg in args {
+                    self.check_expr(arg);
+                }
                 return Some(self.error());
             }
         };

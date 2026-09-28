@@ -2,6 +2,337 @@
 use super::common::*;
 
 #[test]
+fn failed_bracket_base_preserves_type_readings_and_independent_value_errors() {
+    for (expression, independent_errors) in [
+        ("missing[i32](1)", 0),
+        ("missing[i32, bool](1)", 0),
+        ("&missing[i32]", 0),
+        ("missing[need(true)](1)", 1),
+        ("missing[i32](need(true))", 1),
+        ("&missing[need(true)]", 1),
+    ] {
+        let source =
+            format!("fn need(value: i32) i32 {{ value }}\nfn main() {{ _ = {expression}; }}");
+        let checked = pipeline(&source);
+        assert_eq!(
+            checked.diagnostics.len(),
+            1 + independent_errors,
+            "{expression}: {:?}",
+            checked.diagnostics
+        );
+        assert_eq!(
+            checked
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.summary == "unknown value `missing`")
+                .count(),
+            1
+        );
+        assert_eq!(
+            checked
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.summary.contains("expected i32, got bool"))
+                .count(),
+            independent_errors
+        );
+    }
+}
+
+#[test]
+fn failed_callable_selection_keeps_independent_argument_errors() {
+    let prelude = r#"
+struct Pair[A, B] { a: A, b: B }
+extend[T] Pair[T, i32] {
+    fn rank(self, value: i32) i32 { value }
+    fn make(value: i32) i32 { value }
+}
+extend[U] Pair[i32, U] {
+    fn rank(self, value: i32) i32 { value }
+    fn make(value: i32) i32 { value }
+}
+fn need(value: i32) i32 { value }
+"#;
+    for (call, root) in [
+        (
+            "Pair[i32, i32]::missing(need(true))",
+            "unknown associated function `missing`",
+        ),
+        (
+            "Pair[i32, i32]::missing[i32](need(true))",
+            "unknown associated function `missing`",
+        ),
+        (
+            "Pair[i32, i32]::make(need(true))",
+            "ambiguous method `make`",
+        ),
+        (
+            "Pair[i32, i32]::make[i32](need(true))",
+            "ambiguous method `make`",
+        ),
+        (
+            "pair.rank(need(true))",
+            "no matching method overload `rank`",
+        ),
+        (
+            "pair.rank[i32](need(true))",
+            "no matching method overload `rank`",
+        ),
+        ("true.missing(need(true))", "unknown method `missing`"),
+    ] {
+        let source = format!("{prelude}\nfn main(pair: Pair[i32, i32]) {{ {call}; }}");
+        let checked = pipeline(&source);
+        let summaries = checked
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.summary.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            summaries
+                .iter()
+                .filter(|summary| summary.contains(root))
+                .count(),
+            1,
+            "{call}: {summaries:?}"
+        );
+        assert_eq!(
+            summaries
+                .iter()
+                .filter(|summary| summary
+                    .contains("type mismatch in call argument 1: expected i32, got bool"))
+                .count(),
+            1,
+            "{call}: {summaries:?}"
+        );
+        assert_eq!(
+            summaries.len(),
+            2,
+            "{call}: unexpected fallback diagnostics: {summaries:?}"
+        );
+    }
+}
+
+#[test]
+fn callable_field_fallback_checks_arguments_once() {
+    for (argument, errors) in [("1", 0), ("true", 1)] {
+        let source = format!(
+            "struct Callable {{ invoke: &fn(i32) i32 }}\nfn need(value: i32) i32 {{ value }}\nfn main(value: Callable) i32 {{ value.invoke(need({argument})) }}"
+        );
+        let checked = pipeline(&source);
+        assert_eq!(
+            checked.diagnostics.len(),
+            errors,
+            "{:?}",
+            checked.diagnostics
+        );
+        if errors != 0 {
+            assert_eq!(
+                checked.diagnostics[0].summary,
+                "type mismatch in call argument 1: expected i32, got bool"
+            );
+        }
+    }
+}
+
+#[test]
+fn failed_trait_callable_selection_keeps_independent_argument_errors() {
+    let prelude = r#"
+trait Left { fn rank(&self, value: i32) i32; }
+trait Right { fn rank(&self, value: i32) i32; }
+trait Both: Left + Right {}
+trait FactoryLeft { fn make(value: i32) i32; }
+trait FactoryRight { fn make(value: i32) i32; }
+trait Factories: FactoryLeft + FactoryRight {}
+fn need(value: i32) i32 { value }
+"#;
+    for (signature, call, root) in [
+        (
+            "fn main[T](value: T) where T: Both",
+            "value.rank(need(true))",
+            "ambiguous trait method `rank`",
+        ),
+        (
+            "fn main[T](value: T) where T: Factories",
+            "[T]::make(need(true))",
+            "ambiguous trait associated function `make`",
+        ),
+        (
+            "fn main(value: &Both)",
+            "value.rank(need(true))",
+            "ambiguous dynamic trait method `rank`",
+        ),
+    ] {
+        let source = format!("{prelude}\n{signature} {{ {call}; }}");
+        let checked = pipeline(&source);
+        let summaries = checked
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.summary.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            summaries
+                .iter()
+                .filter(|summary| summary.contains(root))
+                .count(),
+            1,
+            "{call}: {summaries:?}"
+        );
+        assert_eq!(
+            summaries
+                .iter()
+                .filter(|summary| summary
+                    .contains("type mismatch in call argument 1: expected i32, got bool"))
+                .count(),
+            1,
+            "{call}: {summaries:?}"
+        );
+        assert_eq!(
+            summaries.len(),
+            2,
+            "{call}: unexpected fallback diagnostics: {summaries:?}"
+        );
+        let ambiguity = checked
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.summary == root)
+            .expect("ambiguity diagnostic");
+        let traits = if call.starts_with("[T]") {
+            ["FactoryLeft::make", "FactoryRight::make"]
+        } else {
+            ["Left::rank", "Right::rank"]
+        };
+        assert_eq!(ambiguity.related.len(), 2, "{ambiguity:?}");
+        for (related, identity) in ambiguity.related.iter().zip(traits) {
+            assert!(related.message.contains(identity), "{related:?}");
+            assert!(source[related.span.start..related.span.end].contains("fn "));
+        }
+        assert!(
+            ambiguity
+                .help
+                .iter()
+                .any(|help| help.contains("narrow the receiver"))
+        );
+    }
+}
+
+#[test]
+fn associated_candidate_signatures_keep_all_ordinary_parameters() {
+    let source = r#"
+struct Pair[A, B] { a: A, b: B }
+extend[T] Pair[T, i32] { fn make(value: i32, flag: bool) i32 { value } }
+extend[U] Pair[i32, U] { fn make(value: i32, flag: bool) i32 { value } }
+fn main() i32 { Pair[i32, i32]::make(1, true) }
+"#;
+    let checked = pipeline(source);
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary == "ambiguous method `make`")
+        .expect("ambiguous associated call");
+    let note = diagnostic
+        .notes
+        .iter()
+        .find(|note| note.starts_with("candidate methods:"))
+        .expect("candidate signatures");
+    assert_eq!(
+        note.matches("make(i32, bool) -> i32").count(),
+        2,
+        "{diagnostic:?}"
+    );
+    assert_eq!(diagnostic.related.len(), 2);
+    for related in diagnostic.related.iter() {
+        assert!(
+            source[related.span.start..related.span.end]
+                .contains("fn make(value: i32, flag: bool)")
+        );
+    }
+    assert!(!diagnostic.notes.iter().any(|note| note.contains("omitted")));
+}
+
+#[test]
+fn trait_candidate_reports_sort_before_applying_the_display_limit() {
+    for (signature, call, receiver) in [
+        ("fn main[T](value: T) where T: All", "value.rank()", "&self"),
+        ("fn main(value: &All)", "value.rank()", "&self"),
+        ("fn main[T](value: T) where T: All", "[T]::rank()", ""),
+    ] {
+        let mut notes = Vec::new();
+        for reverse in [false, true] {
+            let order = if reverse {
+                (0..10).rev().collect::<Vec<_>>()
+            } else {
+                (0..10).collect()
+            };
+            let traits = order
+                .iter()
+                .map(|index| format!("trait Candidate{index} {{ fn rank({receiver}) i32; }}\n"))
+                .collect::<String>();
+            let bounds = order
+                .iter()
+                .map(|index| format!("Candidate{index}"))
+                .collect::<Vec<_>>()
+                .join(" + ");
+            let source = format!("{traits}trait All: {bounds} {{}}\n{signature} {{ _ = {call}; }}");
+            let checked = pipeline(&source);
+            assert_eq!(checked.diagnostics.len(), 1, "{:?}", checked.diagnostics);
+            let diagnostic = &checked.diagnostics[0];
+            assert_eq!(diagnostic.related.len(), 8, "{diagnostic:?}");
+            for (index, related) in diagnostic.related.iter().enumerate() {
+                assert!(
+                    related.message.contains(&format!("Candidate{index}::rank")),
+                    "{related:?}"
+                );
+            }
+            assert!(
+                diagnostic
+                    .notes
+                    .iter()
+                    .any(|note| note == "2 additional candidate(s) omitted")
+            );
+            notes.push(diagnostic.notes.clone());
+        }
+        assert_eq!(notes[0], notes[1]);
+    }
+}
+
+#[test]
+fn narrowing_trait_bounds_resolves_reported_ambiguities() {
+    let checked = pipeline(
+        r#"
+trait Left { fn rank(&self) i32; }
+trait Factory { fn make(value: i32) i32; }
+fn bounded[T](value: T) i32 where T: Left { value.rank() }
+fn dynamic(value: &Left) i32 { value.rank() }
+fn associated[T](value: T) i32 where T: Factory { _ = value; [T]::make(1) }
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn trait_candidate_identities_distinguish_const_arguments() {
+    let checked = pipeline(
+        r#"
+trait SizedRank[N: usize] { fn rank(&self) i32; }
+trait Both: SizedRank[1] + SizedRank[2] {}
+fn main[T](value: T) i32 where T: Both { value.rank() }
+"#,
+    );
+    assert_eq!(checked.diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    let diagnostic = &checked.diagnostics[0];
+    assert_eq!(diagnostic.summary, "ambiguous trait method `rank`");
+    assert_eq!(diagnostic.related.len(), 2, "{diagnostic:?}");
+    for (related, value) in diagnostic.related.iter().zip([1, 2]) {
+        assert!(
+            related
+                .message
+                .contains(&format!("const arguments: {value}")),
+            "{related:?}"
+        );
+    }
+}
+
+#[test]
 fn selects_most_specific_extension_method_target() {
     let checked = pipeline(
         r#"
@@ -372,20 +703,48 @@ fn main(value: Value) i32 {
 
 #[test]
 fn error_receivers_do_not_emit_provider_demands() {
-    let checked = pipeline_without_visible_extensions(
-        r#"
-fn main() () {
-    missing.missing();
-}
-"#,
-    );
-
-    assert!(!checked.diagnostics.is_empty());
-    assert!(
-        checked.provider_demands.is_empty(),
-        "{:?}",
-        checked.provider_demands
-    );
+    for receiver in ["missing", "&missing", "(missing, 0)", "[missing]"] {
+        for method in ["absent", "absent[i32]"] {
+            let checked = pipeline_without_visible_extensions(&format!(
+                "fn need(value: i32) i32 {{ value }}\nfn main() () {{ ({receiver}).{method}(need(true)); }}"
+            ));
+            assert_eq!(
+                checked.diagnostics.len(),
+                2,
+                "{receiver}: {:?}",
+                checked.diagnostics
+            );
+            assert!(
+                checked.diagnostics.iter().all(|diagnostic| diagnostic
+                    .summary
+                    .contains("unknown value `missing`")
+                    || diagnostic.summary.contains("expected i32, got bool")),
+                "{receiver}: {:?}",
+                checked.diagnostics
+            );
+            assert!(
+                checked
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.summary.contains("unknown value `missing`")),
+                "{:?}",
+                checked.diagnostics
+            );
+            assert!(
+                checked
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.summary.contains("expected i32, got bool")),
+                "{:?}",
+                checked.diagnostics
+            );
+            assert!(
+                checked.provider_demands.is_empty(),
+                "{receiver}: {:?}",
+                checked.provider_demands
+            );
+        }
+    }
 }
 
 #[test]

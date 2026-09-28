@@ -1,6 +1,33 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+pub(super) fn diagnostic_sources(
+    db: &QueryDb<CompilerContext>,
+    graph: &ModuleGraphSnapshot,
+    diagnostics: &[ProgramDiagnostic],
+) -> QueryResult<crate::DiagnosticSources> {
+    let mut sources = crate::DiagnosticSources::new();
+    for diagnostic in diagnostics {
+        for path in std::iter::once(diagnostic.path.as_str()).chain(
+            diagnostic
+                .diagnostic
+                .related
+                .iter()
+                .filter_map(|related| related.source_path.as_deref()),
+        ) {
+            if sources.contains_key(path) {
+                continue;
+            }
+            let source = match graph.module_id_for_path(path) {
+                Some(module_id) => db.context().loader_facts().module_source_text(module_id)?,
+                None => None,
+            };
+            sources.insert(path.to_owned(), source);
+        }
+    }
+    Ok(sources)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ProgramMonomorphization {
     pub(super) semantic: Arc<nia_monomorphize::Monomorphization>,

@@ -1,0 +1,151 @@
+path: fail/aggregate_recovery/main.nia
+code: E0201
+summary: unknown type `Missing`
+label: 74..81 Primary Source unknown type `Missing`
+help: check the type name, module path, and whether the type is public
+
+path: fail/aggregate_recovery/main.nia
+code: E0301
+summary: type mismatch in call argument 1: expected i32, got bool
+label: 100..104 Primary Source type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+path: fail/aggregate_recovery/main.nia
+code: E0201
+summary: unknown type `Missing`
+label: 167..174 Primary Source unknown type `Missing`
+help: check the type name, module path, and whether the type is public
+
+path: fail/aggregate_recovery/main.nia
+code: E0301
+summary: type mismatch in call argument 1: expected i32, got bool
+label: 193..197 Primary Source type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+path: fail/aggregate_recovery/main.nia
+code: E0202
+summary: expected type generic argument
+label: 301..308 Primary Source expected type generic argument
+
+path: fail/aggregate_recovery/main.nia
+code: E0301
+summary: type mismatch in call argument 1: expected i32, got bool
+label: 327..331 Primary Source type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+path: fail/aggregate_recovery/main.nia
+code: E0201
+summary: unknown type `Missing`
+label: 373..380 Primary Source unknown type `Missing`
+help: check the type name, module path, and whether the type is public
+
+path: fail/aggregate_recovery/main.nia
+code: E0201
+summary: unknown type `Missing`
+label: 398..405 Primary Source unknown type `Missing`
+help: check the type name, module path, and whether the type is public
+
+path: fail/aggregate_recovery/main.nia
+code: E0301
+summary: type mismatch in call argument 1: expected i32, got bool
+label: 459..463 Primary Source type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+path: fail/aggregate_recovery/main.nia
+code: E0301
+summary: type mismatch in call argument 1: expected i32, got bool
+label: 502..506 Primary Source type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+report:
+diagnostics:
+root diagnostic:
+error[E0201]: unknown type `Missing`
+  --> fail/aggregate_recovery/main.nia:4:16
+  |
+4 |     let value: Missing = [.{ field: need(true) }];
+  |                ^^^^^^^ unknown type `Missing`
+help: check the type name, module path, and whether the type is public
+
+root diagnostic:
+error[E0301]: type mismatch in call argument 1: expected i32, got bool
+  --> fail/aggregate_recovery/main.nia:4:42
+  |
+4 |     let value: Missing = [.{ field: need(true) }];
+  |                                          ^^^^ type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+root diagnostic:
+error[E0201]: unknown type `Missing`
+  --> fail/aggregate_recovery/main.nia:9:16
+  |
+9 |     let value: Missing = (.{ field: need(true) }, 0);
+  |                ^^^^^^^ unknown type `Missing`
+help: check the type name, module path, and whether the type is public
+
+root diagnostic:
+error[E0301]: type mismatch in call argument 1: expected i32, got bool
+  --> fail/aggregate_recovery/main.nia:9:42
+  |
+9 |     let value: Missing = (.{ field: need(true) }, 0);
+  |                                          ^^^^ type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+root diagnostic:
+error[E0202]: expected type generic argument
+   --> fail/aggregate_recovery/main.nia:15:24
+   |
+15 |     let value: Storage[Missing] = .{ value: need(true) };
+   |                        ^^^^^^^ expected type generic argument
+
+root diagnostic:
+error[E0301]: type mismatch in call argument 1: expected i32, got bool
+   --> fail/aggregate_recovery/main.nia:15:50
+   |
+15 |     let value: Storage[Missing] = .{ value: need(true) };
+   |                                                  ^^^^ type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+root diagnostic:
+error[E0201]: unknown type `Missing`
+   --> fail/aggregate_recovery/main.nia:19:20
+   |
+19 | enum Event { Value(Missing), Named { value: Missing } }
+   |                    ^^^^^^^ unknown type `Missing`
+help: check the type name, module path, and whether the type is public
+
+root diagnostic:
+error[E0201]: unknown type `Missing`
+   --> fail/aggregate_recovery/main.nia:19:45
+   |
+19 | enum Event { Value(Missing), Named { value: Missing } }
+   |                                             ^^^^^^^ unknown type `Missing`
+help: check the type name, module path, and whether the type is public
+
+root diagnostic:
+error[E0301]: type mismatch in call argument 1: expected i32, got bool
+   --> fail/aggregate_recovery/main.nia:21:27
+   |
+21 |     _ = Event::Value(need(true));
+   |                           ^^^^ type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+root diagnostic:
+error[E0301]: type mismatch in call argument 1: expected i32, got bool
+   --> fail/aggregate_recovery/main.nia:22:36
+   |
+22 |     _ = Event::Named { value: need(true) };
+   |                                    ^^^^ type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+summary: 10 errors, 0 warnings

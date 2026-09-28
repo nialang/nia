@@ -1,0 +1,35 @@
+module api;
+
+struct Pair[A, B] { a: A, b: B }
+extend[T] Pair[T, i32] {
+    fn make(value: i32) i32 { value }
+}
+extend[U] Pair[i32, U] {
+    fn make(value: i32) i32 { value }
+}
+
+trait Left { fn rank(&self, value: i32) i32; }
+trait Right { fn rank(&self, value: i32) i32; }
+trait Both: Left + Right {}
+
+fn need(value: i32) i32 { value }
+
+fn associated() {
+    Pair[i32, i32]::missing(need(true));
+    Pair[i32, i32]::make(need(true));
+    Pair[i32, i32]::make[i32](need(true));
+}
+
+fn inaccessible(point: api::Point) {
+    api::Point::hidden(need(true));
+    point.hidden_method(need(true));
+    true.missing(need(true));
+}
+
+fn bounded[T](value: T) where T: Both {
+    value.rank(need(true));
+}
+
+fn dynamic(value: &Both) {
+    value.rank(need(true));
+}

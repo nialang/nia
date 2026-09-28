@@ -109,6 +109,36 @@ fn main() usize {
 }
 
 #[test]
+fn required_builtin_types_report_each_nested_unresolved_leaf() {
+    for ty in ["&Missing", "(Missing, i32)", "?Missing", "(Missing, Other)"] {
+        let source = format!("fn inspect() () {{ _ = std::builtin::size[{ty}](); }}");
+        let checked = pipeline(&source);
+        let expected = if ty.contains("Other") { 2 } else { 1 };
+        assert_eq!(
+            checked.diagnostics.len(),
+            expected,
+            "{ty}: {:?}",
+            checked.diagnostics
+        );
+        for diagnostic in checked.diagnostics.iter() {
+            assert_eq!(diagnostic.code.as_str(), "E0201", "{ty}: {diagnostic:?}");
+            let span = diagnostic.primary_span().expect("leaf span");
+            assert!(
+                matches!(&source[span.start..span.end], "Missing" | "Other"),
+                "{ty}: {diagnostic:?}"
+            );
+        }
+    }
+    let checked = pipeline(
+        r#"
+struct Buffer[N: usize] { values: [i32; N] }
+fn inspect[COUNT: usize]() () where Buffer[COUNT]: Sized { _ = std::builtin::size[Buffer[COUNT]](); }
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn records_field_offset_builtin_values() {
     let checked = pipeline(
         r#"

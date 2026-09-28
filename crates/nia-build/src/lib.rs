@@ -975,11 +975,13 @@ fn focus_build_script_diagnostics(error: DriverError, build_script: &SourcePath)
             DriverError::CodegenProgramDiagnostics(program)
         }
         DriverError::CodegenPreparationDiagnostics {
+            diagnostic_sources,
             mut diagnostics,
             suppressed_downstream,
         } => {
             focus_program_diagnostics(&mut diagnostics, build_script);
             DriverError::CodegenPreparationDiagnostics {
+                diagnostic_sources,
                 diagnostics,
                 suppressed_downstream,
             }

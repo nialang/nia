@@ -86,6 +86,7 @@ mod frontend_cache_publication;
 mod function_body_queries;
 mod identity;
 mod invalidation;
+mod lexical_usings;
 mod program;
 mod program_signature_queries;
 mod providers;
@@ -111,6 +112,7 @@ use fingerprints::*;
 use frontend_cache_publication::*;
 use function_body_queries::*;
 pub use identity::*;
+use lexical_usings::*;
 use program::*;
 use program_signature_queries::*;
 use providers::*;
@@ -227,8 +229,10 @@ impl CompilerDatabase {
                 .context()
                 .provider_demand_rounds
                 .store(0, std::sync::atomic::Ordering::Relaxed);
+            let graph = self.current_graph()?;
             return Ok(CheckedProgram {
-                graph: self.current_graph()?,
+                diagnostic_sources: diagnostic_sources(&self.db, &graph, &certificate.diagnostics)?,
+                graph,
                 optimization: self.current_optimization(),
                 diagnostics: certificate.diagnostics.clone(),
                 suppressed_downstream: certificate.suppressed_downstream,

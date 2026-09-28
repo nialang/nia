@@ -249,7 +249,7 @@ impl<'a> LocalResolver<'a> {
                 self.resolve_static(stmt.span, binding);
             }
             StmtKind::Using(_) => {
-                // Block-scope `using` is handled by a later resolution pass; nothing local to bind.
+                // Shared type/value resolution has already resolved block imports.
             }
             StmtKind::Expr(expr) | StmtKind::Defer(expr) => self.resolve_expr(expr),
             StmtKind::Return(value) => {
