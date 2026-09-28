@@ -327,10 +327,26 @@ to the corresponding callable view.
 Diagnostics and source rendering. Owns user-facing diagnostic display but not
 semantic policy. Diagnostic codes are registry-backed schema values with severity,
 category, and stage reconstructed from registered definitions during stable-bundle
-decode. Query providers collect diagnostics in phase order and stop publishing
-downstream diagnostics for a module after its first failing phase; the active
-root-cause and source-ownership redesign is tracked in
+decode. Query providers collect diagnostics in phase order and suppress derived
+reports only when a published root has matching cause identity or applicable
+source-span evidence. Independent errors remain visible in the same module and
+function. Const/static precedence still needs the acceptance work tracked in
 [`diagnostics-roadmap.md`](diagnostics-roadmap.md).
+
+Compiler report products retain immutable source text for primary and related
+diagnostic paths through `DiagnosticSources`. Query providers capture loader
+text while producing the report, and certificate hits recover text from the
+current checked inputs. Driver preparation errors and artifacts preserve this
+collection. Retained snapshots take precedence over caller overrides and disk
+reads; explicit missing-source entries prohibit reading a later file at that
+path. This keeps dependency overlays and old reports stable across source edits.
+
+Build/test JSON mode disables live child-stream forwarding; bounded captured
+output stays in structured failure notes. Text mode retains live output.
+Aggregate test failures retain each suite's exit/timeout reason and captured
+streams with a suite-name prefix. Windows process cleanup produces no terminal
+output. Linker and archive failures preserve both captured streams and use the
+same diagnostic constructor for text and JSON.
 
 ### `nia-timing`
 
@@ -351,21 +367,49 @@ between two digits valid for that literal's radix.
 
 ### `nia-syntax`
 
-Defines the lossless syntax representation. Builds green nodes and red syntax
-nodes/tokens, preserves trivia and full source text, groups delimiter subtrees, and
-exposes conservative partial reparsing for token/trivia edits. Red syntax tokens
-carry source-versioned child paths used by diagnostics and AST lowering.
+Owns grammar recognition, recovery, syntax diagnostics, and the lossless green/red
+tree. Its internal grammar emits declaration, type, expression, statement, and
+pattern nodes, zero-width `Missing` nodes, and retained `Error` regions while
+preserving every source token and trivia element. It does not depend on AST,
+symbols, item trees, or semantic products. The former `nia-grammar` crate has been
+absorbed into this owner; there is no second token-cursor parser in `nia-parser`.
 
-### `nia-grammar`
+`Parse` retains the tree, diagnostics, and alternate type/expression readings for
+constructs whose interpretation depends on semantic resolution. Speculation rolls
+back token position, events, forward-parent links, and alternate readings together;
+callers also discard speculative diagnostics when abandoning a reading. Invalid
+green events, including alternate trees, are internal failures, not silently
+discarded syntax. Red tokens carry source-versioned child paths used by diagnostics
+and AST lowering.
 
-Owns grammar recognition and recovery events above the lossless syntax layer. It
-emits grammar-shaped green nodes, explicit zero-width `Missing` nodes, and retained
-`Error` regions while preserving every source token and trivia element. It does not
-depend on AST, symbols, item trees, or semantic products. Grammar productions are
-migrated here incrementally; `Unparsed` regions are temporary migration boundaries,
-not a second long-term parser model. Each migrated production must retain source
-spans and recovery behavior required by the parser diagnostics contract before its
-token-cursor implementation is removed.
+A detached grammar snapshot retains the nested alternate readings required by its
+children as well as its own events. Restoring an outer type interpretation must
+preserve inner const interpretations, such as `Buffer[COUNT]` inside a call's
+bracket argument. Clean and incremental lowering must agree on those readings.
+
+`Parse::reparse` first tries the innermost safe function-body block. Its delimiters
+must survive, its enclosing grammar must not have speculatively read its interior,
+and no alternate interpretation may cross its boundary. Errors or unsafe boundaries
+fall back to declaration-region reparsing: invalidate iterations whose consumed or
+lookahead tokens intersect the edit, then parse until an unchanged declaration
+boundary. Lexing still covers the full source. Reused diagnostics and alternate
+trees shift with the edit; diagnostic child paths are reconstructed for the new
+revision. Continuous edits are compared with clean parses, including AST origins.
+
+Green nodes share immutable, position-independent storage through `Arc`. Child
+offsets are relative to their parent; positioned handles materialize borrowed child
+views lazily. Relocating an untouched subtree shares its structure in constant time;
+splicing a block reconstructs its ancestors while retaining unchanged siblings.
+Retained snapshots keep their original spans and source versions.
+
+The loader's `set_source` derives a UTF-8 replacement range; `edit_source` accepts an
+explicit edit against a current source version and rejects stale or invalid edits.
+Under one query retirement barrier, the loader reads an already-cached syntax
+snapshot, prepares its reparse, retires old revision owners, and publishes the new
+syntax value with an explicit source-text dependency. `SyntaxModuleQuery` declares
+`KeyExecuteOrPublished`: ordinary cache misses execute the same grammar, while edits
+may publish an equivalent prepared value into an empty slot. Unparsed sources stay
+lazy. There is no loader-owned syntax cache outside the query graph.
 
 ### `nia-ast`
 
@@ -376,11 +420,13 @@ span/node-key identity.
 
 ### `nia-parser`
 
-Lowers the grammar tree into AST and reports parse errors that belong to AST
-construction. During the grammar migration it provides parity tests against the
-grammar crate and retains only productions not yet moved. It records
-`NodeOriginTable` mappings from AST spans to red/green child-path ranges. Parser
-checkpoints roll back token position and origin-table mutations together.
+Lowers a completed `nia-syntax::Parse` into AST, interns names, and records
+`NodeOriginTable` mappings from AST spans to red/green child-path ranges. Lowering
+walks grammar nodes and their retained alternate readings; it does not tokenize
+or reparse source. Recovery regions are skipped, so rejected productions cannot
+publish partial AST origins. Grammar diagnostics pass through unchanged, followed
+by any AST-construction diagnostics such as symbol collisions. In-memory parsing
+helpers use the same syntax owner and lowering path as the loader.
 
 Expression bracket suffixes are parsed in syntax-preserving form; semantic
 disambiguation of generic instantiation vs indexing happens later.
@@ -496,10 +542,34 @@ Trait and associated-type recursion use path-local semantic guards.
 Resolves value paths and qualified value names that refer to top-level values,
 functions, enum variants, and imports. Defers local variables to `nia-local-resolve`.
 
+Failed callable lookup owns the callee span, leaving independent argument
+diagnostics visible. Ambiguous bracket syntax keeps a valid type interpretation
+when its base is an error; value-shaped arguments are still checked. Candidate
+reports retain declaration-owned paths, distinguish ordinary parameters from
+receivers, and sort identities and locations before applying display limits.
+Failed method lookup on a structural Error receiver checks independent arguments
+without falling back to a field-shape error or requesting an unavailable provider.
+Known method candidates continue through ordinary signature checking.
+
+Required type arguments validate unresolved candidate leaves recursively through
+lowered type sites and report the leaf span. Const arguments' unused type readings
+are excluded. Nested bracket expressions use the same candidate-aware resolution
+as outer expressions, and error-union candidates visit both payload types.
+
 ### `nia-local-resolve`
 
 Builds local scopes for functions and blocks. Resolves parameters, local bindings,
-block-local `using`, deferred expressions, and local identifiers. Marks expressions
+deferred expressions, and local identifiers. Block-local imports are resolved
+by `nia-public-surface` into shared lexical environments before type/value and
+local resolution. Child blocks inherit imports, inner imports override outer
+imports and module definitions in the same namespace, and sibling blocks cannot
+see each other's imports. Failed imports retain the emitted root identity.
+Unavailable hosts retain their module identity until compiler queries can match
+the declaration against a unique published loader diagnostic; ambiguous or
+absent evidence does not manufacture a cause link.
+Full-body and signature-const queries use separate item-tree dependencies;
+const IR omits resolved import directives because they have no runtime effect.
+Local resolution marks expressions
 that syntactically act as type prefixes for associated function calls or enum
 variant paths.
 

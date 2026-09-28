@@ -9,15 +9,356 @@ formatter. A useful report must answer four questions in order:
 3. What other location or declaration explains the rule?
 4. What can the user change to continue?
 
-The implementation is being upgraded in bounded stages. Each stage must keep
+The implementation was upgraded in bounded stages. Each stage must keep
 the existing source spans and diagnostic codes stable unless the old contract
 was actively misleading.
 
-Status: in progress. The implemented paths below are incremental coverage, not
-completion of the whole roadmap. Remaining work includes broader source-origin
-and recovery provenance, rule-specific semantic diagnostics, and fixture/snapshot
-coverage for the complete diagnostic rule set. Non-Linux terminal validation is
-deferred to the 0.3.0 multi-platform port and is not a gate for this roadmap.
+Status: the bounded implementation, workspace acceptance and local Git delivery
+are complete as of 2026-09-28. All acceptance-ledger rows are verified.
+Completed examples are evidence for their own cases, not proof that an entire
+rule family is complete. Non-Linux interactive-terminal validation belongs to
+the 0.3.0 multi-platform port and is outside this roadmap's closure criteria.
+
+## Acceptance Ledger
+
+This ledger records the completed work list. `Verified` means the stated boundary has
+owner tests and end-to-end evidence; `Open` means the boundary still needs an
+audit or implementation. A row may close only against its stated criteria.
+Newly discovered gaps receive a named row instead of extending an unbounded
+claim of "broader coverage". Progress is tracked by these boundaries, not an
+estimated percentage or the number of registered diagnostic codes.
+
+| ID | State | Boundary and owner | Required evidence for closure |
+| --- | --- | --- | --- |
+| G1 | Verified | Grammar ownership: `nia-syntax`, `nia-parser` | One production grammar; pure AST lowering; old parser/crate and migration markers removed; recovery and parser/driver parity tests. |
+| G2 | Verified | Incremental edits: syntax, query, loader | Clean/edit equivalence of syntax, diagnostics and AST origins; actual green sharing; stale/UTF-8 edit rejection; failed publication retry; bounded revision storage. |
+| S1 | Verified | Failed callable selection: `nia-body-check` | Unknown, inaccessible, ambiguous and rejected-overload calls retain independent value-argument errors exactly once. Generic trait ambiguity stops field fallback. Name-resolution lookup labels exclude value arguments. Owner matrices and `fail/failed_callable_arguments` verify the behavior; callable-field success/failure controls remain valid. |
+| S2 | Verified | Qualified lookup and visibility: value/type resolution, body check | `qualified_callable_visibility_matrix` covers four visibilities across same-module, parent, sibling, same-package and external-package consumers, with ordinary/explicit-generic calls, plain/generic function references, and type references. Both free and associated functions retain dependency-owned declaration locations. Parser tests pin `self::` type paths; recovery tests prevent failed generic callees from misdiagnosing type arguments as values. |
+| S3 | Verified | Candidate explanations: `nia-body-check` | Associated, bounded-receiver and dynamic-trait ambiguities retain candidate identities, declaration locations and actionable help. Owner tests cover ordinary parameters, const-generic identities, sorted truncation across reversed discovery order, and successful narrowing controls. `fail/trait_candidate_locations`, `fail/ambiguous_extension_method` and `fail/failed_callable_arguments` pin rendered local and cross-module evidence. |
+| P1 | Verified | Recovery cause identity: resolution, diagnostic bundles, compiler reports | Aliased/group imports and repeated value/type/namespace consumers preserve the emitted root through bundles, edits and caches. Block scopes, const evaluation, executable lookup, private/public imports and unavailable loader hosts have owner and driver coverage; independent errors remain visible. Bundle/report tests cover missing, duplicate and cyclic cause evidence. |
+| P2 | Verified | Generated/source ownership: build runner and driver | Runner filtering preserves dependency roots and attaches only explicitly proven generated context. Checked/codegen reports retain diagnostic source snapshots through artifacts; dependency overlays, cold/cached/verified checks, LLVM/object preparation failures, missing sources and old reports after edits/file removal are covered by `report_sources` and runner owner tests. |
+| R1 | Verified | Recovery rule matrix: semantic owners | The bounded frontend-family inventory below covers direct/structural Error recovery, independent same-expression/function errors and resolved invalid controls. Owner and driver matrices plus aggregate, receiver and nested-required-type snapshots cover the discovered gaps. Const/static duplicate attribution remains explicitly owned by R2. |
+| R2 | Verified | Const/static diagnostic precedence: const checker, body checker, query reports | Same-span generic const-call and static-data consequences are coalesced while E0501, specialized E0401 roots and independent initializer errors remain. Owner and driver tests cover generic constraints, embedded-file failures, range errors, and cold/edit/cache equivalence. |
+| O1 | Verified | Operational report matrix: CLI, build, linker/backend | CLI text/JSON matrices and owner fault-path tests retain process stages, both available bounded tails, target roles, suite context and cleanup causes. Both capture workers are retired on failure. The plan/process inventory below maps normal CLI failures and explicit executor/OS-level exclusions. |
+| C1 | Verified | Final acceptance and delivery | The maintained explicit-target Windows workspace gate passes 3,835 tests including doctests, with 27 ignored; strict Clippy, formatting and maintenance pass. Accepted changes are organized into dependency-ordered local commits with intermediate build checks. Linux terminal evidence remains separate; durable contracts live with their owners. |
+
+### Current Delivery
+
+- [x] O1 final owner checks: `nia-build` passes 141 tests (26 platform/helper
+  tests ignored); CLI `build_cases` passes all 14 tests, including 28 invalid-plan
+  command/format combinations, and `diagnostic_failures` passes all eight tests.
+  Strict workspace/all-target Clippy, maintenance and formatting pass.
+  Native checks use `--target x86_64-pc-windows-msvc`, the official MSVC developer
+  environment, and no custom `RUSTFLAGS`, `CFLAGS` or `CXXFLAGS`.
+- [x] Final Windows workspace test on 2026-09-28, after the O1 repairs:
+  `cargo test --locked --workspace --no-default-features --target x86_64-pc-windows-msvc -- --test-threads=1`
+  completed with exit status 0: 3,835 passed, zero failed, 27 ignored, including
+  documentation tests. This uses the maintained explicit-target entry point
+  and the developer environment without custom Rust/C/C++ flags.
+- [x] Separate ordinary-shell evidence: all 104 `nia-llvm` tests pass with the
+  explicit target and no `LIB`, `INCLUDE`, `RUSTFLAGS`, `CFLAGS`, or `CXXFLAGS`.
+  This covers native object emission and LTO without hardcoded SDK paths.
+  Workflow contracts pass all five tests; the compiler's PE imports contain
+  no dynamic CRT DLL. These local results are not a hosted CI run or new Linux
+  terminal evidence.
+- [x] C1 delivery on 2026-09-28: `68d4be598` records Windows toolchain/CRT
+  setup, `984790287` the syntax/parser/loader migration, `a7b19f681` semantic
+  recovery and source ownership, and `c397d2b5e` build/CLI failure reports.
+  Architecture and roadmap closeout accompany the series. Parser and semantic
+  intermediate trees pass locked workspace/all-target checks; the Windows
+  intermediate tree passes all five workflow contracts. The final implementation
+  matches the accepted source snapshot. These are local commits, not a push or
+  a new hosted CI run.
+- [x] Record G1/G2 implementation and verification. Their accepted conservative
+  reparse boundaries are explicit below.
+- [x] S1: reproduce skipped independent value-argument errors on failed callable
+  selection, fix the owning checker paths, and add owner tests plus snapshots.
+  The new source fixture preserves 16 diagnostics across eight failed calls;
+  three nested argument errors were previously suppressed by full-call lookup
+  labels. Trait ambiguity no longer adds a spurious field-access error.
+- [x] Record S1 coverage and P1's producer/consumer inventory below. Current
+  workspace evidence is centralized here rather than repeating historical
+  test counts throughout the roadmap.
+
+Full-source lexing and conservative declaration fallback for unsafe block edits
+are accepted G2 boundaries. Incremental lexing and additional reparse islands
+are performance follow-ups, not hidden requirements for closing this roadmap.
+
+### Evidence Matrix
+
+The source fixture root is `crates/nia-driver/tests/cases/check`. Each failure
+snapshot includes structured fields and rendered text. Existing evidence is
+reused; an uncovered combination remains open even when its error code already
+has another fixture.
+
+| Contract | Existing evidence | Next acceptance boundary |
+| --- | --- | --- |
+| Call arguments and recovery | `fail/call_diagnostics`, `fail/ambiguous_extension_method`, `fail/failed_callable_arguments`, `fail/trait_candidate_locations`, body-check call/method matrices | S1/S3 verified, including deterministic candidate limits and successful narrowing controls. |
+| Qualified names and scope | `qualified_callable_visibility_matrix`, `fail/qualified_callable`, `fail/qualified_associated_callable_visibility`, `fail/restricted_qualified_visibility`, `fail/restricted_associated_values` | S2 verified across lookup forms, visibility scopes and cross-module declaration ownership. |
+| Import cause chains | `fail/using_type_provenance`, `fail/private_using`, diagnostic bundle/report tests | P1 verified for aliases, value/type consumers, repeated edits and persistence; the producer/consumer inventory follows below. |
+| Structural recovery | `fail/structural_recovery_diagnostics`, `fail/operator_recovery_diagnostics`, builtin/propagation fixtures, `fail/nested_required_type_recovery` | R1 verified against the family inventory; R2 owns overlapping const/static causes. |
+| Generated and operational failures | Build-runner ownership tests, CLI captured-report and linker/backend tests | P2/O1 verified against the ownership, command/output and final fault-path inventories below. |
+
+Current gate results belong to Current Delivery above. Owner evidence below
+defines each accepted boundary rather than relying on a historical workspace
+test count. Invalid type recovery exposed legacy `extend !` test inputs; these
+semantic tests now use the specified `never` spelling and retain their original
+semantic assertions. Final acceptance and Git delivery are recorded under C1 above.
+
+### P1 Cause Evidence Audit
+
+The verified module-import ownership chain is recorded below. Block-local
+imports, unavailable hosts and edit/cache behavior have the owner and driver
+evidence listed after the inventory.
+
+| Step | Current owner and entry point | Boundary to verify |
+| --- | --- | --- |
+| Emit the import root | `nia-public-surface`: `using_failure_diagnostic`, `compute_using_scopes_from_surfaces_with_symbols` | The referenced path/code/span belongs to the root actually emitted; public re-export and missing-module handling must not invent a duplicate root. |
+| Retain lookup evidence | `nia-defs::UnresolvedUsing`; `nia-public-surface::record_unresolved_using_names` | An alias changes the exposed name and selected-name span, while its cause remains the original diagnostic identity. Group selectors retain per-name evidence. |
+| Consume types | `nia-type-resolve::unresolved_using_type_diagnostic` | Parameter, result and nested type uses retain the same cause and declaration-owned related path. |
+| Consume values and namespaces | `nia-value-resolve::unresolved_using_path_diagnostic`, `node_unresolved_usings`; `nia-body-check::unresolved_using_diagnostic` | Qualified namespaces and deferred body values retain evidence without publishing a second unrelated unknown-name root. |
+| Persist diagnostic evidence | `nia-diagnostic`: stable bundle encode/decode | Cause and related paths survive roundtrip; edited or relocated sources do not reuse stale locations. |
+| Suppress and order reports | Compiler `diagnostic_has_root_evidence`; diagnostic `build_diagnostic_report_with_downstream` | Exact cause links remain valid; span fallback cannot hide independent errors. Missing, ambiguous, self-referential and cyclic causes remain visible instead of being dropped. |
+
+P1 exercises a failed aliased/group import used as both a value and a type,
+plus an independent same-function error, then edits the import from failing to
+valid and back. Clean, incrementally updated and cached products agree.
+Bundle/report tests cover serialization and missing/cyclic cause handling in
+isolation; the combined source-driven path below verifies their composition.
+Extend the existing typed evidence only when a failing source case demonstrates
+information loss at an identified owner; do not introduce a parallel origin store.
+
+The driver test `aliased_group_import_causes_survive_edits_and_cache` now traces
+two failed grouped aliases through repeated type and value uses in a child
+module, preserving four cause links and one independent body error. It compares
+diagnostics and rendered reports after failure, repair, and failure at moved
+source offsets against clean, cached and cache-verified drivers. Emitted
+diagnostics also roundtrip through the stable bundle. This boundary passes.
+
+P1 is verified. Block-local imports share resolved lexical environments
+across type/value resolution, deferred const expressions, const lowering and
+executable reachability. The five `block_imports` driver tests cover nested
+and module-definition shadowing, sibling/outside rejection, type/value namespace
+separation, wildcard and enum-alias imports, duplicate import locations, const
+array lengths and codegen. Failed qualified namespaces retain the import root.
+Failure, repair, moving an import into a child block and shifted failure are
+compared against clean, cached and cache-verified checks, including rendered
+reports. `private_import_and_reexport_causes_identify_the_emitted_root` checks
+private module/block imports and public re-exports with repeated consumers and
+dependency-owned declarations. `unavailable_import_module_keeps_the_loader_root`
+checks both consumers against the actual loader root without adding an import
+root. Query composition attaches that cause only when the failed module's
+declaration matches exactly one published loader diagnostic. The focused import
+audit passes 15 tests; workspace acceptance is recorded in Current Delivery.
+Module aliases also take precedence over same-named declared child modules in
+their block, including subsequent import hosts and qualified type/value paths.
+A failed same-named alias cannot fall back to the original child module.
+
+Block-import implementation must share lexical lookup results across type and
+value resolution, including deferred const expressions and executable
+reachability. Module-only query keys cannot distinguish nested aliases. Tests
+must include a block and its children, sibling/outside rejection, alias shadowing,
+duplicate names in one namespace/scope, imported enum variants, and failure
+causes after edits. Ordinary `check` success alone does not establish the
+executable-query path.
+
+The lexical owner test also checks restoration of an outer import after an
+inner failed alias, absence in sibling functions and preservation of an imported
+enum variant's parent identity. Modules with no block imports reuse their module
+scope; signature-const queries use their restricted item tree rather than adding
+ordinary function bodies to signature dependencies.
+
+### P2 Ownership Audit
+
+The runner filter now removes only diagnostics owned by the generated runner
+when a source error exists. It preserves independent dependency errors and
+warnings, including when the build script itself also fails. Generated context
+is attached as a related location only when an explicit path/code/span cause
+identifies exactly one source root. Without source errors, runner errors remain
+visible. `runner_focus_preserves_dependency_roots_and_attaches_only_proven_context`
+and `build_script_errors_hide_generated_runner_cascade` cover this boundary.
+The build renderer uses the retained runner text for generated related locations;
+`runner_related_locations_use_generated_source_instead_of_caller_text` pins its
+source ownership in text and JSON.
+
+P2 source snapshots are implemented. Compiler query products retain the source
+text for primary and related diagnostic paths, including explicit unavailability,
+and the driver carries this data through preparation failures and emitted
+artifacts. The renderer uses retained text before caller overrides or disk.
+`diagnostic_reports_retain_dependency_overlays_across_edits_and_cache` checks
+dependency overlays against unchanged disk files, cold/cached/cache-verified
+checks, codegen and LLVM/object preparation failures, and retained reports after
+repair and dependency file removal. `unavailable_report_sources_do_not_read_later_files`
+ensures later files cannot change reports produced with missing dependencies.
+
+### R1 Aggregate Recovery Audit
+
+`aggregate_recovery_keeps_independent_initializer_errors` covers direct Error,
+generic/pointer/array/tuple structural Error, wrong nominal context, absent
+expected context and nested aggregate literals. Rejected aggregate targets still
+check field expressions with a recovery expectation, retaining independent call
+argument failures without adding a dependent nominal-shape error. Required type
+arguments use the existing type-or-const validation path, so `Box[Missing]`
+cannot silently become Error. `required_type_arguments_report_unresolved_candidates`
+checks its root span and a valid const-generic control.
+Array and tuple expressions now retain an Error expectation for nested
+constructors instead of discarding it during element inference. Rejected array
+contexts still check element expressions. The 14-case aggregate matrix checks
+these boundaries, and `fail/aggregate_recovery` pins structured and rendered
+reports for arrays, tuples, generic unions, and tuple/named enum payloads: five
+source/type roots and five independent argument errors, without constructor
+shape consequences.
+The family matrix below records R1's accepted boundaries and controls.
+
+The driver `recovery_families_keep_independent_expression_errors` now covers
+67 direct/structural recovery combinations across calls/inference, unary and
+binary operators, projections, bindings, statements, iteration, propagation,
+SIMD/memory/atomic builtins, inline assembly, closures and nine match-pattern
+forms. Each case requires exactly one unresolved-value root and one independent
+argument error, including its precise source span. Thirteen further cases in
+`recovery_owner_boundaries_keep_independent_body_errors` check parameter/result
+types, returns, closure annotations and error-union payloads.
+
+The audit exposed structural receiver method lookup publishing unknown-method
+and field-shape cascades. Failed lookup now recognizes recursive Error types,
+checks independent value and ambiguous bracket arguments, and avoids provider
+demands for recovery receivers. Existing candidates still use normal signature
+checking. Eight owner cases cover ordinary/explicit-generic calls on direct,
+pointer, tuple and array recovery receivers; `fail/recovered_method_receivers`
+pins the structured and rendered reports. Static-data lowering also refuses
+initializers already rejected by expression checking, without publishing a
+recovery initializer or another representation error.
+
+The audit is bounded by these frontend families. Direct Error, structural Error,
+same-function independent errors and resolved invalid controls are accounted for
+by the evidence below. Const/static duplicate attribution is separate from
+retention and is verified separately by R2 below.
+
+| Family | Existing evidence | Accepted boundary and controls |
+| --- | --- | --- |
+| Callable selection and generic inference | S1/S3 matrices; structural inference owner tests; 67-case driver matrix and recovered-receiver snapshot | `known_method_on_recovered_nominal_receiver_keeps_fixed_argument_error` retains the fixed-parameter failure on pointer/tuple generic arguments containing Error. |
+| Aggregate construction and required type arguments | `aggregate_recovery_keeps_independent_initializer_errors`; `required_type_arguments_report_unresolved_candidates`; `fail/aggregate_recovery` | Covered for direct/structural targets, union and enum payloads, nested constructors and independent initializer errors. |
+| Operators and trait obligations | Shift/operator fixtures, trait/unary owner tests, driver direct/structural pairs with independent operands | `rejects_unary_operators_without_builtin_trait_impls`, `rejects_boolean_vector_arithmetic`, `checks_vector_shift_operand_shapes` and `suppresses_recovery_trait_obligation_diagnostics` retain resolved invalid controls. |
+| Places, projections and references | Structural place owner tests; driver direct/structural pairs and independent index operands | Covered for field/index/deref/reference recovery. |
+| Bindings, patterns, statements and iteration | Structural fixtures and owner tests; nine pattern forms with independent arm errors in the driver matrix | Covered for the enumerated pattern, binding, defer, condition and iteration forms. |
+| Optional/error-union construction and propagation | Propagation fixtures; driver direct/structural construction and propagation pairs | Covered for the enumerated operand, payload and return boundaries. |
+| Layout, SIMD, atomic and memory builtins | Dedicated owner suites; driver independent SIMD lane/atomic value argument checks | `recovery_builtins_keep_independent_configuration_errors` covers independent invalid ordering/RMW controls; nine nested-type forms retain leaf spans. `generic_layout_builtins_require_sized_bound`, `checks_atomic_builtin_ordering_rules` and SIMD/offset rejection tests retain resolved controls. |
+| Inline assembly | Structural/unresolved-field owner tests; driver independent operand error alongside a failed code/input expression | The configuration matrix retains an unknown option beside direct/structural recovery. `checks_inline_asm_configuration` retains invalid field, output, clobber, option and aggregate-operand controls. |
+| Closures, returns, const/static and signature constraints | Thirteen driver owner-boundary pairs; six global initializer retention cases | The 67-case matrix retains fixed-argument errors while suppressing trait obligations on direct/structural Error substitutions; the owner trait-obligation test retains a resolved violation. Const/static duplicate attribution remains R2. |
+
+The final R1 audit found required builtin type arguments losing unresolved leaves
+under pointers and tuples. `lower_required_bracket_type` now follows the canonical
+type walker through lowered type sites, excludes unused const interpretations and
+reports each unresolved leaf at its own span. Error-union candidate resolution
+visits both payload types. `fail/nested_required_type_recovery` pins two type roots
+and one independent argument error without a layout consequence.
+
+A valid const-generic control also exposed nested alternate readings being lost
+when an outer speculative grammar production was rewound. Grammar snapshots now
+retain their nested alternatives, and nested bracket expressions reuse the
+resolver's candidate-aware traversal. Syntax/parser owner tests assert the retained
+const interpretation; incremental syntax/AST/origin parity and
+`nested_const_type_arguments_survive_edits_and_cache` verify valid, nested,
+recovered and restored inputs against clean, cached and verified-cache reports.
+
+### R2 Const/Static Diagnostic Precedence
+
+`global_recovery_keeps_independent_initializer_errors` verifies six const/static
+cases with an unknown type/value and an independent call-argument mismatch,
+including exact root and argument spans. It establishes retention, not absence
+of duplicate diagnostics. With `const fn need(value: i32) i32 { value }`,
+`const VALUE: Missing = need(true);` previously published both the generic
+const-call argument failure and the precise body argument mismatch. The query
+report now suppresses the generic E0401 only when the same span has the body
+E0301 call-argument failure. The static form retains its independent E0501
+const-execution restriction, while the same-span static-data representation
+consequence is suppressed. Driver controls cover malformed and valid arguments.
+
+`specialized_const_roots_survive_report_precedence` retains E0401 for a failed
+generic trait bound, a missing embedded file and an out-of-range shift count.
+`const_static_precedence_survives_edits_and_cache` compares diagnostics and
+rendered reports across repair, regression, cold checks, normal caches and
+verified caches. The 12-test driver recovery matrix and 290-test const-eval
+selection passed. The existing const diagnostic order remains: placing all body
+diagnostics first would hide specialized const explanations. R2 is verified at
+this boundary; R1's expression pairs alone did not establish precedence.
+
+### O1 Operational Matrix
+
+Every applicable failure cell requires text and JSON, nonzero exit status,
+stdout/stderr routing, structured identity, summary, and captured child output
+when a child ran. The matrix below names evidence and remaining gaps explicitly.
+
+Windows native LLVM evidence has a required host setup. The repository's LLVM
+23.1.2 static libraries are built with the MSVC static CRT (`/MT`), so the
+matching Rust target, C/C++ bridge and linker environment must use the static
+CRT and the installed MSVC/Windows SDK library roots. A default dynamic-CRT
+Cargo session is not valid backend evidence: it can link mixed CRT objects and
+terminate in LLVM object emission with `0xC0000005` before a report exists.
+The environment requirement is now a named O1 precondition rather than an
+implementation failure.
+
+| Failure class | `check` | `emit` | `build` / `test` |
+| --- | --- | --- | --- |
+| Source syntax and semantic diagnostics | Captured reports parse JSON and assert source ownership, rule code, root kind, primary spans, summary and stdout routing | `emit_checked_preserves_text_json_diagnostic_contract`; dependency errors cover checked/LLVM/object requests in both formats | `build_preserves_text_json_diagnostic_contract` and `dependency_errors_preserve_identity_across_command_formats` cover both commands with source-owned JSON and text |
+| Source/toolchain input unavailable | `diagnostic_failures` checks both formats, E0102/E0104, operational identity and empty stdout | Same matrix covers checked/LLVM/object input failures; object output path failures retain E0702 | Missing script E0704 and missing toolchain E0104 covered for both workflows |
+| Invalid target/runtime/artifact/link configuration | No link/backend phase; exclude linker/backend failures | Both formats cover unsupported linker flavor E0701 and executable runtime E0103 | `build_cases` covers invalid artifact/output declarations in build/test, both formats. Public executor tests cover host/artifact mismatches before build/test action dispatch. The CLI does not accept a stale plan or separate runtime/linker flags for these workflows; the explicit boundary is detailed below. |
+| Backend/linker/archive process failure | Not applicable: checking starts no backend/linker | Direct `emit --llvm` and `emit --obj` invalid-backend cases preserve I0300, source path, primary label, text/JSON identity and empty stdout; `nia-llvm` native object emission, CLI `emit --obj`, and the invalid atomic text/JSON pair pass under the static-CRT precondition; Linux CLI mock linker and Windows `.cmd` linker verify E0701 and both captured streams | Linux CLI mock archive and Windows `.cmd` archive verify build/test E0701, both captured streams and empty stdout across text/JSON under the static-CRT precondition |
+| Build-plan/runner/external-command failure | Not applicable: no build plan | Not applicable to direct emission | `build_cases` covers duplicate definitions, invalid names/output and dependency cycles across both workflows/formats, plus build-only missing-default and unknown-step errors. Runner E0703 and external command E0705 retain bounded output; the fault-path inventory below covers spawn, wait, capture, timeout/cancellation, handoff and cleanup. |
+| Test suite failure | Not applicable | Not applicable | `test_command` verifies aggregate E0705, exit status, suite-prefixed child stderr and exit notes in JSON, plus text/fail-fast behavior. Owner test preserves each timed-out suite's streams and reason. `build` does not execute test suites. |
+
+The table records deliberate phase exclusions; an uncovered applicable boundary
+must be reopened rather than inferred from another fixture's diagnostic code.
+The final O1 audit repaired capture output loss, early return before joining the
+sibling worker, missing host/artifact role, and missing handoff operation notes.
+The former Windows `0xC0000005` observation came from running against the
+static LLVM archive with the default dynamic Rust/bridge CRT. Re-running the
+minimal LLVM emission, `emit --obj`, invalid atomic text/JSON, and atomic
+executable checks with the static-CRT MSVC/SDK environment passed, so that
+observation is retained as an environment diagnostic rather than counted as a
+compiler failure. The Windows build/test invalid-backend workflow has its own
+text/JSON evidence under the same host precondition.
+
+The command tests now parse complete JSON instead of checking its opening text.
+The dependency matrix runs `check`, `emit --checked/--llvm/--obj`, `build` and
+`test` in both formats, checking exit status, empty stdout, uncolored stderr,
+dependency path, root identity, primary source span and error summary counts.
+JSON build/test requests disable live child-stream forwarding and retain bounded
+failure output in structured notes. Text requests preserve live output. Windows
+process cleanup no longer leaks taskkill messages into either stream. Linker and
+archive failures retain both stdout and stderr and share the same diagnostic
+construction for text and JSON. The accepted cells are listed in the table;
+direct LLVM/object emission and the host-qualified build/test backend failures
+are covered under the static-CRT setup.
+
+#### Plan And Process Fault-Path Inventory
+
+| Boundary | Evidence and CLI applicability |
+| --- | --- |
+| Build-script definition/graph rejection | Existing `build_cases` fixtures cover duplicate module/target, invalid artifact/output names, selected/unselected dependency cycles and missing/default step selection. Each failure parses complete JSON, checks E0703, status 1, empty stdout, captured stderr, absent publication and transient cleanup. Build and test share definition/graph validation; named/default build-step errors are excluded from test selection by `std::build::validatePlan`. |
+| Frozen-plan target and reference invariants | `invocation_target_mismatch_is_rejected_before_actions` freezes real plans, invokes the public executor for host/artifact mismatches in build/test modes, and verifies E0704 text/JSON and absence of output setup. Expected means invocation target; found means plan target. The CLI constructs and freezes each plan from the current invocation and does not execute `build-plan.bin`. Malformed references, third targets and invalid codec tags are rejected by `nia-build-plan` validation/codec tests before dispatch; injecting stale/corrupt executor state is outside normal CLI input. |
+| Plan read/publication and configuration I/O | `plan_handoff_failures_preserve_stage_and_paths_in_reports` exercises real missing/corrupt draft reads and a failed atomic publication, verifies E0704 in both formats and checks temporary-file retirement. `runner_configuration_publication_is_exclusive_and_preserves_collisions` verifies configuration-write identity and preserved collision contents. Prepare/cleanup variants retain their exact operation. Low-level create/write/sync/read failures remain typed `PlanHandoffError` variants rendered with stage/path by the same handoff adapter; exhausting disk, altering ACLs or racing private files is not required CLI evidence. Windows directory sync is explicitly a no-op in the owner. |
+| Process creation and configured pipes | `runner_spawn_failure_reports_stage_and_cleans_handoff` and `external_spawn_failure_reports_operation_and_program` exercise missing executables and complete text/JSON reports. Configured missing pipes are defensive owner invariants: production always requests piped output before spawning. `unavailable_capture_workers_report_stage_stream_and_available_output` covers these variants and worker-start failure reports for both streams without OS thread exhaustion. |
+| Capture workers, stream I/O and process wait | Shared capture tests use real workers and a reader that fails after emitting bounded output. Both workers are joined before failure selection; a panic retains the completed sibling's tail. `startup_cleanup_keeps_partial_output_from_an_existing_worker` covers failed sibling startup. External and runner completion tests inject wait/read/panic failures at the production completion boundary and parse full report JSON. Direct action, suite and staged-cleanup contexts retain the cause and all available output. These faults cannot be reliably induced through ordinary CLI input without OS/race manipulation. |
+| Exit, timeout and cancellation | CLI external/runner failures and `test_command` cover real nonzero exits. `completion_preserves_success_timeout_and_cancellation_precedence` verifies reason priority and retained output; existing POSIX owner tests exercise process-tree timeout/cancellation and background pipe cleanup. Windows CLI exercises process exit/stream routing; the POSIX process-group tests remain explicitly platform-qualified. |
+| Output transaction/cleanup failure | Coordinator publication, lock and recovery suites cover failed staging, partial commit rollback, absent outputs and interrupted transactions. The final external completion matrix wraps each capture/wait failure in a real `StagedOutput` report and verifies that original reason and output survive alongside the cleanup failure. Such concurrent/OS fault paths belong to owner tests rather than a CLI production fault switch. |
+
+### Linux Terminal Evidence
+
+Ubuntu 24.04 under WSL with LLVM 23.1.2 passed
+`cargo test --locked -p nia-cli --test commands interactive_terminal_reports_color_text_without_coloring_json`.
+The test exercises real PTY stderr, colored text, `NO_COLOR`, and JSON without
+ANSI escapes. Evidence is separate from Windows workspace results; this closes
+the Linux terminal evidence requirement. C1's local commit delivery and Windows
+workspace acceptance are recorded above.
+The complete Linux `nia-cli --test commands` suite also passed all 22 tests.
+Linux `diagnostic_failures` passed eight tests, including linker/archive process
+failures; `test_command` passed with structured child output. Windows
+`diagnostic_failures` passed all eight tests, including the static-CRT linker
+and archive process failures; the test-suite report check also passed. Current
+Windows gate results are recorded in Current Delivery; Linux results remain separate.
+The Linux build/driver `report::tests` suites passed 10 and 9 tests respectively, including
+Unix-only runner stream, linker and archive-tool text/JSON ownership checks.
 
 ## Invariants
 
@@ -41,11 +382,10 @@ deferred to the 0.3.0 multi-platform port and is not a gate for this roadmap.
 
 The diagnostic roadmap includes the parser rewrite because recovery ownership
 determines diagnostic quality. The target is one grammar-aware lossless green
-tree owned by `nia-grammar` and `nia-syntax`; `nia-parser` only lowers that tree
-to AST. `Unparsed` is a temporary migration marker and must be absent from
-production paths when this track closes. The old token-cursor productions are
-removed as their grammar replacements become complete; no permanent dual
-parser or compatibility layer is accepted before 1.0.
+tree owned by `nia-syntax`; `nia-parser` only lowers that tree to AST. Grammar
+recognition now lives inside `nia-syntax`, and the separate `nia-grammar` crate,
+old AST-building token-cursor parser, and `Unparsed` migration markers have been
+removed. No permanent dual parser or compatibility layer is accepted before 1.0.
 
 The track advances through these gates:
 
@@ -57,26 +397,40 @@ The track advances through these gates:
    gate is complete in production.
 3. **Type grammar:** generic parameters and arguments, paths, pointers,
    arrays, slices, tuples, callable types, projections, and type recovery.
-   Each node must preserve source ownership and nested delimiter structure.
+   Nodes now preserve source ownership and nested delimiter structure in the
+   production grammar.
 4. **Expression, statement, and pattern grammar:** blocks, control flow,
    calls, operators, literals, bindings, match arms, and nested recovery.
    Independent malformed regions must remain parseable and must not stall the
-   parser.
+   parser. These productions now build the production grammar tree.
 5. **Lowering cutover:** AST lowering consumes grammar nodes exclusively;
    obsolete token-cursor production code and migration-only adapters are
-   deleted. Existing parser and diagnostic fixtures remain the parity oracle
-   until this gate closes.
+   deleted. The loader consumes `Parse` and `LoweredModule` through this path;
+   existing parser and driver diagnostic fixtures remain the parity oracle.
 6. **Incremental reparse:** `nia-syntax` owns revision-aware subtree edits,
-   `nia-grammar` reparses the smallest affected region, and stable red/green
-   identities are retained for unchanged subtrees. Clean and incremental
-   parses must produce equivalent diagnostics, spans, and AST origins.
+   its grammar reparses the smallest safe region, unchanged green subtrees
+   are shared, and red identities carry the current revision. Clean and incremental
+   parses must produce equivalent diagnostics, spans, and AST origins. This
+   implementation now reparses safe function-body blocks and falls back to
+   declaration regions using token-read boundaries. Position-independent green
+   storage shares unchanged subtrees, including siblings moved by an edit;
+   red identities and diagnostic origins are rebuilt for the current revision.
+   Loader edits reuse cached syntax inside query-owned revision retirement and
+   retain a source-text dependency. Tests cover UTF-8 and stale edit rejection,
+   trivia changes, malformed delimiters, repeated edits, ambiguous generic/index
+   arguments, AST-origin equivalence, snapshot retention, and bounded query
+   storage. Lexing still covers the full source; malformed or speculatively
+   dependent blocks conservatively use declaration-region reparsing.
 
 Each gate requires owner-level recovery tests, parser/driver parity coverage,
-strict formatting and Clippy checks, and a focused commit. The 0.3.0
-multi-platform matrix is separate from this Linux grammar migration and is not
-required to close these gates.
+and strict formatting and Clippy checks. Reviewable commits and final delivery
+are recorded under C1. The 0.3.0 multi-platform matrix is separate from
+this grammar migration and is not required to close these implementation gates.
 
-## Stages
+## Implemented Coverage and Contracts
+
+The following sections describe existing behavior and evidence. The acceptance
+ledger above, rather than the length of this record, determines what remains.
 
 ### 1. Cascade control
 
@@ -156,11 +510,9 @@ keeps an independent type mismatch in a later argument visible after generic
 substitution as well. A call with both an unresolved argument and too few
 arguments retains both independent diagnostics.
 
-This coverage is still incremental. Qualified callable lookup outside unknown
-members and restricted extension functions, cross-module edge cases among
-visibility scopes, and recovery-derived semantic rules outside the listed call,
-propagation, and builtin cases still need rule-specific contract audits and
-source fixtures. Ambiguous extension-method resolution now keeps its specific
+The S1/S2/S3 and R1 inventories above record the completed callable, visibility,
+candidate and recovery-family audits, including cross-module scope boundaries
+and resolved invalid controls. Ambiguous extension-method resolution keeps its specific
 candidate diagnostic without falling through to a misleading missing-field
 error. Ambiguous extension associated-function references also stop before
 ordinary value checking can publish a secondary error type or initializer
@@ -214,8 +566,8 @@ in stable diagnostic bundles. Failed `using` lookups now carry their emitted
 root identity through value, type, and body resolution, so later value and type
 use-site diagnostics are grouped under the import failure. A source fixture now
 covers repeated use of the failed import in a function parameter and return
-type, and snapshots the shared root identity. Other recovery-derived diagnostics
-still need explicit provenance before this stage is complete; the for-in path now
+type, and snapshots the shared root identity. P1/P2 and R1/R2 above account for
+source provenance and the bounded recovery-family inventory. The for-in path
 suppresses its recovery products at the semantic checker boundary. Trait-bound,
 projection, and builtin-operator checks now suppress obligations whose receiver
 or trait arguments contain an Error recovery type, including structural tuples
@@ -233,14 +585,14 @@ Text and JSON reports now expose the same retained error/warning summary and
 duplicate/display-limit counts. Interactive text diagnostics are colorized at
 the CLI boundary, while captured and JSON output remains deterministic and
 free of ANSI control sequences. CLI cases now assert exact success and failure
-statuses for check and emit, with test/build workflow status coverage. A Linux pseudo-terminal integration
+statuses for check and emit, with test/build workflow status coverage.
 Build and test failures now also share an explicit text/JSON captured-output
 contract, including empty stdout, stable exit status, and the diagnostic JSON
 envelope.
-test verifies color on interactive text output and ANSI-free JSON output on the
+A Linux pseudo-terminal integration test verifies color on interactive text output and ANSI-free JSON output on the
 same terminal; interactive text also honors `NO_COLOR`. Other terminal
-platforms are deferred to the 0.3.0 multi-platform port. Broader output snapshot
-coverage remains to be verified.
+platforms are deferred to the 0.3.0 multi-platform port. Command/output acceptance
+is defined by O1's explicit matrix above.
 
 ### 6. Regression and quality gates
 
@@ -294,8 +646,8 @@ at comma boundaries. Tuple expressions and irrefutable tuple binding patterns
 likewise retain valid elements and later statements after missing elements at
 comma boundaries, with separate end-to-end snapshots. They also diagnose a
 missing separator between valid tuple elements and retain the rest of the tuple
-and following statements, with parser and driver coverage. Other parser
-recovery boundaries still need equivalent source coverage. Associated
+and following statements, with parser and driver coverage. The other accepted
+parser recovery boundaries are recorded below. Associated
 type/value member
 recovery now has equivalent parser and driver coverage: malformed trait and
 extension associated declarations retain later methods and following top-level
@@ -443,18 +795,13 @@ variant names while retaining the later variants and declarations with parser
 and driver coverage.
 Match arm bodies now synchronize an invalid arm at the next top-level comma or
 closing brace, retaining later arms and statements after the match.
-These recovery cases were first audited in the token-cursor parser. The grammar
-tree migration is now active: `nia-grammar` owns grammar events, recovery nodes,
-and lossless source coverage above `nia-syntax`; `nia-parser` lowers migrated nodes
-to AST. Existing diagnostic fixtures remain the parity oracle during migration,
-but the token-cursor productions are removed as their grammar counterparts land.
-`Unparsed` nodes mark only an unfinished migration region and are not a permanent
-second parser model. Attributes, module declarations, function declaration
-boundaries, struct/union/enum/trait declaration headers, aggregate fields and
-variants, trait/extension members, imports, aliases, and bindings now emit
-grammar nodes in production. The next migration stage is generic and type
-grammar, followed by expressions, statements, patterns, and final token-cursor
-removal.
+These recovery cases were first audited in the token-cursor parser. Grammar
+recognition and recovery now belong entirely to `nia-syntax`; `nia-parser` lowers
+the finished tree into AST. Declarations, members, types, expressions, statements,
+and patterns use this path, and existing diagnostic fixtures continue to verify
+their recovery behavior. The old token-cursor AST parser and `Unparsed` migration
+nodes are gone. Incremental block/declaration reparsing, green structural sharing,
+and loader edit retirement now use the contracts and conservative boundaries above.
 Field names and types, enum variant names, payload delimiters, and initializer
 expressions now have nested grammar nodes with explicit missing-node recovery.
 Trait and extension members now retain nested associated type, associated value,
@@ -609,9 +956,9 @@ normalization and object-safety each have dedicated source contracts rather
 than relying only on broad type-check assertions. Operational codes remain
 covered by their owning suites: target/toolchain and CLI usage by CLI tests,
 build-plan/runner/action and artifact I/O by build/report tests, and linker or
-LLVM failures by backend and linker tests. The remaining fixture work is
-cross-product coverage for those operational paths plus broader source-origin
-and recovery provenance; the code registry itself is not evidence that every
+LLVM failures by backend and linker tests. O1 defines operational cross-product
+coverage and explicit phase exclusions; P1/P2 and R1/R2 define source ownership
+and recovery provenance. The code registry itself is not evidence that every
 combination of phase, source ownership, and suppression has been exercised.
 
 The broad workspace test, clippy, formatting, and CLI case suites remain
