@@ -43,7 +43,8 @@ The whole-program query flow:
 ```text
 source files
   -> lexer
-  -> parser / AST
+  -> syntax grammar / green-red tree
+  -> AST lowering
   -> module item tree
   -> active item surface
   -> definition collection
@@ -330,8 +331,9 @@ category, and stage reconstructed from registered definitions during stable-bund
 decode. Query providers collect diagnostics in phase order and suppress derived
 reports only when a published root has matching cause identity or applicable
 source-span evidence. Independent errors remain visible in the same module and
-function. Const/static precedence still needs the acceptance work tracked in
-[`diagnostics-roadmap.md`](diagnostics-roadmap.md).
+function. Const/static report collection coalesces same-span generic-call and
+static-data consequences while retaining their owning root and independent
+initializer errors.
 
 Compiler report products retain immutable source text for primary and related
 diagnostic paths through `DiagnosticSources`. Query providers capture loader
