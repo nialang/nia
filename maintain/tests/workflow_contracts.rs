@@ -55,13 +55,14 @@ fn build_std_workflow_runs_the_windows_static_llvm_matrix() {
     assert!(workflow.contains("name: Windows x64 correctness matrix"));
     assert!(workflow.contains("runs-on: windows-2022"));
     assert!(workflow.contains("tools/llvm/build-static.ps1"));
-    assert!(workflow.contains("windows-env.ps1"));
+    assert!(workflow.contains("VsDevCmd.bat"));
+    assert!(!workflow.contains("windows-env.ps1"));
     for command in [
         "cargo maintain check",
         "cargo fmt --all -- --check",
-        "cargo clippy --workspace --all-targets --no-default-features -- -D warnings",
-        "cargo test --workspace --no-default-features",
-        "cargo build --release -p nia-cli --no-default-features",
+        "cargo clippy --workspace --all-targets --no-default-features --target x86_64-pc-windows-msvc -- -D warnings",
+        "cargo test --workspace --no-default-features --target x86_64-pc-windows-msvc",
+        "cargo build --release -p nia-cli --no-default-features --target x86_64-pc-windows-msvc",
     ] {
         assert!(
             workflow.contains(command),
@@ -69,6 +70,8 @@ fn build_std_workflow_runs_the_windows_static_llvm_matrix() {
         );
     }
     assert!(workflow.contains("LLVM_SYS_231_PREFIX"));
+    assert!(workflow.contains("target\\x86_64-pc-windows-msvc\\release\\nia.exe"));
+    assert!(!workflow.contains("-Lnative="));
     assert!(workflow.contains("LLVM_INSTALL_ROOT"));
     assert!(workflow.contains("llvm-toolchain-noble-23"));
     assert!(build_script.contains("CMAKE_RC_COMPILER"));

@@ -70,9 +70,47 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-On Windows, run the same gates from a PowerShell session prepared by
-`. .\tools\windows-env.ps1`, and pass `--no-default-features` to the Clippy
-and test commands as the managed Windows workflow does.
+On Windows, use an LLVM prefix built with the static MSVC CRT (`/MT`, or
+`CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded`). The repository's MSVC target
+configuration enables Rust's `crt-static`, and the C++ bridge follows it.
+LLVM archive linkage and CRT linkage are separate choices: `llvm-config
+--shared-mode` does not establish which CRT an LLVM prefix uses.
+
+Run the native gates from an x64 Developer PowerShell for Visual Studio (or a
+shell initialized by `VsDevCmd.bat -arch=x64 -host_arch=x64`):
+
+```powershell
+cargo maintain check
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --no-default-features --target x86_64-pc-windows-msvc -- -D warnings
+cargo test --workspace --no-default-features --target x86_64-pc-windows-msvc
+```
+
+An explicit `--target` keeps the CRT flags on target code, separate from host
+build scripts. With the current `llvm-sys`, implicit host builds also apply those
+flags to its build script, which then requests bundled static Windows system
+libraries; `psapi.lib` can be installed yet unavailable in rustc's archive search
+path. Specifying the target avoids needing global SDK `-Lnative` flags or 8.3
+short paths. Target artifacts are under `target/x86_64-pc-windows-msvc/`.
+
+Distinguish missing installations from shell setup when diagnosing Windows:
+
+- A missing LLVM prefix or MSVC C++/Windows SDK component needs installation or
+  selection of the correct installed prefix. Check the actual installation,
+  not only whether `cl.exe` appears on `PATH`: Rust's native build tooling can
+  discover installed MSVC tools itself.
+- The developer shell supplies version-matched tool paths, `LIB`, and `INCLUDE`
+  for external compiler/linker/archive commands. A normal shell lacking these
+  variables does not by itself prove that the tools are absent.
+- Existing processes retain their inherited environment. A user-level setting
+  changed after the terminal or editor started is not evidence that its child
+  commands received the setting. Inspect both scopes when they disagree.
+- `RUSTFLAGS` and `CARGO_ENCODED_RUSTFLAGS` override the repository's target
+  flags. Avoid persisting project CRT flags or versioned VS/SDK paths there;
+  inspect stale overrides before attributing a failure to missing tools.
+
+The maintained workflow initializes Visual Studio directly. No production
+compiler code depends on a repository-local environment bootstrap script.
 
 For a release compiler, build the pinned static LLVM prefix first and invoke
 `tools/release/build.sh`. Do not use the default development feature for a

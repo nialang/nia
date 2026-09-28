@@ -1,2 +1,9 @@
 [alias]
 maintain = "run --quiet --locked -p nia-maintain --"
+
+# The maintained MSVC/LLVM configuration uses the static CRT.  Keep this in
+# the repository so ordinary Cargo invocations have the same ABI as the C++
+# LLVM bridge; Visual Studio still supplies LIB/INCLUDE and the linker tools.
+# Use --target x86_64-pc-windows-msvc to keep these flags off host build scripts.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
