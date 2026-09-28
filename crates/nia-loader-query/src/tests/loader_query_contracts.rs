@@ -105,8 +105,13 @@ fn loader_query_registry_covers_all_declared_query_contracts() {
             }
             _ => nia_query::QueryFingerprintPolicy::None,
         };
+        let expected_provider = if descriptor.name == "syntax_module" {
+            nia_query::QueryProviderPolicy::KeyExecuteOrPublished
+        } else {
+            nia_query::QueryProviderPolicy::KeyExecute
+        };
         descriptor.context_type == std::any::type_name::<LoaderContext>()
-            && descriptor.provider == nia_query::QueryProviderPolicy::KeyExecute
+            && descriptor.provider == expected_provider
             && descriptor.fingerprint == expected_fingerprint
             && descriptor.storage == nia_query::QueryStoragePolicy::CacheOwnedArc
     }));

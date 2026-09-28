@@ -8,7 +8,7 @@ fn records_local_facts_by_source_versioned_node_keys() {
         id: SourceId::isolated(),
         revision: SourceRevision(2),
     };
-    let syntax = nia_syntax::parse_source(
+    let lowered = nia_parser::parse_versioned(
         r#"
 fn main(a: i32) i32 {
 let mut x = a;
@@ -16,8 +16,9 @@ x
 }
 "#,
         Some(version),
+        Default::default(),
     );
-    let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
+    let (module, errors, origins) = (lowered.module, lowered.errors, lowered.origins);
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);
@@ -44,7 +45,7 @@ fn records_local_facts_by_red_child_path_origins() {
         id: SourceId::isolated(),
         revision: SourceRevision(1),
     };
-    let syntax = nia_syntax::parse_source(
+    let lowered = nia_parser::parse_versioned(
         r#"
 fn main(a: i32) i32 {
 let mut x = a;
@@ -52,8 +53,9 @@ x
 }
 "#,
         Some(version),
+        Default::default(),
     );
-    let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
+    let (module, errors, origins) = (lowered.module, lowered.errors, lowered.origins);
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let values = resolve_module_values(&module, &defs);

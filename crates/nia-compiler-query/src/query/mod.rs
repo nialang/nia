@@ -33,8 +33,6 @@ use nia_package_metadata::{
     StableAssociatedTypeBinding, StableConstArg, StableConstValue, StableTraitId, StableTypeGraph,
     StableTypeNode,
 };
-#[cfg(test)]
-use nia_parser::ParseError;
 use nia_program_signatures::{
     ExtensionMethodIndexModuleInput, ExtensionMethodValidationInput, ExtensionModuleInput,
     ExtensionTraitSignatureIndex, ModuleProgramSignatureFacts, ModuleSignatureInput,
@@ -56,6 +54,8 @@ use nia_query::{
 use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
 use nia_symbol::SymbolId;
+#[cfg(test)]
+use nia_syntax::ParseError;
 use nia_target_config::TargetConfig;
 use nia_ty::{ArrayLenTy, TyKind};
 use nia_type_lower::TypeLowering;

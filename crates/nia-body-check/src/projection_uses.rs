@@ -45,7 +45,6 @@ mod tests {
     use nia_defs::DefId;
     use nia_ids::{GlobalDefId, ModuleIdAllocator, TraitId};
     use nia_node_id::{NodeStore, VersionedNodeKey};
-    use nia_parser::parse_module_syntax_with_node_store_and_symbols;
     use nia_source::{SourceId, SourceRevision, SourceVersion};
     use nia_symbol::known;
     use nia_symbol_table::SymbolTable;
@@ -78,19 +77,17 @@ const result: usize = {
     (callback(3), cached).0
 };
 "#;
-        let syntax = nia_syntax::parse_source(
+        let parse = nia_syntax::parse(
             source,
             Some(SourceVersion {
                 id: SourceId::isolated(),
                 revision: SourceRevision::INITIAL,
             }),
-        );
+        )
+        .expect("grammar tree");
         let node_store = NodeStore::new();
-        let (module, errors, _) = parse_module_syntax_with_node_store_and_symbols(
-            &syntax,
-            &node_store,
-            SymbolTable::new(),
-        );
+        let lowered = nia_parser::lower_module(&parse, &node_store, SymbolTable::new());
+        let (module, errors) = (lowered.module, lowered.errors);
         assert!(errors.is_empty(), "{errors:?}");
         let root = const_value(&module);
 

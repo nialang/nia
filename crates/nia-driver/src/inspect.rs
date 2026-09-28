@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_parser::ParseError;
+use nia_syntax::ParseError;
 
 /// Lossless token inspection output for CLI/debug tooling.
 #[derive(Debug, Clone, PartialEq, Eq)]

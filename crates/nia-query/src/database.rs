@@ -465,7 +465,7 @@ impl<C> QueryDb<C> {
                 "query does not declare shared cache storage",
             ));
         }
-        if K::PROVIDER != QueryProviderPolicy::ExternallyPublished {
+        if K::PROVIDER == QueryProviderPolicy::KeyExecute {
             return Err(Self::internal_query_error(
                 &key,
                 "query does not declare an external producer",
@@ -482,13 +482,27 @@ impl<C> QueryDb<C> {
         K: QueryKey<C>,
         P: QueryKey<C>,
     {
+        let _activity = self.inner.session.enter_activity();
+        self.publish_shared_inner(key, value, predecessor)
+    }
+
+    fn publish_shared_inner<K, P>(
+        &self,
+        key: K,
+        value: K::Value,
+        predecessor: &P,
+    ) -> QueryResult<()>
+    where
+        K: QueryKey<C>,
+        P: QueryKey<C>,
+    {
         if K::STORAGE != QueryStoragePolicy::CacheOwnedArc {
             return Err(Self::internal_query_error(
                 &key,
                 "published query must use shared cache storage",
             ));
         }
-        if K::PROVIDER != QueryProviderPolicy::ExternallyPublished {
+        if K::PROVIDER == QueryProviderPolicy::KeyExecute {
             return Err(Self::internal_query_error(
                 &key,
                 "query does not declare an external producer",
@@ -500,7 +514,6 @@ impl<C> QueryDb<C> {
                 "published query cannot retain a value fingerprint",
             ));
         }
-        let _activity = self.inner.session.enter_activity();
         let slot = self.slot_for(&key)?;
         let predecessor_slot = self.slot_for(predecessor)?;
         {
@@ -1473,6 +1486,32 @@ impl<C> QueryDb<C> {
 }
 
 impl<C> QueryRetirement<'_, C> {
+    /// Borrows a current shared snapshot without creating a slot or executing a
+    /// query. Outdated values are unavailable. The snapshot survives retirement.
+    pub fn cached<K>(&self, key: &K) -> QueryResult<Option<Arc<K::Value>>>
+    where
+        K: QueryKey<C>,
+    {
+        let Some(slot) = self.db.cached_slot(key)? else {
+            return Ok(None);
+        };
+        let state = slot.state.lock();
+        Ok(match &*state {
+            QueryState::Ready { value, .. } => Some(Arc::clone(value)),
+            _ => None,
+        })
+    }
+
+    /// Publishes a prepared shared product while source replacement and retirement
+    /// hold session admission. The predecessor must cover all mutable inputs.
+    pub fn publish_shared<K, P>(&self, key: K, value: K::Value, predecessor: &P) -> QueryResult<()>
+    where
+        K: QueryKey<C>,
+        P: QueryKey<C>,
+    {
+        self.db.publish_shared_inner(key, value, predecessor)
+    }
+
     /// Invalidates a key while the enclosing retirement transaction is quiescent.
     pub fn invalidate<K>(&self, key: K) -> QueryResult<QueryInvalidation>
     where

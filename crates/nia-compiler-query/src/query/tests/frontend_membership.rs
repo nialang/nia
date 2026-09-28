@@ -14,7 +14,7 @@ fn parse_error_changes_keep_stable_program_module_membership_green() {
         .expect("broken fixture module")
         .parse_errors = vec![ParseError {
         span: Span::default(),
-        kind: nia_parser::ParseErrorKind::Grammar,
+        kind: nia_syntax::ParseErrorKind::Grammar,
         message: "first parse failure".to_string(),
         node_key: None,
     }];
@@ -35,7 +35,7 @@ fn parse_error_changes_keep_stable_program_module_membership_green() {
         .expect("broken fixture module")
         .parse_errors = vec![ParseError {
         span: Span::default(),
-        kind: nia_parser::ParseErrorKind::Grammar,
+        kind: nia_syntax::ParseErrorKind::Grammar,
         message: "second parse failure".to_string(),
         node_key: None,
     }];

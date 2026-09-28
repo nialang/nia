@@ -6,7 +6,6 @@ use nia_item_tree::{ItemTreeNodeKind, ModuleItemTree, SignatureItemSet};
 use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_source::SourceIdentity;
 use nia_span::Span;
-use nia_syntax::SyntaxTree;
 use nia_target_config::TargetConfig;
 
 use nia_toolchain::RuntimeSpec;
@@ -625,18 +624,20 @@ pub fn frontend_module_map_fingerprint_with_package_root(
 }
 
 /// Fingerprints lossless syntax by its exact source text.
-pub fn syntax_fingerprint(syntax: &SyntaxTree) -> SyntaxFingerprint {
+///
+/// The lossless tree is a pure function of its text, so the text is the
+/// complete syntax identity.
+pub fn syntax_fingerprint(source: &str) -> SyntaxFingerprint {
     let mut builder = QueryFingerprintBuilder::new(LOSSLESS_SYNTAX_DOMAIN);
-    builder.write_bytes(syntax.source().as_bytes());
+    builder.write_bytes(source.as_bytes());
     SyntaxFingerprint(builder.finish())
 }
 
 /// Fingerprints module syntax while excluding function body ranges.
 pub fn item_signature_fingerprint(
-    syntax: &SyntaxTree,
+    source: &str,
     item_tree: &ModuleItemTree,
 ) -> ItemSignatureFingerprint {
-    let source = syntax.source();
     let mut body_spans = Vec::new();
     for item in item_tree.items.iter() {
         match &item.kind {
@@ -708,30 +709,15 @@ mod tests {
     use super::*;
     use nia_imports::StableModuleKey;
     use nia_source::SourceIdentity;
-    use nia_source::{SourceId, SourcePath, SourceRevision, SourceVersion};
+    use nia_source::SourcePath;
 
     #[test]
-    fn source_and_syntax_fingerprints_are_version_independent_and_domain_separated() {
+    fn source_and_syntax_fingerprints_are_domain_separated() {
         let source = "fn main() i32 { 0 }";
-        let first = SyntaxTree::parse(
-            source,
-            Some(SourceVersion {
-                id: SourceId::isolated(),
-                revision: SourceRevision(2),
-            }),
-        );
-        let second = SyntaxTree::parse(
-            source,
-            Some(SourceVersion {
-                id: SourceId::isolated(),
-                revision: SourceRevision(7),
-            }),
-        );
-
-        assert_eq!(syntax_fingerprint(&first), syntax_fingerprint(&second));
+        assert_eq!(syntax_fingerprint(source), syntax_fingerprint(source));
         assert_ne!(
             source_content_fingerprint(source).parts(),
-            syntax_fingerprint(&first).parts()
+            syntax_fingerprint(source).parts()
         );
         assert_eq!(std::mem::size_of::<SourceContentFingerprint>(), 16);
         assert_eq!(std::mem::size_of::<SyntaxFingerprint>(), 16);
@@ -783,7 +769,6 @@ extend Value {
         let source = "fn main() i32 { 1 }";
         let (module, errors) = nia_parser::parse_module(source);
         assert!(errors.is_empty(), "{errors:?}");
-        let syntax = SyntaxTree::parse(source, None);
         let mut malformed_module = module.clone();
         if let ItemTreeNodeKind::Function(function) = &mut malformed_module.items[0].kind {
             let body = function.body.as_mut().expect("expected function body");
@@ -793,7 +778,7 @@ extend Value {
         }
         let mut out_of_bounds_module = malformed_module.clone();
         let item_tree = ModuleItemTree::from_owned_module(malformed_module);
-        let recovered = item_signature_fingerprint(&syntax, &item_tree);
+        let recovered = item_signature_fingerprint(source, &item_tree);
 
         if let ItemTreeNodeKind::Function(function) = &mut out_of_bounds_module.items[0].kind {
             let body = function.body.as_mut().expect("expected function body");
@@ -802,13 +787,13 @@ extend Value {
             panic!("expected function item");
         }
         let out_of_bounds = item_signature_fingerprint(
-            &syntax,
+            source,
             &ModuleItemTree::from_owned_module(out_of_bounds_module),
         );
 
         assert_ne!(
             recovered,
-            item_signature_fingerprint(&syntax, &ModuleItemTree::from_module(&module))
+            item_signature_fingerprint(source, &ModuleItemTree::from_module(&module))
         );
         assert_eq!(recovered, out_of_bounds);
     }
@@ -822,10 +807,7 @@ extend Value {
             source_content_fingerprint(before),
             source_content_fingerprint(after)
         );
-        assert_ne!(
-            syntax_fingerprint(&SyntaxTree::parse(before, None)),
-            syntax_fingerprint(&SyntaxTree::parse(after, None))
-        );
+        assert_ne!(syntax_fingerprint(before), syntax_fingerprint(after));
     }
 
     #[test]
@@ -1188,8 +1170,6 @@ extend Value {
             StableModuleKey::from_source_identity(SourceIdentity::new("src/other.nia"));
         let before_source = "fn main() i32 { 1 }";
         let after_source = "fn main() i32 { 2 }";
-        let before_syntax = SyntaxTree::parse(before_source, None);
-        let after_syntax = SyntaxTree::parse(after_source, None);
         let before_signature = parsed_signature_fingerprint(before_source);
         let after_signature = parsed_signature_fingerprint(after_source);
 
@@ -1199,7 +1179,7 @@ extend Value {
             source_content_fingerprint(before_source),
         );
         let syntax_key =
-            FrontendSyntaxCacheKey::new(namespace, &module, syntax_fingerprint(&before_syntax));
+            FrontendSyntaxCacheKey::new(namespace, &module, syntax_fingerprint(before_source));
         let signature_key =
             FrontendItemSignatureCacheKey::new(namespace, &module, before_signature);
         let provider_key =
@@ -1233,7 +1213,7 @@ extend Value {
         );
         assert_ne!(
             syntax_key,
-            FrontendSyntaxCacheKey::new(namespace, &module, syntax_fingerprint(&after_syntax))
+            FrontendSyntaxCacheKey::new(namespace, &module, syntax_fingerprint(after_source))
         );
         assert_eq!(before_signature, after_signature);
         assert_eq!(
@@ -1329,9 +1309,6 @@ extend Value {
     fn parsed_signature_fingerprint(source: &str) -> ItemSignatureFingerprint {
         let (module, errors) = nia_parser::parse_module(source);
         assert!(errors.is_empty(), "{errors:?}");
-        item_signature_fingerprint(
-            &SyntaxTree::parse(source, None),
-            &ModuleItemTree::from_module(&module),
-        )
+        item_signature_fingerprint(source, &ModuleItemTree::from_module(&module))
     }
 }

@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+nia-diagnostic.workspace = true
 nia-lexer.workspace = true
 nia-node-id.workspace = true
 nia-source.workspace = true

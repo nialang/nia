@@ -124,7 +124,8 @@ fn records_body_facts_by_source_versioned_node_keys() {
         id: SourceId::isolated(),
         revision: SourceRevision(3),
     };
-    let syntax = nia_syntax::parse_source(
+    let symbols = SymbolTable::new();
+    let lowered = nia_parser::parse_versioned(
         r#"
 fn main() i32 {
     let mut x = 1;
@@ -132,10 +133,9 @@ fn main() i32 {
 }
 "#,
         Some(version),
+        symbols.clone(),
     );
-    let symbols = SymbolTable::new();
-    let (module, parse_errors, origins) =
-        nia_parser::parse_module_syntax_with_origins_and_symbols(&syntax, symbols.clone());
+    let (module, parse_errors, origins) = (lowered.module, lowered.errors, lowered.origins);
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
@@ -317,10 +317,9 @@ fn main() i32 {
 }
 "#,
     );
-    let syntax = nia_syntax::parse_source(&source, Some(version));
     let symbols = SymbolTable::new();
-    let (module, parse_errors, origins) =
-        nia_parser::parse_module_syntax_with_origins_and_symbols(&syntax, symbols.clone());
+    let lowered = nia_parser::parse_versioned(&source, Some(version), symbols.clone());
+    let (module, parse_errors, origins) = (lowered.module, lowered.errors, lowered.origins);
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);

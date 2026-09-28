@@ -136,7 +136,7 @@ pub extern fn _start() () { _ = &used; }
 fn bare_entry_checked_program_uses_rooted_diagnostics_without_freestanding_start() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "extend ! { fn nope(self) () {} } pub fn main() i32 { 1 }",
+        "extend never { fn nope(self) () {} } pub fn main() i32 { 1 }",
     );
     let db = query_db(fixture.program());
 
@@ -206,7 +206,7 @@ pub fn main() i32 { _ = W; 0 }
 fn freestanding_entry_checked_program_uses_executable_reachability() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "extend ! { fn nope(self) () {} } pub fn main() i32 { 1 }",
+        "extend never { fn nope(self) () {} } pub fn main() i32 { 1 }",
     );
     fixture
         .add_freestanding_runtime("using entry; pub extern fn _start() () { _ = entry::main(); }");

@@ -1,6 +1,65 @@
 use super::*;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct IncrementalDouble(usize);
+
+impl QueryKey<TestContext> for IncrementalDouble {
+    type Value = usize;
+    const PROVIDER: QueryProviderPolicy = QueryProviderPolicy::KeyExecuteOrPublished;
+
+    fn name() -> &'static str {
+        "incremental_double"
+    }
+
+    fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<usize> {
+        Ok(*db.get(Double(self.0))?)
+    }
+}
+
+#[test]
+fn retirement_snapshot_and_publication_preserve_input_dependencies() {
+    let db = QueryDb::new_for_test(TestContext {
+        executions: AtomicUsize::new(0),
+    });
+    db.with_retirement(|retirement| {
+        assert!(retirement.cached(&IncrementalDouble(7))?.is_none());
+        Ok(())
+    })
+    .unwrap();
+    assert!(db.query_trace().unwrap().queries.is_empty());
+    let original = db.expect_get(IncrementalDouble(7));
+    db.with_retirement(|retirement| {
+        assert!(Arc::ptr_eq(
+            &original,
+            &retirement.cached(&IncrementalDouble(7))?.unwrap()
+        ));
+        assert!(
+            retirement
+                .publish_shared(IncrementalDouble(7), 14, &Double(7))
+                .is_err()
+        );
+        retirement.invalidate(Double(7))?;
+        assert!(retirement.cached(&IncrementalDouble(7))?.is_none());
+        retirement.retire(&IncrementalDouble(7))?;
+        retirement.publish_shared(IncrementalDouble(8), 16, &Double(8))
+    })
+    .unwrap();
+    assert_eq!(*original, 14);
+    assert_eq!(*db.expect_get(IncrementalDouble(8)), 16);
+    assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
+    db.invalidate(Double(8)).unwrap();
+    assert_eq!(*db.expect_get(IncrementalDouble(8)), 16);
+    assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
+    let trace = db.query_trace().unwrap();
+    assert!(
+        trace
+            .dependencies
+            .iter()
+            .any(|edge| edge.from.name == "incremental_double" && edge.to.name == "double")
+    );
+}
+
 #[test]
 fn invalidates_direct_query_value() {
     let db = QueryDb::new_for_test(TestContext {

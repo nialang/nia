@@ -2,7 +2,7 @@
 use super::*;
 use nia_loader_contract::UnusedUsingImport;
 use nia_node_id::NodeOriginTable;
-use nia_parser::ParseError;
+use nia_syntax::ParseError;
 use std::collections::HashMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct CheckedProgramQuery;

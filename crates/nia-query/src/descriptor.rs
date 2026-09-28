@@ -30,7 +30,7 @@ pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     fn stats_category(&self) -> Option<&'static str> {
         None
     }
-    /// Computes this key's value when the provider policy is [`QueryProviderPolicy::KeyExecute`].
+    /// Computes this key's value unless it requires external publication.
     fn execute_result(&self, db: &QueryDb<C>) -> QueryResult<Self::Value>;
     /// Returns the deterministic fingerprint required by [`QueryFingerprintPolicy::StableValue`].
     fn fingerprint(&self, _value: &Self::Value) -> Option<QueryFingerprint> {
@@ -50,6 +50,9 @@ pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
 pub enum QueryProviderPolicy {
     /// Invoke [`QueryKey::execute_result`] when the slot needs a value.
     KeyExecute,
+    /// Compute on demand, or accept an equivalent shared value from an incremental
+    /// producer. Publication must declare its complete input dependency.
+    KeyExecuteOrPublished,
     /// Require a producer to transfer the value with [`QueryDb::publish_owned`].
     ExternallyPublished,
 }
@@ -341,11 +344,19 @@ impl QueryRegistry {
         }
         // External products are invalidated through their explicit predecessor
         // edge. They must not carry an independently computed fingerprint.
-        if K::PROVIDER == QueryProviderPolicy::ExternallyPublished
+        if K::PROVIDER != QueryProviderPolicy::KeyExecute
             && K::FINGERPRINT != QueryFingerprintPolicy::None
         {
             return Err(nia_ice::Ice::new(format!(
                 "externally published query `{}` cannot retain a value fingerprint",
+                K::name()
+            )));
+        }
+        if K::PROVIDER == QueryProviderPolicy::KeyExecuteOrPublished
+            && K::STORAGE != QueryStoragePolicy::CacheOwnedArc
+        {
+            return Err(nia_ice::Ice::new(format!(
+                "incrementally published query `{}` must use shared cache storage",
                 K::name()
             )));
         }

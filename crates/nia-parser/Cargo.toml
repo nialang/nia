@@ -7,7 +7,6 @@ license.workspace = true
 
 [dependencies]
 nia-ast.workspace = true
-nia-diagnostic.workspace = true
 nia-lexer.workspace = true
 nia-node-id.workspace = true
 nia-source.workspace = true
@@ -18,6 +17,3 @@ nia-symbol-table.workspace = true
 
 [lib]
 path = "src/lib.rs"
-
-[dev-dependencies]
-nia-grammar.workspace = true
