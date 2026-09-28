@@ -529,6 +529,8 @@ pub(super) fn execute_external_command(
             return Err(error(ExternalCommandFailure::CaptureWorkerSpawn {
                 stream: "stdout",
                 error: source,
+                stdout: Vec::new(),
+                stderr: Vec::new(),
             }));
         }
     };
@@ -546,10 +548,12 @@ pub(super) fn execute_external_command(
         Err(source) => {
             terminate_process_tree(&mut child);
             let _ = child.wait();
-            let _ = stdout_reader.join();
+            let stdout = join_capture_tail(stdout_reader);
             return Err(error(ExternalCommandFailure::CaptureWorkerSpawn {
                 stream: "stderr",
                 error: source,
+                stdout,
+                stderr: Vec::new(),
             }));
         }
     };
@@ -584,51 +588,69 @@ pub(super) fn execute_external_command(
             }
         }
     };
-    let stdout = join_capture(stdout_reader, "stdout").map_err(&error)?;
-    let stderr = join_capture(stderr_reader, "stderr").map_err(&error)?;
-    if let Some(source) = stdout.error {
-        return Err(error(ExternalCommandFailure::StreamIo {
-            stream: "stdout",
-            error: source,
-        }));
-    }
-    if let Some(source) = stderr.error {
-        return Err(error(ExternalCommandFailure::StreamIo {
-            stream: "stderr",
-            error: source,
-        }));
-    }
-    let status = status.map_err(|source| error(ExternalCommandFailure::Wait { error: source }))?;
-    if cancelled {
-        return Err(error(ExternalCommandFailure::Cancelled {
-            stdout: stdout.tail,
-            stderr: stderr.tail,
-        }));
-    }
-    if timed_out {
-        return Err(error(ExternalCommandFailure::TimedOut {
-            timeout: policy.timeout,
-            stdout: stdout.tail,
-            stderr: stderr.tail,
-        }));
-    }
-    if !status.success() {
-        return Err(error(ExternalCommandFailure::Exit {
-            status,
-            stdout: stdout.tail,
-            stderr: stderr.tail,
-        }));
-    }
-    Ok(())
+    finish_external_command(
+        status,
+        stdout_reader,
+        stderr_reader,
+        timed_out.then_some(policy.timeout),
+        cancelled,
+    )
+    .map_err(error)
 }
 
-fn join_capture(
-    reader: thread::JoinHandle<StreamCapture>,
-    stream: &'static str,
-) -> Result<StreamCapture, ExternalCommandFailure> {
-    reader
-        .join()
-        .map_err(|_| ExternalCommandFailure::CaptureThread { stream })
+fn finish_external_command(
+    status: io::Result<ExitStatus>,
+    stdout_reader: thread::JoinHandle<StreamCapture>,
+    stderr_reader: thread::JoinHandle<StreamCapture>,
+    timeout: Option<Duration>,
+    cancelled: bool,
+) -> Result<(), ExternalCommandFailure> {
+    let output = join_captures(stdout_reader, stderr_reader);
+    let stdout = output.stdout;
+    let stderr = output.stderr;
+    if let Some(failure) = output.failure {
+        return Err(match failure {
+            CaptureFailure::Thread { stream } => ExternalCommandFailure::CaptureThread {
+                stream,
+                stdout,
+                stderr,
+            },
+            CaptureFailure::Io { stream, error } => ExternalCommandFailure::StreamIo {
+                stream,
+                error,
+                stdout,
+                stderr,
+            },
+        });
+    }
+    let status = match status {
+        Ok(status) => status,
+        Err(error) => {
+            return Err(ExternalCommandFailure::Wait {
+                error,
+                stdout,
+                stderr,
+            });
+        }
+    };
+    if cancelled {
+        return Err(ExternalCommandFailure::Cancelled { stdout, stderr });
+    }
+    if let Some(timeout) = timeout {
+        return Err(ExternalCommandFailure::TimedOut {
+            timeout,
+            stdout,
+            stderr,
+        });
+    }
+    if !status.success() {
+        return Err(ExternalCommandFailure::Exit {
+            status,
+            stdout,
+            stderr,
+        });
+    }
+    Ok(())
 }
 
 pub(super) fn display_external_command_error(
@@ -649,15 +671,39 @@ pub(super) fn display_external_command_error(
         ExternalCommandFailure::MissingPipe { stream } => {
             write!(f, "coordinator did not retain the configured {stream} pipe")
         }
-        ExternalCommandFailure::Wait { error } => write!(f, "wait failed: {error}"),
-        ExternalCommandFailure::CaptureThread { stream } => {
-            write!(f, "{stream} capture worker failed")
+        ExternalCommandFailure::Wait {
+            error,
+            stdout,
+            stderr,
+        } => {
+            write!(f, "wait failed: {error}")?;
+            display_output_tails(f, stdout, stderr)
         }
-        ExternalCommandFailure::CaptureWorkerSpawn { stream, error } => {
-            write!(f, "failed to start {stream} capture worker: {error}")
+        ExternalCommandFailure::CaptureThread {
+            stream,
+            stdout,
+            stderr,
+        } => {
+            write!(f, "{stream} capture worker failed")?;
+            display_output_tails(f, stdout, stderr)
         }
-        ExternalCommandFailure::StreamIo { stream, error } => {
-            write!(f, "{stream} capture/forward failed: {error}")
+        ExternalCommandFailure::CaptureWorkerSpawn {
+            stream,
+            error,
+            stdout,
+            stderr,
+        } => {
+            write!(f, "failed to start {stream} capture worker: {error}")?;
+            display_output_tails(f, stdout, stderr)
+        }
+        ExternalCommandFailure::StreamIo {
+            stream,
+            error,
+            stdout,
+            stderr,
+        } => {
+            write!(f, "{stream} capture/forward failed: {error}")?;
+            display_output_tails(f, stdout, stderr)
         }
         ExternalCommandFailure::TimedOut {
             timeout,
@@ -708,4 +754,126 @@ pub(super) fn display_output_tails(
         write!(f, "\nstderr tail:\n{}", String::from_utf8_lossy(stderr))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        BuildError,
+        process_output::tests::{capture_worker, success_status},
+        report::tests::assert_operational_report,
+    };
+
+    #[test]
+    fn completion_failures_preserve_captured_output_in_all_report_contexts() {
+        for phase in ["stdout", "stderr", "wait", "worker"] {
+            for context in ["action", "suite", "cleanup"] {
+                let stdout = if phase == "worker" {
+                    thread::spawn(|| panic!("injected stdout capture panic"))
+                } else {
+                    capture_worker(CapturedStream::Stdout, phase == "stdout")
+                };
+                let stderr = capture_worker(CapturedStream::Stderr, phase == "stderr");
+                let status = if phase == "wait" {
+                    Err(io::Error::other("injected wait failure"))
+                } else {
+                    Ok(success_status())
+                };
+                let failure =
+                    finish_external_command(status, stdout, stderr, None, false).unwrap_err();
+                let reason = match (&failure, phase) {
+                    (ExternalCommandFailure::StreamIo { stream, .. }, "stdout" | "stderr") => {
+                        assert_eq!(*stream, phase);
+                        format!("{phase} capture/forward failed: injected read failure")
+                    }
+                    (ExternalCommandFailure::Wait { .. }, "wait") => {
+                        "wait failed: injected wait failure".to_string()
+                    }
+                    (
+                        ExternalCommandFailure::CaptureThread {
+                            stream: "stdout", ..
+                        },
+                        "worker",
+                    ) => "stdout capture worker failed".to_string(),
+                    _ => panic!("unexpected failure: {failure:?}"),
+                };
+                let action = ActionKey::new(PackageKey::root(), "capture-check").unwrap();
+                let error = CoordinatorError::ExternalCommand(Box::new(ExternalCommandError {
+                    action: action.clone(),
+                    program: "test-tool".into(),
+                    arguments: Vec::new(),
+                    working_directory: PathBuf::from("work"),
+                    failure,
+                }));
+                let mut markers = vec![reason.as_str(), "stderr-tail"];
+                if phase != "worker" {
+                    markers.push("stdout-tail");
+                }
+                let display = error.to_string();
+                for marker in &markers {
+                    assert!(display.contains(marker), "{display}");
+                }
+                let error = match context {
+                    "suite" => CoordinatorError::TestFailures(vec![TestFailure {
+                        action,
+                        error: Box::new(error),
+                    }]),
+                    "cleanup" => CoordinatorError::StagedOutput {
+                        action,
+                        path: PathBuf::from("staged"),
+                        operation: "remove",
+                        error: io::Error::other("injected cleanup failure"),
+                        cause: Some(Box::new(error)),
+                    },
+                    _ => error,
+                };
+                assert_operational_report(
+                    &BuildError::ExecuteBuildPlan {
+                        error: Box::new(error),
+                    },
+                    "E0705",
+                    &markers,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn completion_preserves_success_timeout_and_cancellation_precedence() {
+        for (timeout, cancelled) in [
+            (None, false),
+            (Some(Duration::from_secs(2)), false),
+            (Some(Duration::from_secs(2)), true),
+        ] {
+            let result = finish_external_command(
+                Ok(success_status()),
+                capture_worker(CapturedStream::Stdout, false),
+                capture_worker(CapturedStream::Stderr, false),
+                timeout,
+                cancelled,
+            );
+            match (result, timeout, cancelled) {
+                (Ok(()), None, false) => {}
+                (
+                    Err(ExternalCommandFailure::TimedOut {
+                        timeout,
+                        stdout,
+                        stderr,
+                    }),
+                    Some(expected),
+                    false,
+                ) => {
+                    assert_eq!(timeout, expected);
+                    assert_eq!(stdout, b"stdout-tail");
+                    assert_eq!(stderr, b"stderr-tail");
+                }
+                (Err(ExternalCommandFailure::Cancelled { stdout, stderr }), _, true) => {
+                    assert_eq!(stdout, b"stdout-tail");
+                    assert_eq!(stderr, b"stderr-tail");
+                }
+                other => panic!("unexpected result: {other:?}"),
+            }
+        }
+    }
 }

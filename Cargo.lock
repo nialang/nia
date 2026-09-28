@@ -351,9 +351,11 @@ dependencies = [
  "nia-package-metadata",
  "nia-query",
  "nia-source",
+ "nia-span",
  "nia-target-config",
  "nia-timing",
  "nia-toolchain",
+ "serde_json",
  "windows-sys",
 ]
 
@@ -380,6 +382,7 @@ dependencies = [
  "nia-test-support",
  "nia-timing",
  "nia-toolchain",
+ "serde_json",
 ]
 
 [[package]]

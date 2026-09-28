@@ -72,6 +72,7 @@ fn test_invocation() -> BuildInvocation {
         test_filter: None,
         test_list: false,
         test_fail_fast: false,
+        forward_output: true,
         timings: nia_driver::TimingMode::Off,
         timing_format: nia_timing::TimingFormat::Text,
         max_parallel_actions: None,
@@ -806,32 +807,75 @@ fn explicit_uncacheable_action_has_no_legacy_execution_fallback() {
 
 #[test]
 fn invocation_target_mismatch_is_rejected_before_actions() {
-    let invocation = test_invocation();
-    let mut mismatched = target_spec(invocation.toolchain.host_target());
-    mismatched.arch = "mismatched".to_string();
-    let plan = BuildPlan::freeze(BuildPlanDraft {
-        root_package: PackageKey::root(),
-        packages: vec![PlanPackage {
-            key: PackageKey::root(),
-            root: String::new(),
-        }],
-        host_target: mismatched,
-        artifact_target: target_spec(invocation.toolchain.artifact_target()),
-        modules: Vec::new(),
-        artifacts: Vec::new(),
-        actions: Vec::new(),
-        steps: Vec::new(),
-        default_step: None,
-        selected_step: None,
-    })
-    .unwrap();
+    for role in ["host", "artifact"] {
+        for test_mode in [false, true] {
+            let mut invocation = test_invocation();
+            if test_mode {
+                invocation.step = crate::BuildStepSelection::Tests;
+            }
+            let mut host = target_spec(invocation.toolchain.host_target());
+            let mut artifact = target_spec(invocation.toolchain.artifact_target());
+            let expected = if role == "host" {
+                host.clone()
+            } else {
+                artifact.clone()
+            };
+            if role == "host" {
+                host.arch = "mismatched".into();
+            } else {
+                artifact.arch = "mismatched".into();
+            }
+            let plan = BuildPlan::freeze(BuildPlanDraft {
+                root_package: PackageKey::root(),
+                packages: vec![PlanPackage {
+                    key: PackageKey::root(),
+                    root: String::new(),
+                }],
+                host_target: host,
+                artifact_target: artifact,
+                modules: Vec::new(),
+                artifacts: Vec::new(),
+                actions: vec![PlanAction {
+                    key: action("generate"),
+                    kind: ActionKind::GeneratedFile {
+                        output: LogicalPath::new(LogicalPathRoot::Build, "should-not-exist")
+                            .unwrap(),
+                        contents: b"unexpected action".to_vec(),
+                    },
+                }],
+                steps: vec![PlanStep {
+                    key: step("generate"),
+                    action: action("generate"),
+                    dependencies: Vec::new(),
+                }],
+                default_step: Some(step("generate")),
+                selected_step: None,
+            })
+            .unwrap();
 
-    let error = execute_build_plan(&plan, &invocation).unwrap_err();
-    assert!(matches!(
-        error,
-        CoordinatorError::TargetMismatch(details)
-            if details.role == "host" && details.found.arch == "mismatched"
-    ));
+            let error = execute_build_plan(&plan, &invocation).unwrap_err();
+            assert!(matches!(
+                &error,
+                CoordinatorError::TargetMismatch(details)
+                    if details.role == role && details.found.arch == "mismatched" && details.expected == expected
+            ));
+            assert!(
+                !invocation.build_dir.exists(),
+                "mismatch must precede any output setup"
+            );
+            crate::report::tests::assert_operational_report(
+                &crate::BuildError::ExecuteBuildPlan {
+                    error: Box::new(error),
+                },
+                "E0704",
+                &[
+                    &format!("build plan {role} target"),
+                    &format!("expected {}", display_target(&expected)),
+                    "found mismatched",
+                ],
+            );
+        }
+    }
 }
 
 fn generated_plan(invocation: &BuildInvocation, output: &str, contents: &[u8]) -> BuildPlan {
@@ -863,6 +907,92 @@ fn generated_plan(invocation: &BuildInvocation, output: &str, contents: &[u8]) -
         selected_step: None,
     })
     .unwrap()
+}
+
+#[test]
+fn plan_handoff_failures_preserve_stage_and_paths_in_reports() {
+    use crate::{
+        BuildError, PlanHandoffError, publish_build_plan, read_build_plan,
+        report::tests::assert_operational_report,
+    };
+    let invocation = test_invocation();
+    fs::create_dir_all(&invocation.build_dir).unwrap();
+    let path = invocation.plan_draft.clone();
+    let error = read_build_plan(&path).unwrap_err();
+    assert!(matches!(&error, PlanHandoffError::Open { .. }));
+    assert_operational_report(
+        &BuildError::ReadPlanDraft {
+            path: path.clone(),
+            error,
+        },
+        "E0704",
+        &["failed to open build plan", &path.to_string_lossy()],
+    );
+    fs::write(&path, b"corrupt plan").unwrap();
+    let error = read_build_plan(&path).unwrap_err();
+    assert!(matches!(&error, PlanHandoffError::Decode { .. }));
+    assert_operational_report(
+        &BuildError::ReadPlanDraft {
+            path: path.clone(),
+            error,
+        },
+        "E0704",
+        &["failed to decode build plan", &path.to_string_lossy()],
+    );
+
+    let path = invocation.plan_path.clone();
+    fs::create_dir(&path).unwrap();
+    let plan = generated_plan(&invocation, "out", b"content");
+    let error = publish_build_plan(&path, &plan).unwrap_err();
+    assert!(matches!(&error, PlanHandoffError::Publish { .. }));
+    assert_operational_report(
+        &BuildError::PublishBuildPlan {
+            path: path.clone(),
+            error,
+        },
+        "E0704",
+        &["failed to publish build plan", &path.to_string_lossy()],
+    );
+    assert_eq!(
+        fs::read_dir(&invocation.build_dir).unwrap().count(),
+        2,
+        "failed publication must remove its temporary file"
+    );
+    fs::remove_dir_all(&invocation.package_root).unwrap();
+}
+
+#[test]
+fn external_spawn_failure_reports_operation_and_program() {
+    let invocation = test_invocation();
+    fs::create_dir_all(&invocation.package_root).unwrap();
+    let program = invocation.package_root.join("missing-executable");
+    let error = execute_external_command(
+        &external_action(),
+        ResolvedExternalCommand {
+            program: program.to_str().unwrap(),
+            arguments: &[],
+            working_directory: &invocation.package_root,
+            environment_policy: CommandEnvironmentPolicy::Inherit,
+            environment: &[],
+        },
+        ExternalExecutionPolicy {
+            timeout: Duration::from_secs(5),
+            forward_output: false,
+            cancellation: None,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&error, CoordinatorError::ExternalCommand(details) if matches!(details.failure, ExternalCommandFailure::Spawn { .. }))
+    );
+    crate::report::tests::assert_operational_report(
+        &crate::BuildError::ExecuteBuildPlan {
+            error: Box::new(error),
+        },
+        "E0705",
+        &["command spawn failed", &program.to_string_lossy()],
+    );
+    fs::remove_dir_all(&invocation.package_root).unwrap();
 }
 
 fn compiler_check_plan(invocation: &BuildInvocation, optimization: OptimizationMode) -> BuildPlan {
