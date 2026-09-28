@@ -342,9 +342,8 @@ pub(super) fn loaded_module_with_source_version(
     source: &str,
     source_version: SourceVersion,
 ) -> LoadedModule {
-    let syntax = nia_syntax::parse_source(source, Some(source_version));
-    let (module, parse_errors, origins) =
-        nia_parser::parse_module_syntax_with_origins_and_symbols(&syntax, test_symbols());
+    let lowered = nia_parser::parse_versioned(source, Some(source_version), test_symbols());
+    let (module, parse_errors, origins) = (lowered.module, lowered.errors, lowered.origins);
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
     let item_tree = ModuleItemTree::from_module(&module);
     let active_item_tree = item_tree.all_items_active();

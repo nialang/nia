@@ -377,14 +377,11 @@ fn provider_cache_identity(file: &SourceFile) -> ProviderCacheIdentity {
     let module = StableModuleKey::from_source_identity(file.path.identity());
     let source = source_content_fingerprint(&file.text);
     let source_key = FrontendSourceCacheKey::new(namespace, &module, source);
-    let syntax = nia_syntax::parse_source(&file.text, Some(file.version()));
-    let (raw_module, _, _) = nia_parser::parse_module_syntax_with_node_store_and_symbols(
-        &syntax,
-        &nia_node_id::NodeStore::new(),
-        SymbolTable::new(),
-    );
-    let item_tree = ModuleItemTree::from_module(&raw_module);
-    let item_signature = item_signature_fingerprint(&syntax, &item_tree);
+    let parse = nia_syntax::parse(&file.text, Some(file.version())).expect("grammar tree");
+    let lowered =
+        nia_parser::lower_module(&parse, &nia_node_id::NodeStore::new(), SymbolTable::new());
+    let item_tree = ModuleItemTree::from_module(&lowered.module);
+    let item_signature = item_signature_fingerprint(&file.text, &item_tree);
     let provider_key = FrontendProviderSummaryCacheKey::new(namespace, &module, item_signature);
     ProviderCacheIdentity {
         namespace,

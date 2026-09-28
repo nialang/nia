@@ -1,1 +1,1 @@
-extend ! { fn invalid(self) () {} } pub fn main() i32 { 0 }
+extend never { fn invalid(self) () {} } pub fn main() i32 { 0 }

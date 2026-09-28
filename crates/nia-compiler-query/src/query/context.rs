@@ -17,9 +17,9 @@ use nia_imports::{ModuleGraphSnapshot, StableModuleKey};
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_loader_contract::UnusedUsingImport;
 use nia_opt::OptimizationPolicy;
-use nia_parser::ParseError;
 use nia_query::{QueryDb, QueryError, QueryResult};
 use nia_source::{SourceIdentity, SourceVersion};
+use nia_syntax::ParseError;
 use nia_target_config::TargetConfig;
 use parking_lot::{Mutex, RwLock};
 use std::{

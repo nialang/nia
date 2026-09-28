@@ -14,11 +14,11 @@ use nia_defs::PublicSurfaceModuleFacts;
 use nia_imports::ModuleGraphSnapshot;
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_node_id::{NodeOriginTable, NodeStore};
-use nia_parser::ParseError;
 use nia_provider_summary::ProviderSummary;
 use nia_query::{QueryResult, QuerySession};
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_symbol_table::SymbolTable;
+use nia_syntax::ParseError;
 use nia_target_config::{BuildProfile, CompilationMode, TargetConfig};
 use nia_toolchain::ToolchainIdentityFingerprint;
 

@@ -43,12 +43,12 @@ fn main() i32 {
 #[test]
 fn generic_type_or_const_arguments_retain_both_origins() {
     let source = "type Alias = Box[i32];\n";
-    let version = SourceVersion {
-        id: SourceId::isolated(),
-        revision: SourceRevision(1),
-    };
-    let syntax = nia_syntax::parse_source(source, Some(version));
-    let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
+    let version = version(1);
+    let LoweredModule {
+        module,
+        errors,
+        origins,
+    } = lower_with(source, Some(version));
 
     assert!(errors.is_empty(), "{errors:?}");
     let ItemKind::TypeAlias(alias) = &module.items[0].kind else {
