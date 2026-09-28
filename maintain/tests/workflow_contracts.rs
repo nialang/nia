@@ -62,6 +62,7 @@ fn build_std_workflow_runs_the_windows_static_llvm_matrix() {
         "cargo fmt --all -- --check",
         "cargo clippy --workspace --all-targets --no-default-features --target x86_64-pc-windows-msvc -- -D warnings",
         "cargo test --workspace --no-default-features --target x86_64-pc-windows-msvc",
+        "cargo test -p nia-cli --test diagnostic_failures --no-default-features --target x86_64-pc-windows-msvc",
         "cargo build --release -p nia-cli --no-default-features --target x86_64-pc-windows-msvc",
     ] {
         assert!(
