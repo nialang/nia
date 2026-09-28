@@ -36,6 +36,7 @@ fn llvm_config_output(arguments: &[&str]) -> String {
 fn main() {
     println!("cargo:rerun-if-changed=src/llvm_lto_bridge.cpp");
     println!("cargo:rerun-if-env-changed=LLVM_SYS_231_PREFIX");
+    println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_FEATURE");
 
     let includedir = llvm_config_output(&["--includedir"]);
     let cxxflags = llvm_config_output(&["--cxxflags"]);
@@ -47,13 +48,20 @@ fn main() {
         .file("src/llvm_lto_bridge.cpp")
         .warnings(false);
 
-    // Keep the bridge's MSVC runtime aligned with the Rust target. The
-    // prebuilt Windows LLVM archives use /MT, while a locally built LLVM may
-    // use /MD; Rust's `crt-static` feature is the stable source of truth for
-    // the host binary and its C++ bridge.
+    // Nia's MSVC build requires the static CRT in Rust, this bridge, and LLVM.
+    // llvm-config --shared-mode describes LLVM library linkage, not its CRT;
+    // use Cargo's target feature for the Rust/bridge contract. The LLVM prefix
+    // must independently have been built with CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded.
     let target_features = env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default();
-    if cfg!(target_env = "msvc") && target_features.split(',').any(|f| f == "crt-static") {
-        build.flag("/MT");
+    let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    if target_env == "msvc" {
+        let crt_static = target_features.split(',').any(|f| f == "crt-static");
+        if !crt_static {
+            panic!(
+                "Nia's MSVC build requires the static CRT; enable -Ctarget-feature=+crt-static and use an LLVM prefix built with CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
+            );
+        }
+        build.static_crt(true);
     }
 
     for flag in shlex::split(&cxxflags).expect("llvm-config returned malformed C++ flags") {

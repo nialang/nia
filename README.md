@@ -104,22 +104,26 @@ if (($userPath -split ';') -notcontains $llvmBin) {
 
 Restart existing terminals after changing user environment variables.
 
-For an x64 MSVC build against the prebuilt Windows LLVM archives, dot-source
-the repository environment helper from a fresh PowerShell session. It discovers
-the installed Visual Studio and Windows SDK library paths and aligns Rust and
-the LLVM C++ bridge on the static MSVC runtime:
+For an x64 MSVC build against the prebuilt Windows LLVM archives, start an x64
+Developer PowerShell for Visual Studio (or run `VsDevCmd.bat -arch=x64
+-host_arch=x64`) so `cl`, `link`, `LIB`, and `INCLUDE` come from the installed
+MSVC and Windows SDK. The repository Cargo configuration selects the static
+MSVC runtime for the maintained Windows target:
 
 ```powershell
-. .\tools\windows-env.ps1
-cargo build -p nia-cli --no-default-features
+cargo build -p nia-cli --no-default-features --features llvm-static --target x86_64-pc-windows-msvc
 ```
 
-The helper is session-scoped; it does not modify the repository or global
-environment variables.
+The executable is `target/x86_64-pc-windows-msvc/debug/nia.exe`. Keep the explicit
+target: it separates target CRT settings from host build scripts and avoids
+requiring global SDK library-search flags. See [Windows development checks](docs/contributing.md)
+for the setup and troubleshooting boundaries.
 
+Set `LLVM_SYS_231_PREFIX` and add its `bin` directory to the user environment
+once, or use the standard LLVM installation path visible to `llvm-config`.
 If an official LLVM Windows archive contains a library path from its build
-machine, the helper creates a temporary `target/llvm-config-wrapper` prefix
-and filters that missing path from `llvm-config --system-libs` automatically.
+machine, set the prefix to a corrected installation rather than relying on a
+temporary process wrapper.
 
 Run the compiler directly from the checkout with the versioned standard-library
 resources:
