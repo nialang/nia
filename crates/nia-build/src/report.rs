@@ -24,10 +24,15 @@ pub fn render_build_error(
     primary_path: Option<&str>,
     primary_source: Option<&str>,
 ) -> String {
-    if let BuildError::CompileRunner { path, error, .. } = error {
+    if let BuildError::CompileRunner {
+        path,
+        source,
+        error,
+    } = error
+    {
         // Driver diagnostics already contain the source-owned build.nia
         // locations. Do not wrap them in a synthetic runner diagnostic.
-        return nia_driver::render_driver_error(error, Some(path), primary_source);
+        return nia_driver::render_driver_error(error, Some(path), Some(source));
     }
     if let BuildError::ExecuteBuildPlan { error } = error
         && let CoordinatorError::Driver { error, .. } = error.as_ref()
@@ -113,15 +118,23 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
             stdout,
             stderr,
         } => vec![runner_failure(path, *status, stdout, stderr)],
-        BuildError::RunRunner { path, error } => vec![
-            Diagnostic::user_error(
+        BuildError::RunRunner {
+            path,
+            error,
+            stdout,
+            stderr,
+        } => {
+            let mut diagnostic = Diagnostic::user_error(
                 codes::BUILD_RUNNER,
-                "could not start the generated build runner",
+                "could not run the generated build runner",
             )
             .note(format!("runner `{}`: {error}", path.display()))
             .help("check the toolchain and executable permissions, then rerun the build")
-            .finish(),
-        ],
+            .finish();
+            append_output_note(&mut diagnostic, "stdout", stdout);
+            append_output_note(&mut diagnostic, "stderr", stderr);
+            vec![diagnostic]
+        }
         BuildError::CompileRunner { error, .. } => match error.as_ref() {
             // This branch is only used by JSON callers. Text rendering above
             // delegates directly so source-owned driver labels are retained.
@@ -173,11 +186,21 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
                 .help("rename the path to use UTF-8 characters")
                 .finish(),
         ],
-        BuildError::PreparePlanDraft { path, error } => plan_handoff_diagnostic(path, error),
-        BuildError::PrepareRunnerConfiguration { path, error }
-        | BuildError::CleanupRunnerConfiguration { path, error }
-        | BuildError::CleanupPlanDraft { path, error }
-        | BuildError::CleanupRunnerExecutable { path, error } => io_plan_diagnostic(path, error),
+        BuildError::PreparePlanDraft { path, error } => {
+            io_plan_diagnostic("remove previous plan draft", path, error)
+        }
+        BuildError::PrepareRunnerConfiguration { path, error } => {
+            io_plan_diagnostic("write runner configuration", path, error)
+        }
+        BuildError::CleanupRunnerConfiguration { path, error } => {
+            io_plan_diagnostic("remove runner configuration", path, error)
+        }
+        BuildError::CleanupPlanDraft { path, error } => {
+            io_plan_diagnostic("remove plan draft", path, error)
+        }
+        BuildError::CleanupRunnerExecutable { path, error } => {
+            io_plan_diagnostic("remove runner executable", path, error)
+        }
         BuildError::ReadPlanDraft { path, error }
         | BuildError::PublishBuildPlan { path, error } => plan_handoff_diagnostic(path, error),
         BuildError::RunnerConfigurationFieldTooLarge { role, len } => vec![
@@ -245,15 +268,31 @@ fn coordinator_diagnostic(error: &CoordinatorError) -> Diagnostic {
         )
         .note("the action was stopped after another action failed")
         .finish(),
-        CoordinatorError::TestFailures(failures) => Diagnostic::user_error(
-            codes::BUILD_ACTION,
-            format!("{} test suite(s) failed", failures.len()),
-        )
-        .note(test_failure_note(failures))
-        .finish(),
+        CoordinatorError::TestFailures(failures) => {
+            let mut diagnostic = Diagnostic::user_error(
+                codes::BUILD_ACTION,
+                format!("{} test suite(s) failed", failures.len()),
+            )
+            .note(test_failure_note(failures))
+            .finish();
+            for failure in failures {
+                if let CoordinatorError::ExternalCommand(details) = failure.error.as_ref() {
+                    let child = external_command_diagnostic(details);
+                    for note in child.notes.iter() {
+                        diagnostic
+                            .notes
+                            .push(format!("test suite `{}`: {note}", failure.action.name()));
+                    }
+                }
+            }
+            diagnostic
+        }
         CoordinatorError::TargetMismatch(details) => Diagnostic::user_error(
             codes::BUILD_PLAN,
-            "build plan target does not match the current invocation",
+            format!(
+                "build plan {} target does not match the current invocation",
+                details.role
+            ),
         )
         .note(format!(
             "expected {}, found {}",
@@ -342,10 +381,7 @@ fn coordinator_diagnostic(error: &CoordinatorError) -> Diagnostic {
             )
             .note(format!("path `{}`: {error}", path.display()));
             if let Some(cause) = cause {
-                diagnostic = diagnostic.note(format!(
-                    "original action failure: {}",
-                    coordinator_summary(cause)
-                ));
+                diagnostic = diagnostic.note(format!("original action failure: {}", cause));
             }
             diagnostic.finish()
         }
@@ -396,21 +432,61 @@ fn external_command_diagnostic(details: &ExternalCommandError) -> Diagnostic {
     ))
     .finish();
     match &details.failure {
-        ExternalCommandFailure::Spawn { error }
-        | ExternalCommandFailure::Wait { error }
-        | ExternalCommandFailure::CaptureWorkerSpawn { error, .. }
-        | ExternalCommandFailure::StreamIo { error, .. } => {
-            diagnostic.notes.push(error.to_string());
+        ExternalCommandFailure::Spawn { error } => {
+            diagnostic
+                .notes
+                .push(format!("command spawn failed: {error}"));
+        }
+        ExternalCommandFailure::Wait {
+            error,
+            stdout,
+            stderr,
+        } => {
+            diagnostic
+                .notes
+                .push(format!("command wait failed: {error}"));
+            append_output_note(&mut diagnostic, "stdout", stdout);
+            append_output_note(&mut diagnostic, "stderr", stderr);
+        }
+        ExternalCommandFailure::CaptureWorkerSpawn {
+            stream,
+            error,
+            stdout,
+            stderr,
+        } => {
+            diagnostic
+                .notes
+                .push(format!("failed to start {stream} capture worker: {error}"));
+            append_output_note(&mut diagnostic, "stdout", stdout);
+            append_output_note(&mut diagnostic, "stderr", stderr);
+        }
+        ExternalCommandFailure::StreamIo {
+            stream,
+            error,
+            stdout,
+            stderr,
+        } => {
+            diagnostic
+                .notes
+                .push(format!("{stream} capture/forward failed: {error}"));
+            append_output_note(&mut diagnostic, "stdout", stdout);
+            append_output_note(&mut diagnostic, "stderr", stderr);
         }
         ExternalCommandFailure::MissingPipe { stream } => {
             diagnostic
                 .notes
                 .push(format!("the configured {stream} pipe was unavailable"));
         }
-        ExternalCommandFailure::CaptureThread { stream } => {
+        ExternalCommandFailure::CaptureThread {
+            stream,
+            stdout,
+            stderr,
+        } => {
             diagnostic
                 .notes
                 .push(format!("the {stream} capture worker failed"));
+            append_output_note(&mut diagnostic, "stdout", stdout);
+            append_output_note(&mut diagnostic, "stderr", stderr);
         }
         ExternalCommandFailure::TimedOut {
             timeout,
@@ -502,10 +578,13 @@ fn create_directory_diagnostic(role: &str, path: &Path, error: &std::io::Error) 
     ]
 }
 
-fn io_plan_diagnostic(path: &Path, error: &std::io::Error) -> Vec<Diagnostic> {
+fn io_plan_diagnostic(operation: &str, path: &Path, error: &std::io::Error) -> Vec<Diagnostic> {
     vec![
         Diagnostic::user_error(codes::BUILD_PLAN, "could not complete build handoff")
-            .note(format!("path `{}`: {error}", path.display()))
+            .note(format!(
+                "failed to {operation} at `{}`: {error}",
+                path.display()
+            ))
             .help("remove stale .nia-build files if necessary and check permissions")
             .finish(),
     ]
@@ -545,9 +624,79 @@ fn coordinator_summary(error: &CoordinatorError) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::TargetSpec;
+
+    pub(crate) fn assert_operational_report(error: &BuildError, code: &str, markers: &[&str]) {
+        let text = render_build_error(error, None, None);
+        let json = render_build_error_json(error);
+        let report: serde_json::Value = serde_json::from_str(&json).expect("complete report JSON");
+        assert!(text.contains(&format!("error[{code}]")), "{text}");
+        assert!(!text.contains('\x1b'), "{text}");
+        let diagnostics = report["diagnostics"].as_array().unwrap();
+        assert_eq!(diagnostics.len(), 1, "{json}");
+        let diagnostic = &diagnostics[0];
+        assert_eq!(diagnostic["code"], code, "{json}");
+        assert_eq!(diagnostic["severity"], "error", "{json}");
+        assert_eq!(diagnostic["category"], "user", "{json}");
+        assert_eq!(diagnostic["kind"], "independent", "{json}");
+        assert!(
+            diagnostic["labels"].as_array().unwrap().is_empty(),
+            "{json}"
+        );
+        assert_eq!(report["summary"]["errors"], 1, "{json}");
+        assert_eq!(report["summary"]["warnings"], 0, "{json}");
+        let notes = diagnostic["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|note| note.as_str().unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let summary = diagnostic["summary"].as_str().unwrap();
+        for marker in markers {
+            assert!(text.contains(marker), "missing {marker:?}: {text}");
+            assert!(
+                summary.contains(marker) || notes.contains(marker),
+                "missing {marker:?}: {json}"
+            );
+        }
+    }
+
+    #[test]
+    fn runner_related_locations_use_generated_source_instead_of_caller_text() {
+        let runner_path = "build-package:build-runner:/root.nia";
+        let source_path = "missing-build-source.nia";
+        let diagnostic = nia_driver::ProgramDiagnostic {
+            path: nia_driver::SourcePath::new(source_path),
+            diagnostic: Diagnostic::user_error(codes::NAME_RESOLUTION, "source-owned error")
+                .primary(nia_span::Span::new(2, 5), "source failure")
+                .related_at(runner_path, nia_span::Span::new(9, 13), "generated call")
+                .finish(),
+        };
+        let error = BuildError::CompileRunner {
+            path: runner_path.to_owned(),
+            source: "// auto\n\ncall();\n".to_owned(),
+            error: Box::new(nia_driver::DriverError::CodegenPreparationDiagnostics {
+                diagnostic_sources: Default::default(),
+                diagnostics: vec![diagnostic],
+                suppressed_downstream: 0,
+            }),
+        };
+        let text = render_build_error(&error, Some(source_path), Some("unrelated caller text"));
+        assert!(text.contains("error[E0201]: source-owned error"), "{text}");
+        assert!(
+            text.contains(&format!("related: {runner_path}:3:1: generated call")),
+            "{text}"
+        );
+        assert!(!text.contains("unrelated caller text"), "{text}");
+        let json = render_build_error_json(&error);
+        assert!(
+            json.contains(source_path) && json.contains(runner_path),
+            "{json}"
+        );
+    }
 
     #[test]
     fn missing_script_uses_stable_build_plan_code_and_help() {
@@ -686,6 +835,106 @@ mod tests {
         assert!(displayed.contains("run `cc`"));
         assert!(displayed.contains("timed out after 7m"));
         assert!(!displayed.contains("420s"));
+    }
+
+    #[test]
+    fn unavailable_capture_workers_report_stage_stream_and_available_output() {
+        for stream in ["stdout", "stderr"] {
+            for missing_pipe in [false, true] {
+                let failure = if missing_pipe {
+                    ExternalCommandFailure::MissingPipe { stream }
+                } else {
+                    ExternalCommandFailure::CaptureWorkerSpawn {
+                        stream,
+                        error: std::io::Error::other("injected thread-spawn failure"),
+                        stdout: if stream == "stderr" {
+                            b"stdout-tail".to_vec()
+                        } else {
+                            Vec::new()
+                        },
+                        stderr: Vec::new(),
+                    }
+                };
+                let reason = if missing_pipe {
+                    format!("configured {stream} pipe was unavailable")
+                } else {
+                    format!(
+                        "failed to start {stream} capture worker: injected thread-spawn failure"
+                    )
+                };
+                let mut markers = vec![reason.as_str()];
+                if !missing_pipe && stream == "stderr" {
+                    markers.push("stdout-tail");
+                }
+                let error = BuildError::ExecuteBuildPlan {
+                    error: Box::new(CoordinatorError::ExternalCommand(Box::new(
+                        ExternalCommandError {
+                            action: crate::ActionKey::new(crate::PackageKey::root(), "capture")
+                                .unwrap(),
+                            program: "tool".into(),
+                            arguments: Vec::new(),
+                            working_directory: "work".into(),
+                            failure,
+                        },
+                    ))),
+                };
+                assert_operational_report(&error, "E0705", &markers);
+            }
+        }
+    }
+
+    #[test]
+    fn suite_failures_keep_each_captured_stream_and_failure_reason() {
+        let failures = ["first", "second"]
+            .into_iter()
+            .map(|name| {
+                let action = crate::ActionKey::new(crate::PackageKey::root(), name).unwrap();
+                TestFailure {
+                    action: action.clone(),
+                    error: Box::new(CoordinatorError::ExternalCommand(Box::new(
+                        ExternalCommandError {
+                            action,
+                            program: name.to_owned(),
+                            arguments: Vec::new(),
+                            working_directory: std::path::PathBuf::from("tests"),
+                            failure: ExternalCommandFailure::TimedOut {
+                                timeout: std::time::Duration::from_secs(2),
+                                stdout: format!("{name}-stdout").into_bytes(),
+                                stderr: format!("{name}-stderr").into_bytes(),
+                            },
+                        },
+                    ))),
+                }
+            })
+            .collect();
+        let diagnostic = coordinator_diagnostic(&CoordinatorError::TestFailures(failures));
+        assert_eq!(diagnostic.summary, "2 test suite(s) failed");
+        assert!(diagnostic.labels.is_empty());
+        for name in ["first", "second"] {
+            for note in [
+                format!("test suite `{name}`: command timed out after 2s"),
+                format!("test suite `{name}`: stdout tail (bounded):\n{name}-stdout"),
+                format!("test suite `{name}`: stderr tail (bounded):\n{name}-stderr"),
+            ] {
+                assert!(diagnostic.notes.contains(&note), "{:?}", diagnostic.notes);
+            }
+        }
+        let text = render_diagnostic_list(
+            "build diagnostics:",
+            std::slice::from_ref(&diagnostic),
+            None,
+            None,
+        );
+        let json = nia_diagnostic::render_diagnostic_json("<unknown>", &diagnostic);
+        for marker in [
+            "first-stdout",
+            "first-stderr",
+            "second-stdout",
+            "second-stderr",
+        ] {
+            assert!(text.contains(marker), "{text}");
+            assert!(json.contains(marker), "{json}");
+        }
     }
 
     #[cfg(unix)]

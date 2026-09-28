@@ -11,6 +11,110 @@ mod support;
 
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
+fn assert_source_error_json(stderr: &str, code: &str, source: &std::path::Path) {
+    let report: serde_json::Value = serde_json::from_str(stderr).expect("one complete JSON report");
+    let diagnostics = report["diagnostics"]
+        .as_array()
+        .expect("diagnostic entries");
+    let errors = diagnostics
+        .iter()
+        .filter(|item| item["severity"] == "error")
+        .count();
+    assert_eq!(report["summary"]["errors"], errors, "{stderr}");
+    assert!(
+        diagnostics.iter().any(|item| {
+            item["code"] == code
+                && item["category"] == "user"
+                && item["kind"] == "root"
+                && item["path"]
+                    .as_str()
+                    .is_some_and(|path| std::path::Path::new(path) == source)
+                && item["summary"]
+                    .as_str()
+                    .is_some_and(|summary| !summary.is_empty())
+                && item["labels"].as_array().is_some_and(|labels| {
+                    labels.iter().any(|label| {
+                        label["style"] == "primary"
+                            && label["source"] == "source"
+                            && label["start"]
+                                .as_u64()
+                                .zip(label["end"].as_u64())
+                                .is_some_and(|(start, end)| start <= end)
+                    })
+                })
+        }),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn dependency_errors_preserve_identity_across_command_formats() {
+    let root = temp_dir("dependency_error_formats");
+    let dependency = root.join("dep.nia");
+    let build_dependency = root.join("build/dep.nia");
+    let main = root.join("main.nia");
+    std::fs::write(&dependency, "pub fn value() i32 { missing }\n").expect("invalid dependency");
+    std::fs::create_dir(root.join("build")).expect("build script module directory");
+    std::fs::copy(&dependency, &build_dependency).expect("build script dependency");
+    std::fs::write(&main, "module dep; pub fn main() i32 { dep::value() }\n")
+        .expect("entry source");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+module dep;
+using self::dep;
+pub fn build(b: &mut build::Build) build::Error!() {
+    _ = b;
+    _ = self::dep::value();
+    !()
+}
+"#,
+    )
+    .expect("build script");
+    for args in [
+        vec!["check"],
+        vec!["emit", "--checked"],
+        vec!["emit", "--llvm"],
+        vec!["emit", "--obj"],
+        vec!["build"],
+        vec!["test"],
+    ] {
+        for format in ["text", "json"] {
+            let mut command = support::nia_command();
+            command
+                .args(&args)
+                .arg(format!("--diagnostics-format={format}"));
+            if matches!(args[0], "build" | "test") {
+                command.arg("--root").arg(&*root);
+            } else {
+                command.arg(&main);
+            }
+            let output =
+                command.output_timeout_for_build("report dependency errors across commands");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.code(), Some(1), "{args:?} {format}: {stderr}");
+            assert!(output.stdout.is_empty(), "{args:?} {format}");
+            assert!(!stderr.contains('\x1b'), "{stderr}");
+            if format == "json" {
+                let source = if matches!(args[0], "build" | "test") {
+                    &build_dependency
+                } else {
+                    &dependency
+                };
+                assert_source_error_json(&stderr, "E0201", source);
+            } else {
+                assert!(
+                    stderr.contains("error[E0201]")
+                        && stderr.contains("dep.nia")
+                        && stderr.contains("unknown value `missing`"),
+                    "{args:?}: {stderr}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn repository_nia_uses_the_exit_conversion_boundary() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -208,16 +312,14 @@ fn captured_diagnostic_reports_remain_deterministic_without_ansi() {
             .output_timeout_for_compiler("run nia check with captured diagnostics");
         assert!(!output.status.success(), "invalid source must fail");
         assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty(), "{format}");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
             !stderr.contains('\x1b'),
             "captured {format} output: {stderr}"
         );
         if format == "json" {
-            assert!(
-                stderr.trim_start().starts_with("{\"diagnostics\":"),
-                "{stderr}"
-            );
+            assert_source_error_json(&stderr, "E0101", &main);
         }
     }
 }
@@ -241,10 +343,7 @@ fn emit_checked_preserves_text_json_diagnostic_contract() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(!stderr.contains('\x1b'), "{format}: {stderr}");
         if format == "json" {
-            assert!(
-                stderr.trim_start().starts_with("{\"diagnostics\":"),
-                "{stderr}"
-            );
+            assert_source_error_json(&stderr, "E0101", &main);
         } else {
             assert!(stderr.contains("error[E0101]"), "{stderr}");
         }
@@ -269,10 +368,7 @@ fn build_preserves_text_json_diagnostic_contract() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             assert!(!stderr.contains('\x1b'), "{command} {format}: {stderr}");
             if format == "json" {
-                assert!(
-                    stderr.trim_start().starts_with("{\"diagnostics\":"),
-                    "{command} {stderr}"
-                );
+                assert_source_error_json(&stderr, "E0101", &root.join("build.nia"));
             } else {
                 assert!(stderr.contains("error[E0101]"), "{command} {stderr}");
             }
@@ -1062,17 +1158,51 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = support::nia_command()
-        .arg("emit")
-        .arg("--llvm")
-        .arg(&main)
-        .output_timeout_for_build("run nia emit --llvm invalid atomic");
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("backend IR atomic operation has an invalid contract"),
-        "{stderr}"
-    );
+    for format in ["text", "json"] {
+        let output = support::nia_command()
+            .arg("emit")
+            .arg("--llvm")
+            .arg(&main)
+            .arg(format!("--diagnostics-format={format}"))
+            .output_timeout_for_build("run nia emit --llvm invalid atomic");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{stderr}");
+        assert!(output.stdout.is_empty(), "{stderr}");
+        assert!(!stderr.contains('\u{1b}'), "{stderr}");
+        if format == "text" {
+            assert!(stderr.contains("error internal[I0300]"), "{stderr}");
+            assert!(
+                stderr.contains("backend IR atomic operation has an invalid contract"),
+                "{stderr}"
+            );
+        } else {
+            let report: serde_json::Value =
+                serde_json::from_str(&stderr).expect("complete backend JSON report");
+            let diagnostics = report["diagnostics"].as_array().expect("diagnostics");
+            assert_eq!(diagnostics.len(), 1, "{stderr}");
+            let diagnostic = &diagnostics[0];
+            assert_eq!(diagnostic["code"], "I0300", "{stderr}");
+            assert_eq!(diagnostic["category"], "internal", "{stderr}");
+            assert_eq!(diagnostic["severity"], "error", "{stderr}");
+            assert_eq!(
+                diagnostic["path"],
+                main.to_string_lossy().as_ref(),
+                "{stderr}"
+            );
+            assert!(
+                diagnostic["labels"].as_array().is_some_and(|labels| {
+                    labels.iter().any(|label| label["style"] == "primary")
+                }),
+                "{stderr}"
+            );
+            assert!(
+                diagnostic["summary"].as_str().is_some_and(|summary| summary
+                    .contains("backend IR atomic operation has an invalid contract")),
+                "{stderr}"
+            );
+            assert_eq!(report["summary"]["errors"], 1, "{stderr}");
+        }
+    }
 }
 
 #[test]

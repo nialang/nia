@@ -366,6 +366,7 @@ mod tests {
             test_filter: None,
             test_list: false,
             test_fail_fast: false,
+            forward_output: true,
             timings: TimingMode::Off,
             timing_format: TimingFormat::Text,
             max_parallel_actions: None,

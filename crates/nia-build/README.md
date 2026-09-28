@@ -122,6 +122,20 @@ to advance.
 
 ## Execution And Publication
 
+Runner and external-command output is drained concurrently into bounded tails.
+Every started capture worker is joined, including when its sibling fails to
+start or panics. Process-wait and stream read/forward failures retain all tails
+returned by completed workers. Reports identify the failed operation and stream;
+test-suite and staging-cleanup reports preserve the original action's context.
+Text commands may forward live child output; JSON commands retain it in notes
+without mixing child bytes into the diagnostic envelope.
+
+The frozen plan's host and artifact targets must match the current invocation
+before action selection or output preparation. Mismatch reports identify the
+role and show the invocation target as expected and the plan target as found.
+The CLI freezes a new plan from each invocation; `build-plan.bin` is a durable
+observation, not an alternate execution input.
+
 The coordinator executes deterministic readiness waves through `QuerySession`,
 so build actions share the process jobserver and compiler resource budgets.
 `Cpu` and `Io` actions reserve one action slot; `Conservative` actions reserve

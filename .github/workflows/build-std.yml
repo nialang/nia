@@ -229,6 +229,10 @@ jobs:
         shell: pwsh
         run: cargo test --workspace --no-default-features --target x86_64-pc-windows-msvc
 
+      - name: Run Windows native backend diagnostic failures
+        shell: pwsh
+        run: cargo test -p nia-cli --test diagnostic_failures --no-default-features --target x86_64-pc-windows-msvc -- --nocapture
+
       - name: Run Windows maintenance workflow contracts
         shell: pwsh
         run: cargo test -p nia-maintain --test workflow_contracts --no-default-features --target x86_64-pc-windows-msvc

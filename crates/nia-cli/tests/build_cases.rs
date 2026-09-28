@@ -117,13 +117,43 @@ fn run_build_case(name: &str) {
             let runner_status = manifest.required_i32("runner-status");
             let forbidden = manifest.required("forbidden");
             manifest.finish();
+            let forbidden = fixture_path_or_none(&manifest_path, &workspace, forbidden);
             assert_runner_error(
                 &contract,
                 runner_status,
                 &workspace,
-                &fixture_path_or_none(&manifest_path, &workspace, forbidden),
+                &forbidden,
                 &output,
+                "text",
             );
+            for (workflow, format) in [("build", "json"), ("test", "text"), ("test", "json")] {
+                // Test selection has neither a named build step nor a required
+                // default. Definition/graph validation applies to both modes.
+                if workflow == "test"
+                    && matches!(contract.as_str(), "unknown-step" | "missing-default")
+                {
+                    continue;
+                }
+                let mut command = support::nia_command();
+                command
+                    .arg(workflow)
+                    .arg(format!("--diagnostics-format={format}"));
+                if workflow == "build" && step != "default" {
+                    command.arg(&step);
+                }
+                let output = command
+                    .arg("--root")
+                    .arg(&command_root)
+                    .output_timeout_in_session("report invalid build plan");
+                assert_runner_error(
+                    &contract,
+                    runner_status,
+                    &workspace,
+                    &forbidden,
+                    &output,
+                    format,
+                );
+            }
         }
         "missing-script-error" => {
             manifest.finish();
@@ -979,12 +1009,51 @@ fn assert_runner_error(
     workspace: &Path,
     forbidden: &Option<std::path::PathBuf>,
     output: &std::process::Output,
+    format: &str,
 ) {
     assert!(!output.status.success());
     assert_eq!(output.status.code(), Some(1));
     assert_no_transient_runner_files(workspace);
     assert!(!workspace.join(".nia-build/build-plan.bin").exists());
     let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.stdout.is_empty(), "{stderr}");
+    assert!(!stderr.contains('\x1b'), "{stderr}");
+    if format == "json" {
+        let report: serde_json::Value =
+            serde_json::from_str(&stderr).expect("complete build failure JSON");
+        let diagnostics = report["diagnostics"].as_array().unwrap();
+        assert_eq!(diagnostics.len(), 1, "{stderr}");
+        let diagnostic = &diagnostics[0];
+        assert_eq!(diagnostic["code"], "E0703", "{stderr}");
+        assert_eq!(diagnostic["kind"], "independent", "{stderr}");
+        assert_eq!(diagnostic["severity"], "error", "{stderr}");
+        assert_eq!(diagnostic["category"], "user", "{stderr}");
+        assert_eq!(
+            diagnostic["summary"], "build runner exited unsuccessfully",
+            "{stderr}"
+        );
+        assert_eq!(diagnostic["path"], "<unknown>", "{stderr}");
+        assert!(
+            diagnostic["labels"].as_array().unwrap().is_empty(),
+            "{stderr}"
+        );
+        assert!(
+            diagnostic["notes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|note| note
+                    .as_str()
+                    .unwrap()
+                    .starts_with("stderr tail (bounded):\n")
+                    && note.as_str().unwrap().contains("build error:")),
+            "{stderr}"
+        );
+        assert_eq!(report["summary"]["errors"], 1, "{stderr}");
+        assert_eq!(report["summary"]["warnings"], 0, "{stderr}");
+    } else {
+        assert!(stderr.contains("error[E0703]"), "{stderr}");
+    }
     assert!(stderr.contains("build runner"), "{stderr}");
     assert!(
         stderr.contains(&format!("exit status: {runner_status}"))

@@ -134,9 +134,16 @@ pub fn main(init: process::Init) process::ExitCode!() {
     fs::write(
         workspace.join("tests/fail.nia"),
         r#"using std::process;
+using std::io;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
+    let mut buffer: [u8; 0] = [];
+    let mut stderr = io::FileWriter::stderr(&mut buffer[..]);
+    match stderr.writeAll(&b"failed-suite-output\n") {
+        !ok => { _ = ok; },
+        error! => { _ = error; return process::ExitCode(9)!; },
+    }
     process::ExitCode(7)!
 }
 "#,
@@ -185,6 +192,48 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert!(stderr.contains("2 test suite(s) failed"), "{stderr}");
     assert!(stderr.contains("fail:"), "{stderr}");
     assert!(stderr.contains("fail-second:"), "{stderr}");
+    assert!(all.stdout.is_empty());
+    assert!(stderr.contains("failed-suite-output"), "{stderr}");
+
+    let json = test_command(&workspace)
+        .arg("--diagnostics-format=json")
+        .output_timeout_in_session("report failed suites as JSON");
+    assert_eq!(json.status.code(), Some(1));
+    assert!(json.stdout.is_empty());
+    let report: serde_json::Value = serde_json::from_slice(&json.stderr).unwrap_or_else(|error| {
+        panic!(
+            "suite JSON report: {error}: {}",
+            String::from_utf8_lossy(&json.stderr)
+        )
+    });
+    let diagnostics = report["diagnostics"].as_array().unwrap();
+    assert_eq!(diagnostics.len(), 1, "{report}");
+    assert_eq!(diagnostics[0]["code"], "E0705", "{report}");
+    assert_eq!(diagnostics[0]["kind"], "independent", "{report}");
+    assert_eq!(
+        diagnostics[0]["summary"], "2 test suite(s) failed",
+        "{report}"
+    );
+    assert!(
+        diagnostics[0]["labels"].as_array().unwrap().is_empty(),
+        "{report}"
+    );
+    assert_eq!(report["summary"]["errors"], 1, "{report}");
+    let notes = diagnostics[0]["notes"].as_array().unwrap();
+    assert!(
+        notes.iter().any(|note| note
+            .as_str()
+            .unwrap()
+            .contains("test suite `fail`: stderr tail (bounded):\nfailed-suite-output")),
+        "{report}"
+    );
+    assert!(
+        notes.iter().any(|note| note
+            .as_str()
+            .unwrap()
+            .contains("test suite `fail`: command exited with status")),
+        "{report}"
+    );
 
     let fail_fast = test_command(&workspace)
         .args(["--fail-fast", "--jobs", "1"])

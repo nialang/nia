@@ -257,6 +257,7 @@ mod tests {
             test_filter: None,
             test_list: false,
             test_fail_fast: false,
+            forward_output: true,
             timings: nia_driver::TimingMode::Off,
             timing_format: nia_timing::TimingFormat::Text,
             max_parallel_actions: None,

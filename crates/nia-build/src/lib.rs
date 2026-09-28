@@ -48,8 +48,8 @@ mod runner_cache;
 mod runner_config;
 
 use process_output::{
-    CapturedStream, StreamCapture, capture_stream, prepare_process_group,
-    terminate_process_descendants, terminate_process_tree,
+    CaptureFailure, CapturedStream, StreamCapture, capture_stream, join_capture_tail,
+    join_captures, prepare_process_group, terminate_process_descendants, terminate_process_tree,
 };
 
 pub use action_cache::{
@@ -89,6 +89,8 @@ pub struct BuildRequest {
     pub test_list: bool,
     /// Stop scheduling later test actions after the first failure.
     pub test_fail_fast: bool,
+    /// Forward child streams while retaining bounded tails for failure reports.
+    pub forward_output: bool,
 }
 
 impl BuildRequest {
@@ -108,6 +110,7 @@ impl BuildRequest {
             test_filter: None,
             test_list: false,
             test_fail_fast: false,
+            forward_output: true,
         }
     }
 
@@ -182,6 +185,12 @@ impl BuildRequest {
         self.test_fail_fast = enabled;
         self
     }
+
+    /// Selects live child output; captured failure tails remain available either way.
+    pub fn with_forward_output(mut self, enabled: bool) -> Self {
+        self.forward_output = enabled;
+        self
+    }
 }
 
 /// Fully resolved, invocation-local paths and build policies.
@@ -215,6 +224,8 @@ pub struct BuildInvocation {
     pub test_list: bool,
     /// Whether test execution stops at the first failing action.
     pub test_fail_fast: bool,
+    /// Live child output policy inherited from the request.
+    pub forward_output: bool,
     /// Timing policy inherited from the request.
     pub timings: TimingMode,
     /// Timing format inherited from the request.
@@ -296,12 +307,16 @@ pub enum BuildError {
         /// Underlying compiler-driver error.
         error: Box<DriverError>,
     },
-    /// Spawning the generated build runner failed.
+    /// Starting, waiting for, or capturing the generated build runner failed.
     RunRunner {
         /// Runner executable path.
         path: PathBuf,
-        /// Underlying process-spawn error.
+        /// Underlying process error with its failed operation or stream.
         error: io::Error,
+        /// Bounded captured standard-output tail.
+        stdout: Vec<u8>,
+        /// Bounded captured standard-error tail.
+        stderr: Vec<u8>,
     },
     /// Preparing the private plan-draft handoff failed.
     PreparePlanDraft {
@@ -432,12 +447,19 @@ impl fmt::Display for BuildError {
                     nia_driver::render_driver_error(error, Some(path), Some(source))
                 )
             }
-            Self::RunRunner { path, error } => {
+            Self::RunRunner {
+                path,
+                error,
+                stdout,
+                stderr,
+            } => {
                 write!(
                     f,
                     "failed to run build runner `{}`: {error}",
                     path.display()
-                )
+                )?;
+                write_runner_output(f, "stdout", stdout)?;
+                write_runner_output(f, "stderr", stderr)
             }
             Self::PreparePlanDraft { path, error } => write!(
                 f,
@@ -768,6 +790,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         test_filter: request.test_filter,
         test_list: request.test_list,
         test_fail_fast: request.test_fail_fast,
+        forward_output: request.forward_output,
         timings: request.timings,
         timing_format: request.timing_format,
         max_parallel_actions: request.max_parallel_actions,
@@ -910,9 +933,8 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
     // Check the user-owned build script before lowering the generated wrapper.
     // A bad build script otherwise poisons the wrapper's recovery values and
     // produces a long list of diagnostics at synthetic runner locations.
-    let build_script_path = SourcePath::new(invocation.build_script.to_string_lossy().into_owned());
     if let Err(error) = driver.check_entry(check.clone()).result {
-        let error = focus_build_script_diagnostics(error, &build_script_path);
+        let error = focus_build_script_diagnostics(error, &SourcePath::new(runner.path.clone()));
         return Err(BuildError::CompileRunner {
             path: runner.path.clone(),
             source: runner.source.clone(),
@@ -964,14 +986,14 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
     Ok(invocation.runner_executable.clone())
 }
 
-fn focus_build_script_diagnostics(error: DriverError, build_script: &SourcePath) -> DriverError {
+fn focus_build_script_diagnostics(error: DriverError, runner: &SourcePath) -> DriverError {
     match error {
         DriverError::CheckDiagnostics(mut program) => {
-            focus_program_diagnostics(&mut program.diagnostics, build_script);
+            focus_program_diagnostics(&mut program.diagnostics, runner);
             DriverError::CheckDiagnostics(program)
         }
         DriverError::CodegenProgramDiagnostics(mut program) => {
-            focus_program_diagnostics(&mut program.diagnostics, build_script);
+            focus_program_diagnostics(&mut program.diagnostics, runner);
             DriverError::CodegenProgramDiagnostics(program)
         }
         DriverError::CodegenPreparationDiagnostics {
@@ -979,7 +1001,7 @@ fn focus_build_script_diagnostics(error: DriverError, build_script: &SourcePath)
             mut diagnostics,
             suppressed_downstream,
         } => {
-            focus_program_diagnostics(&mut diagnostics, build_script);
+            focus_program_diagnostics(&mut diagnostics, runner);
             DriverError::CodegenPreparationDiagnostics {
                 diagnostic_sources,
                 diagnostics,
@@ -990,12 +1012,45 @@ fn focus_build_script_diagnostics(error: DriverError, build_script: &SourcePath)
     }
 }
 
-fn focus_program_diagnostics(diagnostics: &mut Vec<ProgramDiagnostic>, build_script: &SourcePath) {
-    let has_build_script_error = diagnostics
+fn focus_program_diagnostics(diagnostics: &mut Vec<ProgramDiagnostic>, runner: &SourcePath) {
+    let has_source_error = diagnostics
         .iter()
-        .any(|diagnostic| diagnostic.is_error() && diagnostic.path == *build_script);
-    if has_build_script_error {
-        diagnostics.retain(|diagnostic| diagnostic.path == *build_script);
+        .any(|diagnostic| diagnostic.is_error() && diagnostic.path != *runner);
+    if has_source_error {
+        // Preserve dependency errors and warnings. Only the generated wrapper
+        // is recovery context, and an explicit cause is required to attach it.
+        let context = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.path == *runner)
+            .filter_map(|diagnostic| {
+                Some((
+                    diagnostic.diagnostic.cause.as_deref()?.clone(),
+                    nia_diagnostic::RelatedDiagnostic {
+                        source_path: Some(runner.as_str().to_owned()),
+                        span: diagnostic.diagnostic.primary_span()?,
+                        message: format!(
+                            "generated runner context: {}",
+                            diagnostic.diagnostic.summary
+                        ),
+                    },
+                ))
+            })
+            .collect::<Vec<_>>();
+        diagnostics.retain(|diagnostic| diagnostic.path != *runner);
+        for (cause, related) in context {
+            let mut roots = diagnostics.iter_mut().filter(|diagnostic| {
+                diagnostic.path.as_str() == cause.source_path
+                    && diagnostic.diagnostic.code.as_str() == cause.code
+                    && diagnostic.diagnostic.primary_span() == Some(cause.span)
+                    && diagnostic.diagnostic.cause.is_none()
+            });
+            if let Some(root) = roots.next()
+                && roots.next().is_none()
+                && !root.diagnostic.related.contains(&related)
+            {
+                root.diagnostic.related.push(related);
+            }
+        }
     }
 }
 
@@ -1059,7 +1114,7 @@ fn run_build_runner(
         .stderr(Stdio::piped());
     prepare_process_group(&mut command);
     let result = match time_build_stage(invocation.timings, "build_runner_execute_process", || {
-        execute_runner_process(&mut command)
+        execute_runner_process(&mut command, invocation.forward_output)
     }) {
         Ok(output) if output.status.success() => {
             let plan = time_build_stage(invocation.timings, "build_runner_read_plan", || {
@@ -1090,7 +1145,9 @@ fn run_build_runner(
         }),
         Err(error) => Err(BuildError::RunRunner {
             path: runner_executable.to_path_buf(),
-            error,
+            error: error.error,
+            stdout: error.stdout,
+            stderr: error.stderr,
         }),
     };
     let plan_cleanup = match fs::remove_file(&invocation.plan_draft) {
@@ -1122,8 +1179,30 @@ struct RunnerProcessOutput {
     stderr: Vec<u8>,
 }
 
-fn execute_runner_process(command: &mut Command) -> io::Result<RunnerProcessOutput> {
-    let mut child = command.spawn()?;
+#[derive(Debug)]
+struct RunnerProcessError {
+    error: io::Error,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+impl From<io::Error> for RunnerProcessError {
+    fn from(error: io::Error) -> Self {
+        Self {
+            error,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        }
+    }
+}
+
+fn execute_runner_process(
+    command: &mut Command,
+    forward_output: bool,
+) -> Result<RunnerProcessOutput, RunnerProcessError> {
+    let mut child = command
+        .spawn()
+        .map_err(|error| io::Error::new(error.kind(), format!("spawn failed: {error}")))?;
     let stdout = child.stdout.take().ok_or_else(|| {
         terminate_runner(&mut child);
         io::Error::other("build runner stdout pipe was not created")
@@ -1132,45 +1211,76 @@ fn execute_runner_process(command: &mut Command) -> io::Result<RunnerProcessOutp
         terminate_runner(&mut child);
         io::Error::other("build runner stderr pipe was not created")
     })?;
-    let stdout_reader = match spawn_runner_capture(stdout, CapturedStream::Stdout, "stdout") {
-        Ok(reader) => reader,
-        Err(error) => {
-            terminate_runner(&mut child);
-            return Err(error);
-        }
-    };
-    let stderr_reader = match spawn_runner_capture(stderr, CapturedStream::Stderr, "stderr") {
-        Ok(reader) => reader,
-        Err(error) => {
-            terminate_runner(&mut child);
-            let _ = stdout_reader.join();
-            return Err(error);
-        }
-    };
+    let stdout_reader =
+        match spawn_runner_capture(stdout, CapturedStream::Stdout, "stdout", forward_output) {
+            Ok(reader) => reader,
+            Err(error) => {
+                terminate_runner(&mut child);
+                return Err(error.into());
+            }
+        };
+    let stderr_reader =
+        match spawn_runner_capture(stderr, CapturedStream::Stderr, "stderr", forward_output) {
+            Ok(reader) => reader,
+            Err(error) => {
+                terminate_runner(&mut child);
+                let stdout = join_capture_tail(stdout_reader);
+                return Err(RunnerProcessError {
+                    error,
+                    stdout,
+                    stderr: Vec::new(),
+                });
+            }
+        };
     let status = match child.wait() {
         Ok(status) => {
             terminate_process_descendants(child.id());
-            status
+            Ok(status)
         }
         Err(error) => {
             terminate_runner(&mut child);
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
-            return Err(error);
+            Err(error)
         }
     };
-    let stdout = join_runner_capture(stdout_reader, "stdout")?;
-    let stderr = join_runner_capture(stderr_reader, "stderr")?;
-    if let Some(error) = stdout.error {
-        return Err(error);
-    }
-    if let Some(error) = stderr.error {
-        return Err(error);
+    finish_runner_process(status, stdout_reader, stderr_reader)
+}
+
+fn finish_runner_process(
+    status: io::Result<ExitStatus>,
+    stdout_reader: thread::JoinHandle<StreamCapture>,
+    stderr_reader: thread::JoinHandle<StreamCapture>,
+) -> Result<RunnerProcessOutput, RunnerProcessError> {
+    let output = join_captures(stdout_reader, stderr_reader);
+    let status = match status {
+        Ok(status) => status,
+        Err(error) => {
+            return Err(RunnerProcessError {
+                error: io::Error::new(error.kind(), format!("wait failed: {error}")),
+                stdout: output.stdout,
+                stderr: output.stderr,
+            });
+        }
+    };
+    if let Some(failure) = output.failure {
+        let error = match failure {
+            CaptureFailure::Thread { stream } => {
+                io::Error::other(format!("{stream} capture worker failed"))
+            }
+            CaptureFailure::Io { stream, error } => io::Error::new(
+                error.kind(),
+                format!("{stream} capture/forward failed: {error}"),
+            ),
+        };
+        return Err(RunnerProcessError {
+            error,
+            stdout: output.stdout,
+            stderr: output.stderr,
+        });
     }
     Ok(RunnerProcessOutput {
         status,
-        stdout: stdout.tail,
-        stderr: stderr.tail,
+        stdout: output.stdout,
+        stderr: output.stderr,
     })
 }
 
@@ -1178,19 +1288,17 @@ fn spawn_runner_capture(
     reader: impl io::Read + Send + 'static,
     stream: CapturedStream,
     name: &'static str,
+    forward_output: bool,
 ) -> io::Result<thread::JoinHandle<StreamCapture>> {
     thread::Builder::new()
         .name(format!("nia-build-runner-{name}"))
-        .spawn(move || capture_stream(reader, stream, true, RUNNER_OUTPUT_TAIL_BYTES))
-}
-
-fn join_runner_capture(
-    reader: thread::JoinHandle<StreamCapture>,
-    stream: &'static str,
-) -> io::Result<StreamCapture> {
-    reader
-        .join()
-        .map_err(|_| io::Error::other(format!("build runner {stream} capture thread panicked")))
+        .spawn(move || capture_stream(reader, stream, forward_output, RUNNER_OUTPUT_TAIL_BYTES))
+        .map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!("failed to start {name} capture worker: {error}"),
+            )
+        })
 }
 
 fn terminate_runner(child: &mut std::process::Child) {
@@ -1285,6 +1393,57 @@ mod tests {
     use super::*;
     use std::sync::OnceLock;
 
+    #[test]
+    fn runner_completion_retains_output_and_failure_stage() {
+        use crate::process_output::tests::{capture_worker, success_status};
+        for phase in ["stdout", "stderr", "wait", "worker", "success"] {
+            let stdout = if phase == "worker" {
+                std::thread::spawn(|| panic!("injected runner capture panic"))
+            } else {
+                capture_worker(CapturedStream::Stdout, phase == "stdout")
+            };
+            let stderr = capture_worker(CapturedStream::Stderr, phase == "stderr");
+            let status = if phase == "wait" {
+                Err(io::Error::other("injected wait failure"))
+            } else {
+                Ok(success_status())
+            };
+            let error = match finish_runner_process(status, stdout, stderr) {
+                Ok(output) => {
+                    assert_eq!(phase, "success");
+                    assert!(output.status.success());
+                    assert_eq!(output.stdout, b"stdout-tail");
+                    assert_eq!(output.stderr, b"stderr-tail");
+                    continue;
+                }
+                Err(error) => error,
+            };
+            let reason = match phase {
+                "stdout" | "stderr" => {
+                    format!("{phase} capture/forward failed: injected read failure")
+                }
+                "wait" => "wait failed: injected wait failure".into(),
+                "worker" => "stdout capture worker failed".into(),
+                _ => unreachable!(),
+            };
+            let error = BuildError::RunRunner {
+                path: PathBuf::from("runner"),
+                error: error.error,
+                stdout: error.stdout,
+                stderr: error.stderr,
+            };
+            let mut markers = vec![reason.as_str(), "stderr-tail"];
+            if phase != "worker" {
+                markers.push("stdout-tail");
+            }
+            crate::report::tests::assert_operational_report(&error, "E0703", &markers);
+            let display = error.to_string();
+            for marker in markers {
+                assert!(display.contains(marker), "{display}");
+            }
+        }
+    }
+
     fn test_toolchain_layout() -> Arc<nia_toolchain::ToolchainLayout> {
         static LAYOUT: OnceLock<Arc<nia_toolchain::ToolchainLayout>> = OnceLock::new();
         Arc::clone(LAYOUT.get_or_init(|| {
@@ -1327,12 +1486,63 @@ mod tests {
             },
         ];
 
-        let build_script_path = SourcePath::new(build_script.to_string_lossy().into_owned());
-        focus_program_diagnostics(&mut diagnostics, &build_script_path);
+        focus_program_diagnostics(&mut diagnostics, &SourcePath::new(BUILD_RUNNER_SOURCE_PATH));
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].path.as_str(), "/workspace/build.nia");
         assert!(diagnostics[0].diagnostic.summary.contains("unknown value"));
+    }
+
+    #[test]
+    fn runner_focus_preserves_dependency_roots_and_attaches_only_proven_context() {
+        use nia_diagnostic::{Diagnostic, codes};
+        use nia_span::Span;
+        let runner = SourcePath::new(BUILD_RUNNER_SOURCE_PATH);
+        let dependency = SourcePath::new("/workspace/helpers.nia");
+        let span = Span::new(4, 11);
+        let source_root = ProgramDiagnostic {
+            path: dependency,
+            diagnostic: Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                span,
+                "unknown helper value",
+            ),
+        };
+        let generated = ProgramDiagnostic {
+            path: runner.clone(),
+            diagnostic: Diagnostic::user_error(codes::TYPE_CHECK, "derived call failure")
+                .primary(Span::new(80, 90), "generated call")
+                .caused_by(source_root.path.as_str(), "E0201", span)
+                .finish(),
+        };
+        let warning = ProgramDiagnostic {
+            path: SourcePath::new("/workspace/another.nia"),
+            diagnostic: Diagnostic::user_warning(codes::UNUSED_IMPORT, "unused import").finish(),
+        };
+        for with_build_error in [false, true] {
+            let mut diagnostics = vec![source_root.clone(), warning.clone(), generated.clone()];
+            if with_build_error {
+                diagnostics.push(ProgramDiagnostic {
+                    path: SourcePath::new("/workspace/build.nia"),
+                    diagnostic: Diagnostic::user_error_at(
+                        codes::NAME_RESOLUTION,
+                        span,
+                        "independent build error",
+                    ),
+                });
+            }
+            focus_program_diagnostics(&mut diagnostics, &runner);
+            assert_eq!(diagnostics.len(), 2 + usize::from(with_build_error));
+            assert_eq!(diagnostics[0].diagnostic.related.len(), 1);
+            assert_eq!(
+                diagnostics[0].diagnostic.related[0].source_path.as_deref(),
+                Some(runner.as_str())
+            );
+            assert_eq!(diagnostics[1], warning);
+        }
+        let mut generated_only = vec![generated.clone()];
+        focus_program_diagnostics(&mut generated_only, &runner);
+        assert_eq!(generated_only, [generated]);
     }
 
     pub(crate) fn test_toolchain_layout_for(
@@ -1487,14 +1697,47 @@ mod tests {
         let error = prepare_runner_configuration(&invocation)
             .expect_err("runner configuration collision must fail");
         assert!(matches!(
-            error,
+            &error,
             BuildError::PrepareRunnerConfiguration { error, .. }
                 if error.kind() == io::ErrorKind::AlreadyExists
         ));
+        crate::report::tests::assert_operational_report(
+            &error,
+            "E0704",
+            &[
+                "write runner configuration",
+                &invocation.runner_config.to_string_lossy(),
+            ],
+        );
         assert_eq!(
             std::fs::read(&invocation.runner_config).expect("read preserved configuration"),
             expected
         );
+    }
+
+    #[test]
+    fn runner_spawn_failure_reports_stage_and_cleans_handoff() {
+        let root = temp_root("runner_spawn_failure_reports_stage");
+        fs::write(root.join("build.nia"), "").unwrap();
+        let invocation =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .unwrap();
+        prepare_build_directories(&invocation).unwrap();
+        let error =
+            run_and_cleanup_build_runner(&invocation, &invocation.runner_executable).unwrap_err();
+        assert!(
+            matches!(&error, BuildError::RunRunner { stdout, stderr, .. } if stdout.is_empty() && stderr.is_empty())
+        );
+        crate::report::tests::assert_operational_report(
+            &error,
+            "E0703",
+            &[
+                "spawn failed",
+                &invocation.runner_executable.to_string_lossy(),
+            ],
+        );
+        assert!(!invocation.runner_config.exists());
+        assert!(!invocation.plan_draft.exists());
     }
 
     #[cfg(unix)]

@@ -68,8 +68,9 @@ use crate::{
         recover_interrupted_output_transactions,
     },
     process_output::{
-        CapturedStream, StreamCapture, capture_stream, prepare_process_group,
-        terminate_process_descendants, terminate_process_tree,
+        CaptureFailure, CapturedStream, StreamCapture, capture_stream, join_capture_tail,
+        join_captures, prepare_process_group, terminate_process_descendants,
+        terminate_process_tree,
     },
     resources::ActionResourceBudget,
 };
@@ -94,9 +95,9 @@ pub struct ExecutionReport {
 pub struct TargetMismatch {
     /// Target role, such as `host` or `artifact`.
     pub role: &'static str,
-    /// Target encoded in the frozen plan.
+    /// Target required by the current toolchain invocation.
     pub expected: TargetSpec,
-    /// Target supplied by the current toolchain invocation.
+    /// Target encoded in the frozen plan.
     pub found: TargetSpec,
 }
 
@@ -154,11 +155,19 @@ pub enum ExternalCommandFailure {
     Wait {
         /// Underlying wait error.
         error: io::Error,
+        /// Bounded captured standard-output tail.
+        stdout: Vec<u8>,
+        /// Bounded captured standard-error tail.
+        stderr: Vec<u8>,
     },
     /// A stream-capture worker panicked before returning its result.
     CaptureThread {
         /// Stream owned by the failed worker.
         stream: &'static str,
+        /// Bounded captured standard-output tail from a completed worker.
+        stdout: Vec<u8>,
+        /// Bounded captured standard-error tail from a completed worker.
+        stderr: Vec<u8>,
     },
     /// A stream-capture worker could not be spawned.
     CaptureWorkerSpawn {
@@ -166,13 +175,21 @@ pub enum ExternalCommandFailure {
         stream: &'static str,
         /// Underlying thread-spawn error.
         error: io::Error,
+        /// Bounded captured standard-output tail from an already started worker.
+        stdout: Vec<u8>,
+        /// Bounded captured standard-error tail from an already started worker.
+        stderr: Vec<u8>,
     },
-    /// Reading a captured stream failed.
+    /// Reading or forwarding a captured stream failed.
     StreamIo {
-        /// Stream that could not be read.
+        /// Stream that could not be read or forwarded.
         stream: &'static str,
         /// Underlying I/O error.
         error: io::Error,
+        /// Bounded captured standard-output tail.
+        stdout: Vec<u8>,
+        /// Bounded captured standard-error tail.
+        stderr: Vec<u8>,
     },
     /// The command exceeded its configured execution timeout.
     TimedOut {

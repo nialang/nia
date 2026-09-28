@@ -1823,7 +1823,8 @@ fn run_build(context: BuildContext) -> ExitCode {
         diagnostics_format,
         toolchain,
     } = context;
-    let mut request = nia_build::BuildRequest::new(toolchain);
+    let mut request = nia_build::BuildRequest::new(toolchain)
+        .with_forward_output(diagnostics_format == DiagnosticsFormat::Text);
     if let Some(root) = root {
         request = request.with_root(root);
     }
@@ -1880,7 +1881,9 @@ fn run_test(context: TestContext) -> ExitCode {
         diagnostics_format,
         toolchain,
     } = context;
-    let mut request = nia_build::BuildRequest::new(toolchain).with_test_mode(true);
+    let mut request = nia_build::BuildRequest::new(toolchain)
+        .with_test_mode(true)
+        .with_forward_output(diagnostics_format == DiagnosticsFormat::Text);
     if let Some(root) = root {
         request = request.with_root(root);
     }

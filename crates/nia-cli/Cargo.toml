@@ -26,6 +26,7 @@ nia-target-config.workspace = true
 [dev-dependencies]
 libc.workspace = true
 nia-test-support.workspace = true
+serde_json.workspace = true
 
 [[bin]]
 name = "nia"

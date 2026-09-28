@@ -236,7 +236,7 @@ impl DriverActionExecutor {
             },
             ExternalExecutionPolicy {
                 timeout: EXTERNAL_COMMAND_TIMEOUT,
-                forward_output: true,
+                forward_output: self.invocation.forward_output,
                 cancellation: Some(cancellation),
             },
         );
