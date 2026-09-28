@@ -63,6 +63,17 @@ are not persistence formats. Encoders and decoders validate their complete
 identity, schema, bounds, and trailing input; malformed or incompatible data
 is retired rather than interpreted optimistically.
 
+Diagnostic changes preserve root-cause identity, source ownership, and
+phase-gating rules. Known source locations take priority over generated or
+fallback locations; generated context may appear as related evidence. Derived
+recovery errors require evidence of an emitted root before suppression, while
+independent errors remain visible. Keep diagnostics structured through semantic
+and query phases, with terminal formatting owned by the reporting boundary.
+Cover these contracts with owner tests and end-to-end regression fixtures,
+including clean/edit/cache equivalence when reports cross source revisions.
+See the [diagnostic architecture](architecture.md#nia-diagnostic) for ownership
+and retained-source rules.
+
 Fallible operations are transactional at their ownership boundary. A failure
 must leave every still-live resource reachable by its owner, preserve the
 primary error, and provide a defined retry or cleanup path. Cleanup attempts
@@ -168,11 +179,6 @@ When a roadmap closes, move any still-valid rule into its stable owner document
 and remove the progress log from the active contract. A completed roadmap may
 be deleted once its acceptance is closed, its architecture is documented, and
 its historical evidence remains recoverable in Git.
-
-The active diagnostic overhaul is tracked in
-[`diagnostics-roadmap.md`](diagnostics-roadmap.md). Diagnostic changes must
-follow its root-cause, source-ownership, phase-gating, and regression-fixture
-rules rather than only changing rendered wording.
 
 Build-system and standard-library work follows the same boundaries but has its
 own owners. Consult [`crates/nia-build/README.md`](../crates/nia-build/README.md),
