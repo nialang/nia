@@ -12,6 +12,7 @@ mod graph;
 mod provider_facts;
 mod provider_loading;
 mod queries;
+mod source_edits;
 mod used_paths;
 
 #[cfg(test)]
@@ -370,30 +371,10 @@ impl LoaderDatabase {
         path: impl Into<String>,
         text: impl Into<Arc<str>>,
     ) -> QueryResult<SourceFile> {
-        let path = SourcePath::new(path.into());
-        let source_id = self
-            .sources
-            .id_for_path(&path)
-            .map_err(|error| QueryError::internal(error.to_string()))?;
         let text = text.into();
-        self.db.with_retirement(|retirement| {
-            let previous_version = self.sources.source_for_id(source_id).map_or(
-                SourceVersion {
-                    id: source_id,
-                    revision: SourceRevision::INITIAL,
-                },
-                |file| file.version(),
-            );
-            self.reset_provider_facts(retirement)?;
-            retirement.invalidate(SourceTextQuery(source_id))?;
-            queries::retire_source_revision_queries(retirement, previous_version)?;
-            self.db
-                .context()
-                .node_store
-                .retire_revision(previous_version);
-            self.sources
-                .set_source(path, text)
-                .map_err(|error| QueryError::internal(error.to_string()))
+        self.update_source(SourcePath::new(path.into()), |previous| {
+            let edit = previous.map(|file| source_edits::replacement_edit(&file.text, &text));
+            Ok((text, edit))
         })
     }
 
@@ -721,7 +702,7 @@ impl LoaderFactProvider for LoaderDatabase {
     fn module_parse_errors(
         &self,
         module_id: nia_imports::ModuleId,
-    ) -> QueryResult<Option<Vec<nia_parser::ParseError>>> {
+    ) -> QueryResult<Option<Vec<nia_syntax::ParseError>>> {
         let Some(source_id) = self.source_id_for_module(module_id)? else {
             return Ok(None);
         };

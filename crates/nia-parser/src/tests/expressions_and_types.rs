@@ -2,6 +2,113 @@
 use super::common::*;
 
 #[test]
+fn nested_bracket_type_retains_ambiguous_const_argument() {
+    let (module, errors) = parse_module("fn inspect() () { consume[Buffer[COUNT]]() }");
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("function");
+    };
+    let tail = function.body.as_ref().unwrap().tail.as_ref().unwrap();
+    let ExprKind::Call { callee, .. } = &tail.kind else {
+        panic!("call");
+    };
+    let ExprKind::BracketSuffix { args, .. } = &callee.kind else {
+        panic!("bracket arguments");
+    };
+    let TypeKind::Path { segments } = &args[0].ty.as_ref().unwrap().kind else {
+        panic!("type path");
+    };
+    assert!(
+        matches!(&segments[0].args[0], TypeArg::TypeOrConst { expr, .. } if matches!(expr.kind, ExprKind::Ident(name) if name == sym("COUNT")))
+    );
+}
+
+#[test]
+fn rejected_type_recovery_reports_the_error_and_keeps_following_items() {
+    for source in [
+        "fn invalid(value: self) {} fn after() {}",
+        "struct Invalid { field: self, next: i32 } fn after() {}",
+        "fn invalid() { let value: i32 extra = 0; } fn after() {}",
+    ] {
+        let (module, errors) = parse_module(source);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message == "invalid type syntax"),
+            "{source}: {errors:?}"
+        );
+        assert!(matches!(&module.items.last().expect("following item").kind,
+            ItemKind::Function(function) if function.name == sym("after")));
+    }
+}
+
+#[test]
+fn bracket_arguments_keep_receiver_and_namespace_value_readings() {
+    let source = "fn main() { let a = buffer[self.len + index]; let b = buffer[self::OFFSET]; let c = buffer[pkg::OFFSET]; let d = buffer[super::OFFSET]; }";
+    let (module, errors) = parse_module(source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("function")
+    };
+    for (index, stmt) in function
+        .body
+        .as_ref()
+        .expect("body")
+        .stmts
+        .iter()
+        .enumerate()
+    {
+        let StmtKind::Binding(binding) = &stmt.kind else {
+            panic!("binding")
+        };
+        let ExprKind::BracketSuffix { args, .. } = &binding.value.as_ref().expect("value").kind
+        else {
+            panic!("bracket suffix")
+        };
+        let value = args[0].expr.as_ref().expect("value interpretation");
+        if index == 0 {
+            assert!(matches!(value.kind, ExprKind::Binary { .. }));
+        } else {
+            assert!(matches!(value.kind, ExprKind::Qualified { .. }));
+        }
+    }
+    let (_, errors) = parse_module("fn invalid(value: self) {} ");
+    assert!(
+        !errors.is_empty(),
+        "bare self is a receiver value, not a type"
+    );
+}
+
+#[test]
+fn preserves_self_qualified_types_in_signatures_and_bodies() {
+    let source = "fn identity(value: self::model::Hidden) self::model::Hidden { let local: self::model::Hidden = value; local }";
+    let (module, errors) = parse_module(source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("function")
+    };
+    let body = function.body.as_ref().expect("body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("binding")
+    };
+    for ty in [
+        function.params[0].ty.as_ref().expect("parameter type"),
+        function.return_type.as_ref().expect("return type"),
+        binding.ty.as_ref().expect("binding type"),
+    ] {
+        let TypeKind::Path { segments } = &ty.kind else {
+            panic!("qualified path: {ty:?}")
+        };
+        assert_eq!(segments.len(), 3);
+        assert!(matches!(
+            segments[0].kind,
+            nia_ast::PathSegmentKind::SelfValue
+        ));
+        assert_eq!(&source[ty.span.start..ty.span.end], "self::model::Hidden");
+    }
+}
+
+#[test]
 fn parses_unit_and_tuple_types_and_values() {
     let (module, errors) = parse_module(
         r#"

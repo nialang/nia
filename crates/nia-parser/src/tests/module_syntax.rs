@@ -44,41 +44,73 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn parses_ast_from_lossless_syntax_tree() {
+fn syntax_tree_is_lossless_and_lowering_is_deterministic() {
     let source = "fn  main() i32 { // retained by syntax\n  0\n}\n";
-    let version = SourceVersion {
-        id: SourceId::isolated(),
-        revision: SourceRevision(1),
-    };
-    let syntax = nia_syntax::parse_source(source, Some(version));
-    let (from_source, source_errors) = parse_module_syntax(&syntax);
-    let (from_syntax, syntax_errors) = parse_module_syntax(&syntax);
+    let parse = nia_syntax::parse(source, Some(version(1))).expect("grammar tree");
+    let store = NodeStore::new();
+    let first = lower_module(&parse, &store, nia_symbol_table::SymbolTable::new());
+    let second = lower_module(&parse, &store, nia_symbol_table::SymbolTable::new());
 
-    assert_eq!(syntax.full_text(), source);
-    assert_eq!(source_errors, syntax_errors);
-    assert_eq!(from_source, from_syntax);
+    assert_eq!(parse.tree.full_text(), source);
+    assert_eq!(first.errors, second.errors);
+    assert_eq!(first.module, second.module);
+    assert_eq!(first.origins, second.origins);
 }
 
 #[test]
-fn legacy_ast_lowering_accepts_the_grammar_tree_during_migration() {
-    let source = "module math;\nfn main() () {}\n";
-    let grammar = nia_grammar::parse(source, None).expect("grammar tree");
-    assert!(grammar.errors.is_empty(), "{:?}", grammar.errors);
-    let (module, errors) = parse_module_syntax(&grammar.tree);
-    assert!(errors.is_empty(), "{errors:?}");
-    assert_eq!(module.items.len(), 2);
+fn incremental_edit_sequence_preserves_clean_ast_diagnostics_and_origins() {
+    let source =
+        "module first;\nfn main[T](x: T) T { value[index]; x }\nfn broken(x) {}\nmodule last;\n";
+    let mut current_version = version(1);
+    let mut incremental = nia_syntax::parse(source, Some(current_version)).expect("initial parse");
+    let store = NodeStore::new();
+    let edits = [
+        ("index", "Box[N]"),
+        ("Box[N]", "Wrap[Box[N]]"),
+        ("Wrap[Box[N]]", "Box[N]"),
+        ("value", "call"),
+        ("broken(x)", "broken(x: i32)"),
+        ("module first;", "// leading comment\nmodule first;"),
+        ("call[Box[N]]", "call[Box[N], (]"),
+        ("call[Box[N], (]", "call[index]"),
+        ("module last;", "module before_last;\nmodule last;"),
+        ("{ call[index]; x }", "{ if x { x } else { x } }"),
+    ];
+    for (old, new) in edits {
+        let start = incremental.tree.source().find(old).expect("edit target");
+        let edit = nia_syntax::TextEdit::replace(Span::new(start, start + old.len()), new);
+        current_version.revision = SourceRevision(current_version.revision.0 + 1);
+        incremental = incremental
+            .reparse(&edit, Some(current_version))
+            .expect("incremental parse");
+        let clean = nia_syntax::parse(incremental.tree.source(), Some(current_version))
+            .expect("clean parse");
+        assert_eq!(incremental, clean, "edit {old:?} -> {new:?}");
+        let incremental_ast =
+            lower_module(&incremental, &store, nia_symbol_table::SymbolTable::new());
+        let clean_ast = lower_module(&clean, &store, nia_symbol_table::SymbolTable::new());
+        assert_eq!(
+            incremental_ast.module, clean_ast.module,
+            "edit {old:?} -> {new:?}"
+        );
+        assert_eq!(
+            incremental_ast.errors, clean_ast.errors,
+            "edit {old:?} -> {new:?}"
+        );
+        assert_eq!(
+            incremental_ast.origins, clean_ast.origins,
+            "edit {old:?} -> {new:?}"
+        );
+    }
 }
 
 #[test]
-fn parse_errors_from_syntax_carry_red_token_node_keys() {
-    let version = SourceVersion {
-        id: SourceId::isolated(),
-        revision: SourceRevision(3),
-    };
-    let syntax = nia_syntax::parse_source("fn bad(value) {}", Some(version));
-    let (_, errors) = parse_module_syntax(&syntax);
+fn parse_errors_carry_red_token_node_keys() {
+    let version = version(3);
+    let lowered = lower_with("fn bad(value) {}", Some(version));
 
-    let error = errors
+    let error = lowered
+        .errors
         .iter()
         .find(|error| error.message.contains("expected `:` after parameter name"))
         .expect("parameter type error");
@@ -91,12 +123,13 @@ fn parse_errors_from_syntax_carry_red_token_node_keys() {
 }
 
 #[test]
-fn parse_module_syntax_records_ast_origins_as_red_child_path_ranges() {
-    let version = SourceVersion {
-        id: SourceId::isolated(),
-        revision: SourceRevision(4),
-    };
-    let syntax = nia_syntax::parse_source(
+fn lowering_records_ast_origins_as_red_child_path_ranges() {
+    let version = version(4);
+    let LoweredModule {
+        module,
+        errors,
+        origins,
+    } = lower_with(
         r#"
 fn main(a: i32) i32 {
     let mut x = a;
@@ -106,7 +139,6 @@ fn main(a: i32) i32 {
 "#,
         Some(version),
     );
-    let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
 
     assert!(errors.is_empty(), "{errors:?}");
     assert!(!origins.is_empty());
@@ -132,44 +164,12 @@ fn main(a: i32) i32 {
 }
 
 #[test]
-fn malformed_caller_token_spans_use_recovery_node_identity_without_panicking() {
-    let zero = nia_span::Span::new(0, 0);
-    let tokens = vec![
-        nia_lexer::LosslessToken {
-            kind: nia_lexer::LosslessTokenKind::Token(nia_lexer::TokenKind::Fn),
-            span: zero,
-        },
-        nia_lexer::LosslessToken {
-            kind: nia_lexer::LosslessTokenKind::Token(nia_lexer::TokenKind::Ident),
-            span: zero,
-        },
-        nia_lexer::LosslessToken {
-            kind: nia_lexer::LosslessTokenKind::Token(nia_lexer::TokenKind::LParen),
-            span: zero,
-        },
-        nia_lexer::LosslessToken {
-            kind: nia_lexer::LosslessTokenKind::Token(nia_lexer::TokenKind::RParen),
-            span: zero,
-        },
-        nia_lexer::LosslessToken {
-            kind: nia_lexer::LosslessTokenKind::Token(nia_lexer::TokenKind::LBrace),
-            span: zero,
-        },
-        nia_lexer::LosslessToken {
-            kind: nia_lexer::LosslessTokenKind::Token(nia_lexer::TokenKind::RBrace),
-            span: zero,
-        },
-    ];
-    let syntax = nia_syntax::SyntaxTree::from_lossless_tokens("", None, tokens);
-    let result = std::panic::catch_unwind(|| parse_module_syntax_with_origins(&syntax));
-    let (_module, _errors, origins) = result.expect("malformed token spans must not panic");
-    assert!(!origins.is_empty());
-}
-
-#[test]
 fn unversioned_syntax_uses_one_isolated_origin_identity_per_parse() {
-    let syntax = nia_syntax::parse_source("fn main() i32 { 0 }", None);
-    let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
+    let LoweredModule {
+        module,
+        errors,
+        origins,
+    } = lower_with("fn main() i32 { 0 }", None);
 
     assert!(errors.is_empty(), "{errors:?}");
     let ItemKind::Function(function) = &module.items[0].kind else {
@@ -185,9 +185,11 @@ fn unversioned_syntax_uses_one_isolated_origin_identity_per_parse() {
     assert_eq!(key.source_version().revision, SourceRevision::INITIAL);
     assert_eq!(key.source_version().id, item_key.source_version().id);
 
-    let second_syntax = nia_syntax::parse_source("fn main() i32 { 0 }", None);
-    let (second_module, second_errors, second_origins) =
-        parse_module_syntax_with_origins(&second_syntax);
+    let LoweredModule {
+        module: second_module,
+        errors: second_errors,
+        origins: second_origins,
+    } = lower_with("fn main() i32 { 0 }", None);
     assert!(second_errors.is_empty(), "{second_errors:?}");
     let ItemKind::Function(second_function) = &second_module.items[0].kind else {
         panic!("expected function");
@@ -200,49 +202,57 @@ fn unversioned_syntax_uses_one_isolated_origin_identity_per_parse() {
 }
 
 #[test]
-fn speculative_expression_parsing_does_not_publish_discarded_origins() {
+fn speculative_readings_publish_only_retained_origins() {
     let source = "fn main() i32 { value[index]; 0 }";
-    let version = SourceVersion {
-        id: SourceId::isolated(),
-        revision: SourceRevision(1),
-    };
-    let syntax = nia_syntax::parse_source(source, Some(version));
-    let store = NodeStore::new();
-    let (_, errors, origins) = parse_module_syntax_with_node_store_and_symbols(
-        &syntax,
-        &store,
-        nia_symbol_table::SymbolTable::new(),
-    );
+    let LoweredModule {
+        module,
+        errors,
+        origins,
+    } = lower_with(source, Some(version(1)));
 
     assert!(errors.is_empty(), "{errors:?}");
-    for name in ["value", "index"] {
+    let span_of = |name: &str| {
         let start = source.find(name).expect("fixture expression name");
-        assert!(
-            origins
-                .locator(
-                    SyntaxKind::Type,
-                    nia_span::Span::new(start, start + name.len())
-                )
-                .is_none(),
-            "index expression leaked the speculative `{name}` type origin"
-        );
-    }
+        nia_span::Span::new(start, start + name.len())
+    };
+    // `value` is only ever tried as a struct-literal type and then discarded.
+    assert!(
+        origins
+            .locator(SyntaxKind::Type, span_of("value"))
+            .is_none(),
+        "discarded speculative type reading leaked an origin"
+    );
+    // The bracket argument keeps both readings, so both are published.
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("function body");
+    let StmtKind::Expr(expr) = &body.stmts[0].kind else {
+        panic!("expected expression statement");
+    };
+    let ExprKind::BracketSuffix { args, .. } = &expr.kind else {
+        panic!("expected bracket suffix");
+    };
+    let ty = args[0].ty.as_ref().expect("retained type reading");
+    assert_eq!(
+        origins.locator(SyntaxKind::Type, span_of("index")),
+        Some(ty.node_key.clone())
+    );
+    assert!(
+        origins
+            .locator(SyntaxKind::Expr, span_of("index"))
+            .is_some()
+    );
 }
 
 #[test]
 fn failed_item_recovery_does_not_publish_partial_ast_origins() {
     let source = "fn broken(value: Input) Output {";
-    let version = SourceVersion {
-        id: SourceId::isolated(),
-        revision: SourceRevision(1),
-    };
-    let syntax = nia_syntax::parse_source(source, Some(version));
-    let store = NodeStore::new();
-    let (module, errors, origins) = parse_module_syntax_with_node_store_and_symbols(
-        &syntax,
-        &store,
-        nia_symbol_table::SymbolTable::new(),
-    );
+    let LoweredModule {
+        module,
+        errors,
+        origins,
+    } = lower_with(source, Some(version(1)));
 
     assert!(module.items.is_empty());
     assert!(!errors.is_empty());

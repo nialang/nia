@@ -377,13 +377,16 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         let source = db.get(SourceTextQuery(self.0.id))?;
-        let syntax = db.get(SyntaxModuleQuery(self.0))?;
-        let (raw_module, parse_errors, origins) =
-            nia_parser::parse_module_syntax_with_node_store_and_symbols(
-                &syntax,
-                &db.context().node_store,
-                db.context().symbols.clone(),
-            );
+        let parse = db.get(SyntaxModuleQuery(self.0))?;
+        let nia_parser::LoweredModule {
+            module: raw_module,
+            errors: parse_errors,
+            origins,
+        } = nia_parser::lower_module(
+            &parse,
+            &db.context().node_store,
+            db.context().symbols.clone(),
+        );
         let item_tree = ModuleItemTree::from_owned_module(raw_module);
         let prune_result = prune_item_tree_for_target_with_profile_mode_and_symbols(
             &item_tree,
@@ -410,10 +413,13 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct SyntaxModuleQuery(SourceVersion);
+pub(crate) struct SyntaxModuleQuery(pub(crate) SourceVersion);
 
 impl QueryKey<LoaderContext> for SyntaxModuleQuery {
-    type Value = nia_syntax::SyntaxTree;
+    type Value = nia_syntax::Parse;
+
+    const PROVIDER: nia_query::QueryProviderPolicy =
+        nia_query::QueryProviderPolicy::KeyExecuteOrPublished;
 
     fn name() -> &'static str {
         "syntax_module"
@@ -430,10 +436,9 @@ impl QueryKey<LoaderContext> for SyntaxModuleQuery {
             .as_ref()
             .filter(|file| file.version() == self.0)
             .map_or("", |file| file.text.as_ref());
-        let tree = nia_grammar::parse(text, Some(self.0)).map_err(|error| {
+        nia_syntax::parse(text, Some(self.0)).map_err(|error| {
             db.invalid_input(self, format!("failed to build grammar tree: {error:?}"))
-        })?;
-        Ok(tree.tree)
+        })
     }
 }
 
@@ -443,7 +448,7 @@ pub(crate) struct ParsedModule {
     pub(crate) item_tree: ModuleItemTree,
     pub(crate) active_item_tree: ActiveModuleItemTree,
     pub(crate) origins: nia_node_id::NodeOriginTable,
-    pub(crate) parse_errors: Vec<nia_parser::ParseError>,
+    pub(crate) parse_errors: Vec<nia_syntax::ParseError>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -554,7 +559,7 @@ impl QueryKey<LoaderContext> for ModuleOriginsFactQuery {
 pub(crate) struct ModuleParseErrorsFactQuery(pub(crate) SourceId);
 
 impl QueryKey<LoaderContext> for ModuleParseErrorsFactQuery {
-    type Value = Vec<nia_parser::ParseError>;
+    type Value = Vec<nia_syntax::ParseError>;
 
     const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
@@ -984,9 +989,10 @@ fn fresh_item_signature(
     input: Option<&FrontendCacheInput>,
     cached: Option<ItemSignatureFingerprint>,
 ) -> QueryResult<(Arc<ParsedModuleValue>, ItemSignatureFingerprint)> {
-    let syntax = db.get(SyntaxModuleQuery(version))?;
+    let parse = db.get(SyntaxModuleQuery(version))?;
     let parsed = db.get(ParsedModuleQuery(version))?;
-    let item_signature = item_signature_fingerprint(&syntax, &parsed.semantic.item_tree);
+    let item_signature =
+        item_signature_fingerprint(parse.tree.source(), &parsed.semantic.item_tree);
     if let Some(input) = input
         && let Some(cache) = &db.context().frontend_cache
         && cached != Some(item_signature)

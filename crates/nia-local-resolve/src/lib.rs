@@ -344,7 +344,7 @@ mod tests {
     use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
     use nia_item_tree::ModuleItemTree;
     use nia_node_id::{NodePosition, SyntaxKind};
-    use nia_parser::{parse_module, parse_module_syntax_with_origins};
+    use nia_parser::parse_module;
     use nia_source::{SourceId, SourceRevision, SourceVersion};
     use nia_symbol::stable_hash;
     use nia_value_resolve::{

@@ -1017,7 +1017,7 @@ fn supports_structural_extension_associated_functions() {
     write(
         &root.join("main.nia"),
         r#"
-extend ! {
+extend never {
     fn nope(self) () {}
 }
 

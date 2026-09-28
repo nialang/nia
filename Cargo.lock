@@ -621,6 +621,7 @@ dependencies = [
  "nia-span",
  "nia-static-ir",
  "nia-symbol",
+ "nia-syntax",
  "nia-target-config",
  "nia-test-support",
  "nia-timing",
@@ -728,16 +729,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nia-grammar"
-version = "0.2.0-dev"
-dependencies = [
- "nia-lexer",
- "nia-source",
- "nia-span",
- "nia-syntax",
-]
-
-[[package]]
 name = "nia-hash"
 version = "0.2.0-dev"
 
@@ -808,6 +799,7 @@ dependencies = [
  "nia-source",
  "nia-span",
  "nia-symbol",
+ "nia-symbol-table",
  "nia-syntax",
 ]
 
@@ -908,7 +900,6 @@ dependencies = [
  "nia-compiler-query",
  "nia-defs",
  "nia-diagnostic",
- "nia-grammar",
  "nia-ice",
  "nia-ids",
  "nia-imports",
@@ -1024,8 +1015,6 @@ name = "nia-parser"
 version = "0.2.0-dev"
 dependencies = [
  "nia-ast",
- "nia-diagnostic",
- "nia-grammar",
  "nia-lexer",
  "nia-node-id",
  "nia-source",
@@ -1193,6 +1182,7 @@ dependencies = [
 name = "nia-syntax"
 version = "0.2.0-dev"
 dependencies = [
+ "nia-diagnostic",
  "nia-lexer",
  "nia-node-id",
  "nia-source",

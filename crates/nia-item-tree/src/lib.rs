@@ -1325,10 +1325,14 @@ fn main(items: & [ Box[ i32 ] ]) & Box[ i32 ] { &items[0] }
             id: source_id,
             revision,
         };
-        let syntax = nia_syntax::parse_source(source, Some(version));
-        let (module, errors) = nia_parser::parse_module_syntax(&syntax);
-        assert!(errors.is_empty(), "{errors:?}");
-        lower_module_items(&module)
+        let parse = nia_syntax::parse(source, Some(version)).expect("grammar tree");
+        let lowered = nia_parser::lower_module(
+            &parse,
+            &nia_node_id::NodeStore::new(),
+            nia_symbol_table::SymbolTable::new(),
+        );
+        assert!(lowered.errors.is_empty(), "{:?}", lowered.errors);
+        lower_module_items(&lowered.module)
     }
 
     struct BoolResolver;

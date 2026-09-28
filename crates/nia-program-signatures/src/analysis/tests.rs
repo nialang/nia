@@ -53,14 +53,15 @@ fn intern_child(
 }
 
 fn defs_from_source(module_id: nia_ids::ModuleId, source: &str) -> DefCollection {
-    let syntax = nia_syntax::parse_source(
+    let lowered = nia_parser::parse_versioned(
         source,
         Some(SourceVersion {
             id: SourceId::isolated(),
             revision: SourceRevision::INITIAL,
         }),
+        nia_symbol_table::SymbolTable::new(),
     );
-    let (module, parse_errors, _) = nia_parser::parse_module_syntax_with_origins(&syntax);
+    let (module, parse_errors, _) = (lowered.module, lowered.errors, lowered.origins);
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
     nia_defs::collect_module_defs(module_id, &module).expect("collect definitions")
 }
