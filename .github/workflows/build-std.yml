@@ -190,14 +190,28 @@ jobs:
       - name: Configure MSVC, Windows SDK, LLVM, and static CRT
         shell: pwsh
         run: |
-          . .\tools\windows-env.ps1
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsRoot = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+          if (-not $vsRoot) { throw 'Visual Studio with the x64 MSVC tools was not found.' }
+          $vsDevCmd = Join-Path $vsRoot 'Common7\Tools\VsDevCmd.bat'
+          if (-not (Test-Path $vsDevCmd)) { throw "VsDevCmd.bat was not found: $vsDevCmd" }
+          $environment = & cmd.exe /d /c "`"$vsDevCmd`" -arch=x64 -host_arch=x64 && set"
+          if ($LASTEXITCODE -ne 0) { throw 'Visual Studio developer environment initialization failed.' }
+          foreach ($line in $environment) {
+            if ($line -match '^(?<name>[^=]+)=(?<value>.*)$') {
+              Set-Item -Path "Env:$($Matches.name)" -Value $Matches.value
+            }
+          }
+          $env:LLVM_SYS_231_PREFIX = "$env:GITHUB_WORKSPACE\target\llvm-static\install"
+          $env:Path = "$env:LLVM_SYS_231_PREFIX\bin;$env:Path"
+          # Explicit --target on Cargo commands keeps the repository's static
+          # CRT flags on target code rather than host build scripts. llvm-sys
+          # otherwise treats Windows system import libraries as bundled static
+          # archives and requires extra rustc search paths for the SDK.
           @(
             "LLVM_SYS_231_PREFIX=$env:LLVM_SYS_231_PREFIX"
             "LIB=$env:LIB"
             "INCLUDE=$env:INCLUDE"
-            "CFLAGS=$env:CFLAGS"
-            "CXXFLAGS=$env:CXXFLAGS"
-            "RUSTFLAGS=$env:RUSTFLAGS"
             "PATH=$env:PATH"
           ) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
@@ -209,18 +223,18 @@ jobs:
         shell: pwsh
         run: |
           cargo fmt --all -- --check
-          cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+          cargo clippy --workspace --all-targets --no-default-features --target x86_64-pc-windows-msvc -- -D warnings
 
       - name: Run Windows workspace tests
         shell: pwsh
-        run: cargo test --workspace --no-default-features
+        run: cargo test --workspace --no-default-features --target x86_64-pc-windows-msvc
 
       - name: Run Windows maintenance workflow contracts
         shell: pwsh
-        run: cargo test -p nia-maintain --test workflow_contracts --no-default-features
+        run: cargo test -p nia-maintain --test workflow_contracts --no-default-features --target x86_64-pc-windows-msvc
 
       - name: Build Windows release compiler
         shell: pwsh
         run: |
-          cargo build --release -p nia-cli --no-default-features
-          & .\target\release\nia.exe --version
+          cargo build --release -p nia-cli --no-default-features --target x86_64-pc-windows-msvc
+          & .\target\x86_64-pc-windows-msvc\release\nia.exe --version
