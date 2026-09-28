@@ -1,0 +1,9 @@
+fn need(value: i32) i32 { value }
+
+fn pointer_receiver() () {
+    _ = (&missing).absent(need(true));
+}
+
+fn generic_tuple_receiver() () {
+    _ = (missing, 0).absent[i32](need(true));
+}

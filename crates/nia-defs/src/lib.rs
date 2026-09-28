@@ -265,6 +265,18 @@ pub struct ModuleUsing {
     pub selector: UsingSelector,
 }
 
+impl ModuleUsing {
+    /// Preserves one source directive for module or lexical scope resolution.
+    pub fn from_ast(visibility: Visibility, span: Span, using: &nia_ast::UsingItem) -> Self {
+        Self {
+            visibility,
+            span,
+            host: using.host.iter().map(UsingPathSegment::from_ast).collect(),
+            selector: UsingSelector::from_ast(&using.selector),
+        }
+    }
+}
+
 /// One source path segment in a `using` host.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UsingPathSegment {
@@ -1160,12 +1172,8 @@ impl<'a> Collector<'a> {
     }
 
     fn collect_using(&mut self, item: &ItemTreeNode, using: &UsingItem) {
-        self.module_usings.push(ModuleUsing {
-            visibility: item.vis,
-            span: item.span,
-            host: using.host.iter().map(UsingPathSegment::from_ast).collect(),
-            selector: UsingSelector::from_ast(&using.selector),
-        });
+        self.module_usings
+            .push(ModuleUsing::from_ast(item.vis, item.span, using));
     }
 
     fn collect_struct(

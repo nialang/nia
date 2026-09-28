@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
-use nia_ast::{BracketArg, ExprKind, PathSegmentKind, TypeKind};
+use nia_ast::{BracketArg, ExprKind, PathSegmentKind, TypeKind, TypeRef};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{FunctionSignature, GenericParamSignature, GenericParamSignatureKind};
@@ -27,6 +27,21 @@ pub(crate) struct LoweredGenericArgs {
 }
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn check_recovery_bracket_args(&mut self, args: &[BracketArg]) {
+        // An unresolved callable cannot select a type or value interpretation.
+        for arg in args {
+            if let Some(ty) = &arg.ty {
+                let ty = self.ty_for_type(ty);
+                if !self.is_error_recovery_ty(ty) {
+                    continue;
+                }
+            }
+            if let Some(value) = &arg.expr {
+                self.check_expr(value);
+            }
+        }
+    }
+
     /// Publishes the common explanation for an incomplete generic call.
     ///
     /// The summary remains stable for existing consumers; the note and help
@@ -118,7 +133,7 @@ impl<'a> BodyChecker<'a> {
         );
     }
 
-    fn const_generic_value_name(&self, value: &ConstGenericValue) -> String {
+    pub(in crate::calls) fn const_generic_value_name(&self, value: &ConstGenericValue) -> String {
         match value {
             ConstGenericValue::GenericParam(name) => self.symbol_name(*name),
             ConstGenericValue::ConstExpr(_) => "an unevaluated constant expression".to_string(),
@@ -175,6 +190,7 @@ impl<'a> BodyChecker<'a> {
         arg: &BracketArg,
     ) -> InternedTyId {
         let lowered = self.ty_for_type(ty);
+        self.report_nested_required_type_candidates(ty);
         if !self.is_error_recovery_ty(lowered)
             || !self
                 .type_resolution
@@ -234,6 +250,56 @@ impl<'a> BodyChecker<'a> {
                 .finish(),
         );
         lowered
+    }
+
+    /// Type-candidate resolution records the unresolved leaf, not a recovered
+    /// pointer/tuple/nominal wrapper around that leaf. Walk those wrappers so
+    /// a required type argument still reports the source-owned unknown type.
+    fn report_nested_required_type_candidates(&mut self, ty: &TypeRef) {
+        struct RequiredTypes<'a, 'ast> {
+            lowering: &'a nia_type_lower::TypeLowering,
+            types: Vec<&'ast TypeRef>,
+        }
+        impl<'ast> nia_ast_walk::Visitor<'ast> for RequiredTypes<'_, 'ast> {
+            fn visit_type(&mut self, ty: &'ast TypeRef) {
+                // A const generic's unused type interpretation has no lowered
+                // type site. Its expression owns any diagnostic instead.
+                if self.lowering.ty_for_key(&ty.node_key).is_some() {
+                    self.types.push(ty);
+                    nia_ast_walk::walk_type(self, ty);
+                }
+            }
+
+            fn visit_expr(&mut self, _: &'ast nia_ast::Expr) {}
+        }
+        let mut required = RequiredTypes {
+            lowering: self.type_lowering,
+            types: Vec::new(),
+        };
+        nia_ast_walk::walk_type(&mut required, ty);
+        for nested in required.types {
+            if !self
+                .type_resolution
+                .unresolved_type_candidates
+                .contains(nested.node_key.site())
+            {
+                continue;
+            }
+            let TypeKind::Path { segments } = &nested.kind else {
+                continue;
+            };
+            let Some(PathSegmentKind::Name(name)) = segments.last().map(|segment| &segment.kind)
+            else {
+                continue;
+            };
+            let summary = format!("unknown type `{}`", self.symbol_name(*name));
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::NAME_RESOLUTION, summary.clone())
+                    .primary(nested.span, summary)
+                    .help("check the type name, module path, and whether the type is public")
+                    .finish(),
+            );
+        }
     }
 
     pub(super) fn lower_bracket_args_for_generic_params(

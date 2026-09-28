@@ -169,7 +169,7 @@ fn shared_defs_by_module(db: &QueryDb<CompilerContext>) -> QueryResult<Vec<Arc<D
         .collect()
 }
 
-fn shared_public_surface_defs_by_module(
+pub(in crate::query) fn shared_public_surface_defs_by_module(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<Vec<DefCollection>> {
     let parse_ok_modules = db.get(ParseOkModuleIdsQuery)?;
@@ -238,12 +238,20 @@ pub(super) fn provide_public_using_scopes(
         let graph = db.get(ModuleGraphQuery)?;
         let public_surfaces = db.get(PublicSurfacesQuery)?;
         let symbols = db.context().symbols();
-        let using_scopes = compute_using_scopes_from_surfaces_with_symbols(
+        let mut using_scopes = compute_using_scopes_from_surfaces_with_symbols(
             &defs,
             &graph,
             &public_surfaces.surfaces,
             &symbols,
         );
+        attach_loader_causes(
+            db,
+            &graph,
+            using_scopes
+                .using_scopes
+                .values_mut()
+                .flat_map(|scope| scope.unresolved_usings.values_mut()),
+        )?;
         Ok(PublicUsingScopesQueryValue {
             using_scopes: using_scopes.using_scopes,
             diagnostics: store_module_diagnostics(
@@ -290,7 +298,7 @@ pub(super) fn provide_type_resolution(
         let defs = full_module_defs_semantic(db, module_id)?;
         let graph = db.get(ModuleGraphQuery)?;
         let public_surfaces = db.get(PublicSurfacesQuery)?;
-        let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
+        let using_scope = db.get(ModuleLexicalUsingScopesQuery(module_id))?;
         let query_failure = RefCell::new(None);
         let program_defs = |module_id| {
             capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id))
@@ -313,11 +321,12 @@ pub(super) fn provide_type_resolution(
                     builtin_trait: Some(&builtin_trait),
                 },
                 &public_surfaces.surfaces,
-                using_scope.as_ref(),
+                &using_scope.scopes,
                 &symbols,
                 db.context().node_store(),
             );
-        let diagnostics = std::mem::take(&mut resolution.diagnostics);
+        let mut diagnostics = resolve_diagnostic_bundle(&using_scope.diagnostics).to_vec();
+        diagnostics.append(&mut resolution.diagnostics);
         query_failure.into_inner().map_or_else(
             || {
                 Ok(ModuleTypeResolution {
@@ -573,7 +582,7 @@ pub(super) fn provide_signature_const_type_resolution(
         let defs = module_defs_semantic(db, module_id)?;
         let graph = db.get(ModuleGraphQuery)?;
         let public_surfaces = db.get(PublicSurfacesQuery)?;
-        let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
+        let using_scope = db.get(SignatureConstUsingScopesQuery(module_id))?;
         let query_failure = RefCell::new(None);
         let program_defs =
             |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
@@ -585,7 +594,7 @@ pub(super) fn provide_signature_const_type_resolution(
             .flatten()
         };
         let symbols = db.context().symbols();
-        let resolution =
+        let mut resolution =
             nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
                 &active_item_tree,
                 &defs,
@@ -595,10 +604,13 @@ pub(super) fn provide_signature_const_type_resolution(
                     builtin_trait: Some(&builtin_trait),
                 },
                 &public_surfaces.surfaces,
-                using_scope.as_ref(),
+                &using_scope.scopes,
                 &symbols,
                 db.context().node_store(),
             );
+        resolution
+            .diagnostics
+            .extend_from_slice(resolve_diagnostic_bundle(&using_scope.diagnostics));
         query_failure.into_inner().map_or(Ok(resolution), Err)
     })
 }

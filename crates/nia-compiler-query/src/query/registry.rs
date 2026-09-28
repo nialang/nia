@@ -83,6 +83,8 @@ pub(super) fn compiler_query_registry() -> QueryResult<nia_query::QueryRegistry>
         LayoutsQuery,
         LoadedModulesQuery,
         LocalResolutionQuery,
+        ModuleLexicalUsingScopesQuery,
+        SignatureConstUsingScopesQuery,
         LoweredFunctionBodyQuery,
         ModuleAbiSignatureFactsQuery,
         ModuleDefsQuery,

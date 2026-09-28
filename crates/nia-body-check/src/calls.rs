@@ -22,6 +22,14 @@ pub(super) struct ResolvedFunctionSignature {
 }
 
 impl<'a> BodyChecker<'a> {
+    /// Lookup failures belong to the callee; argument errors have independent spans.
+    fn call_callee_span(expr: &Expr) -> nia_span::Span {
+        match &expr.kind {
+            ExprKind::Call { callee, .. } => callee.span,
+            _ => expr.span,
+        }
+    }
+
     pub(crate) fn check_call(
         &mut self,
         expr: &Expr,

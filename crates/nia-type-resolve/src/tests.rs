@@ -103,6 +103,23 @@ fn invalid() () {
 }
 
 #[test]
+fn nested_type_candidates_preserve_const_arguments() {
+    let resolved = resolve_source(
+        r#"
+const COUNT: usize = 2;
+struct Buffer[N: usize] { values: [i32; N] }
+fn inspect() () { _ = std::builtin::size[Buffer[COUNT]](); }
+"#,
+    );
+    assert!(
+        resolved.diagnostics.is_empty(),
+        "{:?}",
+        resolved.diagnostics
+    );
+    assert!(!resolved.unresolved_type_candidates.is_empty());
+}
+
+#[test]
 fn resolves_trait_associated_type_shorthand_in_trait_scope() {
     let resolved = resolve_source(
         r#"

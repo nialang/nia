@@ -4,9 +4,11 @@ summary: ambiguous method `associated_rank`
 label: 349..380 Primary Source ambiguous method `associated_rank`
 note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
 note: candidate methods:
-  - associated_rank() -> i32
-note: 1 additional candidate(s) omitted
+  - Pair[T, i32]::associated_rank() -> i32
+  - Pair[i32, U]::associated_rank() -> i32
 help: make the receiver type or argument types more specific, or use an explicit method/type qualification
+related: 113..155 candidate `Pair[T, i32]::associated_rank() -> i32` is declared here
+related: 229..271 candidate `Pair[i32, U]::associated_rank() -> i32` is declared here
 
 path: fail/ambiguous_extension_method/main.nia
 code: E0301
@@ -14,9 +16,11 @@ summary: ambiguous method `rank`
 label: 411..422 Primary Source ambiguous method `rank`
 note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
 note: candidate methods:
-  - rank() -> i32
-note: 1 additional candidate(s) omitted
+  - Pair[T, i32]::rank() -> i32
+  - Pair[i32, U]::rank() -> i32
 help: make the receiver type or argument types more specific, or use an explicit method/type qualification
+related: 72..107 candidate `Pair[T, i32]::rank() -> i32` is declared here
+related: 188..223 candidate `Pair[i32, U]::rank() -> i32` is declared here
 
 report:
 diagnostics:
@@ -28,9 +32,11 @@ error[E0301]: ambiguous method `associated_rank`
    |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ambiguous method `associated_rank`
 note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
 note: candidate methods:
-  - associated_rank() -> i32
-note: 1 additional candidate(s) omitted
+  - Pair[T, i32]::associated_rank() -> i32
+  - Pair[i32, U]::associated_rank() -> i32
 help: make the receiver type or argument types more specific, or use an explicit method/type qualification
+related: fail/ambiguous_extension_method/main.nia:11:5: candidate `Pair[T, i32]::associated_rank() -> i32` is declared here
+related: fail/ambiguous_extension_method/main.nia:21:5: candidate `Pair[i32, U]::associated_rank() -> i32` is declared here
 
 root diagnostic:
 error[E0301]: ambiguous method `rank`
@@ -40,8 +46,10 @@ error[E0301]: ambiguous method `rank`
    |     ^^^^^^^^^^^ ambiguous method `rank`
 note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
 note: candidate methods:
-  - rank() -> i32
-note: 1 additional candidate(s) omitted
+  - Pair[T, i32]::rank() -> i32
+  - Pair[i32, U]::rank() -> i32
 help: make the receiver type or argument types more specific, or use an explicit method/type qualification
+related: fail/ambiguous_extension_method/main.nia:7:5: candidate `Pair[T, i32]::rank() -> i32` is declared here
+related: fail/ambiguous_extension_method/main.nia:17:5: candidate `Pair[i32, U]::rank() -> i32` is declared here
 
 summary: 2 errors, 0 warnings

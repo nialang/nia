@@ -98,7 +98,7 @@ pub(super) fn provide_value_resolution(
         let defs = full_module_defs_semantic(db, module_id)?;
         let graph = db.get(ModuleGraphQuery)?;
         let public_surfaces = db.get(PublicSurfacesQuery)?;
-        let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
+        let using_scope = db.get(ModuleLexicalUsingScopesQuery(module_id))?;
         let query_failure = RefCell::new(None);
         let program_defs = |module_id| {
             capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id))
@@ -115,7 +115,7 @@ pub(super) fn provide_value_resolution(
                 graph: Some(graph.as_ref()),
             },
             &public_surfaces.surfaces,
-            using_scope.as_ref(),
+            &using_scope.scopes,
             nia_value_resolve::ValueResolveOptions::with_store(
                 Some(&associated_values),
                 Some(&symbols),
@@ -181,7 +181,7 @@ pub(super) fn provide_semantic_use_table(
     } else {
         let defs = full_module_defs_semantic(db, module_id)?;
         let public_surfaces = db.get(PublicSurfacesQuery)?;
-        let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
+        let using_scope = db.get(ModuleLexicalUsingScopesQuery(module_id))?;
         let graph = db.get(ModuleGraphQuery)?;
         let query_failure = RefCell::new(None);
         let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
@@ -202,7 +202,7 @@ pub(super) fn provide_semantic_use_table(
                     graph: Some(graph.as_ref()),
                 },
                 &public_surfaces.surfaces,
-                using_scope.as_ref(),
+                &using_scope.scopes,
                 nia_value_resolve::ValueResolveOptions::with_store(
                     Some(&associated_values),
                     Some(&symbols),

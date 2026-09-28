@@ -12,11 +12,11 @@ use super::output::{
 };
 use super::*;
 
-const MAX_TOOL_STDERR_BYTES: usize = 16 * 1024;
+const MAX_TOOL_OUTPUT_BYTES: usize = 16 * 1024;
 
-fn bounded_tool_stderr(bytes: &[u8]) -> String {
-    let truncated = bytes.len() > MAX_TOOL_STDERR_BYTES;
-    let end = bytes.len().min(MAX_TOOL_STDERR_BYTES);
+fn bounded_tool_output(bytes: &[u8]) -> String {
+    let truncated = bytes.len() > MAX_TOOL_OUTPUT_BYTES;
+    let end = bytes.len().min(MAX_TOOL_OUTPUT_BYTES);
     let mut output = String::from_utf8_lossy(&bytes[..end]).trim().to_owned();
     if truncated {
         output.push_str("\n[tool output truncated]");
@@ -236,6 +236,7 @@ impl Driver {
         emit_link_result_reuse(timings, reuse);
         if reuse == LinkResultReuse::Hit {
             return DriverOutput::success(ExecutableArtifact {
+                diagnostic_sources: objects.diagnostic_sources.clone(),
                 path: output,
                 optimization: objects.optimization,
                 optimization_report: objects.optimization_report.clone(),
@@ -331,6 +332,7 @@ impl Driver {
                     },
                 );
                 DriverOutput::success(ExecutableArtifact {
+                    diagnostic_sources: objects.diagnostic_sources.clone(),
                     path: output,
                     optimization: objects.optimization,
                     optimization_report: objects.optimization_report.clone(),
@@ -341,7 +343,8 @@ impl Driver {
             Ok(process) => DriverOutput::from_error(DriverError::LinkerStatus {
                 program: invocation.program,
                 status: process.status,
-                stderr: bounded_tool_stderr(&process.stderr),
+                stdout: bounded_tool_output(&process.stdout),
+                stderr: bounded_tool_output(&process.stderr),
             }),
             Err(error) => DriverOutput::from_error(DriverError::LinkerIo {
                 program: invocation.program,
@@ -372,6 +375,7 @@ impl Driver {
             )
         {
             return DriverOutput::success(StaticArchiveArtifact {
+                diagnostic_sources: objects.diagnostic_sources.clone(),
                 path: output,
                 optimization: objects.optimization,
                 optimization_report: objects.optimization_report.clone(),
@@ -425,6 +429,7 @@ impl Driver {
                         .map(|()| StaticArchiveCacheReference::from(archive_fingerprint))
                 });
                 DriverOutput::success(StaticArchiveArtifact {
+                    diagnostic_sources: objects.diagnostic_sources.clone(),
                     path: output,
                     optimization: objects.optimization,
                     optimization_report: objects.optimization_report.clone(),
@@ -435,7 +440,8 @@ impl Driver {
             Ok(process) => DriverOutput::from_error(DriverError::ArchiveStatus {
                 program: invocation.program,
                 status: process.status,
-                stderr: bounded_tool_stderr(&process.stderr),
+                stdout: bounded_tool_output(&process.stdout),
+                stderr: bounded_tool_output(&process.stderr),
             }),
             Err(error) => DriverOutput::from_error(DriverError::ArchiveIo {
                 program: invocation.program,

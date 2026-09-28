@@ -305,6 +305,8 @@ impl Driver {
 /// LLVM IR artifact and its semantic diagnostics/report.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LlvmIrArtifact {
+    /// Source snapshots for retained diagnostics.
+    pub diagnostic_sources: crate::DiagnosticSources,
     /// Lowered LLVM modules.
     pub modules: Vec<nia_codegen_llvm::LlvmModuleOutput>,
     /// Effective optimization policy.
@@ -318,6 +320,8 @@ pub struct LlvmIrArtifact {
 /// Native object artifact and incremental link inputs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjectArtifact {
+    /// Source snapshots for retained diagnostics.
+    pub diagnostic_sources: crate::DiagnosticSources,
     /// In-memory object inputs keyed for incremental linking.
     pub link_inputs: nia_codegen_llvm::IncrementalLinkInputs<nia_codegen_llvm::NativeObject>,
     /// Effective optimization policy.
@@ -344,6 +348,8 @@ pub struct WrittenObjectArtifact {
 /// Linked executable artifact and its cache identity.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExecutableArtifact {
+    /// Source snapshots for retained diagnostics.
+    pub diagnostic_sources: crate::DiagnosticSources,
     /// Output executable path.
     pub path: PathBuf,
     /// Effective optimization policy.
@@ -359,6 +365,8 @@ pub struct ExecutableArtifact {
 /// Static archive artifact and its cache identity.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StaticArchiveArtifact {
+    /// Source snapshots for retained diagnostics.
+    pub diagnostic_sources: crate::DiagnosticSources,
     /// Output archive path.
     pub path: PathBuf,
     /// Effective optimization policy.
@@ -411,6 +419,8 @@ pub enum DriverError {
         program: String,
         /// Process exit status.
         status: std::process::ExitStatus,
+        /// Bounded stdout captured from the tool.
+        stdout: String,
         /// Bounded stderr captured from the tool.
         stderr: String,
     },
@@ -429,6 +439,7 @@ pub enum DriverError {
     CodegenProgramDiagnostics(Box<CodegenProgram>),
     /// Codegen preparation diagnostics without a codegen product.
     CodegenPreparationDiagnostics {
+        diagnostic_sources: crate::DiagnosticSources,
         diagnostics: Vec<nia_compiler_query::ProgramDiagnostic>,
         suppressed_downstream: usize,
     },
@@ -455,6 +466,8 @@ pub enum DriverError {
         program: String,
         /// Process exit status.
         status: std::process::ExitStatus,
+        /// Bounded stdout captured from the tool.
+        stdout: String,
         /// Bounded stderr captured from the tool.
         stderr: String,
     },

@@ -1,0 +1,14 @@
+module api;
+
+fn bounded[T](value: T) where T: api::Both {
+    _ = value.rank();
+}
+
+fn dynamic(value: &api::Both) {
+    _ = value.rank();
+}
+
+fn associated[T](value: T) where T: api::Factories {
+    _ = value;
+    _ = [T]::make(1);
+}

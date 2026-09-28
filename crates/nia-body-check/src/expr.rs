@@ -97,9 +97,11 @@ impl<'a> BodyChecker<'a> {
                     .iter()
                     .enumerate()
                     .map(|(index, elem)| {
-                        let expected = (!recovery_expected)
-                            .then(|| expected_elems.as_ref().map(|elems| elems[index]))
-                            .flatten();
+                        let expected = if recovery_expected {
+                            Some(self.error())
+                        } else {
+                            expected_elems.as_ref().map(|elems| elems[index])
+                        };
                         let actual = self.check_expr_with_expected(elem, expected);
                         if let Some(expected) = expected {
                             self.expect_expr_type(elem, expected, actual, "tuple element");
@@ -132,6 +134,7 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::OmittedAggregateLiteral { fields } => {
                 let Some(expected) = expected else {
+                    self.check_recovery_fields(fields);
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         expr.span,
@@ -917,7 +920,9 @@ impl<'a> BodyChecker<'a> {
 
     fn expected_array_type(&self, expected: Option<InternedTyId>) -> Option<InternedTyId> {
         let expected = self.normalization.normalize(expected?);
-        matches!(self.interner.get(expected), Some(TyKind::Array { .. })).then_some(expected)
+        (matches!(self.interner.get(expected), Some(TyKind::Array { .. }))
+            || self.is_error_recovery_ty(expected))
+        .then_some(expected)
     }
 
     pub(crate) fn expected_ref_target_from_expected(
@@ -2042,17 +2047,22 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let span = expr.span;
+        let lhs_expected =
+            if args.len() == 1 && args[0].expr.is_some() && self.expr_ty(callee).is_none() {
+                self.index_lhs_expected_from_index_expected(expected)
+            } else {
+                None
+            };
+        let lhs_ty = self.check_expr_with_expected(callee, lhs_expected);
+        if self.is_error_recovery_ty(lhs_ty) {
+            self.check_recovery_bracket_args(args);
+            return self.error();
+        }
         if args.len() == 1
             && let Some(arg) = args.first()
             && let Some(index) = &arg.expr
         {
             self.record_bracket_suffix_node_resolution(expr, BracketSuffixResolution::Index);
-            let lhs_expected = if self.expr_ty(callee).is_none() {
-                self.index_lhs_expected_from_index_expected(expected)
-            } else {
-                None
-            };
-            let lhs_ty = self.check_expr_with_expected(callee, lhs_expected);
             if matches!(self.interner.get(lhs_ty), Some(TyKind::ConstOnly))
                 && let Some(ty) = self.const_index_expr_runtime_type(callee, index)
             {
@@ -2080,7 +2090,6 @@ impl<'a> BodyChecker<'a> {
                 "generic instantiation must be used as a callee or type prefix",
             ));
         }
-        self.check_expr(callee);
         for arg in args {
             if let Some(expr) = &arg.expr {
                 self.check_expr(expr);

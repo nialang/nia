@@ -322,7 +322,7 @@ fn signature_const_value_resolution(
     }
     let defs = module_defs_semantic(db, module_id)?;
     let public_surfaces = db.get(PublicSurfacesQuery)?;
-    let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
+    let using_scope = db.get(SignatureConstUsingScopesQuery(module_id))?;
     let graph = db.get(ModuleGraphQuery)?;
     let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
     let associated_values =
@@ -340,7 +340,7 @@ fn signature_const_value_resolution(
                 graph: Some(graph.as_ref()),
             },
             &public_surfaces.surfaces,
-            using_scope.as_ref(),
+            &using_scope.scopes,
             nia_value_resolve::ValueResolveOptions::with_store(
                 Some(&associated_values),
                 Some(&symbols),
@@ -365,7 +365,7 @@ fn signature_const_value_resolution(
                 graph: Some(graph.as_ref()),
             },
             &public_surfaces.surfaces,
-            using_scope.as_ref(),
+            &using_scope.scopes,
             nia_value_resolve::ValueResolveOptions::with_store(
                 Some(&associated_values),
                 Some(&symbols),

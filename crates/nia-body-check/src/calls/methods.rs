@@ -12,6 +12,7 @@ use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, PrimitiveTy, TyKind};
 
 pub(super) struct MethodCall<'a> {
     pub(super) span: Span,
+    pub(super) callee_span: Span,
     pub(super) node_key: &'a nia_node_id::VersionedNodeKey,
     pub(super) receiver: &'a Expr,
     pub(super) receiver_ty: InternedTyId,
@@ -140,6 +141,7 @@ impl<'a> BodyChecker<'a> {
         self.check_method_call_with_receiver_ty(
             MethodCall {
                 span,
+                callee_span: Self::call_callee_span(expr),
                 node_key: &expr.node_key,
                 receiver,
                 receiver_ty: resolution.receiver_ty,
@@ -194,6 +196,7 @@ impl<'a> BodyChecker<'a> {
         self.check_method_call_with_receiver_ty(
             MethodCall {
                 span,
+                callee_span: Self::call_callee_span(expr),
                 node_key: &expr.node_key,
                 receiver,
                 receiver_ty: resolution.receiver_ty,
@@ -374,10 +377,23 @@ impl<'a> BodyChecker<'a> {
         }
         if viable_candidates.is_empty()
             && candidates.is_empty()
+            && inaccessible_candidates.is_empty()
+            && self.is_error_recovery_ty(receiver_ty)
+        {
+            if let Some(type_args) = call.type_args {
+                self.check_recovery_bracket_args(type_args);
+            }
+            for arg in call.args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        }
+        if viable_candidates.is_empty()
+            && candidates.is_empty()
             && !inaccessible_candidates.is_empty()
         {
             self.report_inaccessible_extension_method(
-                call.span,
+                call.callee_span,
                 call.name,
                 &inaccessible_candidates,
             );
@@ -403,7 +419,7 @@ impl<'a> BodyChecker<'a> {
         }
         if viable_candidates.is_empty()
             && candidates.is_empty()
-            && receiver_ty != self.error()
+            && !self.is_error_recovery_ty(receiver_ty)
             && !matches!(self.interner.get(receiver_ty), Some(TyKind::ConstOnly))
             && !self.supports_field_access(receiver_ty)
         {
@@ -413,7 +429,7 @@ impl<'a> BodyChecker<'a> {
             let summary = format!("unknown method `{name}`");
             self.diagnostics.push(
                 Diagnostic::user_error(codes::NAME_RESOLUTION, summary.clone())
-                    .primary(call.span, format!("no method named `{name}` is available here"))
+                    .primary(call.callee_span, format!("no method named `{name}` is available here"))
                     .note(format!("the receiver has type `{receiver_name}`"))
                     .help(format!(
                         "check the method name, import a trait that provides `{name}`, or use a field access"
@@ -432,7 +448,13 @@ impl<'a> BodyChecker<'a> {
             this.single_method_candidate(call.span, call.name, &viable_candidates)
         });
         let Some(candidate) = candidate else {
-            return (!viable_candidates.is_empty()).then_some(self.error());
+            if viable_candidates.is_empty() {
+                return None;
+            }
+            for arg in call.args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
         };
         let method_id = candidate.method.def_id;
         self.record_semantic_provider_module(method_id.module_id);
@@ -695,32 +717,96 @@ impl<'a> BodyChecker<'a> {
         candidates: &[MethodCandidate],
     ) {
         let receiver_name = self.ty_name(receiver_ty);
-        let mut signatures = candidates
+        let signatures = candidates
             .iter()
-            .take(8)
-            .filter_map(|candidate| self.method_candidate_signature(candidate))
+            .filter_map(|candidate| {
+                let signature = self.method_candidate_signature(candidate)?;
+                Some((
+                    format!("{}::{signature}", self.ty_name(candidate.target_ty)),
+                    candidate.method.def_id,
+                ))
+            })
             .collect::<Vec<_>>();
-        signatures.sort();
-        signatures.dedup();
-        let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+        let diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
             .primary(span, summary)
             .note(format!("the receiver has type `{receiver_name}`; {note}"))
             .help(help);
-        if !signatures.is_empty() {
-            let list = signatures
-                .iter()
-                .map(|signature| format!("  - {signature}"))
-                .collect::<Vec<_>>()
-                .join("\n");
+        self.diagnostics.push(
+            self.with_candidate_evidence(diagnostic, signatures)
+                .finish(),
+        );
+    }
+
+    fn with_candidate_evidence(
+        &self,
+        mut diagnostic: nia_diagnostic::DiagnosticBuilder,
+        candidates: Vec<(String, GlobalDefId)>,
+    ) -> nia_diagnostic::DiagnosticBuilder {
+        let mut entries = candidates
+            .into_iter()
+            .map(|(identity, id)| {
+                let span = self
+                    .defs_for_module(id.module_id)
+                    .and_then(|defs| defs.as_ref().defs.get(id.def_id).map(|def| def.span));
+                let path = if id.module_id == self.defs.module_id {
+                    Some(self.source_path.clone())
+                } else {
+                    self.program
+                        .module_source_path
+                        .and_then(|path| path(id.module_id))
+                };
+                (identity, path.map(|path| path.as_str().to_owned()), span)
+            })
+            .collect::<Vec<_>>();
+        // Sort before truncating so provider discovery order cannot change the report.
+        entries.sort_by_key(|(identity, path, span)| {
+            (
+                identity.clone(),
+                path.clone(),
+                span.map(|span| (span.start, span.end)),
+            )
+        });
+        entries.dedup();
+        let list = entries
+            .iter()
+            .take(8)
+            .map(|(identity, _, _)| format!("  - {identity}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !list.is_empty() {
             diagnostic = diagnostic.note(format!("candidate methods:\n{list}"));
         }
-        if candidates.len() > signatures.len() {
+        for (identity, path, span) in entries.iter().take(8) {
+            if let (Some(path), Some(span)) = (path, span) {
+                diagnostic = diagnostic.related_at(
+                    path,
+                    *span,
+                    format!("candidate `{identity}` is declared here"),
+                );
+            }
+        }
+        if entries.len() > 8 {
             diagnostic = diagnostic.note(format!(
                 "{} additional candidate(s) omitted",
-                candidates.len().saturating_sub(signatures.len())
+                entries.len() - 8
             ));
         }
-        self.diagnostics.push(diagnostic.finish());
+        diagnostic
+    }
+
+    fn report_trait_method_candidates(
+        &mut self,
+        span: Span,
+        summary: String,
+        candidates: Vec<(String, GlobalDefId)>,
+    ) {
+        let diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+            .primary(span, summary)
+            .help("narrow the receiver type or trait bounds so that only one candidate applies");
+        self.diagnostics.push(
+            self.with_candidate_evidence(diagnostic, candidates)
+                .finish(),
+        );
     }
 
     fn check_builtin_range_method(

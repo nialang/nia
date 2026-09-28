@@ -8,7 +8,16 @@ impl<'a> BodyChecker<'a> {
         candidates: Vec<TraitMethodCandidate>,
     ) -> Option<InternedTyId> {
         let candidates = self.trait_method_candidates_matching_expected(&call, &candidates);
-        let candidate = self.single_trait_method_candidate(call.span, call.name, &candidates)?;
+        let Some(candidate) = self.single_trait_method_candidate(call.span, call.name, &candidates)
+        else {
+            if candidates.is_empty() {
+                return None;
+            }
+            for arg in call.args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        };
         let Some(receiver_kind) = candidate
             .signature
             .params
@@ -194,11 +203,27 @@ impl<'a> BodyChecker<'a> {
             [] => return None,
             _ => {
                 let name = self.symbol_name(*call.name);
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
+                self.report_trait_method_candidates(
                     call.span,
                     format!("ambiguous dynamic trait method `{name}`"),
-                ));
+                    candidates
+                        .iter()
+                        .map(|candidate| {
+                            (
+                                self.trait_candidate_identity(
+                                    candidate.trait_id,
+                                    &candidate.trait_args,
+                                    &candidate.trait_const_args,
+                                    call.name,
+                                ),
+                                candidate.method_id,
+                            )
+                        })
+                        .collect(),
+                );
+                for arg in call.args {
+                    self.check_expr(arg);
+                }
                 return Some(self.error());
             }
         };
@@ -725,14 +750,58 @@ impl<'a> BodyChecker<'a> {
             if count <= 1 {
                 continue;
             }
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            self.report_trait_method_candidates(
                 span,
                 format!("ambiguous trait method `{}`", self.symbol_name(*name)),
-            ));
+                self.trait_candidate_identities(name, candidates),
+            );
             return None;
         }
         selected
+    }
+
+    pub(super) fn trait_candidate_identities(
+        &self,
+        name: &SymbolId,
+        candidates: &[TraitMethodCandidate],
+    ) -> Vec<(String, GlobalDefId)> {
+        candidates
+            .iter()
+            .map(|candidate| {
+                (
+                    self.trait_candidate_identity(
+                        TraitId::Source(candidate.trait_id),
+                        &candidate.trait_args,
+                        &candidate.trait_const_args,
+                        name,
+                    ),
+                    candidate.method_id,
+                )
+            })
+            .collect()
+    }
+
+    fn trait_candidate_identity(
+        &self,
+        trait_id: TraitId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+        name: &SymbolId,
+    ) -> String {
+        let mut identity = format!(
+            "{}::{}",
+            self.trait_ty_name(trait_id, args),
+            self.symbol_name(*name)
+        );
+        if !const_args.is_empty() {
+            let values = const_args
+                .iter()
+                .map(|arg| self.const_generic_value_name(&arg.value))
+                .collect::<Vec<_>>()
+                .join(", ");
+            identity.push_str(&format!(" (const arguments: {values})"));
+        }
+        identity
     }
 
     fn trait_method_candidate_more_specific(

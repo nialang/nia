@@ -1,0 +1,295 @@
+path: fail/failed_callable_arguments/main.nia
+code: E0301
+summary: unknown associated function `missing`
+label: 358..393 Primary Source unknown associated function `missing`
+note: the target type is `Pair[i32, i32]`, and no visible associated function named `missing` was found
+help: check the type qualification, import the module that defines `missing`, or use a function available for `Pair[i32, i32]`
+
+path: fail/failed_callable_arguments/main.nia
+code: E0301
+summary: type mismatch in call argument 1: expected i32, got bool
+label: 387..391 Primary Source type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+path: fail/failed_callable_arguments/main.nia
+code: E0301
+summary: ambiguous method `make`
+label: 399..431 Primary Source ambiguous method `make`
+note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
+note: candidate methods:
+  - Pair[T, i32]::make(i32) -> i32
+  - Pair[i32, U]::make(i32) -> i32
+help: make the receiver type or argument types more specific, or use an explicit method/type qualification
+related: 75..108 candidate `Pair[T, i32]::make(i32) -> i32` is declared here
+related: 140..173 candidate `Pair[i32, U]::make(i32) -> i32` is declared here
+
+path: fail/failed_callable_arguments/main.nia
+code: E0301
+summary: type mismatch in call argument 1: expected i32, got bool
+label: 425..429 Primary Source type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+path: fail/failed_callable_arguments/main.nia
+code: E0301
+summary: ambiguous method `make`
+label: 437..474 Primary Source ambiguous method `make`
+note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
+note: candidate methods:
+  - Pair[T, i32]::make(i32) -> i32
+  - Pair[i32, U]::make(i32) -> i32
+help: make the receiver type or argument types more specific, or use an explicit method/type qualification
+related: 75..108 candidate `Pair[T, i32]::make(i32) -> i32` is declared here
+related: 140..173 candidate `Pair[i32, U]::make(i32) -> i32` is declared here
+
+path: fail/failed_callable_arguments/main.nia
+code: E0301
+summary: type mismatch in call argument 1: expected i32, got bool
+label: 468..472 Primary Source type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+path: fail/failed_callable_arguments/main.nia
+code: E0201
+summary: method `hidden` is private
+label: 520..538 Primary Source this method is not visible from this module
+help: make the method public or use it from an allowed scope
+related: 40..75 the restricted method is declared here
+
+path: fail/failed_callable_arguments/main.nia
+code: E0301
+summary: type mismatch in call argument 1: expected i32, got bool
+label: 544..548 Primary Source type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+path: fail/failed_callable_arguments/main.nia
+code: E0201
+summary: method `hidden_method` is private
+label: 556..575 Primary Source this method is not visible from this module
+help: make the method public or use it from an allowed scope
+related: 80..129 the restricted method is declared here
+
+path: fail/failed_callable_arguments/main.nia
+code: E0301
+summary: type mismatch in call argument 1: expected i32, got bool
+label: 581..585 Primary Source type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+path: fail/failed_callable_arguments/main.nia
+code: E0201
+summary: unknown method `missing`
+label: 593..605 Primary Source no method named `missing` is available here
+note: the receiver has type `bool`
+help: check the method name, import a trait that provides `missing`, or use a field access
+
+path: fail/failed_callable_arguments/main.nia
+code: E0301
+summary: type mismatch in call argument 1: expected i32, got bool
+label: 611..615 Primary Source type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+path: fail/failed_callable_arguments/main.nia
+code: E0301
+summary: ambiguous trait method `rank`
+label: 666..688 Primary Source ambiguous trait method `rank`
+note: candidate methods:
+  - Left::rank
+  - Right::rank
+help: narrow the receiver type or trait bounds so that only one candidate applies
+related: 190..221 candidate `Left::rank` is declared here
+related: 238..269 candidate `Right::rank` is declared here
+
+path: fail/failed_callable_arguments/main.nia
+code: E0301
+summary: type mismatch in call argument 1: expected i32, got bool
+label: 682..686 Primary Source type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+path: fail/failed_callable_arguments/main.nia
+code: E0301
+summary: ambiguous dynamic trait method `rank`
+label: 724..746 Primary Source ambiguous dynamic trait method `rank`
+note: candidate methods:
+  - Left::rank
+  - Right::rank
+help: narrow the receiver type or trait bounds so that only one candidate applies
+related: 190..221 candidate `Left::rank` is declared here
+related: 238..269 candidate `Right::rank` is declared here
+
+path: fail/failed_callable_arguments/main.nia
+code: E0301
+summary: type mismatch in call argument 1: expected i32, got bool
+label: 740..744 Primary Source type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+report:
+diagnostics:
+root diagnostic:
+error[E0301]: unknown associated function `missing`
+   --> fail/failed_callable_arguments/main.nia:18:5
+   |
+18 |     Pair[i32, i32]::missing(need(true));
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unknown associated function `missing`
+note: the target type is `Pair[i32, i32]`, and no visible associated function named `missing` was found
+help: check the type qualification, import the module that defines `missing`, or use a function available for `Pair[i32, i32]`
+
+root diagnostic:
+error[E0301]: type mismatch in call argument 1: expected i32, got bool
+   --> fail/failed_callable_arguments/main.nia:18:34
+   |
+18 |     Pair[i32, i32]::missing(need(true));
+   |                                  ^^^^ type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+root diagnostic:
+error[E0301]: ambiguous method `make`
+   --> fail/failed_callable_arguments/main.nia:19:5
+   |
+19 |     Pair[i32, i32]::make(need(true));
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ambiguous method `make`
+note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
+note: candidate methods:
+  - Pair[T, i32]::make(i32) -> i32
+  - Pair[i32, U]::make(i32) -> i32
+help: make the receiver type or argument types more specific, or use an explicit method/type qualification
+related: fail/failed_callable_arguments/main.nia:5:5: candidate `Pair[T, i32]::make(i32) -> i32` is declared here
+related: fail/failed_callable_arguments/main.nia:8:5: candidate `Pair[i32, U]::make(i32) -> i32` is declared here
+
+root diagnostic:
+error[E0301]: type mismatch in call argument 1: expected i32, got bool
+   --> fail/failed_callable_arguments/main.nia:19:31
+   |
+19 |     Pair[i32, i32]::make(need(true));
+   |                               ^^^^ type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+root diagnostic:
+error[E0301]: ambiguous method `make`
+   --> fail/failed_callable_arguments/main.nia:20:5
+   |
+20 |     Pair[i32, i32]::make[i32](need(true));
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ambiguous method `make`
+note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
+note: candidate methods:
+  - Pair[T, i32]::make(i32) -> i32
+  - Pair[i32, U]::make(i32) -> i32
+help: make the receiver type or argument types more specific, or use an explicit method/type qualification
+related: fail/failed_callable_arguments/main.nia:5:5: candidate `Pair[T, i32]::make(i32) -> i32` is declared here
+related: fail/failed_callable_arguments/main.nia:8:5: candidate `Pair[i32, U]::make(i32) -> i32` is declared here
+
+root diagnostic:
+error[E0301]: type mismatch in call argument 1: expected i32, got bool
+   --> fail/failed_callable_arguments/main.nia:20:36
+   |
+20 |     Pair[i32, i32]::make[i32](need(true));
+   |                                    ^^^^ type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+root diagnostic:
+error[E0201]: method `hidden` is private
+   --> fail/failed_callable_arguments/main.nia:24:5
+   |
+24 |     api::Point::hidden(need(true));
+   |     ^^^^^^^^^^^^^^^^^^ this method is not visible from this module
+help: make the method public or use it from an allowed scope
+related: fail/failed_callable_arguments/api.nia:4:5: the restricted method is declared here
+
+root diagnostic:
+error[E0301]: type mismatch in call argument 1: expected i32, got bool
+   --> fail/failed_callable_arguments/main.nia:24:29
+   |
+24 |     api::Point::hidden(need(true));
+   |                             ^^^^ type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+root diagnostic:
+error[E0201]: method `hidden_method` is private
+   --> fail/failed_callable_arguments/main.nia:25:5
+   |
+25 |     point.hidden_method(need(true));
+   |     ^^^^^^^^^^^^^^^^^^^ this method is not visible from this module
+help: make the method public or use it from an allowed scope
+related: fail/failed_callable_arguments/api.nia:5:5: the restricted method is declared here
+
+root diagnostic:
+error[E0301]: type mismatch in call argument 1: expected i32, got bool
+   --> fail/failed_callable_arguments/main.nia:25:30
+   |
+25 |     point.hidden_method(need(true));
+   |                              ^^^^ type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+root diagnostic:
+error[E0201]: unknown method `missing`
+   --> fail/failed_callable_arguments/main.nia:26:5
+   |
+26 |     true.missing(need(true));
+   |     ^^^^^^^^^^^^ no method named `missing` is available here
+note: the receiver has type `bool`
+help: check the method name, import a trait that provides `missing`, or use a field access
+
+root diagnostic:
+error[E0301]: type mismatch in call argument 1: expected i32, got bool
+   --> fail/failed_callable_arguments/main.nia:26:23
+   |
+26 |     true.missing(need(true));
+   |                       ^^^^ type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+root diagnostic:
+error[E0301]: ambiguous trait method `rank`
+   --> fail/failed_callable_arguments/main.nia:30:5
+   |
+30 |     value.rank(need(true));
+   |     ^^^^^^^^^^^^^^^^^^^^^^ ambiguous trait method `rank`
+note: candidate methods:
+  - Left::rank
+  - Right::rank
+help: narrow the receiver type or trait bounds so that only one candidate applies
+related: fail/failed_callable_arguments/main.nia:11:14: candidate `Left::rank` is declared here
+related: fail/failed_callable_arguments/main.nia:12:15: candidate `Right::rank` is declared here
+
+root diagnostic:
+error[E0301]: type mismatch in call argument 1: expected i32, got bool
+   --> fail/failed_callable_arguments/main.nia:30:21
+   |
+30 |     value.rank(need(true));
+   |                     ^^^^ type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+root diagnostic:
+error[E0301]: ambiguous dynamic trait method `rank`
+   --> fail/failed_callable_arguments/main.nia:34:5
+   |
+34 |     value.rank(need(true));
+   |     ^^^^^^^^^^^^^^^^^^^^^^ ambiguous dynamic trait method `rank`
+note: candidate methods:
+  - Left::rank
+  - Right::rank
+help: narrow the receiver type or trait bounds so that only one candidate applies
+related: fail/failed_callable_arguments/main.nia:11:14: candidate `Left::rank` is declared here
+related: fail/failed_callable_arguments/main.nia:12:15: candidate `Right::rank` is declared here
+
+root diagnostic:
+error[E0301]: type mismatch in call argument 1: expected i32, got bool
+   --> fail/failed_callable_arguments/main.nia:34:21
+   |
+34 |     value.rank(need(true));
+   |                     ^^^^ type mismatch in call argument 1: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+summary: 16 errors, 0 warnings

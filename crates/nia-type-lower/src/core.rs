@@ -399,7 +399,7 @@ impl TypeLowerer<'_, '_> {
                             let ty = self.lower_generic_param_type(def_id.module_id, ty);
                             const_args.push(ConstGenericArg { ty, value });
                         }
-                        _ => args.push(self.lower_type_in_context(arg_ty, TypeContext::Value)),
+                        _ => args.push(self.lower_type_or_const_type_arg(arg_ty)),
                     }
                     positional_index += 1;
                 }

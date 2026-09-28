@@ -1,0 +1,75 @@
+path: fail/trait_candidate_locations/main.nia
+code: E0301
+summary: ambiguous trait method `rank`
+label: 66..78 Primary Source ambiguous trait method `rank`
+note: candidate methods:
+  - Left::rank
+  - Right::rank
+help: narrow the receiver type or trait bounds so that only one candidate applies
+related: 57..76 candidate `Left::rank` is declared here
+related: 18..37 candidate `Right::rank` is declared here
+
+path: fail/trait_candidate_locations/main.nia
+code: E0301
+summary: ambiguous dynamic trait method `rank`
+label: 123..135 Primary Source ambiguous dynamic trait method `rank`
+note: candidate methods:
+  - Left::rank
+  - Right::rank
+help: narrow the receiver type or trait bounds so that only one candidate applies
+related: 57..76 candidate `Left::rank` is declared here
+related: 18..37 candidate `Right::rank` is declared here
+
+path: fail/trait_candidate_locations/main.nia
+code: E0301
+summary: ambiguous trait associated function `make`
+label: 216..228 Primary Source ambiguous trait associated function `make`
+note: candidate methods:
+  - FactoryLeft::make
+  - FactoryRight::make
+help: narrow the receiver type or trait bounds so that only one candidate applies
+related: 187..211 candidate `FactoryLeft::make` is declared here
+related: 136..160 candidate `FactoryRight::make` is declared here
+
+report:
+diagnostics:
+root diagnostic:
+error[E0301]: ambiguous trait method `rank`
+  --> fail/trait_candidate_locations/main.nia:4:9
+  |
+4 |     _ = value.rank();
+  |         ^^^^^^^^^^^^ ambiguous trait method `rank`
+note: candidate methods:
+  - Left::rank
+  - Right::rank
+help: narrow the receiver type or trait bounds so that only one candidate applies
+related: fail/trait_candidate_locations/api.nia:2:18: candidate `Left::rank` is declared here
+related: fail/trait_candidate_locations/api.nia:1:19: candidate `Right::rank` is declared here
+
+root diagnostic:
+error[E0301]: ambiguous dynamic trait method `rank`
+  --> fail/trait_candidate_locations/main.nia:8:9
+  |
+8 |     _ = value.rank();
+  |         ^^^^^^^^^^^^ ambiguous dynamic trait method `rank`
+note: candidate methods:
+  - Left::rank
+  - Right::rank
+help: narrow the receiver type or trait bounds so that only one candidate applies
+related: fail/trait_candidate_locations/api.nia:2:18: candidate `Left::rank` is declared here
+related: fail/trait_candidate_locations/api.nia:1:19: candidate `Right::rank` is declared here
+
+root diagnostic:
+error[E0301]: ambiguous trait associated function `make`
+   --> fail/trait_candidate_locations/main.nia:13:9
+   |
+13 |     _ = [T]::make(1);
+   |         ^^^^^^^^^^^^ ambiguous trait associated function `make`
+note: candidate methods:
+  - FactoryLeft::make
+  - FactoryRight::make
+help: narrow the receiver type or trait bounds so that only one candidate applies
+related: fail/trait_candidate_locations/api.nia:5:25: candidate `FactoryLeft::make` is declared here
+related: fail/trait_candidate_locations/api.nia:4:26: candidate `FactoryRight::make` is declared here
+
+summary: 3 errors, 0 warnings

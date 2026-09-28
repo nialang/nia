@@ -201,7 +201,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                 db,
                 "executable_body_check.module_using_scope",
                 module_id,
-                || db.get(ModuleUsingScopeQuery(module_id)),
+                || db.get(ModuleLexicalUsingScopesQuery(module_id)),
             )?;
             let query_failure = RefCell::new(None);
             let program_defs = |module_id| {
@@ -231,7 +231,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                             graph: Some(&graph),
                         },
                         &public_surfaces.surfaces,
-                        using_scope.as_ref(),
+                        &using_scope.scopes,
                         nia_value_resolve::ValueResolveOptions::with_store(
                             Some(&associated_values),
                             Some(&symbols),
@@ -281,7 +281,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                                     graph: Some(&graph),
                                 },
                                 &public_surfaces.surfaces,
-                                using_scope.as_ref(),
+                                &using_scope.scopes,
                                 nia_value_resolve::ValueResolveOptions::with_store(
                                     Some(&associated_values),
                                     Some(&symbols),

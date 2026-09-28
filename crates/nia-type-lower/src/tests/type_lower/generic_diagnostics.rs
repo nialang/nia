@@ -1,6 +1,28 @@
 use super::*;
 
 #[test]
+fn required_type_arguments_report_unresolved_candidates() {
+    let module_ids = ModuleIdAllocator::new().expect("module allocator");
+    let module_id = module_ids.allocate().expect("module id");
+    let source = "struct Box[T] { value: T } struct Sized[N: usize] {} const LENGTH: usize = 2; fn inspect(value: Box[Missing], valid: Sized[LENGTH]) () {}";
+    let (module, errors) = parse_module(source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let defs = collect_module_defs(module_id, &module).expect("definitions");
+    let resolved = resolve_module_types(&module, &defs);
+    assert!(
+        resolved.diagnostics.is_empty(),
+        "{:?}",
+        resolved.diagnostics
+    );
+    let (_, lowered) = lower_test_module(&module, &defs, &resolved);
+    assert_eq!(lowered.diagnostics.len(), 1, "{:?}", lowered.diagnostics);
+    let diagnostic = &lowered.diagnostics[0];
+    assert_eq!(diagnostic.summary, "expected type generic argument");
+    let span = diagnostic.primary_span().expect("type argument span");
+    assert_eq!(&source[span.start..span.end], "Missing");
+}
+
+#[test]
 fn rejects_const_value_generic_type_arguments() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");

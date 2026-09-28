@@ -87,6 +87,7 @@ pub(super) enum UsingFailureCause {
         /// Hidden target declaration that explains a visibility failure.
         declaration_span: Option<Span>,
         declaration_path: Option<String>,
+        unavailable_module: Option<ModuleId>,
     },
     /// Structurally invalid path; the diagnostic already explains it.
     Invalid(Diagnostic),
@@ -125,12 +126,13 @@ impl UsingExpansion {
             span,
             declaration_span,
             declaration_path,
+            unavailable_module: None,
         })
     }
 
     /// A graph module without a surface was declared but never loaded.
-    fn module_unavailable() -> Self {
-        Self::unresolved(UnresolvedUsingReason::ModuleUnavailable, None, None, None)
+    fn module_unavailable(module_id: ModuleId) -> Self {
+        Self::failed(module_unavailable_at(module_id, None))
     }
 
     fn invalid(diagnostic: Diagnostic) -> Self {
@@ -156,6 +158,7 @@ impl UsingExpansion {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct UsingExpansionContext<'a> {
     pub(super) defs_by_module: &'a HashMap<ModuleId, &'a DefCollection>,
     pub(super) graph: &'a ModuleGraph,
@@ -163,6 +166,8 @@ pub(super) struct UsingExpansionContext<'a> {
     pub(super) surfaces: &'a PublicSurfaces,
     pub(super) symbols: &'a dyn SymbolText,
     pub(super) mode: UsingLookupMode,
+    pub(super) imported_types: Option<&'a SymbolMap<UsingEntry>>,
+    pub(super) lexical_namespaces: Option<&'a std::collections::HashSet<SymbolId>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -215,31 +220,49 @@ pub(super) fn resolve_namespace_path(
             "`using` requires a namespace path",
         ));
     };
-    let mut namespace =
-        if let Some(module_id) = root_module_for_segment(graph, current.module_id, first) {
-            ResolvedNamespace::Module(module_id)
-        } else if let Some(name) = path_segment_name(first)
-            && let Some(module_id) = local_modules.get(&name).copied()
-        {
-            ResolvedNamespace::Module(module_id)
-        } else if let Some(name) = path_segment_name(first)
-            && let Some(def_id) = current.module_scope.types.get(&name)
-            && let Some(def) = current.defs.get(def_id)
-            && def.kind == DefKind::Enum
-        {
-            ResolvedNamespace::Enum(GlobalDefId {
-                module_id: current.module_id,
-                def_id,
-            })
-        } else {
-            return Err(invalid_path(
-                first.span,
-                format!(
-                    "`using {}::...` requires `{0}` to be a module namespace or a local enum",
-                    path_segment_text(symbols, first)
-                ),
-            ));
-        };
+    let shadowed = path_segment_name(first).is_some_and(|name| {
+        !nia_imports::is_entry_module_root(name)
+            && !nia_imports::is_runtime_module_root(name)
+            && context
+                .lexical_namespaces
+                .is_some_and(|names| names.contains(&name))
+    });
+    let mut namespace = if !shadowed
+        && let Some(module_id) = root_module_for_segment(graph, current.module_id, first)
+    {
+        ResolvedNamespace::Module(module_id)
+    } else if let Some(name) = path_segment_name(first)
+        && let Some(module_id) = local_modules.get(&name).copied()
+    {
+        ResolvedNamespace::Module(module_id)
+    } else if let Some(name) = path_segment_name(first)
+        && let Some(entry) = context.imported_types.and_then(|types| types.get(&name))
+        && let Some(defs) = context.defs_by_module.get(&entry.target_module)
+        && let Some(def) = defs.defs.get(entry.target_def_id)
+        && def.kind == DefKind::Enum
+    {
+        ResolvedNamespace::Enum(GlobalDefId {
+            module_id: entry.target_module,
+            def_id: entry.target_def_id,
+        })
+    } else if let Some(name) = path_segment_name(first)
+        && let Some(def_id) = current.module_scope.types.get(&name)
+        && let Some(def) = current.defs.get(def_id)
+        && def.kind == DefKind::Enum
+    {
+        ResolvedNamespace::Enum(GlobalDefId {
+            module_id: current.module_id,
+            def_id,
+        })
+    } else {
+        return Err(invalid_path(
+            first.span,
+            format!(
+                "`using {}::...` requires `{0}` to be a module namespace or a local enum",
+                path_segment_text(symbols, first)
+            ),
+        ));
+    };
     for segment in &path[1..] {
         if path_segment_name(segment).is_none() {
             return Err(UsingFailureCause::Invalid(
@@ -259,12 +282,13 @@ fn invalid_path(span: Span, message: impl Into<String>) -> UsingFailureCause {
     ))
 }
 
-fn module_unavailable_at(span: Span) -> UsingFailureCause {
+fn module_unavailable_at(module_id: ModuleId, span: Option<Span>) -> UsingFailureCause {
     UsingFailureCause::Unresolved {
         reason: UnresolvedUsingReason::ModuleUnavailable,
-        span: Some(span),
+        span,
         declaration_span: None,
         declaration_path: None,
+        unavailable_module: Some(module_id),
     }
 }
 
@@ -311,6 +335,7 @@ fn hidden_namespace_failure(
         span: Some(span),
         declaration_span: Some(declaration.span),
         declaration_path: Some(parent.path.as_str().to_owned()),
+        unavailable_module: None,
     })
 }
 
@@ -497,14 +522,20 @@ pub(super) fn record_unresolved_using_names(
     failure: &UsingFailure,
     cause: Option<nia_diagnostic::DiagnosticCause>,
 ) {
-    let (reason, declaration_span, declaration_path) = match &failure.cause {
+    let (reason, declaration_span, declaration_path, unavailable_module) = match &failure.cause {
         UsingFailureCause::Unresolved {
             reason,
             declaration_span,
             declaration_path,
+            unavailable_module,
             ..
-        } => (*reason, *declaration_span, declaration_path.clone()),
-        UsingFailureCause::Invalid(_) => (UnresolvedUsingReason::UnknownName, None, None),
+        } => (
+            *reason,
+            *declaration_span,
+            declaration_path.clone(),
+            *unavailable_module,
+        ),
+        UsingFailureCause::Invalid(_) => (UnresolvedUsingReason::UnknownName, None, None, None),
     };
     // A hidden declaration explains one selected name; a failed host path
     // covering several names has no single declaration to point at.
@@ -519,6 +550,7 @@ pub(super) fn record_unresolved_using_names(
             declaration_span,
             declaration_path: declaration_path.clone(),
             reason,
+            unavailable_module,
             cause: cause.clone(),
         };
         scope.unresolved_usings.insert(unresolved.name, unresolved);
@@ -681,7 +713,7 @@ fn expand_module_host(
     source: PublicSource,
 ) -> UsingExpansion {
     let Some(target_surface) = context.surfaces.get(target_module) else {
-        return UsingExpansion::module_unavailable();
+        return UsingExpansion::module_unavailable(target_module);
     };
     match selector {
         UsingSelector::SelfName => UsingExpansion::unknown(),
@@ -823,7 +855,7 @@ fn expand_group_item(
                 }]);
             }
             let Some(surface) = context.surfaces.get(current_module) else {
-                return UsingExpansion::module_unavailable();
+                return UsingExpansion::module_unavailable(current_module);
             };
             resolve_module_single(context, surface, current_module, name, source.clone())
         }
@@ -931,7 +963,7 @@ fn resolve_public_namespace_segment(
     let Some(surface) = surfaces.get(module_id) else {
         // The module is in the graph but was never loaded; its load error is
         // the root cause.
-        return Err(module_unavailable_at(segment.span));
+        return Err(module_unavailable_at(module_id, Some(segment.span)));
     };
     if let Some(target_module) = surface.lookup_module(&segment_name) {
         return Ok(ResolvedNamespace::Module(target_module));
@@ -947,7 +979,7 @@ fn resolve_public_namespace_segment(
             def_id: item.target_def_id,
         };
         let Some(target_defs) = defs_by_module.get(&enum_id.module_id).copied() else {
-            return Err(module_unavailable_at(segment.span));
+            return Err(module_unavailable_at(enum_id.module_id, Some(segment.span)));
         };
         let Some(def) = target_defs.defs.get(enum_id.def_id) else {
             return Err(UsingFailureCause::Invalid(Diagnostic::internal_error_at(

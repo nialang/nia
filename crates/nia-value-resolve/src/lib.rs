@@ -884,7 +884,7 @@ impl<'ast> Visitor<'ast> for ValueResolver<'_> {
     fn visit_expr(&mut self, expr: &'ast Expr) {
         match &expr.kind {
             ExprKind::Ident(name) => {
-                let resolution = self.resolve_ident(name, &expr.node_key);
+                let resolution = self.resolve_ident(name, expr.span, &expr.node_key);
                 if let ValueNameResolution::External(global_id) = resolution {
                     self.insert_qualified_value(&expr.node_key, global_id);
                 }
@@ -1091,13 +1091,17 @@ impl<'a> ValueResolver<'a> {
             return Some(ResolvedNamespace::Module(module_id));
         }
         let name = segment.name()?;
-        if let Some(scope) = self.using_scope
+        if let Some(scope) = self.using_scope_at(segment.span)
             && let Some(module_id) = scope.using_module(&name)
         {
             self.insert_name(segment.node_key, ValueNameResolution::Module);
             return Some(ResolvedNamespace::Module(module_id));
         }
-        if let Some(def_id) = self.defs.module_scope.types.get(&name) {
+        if let Some(def_id) = self.defs.module_scope.types.get(&name)
+            && !self.using_scope.is_some_and(|scope| {
+                scope.shadows_module_definition(&name, PublicNamespace::Type, segment.span)
+            })
+        {
             let type_id = GlobalDefId {
                 module_id: self.defs.module_id,
                 def_id,
@@ -1105,7 +1109,7 @@ impl<'a> ValueResolver<'a> {
             self.insert_qualified_type_prefix(segment.node_key, type_id);
             return Some(ResolvedNamespace::Type(type_id));
         }
-        if let Some(scope) = self.using_scope
+        if let Some(scope) = self.using_scope_at(segment.span)
             && let Some(entry) = scope.using_type(&name)
         {
             let type_id = GlobalDefId {
@@ -1124,7 +1128,7 @@ impl<'a> ValueResolver<'a> {
             return Some(ResolvedNamespace::Type(type_id));
         }
         if let Some(failure) = self
-            .using_scope
+            .using_scope_at(segment.span)
             .and_then(|scope| scope.unresolved_using(&name))
         {
             self.diagnostics
@@ -1150,6 +1154,14 @@ impl<'a> ValueResolver<'a> {
     }
 
     fn root_module_for_segment(&self, segment: PathSegment<'_>) -> Option<ModuleId> {
+        if let PathSegmentKind::Name(name) = segment.kind
+            && !nia_imports::is_entry_module_root(name)
+            && !nia_imports::is_runtime_module_root(name)
+            && let Some(scope) = self.using_scope
+            && scope.shadows_module_namespace(&name, segment.span)
+        {
+            return scope.scope_at(segment.span)?.using_module(&name);
+        }
         let graph = self.graph()?;
         graph.root_module_for_segment(
             self.defs.module_id,
@@ -1591,9 +1603,14 @@ impl<'a> ValueResolver<'a> {
     fn resolve_ident(
         &mut self,
         name: &SymbolId,
+        span: Span,
         node_key: &VersionedNodeKey,
     ) -> ValueNameResolution {
-        if let Some(def_id) = self.defs.module_scope.values.get(name) {
+        if let Some(def_id) = self.defs.module_scope.values.get(name)
+            && !self.using_scope.is_some_and(|scope| {
+                scope.shadows_module_definition(name, PublicNamespace::Value, span)
+            })
+        {
             let Some(def) = self.defs.defs.get(def_id) else {
                 return ValueNameResolution::Error;
             };
@@ -1605,7 +1622,7 @@ impl<'a> ValueResolver<'a> {
             }
         }
 
-        if let Some(scope) = self.using_scope
+        if let Some(scope) = self.using_scope_at(span)
             && let Some(entry) = scope.using_value(name)
             && entry.namespace == PublicNamespace::Value
         {
@@ -1627,7 +1644,7 @@ impl<'a> ValueResolver<'a> {
                 },
             );
         }
-        if let Some(scope) = self.using_scope
+        if let Some(scope) = self.using_scope_at(span)
             && let Some(entry) = scope.using_type(name)
             && entry.namespace == PublicNamespace::Type
         {
@@ -1647,7 +1664,7 @@ impl<'a> ValueResolver<'a> {
             );
         }
         if let Some(failure) = self
-            .using_scope
+            .using_scope_at(span)
             .and_then(|scope| scope.unresolved_using(name))
         {
             self.node_unresolved_usings
@@ -1658,7 +1675,7 @@ impl<'a> ValueResolver<'a> {
         // Local bindings and parameters are resolved by nia-local-resolve.
         if self.defs.module_scope.modules.get(name).is_some()
             || self
-                .using_scope
+                .using_scope_at(span)
                 .is_some_and(|scope| scope.using_module(name).is_some())
         {
             return ValueNameResolution::Module;
@@ -1672,6 +1689,15 @@ impl<'a> ValueResolver<'a> {
         } else {
             Some(ModuleDefs::Shared((self.program_defs.defs?)(module_id)?))
         }
+    }
+
+    fn using_scope_at(&self, span: Span) -> Option<&dyn UsingScopeLookup> {
+        let scope = self.using_scope?;
+        Some(
+            scope
+                .scope_at(span)
+                .map_or(scope, |scope| scope as &dyn UsingScopeLookup),
+        )
     }
 
     fn insert_name(&mut self, node_key: &VersionedNodeKey, resolution: ValueNameResolution) {

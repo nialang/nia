@@ -73,13 +73,18 @@ impl<'a> BodyChecker<'a> {
         };
         let (len, elem_ty) = match self.expect_ty_kind(array_ty) {
             TyKind::Array { len, elem } => (len.clone(), *elem),
-            TyKind::Error => return self.error(),
             _ => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    "array literal type is not an array",
-                ));
+                let error = self.error();
+                for elem in array_literal_values(elems) {
+                    self.check_expr_with_expected(elem, Some(error));
+                }
+                if !self.is_error_recovery_ty(array_ty) {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        span,
+                        "array literal type is not an array",
+                    ));
+                }
                 return self.error();
             }
         };
@@ -260,8 +265,15 @@ impl<'a> BodyChecker<'a> {
                 args,
                 const_args,
             } => (*def_id, args.clone(), const_args.clone()),
-            TyKind::Error => return self.error(),
+            TyKind::Error => {
+                self.check_recovery_fields(fields);
+                return self.error();
+            }
             _ => {
+                self.check_recovery_fields(fields);
+                if self.is_error_recovery_ty(aggregate_ty) {
+                    return self.error();
+                }
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
@@ -360,6 +372,13 @@ impl<'a> BodyChecker<'a> {
             ));
         }
         aggregate_ty
+    }
+
+    pub(crate) fn check_recovery_fields(&mut self, fields: &[nia_ast::FieldInit]) {
+        let expected = self.error();
+        for field in fields {
+            self.check_expr_with_expected(&field.value, Some(expected));
+        }
     }
 
     fn check_union_literal(

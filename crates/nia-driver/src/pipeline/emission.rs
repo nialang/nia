@@ -26,6 +26,7 @@ impl Driver {
             };
             if has_error_diagnostics(&preparation.diagnostics) {
                 return DriverOutput::from_error(DriverError::CodegenPreparationDiagnostics {
+                    diagnostic_sources: preparation.diagnostic_sources,
                     diagnostics: preparation.diagnostics,
                     suppressed_downstream: preparation.suppressed_downstream,
                 });
@@ -132,6 +133,7 @@ impl Driver {
                 ));
             }
             DriverOutput::success(LlvmIrArtifact {
+                diagnostic_sources: preparation.diagnostic_sources,
                 modules: output.modules,
                 optimization,
                 optimization_report,
@@ -179,6 +181,7 @@ impl Driver {
                 ));
             }
             DriverOutput::success(LlvmIrArtifact {
+                diagnostic_sources: program.diagnostic_sources.clone(),
                 modules: output.modules,
                 optimization: program.optimization,
                 optimization_report: program.backend_lowering.optimization_report.clone(),
@@ -282,6 +285,7 @@ impl Driver {
         .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?;
         if has_error_diagnostics(&preparation.diagnostics) {
             return Err(DriverError::CodegenPreparationDiagnostics {
+                diagnostic_sources: preparation.diagnostic_sources,
                 diagnostics: preparation.diagnostics,
                 suppressed_downstream: preparation.suppressed_downstream,
             });
@@ -408,6 +412,7 @@ impl Driver {
         let link_input_count = output.link_inputs.len();
         Ok(NativeDatabaseEmission {
             artifact: ObjectArtifact {
+                diagnostic_sources: preparation.diagnostic_sources,
                 link_inputs: output.link_inputs,
                 optimization,
                 optimization_report,
@@ -466,6 +471,7 @@ impl Driver {
                 ));
             }
             DriverOutput::success(ObjectArtifact {
+                diagnostic_sources: program.diagnostic_sources.clone(),
                 link_inputs: output.link_inputs,
                 optimization: program.optimization,
                 optimization_report: program.backend_lowering.optimization_report.clone(),
