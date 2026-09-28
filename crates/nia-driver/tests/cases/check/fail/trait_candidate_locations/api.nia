@@ -1,0 +1,6 @@
+pub trait Right { fn rank(&self) i32; }
+pub trait Left { fn rank(&self) i32; }
+pub trait Both: Right + Left {}
+pub trait FactoryRight { fn make(value: i32) i32; }
+pub trait FactoryLeft { fn make(value: i32) i32; }
+pub trait Factories: FactoryRight + FactoryLeft {}

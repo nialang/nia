@@ -27,6 +27,18 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         ty: InternedTyId,
     ) -> Option<StaticInit> {
+        // Expression checking has already visited every initializer child.
+        // A rejected initializer cannot produce a valid static-data product.
+        if self.is_error_recovery_ty(ty)
+            || self.diagnostics.iter().any(|diagnostic| {
+                diagnostic.severity == nia_diagnostic::Severity::Error
+                    && diagnostic.primary_span().is_some_and(|span| {
+                        expr.span.start <= span.start && span.end <= expr.span.end
+                    })
+            })
+        {
+            return None;
+        }
         let diagnostics_before = self.diagnostics.len();
         let init = self.lower_global_static_init(expr, ty);
         (self.diagnostics.len() == diagnostics_before && !Self::contains_static_recovery(&init))

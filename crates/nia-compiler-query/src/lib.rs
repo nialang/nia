@@ -151,9 +151,15 @@ pub enum CodegenScope {
     Package,
 }
 
+/// Source text retained for diagnostic paths at the producing revision.
+/// An explicit `None` records that a referenced source was unavailable.
+pub type DiagnosticSources = std::collections::BTreeMap<String, Option<std::sync::Arc<str>>>;
+
 /// User-visible result of checking a program.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckedProgram {
+    /// Source snapshots for primary and related diagnostic locations.
+    pub diagnostic_sources: DiagnosticSources,
     /// Loaded module graph used by the check.
     pub graph: ModuleGraphSnapshot,
     /// Optimization policy selected for subsequent lowering.
@@ -181,6 +187,7 @@ impl CheckedProgram {
 #[doc(hidden)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckedProgramAnalysis {
+    pub diagnostic_sources: DiagnosticSources,
     pub graph: ModuleGraphSnapshot,
     pub optimization: OptimizationPolicy,
     pub modules: Vec<std::sync::Arc<CheckedModule>>,
@@ -197,6 +204,7 @@ impl CheckedProgramAnalysis {
             .map(|module| module.body_ir.function_bodies.len())
             .sum();
         CheckedProgram {
+            diagnostic_sources: self.diagnostic_sources,
             graph: self.graph,
             optimization: self.optimization,
             diagnostics: self.diagnostics,
@@ -210,6 +218,8 @@ impl CheckedProgramAnalysis {
 /// Checked semantic products needed before backend lowering begins.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodegenPreparation {
+    /// Source snapshots for primary and related diagnostic locations.
+    pub diagnostic_sources: DiagnosticSources,
     /// Canonical type store used by all checked modules.
     pub type_store: std::sync::Arc<nia_ty::TypeStore>,
     /// Module graph used by the preparation.
@@ -229,6 +239,8 @@ pub struct CodegenPreparation {
 /// Complete checked and backend-lowered compiler product.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodegenProgram {
+    /// Source snapshots for primary and related diagnostic locations.
+    pub diagnostic_sources: DiagnosticSources,
     /// Canonical type store used by the generated program.
     pub type_store: std::sync::Arc<nia_ty::TypeStore>,
     /// Module graph used by code generation.

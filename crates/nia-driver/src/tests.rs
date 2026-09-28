@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod associated_types;
+mod block_usings;
 mod builtin_traits;
 mod cases;
 mod common;
 mod const_eval;
 mod const_generics;
+mod import_recovery;
 mod imports;
+mod recovery_matrix;
+mod report_sources;
 mod soundness;
 mod supertraits;
 mod trait_impls;
 mod trait_objects;
 mod type_system;
 mod using;
+mod visibility_matrix;
 
 #[test]
 fn driver_invocation_target_overrides_toolchain_default() {
@@ -268,6 +273,7 @@ fn writing_native_object_preserves_incremental_link_identity() {
     let key = CodegenUnitKey::CompilerBuiltins;
     let fingerprint = CodegenUnitFingerprint::from_parts([7, 8]);
     let artifact = crate::ObjectArtifact {
+        diagnostic_sources: Default::default(),
         link_inputs: IncrementalLinkInputs::new(vec![IncrementalLinkInput {
             key: key.clone(),
             fingerprint,
@@ -326,6 +332,7 @@ fn static_archive_test_objects(first_fingerprint: [u64; 2]) -> crate::ObjectArti
         },
     };
     crate::ObjectArtifact {
+        diagnostic_sources: Default::default(),
         link_inputs: IncrementalLinkInputs::new(vec![
             input(
                 first_fingerprint,
@@ -570,6 +577,7 @@ fn link_result_cache_skips_linker_until_typed_input_changes() {
         b"archive-v1",
     )]);
     let object = |fingerprint| crate::ObjectArtifact {
+        diagnostic_sources: Default::default(),
         link_inputs: IncrementalLinkInputs::new(vec![IncrementalLinkInput {
             key: CodegenUnitKey::CompilerBuiltins,
             fingerprint,

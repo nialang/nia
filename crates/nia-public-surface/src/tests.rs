@@ -25,6 +25,82 @@ fn graph_with_public_children(children: &[&str]) -> ModuleGraph {
 }
 
 #[test]
+fn lexical_imports_restore_outer_names_and_preserve_variant_and_failure_identity() {
+    use nia_defs::UsingScopeLookup;
+    let graph = graph_with_public_children(&["api"]);
+    let entry = graph.entry();
+    let api = graph.root_module_for_name(entry, name("api")).unwrap();
+    let source = r#"
+pub module api;
+fn inspect() () {
+    using entry::api::{value as chosen, Color as Palette};
+    using Palette::Red as Selected;
+    _ = Selected;
+    {
+        using entry::api::missing as chosen;
+        _ = chosen;
+    }
+    _ = chosen;
+}
+fn sibling() () { _ = chosen; }
+"#;
+    let (module, errors) = nia_parser::parse_module(source);
+    assert!(errors.is_empty());
+    let items = nia_item_tree::ModuleItemTree::from_module(&module).all_items_active();
+    let all_defs = [
+        defs(entry, source),
+        defs(api, "pub fn value() i32 { 1 } pub enum Color { Red }"),
+    ];
+    let (surfaces, scopes, diagnostics) = compute_public_surfaces(&all_defs, &graph);
+    assert!(diagnostics.is_empty());
+    let (lexical, diagnostics) = compute_lexical_using_scopes_with_symbols(
+        &items,
+        &all_defs[0],
+        &all_defs,
+        &graph,
+        &surfaces,
+        &scopes[&entry],
+        &KnownSymbolText,
+    );
+    assert_eq!(diagnostics.len(), 1);
+    let span = |start| Span {
+        start,
+        end: start + 1,
+    };
+    let uses = source
+        .match_indices("_ = chosen")
+        .map(|(offset, _)| span(offset + 4))
+        .collect::<Vec<_>>();
+    let failed = lexical.scope_at(uses[0]).unwrap();
+    assert!(failed.using_value(&name("chosen")).is_none());
+    let cause = failed
+        .unresolved_using(&name("chosen"))
+        .unwrap()
+        .cause
+        .unwrap();
+    assert_eq!(cause.source_path, "main.nia");
+    assert_eq!(Some(cause.span), diagnostics[0].primary_span());
+    assert_eq!(cause.code, diagnostics[0].code.as_str());
+    let restored = lexical.scope_at(uses[1]).unwrap();
+    assert!(restored.unresolved_using(&name("chosen")).is_none());
+    assert_eq!(
+        restored.using_value(&name("chosen")).unwrap().target_module,
+        api
+    );
+    assert!(lexical.scope_at(uses[2]).is_none());
+    let variant = lexical
+        .scope_at(span(source.find("_ = Selected").unwrap() + 4))
+        .unwrap()
+        .using_value(&name("Selected"))
+        .unwrap();
+    assert_eq!(variant.parent_enum.unwrap().module_id, api);
+    assert_eq!(
+        variant.parent_enum.unwrap().def_id,
+        all_defs[1].module_scope.types.get(&name("Color")).unwrap()
+    );
+}
+
+#[test]
 fn wildcard_reexports_preserve_item_name_spans_for_duplicate_diagnostics() {
     let graph = graph_with_public_children(&["left", "right"]);
     let entry_id = graph.entry();

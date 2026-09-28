@@ -8,7 +8,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         .expect("create compiler query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 139);
+    assert_eq!(descriptors.len(), 141);
     assert!(
         !descriptors
             .iter()
@@ -23,9 +23,11 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         "module_graph_parent",
         "module_graph_child",
         "module_graph_provider_dependencies",
+        "module_lexical_using_scopes",
         "module_package_root",
         "provider_fact_revision",
         "provider_fact_worklist",
+        "signature_const_using_scopes",
     ] {
         assert!(
             descriptors.iter().any(|descriptor| descriptor.name == name),
@@ -108,6 +110,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "module_parse_errors"
             | "module_unused_imports"
             | "module_using_scope"
+            | "module_lexical_using_scopes"
             | "item_signatures"
             | "public_surface_module_facts"
             | "public_surface_type"
@@ -115,6 +118,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "public_surfaces"
             | "public_using_scopes"
             | "signature_const_item_tree"
+            | "signature_const_using_scopes"
             | "signature_item_signatures"
             | "signature_item_signatures_semantic"
             | "signature_item_tree"

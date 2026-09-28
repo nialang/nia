@@ -257,6 +257,7 @@ impl<'a> BodyChecker<'a> {
             })?;
         let method_call = MethodCall {
             span: call.expr.span,
+            callee_span: Self::call_callee_span(call.expr),
             node_key: &call.expr.node_key,
             receiver: call.receiver,
             receiver_ty,
@@ -402,6 +403,7 @@ impl<'a> BodyChecker<'a> {
             .find(|candidate| candidate.method.def_id == method.method.def_id)?;
         let method_call = MethodCall {
             span: call.expr.span,
+            callee_span: Self::call_callee_span(call.expr),
             node_key: &call.expr.node_key,
             receiver: call.receiver,
             receiver_ty,
@@ -529,10 +531,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn provider_demand_target_is_error(&self, ty: InternedTyId) -> bool {
-        matches!(
-            self.interner.get(ty),
-            Some(TyKind::Error | TyKind::ConstOnly)
-        )
+        self.is_error_recovery_ty(ty) || matches!(self.interner.get(ty), Some(TyKind::ConstOnly))
     }
 
     pub(in crate::calls) fn record_semantic_provider_module(&self, module_id: nia_ids::ModuleId) {
@@ -1520,7 +1519,12 @@ impl<'a> BodyChecker<'a> {
         signature
             .params
             .iter()
-            .skip(1)
+            .skip(usize::from(
+                signature
+                    .params
+                    .first()
+                    .is_some_and(|param| param.receiver.is_some()),
+            ))
             .map(|param| {
                 self.substitute_generics_and_consts_with_self(
                     param.ty,
@@ -1560,12 +1564,18 @@ impl<'a> BodyChecker<'a> {
                 .join(", ");
             format!("[{names}]")
         };
+        let return_type = self.substitute_generics_and_consts_with_self(
+            signature.return_type,
+            &candidate.target_substitutions,
+            &candidate.target_const_substitutions,
+            candidate.self_ty,
+        );
         Some(format!(
             "{}{}({}) -> {}",
             self.symbol_name(candidate.method.name),
             generics,
             params,
-            self.ty_name(signature.return_type)
+            self.ty_name(return_type)
         ))
     }
 

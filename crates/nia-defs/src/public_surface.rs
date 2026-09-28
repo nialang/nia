@@ -254,12 +254,40 @@ pub struct UnresolvedUsing {
     pub declaration_path: Option<String>,
     /// Classification of the failed lookup.
     pub reason: UnresolvedUsingReason,
+    /// Unavailable host whose loader diagnostic may supply the root identity.
+    pub unavailable_module: Option<ModuleId>,
     /// Identity of the emitted source diagnostic for the failed import.
     pub cause: Option<nia_diagnostic::DiagnosticCause>,
 }
 
 /// Read-only resolver for one module's using scope.
 pub trait UsingScopeLookup {
+    /// Returns a lexical import environment enclosing this source position.
+    fn scope_at(&self, _span: Span) -> Option<&ModuleUsingScope> {
+        None
+    }
+    /// Whether a lexical module alias or failed import hides an outer namespace.
+    fn shadows_module_namespace(&self, _name: &SymbolId, _span: Span) -> bool {
+        false
+    }
+    /// Whether a block import takes precedence over a module definition.
+    fn shadows_module_definition(
+        &self,
+        name: &SymbolId,
+        namespace: PublicNamespace,
+        span: Span,
+    ) -> bool {
+        let Some(scope) = self.scope_at(span) else {
+            return false;
+        };
+        let (lexical, module) = match namespace {
+            PublicNamespace::Type => (scope.using_type(name), self.using_type(name)),
+            PublicNamespace::Value => (scope.using_value(name), self.using_value(name)),
+        };
+        (lexical.is_some() && lexical != module)
+            || (scope.has_unresolved_using_name(name)
+                && scope.unresolved_using(name) != self.unresolved_using(name))
+    }
     /// Looks up an imported module.
     fn using_module(&self, name: &SymbolId) -> Option<ModuleId>;
     /// Looks up an imported value.

@@ -108,6 +108,14 @@ struct TypeResolver<'a> {
 }
 
 impl TypeResolver<'_> {
+    fn using_scope_at(&self, span: Span) -> Option<&dyn UsingScopeLookup> {
+        let scope = self.using_scope?;
+        Some(
+            scope
+                .scope_at(span)
+                .map_or(scope, |scope| scope as &dyn UsingScopeLookup),
+        )
+    }
     fn related_definition(
         &self,
         diagnostic: DiagnosticBuilder,
@@ -426,7 +434,7 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
                 self.visit_expr(callee);
                 for arg in args {
                     if let Some(expr) = &arg.expr {
-                        nia_ast_walk::walk_expr(self, expr);
+                        self.visit_expr(expr);
                     }
                     if let Some(ty) = &arg.ty {
                         if arg.expr.is_some() {
@@ -730,8 +738,11 @@ impl<'a> TypeResolver<'a> {
             | TypeKind::VolatilePointer { elem, .. }
             | TypeKind::Slice { elem, .. }
             | TypeKind::SlicePointee { elem }
-            | TypeKind::Optional { elem }
-            | TypeKind::ErrorUnion { error: elem, .. } => self.resolve_type_candidate(elem),
+            | TypeKind::Optional { elem } => self.resolve_type_candidate(elem),
+            TypeKind::ErrorUnion { error, value } => {
+                self.resolve_type_candidate(error);
+                self.resolve_type_candidate(value);
+            }
             TypeKind::Array { elem, .. } => self.resolve_type_candidate(elem),
             TypeKind::Tuple { elems } => {
                 for elem in elems {
@@ -815,7 +826,7 @@ impl<'a> TypeResolver<'a> {
         if let Some(module_id) = self.root_module_for_segment(segment) {
             return Some(ResolvedNamespace::Module(module_id));
         }
-        if let Some(scope) = self.using_scope
+        if let Some(scope) = self.using_scope_at(segment.span)
             && let Some(module_id) = scope.using_module(type_segment_name(segment)?)
         {
             return Some(ResolvedNamespace::Module(module_id));
@@ -825,13 +836,14 @@ impl<'a> TypeResolver<'a> {
             .module_scope
             .types
             .get(type_segment_name(segment)?)
+            .filter(|_| !self.block_type_shadows_module(segment))
         {
             return Some(ResolvedNamespace::Type(GlobalDefId {
                 module_id: self.defs.module_id,
                 def_id,
             }));
         }
-        if let Some(scope) = self.using_scope
+        if let Some(scope) = self.using_scope_at(segment.span)
             && let Some(entry) = scope.using_type(type_segment_name(segment)?)
         {
             return Some(ResolvedNamespace::Type(GlobalDefId {
@@ -958,6 +970,7 @@ impl<'a> TypeResolver<'a> {
             .module_scope
             .types
             .get(type_segment_name(segment)?)
+            .filter(|_| !self.block_type_shadows_module(segment))
         {
             let def = self.defs.defs.get(def_id)?;
             if matches!(
@@ -980,7 +993,7 @@ impl<'a> TypeResolver<'a> {
                 return Some(TypeNameResolution::Def(def_id));
             }
         }
-        if let Some(scope) = self.using_scope
+        if let Some(scope) = self.using_scope_at(segment.span)
             && let Some(entry) = scope.using_type(type_segment_name(segment)?)
             && entry.namespace == PublicNamespace::Type
         {
@@ -1057,7 +1070,7 @@ impl<'a> TypeResolver<'a> {
         if let Some(module_id) = self.root_module_for_segment(segment) {
             return Some(ResolvedNamespace::Module(module_id));
         }
-        if let Some(scope) = self.using_scope
+        if let Some(scope) = self.using_scope_at(segment.span)
             && let Some(module_id) = scope.using_module(type_segment_name(segment)?)
         {
             return Some(ResolvedNamespace::Module(module_id));
@@ -1067,6 +1080,7 @@ impl<'a> TypeResolver<'a> {
             .module_scope
             .types
             .get(type_segment_name(segment)?)
+            .filter(|_| !self.block_type_shadows_module(segment))
         {
             return Some(ResolvedNamespace::Type(GlobalDefId {
                 module_id: self.defs.module_id,
@@ -1078,6 +1092,7 @@ impl<'a> TypeResolver<'a> {
             .module_scope
             .values
             .get(type_segment_name(segment)?)
+            .filter(|_| !self.block_type_shadows_module(segment))
             && let Some(def) = self.defs.defs.get(def_id)
             && matches!(
                 def.kind,
@@ -1092,7 +1107,7 @@ impl<'a> TypeResolver<'a> {
             ));
             return None;
         }
-        if let Some(scope) = self.using_scope
+        if let Some(scope) = self.using_scope_at(segment.span)
             && let Some(entry) = scope.using_type(type_segment_name(segment)?)
         {
             return Some(ResolvedNamespace::Type(GlobalDefId {
@@ -1100,12 +1115,23 @@ impl<'a> TypeResolver<'a> {
                 def_id: entry.target_def_id,
             }));
         }
-        if let Some(scope) = self.using_scope
+        if let Some(scope) = self.using_scope_at(segment.span)
             && let Some(entry) = scope.using_value(type_segment_name(segment)?)
         {
             let name = self.symbol_name(*type_segment_name(segment)?);
             self.diagnostics
                 .push(self.imported_value_as_type_diagnostic(segment.span, &name, entry));
+            return None;
+        }
+        if let Some(failure) = self
+            .using_scope_at(segment.span)
+            .and_then(|scope| scope.unresolved_using(type_segment_name(segment)?))
+        {
+            self.diagnostics.push(self.unresolved_using_type_diagnostic(
+                segment.span,
+                segment,
+                failure,
+            ));
             return None;
         }
         let name = self.symbol_name(*type_segment_name(segment)?);
@@ -1122,6 +1148,14 @@ impl<'a> TypeResolver<'a> {
     }
 
     fn root_module_for_segment(&self, segment: &TypePathSegment) -> Option<ModuleId> {
+        if let PathSegmentKind::Name(name) = segment.kind
+            && !nia_imports::is_entry_module_root(name)
+            && !nia_imports::is_runtime_module_root(name)
+            && let Some(scope) = self.using_scope
+            && scope.shadows_module_namespace(&name, segment.span)
+        {
+            return scope.scope_at(segment.span)?.using_module(&name);
+        }
         let graph = self.graph()?;
         graph.root_module_for_segment(
             self.defs.module_id,
@@ -1401,7 +1435,9 @@ impl<'a> TypeResolver<'a> {
         if let Some(primitive) = self.primitive_type_spelling_for_symbol(&name) {
             return TypeNameResolution::Primitive(primitive);
         }
-        if let Some(def_id) = self.defs.module_scope.types.get(&name) {
+        if let Some(def_id) = self.defs.module_scope.types.get(&name)
+            && !self.block_type_shadows_module(segment)
+        {
             let Some(def) = self.defs.defs.get(def_id) else {
                 return TypeNameResolution::Error;
             };
@@ -1426,6 +1462,7 @@ impl<'a> TypeResolver<'a> {
             }
         }
         if let Some(def_id) = self.defs.module_scope.values.get(&name)
+            && !self.block_type_shadows_module(segment)
             && let Some(def) = self.defs.defs.get(def_id)
             && matches!(
                 def.kind,
@@ -1440,7 +1477,7 @@ impl<'a> TypeResolver<'a> {
             ));
             return TypeNameResolution::Error;
         }
-        if let Some(scope) = self.using_scope
+        if let Some(scope) = self.using_scope_at(segment.span)
             && let Some(entry) = scope.using_type(&name)
             && entry.namespace == PublicNamespace::Type
         {
@@ -1455,7 +1492,7 @@ impl<'a> TypeResolver<'a> {
                 .insert(node_key.site().clone(), global);
             return TypeNameResolution::External(global);
         }
-        if let Some(scope) = self.using_scope
+        if let Some(scope) = self.using_scope_at(segment.span)
             && let Some(entry) = scope.using_value(&name)
             && entry.namespace == PublicNamespace::Value
         {
@@ -1465,7 +1502,7 @@ impl<'a> TypeResolver<'a> {
             return TypeNameResolution::Error;
         }
         if let Some(failure) = self
-            .using_scope
+            .using_scope_at(segment.span)
             .and_then(|scope| scope.unresolved_using(&name))
         {
             self.diagnostics
@@ -1483,6 +1520,14 @@ impl<'a> TypeResolver<'a> {
                 .finish(),
         );
         TypeNameResolution::Error
+    }
+
+    fn block_type_shadows_module(&self, segment: &TypePathSegment) -> bool {
+        type_segment_name(segment).is_some_and(|name| {
+            self.using_scope.is_some_and(|scope| {
+                scope.shadows_module_definition(name, PublicNamespace::Type, segment.span)
+            })
+        })
     }
 
     fn with_generics(&mut self, generics: &[GenericParam], f: impl FnOnce(&mut Self)) {

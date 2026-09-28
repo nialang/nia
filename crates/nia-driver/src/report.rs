@@ -138,6 +138,7 @@ pub fn render_program_diagnostics(
 ) -> String {
     render_program_diagnostic_items(
         &program.diagnostics,
+        &program.diagnostic_sources,
         program.suppressed_downstream,
         primary_path,
         primary_source,
@@ -173,7 +174,13 @@ pub fn render_program_warnings(
         .filter(|diagnostic| diagnostic.is_warning())
         .cloned()
         .collect::<Vec<_>>();
-    render_program_diagnostic_items(&diagnostics, 0, primary_path, primary_source)
+    render_program_diagnostic_items(
+        &diagnostics,
+        &program.diagnostic_sources,
+        0,
+        primary_path,
+        primary_source,
+    )
 }
 
 /// Renders only checked-program warnings as deterministic JSON.
@@ -202,7 +209,13 @@ pub fn render_llvm_ir_warnings(
         .filter(|diagnostic| diagnostic.is_warning())
         .cloned()
         .collect::<Vec<_>>();
-    render_program_diagnostic_items(&diagnostics, 0, primary_path, primary_source)
+    render_program_diagnostic_items(
+        &diagnostics,
+        &artifact.diagnostic_sources,
+        0,
+        primary_path,
+        primary_source,
+    )
 }
 
 /// Renders only warnings attached to an object artifact.
@@ -217,7 +230,13 @@ pub fn render_object_warnings(
         .filter(|diagnostic| diagnostic.is_warning())
         .cloned()
         .collect::<Vec<_>>();
-    render_program_diagnostic_items(&diagnostics, 0, primary_path, primary_source)
+    render_program_diagnostic_items(
+        &diagnostics,
+        &artifact.diagnostic_sources,
+        0,
+        primary_path,
+        primary_source,
+    )
 }
 
 /// Renders only warnings attached to a linked executable artifact.
@@ -232,11 +251,18 @@ pub fn render_executable_warnings(
         .filter(|diagnostic| diagnostic.is_warning())
         .cloned()
         .collect::<Vec<_>>();
-    render_program_diagnostic_items(&diagnostics, 0, primary_path, primary_source)
+    render_program_diagnostic_items(
+        &diagnostics,
+        &artifact.diagnostic_sources,
+        0,
+        primary_path,
+        primary_source,
+    )
 }
 
 fn render_program_diagnostic_items(
     diagnostics: &[crate::ProgramDiagnostic],
+    diagnostic_sources: &crate::DiagnosticSources,
     suppressed_downstream: usize,
     primary_path: Option<&str>,
     primary_source: Option<&str>,
@@ -251,12 +277,15 @@ fn render_program_diagnostic_items(
                 .filter_map(|related| related.source_path.as_deref()),
         ) {
             if !sources.contains_key(path) {
-                let source = if primary_path == Some(path) {
-                    primary_source.map(str::to_owned)
-                } else {
-                    None
-                }
-                .or_else(|| nia_source::read_source_text(path).ok());
+                let source = match diagnostic_sources.get(path) {
+                    Some(source) => source.as_deref().map(str::to_owned),
+                    None => if primary_path == Some(path) {
+                        primary_source.map(str::to_owned)
+                    } else {
+                        None
+                    }
+                    .or_else(|| nia_source::read_source_text(path).ok()),
+                };
                 if let Some(source) = source {
                     sources.insert(path.to_owned(), source);
                 }
@@ -291,10 +320,10 @@ fn render_program_diagnostic_items(
             }
             None => unreachable!("report entry kind must match retained entry"),
         }
-        let source = diagnostic_source(entry.path, primary_path, primary_source);
+        let source = sources.get(entry.path).map(String::as_str).unwrap_or("");
         out.push_str(&nia_diagnostic::render_diagnostic_with_sources(
             entry.path,
-            &source,
+            source,
             entry.diagnostic,
             &sources,
         ));
@@ -312,6 +341,7 @@ pub fn render_codegen_program_diagnostics(
 ) -> String {
     render_program_diagnostic_items(
         &program.diagnostics,
+        &program.diagnostic_sources,
         program.suppressed_downstream,
         primary_path,
         primary_source,
@@ -330,7 +360,13 @@ pub fn render_codegen_program_warnings(
         .filter(|diagnostic| diagnostic.is_warning())
         .cloned()
         .collect::<Vec<_>>();
-    render_program_diagnostic_items(&diagnostics, 0, primary_path, primary_source)
+    render_program_diagnostic_items(
+        &diagnostics,
+        &program.diagnostic_sources,
+        0,
+        primary_path,
+        primary_source,
+    )
 }
 
 /// Renders only codegen-program warnings as deterministic JSON.
@@ -357,11 +393,13 @@ pub fn render_driver_error(
         DriverError::ArchiveStatus {
             program,
             status,
+            stdout,
             stderr,
         } => render_external_tool_diagnostic(
             "archive tool",
             program,
             *status,
+            stdout,
             stderr,
             primary_path,
             primary_source,
@@ -386,10 +424,12 @@ pub fn render_driver_error(
             render_codegen_program_diagnostics(program, primary_path, primary_source)
         }
         DriverError::CodegenPreparationDiagnostics {
+            diagnostic_sources,
             diagnostics,
             suppressed_downstream,
         } => render_program_diagnostic_items(
             diagnostics,
+            diagnostic_sources,
             *suppressed_downstream,
             primary_path,
             primary_source,
@@ -437,11 +477,13 @@ pub fn render_driver_error(
         DriverError::LinkerStatus {
             program,
             status,
+            stdout,
             stderr,
         } => render_external_tool_diagnostic(
             "linker",
             program,
             *status,
+            stdout,
             stderr,
             primary_path,
             primary_source,
@@ -466,10 +508,27 @@ fn render_external_tool_diagnostic(
     tool_kind: &str,
     program: &str,
     status: std::process::ExitStatus,
+    stdout: &str,
     stderr: &str,
     primary_path: Option<&str>,
     primary_source: Option<&str>,
 ) -> String {
+    let diagnostic = external_tool_diagnostic(tool_kind, program, status, stdout, stderr);
+    render_diagnostics_with_title(
+        &format!("{tool_kind} diagnostics:"),
+        std::slice::from_ref(&diagnostic),
+        primary_path,
+        primary_source,
+    )
+}
+
+fn external_tool_diagnostic(
+    tool_kind: &str,
+    program: &str,
+    status: std::process::ExitStatus,
+    stdout: &str,
+    stderr: &str,
+) -> Diagnostic {
     let mut diagnostic = Diagnostic::user_error(
         nia_diagnostic::codes::LINKER,
         format!("{tool_kind} `{program}` failed"),
@@ -483,12 +542,10 @@ fn render_external_tool_diagnostic(
     if !stderr.is_empty() {
         diagnostic = diagnostic.note(format!("{tool_kind} output:\n{stderr}"));
     }
-    render_diagnostics_with_title(
-        &format!("{tool_kind} diagnostics:"),
-        std::slice::from_ref(&diagnostic.finish()),
-        primary_path,
-        primary_source,
-    )
+    if !stdout.is_empty() {
+        diagnostic = diagnostic.note(format!("{tool_kind} stdout:\n{stdout}"));
+    }
+    diagnostic.finish()
 }
 
 fn render_external_tool_io_diagnostic(
@@ -601,6 +658,7 @@ pub fn render_driver_error_json_at(error: &DriverError, primary_path: Option<&st
         DriverError::CodegenPreparationDiagnostics {
             diagnostics,
             suppressed_downstream,
+            ..
         } => {
             return render_program_diagnostics_json_items(diagnostics, *suppressed_downstream);
         }
@@ -681,31 +739,23 @@ fn driver_error_diagnostics(error: &DriverError) -> Vec<Diagnostic> {
         DriverError::LinkerStatus {
             program,
             status,
+            stdout,
             stderr,
-        } => vec![
-            Diagnostic::user_error(
-                nia_diagnostic::codes::LINKER,
-                format!("linker `{program}` failed"),
-            )
-            .note(format!("the linker exited with status {status}"))
-            .note(format!("linker output:\n{stderr}"))
-            .help("inspect the linker inputs and native dependencies")
-            .finish(),
-        ],
+        } => vec![external_tool_diagnostic(
+            "linker", program, *status, stdout, stderr,
+        )],
         DriverError::ArchiveStatus {
             program,
             status,
+            stdout,
             stderr,
-        } => vec![
-            Diagnostic::user_error(
-                nia_diagnostic::codes::LINKER,
-                format!("archive tool `{program}` failed"),
-            )
-            .note(format!("the archive tool exited with status {status}"))
-            .note(format!("archive tool output:\n{stderr}"))
-            .help("inspect the archive inputs and output path")
-            .finish(),
-        ],
+        } => vec![external_tool_diagnostic(
+            "archive tool",
+            program,
+            *status,
+            stdout,
+            stderr,
+        )],
         DriverError::LinkerIo { program, error } => vec![
             Diagnostic::user_error(
                 nia_diagnostic::codes::LINKER,
@@ -840,19 +890,6 @@ fn push_report_summary<T: DiagnosticReportItem>(
         "note: suppressed {total} diagnostic(s) ({duplicates} duplicate(s), {downstream} downstream consequence(s), {by_limit} over limit)\n",
         total = duplicates + downstream + by_limit
     ));
-}
-
-fn diagnostic_source(
-    path: &str,
-    primary_path: Option<&str>,
-    primary_source: Option<&str>,
-) -> String {
-    if primary_path == Some(path)
-        && let Some(source) = primary_source
-    {
-        return source.to_string();
-    }
-    nia_source::read_source_text(path).unwrap_or_default()
 }
 
 fn enabled_passes_name(passes: &[&'static str]) -> String {
@@ -992,6 +1029,7 @@ mod tests {
                 program: "ld".to_string(),
                 status,
                 stderr: "undefined reference to `missing`".to_string(),
+                stdout: "linker context".to_string(),
             },
             Some("main.nia"),
             Some("fn main() () {}"),
@@ -1002,6 +1040,10 @@ mod tests {
             "{rendered}"
         );
         assert!(rendered.contains("inspect the linker inputs"), "{rendered}");
+        assert!(
+            rendered.contains("linker stdout:\nlinker context"),
+            "{rendered}"
+        );
     }
 
     #[test]
@@ -1016,6 +1058,7 @@ mod tests {
                 program: "ar".to_string(),
                 status,
                 stderr: "invalid archive member".to_string(),
+                stdout: "archive context".to_string(),
             },
             Some("main.nia"),
             Some("fn main() () {}"),
@@ -1026,6 +1069,10 @@ mod tests {
         );
         assert!(rendered.contains("archive tool `ar` failed"), "{rendered}");
         assert!(rendered.contains("archive tool output:"), "{rendered}");
+        assert!(
+            rendered.contains("archive tool stdout:\narchive context"),
+            "{rendered}"
+        );
         assert!(!rendered.contains("linker diagnostics:"), "{rendered}");
     }
 
@@ -1053,10 +1100,12 @@ mod tests {
             program: "ld".to_string(),
             status,
             stderr: "missing symbol".to_string(),
+            stdout: "linker context".to_string(),
         });
         assert!(json.starts_with('{'), "{json}");
         assert!(json.contains("\"code\":\"E0701\""), "{json}");
         assert!(!json.contains("error[E0701]"), "{json}");
+        assert!(json.contains("linker context"), "{json}");
     }
 
     #[test]
@@ -1070,9 +1119,11 @@ mod tests {
             program: "ar".to_string(),
             status,
             stderr: "invalid archive member".to_string(),
+            stdout: "archive context".to_string(),
         });
         assert!(json.contains("archive tool `ar` failed"), "{json}");
         assert!(json.contains("archive tool output:"), "{json}");
+        assert!(json.contains("archive context"), "{json}");
         assert!(!json.contains("external tool `ar` failed"), "{json}");
     }
 

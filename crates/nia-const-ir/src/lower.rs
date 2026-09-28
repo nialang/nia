@@ -949,6 +949,7 @@ fn lower_block_with_context(
         stmts: block
             .stmts
             .iter()
+            .filter(|stmt| !matches!(stmt.kind, nia_ast::StmtKind::Using(_)))
             .map(|stmt| lower_stmt_with_context(stmt, context))
             .collect::<Result<Vec<_>, _>>()?,
         tail: block

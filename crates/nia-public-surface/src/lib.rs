@@ -20,9 +20,11 @@ use nia_symbol::{
 };
 
 mod index;
+mod lexical;
 mod using_expansion;
 
 pub use index::TypeExposureIndex;
+pub use lexical::{LexicalUsingScopes, compute_lexical_using_scopes_with_symbols};
 use using_expansion::{
     ResolvedEntryKind, UsingExpansionContext, UsingFailure, UsingFailureCause, UsingLookupMode,
     collect_module_aliases, entry_already_present, expand_using, insert_into_surface,
@@ -154,6 +156,7 @@ fn using_failure_diagnostic(
             span,
             declaration_span,
             declaration_path,
+            ..
         } => (
             *reason,
             *span,
@@ -336,6 +339,8 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                     surfaces: &surfaces,
                     symbols,
                     mode: UsingLookupMode::PublicOnly,
+                    imported_types: None,
+                    lexical_namespaces: None,
                 };
                 let expansion = expand_using(&context, defs, using, &local_modules);
                 iteration_unresolved += expansion
@@ -406,6 +411,8 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                 surfaces: &surfaces,
                 symbols,
                 mode: UsingLookupMode::PublicOnly,
+                imported_types: None,
+                lexical_namespaces: None,
             };
             let expansion = expand_using(&context, defs, using, &local_modules);
             if expansion.failures.is_empty() {
@@ -523,6 +530,8 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                 surfaces,
                 symbols,
                 mode,
+                imported_types: Some(&scope.types),
+                lexical_namespaces: None,
             };
             let expansion = expand_using(&context, defs, using, &scope.modules);
             for failure in &expansion.failures {

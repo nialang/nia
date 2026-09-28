@@ -18,6 +18,8 @@ pub(crate) fn collect_module_aliases(
         surfaces,
         symbols,
         mode: UsingLookupMode::Visible,
+        imported_types: None,
+        lexical_namespaces: None,
     };
     for using in &current.module_usings {
         let visible_modules = modules.clone();

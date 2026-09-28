@@ -1,14 +1,14 @@
 path: fail/package_restricted_extension_method/main.nia
 code: E0201
 summary: method `package_make` is restricted to its package
-label: 48..78 Primary Source this method is not visible from this module
+label: 48..74 Primary Source this method is not visible from this module
 help: make the method public or use it from the defining package
 related: 129..191 the restricted method is declared here
 
 path: fail/package_restricted_extension_method/main.nia
 code: E0201
 summary: method `package_score` is restricted to its package
-label: 122..143 Primary Source this method is not visible from this module
+label: 122..141 Primary Source this method is not visible from this module
 help: make the method public or use it from the defining package
 related: 206..263 the restricted method is declared here
 
@@ -33,7 +33,7 @@ error[E0201]: method `package_make` is restricted to its package
   --> fail/package_restricted_extension_method/main.nia:4:5
   |
 4 |     model::Value::package_make(41)
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this method is not visible from this module
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^ this method is not visible from this module
 help: make the method public or use it from the defining package
 related: fail/package_restricted_extension_method/dep/model.nia:10:14: the restricted method is declared here
 
@@ -42,7 +42,7 @@ error[E0201]: method `package_score` is restricted to its package
   --> fail/package_restricted_extension_method/main.nia:8:5
   |
 8 |     value.package_score()
-  |     ^^^^^^^^^^^^^^^^^^^^^ this method is not visible from this module
+  |     ^^^^^^^^^^^^^^^^^^^ this method is not visible from this module
 help: make the method public or use it from the defining package
 related: fail/package_restricted_extension_method/dep/model.nia:14:14: the restricted method is declared here
 

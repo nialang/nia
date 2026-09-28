@@ -19,6 +19,7 @@ pub(super) fn provide_checked_program(
             || closure_safety_diagnostics(db, &diagnostic_modules),
         )?);
         Ok(CheckedProgramAnalysis {
+            diagnostic_sources: diagnostic_sources(db, &graph, &diagnostics)?,
             graph,
             optimization,
             modules: diagnostic_modules,
@@ -45,6 +46,7 @@ pub(super) fn provide_entry_checked_program(
             || closure_safety_diagnostics(db, &diagnostic_modules),
         )?);
         Ok(CheckedProgramAnalysis {
+            diagnostic_sources: diagnostic_sources(db, &graph, &diagnostics)?,
             graph,
             optimization,
             modules: diagnostic_modules,
@@ -94,6 +96,7 @@ pub(in crate::query) fn provide_codegen_preparation(
         )?);
         if crate::has_error_diagnostics(&diagnostics) {
             return Ok(CodegenPreparation {
+                diagnostic_sources: diagnostic_sources(db, &graph, &diagnostics)?,
                 type_store: Arc::clone(&db.context().type_store),
                 graph,
                 optimization,
@@ -115,6 +118,7 @@ pub(in crate::query) fn provide_codegen_preparation(
             },
         ));
         Ok(CodegenPreparation {
+            diagnostic_sources: diagnostic_sources(db, &graph, &diagnostics)?,
             type_store: Arc::clone(&db.context().type_store),
             graph,
             optimization,
@@ -154,6 +158,7 @@ pub(super) fn provide_codegen_program(
         let mut diagnostics = preparation.diagnostics.clone();
         diagnostics.extend(backend_diagnostics);
         Ok(CodegenProgram {
+            diagnostic_sources: diagnostic_sources(db, &preparation.graph, &diagnostics)?,
             type_store: Arc::clone(&preparation.type_store),
             graph: preparation.graph.clone(),
             optimization: preparation.optimization,

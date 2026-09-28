@@ -200,7 +200,7 @@ fn filtered_const_global_initializer_for_body_check(
         db,
         "executable_body_check.const_eval.global_initializer.module_using_scope",
         global_id.module_id,
-        || db.get(ModuleUsingScopeQuery(global_id.module_id)),
+        || db.get(ModuleLexicalUsingScopesQuery(global_id.module_id)),
     )?;
     let source_version = *db.get(ModuleSourceVersionQuery(global_id.module_id))?;
     let origins = db.get(ModuleOriginsQuery(global_id.module_id))?;
@@ -243,7 +243,7 @@ fn filtered_const_global_initializer_for_body_check(
                     graph: Some(&graph),
                 },
                 &public_surfaces.surfaces,
-                using_scope.as_ref(),
+                &using_scope.scopes,
                 nia_value_resolve::ValueResolveOptions::with_store(
                     Some(&associated_values),
                     Some(&symbols),
@@ -354,7 +354,7 @@ fn filtered_const_global_initializer_for_body_check(
                     graph: Some(&graph),
                 },
                 &public_surfaces.surfaces,
-                using_scope.as_ref(),
+                &using_scope.scopes,
                 nia_value_resolve::ValueResolveOptions::with_store(
                     Some(&associated_values),
                     Some(&symbols),
