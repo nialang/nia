@@ -145,12 +145,47 @@ extend Build {
         self.paths.toolchainResourceRoot.view()
     }
 
+    // The target that compiles and runs this build's tools.
     pub fn hostTarget(&self) TargetView {
-        self.hostTarget.view()
+        self.targets.asSlice()[self.hostTarget].view()
     }
 
+    // The invocation-selected target used by artifacts that name no target.
     pub fn artifactTarget(&self) TargetView {
-        self.artifactTarget.view()
+        self.targets.asSlice()[self.artifactTarget].view()
+    }
+
+    // Resolves a canonical maintained target name, such as
+    // `x86_64-apple-macos`, for an artifact's `forTarget` option.
+    pub fn target(&self, name: &[char]) Error!TargetView {
+        if self.findTarget(name) is ?index {
+            return !self.targets.asSlice()[index].view();
+        }
+        .Invalid { operation: .Validate, subject: .Targets }!
+    }
+
+    fn findTarget(&self, name: &[char]) ?usize {
+        let mut index: usize = 0;
+        while index < self.targets.len() {
+            if self.targets.asSlice()[index].name.text().equals(name) {
+                return ?index;
+            }
+            index += 1;
+        }
+        null
+    }
+
+    // An artifact without a target uses the invocation artifact target. A
+    // selected view must name a member of this build's target matrix.
+    fn resolveArtifactTarget(&self, target: ?TargetView, subject: Subject) Error!usize {
+        match target {
+            null => !self.artifactTarget,
+            ?view => if self.findTarget(view.name) is ?index {
+                !index
+            } else {
+                .Invalid { operation: .Validate, subject }!
+            },
+        }
     }
 
     // Steps describe graph work. The build runner later performs execution,
@@ -309,7 +344,7 @@ extend Build {
     ) Error!StepHandle {
         compileName.append(self.allocator, &".compile")
             .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
-        let executable = self.addExecutable(ExecutableOptions::init(name, rootModule).forHost()).?;
+        let executable = self.addExecutable(ExecutableOptions::init(name, rootModule).forTarget(self.hostTarget())).?;
         _ = self.addEmitExecutableStep(compileName.text(), executable).?;
         self.addTestExecutableStep(name, .init(executable))
     }
@@ -628,13 +663,14 @@ extend Build {
             }!;
         }
         self.validateModuleHandle(options.rootModule).?;
+        let targetIndex = self.resolveArtifactTarget(options.target, .Executable(handle.index())).?;
         if options.staticArchives is ?archives {
             let mut archiveIndex: usize = 0;
             while archiveIndex < archives.len() {
                 let archive = archives[archiveIndex];
                 self.validateStaticArchiveHandle(archive).?;
                 let archiveTarget = self.staticArchives.asSlice()[archive.index()];
-                if archiveTarget.targetRole != options.targetRole {
+                if archiveTarget.targetIndex != targetIndex {
                     return .Invalid {
                         operation: Operation::Validate,
                         subject: Subject::Executable(handle.index()),
@@ -682,7 +718,7 @@ extend Build {
         self.pendingExecutable = .init(
             handle.index(),
             options.rootModule,
-            options.targetRole,
+            targetIndex,
         );
         self.hasPendingExecutable = true;
         if self.pendingExecutable.initialize(
@@ -719,6 +755,7 @@ extend Build {
             }!;
         }
         self.validateModuleHandle(options.rootModule).?;
+        let targetIndex = self.resolveArtifactTarget(options.target, .Object(handle.index())).?;
         let outputName = objectOutputName(options);
         if not isValidOutputName(outputName) {
             return .Invalid {
@@ -748,7 +785,7 @@ extend Build {
         self.pendingObject = .init(
             handle.index(),
             options.rootModule,
-            options.targetRole,
+            targetIndex,
         );
         self.hasPendingObject = true;
         if self.pendingObject.initialize(self.allocator, options.name, outputName) is primary! {
@@ -780,6 +817,7 @@ extend Build {
             }!;
         }
         self.validateModuleHandle(options.rootModule).?;
+        let targetIndex = self.resolveArtifactTarget(options.target, .StaticArchive(handle.index())).?;
         let outputName = staticArchiveOutputName(options);
         if not isValidOutputName(outputName) {
             return .Invalid {
@@ -809,7 +847,7 @@ extend Build {
         self.pendingStaticArchive = .init(
             handle.index(),
             options.rootModule,
-            options.targetRole,
+            targetIndex,
         );
         self.hasPendingStaticArchive = true;
         if self.pendingStaticArchive.initialize(self.allocator, options.name, outputName) is primary! {
@@ -1150,11 +1188,9 @@ extend Build {
     }
 
     fn validateRunnableExecutable(&self, handle: ExecutableHandle, stepIndex: usize) Error!() {
-        let role = self.executables.asSlice()[handle.index()].targetRole;
         validateRunnableTarget(
-            role,
-            self.hostTarget.view(),
-            self.artifactTarget.view(),
+            self.executables.asSlice()[handle.index()].targetIndex,
+            self.hostTarget,
             stepIndex,
         )
     }

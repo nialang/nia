@@ -33,12 +33,6 @@ pub enum OptimizationMode: i32 {
     _
 }
 
-pub(pkg) enum TargetRole: i32 {
-    Artifact = 1,
-    Host = 2,
-    _
-}
-
 pub(pkg) enum ModuleSourceRoot: i32 {
     Package = 1,
     Build = 2,
@@ -53,7 +47,9 @@ pub struct BuildPathView {
 
 // A target is identified by its canonical name, such as
 // `aarch64-apple-macos`; architecture, vendor, OS and environment are its
-// `-`-separated components. The toolchain derives byte order and pointer width.
+// `-`-separated components. The toolchain derives byte order and pointer width
+// and supplies the complete maintained matrix; `Build::target` resolves a name
+// against it.
 pub struct TargetView {
     name: &[char],
     endian: &[char],
@@ -309,13 +305,13 @@ pub struct OwnedModuleImport {
 }
 
 // Artifact descriptors borrow their name and module handles for one call. The
-// `Build` retains owned copies and resolves the invocation artifact target
-// unless the descriptor explicitly selects the host role.
+// `Build` retains owned copies. A descriptor without a target builds for the
+// invocation artifact target; records keep the resolved maintained target.
 pub struct ExecutableOptions {
     name: &[char],
     rootModule: ModuleHandle,
     outputName: ?&[char],
-    targetRole: TargetRole,
+    target: ?TargetView,
     staticArchives: ?&[StaticArchiveHandle],
 }
 
@@ -324,7 +320,7 @@ pub struct ExecutableTarget {
     name: string::String,
     rootModule: ModuleHandle,
     outputName: string::String,
-    targetRole: TargetRole,
+    targetIndex: usize,
     staticArchives: collections::ArrayList[StaticArchiveHandle],
 }
 
@@ -332,7 +328,7 @@ pub struct ObjectOptions {
     name: &[char],
     rootModule: ModuleHandle,
     outputName: ?&[char],
-    targetRole: TargetRole,
+    target: ?TargetView,
 }
 
 pub struct ObjectTarget {
@@ -340,14 +336,14 @@ pub struct ObjectTarget {
     name: string::String,
     rootModule: ModuleHandle,
     outputName: string::String,
-    targetRole: TargetRole,
+    targetIndex: usize,
 }
 
 pub struct StaticArchiveOptions {
     name: &[char],
     rootModule: ModuleHandle,
     outputName: ?&[char],
-    targetRole: TargetRole,
+    target: ?TargetView,
 }
 
 pub struct StaticArchiveTarget {
@@ -355,7 +351,7 @@ pub struct StaticArchiveTarget {
     name: string::String,
     rootModule: ModuleHandle,
     outputName: string::String,
-    targetRole: TargetRole,
+    targetIndex: usize,
 }
 
 pub struct BuildPaths {
@@ -381,8 +377,9 @@ pub struct Build {
     ownerId: usize,
     allocator: &mut mem::Allocator,
     paths: BuildPaths,
-    hostTarget: TargetStorage,
-    artifactTarget: TargetStorage,
+    targets: collections::ArrayList[TargetStorage],
+    hostTarget: usize,
+    artifactTarget: usize,
     defaultOptimization: OptimizationMode,
     planSchemaVersion: u32,
     requestedStep: string::String,

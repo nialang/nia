@@ -26,8 +26,8 @@ using types::{
     ActionResourceClass,
     CommandEnvironmentPolicy,
     CommandCachePolicy,
+    TargetStorage,
     TargetView,
-    TargetRole,
     PackageHandle,
 };
 
@@ -271,8 +271,7 @@ extend PlanEncoder {
         executables: &[ExecutableTarget],
         objects: &[ObjectTarget],
         staticArchives: &[StaticArchiveTarget],
-        hostTarget: TargetView,
-        artifactTarget: TargetView,
+        targets: &[TargetStorage],
         packages: &[types::Package],
     ) Error!() {
         self.writeRootNodeKey(step.name.text()).?;
@@ -292,14 +291,14 @@ extend PlanEncoder {
                 let moduleRecord = modules[target.rootModule.index];
                 self.writeU8(0).?;
                 self.writeRootNodeKey(moduleRecord.name.text()).?;
-                self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?).?;
+                self.writeTarget(targets[target.targetIndex].view()).?;
                 self.writeU8(1)
             },
             .EmitExecutable => {
                 let target = executables[step.payload.executable.target.index];
                 self.writeU8(1).?;
                 self.writeRootNodeKey(target.name.text()).?;
-                self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?).?;
+                self.writeTarget(targets[target.targetIndex].view()).?;
                 self.writeCount(target.staticArchives.len()).?;
                 for &archive in target.staticArchives.iter() {
                     let archiveTarget = staticArchives[archive.index];
@@ -311,14 +310,14 @@ extend PlanEncoder {
                 let target = objects[step.payload.object.target.index];
                 self.writeU8(1).?;
                 self.writeRootNodeKey(target.name.text()).?;
-                self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?).?;
+                self.writeTarget(targets[target.targetIndex].view()).?;
                 self.writeCount(0)
             },
             .EmitStaticArchive => {
                 let target = staticArchives[step.payload.staticArchive.target.index];
                 self.writeU8(1).?;
                 self.writeRootNodeKey(target.name.text()).?;
-                self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?).?;
+                self.writeTarget(targets[target.targetIndex].view()).?;
                 self.writeCount(0)
             },
             .RunExecutable => {
@@ -531,8 +530,7 @@ extend PlanEncoder {
                 build.executables.asSlice(),
                 build.objects.asSlice(),
                 build.staticArchives.asSlice(),
-                build.hostTarget(),
-                build.artifactTarget(),
+                build.targets.asSlice(),
                 build.packages.asSlice(),
             ).?;
         }
@@ -542,18 +540,6 @@ extend PlanEncoder {
         }
         self.writeOptionalStep(build, build.defaultStep).?;
         self.writeOptionalStep(build, build.selectedStep)
-    }
-}
-
-fn targetForRole(
-    role: TargetRole,
-    hostTarget: TargetView,
-    artifactTarget: TargetView,
-) Error!TargetView {
-    match role {
-        .Artifact => !artifactTarget,
-        .Host => !hostTarget,
-        _ => invalidPlan(),
     }
 }
 

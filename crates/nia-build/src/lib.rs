@@ -841,6 +841,10 @@ fn build_runner_source_for_path(
             &runner_config::RUNNER_CONFIG_MAX_BYTES.to_string(),
         )
         .replace(
+            "__NIA_TARGET_COUNT__",
+            &nia_target::SUPPORTED_TARGETS.len().to_string(),
+        )
+        .replace(
             "__NIA_RUNNER_CONFIG_MAGIC__",
             std::str::from_utf8(RUNNER_CONFIG.magic).map_err(|_| {
                 BuildError::PrepareRunnerConfiguration {
@@ -1843,7 +1847,8 @@ mod tests {
                 .contains("initialization.finish().reportAndExit(init).?")
         );
         assert!(runner.source.contains("readPath(&mut config"));
-        assert!(runner.source.contains("readTarget(&mut config"));
+        assert!(runner.source.contains("targets.read(&mut config"));
+        assert!(runner.source.contains("targets.views(),"));
         assert!(runner.source.contains("hostTarget,"));
         assert!(runner.source.contains("artifactTarget,"));
         assert!(
@@ -1852,6 +1857,7 @@ mod tests {
                 .contains("let defaultOptimization = readOptimization(&mut config)")
         );
         assert!(!runner.source.contains("__NIA_BUILD_PLAN_COMPATIBILITY__"));
+        assert!(!runner.source.contains("__NIA_TARGET_COUNT__"));
         assert!(runner.source.contains("defaultOptimization,"));
         assert!(runner.source.contains(&format!(
             "{}u32,",

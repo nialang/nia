@@ -58,7 +58,7 @@ fn configure(b: &mut build::Build) build::Error!() {
     ).?;
     let hostTool = b.addExecutable(
         build::ExecutableOptions::init(&hostToolName, hostToolModule)
-            .forHost()
+            .forTarget(b.hostTarget())
             .withOutputName(&hostToolOutputName),
     ).?;
     let objects = b.addObject(

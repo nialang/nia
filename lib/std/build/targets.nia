@@ -20,7 +20,6 @@ using types::{
     StaticArchiveHandle,
     StaticArchiveOptions,
     StaticArchiveTarget,
-    TargetRole,
     TargetStorage,
     TargetView,
 };
@@ -29,9 +28,9 @@ extend ExecutableTarget {
     pub(pkg) fn init(
         index: usize,
         rootModule: ModuleHandle,
-        targetRole: TargetRole,
+        targetIndex: usize,
     ) ExecutableTarget {
-        .{ index, name: .init(), rootModule, outputName: .init(), targetRole, staticArchives: .init() }
+        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, staticArchives: .init() }
     }
 
     pub(pkg) fn initialize(
@@ -68,9 +67,9 @@ extend ObjectTarget {
     pub(pkg) fn init(
         index: usize,
         rootModule: ModuleHandle,
-        targetRole: TargetRole,
+        targetIndex: usize,
     ) ObjectTarget {
-        .{ index, name: .init(), rootModule, outputName: .init(), targetRole }
+        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex }
     }
 
     pub(pkg) fn initialize(
@@ -96,9 +95,9 @@ extend StaticArchiveTarget {
     pub(pkg) fn init(
         index: usize,
         rootModule: ModuleHandle,
-        targetRole: TargetRole,
+        targetIndex: usize,
     ) StaticArchiveTarget {
-        .{ index, name: .init(), rootModule, outputName: .init(), targetRole }
+        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex }
     }
 
     pub(pkg) fn initialize(
@@ -207,14 +206,15 @@ extend TargetStorage {
 }
 
 extend ExecutableOptions {
-    // Artifact target is the default. Use `forHost` for tools that execute
-    // during this build.
+    // The invocation artifact target is the default. Select another maintained
+    // target with `forTarget`: `b.hostTarget()` for tools that execute during
+    // this build, or `b.target(name)` for an additional artifact target.
     pub fn init(name: &[char], rootModule: ModuleHandle) ExecutableOptions {
         .{
             name,
             rootModule,
             outputName: null,
-            targetRole: .Artifact,
+            target: null,
             staticArchives: null,
         }
     }
@@ -224,17 +224,17 @@ extend ExecutableOptions {
             name: self.name,
             rootModule: self.rootModule,
             outputName: ?outputName,
-            targetRole: self.targetRole,
+            target: self.target,
             staticArchives: self.staticArchives,
         }
     }
 
-    pub fn forHost(self) ExecutableOptions {
+    pub fn forTarget(self, target: TargetView) ExecutableOptions {
         .{
             name: self.name,
             rootModule: self.rootModule,
             outputName: self.outputName,
-            targetRole: .Host,
+            target: ?target,
             staticArchives: self.staticArchives,
         }
     }
@@ -244,7 +244,7 @@ extend ExecutableOptions {
             name: self.name,
             rootModule: self.rootModule,
             outputName: self.outputName,
-            targetRole: self.targetRole,
+            target: self.target,
             staticArchives: ?staticArchives,
         }
     }
@@ -256,7 +256,7 @@ extend ObjectOptions {
             name,
             rootModule,
             outputName: null,
-            targetRole: .Artifact,
+            target: null,
         }
     }
 
@@ -265,16 +265,16 @@ extend ObjectOptions {
             name: self.name,
             rootModule: self.rootModule,
             outputName: ?outputName,
-            targetRole: self.targetRole,
+            target: self.target,
         }
     }
 
-    pub fn forHost(self) ObjectOptions {
+    pub fn forTarget(self, target: TargetView) ObjectOptions {
         .{
             name: self.name,
             rootModule: self.rootModule,
             outputName: self.outputName,
-            targetRole: .Host,
+            target: ?target,
         }
     }
 }
@@ -285,7 +285,7 @@ extend StaticArchiveOptions {
             name,
             rootModule,
             outputName: null,
-            targetRole: .Artifact,
+            target: null,
         }
     }
 
@@ -294,16 +294,16 @@ extend StaticArchiveOptions {
             name: self.name,
             rootModule: self.rootModule,
             outputName: ?outputName,
-            targetRole: self.targetRole,
+            target: self.target,
         }
     }
 
-    pub fn forHost(self) StaticArchiveOptions {
+    pub fn forTarget(self, target: TargetView) StaticArchiveOptions {
         .{
             name: self.name,
             rootModule: self.rootModule,
             outputName: self.outputName,
-            targetRole: .Host,
+            target: ?target,
         }
     }
 }

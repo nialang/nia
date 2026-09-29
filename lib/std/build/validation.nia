@@ -16,8 +16,6 @@ using types::{
     PackageHandle,
     StaticArchiveHandle,
     StepHandle,
-    TargetRole,
-    TargetView,
 };
 
 pub(pkg) fn validateExecutableHandle(
@@ -105,20 +103,15 @@ pub(pkg) fn validateStepHandle(
 }
 
 pub(pkg) fn validateRunnableTarget(
-    role: TargetRole,
-    hostTarget: TargetView,
-    artifactTarget: TargetView,
+    targetIndex: usize,
+    hostTarget: usize,
     stepIndex: usize,
 ) Error!() {
     // Run and test actions execute while constructing this build, so their
-    // program uses the host target. An artifact-role executable remains
-    // runnable for native builds because both roles resolve to one target.
-    let runsOnHost = match role {
-        .Host => true,
-        .Artifact => hostTarget.equals(artifactTarget),
-        _ => false,
-    };
-    if not runsOnHost {
+    // program must be built for the host. An executable without an explicit
+    // target is runnable in a native build, where the invocation artifact
+    // target is the host.
+    if targetIndex != hostTarget {
         return .Invalid {
             operation: .Validate,
             subject: .Step(stepIndex),

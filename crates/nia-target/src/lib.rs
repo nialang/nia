@@ -201,6 +201,15 @@ impl TargetConfig {
         Self::new(arch, os)
     }
 
+    /// Position of this target in [`SUPPORTED_TARGETS`], for protocols that
+    /// transmit the matrix once and refer to its members by index.
+    pub fn matrix_index(self) -> usize {
+        SUPPORTED_TARGETS
+            .iter()
+            .position(|target| *target == self)
+            .expect("every constructed target is a member of the matrix")
+    }
+
     /// Target architecture.
     pub const fn arch(self) -> Arch {
         self.arch
@@ -314,6 +323,7 @@ mod tests {
         for target in SUPPORTED_TARGETS {
             assert_eq!(TargetConfig::parse(&target.name()), Ok(target));
             assert_eq!(TargetConfig::new(target.arch(), target.os()), Some(target));
+            assert_eq!(SUPPORTED_TARGETS[target.matrix_index()], target);
         }
         assert_eq!(
             SUPPORTED_TARGETS.map(TargetConfig::name),

@@ -14,7 +14,6 @@ pub(crate) fn canonicalize_actions(
     modules: &[PlanModule],
     artifacts: &[PlanArtifact],
     host_target: &TargetConfig,
-    artifact_target: &TargetConfig,
 ) -> Result<(), PlanError> {
     actions.sort_by(|left, right| left.key.cmp(&right.key));
     reject_duplicate_by(
@@ -47,27 +46,10 @@ pub(crate) fn canonicalize_actions(
             });
         }
     }
+    // Compiler actions may name any maintained target; decoding already
+    // rejects names outside the matrix, and the executor creates one driver
+    // per distinct target.
     for action in actions {
-        let compiler_target = match &action.kind {
-            ActionKind::CompilerCheck { target, .. } | ActionKind::CompilerEmit { target, .. } => {
-                Some(target)
-            }
-            _ => None,
-        };
-        if let Some(target) = compiler_target
-            && target != host_target
-            && target != artifact_target
-        {
-            // The two plan targets define the complete driver set authorized
-            // by the invocation. Per-action targets may select either role,
-            // but must not smuggle an unvalidated third toolchain target in.
-            return Err(PlanError::InvalidActionTarget(Box::new(
-                InvalidActionTarget {
-                    action: action.key.clone(),
-                    target: *target,
-                },
-            )));
-        }
         match &mut action.kind {
             ActionKind::TestExecutable(CommandAction { cache_policy, .. })
                 if *cache_policy != CommandCachePolicy::Uncacheable =>

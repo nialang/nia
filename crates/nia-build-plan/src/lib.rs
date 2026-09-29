@@ -548,7 +548,8 @@ pub struct BuildPlanDraft {
     pub packages: Vec<PlanPackage>,
     /// Target used to compile and run build tools.
     pub host_target: TargetConfig,
-    /// Target used for requested artifacts.
+    /// Invocation-selected default for artifacts that name no target; each
+    /// artifact may select any maintained target.
     pub artifact_target: TargetConfig,
     /// Module declarations.
     pub modules: Vec<PlanModule>,
@@ -702,17 +703,6 @@ pub enum PlanError {
     },
     /// A nonempty plan has neither a default nor an explicitly selected step.
     MissingDefaultStep,
-    /// A compiler action requests a target outside the plan's host/artifact pair.
-    InvalidActionTarget(Box<InvalidActionTarget>),
-}
-
-/// Target mismatch attached to an invalid compiler action.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InvalidActionTarget {
-    /// Action carrying the mismatched target.
-    pub action: ActionKey,
-    /// Target requested by the action.
-    pub target: TargetConfig,
 }
 
 impl fmt::Display for PlanError {
@@ -865,12 +855,6 @@ impl fmt::Display for PlanError {
             Self::MissingDefaultStep => {
                 f.write_str("non-empty build plan has no default or selected step")
             }
-            Self::InvalidActionTarget(details) => write!(
-                f,
-                "action `{}` requests target `{}` outside the plan's host/artifact targets",
-                display_node_key(&details.action),
-                details.target
-            ),
         }
     }
 }
@@ -927,7 +911,6 @@ impl BuildPlan {
             &draft.modules,
             &draft.artifacts,
             &draft.host_target,
-            &draft.artifact_target,
         )?;
         validation::canonicalize_steps(&mut draft.steps, &draft.actions)?;
         validation::validate_step_selection(&draft)?;
@@ -968,7 +951,7 @@ impl BuildPlan {
     pub fn host_target(&self) -> &TargetConfig {
         &self.host_target
     }
-    /// Returns the artifact target.
+    /// Returns the invocation-selected default artifact target.
     pub fn artifact_target(&self) -> &TargetConfig {
         &self.artifact_target
     }
@@ -1125,7 +1108,7 @@ mod tests {
     }
 
     #[test]
-    fn freeze_rejects_compiler_targets_outside_the_plan_pair() {
+    fn freeze_accepts_compiler_actions_for_any_maintained_target() {
         for action_name in ["check", "emit"] {
             let mut value = draft(false);
             let action = value
@@ -1139,13 +1122,20 @@ mod tests {
                 _ => unreachable!(),
             };
             let third = TargetConfig::parse("x86_64-apple-macos").unwrap();
+            assert_ne!(third, value.host_target);
+            assert_ne!(third, value.artifact_target);
             *target = third;
 
+            let plan = BuildPlan::freeze(value).unwrap();
+            let action = plan
+                .actions()
+                .iter()
+                .find(|action| action.key.name() == action_name)
+                .unwrap();
             assert!(matches!(
-                BuildPlan::freeze(value),
-                Err(PlanError::InvalidActionTarget(details))
-                    if details.action.name() == action_name
-                        && details.target == third
+                &action.kind,
+                ActionKind::CompilerCheck { target, .. }
+                    | ActionKind::CompilerEmit { target, .. } if *target == third
             ));
         }
     }

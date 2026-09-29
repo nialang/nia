@@ -19,6 +19,7 @@ using pkg::build::records_cleanup::{
     releasePackages,
     releaseStaticArchives,
     releaseSteps,
+    releaseTargets,
 };
 using pkg::build::steps;
 using pkg::build::types;
@@ -31,13 +32,14 @@ using types::{
     BuildInitAttempt,
     ModuleSourceRoot,
     OptimizationMode,
-    TargetRole,
+    TargetStorage,
     TargetView,
 };
 
 extend Build {
     // These values describe the current package invocation and its resolved
-    // toolchain.
+    // toolchain. `targets` is the toolchain's maintained target matrix;
+    // `hostTarget` and `artifactTarget` index it.
     pub fn init(
         allocator: &mut mem::Allocator,
         packageRoot: fs::PathView,
@@ -45,8 +47,9 @@ extend Build {
         cacheDir: fs::PathView,
         toolchainExecutable: fs::PathView,
         toolchainResourceRoot: fs::PathView,
-        hostTarget: TargetView,
-        artifactTarget: TargetView,
+        targets: &[TargetView],
+        hostTarget: usize,
+        artifactTarget: usize,
         defaultOptimization: OptimizationMode,
         planSchemaVersion: u32,
         requestedStep: ?&[char],
@@ -57,8 +60,9 @@ extend Build {
             ownerId: ownerId,
             allocator: allocator,
             paths: .init(),
-            hostTarget: .init(hostTarget.pointerWidth),
-            artifactTarget: .init(artifactTarget.pointerWidth),
+            targets: .init(),
+            hostTarget: hostTarget,
+            artifactTarget: artifactTarget,
             defaultOptimization: defaultOptimization,
             planSchemaVersion: planSchemaVersion,
             requestedStep: .init(),
@@ -86,21 +90,21 @@ extend Build {
             pendingExecutable: .init(
                 0,
                 .init(ownerId, 0),
-                TargetRole::Artifact,
+                0,
             ),
             hasPendingExecutable: false,
             objects: .init(),
             pendingObject: .init(
                 0,
                 .init(ownerId, 0),
-                TargetRole::Artifact,
+                0,
             ),
             hasPendingObject: false,
             staticArchives: .init(),
             pendingStaticArchive: .init(
                 0,
                 .init(ownerId, 0),
-                TargetRole::Artifact,
+                0,
             ),
             hasPendingStaticArchive: false,
             validationIndegree: .init(),
@@ -118,8 +122,7 @@ extend Build {
             cacheDir,
             toolchainExecutable,
             toolchainResourceRoot,
-            hostTarget,
-            artifactTarget,
+            targets,
             requestedStep,
         ) is primary! {
             attempt.primary = ?primary;
@@ -134,8 +137,7 @@ extend Build {
         cacheDir: fs::PathView,
         toolchainExecutable: fs::PathView,
         toolchainResourceRoot: fs::PathView,
-        hostTarget: TargetView,
-        artifactTarget: TargetView,
+        targets: &[TargetView],
         requestedStep: ?&[char],
     ) Error!() {
         self.paths.packageRoot = fs::Path::fromView(self.allocator, packageRoot).withBuildContext(Operation::Retain, Subject::PackageRoot).?;
@@ -143,14 +145,42 @@ extend Build {
         self.paths.cacheDir = fs::Path::fromView(self.allocator, cacheDir).withBuildContext(Operation::Retain, Subject::CacheDir).?;
         self.paths.toolchainExecutable = fs::Path::fromView(self.allocator, toolchainExecutable).withBuildContext(Operation::Retain, Subject::ToolchainExecutable).?;
         self.paths.toolchainResourceRoot = fs::Path::fromView(self.allocator, toolchainResourceRoot).withBuildContext(Operation::Retain, Subject::ToolchainResourceRoot).?;
-        self.hostTarget.initialize(self.allocator, hostTarget, Subject::HostTarget).?;
-        self.artifactTarget.initialize(self.allocator, artifactTarget, Subject::ArtifactTarget).?;
+        self.initializeTargets(targets).?;
         if requestedStep is ?step {
             self.requestedStep = string::String::fromSlice(self.allocator, step).withBuildContext(
                 Operation::Retain,
                 Subject::RequestedStep,
             ).?;
             self.hasRequestedStep = true;
+        }
+        !()
+    }
+
+    // Each record is attached before its names are copied, so a failed copy
+    // leaves a residual owner that `deinit` releases.
+    fn initializeTargets(&mut self, targets: &[TargetView]) Error!() {
+        if self.hostTarget >= targets.len() {
+            return .Invalid { operation: .Validate, subject: .HostTarget }!;
+        }
+        if self.artifactTarget >= targets.len() {
+            return .Invalid { operation: .Validate, subject: .ArtifactTarget }!;
+        }
+        let mut index: usize = 0;
+        while index < targets.len() {
+            let mut previous: usize = 0;
+            while previous < index {
+                if targets[previous].equals(targets[index]) {
+                    return .Invalid { operation: .Validate, subject: .Targets }!;
+                }
+                previous += 1;
+            }
+            index += 1;
+        }
+        self.targets.reserve(self.allocator, targets.len()).withBuildContext(Operation::Retain, Subject::Targets).?;
+        for &target in targets.iter() {
+            self.targets.appendAssumeCapacity(TargetStorage::init(target.pointerWidth));
+            let last = self.targets.len() - 1;
+            self.targets.asMutSlice()[last].initialize(self.allocator, target, Subject::Targets).?;
         }
         !()
     }
@@ -173,8 +203,7 @@ extend Build {
         cleanup.attempt(releaseObjects(self.allocator, &mut self.objects));
         cleanup.attempt(releaseStaticArchives(self.allocator, &mut self.staticArchives));
         cleanup.attempt(releaseModules(self.allocator, &mut self.modules));
-        cleanup.attempt(self.artifactTarget.deinit(self.allocator, Subject::ArtifactTarget));
-        cleanup.attempt(self.hostTarget.deinit(self.allocator, Subject::HostTarget));
+        cleanup.attempt(releaseTargets(self.allocator, &mut self.targets));
         cleanup.attempt(self.requestedStep.deinit(self.allocator).withBuildContext(
             Operation::Release,
             Subject::RequestedStep,

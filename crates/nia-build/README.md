@@ -142,6 +142,14 @@ role and show the invocation target as expected and the plan target as found.
 The CLI freezes a new plan from each invocation; `build-plan.bin` is a durable
 observation, not an alternate execution input.
 
+The runner receives the toolchain's complete maintained target matrix. An
+artifact without a target builds for the invocation artifact target;
+`forTarget` selects any other member, such as `b.hostTarget()` for a tool the
+build runs or `b.target("x86_64-apple-macos")` for an additional artifact.
+Each compiler action carries its resolved target, and the coordinator creates
+one driver per distinct target in the plan. Run, test and command programs must
+be built for the host target.
+
 The coordinator executes deterministic readiness waves through `QuerySession`,
 so build actions share the process jobserver and compiler resource budgets.
 `Cpu` and `Io` actions reserve one action slot; `Conservative` actions reserve

@@ -103,25 +103,14 @@ fn isBuildDirRetainOom(error: build::Error) bool {
     }
 }
 
-fn isTargetRetainOom(error: build::Error, host: bool) bool {
-    if host {
-        match error {
-            build::Error::Failure {
-                operation: build::ErrorOperation::Retain,
-                subject: build::ErrorSubject::HostTarget,
-                cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
-            } => true,
-            _ => false,
-        }
-    } else {
-        match error {
-            build::Error::Failure {
-                operation: build::ErrorOperation::Retain,
-                subject: build::ErrorSubject::ArtifactTarget,
-                cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
-            } => true,
-            _ => false,
-        }
+fn isTargetRetainOom(error: build::Error) bool {
+    match error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Retain,
+            subject: build::ErrorSubject::Targets,
+            cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
+        } => true,
+        _ => false,
     }
 }
 
@@ -311,8 +300,9 @@ fn checkInitRollback(init: process::Init) process::ExitCode!() {
         path,
         path,
         path,
-        target,
-        target,
+        &[target],
+        0usize,
+        0usize,
         build::OptimizationMode::O0,
         1u32,
         null,
@@ -336,12 +326,17 @@ fn checkInitRollback(init: process::Init) process::ExitCode!() {
     !()
 }
 
+// Allocations 0-4 retain the five paths, 5 reserves the target table, and each
+// target then retains its name and byte order. Every failure point must report
+// the target collection and release everything retained before it.
 fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     allocator.failAfter(successfulAllocations);
     let pathText: [char; 64] = ['p'; 64];
     let path = fs::PathView::init(&pathText);
-    let target = testTarget(&pathText);
+    let hostText: [char; 64] = ['h'; 64];
+    let artifactText: [char; 64] = ['a'; 64];
+    let targets = [testTarget(&hostText), testTarget(&artifactText)];
     let mut initialization = build::Build::init(
         &mut allocator,
         path,
@@ -349,8 +344,9 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
         path,
         path,
         path,
-        target,
-        target,
+        &targets,
+        0usize,
+        1usize,
         build::OptimizationMode::O0,
         1u32,
         null,
@@ -363,8 +359,7 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
             return process::ExitCode(14)!;
         },
         err! => {
-            let host = successfulAllocations < 7usize;
-            if not isTargetRetainOom(err, host) {
+            if not isTargetRetainOom(err) {
                 return process::ExitCode(15)!;
             }
         },
@@ -389,8 +384,9 @@ fn checkInitCleanupRetry(init: process::Init) process::ExitCode!() {
         path,
         path,
         path,
-        target,
-        target,
+        &[target],
+        0usize,
+        0usize,
         build::OptimizationMode::O0,
         1u32,
         null,
@@ -440,8 +436,9 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
         emptyPath,
         emptyPath,
         emptyPath,
-        target,
-        target,
+        &[target],
+        0usize,
+        0usize,
         build::OptimizationMode::O0,
         1u32,
         null,
@@ -707,14 +704,16 @@ fn checkPendingUncacheableStep(init: process::Init) process::ExitCode!() {
         emptyPath,
         emptyPath,
         emptyPath,
-        target,
-        target,
+        &[target],
+        0usize,
+        0usize,
         build::OptimizationMode::O0,
         1u32,
         null,
         false,
     );
     let mut api = initialization.finish().?;
+    let baseline = allocator.activeAllocations;
     allocator.failAfter(2usize);
     allocator.failNextRetainedFree();
     match api.addUncacheableStep(&"uncacheable", &"description") {
@@ -726,7 +725,7 @@ fn checkPendingUncacheableStep(init: process::Init) process::ExitCode!() {
             return process::ExitCode(73)!;
         },
     }
-    if allocator.activeAllocations != 2usize {
+    if allocator.activeAllocations != baseline + 2usize {
         return process::ExitCode(74)!;
     }
     allocator.disableFailure();
@@ -750,8 +749,9 @@ fn checkPendingInstallStep(init: process::Init) process::ExitCode!() {
         emptyPath,
         emptyPath,
         emptyPath,
-        target,
-        target,
+        &[target],
+        0usize,
+        0usize,
         build::OptimizationMode::O0,
         1u32,
         null,
@@ -805,14 +805,16 @@ fn checkPendingExternalEnvironment(init: process::Init) process::ExitCode!() {
         emptyPath,
         emptyPath,
         emptyPath,
-        target,
-        target,
+        &[target],
+        0usize,
+        0usize,
         build::OptimizationMode::O0,
         1u32,
         null,
         false,
     );
     let mut api = initialization.finish().?;
+    let baseline = allocator.activeAllocations;
     let environment = [build::CommandEnvironmentInput::init(&"NAME", &"value")];
     let options = build::ExternalCommandOptions::search(&"tool")
         .withEnvironment(&environment[..]);
@@ -827,7 +829,7 @@ fn checkPendingExternalEnvironment(init: process::Init) process::ExitCode!() {
             return process::ExitCode(81)!;
         },
     }
-    if allocator.activeAllocations != 5usize {
+    if allocator.activeAllocations != baseline + 5usize {
         return process::ExitCode(82)!;
     }
     allocator.disableFailure();
@@ -851,8 +853,9 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!() {
         emptyPath,
         emptyPath,
         emptyPath,
-        target,
-        target,
+        &[target],
+        0usize,
+        0usize,
         build::OptimizationMode::O0,
         1u32,
         null,
@@ -928,8 +931,9 @@ fn checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!(
         emptyPath,
         emptyPath,
         emptyPath,
-        target,
-        target,
+        &[target],
+        0usize,
+        0usize,
         build::OptimizationMode::O0,
         1u32,
         null,
@@ -977,8 +981,9 @@ fn checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!(
         emptyPath,
         emptyPath,
         emptyPath,
-        target,
-        target,
+        &[target],
+        0usize,
+        0usize,
         build::OptimizationMode::O0,
         1u32,
         null,
@@ -1023,8 +1028,9 @@ fn checkValidationScratchCleanupRetry(init: process::Init) process::ExitCode!() 
         emptyPath,
         emptyPath,
         emptyPath,
-        target,
-        target,
+        &[target],
+        0usize,
+        0usize,
         build::OptimizationMode::O0,
         1u32,
         null,
@@ -1074,12 +1080,13 @@ fn checkValidationScratchCleanupRetry(init: process::Init) process::ExitCode!() 
 
 pub fn main(init: process::Init) process::ExitCode!() {
     checkInitRollback(init).?;
-    // Five path retains precede each target, which retains its name and
-    // byte order: allocations 5-6 belong to the host, 7-8 to the artifact.
+    // Allocation 5 reserves the target table; 6-7 retain the host target and
+    // 8-9 the artifact target.
     checkTargetInitRollback(init, 5usize).?;
     checkTargetInitRollback(init, 6usize).?;
     checkTargetInitRollback(init, 7usize).?;
     checkTargetInitRollback(init, 8usize).?;
+    checkTargetInitRollback(init, 9usize).?;
     checkInitCleanupRetry(init).?;
     checkRecordRollback(init).?;
     checkPendingUncacheableStep(init).?;
