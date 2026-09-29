@@ -248,13 +248,13 @@ impl<'ctx> Module<'ctx> {
 
     #[cfg(windows)]
     fn ir_string_via_temp_file(&self) -> LlvmResult<String> {
+        // Timestamps are too coarse to separate concurrent printers on
+        // Windows; the process-wide sequence keeps every path distinct.
+        static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let unique = format!(
             "nia_llvm_ir_{}_{}.ll",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or_default()
+            SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         );
         let path = std::env::temp_dir().join(unique);
         let path_cstr = to_c_string(&path.to_string_lossy())?;
