@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{path::Path, process::Command};
 
-#[allow(dead_code, unused_imports)]
 mod support;
 
 use nia_test_support::{
@@ -74,7 +73,7 @@ fn run_build_case(name: &str) {
     let _resources = nia_test_support::acquire_test_resources(workload);
     let contract = manifest.required("contract");
     let step = manifest.required("step");
-    let workspace = support::temp_dir(&format!("build-case-{name}"));
+    let workspace = nia_test_support::test_dir(&format!("build-case-{name}"));
     copy_case_tree(&case_root, &workspace);
 
     let mut command = support::nia_command();

@@ -3,7 +3,7 @@ use std::process::Command;
 
 mod support;
 
-use support::{CommandExt, CommandStatusExt, temp_dir};
+use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 #[test]
 fn build_owned_inputs_roll_back_partial_allocations() {

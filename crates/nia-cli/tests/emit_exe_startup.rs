@@ -3,7 +3,7 @@ use std::process::Command;
 
 mod support;
 
-use support::{CommandExt, CommandStatusExt, nia_command_with_resource_root, temp_dir};
+use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 #[test]
 fn emit_llvm_retains_reachable_imports_from_a_declarations_only_module() {
@@ -292,13 +292,14 @@ pub fn mymain() i32 {
     )
     .expect("write test source");
 
-    let output = nia_command_with_resource_root(&resource_root)
-        .arg("emit")
-        .arg("--exe")
-        .arg(&main)
-        .arg("-o")
-        .arg(&exe)
-        .output_timeout_for_build("run nia emit --exe with custom std start");
+    let output =
+        nia_test_support::nia_command_with_resource_root(env!("CARGO_BIN_EXE_nia"), &resource_root)
+            .arg("emit")
+            .arg("--exe")
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output_timeout_for_build("run nia emit --exe with custom std start");
 
     assert!(
         output.status.success(),

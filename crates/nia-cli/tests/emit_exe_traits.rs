@@ -3,7 +3,7 @@ use std::process::Command;
 
 mod support;
 
-use support::{CommandExt, CommandStatusExt, temp_dir};
+use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 #[test]
 fn emit_exe_retains_cross_module_generic_trait_witnesses() {

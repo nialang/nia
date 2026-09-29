@@ -115,6 +115,33 @@ impl Drop for TestDir {
     }
 }
 
+/// Workspace checkout containing this crate, whose `lib` directory holds the
+/// toolchain resources under test.
+pub fn workspace_root() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("nia-test-support lives under crates/")
+}
+
+/// A `nia` invocation using `resource_root` as its toolchain resources.
+///
+/// `program` is the compiler under test, normally `env!("CARGO_BIN_EXE_nia")`,
+/// which only integration tests of the binary crate can name.
+pub fn nia_command_with_resource_root(
+    program: impl AsRef<OsStr>,
+    resource_root: impl Into<PathBuf>,
+) -> Command {
+    let mut command = Command::new(program);
+    command.arg("--resource-root").arg(resource_root.into());
+    command
+}
+
+/// A `nia` invocation using this checkout's resources.
+pub fn nia_command(program: impl AsRef<OsStr>) -> Command {
+    nia_command_with_resource_root(program, workspace_root().join("lib"))
+}
+
 /// Creates a process/thread-unique temporary directory for one test.
 pub fn test_dir(name: &str) -> TestDir {
     let name = test_dir_component(name);

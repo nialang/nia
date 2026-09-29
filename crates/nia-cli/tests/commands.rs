@@ -9,7 +9,7 @@ use std::{os::fd::FromRawFd, thread};
 
 mod support;
 
-use support::{CommandExt, CommandStatusExt, temp_dir};
+use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 fn assert_source_error_json(stderr: &str, code: &str, source: &std::path::Path) {
     let report: serde_json::Value = serde_json::from_str(stderr).expect("one complete JSON report");

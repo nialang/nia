@@ -3,7 +3,7 @@ use std::process::Command;
 
 mod support;
 
-use support::{CommandExt, CommandStatusExt, temp_dir};
+use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 #[test]
 fn emit_exe_array_repeat_evaluates_each_element_once() {

@@ -3,8 +3,7 @@ use std::process::Command;
 
 mod support;
 
-#[allow(unused_imports)]
-use support::{CommandExt, CommandStatusExt, temp_dir};
+use nia_test_support::{CommandExt, test_dir as temp_dir};
 
 #[test]
 fn build_configuration_does_not_execute_compiler_actions() {
