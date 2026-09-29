@@ -6,6 +6,50 @@ mod support;
 use support::{CommandExt, CommandStatusExt, nia_command_with_resource_root, temp_dir};
 
 #[test]
+fn emit_llvm_retains_reachable_imports_from_a_declarations_only_module() {
+    let root = temp_dir("emit_llvm_declarations_only_module");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+module native;
+using entry::native;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    process::ExitCode(native::readValue())!
+}
+"#,
+    )
+    .expect("write caller");
+    std::fs::write(
+        root.join("native.nia"),
+        r#"
+@[linkName("nia_test_external_value")]
+pub extern fn readValue() i32;
+pub extern fn nia_test_unused_import() i32;
+"#,
+    )
+    .expect("write external declarations");
+
+    for runtime in ["bare", "freestanding"] {
+        let output = support::nia_command()
+            .args(["emit", "--llvm", "--runtime", runtime])
+            .arg(&main)
+            .output_timeout_for_compiler("emit external declaration module");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let llvm = String::from_utf8_lossy(&output.stdout);
+        assert!(llvm.contains("@nia_test_external_value("), "{llvm}");
+        assert!(!llvm.contains("@nia_test_unused_import("), "{llvm}");
+    }
+}
+
+#[test]
 fn emit_exe_reports_private_entry_main_called_by_freestanding_start() {
     let root = temp_dir("emit_exe_reports_private_entry_main_called_by_freestanding_start");
     let main = root.join("main.nia");
@@ -51,6 +95,7 @@ fn emit_exe_entry_name_is_chosen_by_selected_runtime_not_compiler() {
         resource_root.join("runtime/start/freestanding/windows.nia");
     let std_start_windows_x86_64 =
         resource_root.join("runtime/start/freestanding/windows/x86_64.nia");
+    let windows_builtins = resource_root.join("runtime/builtins/windows/x86_64.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::create_dir_all(std_start_linux_x86_64.parent().expect("std start parent"))
         .expect("create custom runtime dir");
@@ -60,6 +105,8 @@ fn emit_exe_entry_name_is_chosen_by_selected_runtime_not_compiler() {
             .expect("std Windows start parent"),
     )
     .expect("create custom Windows runtime dir");
+    std::fs::create_dir_all(windows_builtins.parent().expect("Windows builtins parent"))
+        .expect("create custom Windows builtins dir");
     std::fs::create_dir_all(std_builtin.parent().expect("custom std builtin parent"))
         .expect("create custom std library dir");
     let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -78,7 +125,26 @@ pub module builtin;
 "#,
     )
     .expect("write custom std root");
-    std::fs::write(&runtime_root, "pub(pkg) module start;").expect("write custom runtime root");
+    std::fs::write(
+        &runtime_root,
+        "pub(pkg) module start; pub(pkg) module builtins;",
+    )
+    .expect("write custom runtime root");
+    std::fs::write(
+        resource_root.join("runtime/builtins.nia"),
+        "pub(pkg) module windows;",
+    )
+    .expect("write builtins facade");
+    std::fs::write(
+        resource_root.join("runtime/builtins/windows.nia"),
+        "pub(pkg) module x86_64;",
+    )
+    .expect("write Windows builtins facade");
+    std::fs::copy(
+        workspace_root.join("lib/runtime/builtins/windows/x86_64.nia"),
+        &windows_builtins,
+    )
+    .expect("copy Windows stack probe");
     std::fs::write(
         &std_builtin,
         r#"
@@ -213,7 +279,7 @@ extern fn customStart() () {
     .expect("write custom i686 std start");
     std::fs::write(
         &std_start_windows_x86_64,
-        "using entry;\n\nextern fn ExitProcess(code: u32) ();\n\n@[naked]\npub extern fn _start() () {\n    std::builtin::asm(.{ code: b\"sub rsp, 40\\ncall $0\\nud2\", inputs: .{ reg: &customStart }, clobbers: [b\"memory\"], options: [b\"volatile\"] });\n    loop {}\n}\n\n@[naked]\npub extern fn __chkstk() () {\n    std::builtin::asm(.{ code: b\"ret\", options: [b\"volatile\"] });\n    loop {}\n}\n\nextern fn customStart() () { ExitProcess(11u32); loop {} }\n",
+        "using entry;\nusing pkg::builtins::windows::x86_64::__chkstk;\n\nextern fn ExitProcess(code: u32) ();\n\n@[naked]\npub extern fn _start() () {\n    std::builtin::asm(.{ code: b\"sub rsp, 40\\ncall $0\\nud2\", inputs: .{ reg: &customStart }, clobbers: [b\"memory\"], options: [b\"volatile\"] });\n    loop {}\n}\n\nextern fn customStart() () { ExitProcess(11u32); loop {} }\n",
     )
     .expect("write custom Windows std start");
     std::fs::write(

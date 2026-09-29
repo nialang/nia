@@ -1,0 +1,137 @@
+using pkg::os::windows::types::{
+    maxPathBytes,
+    Errno,
+};
+using pkg::os::windows::encoding::{
+    cStringLen,
+    utf8ToWide,
+    wideStringLen,
+};
+using pkg::os::windows::mem::{
+    MappedPages,
+    mapPages,
+    unmapPages,
+};
+
+pub(pkg) fn appendCommandArgument(storage: &mut [u16], cursor: &mut usize, text: &u8) Errno!() {
+    let mut wideStorage: [u16; maxPathBytes] = [0; maxPathBytes];
+    _ = utf8ToWide(text, &mut wideStorage[..]).?;
+
+    if cursor.* != 0 {
+        if cursor.* + 1 >= storage.len() { return .TooLong!; }
+        storage[cursor.*] = 32;
+        cursor.* += 1;
+    }
+
+    let length = wideStringLen(&wideStorage[0]);
+    let mut needsQuotes = length == 0;
+    let mut index: usize = 0;
+    while index < length {
+        if wideStorage[index] == 32 or wideStorage[index] == 9 or wideStorage[index] == 34 {
+            needsQuotes = true;
+        }
+        index += 1;
+    }
+
+    if needsQuotes { appendCommandUnit(storage, cursor, 34).?; }
+    index = 0;
+    while index < length {
+        if wideStorage[index] == 92 {
+            let start = index;
+            while index < length and wideStorage[index] == 92 { index += 1; }
+            let slashes = index - start;
+            if index == length {
+                let copies = if needsQuotes { slashes * 2 } else { slashes };
+                appendCommandSlashes(storage, cursor, copies).?;
+            } else if wideStorage[index] == 34 {
+                appendCommandSlashes(storage, cursor, slashes * 2 + 1).?;
+                appendCommandUnit(storage, cursor, 34).?;
+                index += 1;
+            } else {
+                appendCommandSlashes(storage, cursor, slashes).?;
+            }
+        } else if wideStorage[index] == 34 {
+            appendCommandSlashes(storage, cursor, 1).?;
+            appendCommandUnit(storage, cursor, 34).?;
+            index += 1;
+        } else {
+            appendCommandUnit(storage, cursor, wideStorage[index]).?;
+            index += 1;
+        }
+    }
+    if needsQuotes { appendCommandUnit(storage, cursor, 34).?; }
+    storage[cursor.*] = 0;
+    !()
+}
+
+fn appendCommandUnit(storage: &mut [u16], cursor: &mut usize, value: u16) Errno!() {
+    if cursor.* + 1 >= storage.len() { return .TooLong!; }
+    storage[cursor.*] = value;
+    cursor.* += 1;
+    !()
+}
+
+fn appendCommandSlashes(storage: &mut [u16], cursor: &mut usize, count: usize) Errno!() {
+    let mut index: usize = 0;
+    while index < count { appendCommandUnit(storage, cursor, 92).?; index += 1; }
+    !()
+}
+
+// Owns the UTF-16 block for one CreateProcessW call. Windows imposes no total
+// environment size, so the block is sized from its entries rather than a
+// fixed buffer. UTF-8 never needs more UTF-16 units than bytes.
+pub(pkg) struct EnvironmentBlock { pages: MappedPages }
+
+extend EnvironmentBlock {
+    pub(pkg) fn init(envp: &&u8) Errno!EnvironmentBlock {
+        let pointerSize = pkg::builtin::size[&u8]();
+        let mut capacity: usize = 2;
+        let mut entry = envp;
+        if envp != 0usize as &&u8 {
+            while entry.* != 0usize as &u8 {
+                let bytes = match cStringLen(entry.*).checkedAdd(1) { ?value => value, null => return .TooLong! };
+                capacity = match capacity.checkedAdd(bytes) { ?value => value, null => return .TooLong! };
+                entry = ((entry as usize) + pointerSize) as &&u8;
+            }
+        }
+        let size = match capacity.checkedMul(pkg::builtin::size[u16]()) { ?value => value, null => return .TooLong! };
+        let pages = mapPages(size, pkg::builtin::align[u16]()).?;
+        let mut block: EnvironmentBlock = .{ pages };
+        if block.fill(envp, capacity) is error! {
+            _ = block.close();
+            return error!;
+        }
+        !block
+    }
+
+    fn fill(&mut self, envp: &&u8, capacity: usize) Errno!() {
+        let pointerSize = pkg::builtin::size[&u8]();
+        let units = &mut (self.pages.ptr() as &mut u16)[0..capacity];
+        let mut cursor: usize = 0;
+        let mut entry = envp;
+        if envp != 0usize as &&u8 {
+            while entry.* != 0usize as &u8 {
+                // An empty entry would end the block early; it names nothing.
+                if entry.*.* != 0 {
+                    _ = utf8ToWide(entry.*, &mut units[cursor..capacity - 1]).?;
+                    cursor += wideStringLen(&units[cursor]) + 1;
+                }
+                entry = ((entry as usize) + pointerSize) as &&u8;
+            }
+        }
+        if cursor == 0 {
+            units[0] = 0;
+            cursor = 1;
+        }
+        units[cursor] = 0;
+        !()
+    }
+
+    pub(pkg) fn ptr(&self) &u16 {
+        self.pages.ptr() as &u16
+    }
+
+    pub(pkg) fn close(&mut self) Errno!() {
+        unmapPages(self.pages.releasePtr(), self.pages.releaseSize())
+    }
+}

@@ -1,0 +1,65 @@
+using pkg::start::freestanding::windows::arguments::{measureEnvironment, parseArguments, parseEnvironment};
+using pkg::main::callUserMain;
+using std::os;
+using std::process;
+
+// CreateProcessW bounds the command line to 32767 UTF-16 units. Each unit
+// encodes to at most three UTF-8 bytes, and each argument needs one pointer.
+const startupCapacity: usize = 32768;
+const startupPointerCapacity: usize = startupCapacity / 2 + 1;
+const startupByteCapacity: usize = startupCapacity * 3;
+const memCommitReserve: u32 = 0x3000;
+const pageReadWrite: u32 = 0x04;
+extern fn GetCommandLineW() &u16;
+extern fn GetEnvironmentStringsW() &u16;
+extern fn FreeEnvironmentStringsW(environment: &u16) i32;
+extern fn VirtualAlloc(address: usize, size: usize, allocationType: u32, protect: u32) usize;
+
+static mut startupArgumentBytes: [u8; startupByteCapacity] = [0; startupByteCapacity];
+static mut startupWideArgument: [u16; startupCapacity] = [0; startupCapacity];
+
+pub(pkg) extern fn niaWindowsStart() () {
+    let mut argumentPointers: [&u8; startupPointerCapacity] = [0usize as &u8; startupPointerCapacity];
+    let argc = parseArguments(
+        GetCommandLineW(),
+        &mut startupWideArgument[..],
+        &mut startupArgumentBytes[..],
+        &mut argumentPointers[..],
+    );
+
+    let environment = GetEnvironmentStringsW();
+    let envp = if environment as usize == 0 {
+        0usize as &&u8
+    } else {
+        let copied = copyEnvironment(environment);
+        _ = FreeEnvironmentStringsW(environment);
+        copied
+    };
+
+    let init = process::Init::init(argc, &argumentPointers[0], envp);
+    os::exit(callUserMain(init).0);
+    loop {}
+}
+
+// The environment block has no fixed size limit, so its UTF-8 copy is sized
+// from the block. The copy lives for the whole process, like `process::Init`.
+fn copyEnvironment(environment: &u16) &&u8 {
+    let shape = measureEnvironment(environment);
+    if shape.entries == 0 {
+        return 0usize as &&u8;
+    }
+    // The block already occupies `units * 2` bytes of this 64-bit address space,
+    // so the copy size (at most four times that plus one pointer) cannot wrap.
+    let pointerCount = shape.entries + 1;
+    let pointerBytes = pointerCount * std::builtin::size[&u8]();
+    let byteCapacity = shape.units * 3;
+    let total = pointerBytes + byteCapacity;
+    let base = VirtualAlloc(0, total, memCommitReserve, pageReadWrite);
+    if base == 0 {
+        os::exit(127);
+    }
+    let pointers = &mut (base as &mut &u8)[0..pointerCount];
+    let bytes = &mut ((base + pointerBytes) as &mut u8)[0..byteCapacity];
+    _ = parseEnvironment(environment, bytes, pointers);
+    &pointers[0]
+}

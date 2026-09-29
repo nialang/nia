@@ -124,6 +124,33 @@ impl RuntimeEntryPoint {
     }
 }
 
+/// A source definition retained even when only native codegen references it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeExport {
+    module_identity: String,
+    definition_name: String,
+}
+
+impl RuntimeExport {
+    /// Selects an exact definition in the runtime source package.
+    pub fn new(module_identity: impl Into<String>, definition_name: impl Into<String>) -> Self {
+        Self {
+            module_identity: module_identity.into(),
+            definition_name: definition_name.into(),
+        }
+    }
+
+    /// Stable source identity of the module owning this definition.
+    pub fn module_identity(&self) -> &str {
+        &self.module_identity
+    }
+
+    /// Source-level name of the runtime-owned native export.
+    pub fn definition_name(&self) -> &str {
+        &self.definition_name
+    }
+}
+
 /// Validated private source package implementing executable startup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceRuntimeSpec {
@@ -131,7 +158,7 @@ pub struct SourceRuntimeSpec {
     package_root_identity: String,
     package: nia_package_metadata::PackageId,
     entry_point: RuntimeEntryPoint,
-    required_exports: Vec<String>,
+    required_exports: Vec<RuntimeExport>,
     target: TargetConfig,
     dependencies: Vec<RuntimeDependency>,
 }
@@ -158,7 +185,7 @@ impl SourceRuntimeSpec {
     }
 
     /// Additional runtime-owned C ABI definitions required by native codegen.
-    pub fn required_exports(&self) -> &[String] {
+    pub fn required_exports(&self) -> &[RuntimeExport] {
         &self.required_exports
     }
 
@@ -174,6 +201,7 @@ impl SourceRuntimeSpec {
 }
 
 /// Canonical startup selection shared by driver, loader, and compiler.
+/// This selects Nia startup injection, independently of OS or library linkage.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum RuntimeSpec {
     /// Compile without injecting executable startup resources.
@@ -209,8 +237,11 @@ impl RuntimeSpec {
         package_root: impl Into<PathBuf>,
         target: &TargetConfig,
     ) -> Result<Self, RuntimeSpecError> {
-        let required_exports = if target.os == "windows" {
-            vec!["__chkstk".to_string()]
+        let required_exports = if target.os == "windows" && target.arch == "x86_64" {
+            vec![RuntimeExport::new(
+                "toolchain:/runtime/builtins/windows/x86_64.nia",
+                "__chkstk",
+            )]
         } else {
             Vec::new()
         };
@@ -223,7 +254,7 @@ impl RuntimeSpec {
     pub fn source_from_package_root(
         package_root: impl Into<PathBuf>,
         target: &TargetConfig,
-        required_exports: impl IntoIterator<Item = String>,
+        required_exports: impl IntoIterator<Item = RuntimeExport>,
     ) -> Result<Self, RuntimeSpecError> {
         let implementation = match (target.os.as_str(), target.arch.as_str()) {
             ("linux", "x86_64") => "x86_64",
@@ -991,7 +1022,13 @@ mod tests {
         assert_eq!(source.entry_point().definition_name(), "_start");
         assert_eq!(source.entry_point().linker_symbol(), "_start");
         if target.os == "windows" {
-            assert_eq!(source.required_exports(), ["__chkstk"]);
+            assert_eq!(
+                source.required_exports(),
+                [RuntimeExport::new(
+                    "toolchain:/runtime/builtins/windows/x86_64.nia",
+                    "__chkstk",
+                )]
+            );
         } else {
             assert!(source.required_exports().is_empty());
         }

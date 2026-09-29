@@ -23,6 +23,11 @@ pub struct DirectoryReader {}
 
 pub fn initDirectoryReader() DirectoryReader { .{} }
 
+pub fn closeDirectoryReader(reader: &mut DirectoryReader) Errno!() {
+    _ = reader;
+    !()
+}
+
 pub fn readDirEntries(reader: &mut DirectoryReader, handle: FileDescriptor, buffer: &mut [u8]) Errno!usize {
     _ = reader;
     handle.readDirEntries(buffer)

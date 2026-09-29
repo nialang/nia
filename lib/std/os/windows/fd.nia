@@ -1,0 +1,219 @@
+using pkg::os::windows::bindings::{
+    invalidHandle,
+    errorBrokenPipe,
+    errorHandleEof,
+    GetLastError,
+    stdInputHandle,
+    stdOutputHandle,
+    stdErrorHandle,
+    fileFlagBackupSemantics,
+    fileFlagOpenReparsePoint,
+    genericRead,
+    genericWrite,
+    fileShareRead,
+    fileShareWrite,
+    fileShareDelete,
+    createNew,
+    createAlways,
+    openExisting,
+    openAlways,
+    truncateExisting,
+    fileBegin,
+    fileCurrent,
+    fileEnd,
+    fileAttributeReadonly,
+    GetStdHandle,
+    WriteFile,
+    ReadFile,
+    CloseHandle,
+    SetFilePointerEx,
+    SetFileInformationByHandle,
+    FileEndOfFileInfo,
+    fileEndOfFileInfo,
+    FlushFileBuffers,
+    GetCurrentDirectoryW,
+    GetFileAttributesW,
+    SetFileAttributesW,
+    invalidFileAttributes,
+    maxPathUnits,
+    CreateFileW,
+    CreateDirectoryW,
+    DeleteFileW,
+    RemoveDirectoryW,
+    MoveFileExW,
+};
+using pkg::os::windows::types::{
+    Errno,
+    OpenMode,
+    SeekWhence,
+    FileMetadata,
+    FileDescriptor,
+};
+using pkg::os::windows::error::{
+    lastError,
+    errno,
+};
+using pkg::os::windows::path::{
+    pathFromHandle,
+    handlePath,
+    joinPath,
+};
+using pkg::os::windows::encoding::{
+    wideToUtf8,
+};
+using pkg::os::windows::stat::{
+    metadataHandle,
+};
+
+extend FileDescriptor {
+    pub fn init(handle: usize) FileDescriptor { .{ handle } }
+    pub fn stdin() FileDescriptor { .init(GetStdHandle(stdInputHandle)) }
+    pub fn stdout() FileDescriptor { .init(GetStdHandle(stdOutputHandle)) }
+    pub fn stderr() FileDescriptor { .init(GetStdHandle(stdErrorHandle)) }
+    pub fn raw(&self) usize { self.handle }
+
+    pub fn writeSome(&self, bytes: &[u8]) Errno!usize {
+        if bytes.len() > u32::MAX as usize { return .OutOfRange!; }
+        let mut written: u32 = 0;
+        if WriteFile(self.handle, bytes.ptr(), bytes.len() as u32, &mut written, 0) == 0 {
+            return lastError()!;
+        }
+        !(written as usize)
+    }
+
+    pub fn readSome(&self, bytes: &mut [u8]) Errno!usize {
+        if bytes.len() > u32::MAX as usize { return .OutOfRange!; }
+        let mut read: u32 = 0;
+        if ReadFile(self.handle, bytes.ptrMut(), bytes.len() as u32, &mut read, 0) == 0 {
+            let code = GetLastError();
+            if code == errorBrokenPipe or code == errorHandleEof { return !0; }
+            return errno(code)!;
+        }
+        !(read as usize)
+    }
+
+    pub fn close(&self) Errno!() {
+        if self.handle == 0 or self.handle == invalidHandle { return .BadFd!; }
+        if CloseHandle(self.handle) == 0 { return lastError()!; }
+        !()
+    }
+
+    pub fn seek(&self, offset: i64, whence: SeekWhence) Errno!u64 {
+        let method = match whence { .Start => fileBegin, .Current => fileCurrent, .End => fileEnd, _ => return .Invalid!, };
+        let mut position: i64 = 0;
+        if SetFilePointerEx(self.handle, offset, &mut position, method) == 0 { return lastError()!; }
+        if position < 0 { return .OutOfRange!; }
+        !(position as u64)
+    }
+
+    pub fn truncate(&self, len: u64) Errno!() {
+        if len > i64::MAX as u64 { return .OutOfRange!; }
+        let info: FileEndOfFileInfo = .{ endOfFile: len as i64 };
+        if SetFileInformationByHandle(
+            self.handle, fileEndOfFileInfo, (&info) as usize,
+            pkg::builtin::size[FileEndOfFileInfo]() as u32,
+        ) == 0 { return lastError()!; }
+        !()
+    }
+
+    pub fn setPermissions(&self, permissions: u32) Errno!() {
+        let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
+        let path = handlePath(self.handle, &mut storage[..]).?;
+        let mut attributes = GetFileAttributesW(path);
+        if attributes == invalidFileAttributes { return lastError()!; }
+        if (permissions & 0o222) == 0 { attributes = attributes | fileAttributeReadonly; }
+        else { attributes = attributes & 0xfffffffe; }
+        if SetFileAttributesW(path, attributes) == 0 { return lastError()!; }
+        !()
+    }
+    pub fn sync(&self) Errno!() {
+        if FlushFileBuffers(self.handle) == 0 { return lastError()!; }
+        !()
+    }
+    pub fn syncData(&self) Errno!() { self.sync() }
+    pub fn metadata(&self) Errno!FileMetadata { metadataHandle(self.handle) }
+}
+
+pub fn cwd() FileDescriptor {
+    let path: [u16; 2] = [46, 0];
+    .init(CreateFileW(
+        &path[0],
+        0,
+        fileShareRead | fileShareWrite | fileShareDelete,
+        0,
+        openExisting,
+        fileFlagBackupSemantics,
+        0,
+    ))
+}
+
+pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
+    if buffer.len() == 0 { return .Invalid!; }
+    let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let length = GetCurrentDirectoryW(storage.len() as u32, &mut storage[0]);
+    if length == 0 { return lastError()!; }
+    if length as usize >= storage.len() { return .TooLong!; }
+    let written = wideToUtf8(&storage[0..length as usize], buffer).?;
+    !&buffer[0..written]
+}
+
+pub fn openAt(dir: FileDescriptor, path: &u8, mode: OpenMode, create: bool, truncate: bool, exclusive: bool, permissions: u32) Errno!FileDescriptor {
+    openAtBeneath(dir, path, mode, false, create, truncate, exclusive, permissions, true)
+}
+
+pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: bool, create: bool, truncate: bool, exclusive: bool, permissions: u32, followSymlinks: bool) Errno!FileDescriptor {
+    let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let native = pathFromHandle(dir, path, &mut storage[..]).?;
+    let access = if directory { 0 } else { match mode { .ReadOnly => genericRead, .WriteOnly => genericWrite, .ReadWrite => genericRead | genericWrite, _ => return .Invalid!, } };
+    let disposition = if create and exclusive { createNew } else if create and truncate { createAlways } else if create { openAlways } else if truncate { truncateExisting } else { openExisting };
+    let mut flags = if directory { fileFlagBackupSemantics } else { 0 };
+    if not followSymlinks { flags = flags | fileFlagOpenReparsePoint; }
+    let handle = CreateFileW(native, access, fileShareRead | fileShareWrite | fileShareDelete, 0, disposition, flags, 0);
+    if handle == invalidHandle { return lastError()!; }
+    if directory {
+        let metadata = match metadataHandle(handle) {
+            !value => value,
+            error! => {
+                _ = CloseHandle(handle);
+                return error!;
+            },
+        };
+        if metadata.kind() != .Directory {
+            _ = CloseHandle(handle);
+            return .NotDir!;
+        }
+    }
+    !.init(handle)
+}
+
+pub fn createDirAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, permissions: u32) Errno!() {
+    _ = permissions;
+    let mut parentStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let parentPath = pathFromHandle(dir, parent, &mut parentStorage[..]).?;
+    let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let fullPath = joinPath(parentPath, name, &mut storage[..]).?;
+    if CreateDirectoryW(fullPath, 0) == 0 { return lastError()!; }
+    !()
+}
+
+pub fn deleteAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, directory: bool) Errno!() {
+    let mut parentStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let parentPath = pathFromHandle(dir, parent, &mut parentStorage[..]).?;
+    let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let fullPath = joinPath(parentPath, name, &mut storage[..]).?;
+    if directory { if RemoveDirectoryW(fullPath) == 0 { return lastError()!; } } else if DeleteFileW(fullPath) == 0 { return lastError()!; }
+    !()
+}
+
+pub fn renameAtBeneath(oldDir: FileDescriptor, oldParent: &u8, oldName: &u8, newDir: FileDescriptor, newParent: &u8, newName: &u8) Errno!() {
+    let mut oldParentStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let oldParentPath = pathFromHandle(oldDir, oldParent, &mut oldParentStorage[..]).?;
+    let mut oldStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let oldPath = joinPath(oldParentPath, oldName, &mut oldStorage[..]).?;
+    let mut newParentStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let newParentPath = pathFromHandle(newDir, newParent, &mut newParentStorage[..]).?;
+    let mut newStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let newPath = joinPath(newParentPath, newName, &mut newStorage[..]).?;
+    if MoveFileExW(oldPath, newPath, 1) == 0 { return lastError()!; }
+    !()
+}

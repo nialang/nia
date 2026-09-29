@@ -1,0 +1,117 @@
+using pkg::os::windows::bindings::{
+    invalidHandle, maxPathUnits,
+    errorNoMoreFiles, errorFileNotFound, findDataNameUnits, findDataAlternateUnits,
+    GetLastError, FindFirstFileW, FindNextFileW, FindClose, FindData,
+};
+using pkg::os::windows::types::{Errno, FileKind, DirectoryEntry, FileDescriptor, fileKind};
+using pkg::os::windows::error::{errno, lastError};
+using pkg::os::windows::path::{pathFromHandle, joinPath};
+using pkg::os::windows::encoding::{wideToUtf8, wideStringLen};
+
+const directoryRecordHeader: usize = 8;
+const encodedNameCapacity: usize = findDataNameUnits * 3;
+
+pub struct DirectoryReader {
+    search: usize,
+    data: FindData,
+    done: bool,
+    pendingError: ?Errno,
+}
+
+pub fn initDirectoryReader() DirectoryReader {
+    .{ search: invalidHandle, data: .{
+        attributes: 0, creationLow: 0, creationHigh: 0, accessLow: 0, accessHigh: 0,
+        writeLow: 0, writeHigh: 0, sizeHigh: 0, sizeLow: 0, reserved0: 0, reserved1: 0,
+        name: [0; findDataNameUnits], alternate: [0; findDataAlternateUnits],
+    }, done: false, pendingError: null }
+}
+
+pub fn closeDirectoryReader(reader: &mut DirectoryReader) Errno!() {
+    reader.done = true;
+    reader.pendingError = null;
+    if reader.search != invalidHandle {
+        if FindClose(reader.search) == 0 { return lastError()!; }
+        reader.search = invalidHandle;
+    }
+    !()
+}
+
+// Preserve a completed batch, then report the original failure once. Never
+// retry FindNextFile on a stale record after an enumeration error.
+fn stopWithError(reader: &mut DirectoryReader, error: Errno, written: usize) Errno!usize {
+    _ = closeDirectoryReader(reader);
+    if written == 0 { return error!; }
+    reader.pendingError = ?error;
+    !written
+}
+
+pub fn readDirEntries(reader: &mut DirectoryReader, handle: FileDescriptor, buffer: &mut [u8]) Errno!usize {
+    if reader.pendingError is ?error {
+        reader.pendingError = null;
+        return error!;
+    }
+    if reader.done { return !0; }
+    if buffer.len() < directoryRecordHeader + 1 { return .Invalid!; }
+    if reader.search == invalidHandle {
+        let mut pathStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+        let path = pathFromHandle(handle, &b".\0"[0], &mut pathStorage[..]).?;
+        let mut patternStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+        let pattern = joinPath(path, &b"*\0"[0], &mut patternStorage[..]).?;
+        reader.search = FindFirstFileW(pattern, &mut reader.data);
+        if reader.search == invalidHandle {
+            let code = GetLastError();
+            reader.done = true;
+            if code == errorFileNotFound or code == errorNoMoreFiles { return !0; }
+            return errno(code)!;
+        }
+    }
+    let mut written: usize = 0;
+    loop {
+        let nameUnits = wideStringLen(&reader.data.name[0]);
+        let mut name: [u8; encodedNameCapacity] = [0; encodedNameCapacity];
+        let nameLen = match wideToUtf8(&reader.data.name[0..nameUnits], &mut name[..]) {
+            !value => value,
+            error! => return stopWithError(reader, error, written),
+        };
+        if nameLen != 0 {
+            let recordLen = directoryRecordHeader + nameLen;
+            if recordLen > buffer.len() - written {
+                if written == 0 { return stopWithError(reader, .OutOfRange, 0); }
+                return !written;
+            }
+            buffer[written] = fileKind(reader.data.attributes, reader.data.reserved0) as u8;
+            buffer[written + 1] = 0;
+            buffer[written + 2] = nameLen as u8;
+            buffer[written + 3] = (nameLen >> 8) as u8;
+            buffer[written + 4] = recordLen as u8;
+            buffer[written + 5] = (recordLen >> 8) as u8;
+            buffer[written + 6] = (recordLen >> 16) as u8;
+            buffer[written + 7] = (recordLen >> 24) as u8;
+            let mut index: usize = 0;
+            while index < nameLen { buffer[written + directoryRecordHeader + index] = name[index]; index += 1; }
+            written += recordLen;
+        }
+        if FindNextFileW(reader.search, &mut reader.data) == 0 {
+            let code = GetLastError();
+            if code != errorNoMoreFiles { return stopWithError(reader, errno(code), written); }
+            if closeDirectoryReader(reader) is error! { return stopWithError(reader, error, written); }
+            return !written;
+        }
+    }
+}
+
+pub fn dirEntryAt(buffer: &[u8], offset: usize) ?DirectoryEntry {
+    if parseDirectoryRecord(buffer, offset) is ?record { ?DirectoryEntry::init(record.kind, &buffer[record.nameStart..record.nameEnd]) } else { null }
+}
+pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize { parseDirectoryRecord(buffer, offset).map(&\record -> record.end) }
+
+struct DirectoryRecord { end: usize, kind: FileKind, nameStart: usize, nameEnd: usize }
+
+fn parseDirectoryRecord(buffer: &[u8], offset: usize) ?DirectoryRecord {
+    if offset >= buffer.len() or buffer.len() - offset < directoryRecordHeader { return null; }
+    let length = (buffer[offset + 4] as usize) | ((buffer[offset + 5] as usize) << 8) | ((buffer[offset + 6] as usize) << 16) | ((buffer[offset + 7] as usize) << 24);
+    if length <= directoryRecordHeader or length > buffer.len() - offset { return null; }
+    let nameLen = (buffer[offset + 2] as usize) | ((buffer[offset + 3] as usize) << 8);
+    if nameLen == 0 or nameLen > length - directoryRecordHeader { return null; }
+    ?. { end: offset + length, kind: buffer[offset] as FileKind, nameStart: offset + directoryRecordHeader, nameEnd: offset + directoryRecordHeader + nameLen }
+}

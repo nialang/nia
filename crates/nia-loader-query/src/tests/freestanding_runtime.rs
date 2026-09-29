@@ -1,7 +1,60 @@
 use super::*;
 
+#[test]
+fn windows_startup_loads_separate_entry_and_native_support_only_when_selected() {
+    let root = temp_dir("windows_startup_module_boundaries");
+    let main = root.join("main.nia");
+    write(
+        &main,
+        "using std::process; pub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }",
+    );
+    let target = TargetConfig {
+        arch: "x86_64".to_string(),
+        vendor: "pc".to_string(),
+        os: "windows".to_string(),
+        env: "msvc".to_string(),
+        abi: "".to_string(),
+        endian: "little".to_string(),
+        pointer_width: 64,
+    };
+    let load = |runtime| {
+        load_program_request(
+            LoadRequest::new(main.to_string_lossy().into_owned())
+                .with_target(target.clone())
+                .with_runtime(runtime)
+                .with_toolchain_layout(test_toolchain_layout()),
+        )
+        .expect("Windows program load")
+    };
+    let program = load(
+        RuntimeSpec::freestanding(&test_toolchain_layout(), &target)
+            .expect("Windows freestanding startup"),
+    );
+    assert_no_error_diagnostics(&program);
+    for module in [
+        "lib/runtime/main.nia",
+        "lib/runtime/start/freestanding/windows/x86_64.nia",
+        "lib/runtime/start/freestanding/windows/startup.nia",
+        "lib/runtime/start/freestanding/windows/arguments.nia",
+        "lib/runtime/builtins/windows/x86_64.nia",
+    ] {
+        assert_module_loaded(&program, module);
+    }
+    assert_module_not_loaded(&program, "lib/runtime/start/freestanding/linux/x86_64.nia");
+
+    let bare = load(RuntimeSpec::Bare);
+    assert_no_error_diagnostics(&bare);
+    assert!(
+        bare.modules
+            .iter()
+            .all(|module| !module.path.as_str().contains("lib/runtime/"))
+    );
+}
+
 fn host_freestanding_start_module() -> &'static str {
-    if cfg!(target_arch = "x86") {
+    if cfg!(target_os = "windows") {
+        "lib/runtime/start/freestanding/windows/x86_64.nia"
+    } else if cfg!(target_arch = "x86") {
         "lib/runtime/start/freestanding/linux/x86.nia"
     } else {
         "lib/runtime/start/freestanding/linux/x86_64.nia"

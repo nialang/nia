@@ -1,0 +1,57 @@
+using pkg::os::windows::bindings::{fileNameNormalized, GetFinalPathNameByHandleW};
+using pkg::os::windows::types::{Errno, FileDescriptor};
+using pkg::os::windows::error::lastError;
+using pkg::os::windows::encoding::{utf8ToWide, wideStringLen};
+
+pub(pkg) fn handlePath(handle: usize, storage: &mut [u16]) Errno!&u16 {
+    if storage.len() == 0 or storage.len() > u32::MAX as usize { return .TooLong!; }
+    let length = GetFinalPathNameByHandleW(handle, storage.ptrMut(), storage.len() as u32, fileNameNormalized);
+    if length == 0 { return lastError()!; }
+    if length as usize >= storage.len() { return .TooLong!; }
+    !&storage[0]
+}
+
+// Paths stay in UTF-16 between the handle lookup and the native operation.
+pub(pkg) fn pathFromHandle(dir: FileDescriptor, path: &u8, storage: &mut [u16]) Errno!&u16 {
+    if path[0] == 92 or path[0] == b'/' or (path[0] != 0 and path[1] == b':') {
+        _ = utf8ToWide(path, storage).?;
+        normalizeSeparators(storage);
+        return !&storage[0];
+    }
+    _ = handlePath(dir.handle, storage).?;
+    if path[0] == 0 or (path[0] == b'.' and path[1] == 0) { return !&storage[0]; }
+    let length = wideStringLen(&storage[0]);
+    appendPath(storage, length, path)
+}
+
+pub(pkg) fn joinPath(parent: &u16, child: &u8, storage: &mut [u16]) Errno!&u16 {
+    let length = wideStringLen(parent);
+    if length >= storage.len() { return .TooLong!; }
+    let mut index: usize = 0;
+    while index < length {
+        storage[index] = parent[index];
+        index += 1;
+    }
+    storage[length] = 0;
+    appendPath(storage, length, child)
+}
+
+fn appendPath(storage: &mut [u16], length: usize, child: &u8) Errno!&u16 {
+    let mut offset = length;
+    if offset != 0 and storage[offset - 1] != 92 and storage[offset - 1] != 47 {
+        if offset + 1 >= storage.len() { return .TooLong!; }
+        storage[offset] = 92;
+        offset += 1;
+    }
+    _ = utf8ToWide(child, &mut storage[offset..]).?;
+    normalizeSeparators(storage);
+    !&storage[0]
+}
+
+fn normalizeSeparators(storage: &mut [u16]) () {
+    let mut index: usize = 0;
+    while index < storage.len() and storage[index] != 0 {
+        if storage[index] == 47 { storage[index] = 92; }
+        index += 1;
+    }
+}

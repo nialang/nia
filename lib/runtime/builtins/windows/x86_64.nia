@@ -1,0 +1,30 @@
+// LLVM's Win64 lowering calls this for stack frames that cross guard pages.
+// RAX contains the requested frame size. The probe walks towards the new
+// stack pointer without changing RSP and preserves Win64 argument registers.
+@[naked]
+pub extern fn __chkstk() () {
+    std::builtin::asm(.{
+        code:
+            b"push rcx\n"
+            b"push rax\n"
+            b"cmp rax, 0x1000\n"
+            b"lea rcx, [rsp + 16]\n"
+            b"jb .Lnia_chkstk_tail\n"
+            b".Lnia_chkstk_loop:\n"
+            b"sub rcx, 0x1000\n"
+            b"test byte ptr [rcx], 0\n"
+            b"sub rax, 0x1000\n"
+            b"cmp rax, 0x1000\n"
+            b"jae .Lnia_chkstk_loop\n"
+            b".Lnia_chkstk_tail:\n"
+            b"sub rcx, rax\n"
+            b"test byte ptr [rcx], 0\n"
+            b"pop rax\n"
+            b"pop rcx\n"
+            b"ret",
+        inputs: .{},
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    loop {}
+}

@@ -1,0 +1,16 @@
+using pkg::os::windows::bindings::{
+    SystemFunction036,
+};
+using pkg::os::windows::types::{
+    Errno,
+};
+using pkg::os::windows::error::{
+    lastError,
+};
+
+pub fn random(bytes: &mut [u8]) Errno!() {
+    if bytes.len() > u32::MAX as usize { return .OutOfRange!; }
+    if bytes.len() == 0 { return !(); }
+    if SystemFunction036(bytes.ptrMut(), bytes.len() as u32) == 0 { return lastError()!; }
+    !()
+}

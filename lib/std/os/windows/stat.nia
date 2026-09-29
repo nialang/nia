@@ -1,0 +1,104 @@
+using pkg::os::windows::bindings::{
+    invalidHandle,
+    maxPathUnits,
+    fileAttributeReparsePoint,
+    fileFlagBackupSemantics,
+    fileFlagOpenReparsePoint,
+    fileReadAttributes,
+    fileShareRead,
+    fileShareWrite,
+    fileShareDelete,
+    openExisting,
+    fileAttributeReadonly,
+    fileAttributeTagInfo,
+    CloseHandle,
+    GetFileInformationByHandle,
+    GetFileInformationByHandleEx,
+    FileAttributeTagInfo,
+    CreateFileW,
+    FileTime,
+    ByHandleFileInformation,
+};
+using pkg::os::windows::types::{
+    Errno,
+    fileKind,
+    Timestamp,
+    FileMetadata,
+    FileDescriptor,
+};
+using pkg::os::windows::error::{
+    lastError,
+};
+using pkg::os::windows::path::{
+    pathFromHandle,
+};
+
+const windowsEpochTicks: u64 = 116444736000000000;
+const ticksPerSecond: u64 = 10000000;
+
+pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata {
+    let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let fullPath = pathFromHandle(dir, path, &mut storage[..]).?;
+    metadataPath(fullPath, followSymlinks)
+}
+
+fn metadataPath(path: &u16, followSymlinks: bool) Errno!FileMetadata {
+    let flags = fileFlagBackupSemantics | if followSymlinks { 0 } else { fileFlagOpenReparsePoint };
+    let handle = CreateFileW(path, fileReadAttributes, fileShareRead | fileShareWrite | fileShareDelete, 0, openExisting, flags, 0);
+    if handle == invalidHandle { return lastError()!; }
+    let result = metadataHandle(handle);
+    let closed = CloseHandle(handle);
+    if closed == 0 {
+        return match result { !value => { _ = value; lastError()! }, error! => error! };
+    }
+    result
+}
+
+fn fileTimeTicks(value: FileTime) u64 {
+    ((value.high as u64) << 32) | value.low as u64
+}
+
+fn fileTimeTimestamp(value: FileTime) Timestamp {
+    let ticks = fileTimeTicks(value);
+    if ticks >= windowsEpochTicks {
+        let unixTicks = ticks - windowsEpochTicks;
+        .init((unixTicks / ticksPerSecond) as i64, ((unixTicks % ticksPerSecond) * 100) as u32)
+    } else {
+        let beforeEpoch = windowsEpochTicks - ticks;
+        let seconds = (beforeEpoch / ticksPerSecond) as i64;
+        let remainder = beforeEpoch % ticksPerSecond;
+        if remainder == 0 { .init(-seconds, 0) }
+        else { .init(-seconds - 1, ((ticksPerSecond - remainder) * 100) as u32) }
+    }
+}
+
+pub(pkg) fn metadataHandle(handle: usize) Errno!FileMetadata {
+    let mut info: ByHandleFileInformation = .{
+        attributes: 0,
+        creation: .{ low: 0, high: 0 },
+        accessed: .{ low: 0, high: 0 },
+        modified: .{ low: 0, high: 0 },
+        volumeSerial: 0,
+        sizeHigh: 0,
+        sizeLow: 0,
+        linkCount: 0,
+        fileIndexHigh: 0,
+        fileIndexLow: 0,
+    };
+    if GetFileInformationByHandle(handle, &mut info) == 0 { return lastError()!; }
+    let mut reparseTag: u32 = 0;
+    if (info.attributes & fileAttributeReparsePoint) != 0 {
+        let mut tag: FileAttributeTagInfo = .{ attributes: 0, reparseTag: 0 };
+        if GetFileInformationByHandleEx(
+            handle, fileAttributeTagInfo, &mut tag,
+            pkg::builtin::size[FileAttributeTagInfo]() as u32,
+        ) == 0 { return lastError()!; }
+        reparseTag = tag.reparseTag;
+    }
+    let kind = fileKind(info.attributes, reparseTag);
+    let inode = ((info.fileIndexHigh as u64) << 32) | info.fileIndexLow as u64;
+    let size = ((info.sizeHigh as u64) << 32) | info.sizeLow as u64;
+    let permissions: u32 = if (info.attributes & fileAttributeReadonly) != 0 { 0o444 } else { 0o666 };
+    !.init(kind, inode, info.linkCount, size, permissions, 4096, ?fileTimeTimestamp(info.accessed), fileTimeTimestamp(info.modified), null)
+}
+

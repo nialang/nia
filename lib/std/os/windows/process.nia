@@ -1,0 +1,186 @@
+pub(pkg) module stdio;
+
+using pkg::os::windows::bindings::{
+    invalidHandle, stdInputHandle, stdOutputHandle, stdErrorHandle,
+    waitObject0, waitTimeout, infinite, fileAttributeDirectory, errorAccessDenied,
+    invalidFileAttributes, startupUseStdHandles, createUnicodeEnvironment,
+    extendedStartupInfoPresent, GetLastError, GetFileAttributesW, ExitProcess,
+    WaitForSingleObject, GetExitCodeProcess, TerminateProcess, CloseHandle,
+    CreateProcessW, StartupInfo, StartupInfoEx, ProcessInformation, maxPathUnits,
+};
+using pkg::os::windows::types::{Errno, ProcessId, WaitStatus, SpawnAttempt, SpawnOptions};
+using pkg::os::windows::error::{errno, lastError};
+using pkg::os::windows::encoding::utf8ToWide;
+using pkg::os::windows::command::{appendCommandArgument, EnvironmentBlock};
+using pkg::os::windows::process::stdio::{prepareStream, closeHandle, HandleList};
+
+const signalTerm: i32 = 15;
+const signalKill: i32 = 9;
+
+pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
+    let mut appStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let application = match utf8ToWide(path, &mut appStorage[..]) {
+        !value => value,
+        error! => return .failure(.Setup(error)),
+    };
+
+    let mut commandStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let mut commandLen: usize = 0;
+    let pointerSize = pkg::builtin::size[&u8]();
+    let mut cursor = argv;
+    while cursor.* != 0usize as &u8 {
+        if appendCommandArgument(&mut commandStorage[..], &mut commandLen, cursor.*) is error! {
+            return .failure(.Setup(error));
+        }
+        cursor = ((cursor as usize) + pointerSize) as &&u8;
+    }
+    if commandLen == 0 {
+        return .failure(.Setup(.Invalid));
+    }
+
+    let mut environment = match EnvironmentBlock::init(envp) {
+        !value => value,
+        error! => return .failure(.Setup(error)),
+    };
+    defer _ = environment.close();
+
+    let mut cwdStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let cwd = if options.cwd() is ?value {
+        match utf8ToWide(value, &mut cwdStorage[..]) {
+            !wide => wide,
+            error! => return .failure(.Cwd(error)),
+        }
+    } else {
+        0usize as &u16
+    };
+    if options.cwd() is ?_ {
+        let attributes = GetFileAttributesW(cwd);
+        if attributes == invalidFileAttributes {
+            return .failure(.Cwd(lastError()));
+        }
+        if (attributes & fileAttributeDirectory) == 0 {
+            return .failure(.Cwd(.NotDir));
+        }
+    }
+
+    let mut stdin = match prepareStream(options.stdin(), stdInputHandle, true) {
+        !value => value,
+        error! => return .failure(.Stdio(error)),
+    };
+    defer stdin.close();
+    let mut stdout = match prepareStream(options.stdout(), stdOutputHandle, false) {
+        !value => value,
+        error! => return .failure(.Stdio(error)),
+    };
+    defer stdout.close();
+    let mut stderr = match prepareStream(options.stderr(), stdErrorHandle, false) {
+        !value => value,
+        error! => return .failure(.Stdio(error)),
+    };
+    defer stderr.close();
+
+    // Inherit only the selected child ends, never another concurrent spawn's
+    // pipe ends or unrelated inheritable handles in the parent process.
+    let childHandles: [usize; 3] = [stdin.child, stdout.child, stderr.child];
+    let mut inherited: [usize; 3] = [0; 3];
+    let mut count: usize = 0;
+    let mut index: usize = 0;
+    while index < childHandles.len() {
+        let handle = childHandles[index];
+        if handle != 0 and handle != invalidHandle {
+            inherited[count] = handle;
+            count += 1;
+        }
+        index += 1;
+    }
+    let mut attributes = match HandleList::init(&inherited[0..count]) {
+        !value => value,
+        error! => return .failure(.Stdio(error)),
+    };
+    defer attributes.close();
+    let mut startup: StartupInfoEx = .{
+        base: .{
+            cb: if count == 0 { pkg::builtin::size[StartupInfo]() as u32 } else { pkg::builtin::size[StartupInfoEx]() as u32 },
+            reserved: 0, desktop: 0, title: 0, x: 0, y: 0, xSize: 0, ySize: 0,
+            xCountChars: 0, yCountChars: 0, fillAttribute: 0,
+            flags: startupUseStdHandles, showWindow: 0, reserved2: 0, reserved2Ptr: 0,
+            stdInput: stdin.child, stdOutput: stdout.child, stdError: stderr.child,
+        },
+        attributes: attributes.address,
+    };
+    let mut info: ProcessInformation = .{
+        process: invalidHandle, thread: invalidHandle, processId: 0, threadId: 0,
+    };
+    let flags = createUnicodeEnvironment | if count == 0 { 0 } else { extendedStartupInfoPresent };
+    if CreateProcessW(
+        application, &mut commandStorage[0], 0, 0, if count == 0 { 0 } else { 1 },
+        flags, environment.ptr(), cwd, &mut startup.base, &mut info,
+    ) == 0 {
+        return .failure(.Exec(lastError()));
+    }
+    closeHandle(info.thread);
+    .success(.init(
+        ProcessId::fromHandle(info.processId as i32, info.process),
+        stdin.takeParent(), stdout.takeParent(), stderr.takeParent(),
+    ))
+}
+
+pub fn wait(pid: ProcessId) Errno!WaitStatus {
+    let handle = pid.handle;
+    if handle == 0 or handle == invalidHandle {
+        return .Invalid!;
+    }
+    let result = WaitForSingleObject(handle, infinite);
+    if result != waitObject0 {
+        return lastError()!;
+    }
+    let mut code: u32 = 0;
+    if GetExitCodeProcess(handle, &mut code) == 0 {
+        return lastError()!;
+    }
+    _ = CloseHandle(handle);
+    !.init(code as i32)
+}
+
+pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus {
+    if pid.handle == 0 or pid.handle == invalidHandle {
+        return .Invalid!;
+    }
+    let result = WaitForSingleObject(pid.handle, 0);
+    if result == waitTimeout {
+        return !null;
+    }
+    if result != waitObject0 {
+        return lastError()!;
+    }
+    let mut code: u32 = 0;
+    if GetExitCodeProcess(pid.handle, &mut code) == 0 {
+        return lastError()!;
+    }
+    _ = CloseHandle(pid.handle);
+    !(?.init(code as i32))
+}
+
+pub fn killWith(pid: ProcessId, signal: i32) Errno!() {
+    // Windows has no POSIX signal delivery for an arbitrary child process.
+    // Both supported termination requests therefore use TerminateProcess.
+    if signal != signalTerm and signal != signalKill {
+        return .Invalid!;
+    }
+    if pid.handle == 0 or pid.handle == invalidHandle {
+        return .Invalid!;
+    }
+    if TerminateProcess(pid.handle, 1) == 0 {
+        let error = GetLastError();
+        if error == errorAccessDenied and WaitForSingleObject(pid.handle, 0) == waitObject0 {
+            return !();
+        }
+        return errno(error)!;
+    }
+    !()
+}
+
+pub fn exit(code: i32) () {
+    ExitProcess(code as u32);
+    loop {}
+}

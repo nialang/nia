@@ -1,0 +1,187 @@
+const replacementCharacter: u32 = 0xfffd;
+const highSurrogateStart: u16 = 0xd800;
+const highSurrogateEnd: u16 = 0xdbff;
+const lowSurrogateStart: u16 = 0xdc00;
+const lowSurrogateEnd: u16 = 0xdfff;
+
+pub(pkg) fn parseArguments(
+    command: &u16,
+    wide: &mut [u16],
+    bytes: &mut [u8],
+    pointers: &mut [&u8],
+) usize {
+    let mut input: usize = 0;
+    let mut output: usize = 0;
+    let mut count: usize = 0;
+    let length = wideStringLength(command);
+
+    while input < length {
+        skipCommandWhitespace(command, &mut input, length);
+        if input == length { break; }
+        if count + 1 >= pointers.len() { break; }
+
+        let start = output;
+        let mut wideLength: usize = 0;
+        let mut inQuotes = false;
+        let mut started = false;
+        while input < length {
+            let unit = command[input];
+            if not inQuotes and isCommandWhitespace(unit) { break; }
+            started = true;
+
+            if unit == 92 {
+                let slashStart = input;
+                while input < length and command[input] == 92 { input += 1; }
+                let slashCount = input - slashStart;
+                if input < length and command[input] == 34 {
+                    appendWideRun(wide, &mut wideLength, 92, slashCount / 2);
+                    if slashCount % 2 == 1 {
+                        appendWideUnit(wide, &mut wideLength, 34);
+                        input += 1;
+                    } else {
+                        inQuotes = not inQuotes;
+                        input += 1;
+                    }
+                } else {
+                    appendWideRun(wide, &mut wideLength, 92, slashCount);
+                }
+            } else if unit == 34 {
+                if inQuotes and input + 1 < length and command[input + 1] == 34 {
+                    appendWideUnit(wide, &mut wideLength, 34);
+                    input += 2;
+                } else {
+                    inQuotes = not inQuotes;
+                    input += 1;
+                }
+            } else {
+                appendWideUnit(wide, &mut wideLength, unit);
+                input += 1;
+            }
+        }
+
+        if started {
+            pointers[count] = &bytes[start];
+            output = encodeWideToUtf8(wide, wideLength, bytes, output);
+            bytes[output] = 0;
+            output += 1;
+            count += 1;
+        }
+        skipCommandWhitespace(command, &mut input, length);
+    }
+
+    pointers[count] = 0usize as &u8;
+    count
+}
+
+// Unit and entry counts of a Windows environment block, excluding the final
+// terminator. Each unit encodes to at most three UTF-8 bytes, so `units * 3`
+// bytes hold every entry and its NUL.
+pub(pkg) struct EnvironmentShape { units: usize, entries: usize }
+
+pub(pkg) fn measureEnvironment(environment: &u16) EnvironmentShape {
+    let mut units: usize = 0;
+    let mut entries: usize = 0;
+    loop {
+        let length = wideStringLength(&environment[units]);
+        if length == 0 { break; }
+        units += length + 1;
+        entries += 1;
+    }
+    .{ units, entries }
+}
+
+pub(pkg) fn parseEnvironment(environment: &u16, bytes: &mut [u8], pointers: &mut [&u8]) usize {
+    let mut input: usize = 0;
+    let mut output: usize = 0;
+    let mut count: usize = 0;
+    loop {
+        let length = wideStringLength(&environment[input]);
+        if length == 0 { break; }
+        if count + 1 >= pointers.len() { break; }
+        pointers[count] = &bytes[output];
+        output = encodeWideToUtf8(&environment[input..input + length], length, bytes, output);
+        bytes[output] = 0;
+        output += 1;
+        count += 1;
+        input += length + 1;
+    }
+    pointers[count] = 0usize as &u8;
+    count
+}
+
+fn encodeWideToUtf8(wide: &[u16], length: usize, bytes: &mut [u8], output: usize) usize {
+    let mut input: usize = 0;
+    let mut cursor = output;
+    while input < length {
+        let first = wide[input] as u32;
+        let mut scalar = first;
+        input += 1;
+        if first >= highSurrogateStart as u32 and first <= highSurrogateEnd as u32 {
+            if input < length {
+                let second = wide[input] as u32;
+                if second >= lowSurrogateStart as u32 and second <= lowSurrogateEnd as u32 {
+                    scalar = 0x10000 + ((first - 0xd800) << 10) + (second - 0xdc00);
+                    input += 1;
+                } else {
+                    scalar = replacementCharacter;
+                }
+            } else {
+                scalar = replacementCharacter;
+            }
+        } else if first >= lowSurrogateStart as u32 and first <= lowSurrogateEnd as u32 {
+            scalar = replacementCharacter;
+        }
+
+        if scalar <= 0x7f {
+            bytes[cursor] = scalar as u8;
+            cursor += 1;
+        } else if scalar <= 0x7ff {
+            bytes[cursor] = (0xc0 | (scalar >> 6)) as u8;
+            bytes[cursor + 1] = (0x80 | (scalar & 0x3f)) as u8;
+            cursor += 2;
+        } else if scalar <= 0xffff {
+            bytes[cursor] = (0xe0 | (scalar >> 12)) as u8;
+            bytes[cursor + 1] = (0x80 | ((scalar >> 6) & 0x3f)) as u8;
+            bytes[cursor + 2] = (0x80 | (scalar & 0x3f)) as u8;
+            cursor += 3;
+        } else {
+            bytes[cursor] = (0xf0 | (scalar >> 18)) as u8;
+            bytes[cursor + 1] = (0x80 | ((scalar >> 12) & 0x3f)) as u8;
+            bytes[cursor + 2] = (0x80 | ((scalar >> 6) & 0x3f)) as u8;
+            bytes[cursor + 3] = (0x80 | (scalar & 0x3f)) as u8;
+            cursor += 4;
+        }
+    }
+    cursor
+}
+
+fn wideStringLength(text: &u16) usize {
+    let mut length: usize = 0;
+    while text[length] != 0 { length += 1; }
+    length
+}
+
+fn isCommandWhitespace(unit: u16) bool {
+    unit == 32 or unit == 9
+}
+
+fn skipCommandWhitespace(command: &u16, input: &mut usize, length: usize) () {
+    while input.* < length and isCommandWhitespace(command[input.*]) {
+        input.* += 1;
+    }
+}
+
+fn appendWideUnit(wide: &mut [u16], length: &mut usize, unit: u16) () {
+    if length.* < wide.len() {
+        wide[length.*] = unit;
+        length.* += 1;
+    }
+}
+
+fn appendWideRun(wide: &mut [u16], length: &mut usize, unit: u16, count: usize) () {
+    let mut index: usize = 0;
+    while index < count {
+        appendWideUnit(wide, length, unit);
+        index += 1;
+    }
+}

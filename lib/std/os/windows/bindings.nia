@@ -1,0 +1,261 @@
+// Windows SDK ABI declarations shared by the platform implementation.
+pub(pkg) const invalidHandle: usize = (-1) as usize;
+pub(pkg) const stdInputHandle: i32 = -10;
+pub(pkg) const stdOutputHandle: i32 = -11;
+pub(pkg) const stdErrorHandle: i32 = -12;
+pub(pkg) const waitObject0: u32 = 0;
+pub(pkg) const waitTimeout: u32 = 258;
+pub(pkg) const infinite: u32 = 0xffffffff;
+pub(pkg) const memCommit: u32 = 0x1000;
+pub(pkg) const memReserve: u32 = 0x2000;
+pub(pkg) const memRelease: u32 = 0x8000;
+pub(pkg) const pageReadWrite: u32 = 0x04;
+pub(pkg) const fileAttributeDirectory: u32 = 0x10;
+pub(pkg) const fileFlagBackupSemantics: u32 = 0x02000000;
+pub(pkg) const fileFlagOpenReparsePoint: u32 = 0x00200000;
+pub(pkg) const fileReadAttributes: u32 = 0x80;
+pub(pkg) const genericRead: u32 = 0x80000000;
+pub(pkg) const genericWrite: u32 = 0x40000000;
+pub(pkg) const fileShareRead: u32 = 0x00000001;
+pub(pkg) const fileShareWrite: u32 = 0x00000002;
+pub(pkg) const fileShareDelete: u32 = 0x00000004;
+pub(pkg) const createNew: u32 = 1;
+pub(pkg) const createAlways: u32 = 2;
+pub(pkg) const openExisting: u32 = 3;
+pub(pkg) const openAlways: u32 = 4;
+pub(pkg) const truncateExisting: u32 = 5;
+pub(pkg) const fileBegin: u32 = 0;
+pub(pkg) const fileCurrent: u32 = 1;
+pub(pkg) const fileEnd: u32 = 2;
+pub(pkg) const errorAccessDenied: u32 = 5;
+pub(pkg) const errorInvalidHandle: u32 = 6;
+pub(pkg) const errorNotEnoughMemory: u32 = 8;
+pub(pkg) const errorInvalidData: u32 = 13;
+pub(pkg) const errorOutofmemory: u32 = 14;
+pub(pkg) const errorAlreadyExists: u32 = 183;
+pub(pkg) const errorFileNotFound: u32 = 2;
+pub(pkg) const errorPathNotFound: u32 = 3;
+pub(pkg) const errorNoMoreFiles: u32 = 18;
+pub(pkg) const errorDirectory: u32 = 267;
+pub(pkg) const errorNotSupported: u32 = 50;
+pub(pkg) const errorFilenameExcedRange: u32 = 206;
+pub(pkg) const errorInvalidName: u32 = 123;
+pub(pkg) const invalidFileAttributes: u32 = 0xffffffff;
+pub(pkg) const fileNameNormalized: u32 = 0;
+pub(pkg) const getFileExInfoStandard: u32 = 0;
+pub(pkg) const fileAttributeReadonly: u32 = 0x1;
+pub(pkg) const handleFlagInherit: u32 = 1;
+pub(pkg) const duplicateSameAccess: u32 = 2;
+pub(pkg) const startupUseStdHandles: u32 = 0x100;
+pub(pkg) const createUnicodeEnvironment: u32 = 0x400;
+pub(pkg) const nullDeviceAccess: u32 = 0xc0000000;
+pub(pkg) const codePageUtf8: u32 = 65001;
+pub(pkg) const multiByteErrInvalidChars: u32 = 8;
+pub(pkg) const wideCharErrInvalidChars: u32 = 0x80;
+pub(pkg) const maxPathUnits: usize = 32768;
+pub(pkg) const findDataNameUnits: usize = 260;
+pub(pkg) const findDataAlternateUnits: usize = 14;
+pub(pkg) const fileAttributeNormal: u32 = 0x80;
+pub(pkg) const fileAttributeReparsePoint: u32 = 0x400;
+
+pub(pkg) extern fn GetLastError() u32;
+pub(pkg) extern fn GetStdHandle(which: i32) usize;
+pub(pkg) extern fn WriteFile(
+    handle: usize,
+    buffer: &u8,
+    length: u32,
+    written: &mut u32,
+    overlapped: usize,
+) i32;
+pub(pkg) extern fn ReadFile(
+    handle: usize,
+    buffer: &mut u8,
+    length: u32,
+    read: &mut u32,
+    overlapped: usize,
+) i32;
+pub(pkg) extern fn CloseHandle(handle: usize) i32;
+pub(pkg) extern fn SetFilePointerEx(handle: usize, distance: i64, result: &mut i64, method: u32) i32;
+pub(pkg) const fileEndOfFileInfo: u32 = 6;
+pub(pkg) extern struct FileEndOfFileInfo { endOfFile: i64 }
+pub(pkg) extern fn SetFileInformationByHandle(handle: usize, infoClass: u32, info: usize, size: u32) i32;
+pub(pkg) const fileAttributeTagInfo: u32 = 9;
+pub(pkg) extern struct FileAttributeTagInfo { attributes: u32, reparseTag: u32 }
+pub(pkg) extern fn GetFileInformationByHandleEx(handle: usize, infoClass: u32, info: &mut FileAttributeTagInfo, size: u32) i32;
+// Symbolic links and junctions set this tag bit; cloud placeholders and other
+// storage reparse points name ordinary files and directories.
+pub(pkg) const reparseTagNameSurrogate: u32 = 0x20000000;
+pub(pkg) extern fn FlushFileBuffers(handle: usize) i32;
+pub(pkg) extern fn GetCurrentDirectoryW(length: u32, buffer: &mut u16) u32;
+pub(pkg) extern fn GetFinalPathNameByHandleW(
+    handle: usize,
+    buffer: &mut u16,
+    length: u32,
+    flags: u32,
+) u32;
+pub(pkg) extern fn VirtualAlloc(address: usize, size: usize, allocationType: u32, protection: u32) usize;
+pub(pkg) extern fn VirtualFree(address: usize, size: usize, freeType: u32) i32;
+pub(pkg) extern fn GetSystemInfo(info: &mut SystemInfo) ();
+pub(pkg) extern fn GetFileInformationByHandle(handle: usize, info: &mut ByHandleFileInformation) i32;
+pub(pkg) extern fn MultiByteToWideChar(
+    codePage: u32,
+    flags: u32,
+    source: &u8,
+    sourceLength: i32,
+    destination: &mut u16,
+    capacity: i32,
+) i32;
+pub(pkg) extern fn WideCharToMultiByte(
+    codePage: u32,
+    flags: u32,
+    source: &u16,
+    sourceLength: i32,
+    destination: &mut u8,
+    capacity: i32,
+    defaultChar: usize,
+    usedDefaultChar: usize,
+) i32;
+pub(pkg) extern fn CreateFileW(
+    path: &u16,
+    access: u32,
+    share: u32,
+    security: usize,
+    disposition: u32,
+    flags: u32,
+    template: usize,
+) usize;
+pub(pkg) extern fn CreateDirectoryW(path: &u16, security: usize) i32;
+pub(pkg) extern fn DeleteFileW(path: &u16) i32;
+pub(pkg) extern fn RemoveDirectoryW(path: &u16) i32;
+pub(pkg) extern fn MoveFileExW(oldPath: &u16, newPath: &u16, flags: u32) i32;
+pub(pkg) extern fn GetFileAttributesW(path: &u16) u32;
+pub(pkg) extern fn SetFileAttributesW(path: &u16, attributes: u32) i32;
+pub(pkg) extern fn FindFirstFileW(pattern: &u16, data: &mut FindData) usize;
+pub(pkg) extern fn FindNextFileW(search: usize, data: &mut FindData) i32;
+pub(pkg) extern fn FindClose(search: usize) i32;
+// The Windows SDK import library exports the documented SystemFunction036
+// entry point. RtlGenRandom is the API's implementation alias, not the COFF
+// symbol name available to lld-link.
+@[linkName("SystemFunction036")]
+pub(pkg) extern fn SystemFunction036(buffer: &mut u8, length: u32) i32;
+pub(pkg) extern fn ExitProcess(code: u32) ();
+pub(pkg) extern fn WaitForSingleObject(handle: usize, milliseconds: u32) u32;
+pub(pkg) extern fn GetExitCodeProcess(handle: usize, code: &mut u32) i32;
+pub(pkg) extern fn TerminateProcess(handle: usize, code: u32) i32;
+pub(pkg) extern fn CreatePipe(read: &mut usize, write: &mut usize, security: &mut SecurityAttributes, size: u32) i32;
+pub(pkg) extern fn SetHandleInformation(handle: usize, mask: u32, flags: u32) i32;
+pub(pkg) extern fn GetCurrentProcess() usize;
+pub(pkg) extern fn DuplicateHandle(
+    sourceProcess: usize,
+    source: usize,
+    targetProcess: usize,
+    target: &mut usize,
+    access: u32,
+    inherit: i32,
+    options: u32,
+) i32;
+pub(pkg) extern fn CreateProcessW(
+    application: &u16,
+    commandLine: &mut u16,
+    processSecurity: usize,
+    threadSecurity: usize,
+    inheritHandles: i32,
+    flags: u32,
+    environment: &u16,
+    cwd: &u16,
+    startup: &mut StartupInfo,
+    info: &mut ProcessInformation,
+) i32;
+
+pub(pkg) extern struct SystemInfo {
+    processorArchitecture: u16,
+    reserved: u16,
+    pageSize: u32,
+    minimumApplicationAddress: usize,
+    maximumApplicationAddress: usize,
+    activeProcessorMask: usize,
+    numberOfProcessors: u32,
+    processorType: u32,
+    allocationGranularity: u32,
+    processorLevel: u16,
+    processorRevision: u16,
+}
+
+pub(pkg) extern struct FindData {
+    attributes: u32,
+    creationLow: u32,
+    creationHigh: u32,
+    accessLow: u32,
+    accessHigh: u32,
+    writeLow: u32,
+    writeHigh: u32,
+    sizeHigh: u32,
+    sizeLow: u32,
+    reserved0: u32,
+    reserved1: u32,
+    name: [u16; findDataNameUnits],
+    alternate: [u16; findDataAlternateUnits],
+}
+
+pub(pkg) extern struct FileTime { low: u32, high: u32 }
+
+pub(pkg) extern struct ByHandleFileInformation {
+    attributes: u32,
+    creation: FileTime,
+    accessed: FileTime,
+    modified: FileTime,
+    volumeSerial: u32,
+    sizeHigh: u32,
+    sizeLow: u32,
+    linkCount: u32,
+    fileIndexHigh: u32,
+    fileIndexLow: u32,
+}
+
+pub(pkg) extern struct SecurityAttributes { length: u32, descriptor: usize, inherit: i32 }
+
+pub(pkg) extern struct StartupInfo {
+    cb: u32,
+    reserved: usize,
+    desktop: usize,
+    title: usize,
+    x: u32,
+    y: u32,
+    xSize: u32,
+    ySize: u32,
+    xCountChars: u32,
+    yCountChars: u32,
+    fillAttribute: u32,
+    flags: u32,
+    showWindow: u16,
+    reserved2: u16,
+    reserved2Ptr: usize,
+    stdInput: usize,
+    stdOutput: usize,
+    stdError: usize,
+}
+
+pub(pkg) extern struct ProcessInformation { process: usize, thread: usize, processId: u32, threadId: u32 }
+pub(pkg) const errorFileExists: u32 = 80;
+pub(pkg) const errorInvalidParameter: u32 = 87;
+pub(pkg) const errorInsufficientBuffer: u32 = 122;
+pub(pkg) const errorNoUnicodeTranslation: u32 = 1113;
+pub(pkg) const errorBrokenPipe: u32 = 109;
+pub(pkg) const errorHandleEof: u32 = 38;
+pub(pkg) const errorNoData: u32 = 232;
+pub(pkg) const errorDiskFull: u32 = 112;
+pub(pkg) const errorHandleDiskFull: u32 = 39;
+pub(pkg) const errorDirNotEmpty: u32 = 145;
+pub(pkg) const errorSharingViolation: u32 = 32;
+pub(pkg) const errorLockViolation: u32 = 33;
+pub(pkg) const errorWriteProtect: u32 = 19;
+pub(pkg) const errorNotSameDevice: u32 = 17;
+pub(pkg) const errorNegativeSeek: u32 = 131;
+pub(pkg) const errorOperationAborted: u32 = 995;
+
+pub(pkg) const extendedStartupInfoPresent: u32 = 0x00080000;
+pub(pkg) const procThreadAttributeHandleList: usize = 0x00020002;
+pub(pkg) extern struct StartupInfoEx { base: StartupInfo, attributes: usize }
+pub(pkg) extern fn InitializeProcThreadAttributeList(list: usize, count: u32, flags: u32, size: &mut usize) i32;
+pub(pkg) extern fn UpdateProcThreadAttribute(list: usize, flags: u32, attribute: usize, value: usize, size: usize, previous: usize, returnedSize: usize) i32;
+pub(pkg) extern fn DeleteProcThreadAttributeList(list: usize) ();

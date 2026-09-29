@@ -1,0 +1,2 @@
+@[if arch == "x86_64"]
+pub(pkg) module x86_64;

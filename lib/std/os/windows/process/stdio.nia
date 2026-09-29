@@ -1,0 +1,132 @@
+using pkg::os::windows::bindings::{
+    invalidHandle, handleFlagInherit, duplicateSameAccess, nullDeviceAccess,
+    fileShareRead, fileShareWrite, openExisting, errorInsufficientBuffer,
+    CloseHandle, GetStdHandle, GetCurrentProcess, DuplicateHandle, CreateFileW,
+    CreatePipe, SetHandleInformation, SecurityAttributes,
+    InitializeProcThreadAttributeList, UpdateProcThreadAttribute,
+    DeleteProcThreadAttributeList, procThreadAttributeHandleList, GetLastError,
+};
+using pkg::os::windows::types::{Errno, StdIo, FileDescriptor};
+using pkg::os::windows::error::{lastError, errno};
+using pkg::os::windows::mem::{mapPages, unmapPages};
+
+// Each prepared stream owns its child duplicate and optional parent pipe end.
+// takeParent transfers only that end; close releases everything still owned.
+pub(pkg) struct PreparedStream { child: usize, parent: usize, childOwned: bool }
+
+extend PreparedStream {
+    pub(pkg) fn close(&mut self) () {
+        if self.childOwned { closeHandle(self.child); }
+        closeHandle(self.parent);
+        self.child = invalidHandle;
+        self.parent = invalidHandle;
+        self.childOwned = false;
+    }
+
+    pub(pkg) fn takeParent(&mut self) ?FileDescriptor {
+        if self.parent == invalidHandle { return null; }
+        let handle = self.parent;
+        self.parent = invalidHandle;
+        ?FileDescriptor::init(handle)
+    }
+}
+
+pub(pkg) fn closeHandle(handle: usize) () {
+    if handle != 0 and handle != invalidHandle { _ = CloseHandle(handle); }
+}
+
+pub(pkg) fn prepareStream(mode: StdIo, standard: i32, input: bool) Errno!PreparedStream {
+    match mode {
+        .Pipe => pipeStream(input),
+        .Ignore => nullStream(),
+        .Inherit => inheritedStream(standard),
+    }
+}
+
+fn inheritedStream(standard: i32) Errno!PreparedStream {
+    let source = GetStdHandle(standard);
+    if source == 0 or source == invalidHandle {
+        return !.{ child: source, parent: invalidHandle, childOwned: false };
+    }
+    let process = GetCurrentProcess();
+    let mut duplicate: usize = invalidHandle;
+    if DuplicateHandle(process, source, process, &mut duplicate, 0, 1, duplicateSameAccess) == 0 {
+        return lastError()!;
+    }
+    !.{ child: duplicate, parent: invalidHandle, childOwned: true }
+}
+
+fn nullStream() Errno!PreparedStream {
+    let path: [u16; 4] = [78, 85, 76, 0];
+    let handle = CreateFileW(&path[0], nullDeviceAccess, fileShareRead | fileShareWrite, 0, openExisting, 0, 0);
+    if handle == invalidHandle { return lastError()!; }
+    if SetHandleInformation(handle, handleFlagInherit, handleFlagInherit) == 0 {
+        let error = lastError();
+        closeHandle(handle);
+        return error!;
+    }
+    !.{ child: handle, parent: invalidHandle, childOwned: true }
+}
+
+fn pipeStream(input: bool) Errno!PreparedStream {
+    let mut security: SecurityAttributes = .{
+        length: pkg::builtin::size[SecurityAttributes]() as u32, descriptor: 0, inherit: 0,
+    };
+    let mut read: usize = invalidHandle;
+    let mut write: usize = invalidHandle;
+    if CreatePipe(&mut read, &mut write, &mut security, 0) == 0 {
+        let error = lastError();
+        closeHandle(read);
+        closeHandle(write);
+        return error!;
+    }
+    let child = if input { read } else { write };
+    let parent = if input { write } else { read };
+    if SetHandleInformation(child, handleFlagInherit, handleFlagInherit) == 0 {
+        let error = lastError();
+        closeHandle(read);
+        closeHandle(write);
+        return error!;
+    }
+    !.{ child, parent, childOwned: true }
+}
+
+// The caller keeps the handle slice alive through CreateProcessW and close.
+pub(pkg) struct HandleList { address: usize, size: usize }
+
+extend HandleList {
+    pub(pkg) fn init(handles: &[usize]) Errno!HandleList {
+        if handles.len() == 0 { return !.{ address: 0, size: 0 }; }
+        let mut size: usize = 0;
+        let initialized = InitializeProcThreadAttributeList(0, 1, 0, &mut size);
+        let error = GetLastError();
+        if initialized != 0 or error != errorInsufficientBuffer { return errno(error)!; }
+        if size == 0 { return .Io!; }
+        let pages = mapPages(size, 1).?;
+        let address = pages.ptr() as usize;
+        if InitializeProcThreadAttributeList(address, 1, 0, &mut size) == 0 {
+            let failure = lastError();
+            _ = unmapPages(pages.releasePtr(), pages.releaseSize());
+            return failure!;
+        }
+        if UpdateProcThreadAttribute(
+            address, 0, procThreadAttributeHandleList, handles.ptr() as usize,
+            handles.len() * pkg::builtin::size[usize](), 0, 0,
+        ) == 0 {
+            let failure = lastError();
+            DeleteProcThreadAttributeList(address);
+            _ = unmapPages(pages.releasePtr(), pages.releaseSize());
+            return failure!;
+        }
+        !.{ address, size: pages.releaseSize() }
+    }
+
+    pub(pkg) fn close(&mut self) () {
+        if self.address != 0 {
+            DeleteProcThreadAttributeList(self.address);
+            _ = unmapPages(self.address as &mut u8, self.size);
+            self.address = 0;
+            self.size = 0;
+        }
+    }
+}

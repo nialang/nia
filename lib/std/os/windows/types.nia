@@ -1,0 +1,258 @@
+using pkg::os::windows::bindings::{
+    invalidHandle,
+    fileAttributeDirectory,
+    fileAttributeReparsePoint,
+    reparseTagNameSurrogate,
+};
+
+pub const maxPathBytes: usize = 32768;
+
+pub enum Errno: i32 {
+    PermissionDenied = 1,
+    NoEntry = 2,
+    Interrupted = 4,
+    Io = 5,
+    BadFd = 9,
+    NoChild = 10,
+    Again = 11,
+    NoMemory = 12,
+    Access = 13,
+    Fault = 14,
+    Busy = 16,
+    Exists = 17,
+    CrossDevice = 18,
+    NotDir = 20,
+    IsDir = 21,
+    Invalid = 22,
+    NoSpace = 28,
+    ReadOnly = 30,
+    BrokenPipe = 32,
+    OutOfRange = 34,
+    TooLong = 36,
+    Unsupported = 38,
+    SymlinkLoop = 40,
+    NotEmpty = 39,
+    _,
+}
+
+pub enum SpawnStage: i32 { Setup = 1, Stdio = 2, Cwd = 3, Exec = 4, _ }
+
+pub enum SpawnError {
+    Setup(Errno),
+    Stdio(Errno),
+    Cwd(Errno),
+    Exec(Errno),
+    Reap { stage: SpawnStage, primary: Errno, cause: Errno, pid: ProcessId },
+}
+
+pub enum OpenMode: i32 { ReadOnly = 0, WriteOnly = 1, ReadWrite = 2, _ }
+pub enum SeekWhence: usize { Start = 0, Current = 1, End = 2, _ }
+pub enum StdIo: i32 { Inherit = 1, Ignore = 2, Pipe = 3 }
+pub enum FileKind: i32 {
+    BlockDevice = 1, CharacterDevice = 2, Directory = 3, NamedPipe = 4,
+    Symlink = 5, File = 6, UnixSocket = 7, Unknown = 255, _
+}
+
+pub struct Timestamp { seconds: i64, nanos: u32 }
+pub struct FileMetadata {
+    kind: FileKind,
+    inode: u64,
+    nlink: u32,
+    size: u64,
+    mode: u32,
+    blockSize: u32,
+    atime: ?Timestamp,
+    mtime: Timestamp,
+    ctime: ?Timestamp,
+}
+pub struct DirectoryEntry { kind: FileKind, name: &[u8] }
+
+// A Windows HANDLE is pointer-sized. Keeping it opaque prevents accidental
+// arithmetic in the facade while retaining a stable raw value for the ABI.
+pub struct FileDescriptor { handle: usize }
+pub struct ProcessId { pid: i32, handle: usize }
+pub struct WaitStatus { raw: i32 }
+pub struct SpawnResult { pid: ProcessId, stdin: ?FileDescriptor, stdout: ?FileDescriptor, stderr: ?FileDescriptor }
+pub struct SpawnAttempt { result: ?SpawnResult, error: ?SpawnError, pendingReap: ?ProcessId, pendingReapError: ?Errno }
+pub struct SpawnOptions { stdin: StdIo, stdout: StdIo, stderr: StdIo, cwd: ?&u8 }
+
+extend Timestamp {
+    pub fn init(seconds: i64, nanos: u32) Timestamp {
+        .{ seconds, nanos }
+    }
+
+    pub fn seconds(&self) i64 {
+        self.seconds
+    }
+
+    pub fn nanos(&self) u32 {
+        self.nanos
+    }
+}
+
+extend FileMetadata {
+    pub fn init(
+        kind: FileKind,
+        inode: u64,
+        nlink: u32,
+        size: u64,
+        mode: u32,
+        blockSize: u32,
+        atime: ?Timestamp,
+        mtime: Timestamp,
+        ctime: ?Timestamp,
+    ) FileMetadata {
+        .{ kind, inode, nlink, size, mode, blockSize, atime, mtime, ctime }
+    }
+
+    pub fn kind(&self) FileKind { self.kind }
+    pub fn inode(&self) u64 { self.inode }
+    pub fn nlink(&self) u32 { self.nlink }
+    pub fn size(&self) u64 { self.size }
+    pub fn mode(&self) u32 { self.mode }
+    pub fn blockSize(&self) u32 { self.blockSize }
+    pub fn atime(&self) ?Timestamp { self.atime }
+    pub fn mtime(&self) Timestamp { self.mtime }
+    pub fn ctime(&self) ?Timestamp { self.ctime }
+}
+
+extend DirectoryEntry {
+    pub fn init(kind: FileKind, name: &[u8]) DirectoryEntry {
+        .{ kind, name }
+    }
+
+    pub fn kind(&self) FileKind { self.kind }
+    pub fn name(&self) &[u8] { self.name }
+}
+
+extend ProcessId {
+    pub const fn init(pid: i32) ProcessId {
+        .{ pid, handle: invalidHandle }
+    }
+
+    pub const fn fromHandle(pid: i32, handle: usize) ProcessId {
+        .{ pid, handle }
+    }
+
+    pub const fn raw(&self) i32 { self.pid }
+}
+
+extend WaitStatus {
+    pub fn init(raw: i32) WaitStatus {
+        .{ raw }
+    }
+
+    pub fn raw(&self) i32 { self.raw }
+    pub fn exited(&self) bool { true }
+    pub fn signaled(&self) bool { false }
+    pub fn stopped(&self) bool { false }
+    pub fn exitCode(&self) ?i32 { ?self.raw }
+    pub fn signal(&self) ?i32 { null }
+    pub fn stopSignal(&self) ?i32 { null }
+}
+
+extend SpawnResult {
+    pub fn init(
+        pid: ProcessId,
+        stdin: ?FileDescriptor,
+        stdout: ?FileDescriptor,
+        stderr: ?FileDescriptor,
+    ) SpawnResult {
+        .{ pid, stdin, stdout, stderr }
+    }
+
+    pub fn pid(&self) ProcessId { self.pid }
+    pub fn stdin(&self) ?FileDescriptor { self.stdin }
+    pub fn stdout(&self) ?FileDescriptor { self.stdout }
+    pub fn stderr(&self) ?FileDescriptor { self.stderr }
+}
+
+extend SpawnError {
+    pub fn fromStage(stage: SpawnStage, errno: Errno) SpawnError {
+        match stage {
+            .Setup => .Setup(errno),
+            .Stdio => .Stdio(errno),
+            .Cwd => .Cwd(errno),
+            .Exec => .Exec(errno),
+            _ => .Setup(errno),
+        }
+    }
+
+    pub fn stage(&self) SpawnStage {
+        match self.* {
+            .Setup(_) => .Setup,
+            .Stdio(_) => .Stdio,
+            .Cwd(_) => .Cwd,
+            .Exec(_) => .Exec,
+            .Reap { stage, primary: _, cause: _, pid: _ } => stage,
+        }
+    }
+
+    pub fn primary(&self) Errno {
+        match self.* {
+            .Setup(value) => value,
+            .Stdio(value) => value,
+            .Cwd(value) => value,
+            .Exec(value) => value,
+            .Reap { stage: _, primary, cause: _, pid: _ } => primary,
+        }
+    }
+}
+
+extend SpawnAttempt {
+    pub fn success(result: SpawnResult) SpawnAttempt {
+        .{ result: ?result, error: null, pendingReap: null, pendingReapError: null }
+    }
+
+    pub fn failure(error: SpawnError) SpawnAttempt {
+        .{ result: null, error: ?error, pendingReap: null, pendingReapError: null }
+    }
+
+    pub fn reapFailure(error: SpawnError, pid: ProcessId, cause: Errno) SpawnAttempt {
+        .{ result: null, error: ?error, pendingReap: ?pid, pendingReapError: ?cause }
+    }
+
+    pub fn finish(&mut self) SpawnError!SpawnResult {
+        match self.result {
+            ?value => {
+                self.result = null;
+                !value
+            },
+            null => match self.error {
+                ?value => {
+                    self.error = null;
+                    value!
+                },
+                null => .Setup(.Io)!,
+            },
+        }
+    }
+}
+
+extend SpawnOptions {
+    pub fn init() SpawnOptions {
+        .{ stdin: .Inherit, stdout: .Inherit, stderr: .Inherit, cwd: null }
+    }
+
+    pub fn stdin(&self) StdIo { self.stdin }
+    pub fn stdout(&self) StdIo { self.stdout }
+    pub fn stderr(&self) StdIo { self.stderr }
+    pub fn cwd(&self) ?&u8 { self.cwd }
+
+    pub fn setStdin(&mut self, value: StdIo) () { self.stdin = value }
+    pub fn setStdout(&mut self, value: StdIo) () { self.stdout = value }
+    pub fn setStderr(&mut self, value: StdIo) () { self.stderr = value }
+    pub fn setCwd(&mut self, value: &u8) () { self.cwd = ?value }
+}
+
+// Only name-surrogate reparse points are links. Other tags, such as cloud
+// placeholders, keep the kind of the file or directory they store.
+pub(pkg) fn fileKind(attributes: u32, reparseTag: u32) FileKind {
+    if (attributes & fileAttributeReparsePoint) != 0 and (reparseTag & reparseTagNameSurrogate) != 0 {
+        .Symlink
+    } else if (attributes & fileAttributeDirectory) != 0 {
+        .Directory
+    } else {
+        .File
+    }
+}
