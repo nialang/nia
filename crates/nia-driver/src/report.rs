@@ -501,7 +501,24 @@ pub fn render_driver_error(
             primary_path,
             primary_source,
         ),
+        DriverError::SystemImports(_) | DriverError::SystemImportLibrary { .. } => {
+            render_diagnostics_with_title(
+                "driver diagnostics:",
+                &driver_error_diagnostics(error),
+                primary_path,
+                primary_source,
+            )
+        }
     }
+}
+
+// System import descriptions are toolchain resources, so their failures point
+// at the installation rather than the program.
+fn system_import_diagnostic(message: String, note: String) -> Diagnostic {
+    Diagnostic::user_error(nia_diagnostic::codes::LINKER, message)
+        .note(note)
+        .help("reinstall the toolchain resources or check `--resource-root`")
+        .finish()
 }
 
 fn render_external_tool_diagnostic(
@@ -783,6 +800,14 @@ fn driver_error_diagnostics(error: &DriverError) -> Vec<Diagnostic> {
             .help("check the linker and target options")
             .finish(),
         ],
+        DriverError::SystemImports(error) => vec![system_import_diagnostic(
+            "missing system import description".to_string(),
+            error.to_string(),
+        )],
+        DriverError::SystemImportLibrary { library, message } => vec![system_import_diagnostic(
+            format!("could not generate the `{library}` import library"),
+            message.clone(),
+        )],
         DriverError::ArchiveConfig(error) => vec![
             Diagnostic::user_error(
                 nia_diagnostic::codes::LINKER,

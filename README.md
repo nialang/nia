@@ -134,9 +134,9 @@ cargo run -p nia-cli -- --resource-root lib check examples/hello.nia \
 ```
 
 The resource tree includes freestanding startup for Linux x86_64, Linux i686,
-and Windows x86_64. Windows executable links use the LLVM COFF linker and the
-Windows SDK import libraries discovered from `LIB` or the installed Windows
-Kits.
+and Windows x86_64. Executables link with LLD for the artifact target. Windows
+links import `kernel32` and `bcryptprimitives` through import descriptions in
+`lib/imports`, so they need no Windows SDK.
 
 For repeated use, build the release binary and keep the checkout's `lib`
 directory beside it:

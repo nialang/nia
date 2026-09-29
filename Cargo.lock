@@ -619,6 +619,7 @@ dependencies = [
  "nia-layout",
  "nia-lexer",
  "nia-linker",
+ "nia-llvm",
  "nia-loader-query",
  "nia-mangle",
  "nia-opt",

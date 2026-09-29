@@ -2201,7 +2201,7 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
 }
 
 fn run_emit_exe(path: &str, source: &str, args: Vec<String>, context: EmitContext) -> ExitCode {
-    let options = match parse_emit_exe_options(path, args) {
+    let options = match parse_emit_exe_options(path, *context.toolchain.artifact_target(), args) {
         Ok(options) => options,
         Err(message) => {
             write_diagnostic_report(
@@ -2349,7 +2349,11 @@ struct EmitExeOptions {
     link_time_optimization: nia_driver::LinkTimeOptimization,
 }
 
-fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<EmitExeOptions, String> {
+fn parse_emit_exe_options(
+    source: &str,
+    target: nia_target::TargetConfig,
+    args: Vec<String>,
+) -> Result<EmitExeOptions, String> {
     let mut output = None::<PathBuf>;
     let mut cache_dir = None::<PathBuf>;
     let mut link_options = nia_linker::LinkOptions::default();
@@ -2416,10 +2420,7 @@ fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<EmitExeOpti
         }
         if let Some(value) = arg.strip_prefix("--linker-flavor=") {
             let flavor = parse_linker_flavor(value)?;
-            link_options.linker.flavor = flavor;
-            if flavor == nia_linker::LinkerFlavor::Lld && !explicit_linker_program {
-                link_options.linker = nia_linker::ExecutableLinker::lld();
-            }
+            select_linker_flavor(&mut link_options.linker, flavor, explicit_linker_program);
             continue;
         }
         match arg.as_str() {
@@ -2503,16 +2504,14 @@ fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<EmitExeOpti
                     return Err("missing flavor after `--linker-flavor`".to_string());
                 };
                 let flavor = parse_linker_flavor(&value)?;
-                link_options.linker.flavor = flavor;
-                if flavor == nia_linker::LinkerFlavor::Lld && !explicit_linker_program {
-                    link_options.linker = nia_linker::ExecutableLinker::lld();
-                }
+                select_linker_flavor(&mut link_options.linker, flavor, explicit_linker_program);
             }
             _ => return Err(format!("unknown `nia emit --exe` option `{arg}`")),
         }
     }
     Ok(EmitExeOptions {
-        output: output.unwrap_or_else(|| default_output_path(source, env::consts::EXE_EXTENSION)),
+        output: output
+            .unwrap_or_else(|| default_output_path(source, target.executable_extension())),
         cache_dir,
         link_options,
         link_time_optimization,
@@ -2530,13 +2529,30 @@ fn parse_link_time_optimization(value: &str) -> Result<nia_driver::LinkTimeOptim
     }
 }
 
+// An LLD flavor discovers its program unless `--linker` names one, rather
+// than reinterpreting `NIA_LINKER` under LLD's contract. Other flavors keep
+// the selected program: `NIA_LINKER`, or `ld` when it is unset.
+fn select_linker_flavor(
+    linker: &mut nia_linker::ExecutableLinker,
+    flavor: nia_linker::LinkerFlavor,
+    explicit_program: bool,
+) {
+    if explicit_program || !flavor.is_lld() {
+        linker.flavor = Some(flavor);
+    } else {
+        *linker = nia_linker::ExecutableLinker::with_flavor(flavor);
+    }
+}
+
 fn parse_linker_flavor(value: &str) -> Result<nia_linker::LinkerFlavor, String> {
     match value {
         "gnu" => Ok(nia_linker::LinkerFlavor::Gnu),
         "lld" => Ok(nia_linker::LinkerFlavor::Lld),
+        "lld-link" => Ok(nia_linker::LinkerFlavor::LldLink),
+        "ld64.lld" => Ok(nia_linker::LinkerFlavor::Ld64Lld),
         "self-hosted-elf" => Ok(nia_linker::LinkerFlavor::SelfHostedElf),
         _ => Err(format!(
-            "unknown linker flavor `{value}`; expected `gnu`, `lld`, or `self-hosted-elf`"
+            "unknown linker flavor `{value}`; expected `gnu`, `lld`, `lld-link`, `ld64.lld`, \n             or `self-hosted-elf`"
         )),
     }
 }
@@ -2577,10 +2593,24 @@ fn print_optimization_report_to_stderr(program: &nia_driver::CodegenProgram) {
 mod tests {
     use super::*;
 
+    fn test_target() -> nia_target::TargetConfig {
+        nia_target::TargetConfig::parse("x86_64-unknown-linux").unwrap()
+    }
+
+    #[test]
+    fn emit_exe_output_extension_follows_the_target() {
+        let windows = nia_target::TargetConfig::parse("x86_64-pc-windows-msvc").unwrap();
+        let options = parse_emit_exe_options("main.nia", windows, Vec::new()).unwrap();
+        assert_eq!(options.output, PathBuf::from("main.exe"));
+        let options = parse_emit_exe_options("main.nia", test_target(), Vec::new()).unwrap();
+        assert_eq!(options.output, PathBuf::from("main"));
+    }
+
     #[test]
     fn emit_exe_parses_explicit_lto_policies() {
         let options = parse_emit_exe_options(
             "main.nia",
+            test_target(),
             vec!["--lto=thin".to_owned(), "-o".to_owned(), "main".to_owned()],
         )
         .expect("parse ThinLTO executable options");
@@ -2590,14 +2620,15 @@ mod tests {
         );
         assert_eq!(options.output, PathBuf::from("main"));
 
-        let options = parse_emit_exe_options("main.nia", vec!["--lto=full".to_owned()])
-            .expect("parse full-LTO executable options");
+        let options =
+            parse_emit_exe_options("main.nia", test_target(), vec!["--lto=full".to_owned()])
+                .expect("parse full-LTO executable options");
         assert_eq!(
             options.link_time_optimization,
             nia_driver::LinkTimeOptimization::Full
         );
 
-        let error = parse_emit_exe_options("main.nia", vec!["--lto=fat".to_owned()])
+        let error = parse_emit_exe_options("main.nia", test_target(), vec!["--lto=fat".to_owned()])
             .err()
             .expect("unknown LTO modes must be rejected");
         assert!(

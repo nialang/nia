@@ -1,0 +1,4 @@
+; The documented, always-succeeding process random number generator.
+LIBRARY bcryptprimitives.dll
+EXPORTS
+    ProcessPrng

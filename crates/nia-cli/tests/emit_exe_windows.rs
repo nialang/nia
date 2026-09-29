@@ -9,12 +9,49 @@ mod support;
 use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 fn emit(root: &Path, name: &str, source: &str) -> PathBuf {
+    emit_with_args(root, name, source, &[])
+}
+
+// Win32 functions these fixtures call beyond the standard library's own
+// imports. The toolchain describes only the functions its sources use, so a
+// program calling others links their import library explicitly, as it would
+// any native dependency.
+const FIXTURE_KERNEL32_IMPORTS: [&str; 4] = [
+    "CreateEventW",
+    "GetProcessHandleCount",
+    "OpenEventW",
+    "SetEvent",
+];
+
+fn emit_with_fixture_imports(root: &Path, name: &str, source: &str) -> PathBuf {
+    let library = root.join("fixture-kernel32.lib");
+    if !library.exists() {
+        let definition = root.join("fixture-kernel32.def");
+        let mut contents = String::from("LIBRARY kernel32.dll\nEXPORTS\n");
+        for export in FIXTURE_KERNEL32_IMPORTS {
+            contents.push_str(&format!("    {export}\n"));
+        }
+        std::fs::write(&definition, contents).expect("write fixture module definition");
+        let status = Command::new("lld-link")
+            .arg("-lib")
+            .arg("-machine:x64")
+            .arg(format!("-def:{}", definition.display()))
+            .arg(format!("-out:{}", library.display()))
+            .status_timeout("generate fixture import library");
+        assert!(status.success(), "lld-link -lib failed: {status}");
+    }
+    let search = format!("-L{}", root.display());
+    emit_with_args(root, name, source, &[&search, "-lfixture-kernel32"])
+}
+
+fn emit_with_args(root: &Path, name: &str, source: &str, args: &[&str]) -> PathBuf {
     let main = root.join(format!("{name}.nia"));
     let exe = root.join(format!("{name}.exe"));
     std::fs::write(&main, source).expect("write Windows regression source");
     let output = support::nia_command()
         .args(["emit", "--exe"])
         .arg(&main)
+        .args(args)
         .arg("-o")
         .arg(&exe)
         .output_timeout_for_build("emit Windows regression executable");
@@ -111,7 +148,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     .replace("$RENAMED_BYTES", &byte_literal(renamed))
     .replace("$RENAMED", renamed)
     .replace("$FILE", filename);
-    let exe = emit(&root, "unicode", &source);
+    let exe = emit_with_fixture_imports(&root, "unicode", &source);
     let status = Command::new(exe)
         .current_dir(&working)
         .status_timeout("run Unicode paths and directory ownership regression");
@@ -146,7 +183,7 @@ fn windows_spawn_limits_inheritance_and_releases_failed_attempts() {
             .join(", ")
     );
     let name_len = name_units.len().to_string();
-    let child = emit(
+    let child = emit_with_fixture_imports(
         &root,
         "child",
         &r#"
@@ -290,7 +327,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .replace("$MISSING", &root.join("missing.exe").to_string_lossy().replace('\\', "\\\\"))
         .replace("$NAME_LEN", &name_len)
         .replace("$NAME", &name_literal);
-    let parent = emit(&root, "parent", &parent_source);
+    let parent = emit_with_fixture_imports(&root, "parent", &parent_source);
     assert_eq!(
         Command::new(parent)
             .status_timeout("run Windows pipe and handle ownership regression")
@@ -457,4 +494,57 @@ pub fn main(init: process::Init) process::ExitCode!() {{
     }
     let status = command.status_timeout("run large environment regression");
     assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn windows_links_without_an_sdk_and_imports_only_documented_libraries() {
+    let root = temp_dir("windows_links_without_an_sdk");
+    let empty_kits = root.join("no-windows-kits");
+    std::fs::create_dir(&empty_kits).expect("create empty kits directory");
+    let main = root.join("main.nia");
+    let exe = root.join("main.exe");
+    // A random-seeded hash map draws its seed from `ProcessPrng`.
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if std::HashMap[i32, i32]::tryInit() is !first {
+        _ = first;
+    } else {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write SDK-free source");
+    let output = support::nia_command()
+        .env_remove("LIB")
+        .env("ProgramFiles(x86)", &empty_kits)
+        .args(["emit", "--exe"])
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit SDK-free Windows executable");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(&exe)
+        .status_timeout("run SDK-free Windows executable")
+        .code();
+    assert_eq!(status, Some(0));
+
+    // Import directory DLL names are stored as ASCII in the image.
+    let image = std::fs::read(&exe)
+        .expect("read executable image")
+        .to_ascii_lowercase();
+    let contains = |name: &[u8]| image.windows(name.len()).any(|window| window == name);
+    assert!(contains(b"kernel32.dll"));
+    assert!(contains(b"bcryptprimitives.dll"));
+    assert!(!contains(b"advapi32"));
 }

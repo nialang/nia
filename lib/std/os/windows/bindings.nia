@@ -133,11 +133,9 @@ pub(pkg) extern fn SetFileAttributesW(path: &u16, attributes: u32) i32;
 pub(pkg) extern fn FindFirstFileW(pattern: &u16, data: &mut FindData) usize;
 pub(pkg) extern fn FindNextFileW(search: usize, data: &mut FindData) i32;
 pub(pkg) extern fn FindClose(search: usize) i32;
-// The Windows SDK import library exports the documented SystemFunction036
-// entry point. RtlGenRandom is the API's implementation alias, not the COFF
-// symbol name available to lld-link.
-@[linkName("SystemFunction036")]
-pub(pkg) extern fn SystemFunction036(buffer: &mut u8, length: u32) i32;
+// ProcessPrng is the documented process random number generator; it always
+// succeeds and returns TRUE.
+pub(pkg) extern fn ProcessPrng(buffer: &mut u8, length: usize) i32;
 pub(pkg) extern fn ExitProcess(code: u32) ();
 pub(pkg) extern fn WaitForSingleObject(handle: usize, milliseconds: u32) u32;
 pub(pkg) extern fn GetExitCodeProcess(handle: usize, code: &mut u32) i32;

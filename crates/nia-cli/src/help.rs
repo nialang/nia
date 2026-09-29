@@ -329,11 +329,11 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: "--linker <program>",
-                    right: "use this linker program",
+                    right: "use this linker program (default: LLD for the target)",
                 },
                 HelpRow {
-                    left: "--linker-flavor <gnu|lld|self-hosted-elf>",
-                    right: "select the linker command style",
+                    left: "--linker-flavor <flavor>",
+                    right: "gnu or lld for ELF, lld-link for COFF, ld64.lld for Mach-O",
                 },
                 HelpRow {
                     left: "--dynamic-linker <auto|none|path>",

@@ -21,7 +21,7 @@ use std::os::unix::fs::PermissionsExt;
 
 use nia_backend_ir::{CodegenUnitKey, IncrementalLinkInputs};
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
-use nia_target::TargetConfig;
+use nia_target::{Arch, ObjectFormat, Os, TargetConfig};
 
 const LINK_RESULT_FINGERPRINT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.link-result-components");
@@ -41,6 +41,8 @@ const ARCHIVE_INPUTS_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.archive-result-inputs");
 const STATIC_ARCHIVE_LINK_INPUT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.static-archive-link-input");
+const SYSTEM_IMPORT_LIBRARY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.system-import-library");
 const LINK_RESULT_CACHE_KEY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.link-result-cache-key");
 const LINK_RESULT_INPUTS_DOMAIN: FingerprintDomain =
@@ -201,8 +203,56 @@ pub enum LinkerFlavor {
     Lld,
     /// LLVM `lld-link` using the Windows COFF command line.
     LldLink,
+    /// LLVM `ld64.lld` using the Darwin Mach-O command line.
+    Ld64Lld,
     /// Reserved future in-process ELF linker.
     SelfHostedElf,
+}
+
+impl LinkerFlavor {
+    /// LLD's linker for the target's object format, used when nothing is
+    /// selected explicitly.
+    pub const fn for_target(target: TargetConfig) -> Self {
+        match target.object_format() {
+            ObjectFormat::Elf => Self::Lld,
+            ObjectFormat::Coff => Self::LldLink,
+            ObjectFormat::MachO => Self::Ld64Lld,
+        }
+    }
+
+    /// Argument contract assumed for an explicitly selected program: the
+    /// system linker convention of the target's object format.
+    const fn for_program(target: TargetConfig) -> Self {
+        match target.object_format() {
+            ObjectFormat::Elf => Self::Gnu,
+            ObjectFormat::Coff => Self::LldLink,
+            ObjectFormat::MachO => Self::Ld64Lld,
+        }
+    }
+
+    /// Object format whose executables this flavor links.
+    pub const fn object_format(self) -> ObjectFormat {
+        match self {
+            Self::Gnu | Self::Lld | Self::SelfHostedElf => ObjectFormat::Elf,
+            Self::LldLink => ObjectFormat::Coff,
+            Self::Ld64Lld => ObjectFormat::MachO,
+        }
+    }
+
+    /// Whether the flavor is implemented by LLD, whose program is discovered.
+    pub const fn is_lld(self) -> bool {
+        self.lld_driver().is_some()
+    }
+
+    /// LLD driver name and `-flavor` value, for flavors implemented by LLD.
+    const fn lld_driver(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Self::Lld => Some(("ld.lld", "gnu")),
+            Self::LldLink => Some(("lld-link", "link")),
+            Self::Ld64Lld => Some(("ld64.lld", "darwin")),
+            Self::Gnu | Self::SelfHostedElf => None,
+        }
+    }
 }
 
 impl std::fmt::Display for LinkerFlavor {
@@ -211,6 +261,7 @@ impl std::fmt::Display for LinkerFlavor {
             Self::Gnu => "gnu",
             Self::Lld => "lld",
             Self::LldLink => "lld-link",
+            Self::Ld64Lld => "ld64.lld",
             Self::SelfHostedElf => "self-hosted-elf",
         })
     }
@@ -283,40 +334,33 @@ impl NativeLibrary {
 }
 
 /// Executable linker program and command-line flavor.
+///
+/// Both are resolved against the artifact target when a link is described:
+/// an unset flavor follows the target, and an empty program discovers LLD.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutableLinker {
-    /// Program name or path; an empty LLD program triggers discovery.
+    /// Program name or path; empty discovers the flavor's LLD driver.
     pub program: String,
-    /// Command-line protocol used by the program.
-    pub flavor: LinkerFlavor,
+    /// Explicit command-line protocol, or `None` to follow the target.
+    pub flavor: Option<LinkerFlavor>,
     bundled_program: Option<String>,
 }
 
-impl ExecutableLinker {
-    /// Selects `NIA_LINKER` when set, otherwise the host-native linker.
-    pub fn native() -> Self {
-        if let Ok(program) = env::var("NIA_LINKER")
-            && !program.is_empty()
-        {
-            #[cfg(windows)]
-            return Self::with_program_and_flavor(program, LinkerFlavor::LldLink);
-            #[cfg(not(windows))]
-            return Self::with_program(program);
-        }
-        #[cfg(windows)]
-        {
-            // LLVM's COFF linker is shipped alongside Windows Nia releases.
-            Self::lld_link()
-        }
-        #[cfg(not(windows))]
-        Self::with_program("ld")
+impl Default for ExecutableLinker {
+    /// Selects `NIA_LINKER` when set, otherwise LLD for the target.
+    fn default() -> Self {
+        let program = env::var("NIA_LINKER").unwrap_or_default();
+        Self::with_program(program)
     }
+}
 
-    /// Selects an explicit GNU-compatible linker program.
+impl ExecutableLinker {
+    /// Selects an explicit program using its target's system argument
+    /// contract: GNU for ELF, `lld-link` for COFF, `ld64.lld` for Mach-O.
     pub fn with_program(program: impl Into<String>) -> Self {
         Self {
             program: program.into(),
-            flavor: LinkerFlavor::Gnu,
+            flavor: None,
             bundled_program: None,
         }
     }
@@ -325,33 +369,35 @@ impl ExecutableLinker {
     pub fn with_program_and_flavor(program: impl Into<String>, flavor: LinkerFlavor) -> Self {
         Self {
             program: program.into(),
-            flavor,
+            flavor: Some(flavor),
             bundled_program: None,
         }
     }
 
-    /// Selects discoverable LLD, honoring `NIA_LLD` before `PATH`.
-    pub fn lld() -> Self {
-        Self {
-            program: String::new(),
-            flavor: LinkerFlavor::Lld,
-            bundled_program: None,
-        }
-    }
-
-    /// Selects discoverable Windows COFF LLD, honoring `NIA_LLD` before PATH.
-    pub fn lld_link() -> Self {
-        Self {
-            program: String::new(),
-            flavor: LinkerFlavor::LldLink,
-            bundled_program: None,
-        }
+    /// Selects a flavor whose program is discovered: `NIA_LLD`, then the
+    /// bundled LLD, then the flavor's LLD driver on `PATH`.
+    pub fn with_flavor(flavor: LinkerFlavor) -> Self {
+        Self::with_program_and_flavor(String::new(), flavor)
     }
 
     /// Supplies a package-provided fallback for LLD discovery.
     pub fn with_bundled_program(mut self, program: impl Into<String>) -> Self {
         self.bundled_program = Some(program.into());
         self
+    }
+
+    /// Resolves the flavor for `target`, rejecting a flavor for another
+    /// object format.
+    pub fn flavor_for(&self, target: TargetConfig) -> Result<LinkerFlavor, LinkerConfigError> {
+        let flavor = match self.flavor {
+            Some(flavor) => flavor,
+            None if self.program.is_empty() => LinkerFlavor::for_target(target),
+            None => LinkerFlavor::for_program(target),
+        };
+        if flavor.object_format() != target.object_format() {
+            return Err(LinkerConfigError::IncompatibleFlavor { flavor, target });
+        }
+        Ok(flavor)
     }
 }
 
@@ -535,11 +581,10 @@ pub struct ArchiveEnvironmentFingerprint {
     pub options: ArchiveFingerprint,
 }
 
-/// Target and archive-tool selection for deterministic static archives.
+/// Archive-tool selection for deterministic static archives. The artifact
+/// target is supplied by the caller that owns it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveOptions {
-    /// Target identity recorded in archive cache entries.
-    pub target: LinkTarget,
     /// Archive tool used to materialize the result.
     pub tool: ArchiveTool,
 }
@@ -547,19 +592,12 @@ pub struct ArchiveOptions {
 impl Default for ArchiveOptions {
     fn default() -> Self {
         Self {
-            target: LinkTarget::host(),
             tool: ArchiveTool::native(),
         }
     }
 }
 
 impl ArchiveOptions {
-    /// Overrides the target recorded in result identity.
-    pub fn with_target(mut self, target: LinkTarget) -> Self {
-        self.target = target;
-        self
-    }
-
     /// Overrides archive-tool discovery.
     pub fn with_tool(mut self, tool: ArchiveTool) -> Self {
         self.tool = tool;
@@ -569,6 +607,7 @@ impl ArchiveOptions {
     /// Fingerprints the toolchain, target, resolved tool bytes, and deterministic options.
     pub fn environment_fingerprint(
         &self,
+        target: TargetConfig,
         toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Result<ArchiveEnvironmentFingerprint, LinkerConfigError> {
         let program = self.tool.resolve()?;
@@ -583,10 +622,8 @@ impl ArchiveOptions {
         for part in toolchain_identity.parts() {
             toolchain.write_u64(part);
         }
-        let mut target = QueryFingerprintBuilder::new(ARCHIVE_TARGET_DOMAIN);
-        target.write_str(&self.target.arch);
-        target.write_str(&self.target.os);
-        target.write_str(&self.target.abi);
+        let mut target_component = QueryFingerprintBuilder::new(ARCHIVE_TARGET_DOMAIN);
+        target_component.write_str(&target.name());
         let mut tool = QueryFingerprintBuilder::new(ARCHIVE_TOOL_DOMAIN);
         tool.write_str(&program_path.to_string_lossy());
         write_fingerprint_file(&mut tool, &program_path).map_err(|error| {
@@ -600,7 +637,7 @@ impl ArchiveOptions {
         options.write_str("rcsD");
         Ok(ArchiveEnvironmentFingerprint {
             toolchain: finish_archive_fingerprint(toolchain),
-            target: finish_archive_fingerprint(target),
+            target: finish_archive_fingerprint(target_component),
             tool: finish_archive_fingerprint(tool),
             options: finish_archive_fingerprint(options),
         })
@@ -609,10 +646,11 @@ impl ArchiveOptions {
     /// Computes complete result identity from ordered typed inputs and the environment.
     pub fn result_fingerprint<T>(
         &self,
+        target: TargetConfig,
         inputs: &IncrementalLinkInputs<T>,
         toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Result<ArchiveFingerprintSet, LinkerConfigError> {
-        let environment = self.environment_fingerprint(toolchain_identity)?;
+        let environment = self.environment_fingerprint(target, toolchain_identity)?;
         let mut cache_key = QueryFingerprintBuilder::new(ARCHIVE_CACHE_KEY_DOMAIN);
         cache_key.write_u64(inputs.len() as u64);
         let mut input_component = QueryFingerprintBuilder::new(ARCHIVE_INPUTS_DOMAIN);
@@ -639,10 +677,11 @@ impl ArchiveOptions {
     /// Tests whether non-input components still describe the current environment.
     pub fn matches_result_environment(
         &self,
+        target: TargetConfig,
         expected: ArchiveFingerprintComponents,
         toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Result<bool, LinkerConfigError> {
-        let current = self.environment_fingerprint(toolchain_identity)?;
+        let current = self.environment_fingerprint(target, toolchain_identity)?;
         Ok(current.toolchain == expected.toolchain
             && current.target == expected.target
             && current.tool == expected.tool
@@ -677,49 +716,12 @@ pub struct ArchiveInvocation {
     pub args: Vec<String>,
 }
 
-/// Architecture, operating system, and ABI relevant to link behavior.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LinkTarget {
-    /// Target architecture spelling.
-    pub arch: String,
-    /// Target operating system spelling.
-    pub os: String,
-    /// Target ABI spelling, such as `gnu` or `musl`.
-    pub abi: String,
-}
-
-impl LinkTarget {
-    /// Creates the process host target with the platform's default ABI.
-    pub fn host() -> Self {
-        Self {
-            arch: env::consts::ARCH.to_string(),
-            os: env::consts::OS.to_string(),
-            abi: default_host_abi(),
-        }
-    }
-
-    /// Converts compiler target configuration with the OS default link ABI.
-    pub fn from_target_config(config: &TargetConfig) -> Self {
-        let os = config.os().name();
-        Self {
-            arch: config.arch().name().to_string(),
-            os: os.to_string(),
-            abi: default_abi_for_os(os),
-        }
-    }
-
-    /// Tests exact architecture, OS, and ABI equality with the process host.
-    pub fn is_host(&self) -> bool {
-        let host = Self::host();
-        self.arch == host.arch && self.os == host.os && self.abi == host.abi
-    }
-}
-
 /// Structured executable-link configuration and external inputs.
+///
+/// The artifact target is not an option: the caller that owns it passes it to
+/// every operation, and it selects the default flavor and argument contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkOptions {
-    /// Target whose executable is produced.
-    pub target: LinkTarget,
     /// Executable linker selection.
     pub linker: ExecutableLinker,
     /// Optional entry symbol passed with `-e`.
@@ -738,6 +740,8 @@ pub struct LinkOptions {
     pub libraries: Vec<NativeLibrary>,
     /// Typed static archive inputs with content fingerprints.
     pub static_archives: Vec<StaticArchiveLinkInput>,
+    /// Import libraries of the system libraries the toolchain sources import.
+    pub system_imports: Vec<SystemImportLibrary>,
     /// Opaque trailing linker arguments.
     pub raw_args: Vec<String>,
 }
@@ -800,6 +804,35 @@ impl StaticArchiveLinkInput {
     }
 }
 
+/// Import library generated from a toolchain import description.
+///
+/// Identity is the library name and description contents; `path` is where the
+/// caller writes the generated library and is used only for invocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemImportLibrary {
+    library: String,
+    path: PathBuf,
+    fingerprint: LinkResultFingerprint,
+}
+
+impl SystemImportLibrary {
+    /// Describes the library generated from `description` at `path`.
+    pub fn new(library: impl Into<String>, path: impl Into<PathBuf>, description: &[u8]) -> Self {
+        let mut fingerprint = QueryFingerprintBuilder::new(SYSTEM_IMPORT_LIBRARY_DOMAIN);
+        fingerprint.write_bytes(description);
+        Self {
+            library: library.into(),
+            path: path.into(),
+            fingerprint: finish_link_fingerprint(fingerprint),
+        }
+    }
+
+    /// Returns the physical library path used in linker invocation.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
 fn stream_fingerprint_bytes(
     reader: &mut impl Read,
     writer: &mut nia_query::QueryFingerprintBytesWriter<'_>,
@@ -837,8 +870,7 @@ fn write_fingerprint_file(
 impl Default for LinkOptions {
     fn default() -> Self {
         Self {
-            linker: ExecutableLinker::native(),
-            target: LinkTarget::host(),
+            linker: ExecutableLinker::default(),
             entry: Some("_start".to_string()),
             mode: LinkMode::Static,
             dynamic_linker: DynamicLinker::None,
@@ -847,6 +879,7 @@ impl Default for LinkOptions {
             rpaths: Vec::new(),
             libraries: Vec::new(),
             static_archives: Vec::new(),
+            system_imports: Vec::new(),
             raw_args: Vec::new(),
         }
     }
@@ -860,10 +893,12 @@ impl LinkOptions {
     /// must execute the link without persistent result reuse in that case.
     pub fn result_fingerprint<T>(
         &self,
+        target: TargetConfig,
         inputs: &IncrementalLinkInputs<T>,
         toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Result<Option<LinkResultFingerprintSet>, LinkerConfigError> {
-        let Some(environment) = self.result_environment_fingerprint(toolchain_identity)? else {
+        let Some(environment) = self.result_environment_fingerprint(target, toolchain_identity)?
+        else {
             return Ok(None);
         };
         let mut cache_key = QueryFingerprintBuilder::new(LINK_RESULT_CACHE_KEY_DOMAIN);
@@ -904,10 +939,11 @@ impl LinkOptions {
     /// Tests whether cached non-input components still match the current environment.
     pub fn matches_result_environment(
         &self,
+        target: TargetConfig,
         expected: LinkResultFingerprintComponents,
         toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Result<bool, LinkerConfigError> {
-        let Some(current) = self.result_environment_fingerprint(toolchain_identity)? else {
+        let Some(current) = self.result_environment_fingerprint(target, toolchain_identity)? else {
             return Ok(false);
         };
         Ok(current.toolchain == expected.toolchain
@@ -922,12 +958,13 @@ impl LinkOptions {
     /// [`Self::result_fingerprint`].
     pub fn result_environment_fingerprint(
         &self,
+        target: TargetConfig,
         toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Result<Option<LinkResultEnvironmentFingerprint>, LinkerConfigError> {
         if self.sysroot.is_some() || !self.libraries.is_empty() || !self.raw_args.is_empty() {
             return Ok(None);
         }
-        let linker = self.linker.resolve()?;
+        let linker = self.linker.resolve(target)?;
         let Some(linker_path) = resolved_linker_path(&linker.program) else {
             return Ok(None);
         };
@@ -935,17 +972,25 @@ impl LinkOptions {
         for part in toolchain_identity.parts() {
             toolchain.write_u64(part);
         }
-        let mut target = QueryFingerprintBuilder::new(LINK_RESULT_TARGET_DOMAIN);
-        target.write_str(&self.target.arch);
-        target.write_str(&self.target.os);
-        target.write_str(&self.target.abi);
+        let mut target_component = QueryFingerprintBuilder::new(LINK_RESULT_TARGET_DOMAIN);
+        target_component.write_str(&target.name());
         if self.mode == LinkMode::Dynamic && self.dynamic_linker == DynamicLinker::Auto {
             write_optional_string(
-                &mut target,
-                dynamic_linker_for_target(&self.target)?.as_deref(),
+                &mut target_component,
+                dynamic_linker_for_target(target)?.as_deref(),
             );
         }
-        write_strings(&mut target, &self.default_library_paths_for_linker(&linker));
+        write_strings(
+            &mut target_component,
+            &self.default_library_paths_for_linker(target, &linker),
+        );
+        target_component.write_u64(self.system_imports.len() as u64);
+        for import in &self.system_imports {
+            target_component.write_str(&import.library);
+            for part in import.fingerprint.parts() {
+                target_component.write_u64(part);
+            }
+        }
 
         let mut linker_component = QueryFingerprintBuilder::new(LINK_RESULT_LINKER_DOMAIN);
         linker_component.write_str(&linker_path.to_string_lossy());
@@ -964,7 +1009,7 @@ impl LinkOptions {
 
         Ok(Some(LinkResultEnvironmentFingerprint {
             toolchain: finish_link_fingerprint(toolchain),
-            target: finish_link_fingerprint(target),
+            target: finish_link_fingerprint(target_component),
             linker: finish_link_fingerprint(linker_component),
             options: finish_link_fingerprint(options),
         }))
@@ -979,12 +1024,6 @@ impl LinkOptions {
     /// Overrides executable-linker selection.
     pub fn with_linker(mut self, linker: ExecutableLinker) -> Self {
         self.linker = linker;
-        self
-    }
-
-    /// Overrides the artifact target.
-    pub fn with_target(mut self, target: LinkTarget) -> Self {
-        self.target = target;
         self
     }
 
@@ -1033,6 +1072,12 @@ impl LinkOptions {
         self
     }
 
+    /// Replaces the import libraries of the target's system libraries.
+    pub fn with_system_imports(mut self, imports: Vec<SystemImportLibrary>) -> Self {
+        self.system_imports = imports;
+        self
+    }
+
     /// Replaces typed static archive inputs.
     pub fn with_static_archives(mut self, archives: Vec<StaticArchiveLinkInput>) -> Self {
         self.static_archives = archives;
@@ -1042,23 +1087,27 @@ impl LinkOptions {
     /// Builds a resolved linker process invocation for ordered typed inputs.
     pub fn invocation(
         &self,
+        target: TargetConfig,
         inputs: &IncrementalLinkInputs<PathBuf>,
         output: PathBuf,
     ) -> Result<LinkerInvocation, LinkerConfigError> {
-        let linker = self.linker.resolve()?;
-        match self.linker.flavor {
+        let linker = self.linker.resolve(target)?;
+        let mut invocation = match linker.flavor {
             LinkerFlavor::Gnu | LinkerFlavor::Lld => {
-                self.gnu_like_invocation(&linker, inputs, output)
+                self.gnu_like_invocation(target, &linker, inputs, output)?
             }
-            LinkerFlavor::LldLink => self.coff_invocation(&linker, inputs, output),
-            LinkerFlavor::SelfHostedElf => {
-                Err(LinkerConfigError::UnsupportedFlavor(self.linker.flavor))
+            LinkerFlavor::LldLink => self.coff_invocation(target, &linker, inputs, output),
+            LinkerFlavor::Ld64Lld | LinkerFlavor::SelfHostedElf => {
+                return Err(LinkerConfigError::UnsupportedFlavor(linker.flavor));
             }
-        }
+        };
+        invocation.args.splice(0..0, linker.driver_args);
+        Ok(invocation)
     }
 
     fn gnu_like_invocation(
         &self,
+        target: TargetConfig,
         linker: &ResolvedLinker,
         inputs: &IncrementalLinkInputs<PathBuf>,
         output: PathBuf,
@@ -1071,7 +1120,7 @@ impl LinkOptions {
             args.push("-e".to_string());
             args.push(entry.clone());
         }
-        if let Some(emulation) = gnu_emulation_for_target(&self.target) {
+        if let Some(emulation) = gnu_emulation_for_target(target) {
             args.push("-m".to_string());
             args.push(emulation.to_string());
         }
@@ -1092,7 +1141,7 @@ impl LinkOptions {
             }
             LinkMode::Dynamic => {}
         }
-        for path in self.default_library_paths_for_linker(linker) {
+        for path in self.default_library_paths_for_linker(target, linker) {
             args.push("-L".to_string());
             args.push(path);
         }
@@ -1109,7 +1158,7 @@ impl LinkOptions {
             LinkMode::Static => {}
             LinkMode::Dynamic => match &self.dynamic_linker {
                 DynamicLinker::Auto => {
-                    if let Some(path) = dynamic_linker_for_target(&self.target)? {
+                    if let Some(path) = dynamic_linker_for_target(target)? {
                         args.push("--dynamic-linker".to_string());
                         args.push(path);
                     } else {
@@ -1134,19 +1183,19 @@ impl LinkOptions {
         })
     }
 
+    // Every maintained COFF target is a Windows console program.
     fn coff_invocation(
         &self,
+        target: TargetConfig,
         linker: &ResolvedLinker,
         inputs: &IncrementalLinkInputs<PathBuf>,
         output: PathBuf,
-    ) -> Result<LinkerInvocation, LinkerConfigError> {
+    ) -> LinkerInvocation {
         let mut args = vec!["/NOLOGO".to_string()];
         if let Some(entry) = &self.entry {
             args.push(format!("/ENTRY:{entry}"));
         }
-        if self.target.os == "windows" {
-            args.push("/SUBSYSTEM:CONSOLE".to_string());
-        }
+        args.push("/SUBSYSTEM:CONSOLE".to_string());
         args.extend(
             inputs
                 .as_slice()
@@ -1158,7 +1207,7 @@ impl LinkOptions {
                 .iter()
                 .map(|archive| archive.path.to_string_lossy().into_owned()),
         );
-        for path in self.default_library_paths_for_linker(linker) {
+        for path in self.default_library_paths_for_linker(target, linker) {
             args.push(format!("/LIBPATH:{path}"));
         }
         for path in &self.library_paths {
@@ -1167,16 +1216,17 @@ impl LinkOptions {
         for library in &self.libraries {
             args.push(format!("/DEFAULTLIB:{}", library.name));
         }
-        if self.target.os == "windows" {
-            args.push("/DEFAULTLIB:kernel32.lib".to_string());
-            args.push("/DEFAULTLIB:advapi32.lib".to_string());
-        }
+        args.extend(
+            self.system_imports
+                .iter()
+                .map(|import| import.path.to_string_lossy().into_owned()),
+        );
         args.extend(self.raw_args.iter().cloned());
         args.push(format!("/OUT:{}", output.to_string_lossy()));
-        Ok(LinkerInvocation {
+        LinkerInvocation {
             program: linker.program.clone(),
             args,
-        })
+        }
     }
 
     fn push_gnu_like_libraries(&self, args: &mut Vec<String>) {
@@ -1217,63 +1267,28 @@ impl LinkOptions {
         }
     }
 
-    fn default_library_paths_for_linker(&self, linker: &ResolvedLinker) -> Vec<String> {
-        if linker.flavor == LinkerFlavor::LldLink && self.target.os == "windows" {
-            return native_windows_library_paths();
+    fn default_library_paths_for_linker(
+        &self,
+        target: TargetConfig,
+        linker: &ResolvedLinker,
+    ) -> Vec<String> {
+        match linker.flavor {
+            // LLD has no built-in search path; supply the host system's own
+            // only when it is the target.
+            LinkerFlavor::Lld if self.sysroot.is_none() && TargetConfig::host() == Some(target) => {
+                native_linux_library_paths()
+            }
+            // COFF links name every system library by path, so no platform
+            // SDK is searched.
+            _ => Vec::new(),
         }
-        if linker.flavor != LinkerFlavor::Lld || self.sysroot.is_some() || !self.target.is_host() {
-            return Vec::new();
-        }
-        native_linux_library_paths()
     }
 }
 
-#[cfg(windows)]
-fn native_windows_library_paths() -> Vec<String> {
-    let mut paths = env::var_os("LIB")
-        .map(|value| env::split_paths(&value).collect::<Vec<_>>())
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|path| path.join("kernel32.lib").is_file())
-        .map(|path| path.to_string_lossy().into_owned())
-        .collect::<Vec<_>>();
-    if !paths.is_empty() {
-        paths.sort();
-        paths.dedup();
-        return paths;
-    }
-
-    let Some(program_files) = env::var_os("ProgramFiles(x86)") else {
-        return paths;
-    };
-    let kits = PathBuf::from(program_files).join("Windows Kits/10/Lib");
-    let Ok(versions) = fs::read_dir(kits) else {
-        return paths;
-    };
-    let mut versions = versions
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
-        .collect::<Vec<_>>();
-    versions.sort();
-    for version in versions.into_iter().rev() {
-        let path = version.join("um/x64");
-        if path.join("kernel32.lib").is_file() {
-            paths.push(path.to_string_lossy().into_owned());
-            break;
-        }
-    }
-    paths
-}
-
-#[cfg(not(windows))]
-fn native_windows_library_paths() -> Vec<String> {
-    Vec::new()
-}
-
-fn gnu_emulation_for_target(target: &LinkTarget) -> Option<&'static str> {
-    (target.os == "linux" && matches!(target.arch.as_str(), "x86" | "i386" | "i586" | "i686"))
-        .then_some("elf_i386")
+// GNU linkers default to their own architecture's emulation; the 32-bit x86
+// target is commonly linked by an x86_64 linker.
+fn gnu_emulation_for_target(target: TargetConfig) -> Option<&'static str> {
+    (target.arch() == Arch::X86).then_some("elf_i386")
 }
 
 fn resolved_linker_path(program: &str) -> Option<PathBuf> {
@@ -1350,6 +1365,7 @@ const fn linker_flavor_tag(flavor: LinkerFlavor) -> u8 {
         LinkerFlavor::Lld => 1,
         LinkerFlavor::SelfHostedElf => 2,
         LinkerFlavor::LldLink => 3,
+        LinkerFlavor::Ld64Lld => 4,
     }
 }
 
@@ -1364,29 +1380,38 @@ const fn link_mode_tag(mode: LinkMode) -> u8 {
 struct ResolvedLinker {
     program: String,
     flavor: LinkerFlavor,
+    /// Leading arguments that select the flavor of a discovered LLD.
+    driver_args: Vec<String>,
 }
 
 impl ExecutableLinker {
-    fn resolve(&self) -> Result<ResolvedLinker, LinkerConfigError> {
-        match self.flavor {
-            LinkerFlavor::Gnu => Ok(ResolvedLinker {
-                program: if self.program.is_empty() {
-                    "ld".to_string()
-                } else {
-                    self.program.clone()
-                },
-                flavor: self.flavor,
-            }),
-            LinkerFlavor::Lld => Ok(ResolvedLinker {
-                program: resolve_lld_program(&self.program, self.bundled_program.as_deref())?,
-                flavor: self.flavor,
-            }),
-            LinkerFlavor::LldLink => Ok(ResolvedLinker {
-                program: resolve_lld_link_program(&self.program, self.bundled_program.as_deref())?,
-                flavor: self.flavor,
-            }),
-            LinkerFlavor::SelfHostedElf => Err(LinkerConfigError::UnsupportedFlavor(self.flavor)),
+    fn resolve(&self, target: TargetConfig) -> Result<ResolvedLinker, LinkerConfigError> {
+        let flavor = self.flavor_for(target)?;
+        if !self.program.is_empty() {
+            // An explicit program implements the flavor's contract itself.
+            return Ok(ResolvedLinker {
+                program: self.program.clone(),
+                flavor,
+                driver_args: Vec::new(),
+            });
         }
+        let Some((driver, lld_flavor)) = flavor.lld_driver() else {
+            return match flavor {
+                LinkerFlavor::Gnu => Ok(ResolvedLinker {
+                    program: "ld".to_string(),
+                    flavor,
+                    driver_args: Vec::new(),
+                }),
+                _ => Err(LinkerConfigError::UnsupportedFlavor(flavor)),
+            };
+        };
+        // Every LLD driver accepts a leading `-flavor`, so one discovered
+        // binary links every object format regardless of its file name.
+        Ok(ResolvedLinker {
+            program: resolve_lld_program(flavor, driver, self.bundled_program.as_deref())?,
+            flavor,
+            driver_args: vec!["-flavor".to_string(), lld_flavor.to_string()],
+        })
     }
 }
 
@@ -1428,6 +1453,13 @@ pub enum LinkerConfigError {
     },
     /// The flavor is reserved but has no invocation implementation.
     UnsupportedFlavor(LinkerFlavor),
+    /// The flavor links a different object format than the target uses.
+    IncompatibleFlavor {
+        /// Selected command-line flavor.
+        flavor: LinkerFlavor,
+        /// Artifact target.
+        target: TargetConfig,
+    },
 }
 
 impl std::fmt::Display for LinkerConfigError {
@@ -1446,6 +1478,12 @@ impl std::fmt::Display for LinkerConfigError {
             Self::UnsupportedFlavor(flavor) => {
                 write!(f, "linker flavor `{flavor}` is not implemented")
             }
+            Self::IncompatibleFlavor { flavor, target } => write!(
+                f,
+                "linker flavor `{flavor}` cannot link executables for target `{target}`; \
+                 expected `{}`",
+                LinkerFlavor::for_target(*target)
+            ),
         }
     }
 }
@@ -1453,12 +1491,10 @@ impl std::fmt::Display for LinkerConfigError {
 impl std::error::Error for LinkerConfigError {}
 
 fn resolve_lld_program(
-    program: &str,
+    flavor: LinkerFlavor,
+    driver: &str,
     bundled_program: Option<&str>,
 ) -> Result<String, LinkerConfigError> {
-    if !program.is_empty() {
-        return Ok(program.to_string());
-    }
     if let Ok(program) = env::var("NIA_LLD")
         && !program.is_empty()
     {
@@ -1469,32 +1505,9 @@ fn resolve_lld_program(
     {
         return Ok(program.to_string());
     }
-    find_program_on_path("ld.lld").ok_or_else(|| LinkerConfigError::LinkerNotFound {
-        flavor: LinkerFlavor::Lld,
-        program: "ld.lld".to_string(),
-    })
-}
-
-fn resolve_lld_link_program(
-    program: &str,
-    bundled_program: Option<&str>,
-) -> Result<String, LinkerConfigError> {
-    if !program.is_empty() {
-        return Ok(program.to_string());
-    }
-    if let Ok(program) = env::var("NIA_LLD")
-        && !program.is_empty()
-    {
-        return Ok(program);
-    }
-    if let Some(program) = bundled_program
-        && is_executable_file(Path::new(program))
-    {
-        return Ok(program.to_string());
-    }
-    find_program_on_path("lld-link").ok_or_else(|| LinkerConfigError::LinkerNotFound {
-        flavor: LinkerFlavor::LldLink,
-        program: "lld-link".to_string(),
+    find_program_on_path(driver).ok_or_else(|| LinkerConfigError::LinkerNotFound {
+        flavor,
+        program: driver.to_string(),
     })
 }
 
@@ -1693,7 +1706,9 @@ pub fn native_dynamic_linker() -> Result<Option<String>, LinkerConfigError> {
         let path = PathBuf::from("/usr/bin/env");
         match elf_interpreter(&path) {
             Ok(Some(path)) => Ok(Some(path)),
-            Ok(None) | Err(LinkerConfigError::InvalidElf { .. }) => Ok(standard_dynamic_linker()),
+            Ok(None) | Err(LinkerConfigError::InvalidElf { .. }) => Ok(TargetConfig::host()
+                .and_then(standard_dynamic_linker_for)
+                .map(str::to_string)),
             Err(error) => Err(error),
         }
     }
@@ -1703,142 +1718,25 @@ pub fn native_dynamic_linker() -> Result<Option<String>, LinkerConfigError> {
     }
 }
 
-/// Returns the standard dynamic linker path for the process host target.
-pub fn standard_dynamic_linker() -> Option<String> {
-    standard_dynamic_linker_for(&LinkTarget::host())
-}
-
-/// Returns a known standard dynamic linker path for a target architecture/ABI.
-pub fn standard_dynamic_linker_for(target: &LinkTarget) -> Option<String> {
-    if target.os != "linux" {
+/// Returns the standard glibc dynamic loader of a Linux target.
+pub fn standard_dynamic_linker_for(target: TargetConfig) -> Option<&'static str> {
+    if target.os() != Os::Linux {
         return None;
     }
-    if is_musl_abi(&target.abi) {
-        return musl_dynamic_linker(target);
-    }
-    if is_gnu_abi(&target.abi) {
-        return gnu_dynamic_linker(target);
-    }
-    None
+    Some(match target.arch() {
+        Arch::X86_64 => "/lib64/ld-linux-x86-64.so.2",
+        Arch::X86 => "/lib/ld-linux.so.2",
+        Arch::Aarch64 => "/lib/ld-linux-aarch64.so.1",
+    })
 }
 
-fn dynamic_linker_for_target(target: &LinkTarget) -> Result<Option<String>, LinkerConfigError> {
-    if target.is_host() {
+// A native link asks the host for its loader, which distributions may
+// relocate; a cross link can only use the target's standard path.
+fn dynamic_linker_for_target(target: TargetConfig) -> Result<Option<String>, LinkerConfigError> {
+    if TargetConfig::host() == Some(target) {
         native_dynamic_linker()
     } else {
-        Ok(standard_dynamic_linker_for(target))
-    }
-}
-
-fn gnu_dynamic_linker(target: &LinkTarget) -> Option<String> {
-    match (target.arch.as_str(), target.abi.as_str()) {
-        ("x86_64", "gnu") => Some("/lib64/ld-linux-x86-64.so.2".to_string()),
-        ("x86_64", "gnux32") => Some("/libx32/ld-linux-x32.so.2".to_string()),
-        ("x86", "gnu") | ("i386", "gnu") | ("i586", "gnu") | ("i686", "gnu") => {
-            Some("/lib/ld-linux.so.2".to_string())
-        }
-        ("aarch64", "gnu") => Some("/lib/ld-linux-aarch64.so.1".to_string()),
-        ("aarch64_be", "gnu") => Some("/lib/ld-linux-aarch64_be.so.1".to_string()),
-        ("arm", "gnueabi") | ("armeb", "gnueabi") | ("thumb", "gnueabi") => {
-            Some("/lib/ld-linux.so.3".to_string())
-        }
-        ("arm", "gnueabihf") | ("armeb", "gnueabihf") | ("thumb", "gnueabihf") => {
-            Some("/lib/ld-linux-armhf.so.3".to_string())
-        }
-        ("riscv64", "gnu") => Some("/lib/ld-linux-riscv64-lp64d.so.1".to_string()),
-        ("riscv32", "gnu") => Some("/lib/ld-linux-riscv32-ilp32d.so.1".to_string()),
-        ("powerpc64", "gnu") | ("powerpc64le", "gnu") => Some("/lib64/ld64.so.2".to_string()),
-        ("s390x", "gnu") => Some("/lib/ld64.so.1".to_string()),
-        ("mips", "gnueabi")
-        | ("mipsel", "gnueabi")
-        | ("mips", "gnueabihf")
-        | ("mipsel", "gnueabihf") => Some("/lib/ld.so.1".to_string()),
-        ("mips64", "gnuabi64") | ("mips64el", "gnuabi64") => Some("/lib64/ld.so.1".to_string()),
-        ("mips64", "gnuabin32") | ("mips64el", "gnuabin32") => Some("/lib32/ld.so.1".to_string()),
-        ("loongarch64", "gnu") => Some("/lib64/ld-linux-loongarch-lp64d.so.1".to_string()),
-        ("loongarch64", "gnuf32") => Some("/lib64/ld-linux-loongarch-lp64f.so.1".to_string()),
-        ("loongarch64", "gnusf") => Some("/lib64/ld-linux-loongarch-lp64s.so.1".to_string()),
-        ("sparc64", "gnu") => Some("/lib64/ld-linux.so.2".to_string()),
-        ("sparc", "gnu") | ("alpha", "gnu") => Some("/lib/ld-linux.so.2".to_string()),
-        ("hppa", "gnu") | ("m68k", "gnu") | ("microblaze", "gnu") | ("microblazeel", "gnu") => {
-            Some("/lib/ld.so.1".to_string())
-        }
-        _ => None,
-    }
-}
-
-fn musl_dynamic_linker(target: &LinkTarget) -> Option<String> {
-    match (target.arch.as_str(), target.abi.as_str()) {
-        ("x86_64", "musl") => Some("/lib/ld-musl-x86_64.so.1".to_string()),
-        ("x86_64", "muslx32") => Some("/lib/ld-musl-x32.so.1".to_string()),
-        ("x86", "musl") | ("i386", "musl") | ("i586", "musl") | ("i686", "musl") => {
-            Some("/lib/ld-musl-i386.so.1".to_string())
-        }
-        ("aarch64", "musl") => Some("/lib/ld-musl-aarch64.so.1".to_string()),
-        ("aarch64_be", "musl") => Some("/lib/ld-musl-aarch64_be.so.1".to_string()),
-        ("arm", "musleabi") | ("thumb", "musleabi") => Some("/lib/ld-musl-arm.so.1".to_string()),
-        ("arm", "musleabihf") | ("thumb", "musleabihf") => {
-            Some("/lib/ld-musl-armhf.so.1".to_string())
-        }
-        ("armeb", "musleabi") | ("thumbeb", "musleabi") => {
-            Some("/lib/ld-musl-armeb.so.1".to_string())
-        }
-        ("armeb", "musleabihf") | ("thumbeb", "musleabihf") => {
-            Some("/lib/ld-musl-armebhf.so.1".to_string())
-        }
-        ("riscv64", "musl") => Some("/lib/ld-musl-riscv64.so.1".to_string()),
-        ("riscv32", "musl") => Some("/lib/ld-musl-riscv32.so.1".to_string()),
-        ("powerpc64", "musl") => Some("/lib/ld-musl-powerpc64.so.1".to_string()),
-        ("powerpc64le", "musl") => Some("/lib/ld-musl-powerpc64le.so.1".to_string()),
-        ("powerpc", "musleabi") => Some("/lib/ld-musl-powerpc-sf.so.1".to_string()),
-        ("powerpc", "musleabihf") => Some("/lib/ld-musl-powerpc.so.1".to_string()),
-        ("mips", "musleabi") => Some("/lib/ld-musl-mips-sf.so.1".to_string()),
-        ("mips", "musleabihf") => Some("/lib/ld-musl-mips.so.1".to_string()),
-        ("mipsel", "musleabi") => Some("/lib/ld-musl-mipsel-sf.so.1".to_string()),
-        ("mipsel", "musleabihf") => Some("/lib/ld-musl-mipsel.so.1".to_string()),
-        ("mips64", "muslabi64") => Some("/lib/ld-musl-mips64.so.1".to_string()),
-        ("mips64el", "muslabi64") => Some("/lib/ld-musl-mips64el.so.1".to_string()),
-        ("mips64", "muslabin32") => Some("/lib/ld-musl-mipsn32.so.1".to_string()),
-        ("mips64el", "muslabin32") => Some("/lib/ld-musl-mipsn32el.so.1".to_string()),
-        ("s390x", "musl") => Some("/lib/ld-musl-s390x.so.1".to_string()),
-        ("loongarch64", "musl") => Some("/lib/ld-musl-loongarch64.so.1".to_string()),
-        ("m68k", "musl") => Some("/lib/ld-musl-m68k.so.1".to_string()),
-        ("microblaze", "musl") => Some("/lib/ld-musl-microblaze.so.1".to_string()),
-        ("microblazeel", "musl") => Some("/lib/ld-musl-microblazeel.so.1".to_string()),
-        _ => None,
-    }
-}
-
-fn is_gnu_abi(abi: &str) -> bool {
-    matches!(
-        abi,
-        "gnu" | "gnux32" | "gnueabi" | "gnueabihf" | "gnuabi64" | "gnuabin32" | "gnuf32" | "gnusf"
-    )
-}
-
-fn is_musl_abi(abi: &str) -> bool {
-    matches!(
-        abi,
-        "musl"
-            | "muslx32"
-            | "musleabi"
-            | "musleabihf"
-            | "muslabi64"
-            | "muslabin32"
-            | "muslf32"
-            | "muslsf"
-    )
-}
-
-fn default_host_abi() -> String {
-    default_abi_for_os(env::consts::OS)
-}
-
-fn default_abi_for_os(os: &str) -> String {
-    match os {
-        "linux" => "gnu".to_string(),
-        "windows" => "msvc".to_string(),
-        _ => String::new(),
+        Ok(standard_dynamic_linker_for(target).map(str::to_string))
     }
 }
 

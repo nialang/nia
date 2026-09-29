@@ -1,11 +1,7 @@
 use super::*;
 
-fn expected_host_args(base: &[&str]) -> Vec<String> {
-    let mut args = base.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
-    if gnu_emulation_for_target(&LinkTarget::host()).is_some() {
-        args.splice(2..2, ["-m", "elf_i386"].into_iter().map(str::to_owned));
-    }
-    args
+fn args(base: &[&str]) -> Vec<String> {
+    base.iter().map(|arg| (*arg).to_owned()).collect()
 }
 
 #[test]
@@ -15,12 +11,12 @@ fn default_static_gnu_invocation_keeps_freestanding_shape() {
         ..LinkOptions::default()
     };
     let invocation = options
-        .invocation(&link_inputs("main.o"), PathBuf::from("main"))
+        .invocation(linux(), &link_inputs("main.o"), PathBuf::from("main"))
         .expect("link invocation");
     assert_eq!(invocation.program, "ld");
     assert_eq!(
         invocation.args,
-        expected_host_args(&["-e", "_start", "main.o", "-static", "-o", "main"])
+        args(&["-e", "_start", "main.o", "-static", "-o", "main"])
     );
 }
 
@@ -28,11 +24,14 @@ fn default_static_gnu_invocation_keeps_freestanding_shape() {
 fn i686_linux_gnu_invocation_selects_elf_i386_emulation() {
     let options = LinkOptions {
         linker: ExecutableLinker::with_program("ld"),
-        target: target("i686", "linux", "gnu"),
         ..LinkOptions::default()
     };
     let invocation = options
-        .invocation(&link_inputs("main.o"), PathBuf::from("main"))
+        .invocation(
+            target("x86-unknown-linux"),
+            &link_inputs("main.o"),
+            PathBuf::from("main"),
+        )
         .expect("link invocation");
     assert!(
         invocation
@@ -66,7 +65,7 @@ fn invocation_preserves_typed_link_input_order() {
     };
 
     let invocation = options
-        .invocation(&inputs, PathBuf::from("main"))
+        .invocation(linux(), &inputs, PathBuf::from("main"))
         .expect("link invocation");
     let main_index = invocation
         .args
@@ -94,11 +93,11 @@ fn invocation_passes_exact_static_archive_paths_in_declaration_order() {
     ]);
 
     let invocation = options
-        .invocation(&link_inputs("main.o"), PathBuf::from("main"))
+        .invocation(linux(), &link_inputs("main.o"), PathBuf::from("main"))
         .expect("link invocation");
     assert_eq!(
         invocation.args,
-        expected_host_args(&[
+        args(&[
             "-e",
             "_start",
             "main.o",
@@ -124,11 +123,11 @@ fn dynamic_gnu_invocation_accepts_structured_options() {
     .add_library("native_api")
     .with_raw_args(vec!["-z".to_string(), "now".to_string()]);
     let invocation = options
-        .invocation(&link_inputs("main.o"), PathBuf::from("main"))
+        .invocation(linux(), &link_inputs("main.o"), PathBuf::from("main"))
         .expect("link invocation");
     assert_eq!(
         invocation.args,
-        expected_host_args(&[
+        args(&[
             "-e",
             "_start",
             "main.o",
@@ -157,7 +156,7 @@ fn static_gnu_invocation_selects_static_libraries_before_library_search() {
     .add_library_path("/lib")
     .add_library("native_api");
     let invocation = options
-        .invocation(&link_inputs("main.o"), PathBuf::from("main"))
+        .invocation(linux(), &link_inputs("main.o"), PathBuf::from("main"))
         .expect("link invocation");
     let static_index = invocation
         .args
@@ -177,7 +176,6 @@ fn static_gnu_invocation_selects_static_libraries_before_library_search() {
 }
 
 #[test]
-#[cfg(target_os = "linux")]
 fn dynamic_gnu_invocation_can_mix_static_and_dynamic_libraries() {
     let options = LinkOptions {
         linker: ExecutableLinker::with_program("ld"),
@@ -189,15 +187,15 @@ fn dynamic_gnu_invocation_can_mix_static_and_dynamic_libraries() {
     .add_dynamic_library(":libgcc_s.so.1")
     .add_dynamic_library("c");
     let invocation = options
-        .invocation(&link_inputs("main.o"), PathBuf::from("main"))
+        .invocation(linux(), &link_inputs("main.o"), PathBuf::from("main"))
         .expect("link invocation");
-    let dynamic_linker = native_dynamic_linker()
-        .expect("probe native dynamic linker")
-        .or_else(standard_dynamic_linker)
-        .unwrap_or_else(|| "/lib64/ld-linux-x86-64.so.2".to_string());
+    // A Linux host reports its own loader; any other host uses the standard one.
+    let dynamic_linker = dynamic_linker_for_target(linux())
+        .expect("resolve dynamic linker")
+        .expect("Linux targets have a dynamic linker");
     assert_eq!(
         invocation.args,
-        expected_host_args(&[
+        args(&[
             "-e",
             "_start",
             "main.o",

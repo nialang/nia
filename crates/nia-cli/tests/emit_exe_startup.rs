@@ -118,6 +118,16 @@ fn emit_exe_entry_name_is_chosen_by_selected_runtime_not_compiler() {
         resource_root.join("toolchain.meta"),
     )
     .expect("copy toolchain manifest");
+    // Windows links need the toolchain's system import descriptions.
+    let imports = resource_root.join("imports/windows");
+    std::fs::create_dir_all(&imports).expect("create custom import descriptions");
+    for library in ["kernel32.def", "bcryptprimitives.def"] {
+        std::fs::copy(
+            workspace_root.join("lib/imports/windows").join(library),
+            imports.join(library),
+        )
+        .expect("copy import description");
+    }
     std::fs::write(
         &std_root,
         r#"

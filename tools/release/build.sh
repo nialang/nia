@@ -10,7 +10,7 @@ binary="${repo_root}/target/release/nia"
 llvm_config="${llvm_prefix}/bin/llvm-config"
 lld_name=ld.lld
 case "$(uname -s)" in
-    MINGW*|MSYS*|CYGWIN*) lld_name=lld-link.exe ;;
+    MINGW*|MSYS*|CYGWIN*) lld_name=ld.lld.exe ;;
 esac
 lld="${llvm_prefix}/bin/${lld_name}"
 if [[ ! -x "${llvm_config}" ]]; then

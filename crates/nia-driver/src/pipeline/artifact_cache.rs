@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use nia_linker::{ArchiveOptions, LinkOptions, LinkTarget};
+use nia_linker::{ArchiveOptions, LinkOptions};
 
 use super::*;
 
@@ -17,12 +17,14 @@ impl Driver {
         let Some(cache) = &self.link_cache else {
             return ExecutableCacheRestore::Disabled;
         };
-        let options = LinkOptions {
-            target: LinkTarget::from_target_config(&self.config.artifact_target),
-            ..LinkOptions::default()
+        // The environment is described exactly as a link prepares it.
+        let Ok((options, _)) = self.prepare_link_options(LinkOptions::default(), Path::new(""))
+        else {
+            return ExecutableCacheRestore::Invalidated;
         };
         if !matches!(
             options.matches_result_environment(
+                self.config.artifact_target,
                 reference.fingerprints.components,
                 self.config.toolchain.identity().fingerprint(),
             ),
@@ -58,12 +60,14 @@ impl Driver {
         link_options: &LinkOptions,
     ) -> Option<ExecutableCacheEnvironment> {
         self.link_cache.as_ref()?;
-        let options = LinkOptions {
-            target: LinkTarget::from_target_config(&self.config.artifact_target),
-            ..link_options.clone()
-        };
-        options
-            .result_environment_fingerprint(self.config.toolchain.identity().fingerprint())
+        let (link_options, _) = self
+            .prepare_link_options(link_options.clone(), Path::new(""))
+            .ok()?;
+        link_options
+            .result_environment_fingerprint(
+                self.config.artifact_target,
+                self.config.toolchain.identity().fingerprint(),
+            )
             .ok()?
             .map(|fingerprint| ExecutableCacheEnvironment { fingerprint })
     }
@@ -77,12 +81,10 @@ impl Driver {
         let Some(cache) = &self.archive_cache else {
             return StaticArchiveCacheRestore::Disabled;
         };
-        let options = ArchiveOptions {
-            target: LinkTarget::from_target_config(&self.config.artifact_target),
-            ..ArchiveOptions::default()
-        };
+        let options = ArchiveOptions::default();
         if !matches!(
             options.matches_result_environment(
+                self.config.artifact_target,
                 reference.fingerprints.components,
                 self.config.toolchain.identity().fingerprint(),
             ),
@@ -110,12 +112,11 @@ impl Driver {
     /// Returns the current static archive cache environment fingerprint.
     pub fn static_archive_cache_environment(&self) -> Option<StaticArchiveCacheEnvironment> {
         self.archive_cache.as_ref()?;
-        let options = ArchiveOptions {
-            target: LinkTarget::from_target_config(&self.config.artifact_target),
-            ..ArchiveOptions::default()
-        };
-        options
-            .environment_fingerprint(self.config.toolchain.identity().fingerprint())
+        ArchiveOptions::default()
+            .environment_fingerprint(
+                self.config.artifact_target,
+                self.config.toolchain.identity().fingerprint(),
+            )
             .ok()
             .map(|fingerprint| StaticArchiveCacheEnvironment { fingerprint })
     }

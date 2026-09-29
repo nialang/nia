@@ -20,6 +20,7 @@ nia-imports.workspace = true
 nia-ice.workspace = true
 nia-lexer.workspace = true
 nia-linker.workspace = true
+nia-llvm.workspace = true
 nia-opt.workspace = true
 nia-package-metadata.workspace = true
 nia-loader-query.workspace = true

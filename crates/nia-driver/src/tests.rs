@@ -687,3 +687,87 @@ fn link_result_cache_skips_linker_until_typed_input_changes() {
         "xxx"
     );
 }
+
+// The build system checks cached executables against the environment the
+// driver computes before linking; that environment must be exactly the one a
+// link records, including the bundled LLD and system import libraries.
+#[test]
+#[cfg(unix)]
+fn cache_environment_matches_the_link_it_describes_for_every_object_format() {
+    use std::os::unix::fs::PermissionsExt;
+
+    use nia_backend_ir::{
+        CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey, IncrementalLinkInput,
+        IncrementalLinkInputs,
+    };
+    use nia_codegen_llvm::NativeObject;
+    use nia_linker::{ExecutableLinker, LinkOptions};
+
+    let root = common::temp_dir("cache_environment_matches_the_link_it_describes");
+    let linker = root.join("linker.sh");
+    std::fs::write(
+        &linker,
+        "#!/bin/sh\nfor output in \"$@\"; do :; done\noutput=\"${output#/OUT:}\"\nprintf linked > \"$output\"\n",
+    )
+    .expect("write mock linker");
+    let mut permissions = std::fs::metadata(&linker)
+        .expect("mock linker metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&linker, permissions).expect("make mock linker executable");
+    let options = LinkOptions {
+        linker: ExecutableLinker::with_program(linker.to_string_lossy()),
+        ..LinkOptions::default()
+    };
+    let objects = crate::ObjectArtifact {
+        diagnostic_sources: Default::default(),
+        link_inputs: IncrementalLinkInputs::new(vec![IncrementalLinkInput {
+            key: CodegenUnitKey::CompilerBuiltins,
+            fingerprint: CodegenUnitFingerprint::from_parts([1, 2]),
+            object: NativeObject {
+                unit: CodegenUnitId::CompilerBuiltins,
+                name: "nia.compiler_builtins".to_string(),
+                bytes: b"object".to_vec(),
+            },
+        }])
+        .expect("build incremental link inputs"),
+        optimization: crate::OptimizationPolicy::default(),
+        optimization_report: crate::BackendOptimizationReport::default(),
+        diagnostics: Vec::new(),
+    };
+    for name in ["x86_64-unknown-linux", "x86_64-pc-windows-msvc"] {
+        let target = nia_target::TargetConfig::parse(name).expect("maintained target");
+        let driver = crate::Driver::with_config(
+            crate::DriverConfig {
+                artifact_cache_dir: Some(root.join(name).join("cache")),
+                ..crate::DriverConfig::new(common::test_toolchain_layout())
+            }
+            .with_artifact_target(target),
+        );
+        let linked = driver
+            .link_executable_from_objects(
+                &objects,
+                root.join(name).join("app"),
+                options.clone(),
+                crate::TimingMode::Off,
+            )
+            .result
+            .unwrap_or_else(|error| panic!("{name} link: {error:?}"));
+        let recorded = linked
+            .cache_reference
+            .expect("published link cache reference")
+            .encode();
+        let environment = driver
+            .executable_cache_environment_for(&options)
+            .expect("cache environment")
+            .encode();
+        // A reference encodes the cache key, inputs and toolchain before the
+        // target, linker and option components an environment carries.
+        let components = 3 * 2 * size_of::<u64>();
+        assert_eq!(
+            environment[..],
+            recorded[components..components + environment.len()],
+            "{name}"
+        );
+    }
+}

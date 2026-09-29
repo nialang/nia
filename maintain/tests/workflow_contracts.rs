@@ -43,6 +43,8 @@ fn build_std_workflow_runs_complete_rust_maintenance_and_correctness_gates() {
         assert!(workflow.contains(command), "missing command {command}");
     }
     assert!(workflow.contains("llvm-23-dev libpolly-23-dev lld-23"));
+    // Executables link with LLD by default, so its drivers must be on PATH.
+    assert!(workflow.contains("echo \"/usr/lib/llvm-23/bin\" >> \"${GITHUB_PATH}\""));
     assert!(!workflow.contains("report[\"acceptance\"][\"passed\"]"));
     assert!(workflow.contains("actions/upload-artifact@v7"));
 }

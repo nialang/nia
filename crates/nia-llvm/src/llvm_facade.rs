@@ -39,6 +39,11 @@ pub mod lto {
     };
 }
 
+/// COFF import libraries written from module definitions.
+pub mod coff {
+    pub use crate::llvm_api::{CoffMachine, write_coff_import_library};
+}
+
 /// Native target discovery, configuration, and object emission.
 pub mod target {
     pub use crate::llvm_api::{ModuleOptimization, TargetMachine, TargetMachineIdentity};

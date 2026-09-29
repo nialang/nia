@@ -12,13 +12,24 @@ stubs and compiler-required native helpers have separate modules. Required
 helpers are retained by their source module and definition, even without a Nia
 call site. Bare compilation does not inject this package.
 
-The Windows OS facade keeps SDK declarations in `os/windows/bindings.nia` and
+The Windows OS facade keeps Win32 declarations in `os/windows/bindings.nia` and
 delegates file, directory, path, encoding, memory, and process operations to
 package-private implementations. Startup does not depend on a C CRT entry.
 Only name-surrogate reparse points (symbolic links and junctions) report
 `Symlink`; cloud placeholders and other reparse points keep the kind of the
 file or directory they store. Startup and child creation size environment
 blocks from their entries, because Windows imposes no total environment limit.
+
+`imports/` describes the system libraries that the standard library and
+runtime import, per platform: `imports/windows/kernel32.def` and
+`bcryptprimitives.def` list exactly the Win32 functions the Windows sources
+declare, and the linker generates their import libraries, so no platform SDK
+is needed. Adding or removing a Windows `extern fn` import requires the same
+change to its description; `cargo maintain check` enforces the match.
+Randomness uses the documented `ProcessPrng`, which never fails. The
+descriptions cover the toolchain's own sources only: a program that declares
+another Win32 function links that function's import library explicitly, like
+any native dependency (`-L <dir> -l <library>`).
 
 Testing is explicit at two levels. A build script registers each suite with
 `std::build::Build::addTestSuite`; the suite is an ordinary host executable

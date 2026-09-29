@@ -518,6 +518,7 @@ impl CompilerBuiltinCollector {
 
 pub(crate) fn emit_object(
     target: &TargetMachine,
+    artifact_target: nia_target::TargetConfig,
     symbols: CompilerBuiltinSymbols,
 ) -> Result<Vec<u8>, Diagnostic> {
     let context = Context::create().map_err(diagnostic_from_llvm_error)?;
@@ -527,10 +528,7 @@ pub(crate) fn emit_object(
     target
         .configure_module(&module)
         .map_err(|error| error.diagnostic())?;
-    let windows_i128_abi = target
-        .target_triple()
-        .map_err(diagnostic_from_llvm_error)?
-        .contains("windows");
+    let windows_i128_abi = artifact_target.os() == nia_target::Os::Windows;
     emit_definitions(&context, &module, symbols, windows_i128_abi)?;
     module.verify().map_err(diagnostic_from_llvm_error)?;
     target
@@ -540,6 +538,7 @@ pub(crate) fn emit_object(
 
 pub(crate) fn emit_lto_bitcode(
     target: &TargetMachine,
+    artifact_target: nia_target::TargetConfig,
     symbols: CompilerBuiltinSymbols,
     optimization: OptimizationLevel,
     pre_link: crate::LtoPreLinkConfig,
@@ -552,10 +551,7 @@ pub(crate) fn emit_lto_bitcode(
     target
         .configure_module(&module)
         .map_err(|error| error.diagnostic())?;
-    let windows_i128_abi = target
-        .target_triple()
-        .map_err(diagnostic_from_llvm_error)?
-        .contains("windows");
+    let windows_i128_abi = artifact_target.os() == nia_target::Os::Windows;
     emit_definitions(&context, &module, symbols, windows_i128_abi)?;
     module.verify().map_err(diagnostic_from_llvm_error)?;
     match pre_link.mode {

@@ -35,7 +35,9 @@ keeps stable, and on nothing above it by default. The toolchain does not add a
 C runtime: there is no CRT startup object, no C `main` convention for user
 code, and no implicit libc. A C library is an ordinary dependency that a
 package links explicitly, like any other native library; Nia code can then use
-it through `extern` declarations.
+it through `extern` declarations. The same holds for system functions: the
+toolchain supplies import descriptions for only the functions its own sources
+call, and a program declaring any other links that library explicitly.
 
 The two runtime selections describe who owns process entry, not whether a C
 library is present:
@@ -138,18 +140,17 @@ The project does not claim support for:
 - macOS compiler hosts;
 - Windows release archives. Windows compilers are built from source; only the
   Linux x86_64 archive is packaged and published;
-- cross-linked executables. `--target` selects any maintained target for
-  checking, IR, and object emission from every maintained host; executable
-  linking still uses the host linker flavor until the platform roadmap's T4
-  row closes;
+- cross-linked macOS executables. `--target` selects any maintained target for
+  checking, IR, and object emission from every maintained host, and the linker
+  flavor follows the artifact target; Mach-O linking is not implemented until
+  the platform roadmap's D1 row closes;
 - complete freestanding executable startup outside Linux x86_64, Windows x86_64,
   and experimental i686 coverage;
 - a complete bare-metal build workflow;
 - LLVM-backed wasm32 compilation or executable runtime support. The pure-Rust
   frontend, semantic, query, and maintenance owners are checked for wasm32,
   while the `llvm-sys` C API dependency is intentionally outside that target
-  boundary;
-- target-aware linker selection beyond the `NIA_LINKER` override; or
+  boundary; or
 - every valid LLVM installation layout.
 
 Changes to one of these boundaries require implementation, maintained tests,

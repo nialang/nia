@@ -30,12 +30,14 @@ fn linker_cases_match_expectations() {
             "linker-selection-errors" => {
                 let reserved_error = manifest.required("reserved-error");
                 let missing_error = manifest.required("missing-error");
+                let incompatible_error = manifest.required("incompatible-error");
                 let bare_runtime_error = manifest.required("bare-runtime-error");
                 manifest.finish();
                 run_selection_errors(
                     &source,
                     &reserved_error,
                     &missing_error,
+                    &incompatible_error,
                     &bare_runtime_error,
                 );
             }
@@ -220,11 +222,15 @@ fn run_selection_errors(
     source: &Path,
     reserved_error: &str,
     missing_error: &str,
+    incompatible_error: &str,
     bare_runtime_error: &str,
 ) {
     let output_root = nia_test_support::test_dir("linker-case");
     let output = output_root.join("output");
+    // ELF flavors are checked against an ELF target, so every host agrees.
     let reserved = support::nia_command()
+        .arg("--target")
+        .arg("x86_64-unknown-linux")
         .arg("emit")
         .arg("--exe")
         .arg(source)
@@ -238,6 +244,8 @@ fn run_selection_errors(
     let missing = support::nia_command()
         .env("PATH", "")
         .env_remove("NIA_LLD")
+        .arg("--target")
+        .arg("x86_64-unknown-linux")
         .arg("emit")
         .arg("--exe")
         .arg(source)
@@ -247,6 +255,19 @@ fn run_selection_errors(
         .arg(&output)
         .output_timeout_in_session("run missing LLD case");
     assert_error(&missing, missing_error);
+
+    let incompatible = support::nia_command()
+        .arg("--target")
+        .arg("x86_64-unknown-linux")
+        .arg("emit")
+        .arg("--exe")
+        .arg(source)
+        .arg("--linker-flavor")
+        .arg("lld-link")
+        .arg("-o")
+        .arg(&output)
+        .output_timeout_in_session("run incompatible linker flavor case");
+    assert_error(&incompatible, incompatible_error);
 
     let bare = support::nia_command()
         .arg("emit")

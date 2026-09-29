@@ -1,35 +1,16 @@
 use super::*;
 
 #[test]
-fn standard_dynamic_linker_covers_common_linux_gnu_targets() {
-    assert_eq!(
-        standard_dynamic_linker_for(&target("x86_64", "linux", "gnu")).as_deref(),
-        Some("/lib64/ld-linux-x86-64.so.2")
-    );
-    assert_eq!(
-        standard_dynamic_linker_for(&target("aarch64", "linux", "gnu")).as_deref(),
-        Some("/lib/ld-linux-aarch64.so.1")
-    );
-    assert_eq!(
-        standard_dynamic_linker_for(&target("riscv64", "linux", "gnu")).as_deref(),
-        Some("/lib/ld-linux-riscv64-lp64d.so.1")
-    );
-}
-
-#[test]
-fn standard_dynamic_linker_covers_common_linux_musl_targets() {
-    assert_eq!(
-        standard_dynamic_linker_for(&target("x86_64", "linux", "musl")).as_deref(),
-        Some("/lib/ld-musl-x86_64.so.1")
-    );
-    assert_eq!(
-        standard_dynamic_linker_for(&target("aarch64", "linux", "musl")).as_deref(),
-        Some("/lib/ld-musl-aarch64.so.1")
-    );
-    assert_eq!(
-        standard_dynamic_linker_for(&target("arm", "linux", "musleabihf")).as_deref(),
-        Some("/lib/ld-musl-armhf.so.1")
-    );
+fn standard_dynamic_linker_covers_every_linux_target() {
+    for (name, loader) in [
+        ("x86_64-unknown-linux", Some("/lib64/ld-linux-x86-64.so.2")),
+        ("x86-unknown-linux", Some("/lib/ld-linux.so.2")),
+        ("aarch64-unknown-linux", Some("/lib/ld-linux-aarch64.so.1")),
+        ("x86_64-pc-windows-msvc", None),
+        ("aarch64-apple-macos", None),
+    ] {
+        assert_eq!(standard_dynamic_linker_for(target(name)), loader, "{name}");
+    }
 }
 
 #[test]

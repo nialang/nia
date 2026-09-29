@@ -3,4 +3,5 @@ resource=build
 source=main.nia
 reserved-error=linker flavor `self-hosted-elf` is not implemented
 missing-error=linker `ld.lld` for flavor `lld` was not found
+incompatible-error=linker flavor `lld-link` cannot link executables for target `x86_64-unknown-linux`; expected `lld`
 bare-runtime-error=`nia emit --exe` currently supports only `--runtime freestanding`

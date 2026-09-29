@@ -42,6 +42,7 @@ nia-<version>-linux-x86_64/
 ```
 
 Keep the relative `bin`, `lib`, and `libexec` layout intact so compiler
-relocation remains supported. The toolchain also resolves a sibling
-`libexec/lld-link.exe` on Windows, but no Windows archive is packaged or
-published yet.
+relocation remains supported. The bundled LLD links every target: the
+compiler selects the ELF, COFF, or Mach-O flavor for the artifact target. A
+Windows toolchain resolves `libexec/ld.lld.exe`, but no Windows archive is
+packaged or published yet.
