@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+nia-target.workspace = true
 nia-ast.workspace = true
 nia-compat.workspace = true
 nia-defs.workspace = true

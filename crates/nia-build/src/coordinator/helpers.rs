@@ -11,19 +11,19 @@ pub(super) fn validate_invocation_targets(
         (
             "host",
             plan.host_target(),
-            target_spec(invocation.toolchain.host_target()),
+            *invocation.toolchain.host_target(),
         ),
         (
             "artifact",
             plan.artifact_target(),
-            target_spec(invocation.toolchain.artifact_target()),
+            *invocation.toolchain.artifact_target(),
         ),
     ] {
         if found != &expected {
             return Err(CoordinatorError::TargetMismatch(Box::new(TargetMismatch {
                 role,
                 expected,
-                found: found.clone(),
+                found: *found,
             })));
         }
     }
@@ -98,43 +98,6 @@ pub(super) fn runtime_spec(
         Runtime::Bare => Ok(RuntimeSpec::Bare),
         Runtime::Freestanding => RuntimeSpec::freestanding(toolchain, target),
     }
-}
-
-pub(super) fn target_spec(target: &TargetConfig) -> TargetSpec {
-    TargetSpec {
-        arch: target.arch.clone(),
-        vendor: target.vendor.clone(),
-        os: target.os.clone(),
-        env: target.env.clone(),
-        abi: target.abi.clone(),
-        endian: target.endian.clone(),
-        pointer_width: target.pointer_width,
-    }
-}
-
-pub(super) fn target_config(target: &TargetSpec) -> TargetConfig {
-    TargetConfig {
-        arch: target.arch.clone(),
-        vendor: target.vendor.clone(),
-        os: target.os.clone(),
-        env: target.env.clone(),
-        abi: target.abi.clone(),
-        endian: target.endian.clone(),
-        pointer_width: target.pointer_width,
-    }
-}
-
-pub(crate) fn display_target(target: &TargetSpec) -> String {
-    format!(
-        "{}-{}-{}-{}-{} ({}-bit {})",
-        target.arch,
-        target.vendor,
-        target.os,
-        target.env,
-        target.abi,
-        target.pointer_width,
-        target.endian
-    )
 }
 
 pub(crate) fn display_duration(duration: Duration) -> String {

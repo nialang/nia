@@ -167,7 +167,7 @@ fn main() i32 {
         symbols: None,
     })
     .expect("collect item signatures");
-    let target = nia_target_config::TargetConfig::host();
+    let target = nia_target::TargetConfig::host().expect("tests run on a maintained host");
     let source_path = SourcePath::new("/tmp/nia-body-check-test/source-facts.nia");
     let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
         type_store: &type_store,
@@ -358,7 +358,7 @@ fn main() i32 {
         symbols: None,
     })
     .expect("collect item signatures");
-    let target = nia_target_config::TargetConfig::host();
+    let target = nia_target::TargetConfig::host().expect("tests run on a maintained host");
     let source_path = SourcePath::new("/tmp/nia-body-check-test/source-facts-red.nia");
     let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
         type_store: &type_store,

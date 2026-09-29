@@ -51,6 +51,13 @@ pub enum PlanCodecError {
         /// Byte offset of the invalid string payload.
         offset: usize,
     },
+    /// A target name is outside the maintained target matrix.
+    UnsupportedTarget {
+        /// Rejected target name.
+        name: String,
+        /// Byte offset of the target name.
+        offset: usize,
+    },
     /// A stable name failed validation.
     InvalidStableName(StableNameError),
     /// A logical path failed validation.
@@ -77,6 +84,10 @@ impl fmt::Display for PlanCodecError {
             Self::TrailingData { offset } => write!(
                 f,
                 "build-plan encoding has unexpected trailing data at byte {offset}"
+            ),
+            Self::UnsupportedTarget { name, offset } => write!(
+                f,
+                "build-plan target `{name}` at byte {offset} is not a maintained target"
             ),
             Self::InvalidTag { kind, tag, offset } => write!(
                 f,
@@ -311,19 +322,9 @@ impl Writer {
         self.string(&path.protocol_path())
     }
 
-    fn target(&mut self, target: &TargetSpec) -> Result<(), PlanCodecError> {
-        for value in [
-            &target.arch,
-            &target.vendor,
-            &target.os,
-            &target.env,
-            &target.abi,
-            &target.endian,
-        ] {
-            self.string(value)?;
-        }
-        self.u32(target.pointer_width);
-        Ok(())
+    fn target(&mut self, target: &TargetConfig) -> Result<(), PlanCodecError> {
+        // The canonical name is the complete target identity.
+        self.string(&target.name())
     }
 
     fn optimization(&mut self, value: OptimizationMode) {
@@ -682,16 +683,10 @@ impl<'a> Reader<'a> {
         LogicalPath::new(root, &self.string()?).map_err(PlanCodecError::InvalidLogicalPath)
     }
 
-    fn target(&mut self) -> Result<TargetSpec, PlanCodecError> {
-        Ok(TargetSpec {
-            arch: self.string()?,
-            vendor: self.string()?,
-            os: self.string()?,
-            env: self.string()?,
-            abi: self.string()?,
-            endian: self.string()?,
-            pointer_width: self.u32()?,
-        })
+    fn target(&mut self) -> Result<TargetConfig, PlanCodecError> {
+        let offset = self.offset;
+        let name = self.string()?;
+        TargetConfig::parse(&name).map_err(|_| PlanCodecError::UnsupportedTarget { name, offset })
     }
 
     fn optimization(&mut self) -> Result<OptimizationMode, PlanCodecError> {
@@ -1417,6 +1412,24 @@ mod tests {
     }
 
     #[test]
+    fn decoding_rejects_targets_outside_the_matrix() {
+        let mut draft = draft(false);
+        draft.artifact_target = TargetConfig::parse("aarch64-apple-macos").unwrap();
+        let mut bytes = encode_draft_without_freeze(&draft);
+        // Same length, so only the name changes: `aarch64-apple-macos` names a
+        // maintained target, `aarch64-apple-mac99` does not.
+        let position = bytes
+            .windows(19)
+            .position(|window| window == b"aarch64-apple-macos")
+            .unwrap();
+        bytes[position + 17..position + 19].copy_from_slice(b"99");
+        assert!(matches!(
+            BuildPlan::decode(&bytes),
+            Err(PlanCodecError::UnsupportedTarget { name, .. }) if name == "aarch64-apple-mac99"
+        ));
+    }
+
+    #[test]
     fn decoded_draft_cannot_introduce_a_third_compiler_target() {
         let mut draft = draft(false);
         let emit = draft
@@ -1427,7 +1440,7 @@ mod tests {
         let ActionKind::CompilerEmit { target, .. } = &mut emit.kind else {
             unreachable!()
         };
-        target.arch = "third-architecture".to_string();
+        *target = TargetConfig::parse("x86_64-apple-macos").unwrap();
 
         let bytes = encode_draft_without_freeze(&draft);
         assert!(matches!(

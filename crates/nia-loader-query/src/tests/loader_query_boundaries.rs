@@ -218,8 +218,7 @@ fn loader_source_update_replaces_graph_only_at_query_boundary() {
     sources
         .set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }")
         .expect("store defs source");
-    let database =
-        LoaderDatabase::new_for_test(LoadRequest::new(main.as_str()).with_sources(sources));
+    let database = LoaderDatabase::new_for_test(test_request(main.as_str()).with_sources(sources));
     let first = database.load_program().expect("initial program load");
     let executions_before_update = query_executions(
         &database.query_trace().expect("query trace"),

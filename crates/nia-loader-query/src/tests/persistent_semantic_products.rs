@@ -15,7 +15,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
         .set_source(SourcePath::new("main.nia"), source)
         .expect("store first source");
     let first_loader = LoaderDatabase::new_for_test(
-        LoadRequest::new("main.nia")
+        test_request("main.nia")
             .with_sources(first_sources)
             .with_frontend_cache_dir(Some(root.clone())),
     );
@@ -48,7 +48,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
         .set_source(SourcePath::new("main.nia"), source)
         .expect("store second source");
     let second_loader = LoaderDatabase::new_for_test(
-        LoadRequest::new("main.nia")
+        test_request("main.nia")
             .with_sources(second_sources)
             .with_frontend_cache_dir(Some(root.clone())),
     );
@@ -93,7 +93,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
         .set_source(SourcePath::new("main.nia"), source)
         .expect("store verified source");
     let verified_loader = LoaderDatabase::new_for_test(
-        LoadRequest::new("main.nia")
+        test_request("main.nia")
             .with_sources(verified_sources)
             .with_frontend_cache_dir(Some(root.clone()))
             .with_frontend_cache_verification(true),
@@ -169,7 +169,7 @@ fn main() i32 { Box[i32] { value: 1 }.get() }
             .set_source(SourcePath::new("main.nia"), source)
             .expect("store source");
         let loader = LoaderDatabase::new_for_test(
-            LoadRequest::new("main.nia")
+            test_request("main.nia")
                 .with_sources(sources)
                 .with_frontend_cache_dir(Some(root.clone()))
                 .with_frontend_cache_verification(verify),

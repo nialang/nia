@@ -320,30 +320,6 @@ const RESULT: [u8; 3] = identity[3]([7, 7, 7]);
 }
 
 #[test]
-fn const_generic_integer_rejects_unsupported_target_pointer_width() {
-    let mut target = nia_target_config::TargetConfig::host();
-    target.pointer_width = 256;
-    let fixture = check_source_for_target(
-        r#"
-const fn identity[N: usize]() usize {
-    N
-}
-
-const VALUE: usize = identity[1]();
-"#,
-        target,
-    );
-    assert!(
-        fixture.checked.diagnostics.iter().any(|diagnostic| {
-            diagnostic.summary
-                == "const generic integer argument requires a supported target pointer width"
-        }),
-        "{:?}",
-        fixture.checked.diagnostics
-    );
-}
-
-#[test]
 fn records_enum_backing_types_for_const_variant_values() {
     let fixture = check_source(
         r#"
@@ -418,8 +394,7 @@ enum Packet {
 
 #[test]
 fn enum_discriminants_use_the_artifact_pointer_width() {
-    let mut target = nia_target_config::TargetConfig::host();
-    target.pointer_width = 32;
+    let target = target_with_pointer_width(32);
     let fixture = check_source_for_target(
         r#"
 enum Word: usize {
@@ -445,8 +420,7 @@ enum Word: usize {
 
 #[test]
 fn const_integer_operations_use_target_pointer_width() {
-    let mut target = nia_target_config::TargetConfig::host();
-    target.pointer_width = 32;
+    let target = target_with_pointer_width(32);
     let fixture = check_source_for_target(
         r#"
 const hiddenOverflow: usize = (4294967295usize + 1usize) - 1usize;
@@ -481,8 +455,7 @@ const shiftOverflow: usize = 1usize << 32usize;
 #[test]
 fn pointer_union_relocations_follow_artifact_pointer_width() {
     for pointer_width in [32, 64] {
-        let mut target = nia_target_config::TargetConfig::host();
-        target.pointer_width = pointer_width;
+        let target = target_with_pointer_width(pointer_width);
         let fixture = check_source_for_target(
             r#"
 union Slot {
@@ -580,8 +553,7 @@ union Narrow {
 const BITS: Narrow = Narrow { wide: 287454020 };
 const VALUE: u16 = BITS.narrow;
 "#;
-    let mut little_target = nia_target_config::TargetConfig::host();
-    little_target.endian = "little".to_string();
+    let little_target = target("x86_64-unknown-linux");
     let little = check_source_for_target(source, little_target);
     assert!(
         little.checked.diagnostics.is_empty(),
@@ -591,19 +563,6 @@ const VALUE: u16 = BITS.narrow;
     assert_eq!(
         const_value(&little, "VALUE"),
         ConstValue::Int(IntConst::unsigned(13124))
-    );
-
-    let mut big_target = nia_target_config::TargetConfig::host();
-    big_target.endian = "big".to_string();
-    let big = check_source_for_target(source, big_target);
-    assert!(
-        big.checked.diagnostics.is_empty(),
-        "{:?}",
-        big.checked.diagnostics
-    );
-    assert_eq!(
-        const_value(&big, "VALUE"),
-        ConstValue::Int(IntConst::unsigned(4386))
     );
 }
 
@@ -620,8 +579,7 @@ union Bytes {
 const DATA: Bytes = Bytes { word: 287454020 };
 const VALUE: [u8; WIDTH] = DATA.bytes;
 "#;
-    let mut little_target = nia_target_config::TargetConfig::host();
-    little_target.endian = "little".to_string();
+    let little_target = target("x86_64-unknown-linux");
     let little = check_source_for_target(source, little_target);
     assert!(
         little.checked.diagnostics.is_empty(),
@@ -636,29 +594,11 @@ const VALUE: [u8; WIDTH] = DATA.bytes;
                 .into()
         )
     );
-
-    let mut big_target = nia_target_config::TargetConfig::host();
-    big_target.endian = "big".to_string();
-    let big = check_source_for_target(source, big_target);
-    assert!(
-        big.checked.diagnostics.is_empty(),
-        "{:?}",
-        big.checked.diagnostics
-    );
-    assert_eq!(
-        const_value(&big, "VALUE"),
-        ConstValue::Array(
-            [17, 34, 51, 68]
-                .map(|value| ConstValue::Int(IntConst::unsigned(value)))
-                .into()
-        )
-    );
 }
 
 #[test]
 fn nested_scalar_array_union_fields_preserve_element_layout() {
-    let mut target = nia_target_config::TargetConfig::host();
-    target.endian = "little".to_string();
+    let target = target("x86_64-unknown-linux");
     let fixture = check_source_for_target(
         r#"
 union MatrixBytes {
@@ -688,9 +628,7 @@ const BYTES: [u8; 8] = DATA.bytes;
 
 #[test]
 fn scalar_array_union_layout_builtin_lengths_use_artifact_pointer_width() {
-    let mut target = nia_target_config::TargetConfig::host();
-    target.pointer_width = 32;
-    target.endian = "little".to_string();
+    let target = target_with_pointer_width(32);
     let fixture = check_source_for_target(
         r#"
 union WordBytes {
@@ -720,8 +658,7 @@ const BYTES: [u8; std::builtin::size[usize]()] = DATA.bytes;
 
 #[test]
 fn scalar_array_union_writes_round_trip_and_validate_elements() {
-    let mut target = nia_target_config::TargetConfig::host();
-    target.endian = "little".to_string();
+    let target = target("x86_64-unknown-linux");
     let fixture = check_source_for_target(
         r#"
 union Bytes {
@@ -760,8 +697,7 @@ const VALUES: [bool; 2] = INVALID.values;
 
 #[test]
 fn generic_scalar_array_union_is_encoded_after_element_substitution() {
-    let mut target = nia_target_config::TargetConfig::host();
-    target.endian = "little".to_string();
+    let target = target("x86_64-unknown-linux");
     let fixture = check_source_for_target(
         r#"
 union PairBytes[T] {
@@ -795,8 +731,7 @@ const BYTES: [u8; 8] = encode[u32]([287454020, 1432778632]);
 
 #[test]
 fn nominal_struct_union_fields_preserve_padding_initialization() {
-    let mut target = nia_target_config::TargetConfig::host();
-    target.endian = "little".to_string();
+    let target = target("x86_64-unknown-linux");
     let fixture = check_source_for_target(
         r#"
 struct Padded {
@@ -855,8 +790,7 @@ const INVALID_PADDING_READ: [u8; 8] = DATA.bytes;
 
 #[test]
 fn generic_nominal_struct_union_fields_use_substituted_layout_and_validate_fields() {
-    let mut target = nia_target_config::TargetConfig::host();
-    target.endian = "little".to_string();
+    let target = target("x86_64-unknown-linux");
     let fixture = check_source_for_target(
         r#"
 struct Pair[T] {
@@ -913,8 +847,7 @@ const FLAGS: Flags = INVALID.flags;
 
 #[test]
 fn const_generic_nominal_struct_union_fields_use_concrete_array_layout() {
-    let mut target = nia_target_config::TargetConfig::host();
-    target.endian = "little".to_string();
+    let target = target("x86_64-unknown-linux");
     let fixture = check_source_for_target(
         r#"
 struct Packet[T, N: usize, U] {
@@ -1579,12 +1512,11 @@ const INVALID_BOOL: bool = BOOL_BITS.flag;
 
 #[test]
 fn vector_union_fields_follow_artifact_endianness() {
-    for (endian, expected) in [
-        ("little", [0x22, 0x11, 0x44, 0x33]),
-        ("big", [0x11, 0x22, 0x33, 0x44]),
-    ] {
-        let mut target = nia_target_config::TargetConfig::host();
-        target.endian = endian.to_string();
+    // Big-endian lane storage is covered by `nia-const-eval`; no maintained
+    // target is big-endian.
+    {
+        let expected = [0x22, 0x11, 0x44, 0x33];
+        let target = target("x86_64-unknown-linux");
         let fixture = check_source_for_target(
             r#"
 @[builtin("splat")]
@@ -1637,9 +1569,7 @@ const MASK: boolx4 = std::builtin::splat[boolx4](false);
 #[test]
 fn usize_vector_union_fields_follow_artifact_pointer_width() {
     for (pointer_width, bytes_len) in [(32, 8), (64, 16)] {
-        let mut target = nia_target_config::TargetConfig::host();
-        target.pointer_width = pointer_width;
-        target.endian = "little".to_string();
+        let target = target_with_pointer_width(pointer_width);
         let source = format!(
             r#"
 @[builtin("splat")]

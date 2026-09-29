@@ -21,20 +21,27 @@ mod visibility_matrix;
 #[test]
 fn driver_invocation_target_overrides_toolchain_default() {
     let toolchain = common::test_toolchain_layout();
-    let mut invocation_target = toolchain.artifact_target().clone();
-    invocation_target.os = "driver-invocation-target".to_string();
+    // A target whose OS differs from the toolchain default proves the override
+    // reaches loader pruning.
+    let invocation_target = nia_target::SUPPORTED_TARGETS
+        .into_iter()
+        .find(|target| target.os() != toolchain.artifact_target().os())
+        .expect("the matrix spans several operating systems");
     let driver = crate::Driver::with_config(
-        crate::DriverConfig::new(toolchain).with_artifact_target(invocation_target.clone()),
+        crate::DriverConfig::new(toolchain).with_artifact_target(invocation_target),
     );
     driver
         .set_source(
             "main.nia",
-            r#"
-@[if os == "driver-invocation-target"]
-fn selected() i32 { 1 }
+            format!(
+                r#"
+@[if os == "{os}"]
+fn selected() i32 {{ 1 }}
 
-fn main() i32 { selected() }
+fn main() i32 {{ selected() }}
 "#,
+                os = invocation_target.os().name()
+            ),
         )
         .expect("set source");
 

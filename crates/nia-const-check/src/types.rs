@@ -18,7 +18,7 @@ use nia_provider_summary::ProviderDemand;
 use nia_sema_ir::SemanticUseTable;
 use nia_source::SourcePath;
 use nia_symbol_table::SymbolTable;
-use nia_target_config::TargetConfig;
+use nia_target::TargetConfig;
 use nia_type_lower::TypeLowering;
 use nia_value_resolve::ValueResolution;
 

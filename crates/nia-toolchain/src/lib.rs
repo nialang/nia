@@ -11,7 +11,7 @@
 
 use nia_compat::{COMPILER_VERSION, RELEASE_COMPATIBILITY};
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
-use nia_target_config::TargetConfig;
+use nia_target::{Arch, Os, TargetConfig};
 use std::{fmt, fs, io, io::Read, path::PathBuf};
 
 const COMPATIBILITY_IDENTITY_DOMAIN: FingerprintDomain =
@@ -237,7 +237,7 @@ impl RuntimeSpec {
         package_root: impl Into<PathBuf>,
         target: &TargetConfig,
     ) -> Result<Self, RuntimeSpecError> {
-        let required_exports = if target.os == "windows" && target.arch == "x86_64" {
+        let required_exports = if (target.os(), target.arch()) == (Os::Windows, Arch::X86_64) {
             vec![RuntimeExport::new(
                 "toolchain:/runtime/builtins/windows/x86_64.nia",
                 "__chkstk",
@@ -256,17 +256,12 @@ impl RuntimeSpec {
         target: &TargetConfig,
         required_exports: impl IntoIterator<Item = RuntimeExport>,
     ) -> Result<Self, RuntimeSpecError> {
-        let implementation = match (target.os.as_str(), target.arch.as_str()) {
-            ("linux", "x86_64") => "x86_64",
-            ("linux", "x86" | "i386" | "i586" | "i686") => "x86",
-            ("windows", "x86_64") => "x86_64",
-            _ => {
-                return Err(RuntimeSpecError::UnsupportedTarget {
-                    arch: target.arch.clone(),
-                    os: target.os.clone(),
-                });
-            }
-        };
+        // The startup module is named by architecture below its OS directory.
+        match (target.os(), target.arch()) {
+            (Os::Linux, Arch::X86_64 | Arch::X86) | (Os::Windows, Arch::X86_64) => {}
+            _ => return Err(RuntimeSpecError::UnsupportedTarget(*target)),
+        }
+        let implementation = target.arch().name();
         Ok(Self::Source(Box::new(SourceRuntimeSpec {
             package_root: package_root.into(),
             package_root_identity: RUNTIME_PACKAGE_IDENTITY.to_string(),
@@ -278,13 +273,13 @@ impl RuntimeSpec {
             entry_point: RuntimeEntryPoint {
                 module_identity: format!(
                     "toolchain:/runtime/start/freestanding/{}/{implementation}.nia",
-                    target.os
+                    target.os().name()
                 ),
                 definition_name: "_start".to_string(),
                 linker_symbol: "_start".to_string(),
             },
             required_exports: required_exports.into_iter().collect(),
-            target: target.clone(),
+            target: *target,
             dependencies: vec![
                 RuntimeDependency::EntryPackage,
                 RuntimeDependency::StandardLibrary,
@@ -299,8 +294,8 @@ impl RuntimeSpec {
         };
         if runtime.target != *target {
             return Err(RuntimeSpecError::TargetMismatch {
-                runtime: Box::new(runtime.target.clone()),
-                request: Box::new(target.clone()),
+                runtime: runtime.target,
+                request: *target,
             });
         }
         if runtime.dependencies.as_slice()
@@ -318,12 +313,12 @@ impl RuntimeSpec {
 /// Failure to select a runtime implementation for a target.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeSpecError {
-    /// The installed runtime has no implementation for this target pair.
-    UnsupportedTarget { arch: String, os: String },
+    /// The installed runtime has no implementation for this target.
+    UnsupportedTarget(TargetConfig),
     /// A validated runtime was reused for a different compilation target.
     TargetMismatch {
-        runtime: Box<TargetConfig>,
-        request: Box<TargetConfig>,
+        runtime: TargetConfig,
+        request: TargetConfig,
     },
     /// The runtime package dependency contract is not supported.
     InvalidDependencies,
@@ -332,13 +327,12 @@ pub enum RuntimeSpecError {
 impl fmt::Display for RuntimeSpecError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UnsupportedTarget { arch, os } => {
-                write!(f, "no freestanding runtime for target `{arch}-{os}`")
+            Self::UnsupportedTarget(target) => {
+                write!(f, "no freestanding runtime for target `{target}`")
             }
             Self::TargetMismatch { runtime, request } => write!(
                 f,
-                "runtime target `{}-{}` does not match request target `{}-{}`",
-                runtime.arch, runtime.os, request.arch, request.os
+                "runtime target `{runtime}` does not match request target `{request}`"
             ),
             Self::InvalidDependencies => {
                 write!(
@@ -386,6 +380,12 @@ impl ToolchainLayout {
     /// version; required standard-library and runtime files must
     /// be regular files.
     pub fn resolve(request: ToolchainLayoutRequest) -> Result<Self, ToolchainLayoutError> {
+        // Build scripts and host tools run on the compiler host, so it must be
+        // a maintained target even when artifacts are cross-compiled.
+        let host_target = TargetConfig::host().ok_or(ToolchainLayoutError::UnsupportedHost {
+            arch: std::env::consts::ARCH,
+            os: std::env::consts::OS,
+        })?;
         validate_file(
             &request.compiler_executable,
             ResourceRole::CompilerExecutable,
@@ -448,8 +448,8 @@ impl ToolchainLayout {
             resource_root,
             std_module,
             identity,
-            host_target: TargetConfig::host(),
-            artifact_target: request.artifact_target,
+            host_target,
+            artifact_target: request.artifact_target.unwrap_or(host_target),
             runtime: RuntimeResources {
                 freestanding_package_root,
             },
@@ -535,7 +535,8 @@ fn read_resource_manifest(path: &std::path::Path) -> io::Result<String> {
 pub struct ToolchainLayoutRequest {
     compiler_executable: PathBuf,
     resources: ResourceRootSelection,
-    artifact_target: TargetConfig,
+    /// Explicit artifact target; `None` compiles for the host.
+    artifact_target: Option<TargetConfig>,
 }
 
 impl ToolchainLayoutRequest {
@@ -544,7 +545,7 @@ impl ToolchainLayoutRequest {
         Self {
             compiler_executable: compiler_executable.into(),
             resources: ResourceRootSelection::Installed,
-            artifact_target: TargetConfig::host(),
+            artifact_target: None,
         }
     }
 
@@ -556,13 +557,13 @@ impl ToolchainLayoutRequest {
         Self {
             compiler_executable: compiler_executable.into(),
             resources: ResourceRootSelection::Explicit(resource_root.into()),
-            artifact_target: TargetConfig::host(),
+            artifact_target: None,
         }
     }
 
     /// Overrides the artifact target while leaving compiler tools on the host target.
     pub fn with_artifact_target(mut self, target: TargetConfig) -> Self {
-        self.artifact_target = target;
+        self.artifact_target = Some(target);
         self
     }
 }
@@ -603,6 +604,13 @@ impl fmt::Display for ResourceRole {
 /// Failure to discover, parse, or validate a toolchain layout.
 #[derive(Debug)]
 pub enum ToolchainLayoutError {
+    /// The compiler runs on a host outside the maintained target matrix.
+    UnsupportedHost {
+        /// Host architecture reported by the Rust runtime.
+        arch: &'static str,
+        /// Host operating system reported by the Rust runtime.
+        os: &'static str,
+    },
     /// An installed-layout request used an executable path with no parent.
     MissingExecutableParent {
         /// Requested compiler executable path.
@@ -684,6 +692,10 @@ pub enum ToolchainLayoutError {
 impl fmt::Display for ToolchainLayoutError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnsupportedHost { arch, os } => write!(
+                f,
+                "compiler host `{arch}-{os}` is not a maintained Nia target"
+            ),
             Self::MissingExecutableParent { path } => write!(
                 f,
                 "compiler executable `{}` has no parent directory",
@@ -987,79 +999,75 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
     fn freestanding_runtime_has_stable_source_and_abi_identities() {
         let root = temp_dir("freestanding_runtime_spec");
         let executable = write_layout(&root);
         let layout = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
             .expect("installed layout");
-        let target = TargetConfig::host();
-        let runtime = RuntimeSpec::freestanding(&layout, &target).expect("host runtime");
-        let source = runtime.source().expect("source runtime");
+        for (name, implementation) in [
+            ("x86_64-unknown-linux", "x86_64"),
+            ("x86-unknown-linux", "x86"),
+            ("x86_64-pc-windows-msvc", "x86_64"),
+        ] {
+            let target = TargetConfig::parse(name).expect("maintained target");
+            let runtime = RuntimeSpec::freestanding(&layout, &target).expect("runtime target");
+            let source = runtime.source().expect("source runtime");
 
-        assert_eq!(source.package_root_identity(), RUNTIME_PACKAGE_IDENTITY);
-        assert_eq!(
-            source.package().canonical_text(),
-            runtime_symbol_package_identity()
-        );
-        let expected_runtime_root = root
-            .join("lib/runtime/pkg.nia")
-            .canonicalize()
-            .unwrap_or_else(|_| root.join("lib/runtime/pkg.nia"));
-        assert_eq!(source.package_root(), expected_runtime_root);
-        let implementation = if target.arch == "x86_64" {
-            "x86_64"
-        } else {
-            "x86"
-        };
-        assert_eq!(
-            source.entry_point().module_identity(),
-            format!(
-                "toolchain:/runtime/start/freestanding/{}/{implementation}.nia",
-                target.os
-            )
-        );
-        assert_eq!(source.entry_point().definition_name(), "_start");
-        assert_eq!(source.entry_point().linker_symbol(), "_start");
-        if target.os == "windows" {
+            assert_eq!(source.package_root_identity(), RUNTIME_PACKAGE_IDENTITY);
             assert_eq!(
-                source.required_exports(),
-                [RuntimeExport::new(
-                    "toolchain:/runtime/builtins/windows/x86_64.nia",
-                    "__chkstk",
-                )]
+                source.package().canonical_text(),
+                runtime_symbol_package_identity()
             );
-        } else {
-            assert!(source.required_exports().is_empty());
+            let expected_runtime_root = root
+                .join("lib/runtime/pkg.nia")
+                .canonicalize()
+                .unwrap_or_else(|_| root.join("lib/runtime/pkg.nia"));
+            assert_eq!(source.package_root(), expected_runtime_root);
+            assert_eq!(
+                source.entry_point().module_identity(),
+                format!(
+                    "toolchain:/runtime/start/freestanding/{}/{implementation}.nia",
+                    target.os().name()
+                )
+            );
+            assert_eq!(source.entry_point().definition_name(), "_start");
+            assert_eq!(source.entry_point().linker_symbol(), "_start");
+            if target.os() == Os::Windows {
+                assert_eq!(
+                    source.required_exports(),
+                    [RuntimeExport::new(
+                        "toolchain:/runtime/builtins/windows/x86_64.nia",
+                        "__chkstk",
+                    )]
+                );
+            } else {
+                assert!(source.required_exports().is_empty());
+            }
+            assert_eq!(
+                source.dependencies(),
+                [
+                    RuntimeDependency::EntryPackage,
+                    RuntimeDependency::StandardLibrary
+                ]
+            );
+            assert_eq!(source.target(), &target);
+            assert_eq!(runtime.validate_for_target(&target), Ok(()));
         }
-        assert_eq!(
-            source.dependencies(),
-            [
-                RuntimeDependency::EntryPackage,
-                RuntimeDependency::StandardLibrary
-            ]
-        );
-        assert_eq!(source.target(), &target);
-        assert_eq!(runtime.validate_for_target(&target), Ok(()));
     }
 
     #[test]
-    #[cfg(target_os = "linux")]
     fn runtime_selection_rejects_unsupported_and_mismatched_targets() {
-        let unsupported = TargetConfig {
-            arch: "aarch64".to_string(),
-            ..TargetConfig::host()
-        };
-        assert!(matches!(
+        // aarch64 startup does not exist yet; its absence is a typed error.
+        let unsupported = TargetConfig::parse("aarch64-unknown-linux").unwrap();
+        assert_eq!(
             RuntimeSpec::freestanding_from_package_root("runtime/pkg.nia", &unsupported),
-            Err(RuntimeSpecError::UnsupportedTarget { .. })
-        ));
+            Err(RuntimeSpecError::UnsupportedTarget(unsupported))
+        );
 
-        let target = TargetConfig::host();
+        let target = TargetConfig::parse("x86_64-unknown-linux").unwrap();
         let runtime =
             RuntimeSpec::freestanding_from_package_root("runtime/pkg.nia", &target).unwrap();
-        let mut different = target;
-        different.abi = "different".to_string();
+        let different = TargetConfig::parse("x86-unknown-linux").unwrap();
         assert!(matches!(
             runtime.validate_for_target(&different),
             Err(RuntimeSpecError::TargetMismatch { .. })

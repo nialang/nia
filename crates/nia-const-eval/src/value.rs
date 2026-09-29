@@ -141,17 +141,6 @@ pub enum ConstEndianness {
     Big,
 }
 
-impl ConstEndianness {
-    /// Parses the target configuration's canonical endianness name.
-    pub fn from_target_name(name: &str) -> Option<Self> {
-        match name {
-            "little" => Some(Self::Little),
-            "big" => Some(Self::Big),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Scalar storage representation accepted by const ABI encoding.
 pub enum ConstScalarType {

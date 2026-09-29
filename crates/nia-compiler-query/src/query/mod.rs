@@ -56,7 +56,7 @@ use nia_span::Span;
 use nia_symbol::SymbolId;
 #[cfg(test)]
 use nia_syntax::ParseError;
-use nia_target_config::TargetConfig;
+use nia_target::TargetConfig;
 use nia_ty::{ArrayLenTy, TyKind};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;

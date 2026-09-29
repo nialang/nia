@@ -79,7 +79,7 @@ fn main() i32 {
         signatures: &signatures,
     })
     .expect("normalize backend-lower test types");
-    let target = nia_target_config::TargetConfig::host();
+    let target = nia_target::TargetConfig::host().expect("tests run on a maintained host");
     let source_path = nia_source::SourcePath::new("/tmp/nia-backend-lower-test/lowering.nia");
     let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
         type_store: &type_store,

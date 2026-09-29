@@ -392,7 +392,7 @@ impl BodyChecker<'_> {
             },
             Some(TyKind::Primitive(primitive)) if primitive.is_integer() => {
                 let bits = primitive
-                    .integer_bits(self.target.pointer_width)
+                    .integer_bits(self.target.pointer_width())
                     .unwrap_or(i128::BITS);
                 let signed = primitive.is_signed_integer();
                 let (min, max, complete) = if signed && bits >= i128::BITS {

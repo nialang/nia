@@ -1059,7 +1059,7 @@ fn build_runner_driver_config(invocation: &BuildInvocation) -> DriverConfig {
         artifact_cache_dir: Some(invocation.cache_dir.clone()),
         ..DriverConfig::new(Arc::clone(&invocation.toolchain))
     }
-    .with_artifact_target(invocation.toolchain.host_target().clone())
+    .with_artifact_target(*invocation.toolchain.host_target())
 }
 
 fn build_runner_module_map(invocation: &BuildInvocation) -> nia_ice::IceResult<ModuleMap> {
@@ -1545,8 +1545,16 @@ mod tests {
         assert_eq!(generated_only, [generated]);
     }
 
+    /// A maintained target other than the host, to prove the roles stay apart.
+    pub(crate) fn foreign_target() -> nia_target::TargetConfig {
+        nia_target::SUPPORTED_TARGETS
+            .into_iter()
+            .find(|target| Some(*target) != nia_target::TargetConfig::host())
+            .expect("the matrix has more than one target")
+    }
+
     pub(crate) fn test_toolchain_layout_for(
-        artifact_target: nia_target_config::TargetConfig,
+        artifact_target: nia_target::TargetConfig,
     ) -> Arc<nia_toolchain::ToolchainLayout> {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let workspace_root = manifest_dir
@@ -1864,15 +1872,8 @@ mod tests {
 
     #[test]
     fn build_runner_uses_host_o0_and_transports_artifact_configuration() {
-        let mut artifact_target = nia_target_config::TargetConfig::host();
-        artifact_target.arch = "artifact-arch".to_string();
-        artifact_target.vendor = "artifact-vendor".to_string();
-        artifact_target.os = "artifact-os".to_string();
-        artifact_target.env = "artifact-env".to_string();
-        artifact_target.abi = "artifact-abi".to_string();
-        artifact_target.endian = "big".to_string();
-        artifact_target.pointer_width = 32;
-        let toolchain = test_toolchain_layout_for(artifact_target.clone());
+        let artifact_target = foreign_target();
+        let toolchain = test_toolchain_layout_for(artifact_target);
         let root = temp_root("build_runner_compiles_for_host_and_transports_both_targets");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
         let plan = resolve_build_invocation(
@@ -1898,10 +1899,11 @@ mod tests {
             u32::from_le_bytes(encoded[8..12].try_into().unwrap()),
             RUNNER_CONFIG.release_compatibility
         );
+        let artifact_name = artifact_target.name();
         assert!(
             encoded
-                .windows("artifact-arch".len())
-                .any(|value| value == b"artifact-arch")
+                .windows(artifact_name.len())
+                .any(|value| value == artifact_name.as_bytes())
         );
         assert!(
             encoded

@@ -20,7 +20,7 @@ use nia_sema_ir::{BuiltinAssociatedValue, SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 use nia_symbol::{SymbolId, symbol_text_or_unresolved};
 use nia_symbol_table::SymbolTable;
-use nia_target_config::TargetConfig;
+use nia_target::TargetConfig;
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -727,7 +727,7 @@ impl ResolvedConstEnv for StaticConstEnv<'_> {
             }
             nia_const_ir::ConstNameResolution::BuiltinAssociatedValue(value) => {
                 let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind } = value;
-                let Some(value) = kind.value(primitive, self.target.pointer_width) else {
+                let Some(value) = kind.value(primitive, self.target.pointer_width()) else {
                     return Err(ConstError {
                         span,
                         message: "builtin associated value is not representable at const"
@@ -864,7 +864,7 @@ mod tests {
             &type_lowering,
             &active_item_tree,
         );
-        let target = nia_target_config::TargetConfig::host();
+        let target = nia_target::TargetConfig::host().expect("tests run on a maintained host");
         let source_path = SourcePath::new("/tmp/nia-static-check-test/main.nia");
         let normalization_input = type_lowering.explicit_type_roots();
         let normalization = normalize_module_types(nia_type_normalize::TypeNormalizationInput {

@@ -13,8 +13,8 @@ pub(crate) fn canonicalize_actions(
     actions: &mut [PlanAction],
     modules: &[PlanModule],
     artifacts: &[PlanArtifact],
-    host_target: &TargetSpec,
-    artifact_target: &TargetSpec,
+    host_target: &TargetConfig,
+    artifact_target: &TargetConfig,
 ) -> Result<(), PlanError> {
     actions.sort_by(|left, right| left.key.cmp(&right.key));
     reject_duplicate_by(
@@ -39,10 +39,7 @@ pub(crate) fn canonicalize_actions(
         // Artifact identity denotes one published value. Multiple emitters
         // would otherwise be silently collapsed in this target index and only
         // fail later through incidental output ownership ordering.
-        if emit_targets
-            .insert(artifact.clone(), target.clone())
-            .is_some()
-        {
+        if emit_targets.insert(artifact.clone(), *target).is_some() {
             return Err(PlanError::InvalidArtifactUse {
                 action: action.key.clone(),
                 artifact: artifact.clone(),
@@ -67,7 +64,7 @@ pub(crate) fn canonicalize_actions(
             return Err(PlanError::InvalidActionTarget(Box::new(
                 InvalidActionTarget {
                     action: action.key.clone(),
-                    target: target.clone(),
+                    target: *target,
                 },
             )));
         }
@@ -295,8 +292,8 @@ fn validate_external_command_artifacts(
     working_directory: &LogicalPath,
     inputs: &[LogicalPath],
     artifacts: &BTreeMap<&ArtifactKey, &PlanArtifact>,
-    emit_targets: &BTreeMap<ArtifactKey, TargetSpec>,
-    host_target: &TargetSpec,
+    emit_targets: &BTreeMap<ArtifactKey, TargetConfig>,
+    host_target: &TargetConfig,
 ) -> Result<(), PlanError> {
     if let CommandProgram::Path(program) = program
         && let LogicalPathRoot::Artifact(artifact) = program.root()

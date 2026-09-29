@@ -442,8 +442,6 @@ pub enum BuiltinConstValue {
     TargetOs,
     /// Target environment name.
     TargetEnv,
-    /// Target ABI name.
-    TargetAbi,
     /// Target endianness name.
     TargetEndian,
     /// Target pointer width in bits.
@@ -737,7 +735,6 @@ impl BuiltinConstValue {
             Self::TargetVendor => 2,
             Self::TargetOs => 3,
             Self::TargetEnv => 4,
-            Self::TargetAbi => 5,
             Self::TargetEndian => 6,
             Self::TargetPointerWidth => 7,
         }
@@ -750,7 +747,7 @@ impl BuiltinConstValue {
             2 => Some(Self::TargetVendor),
             3 => Some(Self::TargetOs),
             4 => Some(Self::TargetEnv),
-            5 => Some(Self::TargetAbi),
+            // Tag 5 named the retired `target.abi` value; it is never reused.
             6 => Some(Self::TargetEndian),
             7 => Some(Self::TargetPointerWidth),
             _ => None,
@@ -758,12 +755,11 @@ impl BuiltinConstValue {
     }
 
     /// All target configuration values in canonical registry order.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 6] = [
         Self::TargetArch,
         Self::TargetVendor,
         Self::TargetOs,
         Self::TargetEnv,
-        Self::TargetAbi,
         Self::TargetEndian,
         Self::TargetPointerWidth,
     ];
@@ -775,7 +771,6 @@ impl BuiltinConstValue {
             "target.vendor" => Some(Self::TargetVendor),
             "target.os" => Some(Self::TargetOs),
             "target.env" => Some(Self::TargetEnv),
-            "target.abi" => Some(Self::TargetAbi),
             "target.endian" => Some(Self::TargetEndian),
             "target.pointerWidth" => Some(Self::TargetPointerWidth),
             _ => None,
@@ -789,7 +784,6 @@ impl BuiltinConstValue {
             Self::TargetVendor => "target.vendor",
             Self::TargetOs => "target.os",
             Self::TargetEnv => "target.env",
-            Self::TargetAbi => "target.abi",
             Self::TargetEndian => "target.endian",
             Self::TargetPointerWidth => "target.pointerWidth",
         }
@@ -802,7 +796,6 @@ impl BuiltinConstValue {
             Self::TargetVendor => "vendor",
             Self::TargetOs => "os",
             Self::TargetEnv => "env",
-            Self::TargetAbi => "abi",
             Self::TargetEndian => "endian",
             Self::TargetPointerWidth => "pointerWidth",
         }

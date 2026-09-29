@@ -1281,8 +1281,8 @@ expression syntax and are stored with the AST node.
 `@[if condition]` is the language-defined conditional compilation attribute.
 It may be attached to items and statements. The condition language is separate
 from ordinary Nia expressions and from `const` evaluation. It accepts boolean,
-integer, and string literals; names `arch`, `vendor`, `os`, `env`, `abi`,
-`endian`, and `pointer_width`; unary `not`; binary `and`, `or`, `==`, and `!=`;
+integer, and string literals; names `arch`, `vendor`, `os`, `env`,
+`endian`, and `pointerWidth`; unary `not`; binary `and`, `or`, `==`, and `!=`;
 and parentheses.
 
 ```nia
@@ -1290,7 +1290,7 @@ and parentheses.
 pub(pkg) module freestanding;
 
 fn word() usize {
-    @[if pointer_width == 64]
+    @[if pointerWidth == 64]
     return 8;
     4
 }
@@ -1327,13 +1327,26 @@ for name resolution and imports, and exposes facts about the active target:
 ```nia
 using builtin;
 
-const word_bits: usize = builtin::pointer_width;
+const word_bits: usize = builtin::pointerWidth;
 const target_os = builtin::os;
 ```
 
-The initial `builtin` surface exposes `arch`, `vendor`, `os`, `env`, `abi`,
-`endian`, and `pointer_width` as public const values. These values share the
-same target facts used by `@[if ...]`.
+The initial `builtin` surface exposes `arch`, `vendor`, `os`, `env`,
+`endian`, and `pointerWidth` as public const values. These values share the
+same target facts used by `@[if ...]`. The architecture and operating system
+of a target determine every other fact:
+
+| Target | `arch` | `vendor` | `os` | `env` | `endian` | `pointerWidth` |
+| --- | --- | --- | --- | --- | --- | --- |
+| `x86_64-unknown-linux` | `"x86_64"` | `"unknown"` | `"linux"` | `""` | `"little"` | `64` |
+| `x86-unknown-linux` | `"x86"` | `"unknown"` | `"linux"` | `""` | `"little"` | `32` |
+| `aarch64-unknown-linux` | `"aarch64"` | `"unknown"` | `"linux"` | `""` | `"little"` | `64` |
+| `x86_64-pc-windows-msvc` | `"x86_64"` | `"pc"` | `"windows"` | `"msvc"` | `"little"` | `64` |
+| `x86_64-apple-macos` | `"x86_64"` | `"apple"` | `"macos"` | `""` | `"little"` | `64` |
+| `aarch64-apple-macos` | `"aarch64"` | `"apple"` | `"macos"` | `""` | `"little"` | `64` |
+
+`env` names the platform ABI flavor, not a C library: Linux targets link no
+libc, and `msvc` selects the Windows x64 ABI without the MSVC runtime.
 
 `@[trackCaller]` may be attached to a non-`extern` function or trait method.
 Within such a function, `std::callerLocation()` returns the outermost call site

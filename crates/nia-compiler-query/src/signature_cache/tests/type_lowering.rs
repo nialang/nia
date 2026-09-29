@@ -13,7 +13,7 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
         (&dependency, dependency_source, 128),
     ]);
     let namespace = crate::FrontendCacheNamespace::new(
-        &nia_target_config::TargetConfig::host(),
+        &nia_target::TargetConfig::host().expect("tests run on a maintained host"),
         crate::RuntimeSpec::Bare,
     );
     let key = crate::FrontendSignatureTypeLoweringCacheKey::new(

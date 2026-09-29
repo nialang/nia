@@ -38,6 +38,7 @@ nia-value-resolve.workspace = true
 parking_lot.workspace = true
 
 [dev-dependencies]
+nia-target.workspace = true
 nia-abi-check.workspace = true
 nia-body-check.workspace = true
 nia-flow-check.workspace = true
@@ -47,7 +48,6 @@ nia-parser.workspace = true
 nia-program-signatures.workspace = true
 nia-source.workspace = true
 nia-symbol-table.workspace = true
-nia-target-config.workspace = true
 nia-type-lower.workspace = true
 nia-type-resolve.workspace = true
 

@@ -89,7 +89,7 @@ extend FaultAllocator : mem::Allocator {
 }
 
 fn testTarget(text: &[char]) build::TargetView {
-    build::TargetView::init(text, text, text, text, text, text, 64u32)
+    build::TargetView::init(text, text, 64u32)
 }
 
 fn isBuildDirRetainOom(error: build::Error) bool {
@@ -363,7 +363,7 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
             return process::ExitCode(14)!;
         },
         err! => {
-            let host = successfulAllocations == 7usize;
+            let host = successfulAllocations < 7usize;
             if not isTargetRetainOom(err, host) {
                 return process::ExitCode(15)!;
             }
@@ -1074,8 +1074,12 @@ fn checkValidationScratchCleanupRetry(init: process::Init) process::ExitCode!() 
 
 pub fn main(init: process::Init) process::ExitCode!() {
     checkInitRollback(init).?;
+    // Five path retains precede each target, which retains its name and
+    // byte order: allocations 5-6 belong to the host, 7-8 to the artifact.
+    checkTargetInitRollback(init, 5usize).?;
+    checkTargetInitRollback(init, 6usize).?;
     checkTargetInitRollback(init, 7usize).?;
-    checkTargetInitRollback(init, 13usize).?;
+    checkTargetInitRollback(init, 8usize).?;
     checkInitCleanupRetry(init).?;
     checkRecordRollback(init).?;
     checkPendingUncacheableStep(init).?;

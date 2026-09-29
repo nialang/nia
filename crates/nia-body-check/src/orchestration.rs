@@ -1,92 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-/// Checks active module bodies with local signatures and default products.
-pub fn check_module_bodies(
-    type_store: &nia_ty::TypeStore,
-    module: &Module,
-    defs: &DefCollection,
-    values: &ValueResolution,
-    locals: &LocalResolution,
-    lowered: &TypeLowering,
-    signatures: &ItemSignatures,
-) -> BodyCheck {
-    let target = TargetConfig::host();
-    let empty_normalization = TypeNormalization {
-        normalized: HashMap::new(),
-        diagnostics: Vec::new(),
-    };
-    let Some(target_layout) = target_data_layout(&target) else {
-        return body_check_target_layout_error(&target);
-    };
-    let layouts = match nia_layout::compute_layouts(type_store, defs, signatures, target_layout) {
-        Ok(layouts) => layouts,
-        Err(error) => return body_check_internal_error(error),
-    };
-    let empty_const_module = ResolvedConstModule::default();
-    let empty_extensions = VisibleExtensionMethods::default();
-    let empty_program_extension_methods = ExtensionMethods::default();
-    let empty_const_values = HashMap::new();
-    let empty_typed_const_values = HashMap::new();
-    let empty_array_lengths = HashMap::new();
-    let empty_const = BodyConst {
-        values: &empty_const_values,
-        typed_values: &empty_typed_const_values,
-        array_lengths: &empty_array_lengths,
-    };
-    let source_path = SourcePath::new("main.nia");
-    let symbols = SymbolTable::new();
-    let type_resolution = nia_type_resolve::resolve_module_types(module, defs);
-    let item_tree = ModuleItemTree::from_module(module);
-    let active_item_tree = item_tree.all_items_active();
-    let semantic_uses = semantic_use_table_for_body_input(
-        defs.module_id,
-        values,
-        locals,
-        lowered,
-        &active_item_tree,
-    );
-    let input = BodyCheckInput {
-        type_store,
-        source_version: None,
-        source_path: &source_path,
-        source_text: "",
-        symbols: &symbols,
-        origins: &NodeOriginTable::default(),
-        active_item_tree: &active_item_tree,
-        defs,
-        values,
-        locals,
-        semantic_uses: &semantic_uses,
-        type_resolution: &type_resolution,
-        lowered,
-        signatures: BodyLocalSignatures::from_item_signatures(signatures),
-        const_signatures: signatures,
-        normalization: &empty_normalization,
-        seed: None,
-        target: &target,
-        const_eval: empty_const,
-        const_module: &empty_const_module,
-        layouts: &layouts,
-        extensions: &empty_extensions,
-        lazy_extensions: None,
-        program_extension_methods: &empty_program_extension_methods,
-        program: BodyProgramContext::empty(),
-        program_signatures: ProgramSignatureContext::empty(),
-        program_const: ProgramConstMaps::empty(),
-        function_scope: FunctionCheckScope::LocalModule,
-        filter: BodyCheckFilter::All,
-        product: BodyCheckProduct::Full,
-        prechecked: None,
-    };
-    let mut checked = check_module_bodies_with_program_signatures_and_layouts_with_timings(
-        input,
-        nia_timing::TimingMode::Off,
-    );
-    Arc::make_mut(&mut checked.diagnostics).extend(layouts.diagnostics);
-    checked
-}
-
 /// Checks bodies using caller-provided layouts and product/filter settings.
 pub fn check_module_bodies_with_layouts(input: BodyCheckInput<'_>) -> BodyCheck {
     check_module_bodies_with_program_signatures_and_layouts(input)
@@ -153,7 +67,7 @@ pub fn check_module_bodies_with_program_signatures(
 }
 
 fn target_data_layout(target: &TargetConfig) -> Option<nia_layout::TargetDataLayout> {
-    nia_layout::TargetDataLayout::from_pointer_width(target.pointer_width)
+    nia_layout::TargetDataLayout::from_pointer_width(target.pointer_width())
 }
 
 fn body_check_target_layout_error(target: &TargetConfig) -> BodyCheck {
@@ -162,7 +76,7 @@ fn body_check_target_layout_error(target: &TargetConfig) -> BodyCheck {
         Span::new(0, 0),
         format!(
             "body checking requires a supported target pointer width, got {}",
-            target.pointer_width
+            target.pointer_width()
         ),
     );
     BodyCheck {
@@ -196,70 +110,6 @@ fn body_check_internal_error(error: nia_ice::Ice) -> BodyCheck {
         diagnostic_owners: Vec::new(),
         diagnostics: Arc::new(Vec::new()),
     }
-}
-
-fn semantic_use_table_for_body_input(
-    module_id: ModuleId,
-    values: &ValueResolution,
-    locals: &LocalResolution,
-    lowered: &TypeLowering,
-    active_item_tree: &ActiveModuleItemTree,
-) -> SemanticUseTable {
-    let mut builder = SemanticUseTable::builder();
-    for (key, local_use) in &locals.node_uses {
-        match local_use {
-            nia_local_resolve::LocalUse::Local(local_id) => {
-                builder.insert_node_local_value_use(key.clone(), *local_id);
-            }
-            nia_local_resolve::LocalUse::Static(global_id) => {
-                builder.insert_node_global_value_use(key.clone(), *global_id);
-            }
-            nia_local_resolve::LocalUse::ModuleValue
-            | nia_local_resolve::LocalUse::Module
-            | nia_local_resolve::LocalUse::TypePrefix
-            | nia_local_resolve::LocalUse::Unresolved => {}
-        }
-    }
-    builder.extend_node_global_value_uses(
-        values
-            .node_qualified_values
-            .iter()
-            .map(|(key, global_id)| (key.clone(), *global_id)),
-    );
-    builder.extend_node_type_prefixes(
-        values
-            .node_qualified_type_prefixes
-            .iter()
-            .map(|(key, def_id)| (key.clone(), *def_id)),
-    );
-    for (key, resolution) in &values.node_names {
-        match resolution {
-            nia_value_resolve::ValueNameResolution::Def(def_id) => {
-                builder.insert_node_global_value_use(
-                    key.clone(),
-                    GlobalDefId {
-                        module_id,
-                        def_id: *def_id,
-                    },
-                );
-            }
-            nia_value_resolve::ValueNameResolution::External(global_id) => {
-                builder.insert_node_global_value_use(key.clone(), *global_id);
-            }
-            nia_value_resolve::ValueNameResolution::Module
-            | nia_value_resolve::ValueNameResolution::LocalDeferred
-            | nia_value_resolve::ValueNameResolution::Error => {}
-        }
-    }
-    builder.extend_node_local_defs(
-        locals
-            .node_local_defs
-            .iter()
-            .map(|(key, local_id)| (key.clone(), *local_id)),
-    );
-    builder
-        .extend_node_type_uses(lowered.versioned_type_uses_from_active_item_tree(active_item_tree));
-    builder.finish()
 }
 
 /// Checks bodies with program-wide signatures and caller-provided layouts.
@@ -530,12 +380,8 @@ pub(super) fn time_body_stage_if_slow<T>(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        SemanticFacts, body_check_internal_error, body_check_target_layout_error,
-        target_data_layout,
-    };
+    use super::{SemanticFacts, body_check_internal_error, target_data_layout};
     use nia_ice::Ice;
-    use nia_target_config::TargetConfig;
 
     #[test]
     fn internal_failure_does_not_publish_partial_products() {
@@ -560,30 +406,9 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_target_pointer_widths_are_recoverable() {
-        for pointer_width in [0, 129] {
-            let target = TargetConfig {
-                pointer_width,
-                ..TargetConfig::host()
-            };
-            assert!(target_data_layout(&target).is_none());
-            let check = body_check_target_layout_error(&target);
-            assert!(check.ir.function_bodies.is_empty());
-            assert!(check.ir.global_inits.is_empty());
-            assert_eq!(check.diagnostics.len(), 1);
-            assert_eq!(check.diagnostic_owners, vec![None]);
-            assert!(check.diagnostics[0].summary.contains("pointer width"));
-            assert!(
-                check.diagnostics[0]
-                    .summary
-                    .contains(&pointer_width.to_string())
-            );
+    fn every_maintained_target_has_a_data_layout() {
+        for target in nia_target::SUPPORTED_TARGETS {
+            assert!(target_data_layout(&target).is_some(), "{target}");
         }
-
-        let target = TargetConfig {
-            pointer_width: 64,
-            ..TargetConfig::host()
-        };
-        assert!(target_data_layout(&target).is_some());
     }
 }

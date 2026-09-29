@@ -127,7 +127,7 @@ fn type_resolution_rehydrates_current_source_module_and_symbol_owners() {
         (&dependency, dependency_source, 19),
     ]);
     let namespace = crate::FrontendCacheNamespace::new(
-        &nia_target_config::TargetConfig::host(),
+        &nia_target::TargetConfig::host().expect("tests run on a maintained host"),
         crate::RuntimeSpec::Bare,
     );
     let key = crate::FrontendSignatureTypeResolutionCacheKey::new(

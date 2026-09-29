@@ -6,6 +6,7 @@ members = [
     "crates/nia-span",
     "crates/nia-source",
     "crates/nia-node-id",
+    "crates/nia-target",
     "crates/nia-target-config",
     "crates/nia-toolchain",
     "crates/nia-ids",
@@ -96,6 +97,7 @@ nia-package-metadata = { path = "crates/nia-package-metadata" }
 nia-span = { path = "crates/nia-span" }
 nia-source = { path = "crates/nia-source" }
 nia-node-id = { path = "crates/nia-node-id" }
+nia-target = { path = "crates/nia-target" }
 nia-target-config = { path = "crates/nia-target-config" }
 nia-toolchain = { path = "crates/nia-toolchain" }
 nia-ids = { path = "crates/nia-ids" }

@@ -296,8 +296,7 @@ fn coordinator_diagnostic(error: &CoordinatorError) -> Diagnostic {
         )
         .note(format!(
             "expected {}, found {}",
-            crate::coordinator::display_target(&details.expected),
-            crate::coordinator::display_target(&details.found)
+            details.expected, details.found
         ))
         .help("clean the build plan and rerun with the intended target")
         .finish(),
@@ -626,7 +625,7 @@ fn coordinator_summary(error: &CoordinatorError) -> String {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::TargetSpec;
+    use nia_target::TargetConfig;
 
     pub(crate) fn assert_operational_report(error: &BuildError, code: &str, markers: &[&str]) {
         let text = render_build_error(error, None, None);
@@ -748,17 +747,8 @@ pub(crate) mod tests {
 
     #[test]
     fn target_mismatch_uses_semantic_target_text() {
-        let expected = TargetSpec {
-            arch: "x86_64".to_string(),
-            vendor: "unknown".to_string(),
-            os: "linux".to_string(),
-            env: "gnu".to_string(),
-            abi: "".to_string(),
-            endian: "little".to_string(),
-            pointer_width: 64,
-        };
-        let mut found = expected.clone();
-        found.arch = "aarch64".to_string();
+        let expected = TargetConfig::parse("x86_64-unknown-linux").unwrap();
+        let found = TargetConfig::parse("aarch64-unknown-linux").unwrap();
         let error = BuildError::ExecuteBuildPlan {
             error: Box::new(CoordinatorError::TargetMismatch(Box::new(
                 crate::coordinator::TargetMismatch {
@@ -770,26 +760,17 @@ pub(crate) mod tests {
         };
 
         let rendered = render_build_error(&error, None, None);
-        assert!(rendered.contains(
-            "note: expected x86_64-unknown-linux-gnu- (64-bit little), found aarch64-unknown-linux-gnu- (64-bit little)"
-        ));
-        assert!(!rendered.contains("TargetSpec {"));
+        assert!(
+            rendered.contains("note: expected x86_64-unknown-linux, found aarch64-unknown-linux")
+        );
+        assert!(!rendered.contains("TargetConfig {"));
         assert!(!rendered.contains("pointer_width:"));
     }
 
     #[test]
     fn target_mismatch_json_uses_semantic_target_text() {
-        let expected = TargetSpec {
-            arch: "x86_64".to_string(),
-            vendor: "unknown".to_string(),
-            os: "linux".to_string(),
-            env: "gnu".to_string(),
-            abi: "".to_string(),
-            endian: "little".to_string(),
-            pointer_width: 64,
-        };
-        let mut found = expected.clone();
-        found.arch = "aarch64".to_string();
+        let expected = TargetConfig::parse("x86_64-unknown-linux").unwrap();
+        let found = TargetConfig::parse("aarch64-unknown-linux").unwrap();
         let error = BuildError::ExecuteBuildPlan {
             error: Box::new(CoordinatorError::TargetMismatch(Box::new(
                 crate::coordinator::TargetMismatch {
@@ -801,8 +782,8 @@ pub(crate) mod tests {
         };
 
         let json = render_build_error_json(&error);
-        assert!(json.contains("expected x86_64-unknown-linux-gnu- (64-bit little), found aarch64-unknown-linux-gnu- (64-bit little)"));
-        assert!(!json.contains("TargetSpec {"));
+        assert!(json.contains("expected x86_64-unknown-linux, found aarch64-unknown-linux"));
+        assert!(!json.contains("TargetConfig {"));
         assert!(!json.contains("pointer_width:"));
     }
 

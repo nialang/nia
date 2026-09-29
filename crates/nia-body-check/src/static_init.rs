@@ -430,7 +430,7 @@ impl<'a> BodyChecker<'a> {
             return init;
         };
         value
-            .cast_to_primitive_int(*primitive, self.target.pointer_width)
+            .cast_to_primitive_int(*primitive, self.target.pointer_width())
             .map(StaticInit::Int)
             .unwrap_or(StaticInit::Int(value))
     }

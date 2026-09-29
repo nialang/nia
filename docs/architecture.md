@@ -294,6 +294,18 @@ Session-local `NodeId` is an eight-byte handle allocated monotonically.
 The canonical `NodeStore` owns only active source-revision shards. Retiring a
 source revision removes its shard from the current store.
 
+### `nia-target`
+
+Dependency-free typed model of the maintained compilation targets. A
+`TargetConfig` is an architecture and operating system from the supported
+matrix; its canonical name, vendor, environment, byte order, pointer width,
+object format, minimum OS version, LLVM triple and baseline CPU are derived, so
+no consumer can assemble an inconsistent combination. Parsing accepts only
+canonical names, and `TargetConfig::host` is `None` on an unmaintained host.
+Every persistent identity (plans, runner configuration, cache namespaces)
+encodes the canonical name. `nia-target-config` evaluates conditional
+compilation against this model; it does not own target identity.
+
 ### `nia-ids`
 
 Typed cross-phase ids: `ModuleId`, `DefId`, `LocalId`, `InternedTyId`,

@@ -80,7 +80,7 @@ pub fn score(&self) i32 {
         .expect("insert module map entry");
     let source_path = SourcePath::new(main_path.to_string_lossy());
     let database = LoaderDatabase::new_for_test(
-        LoadRequest::new(main_path.to_string_lossy().into_owned()).with_module_map(module_map),
+        test_request(main_path.to_string_lossy().into_owned()).with_module_map(module_map),
     );
     let initial = database.load_program().expect("initial program load");
     let initial_module_ids = initial

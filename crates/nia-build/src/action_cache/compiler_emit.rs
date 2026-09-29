@@ -39,7 +39,8 @@ use super::{
     read_fingerprint, read_u64, validate_compiler_cache_entry_size, write_bytes, write_fingerprint,
     write_text,
 };
-use crate::{ActionKey, PlanArtifact, PlanModule, PlanPackage, TargetSpec, lock::ScopedFileLock};
+use crate::{ActionKey, PlanArtifact, PlanModule, PlanPackage, lock::ScopedFileLock};
+use nia_target::TargetConfig;
 
 const COMPILER_EMIT_LINK_INPUT_CONTENT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.compiler-emit.link-input-content");
@@ -152,7 +153,7 @@ pub(crate) struct CompilerEmitCacheIdentityInput<'a> {
     pub(crate) artifact: &'a PlanArtifact,
     pub(crate) module: &'a PlanModule,
     pub(crate) packages: &'a [PlanPackage],
-    pub(crate) target: &'a TargetSpec,
+    pub(crate) target: &'a TargetConfig,
     pub(crate) profile: BuildProfile,
     pub(crate) compilation_mode: nia_target_config::CompilationMode,
     pub(crate) manifest: &'a SourceInputManifest,

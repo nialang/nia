@@ -16,7 +16,7 @@ use std::os::unix::fs::OpenOptionsExt as _;
 pub(super) struct DriverActionExecutor {
     plan: Arc<BuildPlan>,
     invocation: Arc<BuildInvocation>,
-    drivers: Arc<BTreeMap<TargetSpec, Arc<Driver>>>,
+    drivers: Arc<BTreeMap<TargetConfig, Arc<Driver>>>,
 }
 
 impl DriverActionExecutor {
@@ -30,13 +30,13 @@ impl DriverActionExecutor {
                 | ActionKind::CompilerEmit { target, .. } => target,
                 _ => continue,
             };
-            drivers.entry(target.clone()).or_insert_with(|| {
+            drivers.entry(*target).or_insert_with(|| {
                 Arc::new(Driver::with_config(
                     DriverConfig {
                         artifact_cache_dir: Some(invocation.cache_dir.clone()),
                         ..DriverConfig::new(Arc::clone(&invocation.toolchain))
                     }
-                    .with_artifact_target(target_config(target)),
+                    .with_artifact_target(*target),
                 ))
             });
         }
@@ -340,7 +340,7 @@ impl DriverActionExecutor {
         &self,
         action: &PlanAction,
         module_key: &ModuleKey,
-        target: &TargetSpec,
+        target: &TargetConfig,
         runtime: Runtime,
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
         let module = find_module(self.plan.modules(), module_key).ok_or_else(|| {
@@ -423,7 +423,7 @@ impl DriverActionExecutor {
         &self,
         action: &PlanAction,
         artifact_key: &ArtifactKey,
-        target: &TargetSpec,
+        target: &TargetConfig,
         static_archives: &[ArtifactKey],
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
         let artifact = self.artifact(action, artifact_key)?;
@@ -626,7 +626,7 @@ impl DriverActionExecutor {
         &self,
         action: &PlanAction,
         artifact: &PlanArtifact,
-        target: &TargetSpec,
+        target: &TargetConfig,
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
         let _module = find_module(self.plan.modules(), &artifact.root_module).ok_or_else(|| {
             inconsistent(
@@ -670,7 +670,7 @@ impl DriverActionExecutor {
         &self,
         action: &PlanAction,
         artifact: &PlanArtifact,
-        target: &TargetSpec,
+        target: &TargetConfig,
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
         let _module = find_module(self.plan.modules(), &artifact.root_module).ok_or_else(|| {
             inconsistent(
@@ -837,7 +837,7 @@ impl DriverActionExecutor {
         &self,
         action: &PlanAction,
         module_key: &ModuleKey,
-        target: &TargetSpec,
+        target: &TargetConfig,
         runtime: Runtime,
     ) -> Result<CheckRequest, CoordinatorError> {
         let module = find_module(self.plan.modules(), module_key).ok_or_else(|| {
@@ -861,7 +861,7 @@ impl DriverActionExecutor {
                     }))
                 })?;
         }
-        let target = target_config(target);
+        let target = *target;
         let runtime =
             runtime_spec(runtime, &self.invocation.toolchain, &target).map_err(|error| {
                 CoordinatorError::Driver {
@@ -894,12 +894,12 @@ impl DriverActionExecutor {
     fn driver(
         &self,
         action: &PlanAction,
-        target: &TargetSpec,
+        target: &TargetConfig,
     ) -> Result<&Driver, CoordinatorError> {
         self.drivers.get(target).map(Arc::as_ref).ok_or_else(|| {
             inconsistent(
                 format!("action `{}`", action.key.name()),
-                format!("compiler driver for target `{}`", display_target(target)),
+                format!("compiler driver for target `{}`", target),
             )
         })
     }

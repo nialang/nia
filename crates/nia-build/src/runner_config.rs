@@ -8,7 +8,7 @@
 use std::path::Path;
 
 use nia_compat::formats::RUNNER_CONFIG;
-use nia_target_config::TargetConfig;
+use nia_target::TargetConfig;
 
 use crate::{BuildError, BuildInvocation, BuildStepSelection, OptimizationMode};
 
@@ -55,17 +55,11 @@ pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError
 }
 
 fn write_target(encoded: &mut Vec<u8>, target: &TargetConfig) -> Result<(), BuildError> {
-    for (role, value) in [
-        ("target architecture", target.arch.as_str()),
-        ("target vendor", target.vendor.as_str()),
-        ("target operating system", target.os.as_str()),
-        ("target environment", target.env.as_str()),
-        ("target ABI", target.abi.as_str()),
-        ("target endianness", target.endian.as_str()),
-    ] {
-        write_text(encoded, role, value)?;
-    }
-    write_u32(encoded, target.pointer_width);
+    // Build scripts read architecture, vendor, OS and environment as the
+    // name's components; the toolchain supplies the facts a name cannot spell.
+    write_text(encoded, "target name", &target.name())?;
+    write_text(encoded, "target endianness", target.endian().name())?;
+    write_u32(encoded, target.pointer_width());
     Ok(())
 }
 
@@ -238,10 +232,7 @@ mod tests {
     }
 
     fn invocation(step: BuildStepSelection) -> BuildInvocation {
-        let mut artifact_target = TargetConfig::host();
-        artifact_target.arch = "artifact-arch".to_string();
-        artifact_target.pointer_width = 32;
-        let toolchain = crate::tests::test_toolchain_layout_for(artifact_target);
+        let toolchain = crate::tests::test_toolchain_layout_for(crate::tests::foreign_target());
         BuildInvocation {
             toolchain: Arc::clone(&toolchain),
             package_root: PathBuf::from("/workspace/package"),
@@ -380,15 +371,12 @@ mod tests {
         }
 
         fn target(&mut self) -> Result<TargetConfig, DecodeError> {
-            Ok(TargetConfig {
-                arch: self.text()?,
-                vendor: self.text()?,
-                os: self.text()?,
-                env: self.text()?,
-                abi: self.text()?,
-                endian: self.text()?,
-                pointer_width: self.u32()?,
-            })
+            let name = self.text()?;
+            let target = TargetConfig::parse(&name).map_err(|_| DecodeError::Tag)?;
+            if self.text()? != target.endian().name() || self.u32()? != target.pointer_width() {
+                return Err(DecodeError::Tag);
+            }
+            Ok(target)
         }
     }
 }

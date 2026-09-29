@@ -14,44 +14,6 @@ pub(super) use super::dependencies::{
     validate_generated_source_dependencies, validate_output_ownership,
 };
 
-pub(super) fn validate_target(target: &TargetSpec, role: &'static str) -> Result<(), PlanError> {
-    if target.arch.is_empty() || target.os.is_empty() {
-        return Err(PlanError::InvalidTarget {
-            role,
-            reason: "architecture and operating system must be named",
-        });
-    }
-    if [
-        &target.arch,
-        &target.vendor,
-        &target.os,
-        &target.env,
-        &target.abi,
-        &target.endian,
-    ]
-    .into_iter()
-    .any(|value| value.contains('\0'))
-    {
-        return Err(PlanError::InvalidTarget {
-            role,
-            reason: "target field contains NUL",
-        });
-    }
-    if !matches!(target.endian.as_str(), "little" | "big") {
-        return Err(PlanError::InvalidTarget {
-            role,
-            reason: "endianness must be `little` or `big`",
-        });
-    }
-    if !matches!(target.pointer_width, 8 | 16 | 32 | 64 | 128) {
-        return Err(PlanError::InvalidTarget {
-            role,
-            reason: "unsupported pointer width",
-        });
-    }
-    Ok(())
-}
-
 pub(super) fn canonicalize_packages(
     packages: &mut [PlanPackage],
     root_package: &PackageKey,

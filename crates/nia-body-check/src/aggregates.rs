@@ -1420,7 +1420,7 @@ impl ResolvedConstEnv for BodyChecker<'_> {
                 }),
             ConstNameResolution::BuiltinAssociatedValue(value) => {
                 let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind } = value;
-                let Some(value) = kind.value(primitive, self.target.pointer_width) else {
+                let Some(value) = kind.value(primitive, self.target.pointer_width()) else {
                     return Err(ConstError {
                         span,
                         message: "builtin associated value is not representable at const"

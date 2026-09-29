@@ -395,12 +395,13 @@ impl Analyzer<'_> {
                     })
             }
             (Some(TyKind::Primitive(primitive)), ConstValue::Int(value))
-                if primitive_integer_layout(primitive, self.input.target.pointer_width)
+                if primitive_integer_layout(primitive, self.input.target.pointer_width())
                     .is_some() =>
             {
-                let Some((min, max)) =
-                    primitive_integer_range_for_target(primitive, self.input.target.pointer_width)
-                else {
+                let Some((min, max)) = primitive_integer_range_for_target(
+                    primitive,
+                    self.input.target.pointer_width(),
+                ) else {
                     return Err(ConstError {
                         span: expr.span(),
                         message: "const generic integer argument requires a supported target pointer width"
@@ -519,10 +520,10 @@ impl Analyzer<'_> {
         let Some(TyKind::Primitive(source)) = self.ty_kind(source) else {
             return ConstTypeCompatibility::Mismatch;
         };
-        let source_numeric = primitive_integer_layout(source, self.input.target.pointer_width)
+        let source_numeric = primitive_integer_layout(source, self.input.target.pointer_width())
             .is_some()
             || is_float_primitive(source);
-        let target_numeric = primitive_integer_layout(target, self.input.target.pointer_width)
+        let target_numeric = primitive_integer_layout(target, self.input.target.pointer_width())
             .is_some()
             || is_float_primitive(target);
         if source_numeric && target_numeric {

@@ -337,14 +337,12 @@ pub mod known {
     known_symbol!(TARGET_VENDOR, "target.vendor");
     known_symbol!(TARGET_OS, "target.os");
     known_symbol!(TARGET_ENV, "target.env");
-    known_symbol!(TARGET_ABI, "target.abi");
     known_symbol!(TARGET_ENDIAN, "target.endian");
     known_symbol!(TARGET_POINTER_WIDTH, "target.pointerWidth");
     known_symbol!(ARCH, "arch");
     known_symbol!(VENDOR, "vendor");
     known_symbol!(OS, "os");
     known_symbol!(ENV, "env");
-    known_symbol!(ABI, "abi");
     known_symbol!(ENDIAN, "endian");
     known_symbol!(POINTER_WIDTH, "pointerWidth");
 
@@ -497,14 +495,12 @@ pub mod known {
         (TARGET_VENDOR, "target.vendor"),
         (TARGET_OS, "target.os"),
         (TARGET_ENV, "target.env"),
-        (TARGET_ABI, "target.abi"),
         (TARGET_ENDIAN, "target.endian"),
         (TARGET_POINTER_WIDTH, "target.pointerWidth"),
         (ARCH, "arch"),
         (VENDOR, "vendor"),
         (OS, "os"),
         (ENV, "env"),
-        (ABI, "abi"),
         (ENDIAN, "endian"),
         (POINTER_WIDTH, "pointerWidth"),
     ];

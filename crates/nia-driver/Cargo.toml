@@ -10,6 +10,7 @@ llvm-dynamic = ["nia-codegen-llvm/llvm-dynamic"]
 llvm-static = ["nia-codegen-llvm/llvm-static"]
 
 [dependencies]
+nia-target.workspace = true
 blake3.workspace = true
 nia-codegen-llvm = { workspace = true, default-features = false }
 nia-compiler-query.workspace = true

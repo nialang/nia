@@ -14,12 +14,26 @@ pub(super) struct CheckedFixture {
 }
 
 pub(super) fn check_source(source: &str) -> CheckedFixture {
-    check_source_for_target(source, nia_target_config::TargetConfig::host())
+    check_source_for_target(source, target("x86_64-unknown-linux"))
+}
+
+/// A maintained target by name; tests never depend on the host.
+pub(super) fn target(name: &str) -> nia_target::TargetConfig {
+    nia_target::TargetConfig::parse(name).expect("maintained target")
+}
+
+/// The maintained Linux target with `pointer_width` bits.
+pub(super) fn target_with_pointer_width(pointer_width: u32) -> nia_target::TargetConfig {
+    match pointer_width {
+        32 => target("x86-unknown-linux"),
+        64 => target("x86_64-unknown-linux"),
+        _ => panic!("no maintained target has {pointer_width}-bit pointers"),
+    }
 }
 
 pub(super) fn check_source_for_target(
     source: &str,
-    target: nia_target_config::TargetConfig,
+    target: nia_target::TargetConfig,
 ) -> CheckedFixture {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");

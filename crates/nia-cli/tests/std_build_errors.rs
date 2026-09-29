@@ -21,7 +21,7 @@ using std::process;
 
 fn target() build::TargetView {
     let empty = "";
-    build::TargetView::init(&empty, &empty, &empty, &empty, &empty, &empty, 64u32)
+    build::TargetView::init(&empty, &empty, 64u32)
 }
 
 fn initBuild(

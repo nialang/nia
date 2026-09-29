@@ -43,7 +43,7 @@ owner tests and end-to-end evidence for their stated boundary.
 
 | ID | State | Boundary and owner | Required evidence for closure |
 | --- | --- | --- | --- |
-| T1 | Open | Typed target model: `nia-target-config` | One typed target (architecture, OS, environment, object format, OS version) owns triple parsing and printing, pointer width, endianness and the condition vocabulary. String target fields, `TargetConfig::host()` string guessing and duplicate `TargetSpec` conversions are gone. |
+| T1 | Active | Typed target model: `nia-target`, `nia-target-config` | One typed target (architecture, OS, environment, object format, OS version) owns triple parsing and printing, pointer width, endianness and the condition vocabulary. String target fields, `TargetConfig::host()` string guessing and duplicate `TargetSpec` conversions are gone. |
 | T2 | Open | Target selection: CLI, build plan, `std::build` | `--target <triple>` on every compiling command; build scripts can request an artifact target; the frozen plan carries typed targets. Unknown triples are user diagnostics listing the supported set. |
 | T3 | Open | Codegen follows the artifact target: `nia-llvm`, `nia-codegen-llvm` | Every target in the matrix initializes and creates its target machine from the artifact target, with a target-appropriate baseline CPU. No codegen call site reads the host triple, CPU or features. Host-`cfg!` decisions in compiler builtins become target decisions. |
 | T4 | Open | Linker flavor from the target: `nia-linker`, `nia-toolchain` | ELF, COFF and Mach-O flavors are chosen by the artifact target; bundled or overridden lld binaries resolve by flavor. Import descriptions replace SDK import libraries; `advapi32` is removed. |

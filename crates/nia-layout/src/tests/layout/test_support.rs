@@ -15,9 +15,8 @@ fn compute_test_const(
     let locals = resolve_module_locals(module, defs, &values).expect("resolve locals");
     let item_tree = ModuleItemTree::from_module(module);
     let active_item_tree = item_tree.all_items_active();
-    let semantic_uses =
-        semantic_use_table(module_id, &values, &locals, lowered, &active_item_tree);
-    let target = nia_target_config::TargetConfig::host();
+    let semantic_uses = semantic_use_table(module_id, &values, &locals, lowered, &active_item_tree);
+    let target = nia_target::TargetConfig::host().expect("tests run on a maintained host");
     let source_path = SourcePath::new("/tmp/nia-layout-test/main.nia");
     let const_module = lower_module_const(ConstModuleInput {
         type_store,
@@ -144,9 +143,8 @@ fn semantic_use_table(
             .iter()
             .map(|(key, local_id)| (key.clone(), *local_id)),
     );
-    builder.extend_node_type_uses(
-        lowered.versioned_type_uses_from_active_item_tree(active_item_tree),
-    );
+    builder
+        .extend_node_type_uses(lowered.versioned_type_uses_from_active_item_tree(active_item_tree));
     builder.finish()
 }
 

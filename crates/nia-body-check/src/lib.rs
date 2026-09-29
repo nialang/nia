@@ -44,8 +44,7 @@ mod trait_objects;
 mod type_support;
 
 use nia_ast::{
-    Attribute, AttributeKind, BindingStmt, Block, Expr, ExprKind, FunctionItem, Module, Stmt,
-    StmtKind,
+    Attribute, AttributeKind, BindingStmt, Block, Expr, ExprKind, FunctionItem, Stmt, StmtKind,
 };
 use nia_ast_walk::Visitor;
 use nia_body_ir::BodyIr;
@@ -69,7 +68,7 @@ use nia_item_signatures::{
     ProgramTraitSignature, ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature,
     TraitImplSignature, TraitSignature, TypeAliasSignature, UnionSignature,
 };
-use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
+use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind};
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_mangle::mangle_symbol_id;
@@ -86,7 +85,7 @@ use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, known};
 use nia_symbol_table::SymbolTable;
-use nia_target_config::TargetConfig;
+use nia_target::TargetConfig;
 use nia_ty::{ConstGenericArg, PrimitiveTy, TyKind, TypeStoreAppend};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
@@ -103,8 +102,7 @@ pub use inputs::{
     ProgramConstMaps,
 };
 pub use orchestration::{
-    check_module_bodies, check_module_bodies_with_layouts,
-    check_module_bodies_with_program_signatures,
+    check_module_bodies_with_layouts, check_module_bodies_with_program_signatures,
     check_module_bodies_with_program_signatures_and_layouts,
     check_module_bodies_with_program_signatures_and_layouts_with_timings,
 };

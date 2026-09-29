@@ -10,6 +10,7 @@ llvm-dynamic = ["nia-driver/llvm-dynamic"]
 llvm-static = ["nia-driver/llvm-static"]
 
 [dependencies]
+nia-target.workspace = true
 blake3.workspace = true
 libc.workspace = true
 nia-compat.workspace = true

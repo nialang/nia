@@ -7,7 +7,8 @@ use nia_compiler_query::CompilerDatabase;
 use nia_imports::ModuleMap;
 use nia_loader_query::LoaderDatabase;
 use nia_source::SourcePath;
-use nia_target_config::{BuildProfile, CompilationMode, TargetConfig};
+use nia_target::TargetConfig;
+use nia_target_config::{BuildProfile, CompilationMode};
 use nia_toolchain::RuntimeSpec;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

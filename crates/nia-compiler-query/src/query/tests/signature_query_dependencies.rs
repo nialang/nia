@@ -391,7 +391,7 @@ fn ordinary_and_signature_layouts_use_artifact_pointer_width() {
     let fixture = LoadedProgramFixture::new("main.nia", "pub struct Word { value: usize }");
     let module_id = fixture.entry_id();
     let mut program = fixture.program();
-    program.target.pointer_width = 32;
+    program.target = nia_target::TargetConfig::parse("x86-unknown-linux").unwrap();
     let db = query_db(program);
 
     let defs = db.expect_get(ModuleDefsQuery(module_id));

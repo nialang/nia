@@ -15,7 +15,7 @@ use nia_linker::{
     LinkResultFingerprintSet,
 };
 use nia_loader_query::SourceInputManifest;
-use nia_target_config::TargetConfig;
+use nia_target::TargetConfig;
 use nia_toolchain::ToolchainLayout;
 
 use super::ExecutableArtifact;
@@ -266,7 +266,7 @@ pub struct DriverConfig {
 impl DriverConfig {
     /// Creates configuration using the toolchain's artifact target.
     pub fn new(toolchain: std::sync::Arc<ToolchainLayout>) -> Self {
-        let artifact_target = toolchain.artifact_target().clone();
+        let artifact_target = *toolchain.artifact_target();
         Self {
             toolchain,
             artifact_target,

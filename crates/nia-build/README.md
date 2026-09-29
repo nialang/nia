@@ -98,6 +98,12 @@ identities, unresolved references, dependency cycles, conflicting output
 ownership, target mismatches, and missing producer closure. Protocol decoding
 repeats these semantic checks rather than trusting runner-produced bytes.
 
+Targets cross the runner and plan protocols as canonical target names such as
+`aarch64-apple-macos`. Decoding rejects a name outside the maintained target
+matrix; every other target fact is derived from the name, never transported
+beside it. `TargetView` exposes the name, its architecture, vendor, OS, and
+environment components, and the toolchain-derived byte order and pointer width.
+
 The Nia encoder bounds every collection count by the registered `maxItems`
 limit before narrowing it to the wire `u32` representation. Aggregate counts
 and derived dependency/input/output counts use checked addition, so malformed

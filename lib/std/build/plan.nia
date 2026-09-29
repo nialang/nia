@@ -173,31 +173,11 @@ extend PlanEncoder {
     }
 
     fn writeTarget(&mut self, target: TargetView) Error!() {
-        if target.arch().len() == 0
-            or target.os().len() == 0
-            or containsNul(target.arch())
-            or containsNul(target.vendor())
-            or containsNul(target.os())
-            or containsNul(target.env())
-            or containsNul(target.abi())
-            or containsNul(target.endian())
-            or not (textEquals(target.endian(), &"little")
-                or textEquals(target.endian(), &"big"))
-            or not (target.pointerWidth() == 8
-                or target.pointerWidth() == 16
-                or target.pointerWidth() == 32
-                or target.pointerWidth() == 64
-                or target.pointerWidth() == 128)
-        {
+        // The toolchain decodes the name against its maintained targets.
+        if target.name().len() == 0 or containsNul(target.name()) {
             return invalidPlan();
         }
-        self.writeString(target.arch()).?;
-        self.writeString(target.vendor()).?;
-        self.writeString(target.os()).?;
-        self.writeString(target.env()).?;
-        self.writeString(target.abi()).?;
-        self.writeString(target.endian()).?;
-        self.writeU32(target.pointerWidth())
+        self.writeString(target.name())
     }
 
     fn writeOptimization(&mut self, optimization: OptimizationMode) Error!() {
