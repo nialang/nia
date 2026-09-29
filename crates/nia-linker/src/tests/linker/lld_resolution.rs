@@ -115,7 +115,9 @@ fn lld_invocation_resolves_program_from_path() {
     let root = env::temp_dir().join(format!("nia-linker-lld-path-{}", std::process::id()));
     let bin = root.join("bin");
     fs::create_dir_all(&bin).expect("create bin dir");
-    let linker = bin.join("ld.lld");
+    // Installed as a host executable: `ld.lld.exe` on Windows, even though
+    // the bare name `ld.lld` already contains a dot.
+    let linker = bin.join(format!("ld.lld{}", env::consts::EXE_SUFFIX));
     fs::write(&linker, "").expect("write mock linker");
     make_executable(&linker);
     let previous_path = env::var_os("PATH");

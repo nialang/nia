@@ -1517,9 +1517,11 @@ fn find_program_on_path(program: &str) -> Option<String> {
         return is_executable_file(program_path).then(|| program.to_string());
     }
     // Bare names use the host executable suffix, so a Linux host never
-    // selects a foreign `.exe` that happens to be reachable through PATH.
-    let suffixed = (!env::consts::EXE_SUFFIX.is_empty() && program_path.extension().is_none())
-        .then(|| format!("{program}{}", env::consts::EXE_SUFFIX));
+    // selects a foreign `.exe` that happens to be reachable through PATH. A
+    // dot does not mean the name has its suffix: `ld.lld` is `ld.lld.exe`.
+    let suffixed = (!env::consts::EXE_SUFFIX.is_empty()
+        && !program.ends_with(env::consts::EXE_SUFFIX))
+    .then(|| format!("{program}{}", env::consts::EXE_SUFFIX));
     let paths = env::var_os("PATH")?;
     for dir in env::split_paths(&paths) {
         for name in suffixed.iter().map(String::as_str).chain([program]) {
