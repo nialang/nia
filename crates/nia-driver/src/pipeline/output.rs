@@ -115,14 +115,14 @@ pub(super) struct TempDir {
 
 impl TempDir {
     pub(super) fn new(prefix: &str) -> Self {
+        // Timestamps do not separate concurrent links and archives in one
+        // process; the process-wide sequence keeps every directory distinct.
+        static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let mut path = env::temp_dir();
         path.push(format!(
             "{prefix}_{}_{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|duration| duration.as_nanos())
-                .unwrap_or_default()
+            SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         Self { path }
     }
