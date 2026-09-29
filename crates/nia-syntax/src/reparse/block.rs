@@ -125,7 +125,10 @@ impl Parse {
                     region
                 })
                 .collect::<Vec<BlockRegion>>();
-            all_blocks.extend(blocks);
+            // Regions are recorded in post-order; enclosing blocks follow the
+            // reparsed interior exactly as they would in a clean parse.
+            let at = all_blocks.partition_point(|region| region.span.end <= span.start);
+            all_blocks.splice(at..at, blocks);
             return Ok(Some(finish_parse(
                 tree,
                 errors,
