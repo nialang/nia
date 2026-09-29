@@ -127,15 +127,36 @@ pub fn main(init: process::Init) process::ExitCode!() {
 #[test]
 fn windows_spawn_limits_inheritance_and_releases_failed_attempts() {
     let root = temp_dir("windows_spawn_handle_ownership");
+    // A per-run name keeps concurrent test processes from sharing the event.
+    let event_name = format!(
+        "Local\\nia-inherit-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let name_units = event_name.encode_utf16().chain([0]).collect::<Vec<_>>();
+    let name_literal = format!(
+        "[{}]",
+        name_units
+            .iter()
+            .map(u16::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    let name_len = name_units.len().to_string();
     let child = emit(
         &root,
         "child",
-        r#"
+        &r#"
 using std::process;
 extern fn GetStdHandle(which: i32) usize;
 extern fn ReadFile(handle: usize, buffer: &mut u8, size: u32, read: &mut u32, overlapped: usize) i32;
 extern fn WriteFile(handle: usize, buffer: &u8, size: u32, written: &mut u32, overlapped: usize) i32;
-extern fn GetHandleInformation(handle: usize, flags: &mut u32) i32;
+extern fn OpenEventW(access: u32, inherit: i32, name: &u16) usize;
+extern fn SetEvent(handle: usize) i32;
+extern fn WaitForSingleObject(handle: usize, milliseconds: u32) u32;
 extern fn GetLastError() u32;
 
 pub fn main(init: process::Init) process::ExitCode!() {
@@ -152,9 +173,15 @@ pub fn main(init: process::Init) process::ExitCode!() {
         handle = handle | ((bytes[index] as usize) << (index * 8));
         index += 1;
     }
-    let mut flags: u32 = 0;
-    if GetHandleInformation(handle, &mut flags) != 0 or GetLastError() != 6 {
-        return process::ExitCode(2)!;
+    // The parent's event is unsignaled. If the parent's handle value named it
+    // here, signaling our own handle would change what that value observes; an
+    // unrelated handle of this process cannot pass both checks.
+    let name: [u16; $NAME_LEN] = $NAME;
+    let own = OpenEventW(0x00100002, 0, &name[0]);
+    if own == 0 { return process::ExitCode(2)!; }
+    if handle != own and WaitForSingleObject(handle, 0) == 258 {
+        if SetEvent(own) == 0 { return process::ExitCode(2)!; }
+        if WaitForSingleObject(handle, 0) == 0 { return process::ExitCode(2)!; }
     }
     let mut extra: u8 = 0;
     let result = ReadFile(input, &mut extra, 1, &mut count, 0);
@@ -166,7 +193,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
     !()
 }
-"#,
+"#
+        .replace("$NAME_LEN", &name_len)
+        .replace("$NAME", &name_literal),
     );
     let parent_source = r#"
 using std;
@@ -174,22 +203,26 @@ using std::process;
 using std::io;
 using std::slice;
 extern struct Security { length: u32, descriptor: usize, inherit: i32 }
-extern fn CreateEventW(security: &mut Security, manual: i32, initial: i32, name: usize) usize;
+extern fn CreateEventW(security: &mut Security, manual: i32, initial: i32, name: &u16) usize;
 extern fn CloseHandle(handle: usize) i32;
 extern fn GetCurrentProcess() usize;
 extern fn GetProcessHandleCount(process: usize, count: &mut u32) i32;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     let mut security: Security = .{ length: std::builtin::size[Security]() as u32, descriptor: 0, inherit: 1 };
-    let sentinel = CreateEventW(&mut security, 0, 0, 0);
+    // Manual reset and unsignaled, so the child can observe identity.
+    let name: [u16; $NAME_LEN] = $NAME;
+    let sentinel = CreateEventW(&mut security, 1, 0, &name[0]);
     if sentinel == 0 { return process::ExitCode(1)!; }
     defer _ = CloseHandle(sentinel);
     let process = GetCurrentProcess();
-    // The first CreateProcessW call loads process-lifetime system state, so
-    // count handles only after one warm-up attempt.
+    // The first attempt loads process-lifetime state, and Windows loader
+    // worker threads open and close a few handles asynchronously. That drift
+    // is small and independent of the attempt count, whereas a leak of even
+    // one handle per attempt exceeds the slack over this window.
     let mut before: u32 = 0;
     let mut iteration: usize = 0;
-    while iteration < 65 {
+    while iteration < 257 {
         if iteration == 1 and GetProcessHandleCount(process, &mut before) == 0 {
             return process::ExitCode(2)!;
         }
@@ -208,12 +241,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
         iteration += 1;
     }
     let mut after: u32 = 0;
-    if GetProcessHandleCount(process, &mut after) == 0 or before != after { return process::ExitCode(5)!; }
+    if GetProcessHandleCount(process, &mut after) == 0 or after > before + 32 {
+        return process::ExitCode(5)!;
+    }
 
-    // The first successful child also loads one-time state; the second round
-    // must return to the handle count left by the first.
+    // The first successful child also loads one-time state. Sixteen more
+    // children must not grow the handle count beyond the same bounded drift.
     let mut round: usize = 0;
-    while round < 2 {
+    while round < 17 {
         let command = process::Command::init(std::PathView::init(&"$CHILD"), init.env())
             .withStdin(.Pipe).withStdout(.Pipe).withStderr(.Pipe);
         let mut attempt = command.spawn();
@@ -226,7 +261,15 @@ pub fn main(init: process::Init) process::ExitCode!() {
         stdin.writeAll(&bytes).?;
         stdin.close().?;
         let mut echoed: [u8; 8] = [0; 8];
-        stdout.readExact(&mut echoed[..]).?;
+        // A child that rejects its handle set exits before echoing; report
+        // that directly instead of as an end-of-stream read failure.
+        if stdout.readExact(&mut echoed[..]) is error! {
+            _ = error;
+            _ = stdout.close();
+            _ = child.closeStderr();
+            _ = child.wait();
+            return process::ExitCode(13)!;
+        }
         if not (&echoed[..]).equals(&bytes) { return process::ExitCode(8)!; }
         if stdout.read(&mut echoed[..]).? != 0 { return process::ExitCode(9)!; }
         stdout.close().?;
@@ -234,16 +277,19 @@ pub fn main(init: process::Init) process::ExitCode!() {
         if not child.wait().?.succeeded() { return process::ExitCode(10)!; }
         if round == 0 {
             if GetProcessHandleCount(process, &mut before) == 0 { return process::ExitCode(12)!; }
-        } else if GetProcessHandleCount(process, &mut after) == 0 or before != after {
-            return process::ExitCode(11)!;
         }
         round += 1;
+    }
+    if GetProcessHandleCount(process, &mut after) == 0 or after > before + 8 {
+        return process::ExitCode(11)!;
     }
     !()
 }
 "#
         .replace("$CHILD", &child.to_string_lossy().replace('\\', "\\\\"))
-        .replace("$MISSING", &root.join("missing.exe").to_string_lossy().replace('\\', "\\\\"));
+        .replace("$MISSING", &root.join("missing.exe").to_string_lossy().replace('\\', "\\\\"))
+        .replace("$NAME_LEN", &name_len)
+        .replace("$NAME", &name_literal);
     let parent = emit(&root, "parent", &parent_source);
     assert_eq!(
         Command::new(parent)
