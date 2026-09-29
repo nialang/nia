@@ -196,6 +196,7 @@ fn render_cli_boundary_error(
 #[derive(Debug)]
 struct Cli {
     resource_root: Option<PathBuf>,
+    target: Option<nia_target::TargetConfig>,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
     profile: BuildProfile,
@@ -327,7 +328,7 @@ impl CliError {
 
 fn run_cli(cli: Cli) -> ExitCode {
     let diagnostics_format = cli.diagnostics_format;
-    let toolchain = match resolve_toolchain_layout(cli.resource_root) {
+    let toolchain = match resolve_toolchain_layout(cli.resource_root, cli.target) {
         Ok(toolchain) => toolchain,
         Err(message) => {
             write_diagnostic_report(
@@ -512,6 +513,7 @@ fn run_cli(cli: Cli) -> ExitCode {
 
 fn resolve_toolchain_layout(
     resource_root: Option<PathBuf>,
+    target: Option<nia_target::TargetConfig>,
 ) -> Result<Arc<nia_toolchain::ToolchainLayout>, String> {
     let executable = env::current_exe()
         .map_err(|error| format!("failed to resolve compiler executable: {error}"))?;
@@ -520,6 +522,12 @@ fn resolve_toolchain_layout(
             nia_toolchain::ToolchainLayoutRequest::explicit(executable, resource_root)
         }
         None => nia_toolchain::ToolchainLayoutRequest::installed(executable),
+    };
+    // An explicit target is the artifact target for every command; build
+    // scripts and host tools still compile for the host.
+    let request = match target {
+        Some(target) => request.with_artifact_target(target),
+        None => request,
     };
     nia_toolchain::ToolchainLayout::resolve(request)
         .map(Arc::new)
@@ -622,6 +630,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
         ParsedCommand::Help(topic) => Ok(CliAction::Help(topic)),
         ParsedCommand::Run(command) => Ok(CliAction::Run(Cli {
             resource_root: global_options.resource_root,
+            target: global_options.target,
             module_map: global_options.module_map,
             optimization,
             profile: global_options.profile,
@@ -636,6 +645,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
 
 struct GlobalOptions {
     resource_root: Option<PathBuf>,
+    target: Option<nia_target::TargetConfig>,
     module_map: ModuleMap,
     optimization: Option<NiaOptimizationLevel>,
     profile: BuildProfile,
@@ -651,6 +661,7 @@ fn extract_global_options(
 ) -> Result<(Vec<String>, GlobalOptions), CliError> {
     let mut map = ModuleMap::new();
     let mut resource_root = None;
+    let mut target = None;
     let mut optimization = None;
     let mut profile = BuildProfile::default();
     let mut timings = nia_driver::TimingMode::Off;
@@ -699,6 +710,17 @@ fn extract_global_options(
         }
         if let Some(path) = arg.strip_prefix("--resource-root=") {
             set_resource_root(&mut resource_root, path.to_string(), help)?;
+            continue;
+        }
+        if arg == "--target" {
+            let name = iter
+                .next()
+                .ok_or_else(|| CliError::new("missing target name after `--target`", help))?;
+            set_target(&mut target, &name, help)?;
+            continue;
+        }
+        if let Some(name) = arg.strip_prefix("--target=") {
+            set_target(&mut target, name, help)?;
             continue;
         }
         if emit_target_option_takes_value(&arg) {
@@ -751,6 +773,7 @@ fn extract_global_options(
         remaining,
         GlobalOptions {
             resource_root,
+            target,
             module_map: map,
             optimization,
             profile,
@@ -760,6 +783,19 @@ fn extract_global_options(
             diagnostics_format,
         },
     ))
+}
+
+fn set_target(
+    slot: &mut Option<nia_target::TargetConfig>,
+    name: &str,
+    help: HelpTopic,
+) -> Result<(), CliError> {
+    let target = nia_target::TargetConfig::parse(name)
+        .map_err(|error| CliError::new(error.to_string(), help))?;
+    if slot.replace(target).is_some() {
+        return Err(CliError::new("`--target` may be specified only once", help));
+    }
+    Ok(())
 }
 
 fn set_resource_root(

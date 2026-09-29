@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Native target machine wrapper for object emission.
+//! Target machine wrapper for object emission.
 
 use llvm_sys::core::{
     LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMGetBufferSize, LLVMGetBufferStart,
 };
 use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage};
 use llvm_sys::target::{
-    LLVM_InitializeNativeAsmParser, LLVM_InitializeNativeAsmPrinter, LLVM_InitializeNativeTarget,
-    LLVMDisposeTargetData,
+    LLVM_InitializeAllAsmParsers, LLVM_InitializeAllAsmPrinters, LLVM_InitializeAllTargetInfos,
+    LLVM_InitializeAllTargetMCs, LLVM_InitializeAllTargets, LLVMDisposeTargetData,
 };
 use llvm_sys::target_machine::{
     LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout,
-    LLVMCreateTargetMachine, LLVMDisposeTargetMachine, LLVMGetDefaultTargetTriple,
-    LLVMGetHostCPUFeatures, LLVMGetHostCPUName, LLVMGetTargetFromTriple, LLVMRelocMode,
+    LLVMCreateTargetMachine, LLVMDisposeTargetMachine, LLVMGetTargetFromTriple, LLVMRelocMode,
     LLVMTargetMachineEmitToMemoryBuffer, LLVMTargetMachineRef, LLVMTargetRef,
 };
 use llvm_sys::transforms::pass_builder::{
@@ -58,25 +57,15 @@ pub struct TargetMachineIdentity {
 }
 
 impl TargetMachine {
-    /// Creates a native target machine at LLVM's default optimization level.
-    pub fn native() -> LlvmResult<Self> {
-        Self::native_with_opt_level(OptimizationLevel::Default)
-    }
-
-    /// Creates a native target machine at `opt_level`.
-    pub fn native_with_opt_level(opt_level: OptimizationLevel) -> LlvmResult<Self> {
-        let identity = Self::native_identity()?;
-        Self::for_identity(&identity, opt_level)
-    }
-
-    /// Reads the current host triple, CPU, and feature identity from LLVM.
-    pub fn native_identity() -> LlvmResult<TargetMachineIdentity> {
-        initialize_native_target()?;
-        Ok(TargetMachineIdentity {
-            triple: llvm_owned_string(unsafe { LLVMGetDefaultTargetTriple() })?,
-            cpu: llvm_owned_string(unsafe { LLVMGetHostCPUName() })?,
-            features: llvm_owned_string(unsafe { LLVMGetHostCPUFeatures() })?,
-        })
+    /// Names the portable machine for `triple`: a baseline CPU and no extra
+    /// features, so an artifact runs on every machine of its target rather
+    /// than only on the build host.
+    pub fn baseline_identity(triple: &str, cpu: &str) -> TargetMachineIdentity {
+        TargetMachineIdentity {
+            triple: triple.to_string(),
+            cpu: cpu.to_string(),
+            features: String::new(),
+        }
     }
 
     /// Recreates a target machine from an exact previously captured identity.
@@ -99,7 +88,7 @@ impl TargetMachine {
         features: &str,
         opt_level: OptimizationLevel,
     ) -> LlvmResult<Self> {
-        initialize_native_target()?;
+        initialize_targets();
 
         let triple_c = to_c_string(triple)?;
         let mut target: LLVMTargetRef = ptr::null_mut();
@@ -264,26 +253,17 @@ impl Drop for TargetMachine {
     }
 }
 
-fn initialize_native_target() -> LlvmResult<()> {
-    static RESULT: OnceLock<LlvmResult<()>> = OnceLock::new();
-    RESULT
-        .get_or_init(|| {
-            if unsafe { LLVM_InitializeNativeTarget() } != 0 {
-                return Err(LlvmError::error("LLVM failed to initialize native target"));
-            }
-            if unsafe { LLVM_InitializeNativeAsmPrinter() } != 0 {
-                return Err(LlvmError::error(
-                    "LLVM failed to initialize native asm printer",
-                ));
-            }
-            if unsafe { LLVM_InitializeNativeAsmParser() } != 0 {
-                return Err(LlvmError::error(
-                    "LLVM failed to initialize native asm parser",
-                ));
-            }
-            Ok(())
-        })
-        .clone()
+/// Registers every target the linked LLVM was built with. The static LLVM
+/// build selects that set; triple lookup reports a target outside it.
+fn initialize_targets() {
+    static ONCE: OnceLock<()> = OnceLock::new();
+    ONCE.get_or_init(|| unsafe {
+        LLVM_InitializeAllTargetInfos();
+        LLVM_InitializeAllTargets();
+        LLVM_InitializeAllTargetMCs();
+        LLVM_InitializeAllAsmPrinters();
+        LLVM_InitializeAllAsmParsers();
+    });
 }
 
 fn codegen_opt_level(level: OptimizationLevel) -> LLVMCodeGenOptLevel {
@@ -317,6 +297,16 @@ fn dispose_llvm_message(ptr: *mut std::os::raw::c_char) {
     if !ptr.is_null() {
         unsafe { LLVMDisposeMessage(ptr) };
     }
+}
+
+#[cfg(test)]
+/// The machine running the tests, at a portable baseline. Production callers
+/// always name the artifact target's triple instead.
+pub(crate) fn test_host_identity() -> TargetMachineIdentity {
+    let triple =
+        llvm_owned_string(unsafe { llvm_sys::target_machine::LLVMGetDefaultTargetTriple() })
+            .expect("default triple");
+    TargetMachine::baseline_identity(&triple, "generic")
 }
 
 #[cfg(test)]
@@ -359,7 +349,7 @@ mod tests {
         let module = context
             .create_module("native-object-boundary")
             .expect("create LLVM module");
-        let target = TargetMachine::native_with_opt_level(OptimizationLevel::None)
+        let target = TargetMachine::for_identity(&test_host_identity(), OptimizationLevel::None)
             .expect("create native target machine");
 
         target
