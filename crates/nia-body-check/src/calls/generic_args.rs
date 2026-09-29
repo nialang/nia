@@ -534,7 +534,7 @@ impl<'a> BodyChecker<'a> {
         let Some(TyKind::Primitive(primitive)) = self.interner.get(ty).cloned() else {
             return false;
         };
-        value.fits_primitive_int(primitive, self.target.pointer_width)
+        value.fits_primitive_int(primitive, self.target.pointer_width())
     }
 
     fn cast_const_generic_int(&mut self, ty: InternedTyId, value: IntConst) -> Option<IntConst> {
@@ -542,7 +542,7 @@ impl<'a> BodyChecker<'a> {
         let TyKind::Primitive(primitive) = self.interner.get(ty)? else {
             return None;
         };
-        value.cast_to_primitive_int(*primitive, self.target.pointer_width)
+        value.cast_to_primitive_int(*primitive, self.target.pointer_width())
     }
 
     fn const_generic_type_is_primitive(&mut self, ty: InternedTyId, expected: PrimitiveTy) -> bool {

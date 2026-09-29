@@ -253,7 +253,7 @@ impl Driver {
             entry_path: request.entry_path.clone(),
             package_root: request.package_root.clone(),
             module_map: request.module_map.clone(),
-            target: self.config.artifact_target.clone(),
+            target: self.config.artifact_target,
             profile: request.profile,
             compilation_mode: request.compilation_mode,
             runtime: request.runtime.clone(),
@@ -268,7 +268,7 @@ impl Driver {
                 let mut load_request = LoadRequest::from_source_path(key.entry_path.clone())
                     .with_module_map(key.module_map.clone())
                     .with_sources(self.sources.clone())
-                    .with_target(key.target.clone())
+                    .with_target(key.target)
                     .with_profile(key.profile)
                     .with_compilation_mode(key.compilation_mode)
                     .with_runtime(key.runtime.clone())

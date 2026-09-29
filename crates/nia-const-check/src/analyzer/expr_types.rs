@@ -292,10 +292,10 @@ impl Analyzer<'_> {
         let Some(TyKind::Primitive(target)) = self.ty_kind(target) else {
             return false;
         };
-        let source_numeric = primitive_integer_layout(source, self.input.target.pointer_width)
+        let source_numeric = primitive_integer_layout(source, self.input.target.pointer_width())
             .is_some()
             || is_float_primitive(source);
-        let target_numeric = primitive_integer_layout(target, self.input.target.pointer_width)
+        let target_numeric = primitive_integer_layout(target, self.input.target.pointer_width())
             .is_some()
             || is_float_primitive(target);
         source_numeric && target_numeric

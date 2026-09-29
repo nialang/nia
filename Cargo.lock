@@ -260,7 +260,7 @@ dependencies = [
  "nia-static-ir",
  "nia-symbol",
  "nia-symbol-table",
- "nia-target-config",
+ "nia-target",
  "nia-timing",
  "nia-trait-solve",
  "nia-ty",
@@ -307,7 +307,7 @@ dependencies = [
  "nia-symbol",
  "nia-symbol-table",
  "nia-syntax",
- "nia-target-config",
+ "nia-target",
  "nia-timing",
  "nia-trait-solve",
  "nia-ty",
@@ -352,6 +352,7 @@ dependencies = [
  "nia-query",
  "nia-source",
  "nia-span",
+ "nia-target",
  "nia-target-config",
  "nia-timing",
  "nia-toolchain",
@@ -364,6 +365,7 @@ name = "nia-build-plan"
 version = "0.2.0-dev"
 dependencies = [
  "nia-compat",
+ "nia-target",
 ]
 
 [[package]]
@@ -490,6 +492,7 @@ dependencies = [
  "nia-symbol",
  "nia-symbol-table",
  "nia-syntax",
+ "nia-target",
  "nia-target-config",
  "nia-timing",
  "nia-toolchain",
@@ -528,7 +531,7 @@ dependencies = [
  "nia-span",
  "nia-symbol",
  "nia-symbol-table",
- "nia-target-config",
+ "nia-target",
  "nia-trait-solve",
  "nia-ty",
  "nia-type-lower",
@@ -625,6 +628,7 @@ dependencies = [
  "nia-static-ir",
  "nia-symbol",
  "nia-syntax",
+ "nia-target",
  "nia-target-config",
  "nia-test-support",
  "nia-timing",
@@ -825,7 +829,7 @@ dependencies = [
  "nia-span",
  "nia-symbol",
  "nia-symbol-table",
- "nia-target-config",
+ "nia-target",
  "nia-ty",
  "nia-type-lower",
  "nia-type-resolve",
@@ -847,7 +851,7 @@ dependencies = [
  "nia-compat",
  "nia-query",
  "nia-source",
- "nia-target-config",
+ "nia-target",
  "nia-toolchain",
 ]
 
@@ -889,6 +893,7 @@ dependencies = [
  "nia-symbol",
  "nia-symbol-table",
  "nia-syntax",
+ "nia-target",
  "nia-target-config",
  "nia-toolchain",
 ]
@@ -918,6 +923,7 @@ dependencies = [
  "nia-symbol",
  "nia-symbol-table",
  "nia-syntax",
+ "nia-target",
  "nia-target-config",
  "nia-toolchain",
  "parking_lot",
@@ -1150,7 +1156,7 @@ dependencies = [
  "nia-span",
  "nia-symbol",
  "nia-symbol-table",
- "nia-target-config",
+ "nia-target",
  "nia-ty",
  "nia-type-lower",
  "nia-type-normalize",
@@ -1196,6 +1202,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nia-target"
+version = "0.2.0-dev"
+
+[[package]]
 name = "nia-target-config"
 version = "0.2.0-dev"
 dependencies = [
@@ -1209,6 +1219,7 @@ dependencies = [
  "nia-parser",
  "nia-span",
  "nia-symbol",
+ "nia-target",
 ]
 
 [[package]]
@@ -1235,7 +1246,7 @@ dependencies = [
  "nia-compat",
  "nia-package-metadata",
  "nia-query",
- "nia-target-config",
+ "nia-target",
 ]
 
 [[package]]

@@ -6,7 +6,7 @@ fn provider_demand_update_keeps_unmatched_and_known_demands_graph_stable() {
     let main_path = root.join("main.nia");
     write(&main_path, "fn main() () {}");
     let database =
-        LoaderDatabase::new_for_test(LoadRequest::new(main_path.to_string_lossy().into_owned()));
+        LoaderDatabase::new_for_test(test_request(main_path.to_string_lossy().into_owned()));
     let demand = ProviderDemand {
         source_path: SourcePath::new(main_path.to_string_lossy()),
         request: nia_compiler_query::ProviderRequest::Method {

@@ -214,7 +214,7 @@ fn test_loader_context(
             nia_diagnostic::DiagnosticStore::new().expect("create diagnostic store"),
         ),
         symbols: SymbolTable::new(),
-        target: TargetConfig::host(),
+        target: TargetConfig::host().expect("tests run on a maintained host"),
         profile: nia_target_config::BuildProfile::Debug,
         compilation_mode: nia_target_config::CompilationMode::Normal,
         runtime: RuntimeSpec::Bare,
@@ -373,7 +373,10 @@ struct PublicSurfaceFactsCacheIdentity {
 }
 
 fn provider_cache_identity(file: &SourceFile) -> ProviderCacheIdentity {
-    let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeSpec::Bare);
+    let namespace = FrontendCacheNamespace::new(
+        &TargetConfig::host().expect("tests run on a maintained host"),
+        RuntimeSpec::Bare,
+    );
     let module = StableModuleKey::from_source_identity(file.path.identity());
     let source = source_content_fingerprint(&file.text);
     let source_key = FrontendSourceCacheKey::new(namespace, &module, source);
@@ -427,7 +430,10 @@ fn module_dependencies_cache_identity(
     entry_path: &SourcePath,
     module_map: &ModuleMap,
 ) -> ModuleDependenciesCacheIdentity {
-    let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeSpec::Bare);
+    let namespace = FrontendCacheNamespace::new(
+        &TargetConfig::host().expect("tests run on a maintained host"),
+        RuntimeSpec::Bare,
+    );
     let module = StableModuleKey::from_source_identity(file.path.identity());
     let source = source_content_fingerprint(&file.text);
     let source_len = file.text.len();
@@ -449,7 +455,10 @@ fn module_dependencies_cache_identity(
 }
 
 fn public_surface_facts_cache_identity(file: &SourceFile) -> PublicSurfaceFactsCacheIdentity {
-    let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeSpec::Bare);
+    let namespace = FrontendCacheNamespace::new(
+        &TargetConfig::host().expect("tests run on a maintained host"),
+        RuntimeSpec::Bare,
+    );
     let module = StableModuleKey::from_source_identity(file.path.identity());
     let source = source_content_fingerprint(&file.text);
     let source_len = file.text.len();
@@ -574,4 +583,13 @@ fn assert_module_not_loaded(program: &LoadedProgram, suffix: &str) {
             .map(|module| module.path.as_str())
             .collect::<Vec<_>>()
     );
+}
+
+/// A request whose conditional code targets Linux x86_64 on every host.
+///
+/// Requests without a toolchain must name their artifact target; loader tests
+/// that do not exercise the toolchain use this fixed target.
+pub(super) fn test_request(entry_path: impl Into<String>) -> LoadRequest {
+    LoadRequest::new(entry_path)
+        .with_target(TargetConfig::parse("x86_64-unknown-linux").expect("maintained target"))
 }

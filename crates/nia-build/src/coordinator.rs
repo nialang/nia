@@ -15,7 +15,6 @@ mod scheduling;
 use executor::DriverActionExecutor;
 use external_command::*;
 pub(crate) use helpers::display_duration;
-pub(crate) use helpers::display_target;
 use helpers::*;
 use publication::*;
 use scheduling::ActionCancellation;
@@ -46,14 +45,14 @@ use nia_driver::{
 };
 use nia_linker::{ArchiveOptions, LinkOptions, StaticArchiveLinkInput};
 use nia_query::{QueryFingerprintBytesWriter, QuerySession};
-use nia_target_config::TargetConfig;
+use nia_target::TargetConfig;
 
 use crate::{
     ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport, ActionKey, ActionKind,
     ActionResourceClass, ArtifactKey, BuildInvocation, BuildPlan, CommandAction, CommandArgument,
     CommandCachePolicy, CommandProgram, EnvironmentInput, LogicalPath, LogicalPathRoot, ModuleKey,
     OptimizationMode, OutputRecoveryError, PackageKey, PlanAction, PlanArtifact, PlanArtifactKind,
-    PlanModule, Runtime, StepKey, TargetSpec,
+    PlanModule, Runtime, StepKey,
     action_cache::{
         CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
         CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheIdentityInput,
@@ -96,9 +95,9 @@ pub struct TargetMismatch {
     /// Target role, such as `host` or `artifact`.
     pub role: &'static str,
     /// Target required by the current toolchain invocation.
-    pub expected: TargetSpec,
+    pub expected: TargetConfig,
     /// Target encoded in the frozen plan.
-    pub found: TargetSpec,
+    pub found: TargetConfig,
 }
 
 /// Details for a module import that cannot be resolved in the plan closure.
@@ -369,8 +368,7 @@ impl fmt::Display for CoordinatorError {
                 write!(
                     f,
                     "build plan {role} target does not match the invocation: expected {}, found {}",
-                    display_target(expected),
-                    display_target(found)
+                    expected, found
                 )
             }
             Self::InconsistentPlan { owner, missing } => {

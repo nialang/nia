@@ -11,8 +11,8 @@ use crate::{
 };
 use nia_const_eval::{
     ConstAbiField, ConstAbiType, ConstAllocationId, ConstAllocationOrigin, ConstCommonEnv,
-    ConstEndianness, ConstError, ConstPointerPathElem, ConstPointerValue, ConstScalarType,
-    ConstUnionValue, ConstValue, ResolvedConstEnv,
+    ConstError, ConstPointerPathElem, ConstPointerValue, ConstScalarType, ConstUnionValue,
+    ConstValue, ResolvedConstEnv,
 };
 use nia_const_ir::{
     ConstNameResolution, ResolvedConstAssignPathElemKind, ResolvedConstAssignTarget,
@@ -63,25 +63,20 @@ impl ConstCommonEnv for Analyzer<'_> {
     ) -> Result<ConstValue, ConstError> {
         let value = match builtin {
             BuiltinConstValue::TargetArch => {
-                ConstValue::String(self.input.target.arch.as_str().to_string())
+                ConstValue::String(self.input.target.arch().name().to_string())
             }
             BuiltinConstValue::TargetVendor => {
-                ConstValue::String(self.input.target.vendor.as_str().to_string())
+                ConstValue::String(self.input.target.vendor().to_string())
             }
             BuiltinConstValue::TargetOs => {
-                ConstValue::String(self.input.target.os.as_str().to_string())
+                ConstValue::String(self.input.target.os().name().to_string())
             }
-            BuiltinConstValue::TargetEnv => {
-                ConstValue::String(self.input.target.env.as_str().to_string())
-            }
-            BuiltinConstValue::TargetAbi => {
-                ConstValue::String(self.input.target.abi.as_str().to_string())
-            }
+            BuiltinConstValue::TargetEnv => ConstValue::String(self.input.target.env().to_string()),
             BuiltinConstValue::TargetEndian => {
-                ConstValue::String(self.input.target.endian.as_str().to_string())
+                ConstValue::String(self.input.target.endian().name().to_string())
             }
             BuiltinConstValue::TargetPointerWidth => ConstValue::Int(IntConst::unsigned(
-                u128::from(self.input.target.pointer_width),
+                u128::from(self.input.target.pointer_width()),
             )),
         };
         let _ = span;
@@ -160,7 +155,7 @@ impl ConstCommonEnv for Analyzer<'_> {
                     ConstValue::Float(value)
                 } else {
                     let Some(value) =
-                        cast_const_integer(value, primitive, self.input.target.pointer_width)
+                        cast_const_integer(value, primitive, self.input.target.pointer_width())
                     else {
                         return Err(ConstError {
                             span,
@@ -185,11 +180,11 @@ impl ConstCommonEnv for Analyzer<'_> {
                         });
                     };
                     ConstValue::Float(value)
-                } else if primitive_integer_layout(primitive, self.input.target.pointer_width)
+                } else if primitive_integer_layout(primitive, self.input.target.pointer_width())
                     .is_some()
                 {
                     let Some(value) =
-                        cast_float_to_integer(value, primitive, self.input.target.pointer_width)
+                        cast_float_to_integer(value, primitive, self.input.target.pointer_width())
                     else {
                         return Err(ConstError {
                             span,
@@ -720,7 +715,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
             });
         }
         let target =
-            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width)
+            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width())
                 .ok_or_else(|| ConstError {
                     span,
                     message: "const union evaluation requires a supported target pointer width"
@@ -748,14 +743,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
                     message: "const union layout size overflowed".to_string(),
                 }
             })?;
-        let endianness =
-            ConstEndianness::from_target_name(&self.input.target.endian).ok_or_else(|| {
-                ConstError {
-                    span,
-                    message: "const union evaluation requires `little` or `big` target endianness"
-                        .to_string(),
-                }
-            })?;
+        let endianness = super::const_endianness(self.input.target.endian());
         let Some((initial_field, value)) = fields.pop_first() else {
             return Err(ConstError {
                 span,
@@ -776,7 +764,8 @@ impl ResolvedConstEnv for Analyzer<'_> {
         expr: &ResolvedConstExpr,
     ) -> Option<nia_const_eval::ConstIntegerSemantics> {
         let primitive = self.resolved_expr_runtime_primitive(expr)?;
-        let (bits, signed) = primitive_integer_layout(primitive, self.input.target.pointer_width)?;
+        let (bits, signed) =
+            primitive_integer_layout(primitive, self.input.target.pointer_width())?;
         Some(nia_const_eval::ConstIntegerSemantics { bits, signed })
     }
 
@@ -807,7 +796,8 @@ impl ResolvedConstEnv for Analyzer<'_> {
         assign: &nia_const_ir::ResolvedConstAssign,
     ) -> Option<nia_const_eval::ConstIntegerSemantics> {
         let primitive = self.resolved_assignment_target_primitive(assign)?;
-        let (bits, signed) = primitive_integer_layout(primitive, self.input.target.pointer_width)?;
+        let (bits, signed) =
+            primitive_integer_layout(primitive, self.input.target.pointer_width())?;
         Some(nia_const_eval::ConstIntegerSemantics { bits, signed })
     }
 
@@ -867,7 +857,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
                 }),
             ConstNameResolution::BuiltinAssociatedValue(value) => {
                 let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind } = value;
-                let Some(value) = kind.value(primitive, self.input.target.pointer_width) else {
+                let Some(value) = kind.value(primitive, self.input.target.pointer_width()) else {
                     return Err(ConstError {
                         span,
                         message: "builtin associated value is not representable at const"
@@ -1335,7 +1325,7 @@ impl Analyzer<'_> {
         let ty = self.normalized_ty(ty);
         match self.active_ty_kind(ty) {
             TyKind::Primitive(primitive) => {
-                let scalar = const_union_scalar_type(primitive, self.input.target.pointer_width)?;
+                let scalar = const_union_scalar_type(primitive, self.input.target.pointer_width())?;
                 Some((
                     ConstAbiType::Scalar(scalar),
                     nia_layout::primitive_layout(primitive, target),
@@ -1380,7 +1370,7 @@ impl Analyzer<'_> {
                 ))
             }
             TyKind::Vector { elem, lanes } => {
-                let lane = const_union_scalar_type(elem, self.input.target.pointer_width)?;
+                let lane = const_union_scalar_type(elem, self.input.target.pointer_width())?;
                 if lane == ConstScalarType::Char {
                     return None;
                 }
@@ -1920,7 +1910,7 @@ impl Analyzer<'_> {
                     primitive,
                     type_args.as_slice(),
                     args,
-                    self.input.target.pointer_width,
+                    self.input.target.pointer_width(),
                 )
                 .map(Some)
             }

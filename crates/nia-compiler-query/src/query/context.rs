@@ -20,7 +20,7 @@ use nia_opt::OptimizationPolicy;
 use nia_query::{QueryDb, QueryError, QueryResult};
 use nia_source::{SourceIdentity, SourceVersion};
 use nia_syntax::ParseError;
-use nia_target_config::TargetConfig;
+use nia_target::TargetConfig;
 use parking_lot::{Mutex, RwLock};
 use std::{
     collections::{BTreeMap, HashMap},

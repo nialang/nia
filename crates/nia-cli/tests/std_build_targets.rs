@@ -19,40 +19,15 @@ using std::mem;
 using std::process;
 using std::string;
 
-fn target(
-    arch: &[char],
-    vendor: &[char],
-    os: &[char],
-    env: &[char],
-    abi: &[char],
-    endian: &[char],
-    pointerWidth: u32,
-) build::TargetView {
-    build::TargetView::init(
-        arch,
-        vendor,
-        os,
-        env,
-        abi,
-        endian,
-        pointerWidth,
-    )
+fn target(name: &[char], endian: &[char], pointerWidth: u32) build::TargetView {
+    build::TargetView::init(name, endian, pointerWidth)
 }
 
 fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!build::Build {
     let pathText = "temporary-path";
-    let hostArch = "host-arch";
-    let hostVendor = "host-vendor";
-    let hostOs = "host-os";
-    let hostEnv = "host-env";
-    let hostAbi = "host-abi";
-    let hostEndian = "little";
-    let artifactArch = "artifact-arch";
-    let artifactVendor = "artifact-vendor";
-    let artifactOs = "artifact-os";
-    let artifactEnv = "artifact-env";
-    let artifactAbi = "artifact-abi";
-    let artifactEndian = "big";
+    let hostName = "x86_64-pc-windows-msvc";
+    let artifactName = "aarch64-apple-macos";
+    let endian = "little";
     let mut initialization = build::Build::init(
         allocator,
         fs::PathView::init(&pathText),
@@ -60,16 +35,8 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
         fs::PathView::init(&pathText),
         fs::PathView::init(&pathText),
         fs::PathView::init(&pathText),
-        target(&hostArch, &hostVendor, &hostOs, &hostEnv, &hostAbi, &hostEndian, 64u32),
-        target(
-            &artifactArch,
-            &artifactVendor,
-            &artifactOs,
-            &artifactEnv,
-            &artifactAbi,
-            &artifactEndian,
-            32u32,
-        ),
+        target(&hostName, &endian, 64u32),
+        target(&artifactName, &endian, 64u32),
         build::OptimizationMode::O0,
         __NIA_BUILD_PLAN_COMPATIBILITY__u32,
         null,
@@ -316,20 +283,19 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let host = api.hostTarget();
     let artifact = api.artifactTarget();
     if host.equals(artifact)
-        or not textIs(host.arch(), &"host-arch")
-        or not textIs(host.vendor(), &"host-vendor")
-        or not textIs(host.os(), &"host-os")
-        or not textIs(host.env(), &"host-env")
-        or not textIs(host.abi(), &"host-abi")
+        or not textIs(host.name(), &"x86_64-pc-windows-msvc")
+        or not textIs(host.arch(), &"x86_64")
+        or not textIs(host.vendor(), &"pc")
+        or not textIs(host.os(), &"windows")
+        or not textIs(host.env(), &"msvc")
         or not textIs(host.endian(), &"little")
         or host.pointerWidth() != 64u32
-        or not textIs(artifact.arch(), &"artifact-arch")
-        or not textIs(artifact.vendor(), &"artifact-vendor")
-        or not textIs(artifact.os(), &"artifact-os")
-        or not textIs(artifact.env(), &"artifact-env")
-        or not textIs(artifact.abi(), &"artifact-abi")
-        or not textIs(artifact.endian(), &"big")
-        or artifact.pointerWidth() != 32u32
+        or not textIs(artifact.name(), &"aarch64-apple-macos")
+        or not textIs(artifact.arch(), &"aarch64")
+        or not textIs(artifact.vendor(), &"apple")
+        or not textIs(artifact.os(), &"macos")
+        or not textIs(artifact.env(), &"")
+        or artifact.pointerWidth() != 64u32
     {
         return process::ExitCode(1)!;
     }

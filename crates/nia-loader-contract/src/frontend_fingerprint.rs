@@ -6,7 +6,7 @@ use nia_item_tree::{ItemTreeNodeKind, ModuleItemTree, SignatureItemSet};
 use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_source::SourceIdentity;
 use nia_span::Span;
-use nia_target_config::TargetConfig;
+use nia_target::TargetConfig;
 
 use nia_toolchain::RuntimeSpec;
 
@@ -491,17 +491,8 @@ impl FrontendCacheNamespace {
         for part in toolchain.parts() {
             builder.write_u64(part);
         }
-        for field in [
-            target.arch.as_str(),
-            target.vendor.as_str(),
-            target.os.as_str(),
-            target.env.as_str(),
-            target.abi.as_str(),
-            target.endian.as_str(),
-        ] {
-            builder.write_str(field);
-        }
-        builder.write_u64(u64::from(target.pointer_width));
+        // The canonical name determines every derived target fact.
+        builder.write_str(&target.name());
         match runtime {
             RuntimeSpec::Bare => builder.write_u8(0),
             RuntimeSpec::Source(runtime) => {
@@ -710,13 +701,13 @@ mod tests {
     use super::*;
     use nia_imports::StableModuleKey;
 
+    fn test_target() -> TargetConfig {
+        TargetConfig::parse("x86_64-unknown-linux").unwrap()
+    }
+
     #[test]
     fn runtime_export_module_and_definition_partition_the_cache_namespace() {
-        let target = TargetConfig {
-            arch: "x86_64".to_string(),
-            os: "windows".to_string(),
-            ..TargetConfig::host()
-        };
+        let target = TargetConfig::parse("x86_64-pc-windows-msvc").unwrap();
         let namespace = |module, definition| {
             let runtime = RuntimeSpec::source_from_package_root(
                 "runtime/pkg.nia",
@@ -841,33 +832,15 @@ extend Value {
 
     #[test]
     fn frontend_cache_namespace_covers_toolchain_target_runtime_profile_and_mode() {
-        let target = TargetConfig {
-            arch: "x86_64".to_string(),
-            vendor: "unknown".to_string(),
-            os: "linux".to_string(),
-            env: "gnu".to_string(),
-            abi: "elf".to_string(),
-            endian: "little".to_string(),
-            pointer_width: 64,
-        };
+        let target = TargetConfig::parse("x86_64-unknown-linux").unwrap();
         let baseline = FrontendCacheNamespace::new(&target, RuntimeSpec::Bare);
-        let mut variants = Vec::new();
-        for field in 0..7 {
-            let mut changed = target.clone();
-            match field {
-                0 => changed.arch.push_str("-changed"),
-                1 => changed.vendor.push_str("-changed"),
-                2 => changed.os.push_str("-changed"),
-                3 => changed.env.push_str("-changed"),
-                4 => changed.abi.push_str("-changed"),
-                5 => changed.endian.push_str("-changed"),
-                6 => changed.pointer_width = 32,
-                _ => unreachable!(),
-            }
-            variants.push(FrontendCacheNamespace::new(&changed, RuntimeSpec::Bare));
-        }
+        let namespaces = nia_target::SUPPORTED_TARGETS
+            .iter()
+            .map(|target| FrontendCacheNamespace::new(target, RuntimeSpec::Bare))
+            .collect::<std::collections::HashSet<_>>();
 
-        assert!(variants.iter().all(|variant| *variant != baseline));
+        // Every maintained target owns a distinct namespace.
+        assert_eq!(namespaces.len(), nia_target::SUPPORTED_TARGETS.len());
         assert_ne!(
             baseline,
             FrontendCacheNamespace::new(
@@ -950,7 +923,7 @@ extend Value {
 
     #[test]
     fn check_certificate_key_separates_entry_scope_and_input() {
-        let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeSpec::Bare);
+        let namespace = FrontendCacheNamespace::new(&test_target(), RuntimeSpec::Bare);
         let entry = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
         let other_entry =
             StableModuleKey::from_source_identity(SourceIdentity::new("src/tool.nia"));
@@ -998,7 +971,7 @@ extend Value {
 
     #[test]
     fn provider_demand_plan_key_covers_loader_graph_identity() {
-        let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeSpec::Bare);
+        let namespace = FrontendCacheNamespace::new(&test_target(), RuntimeSpec::Bare);
         let entry = SourceIdentity::new("src/main.nia");
         let other_entry = SourceIdentity::new("src/tool.nia");
         let mut module_map = ModuleMap::new();
@@ -1055,7 +1028,7 @@ extend Value {
 
     #[test]
     fn signature_resolution_keys_cover_program_sources_module_and_item_set() {
-        let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeSpec::Bare);
+        let namespace = FrontendCacheNamespace::new(&test_target(), RuntimeSpec::Bare);
         let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
         let dependency =
             StableModuleKey::from_source_identity(SourceIdentity::new("src/dependency.nia"));
@@ -1192,7 +1165,7 @@ extend Value {
 
     #[test]
     fn frontend_product_keys_separate_domains_modules_and_body_edits() {
-        let target = TargetConfig::host();
+        let target = test_target();
         let namespace = FrontendCacheNamespace::new(&target, RuntimeSpec::Bare);
         let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
         let other_module =

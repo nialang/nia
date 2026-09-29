@@ -19,16 +19,8 @@ pub(crate) fn step_key(name: &str) -> StepKey {
     StepKey::new(PackageKey::root(), name).unwrap()
 }
 
-pub(crate) fn target() -> TargetSpec {
-    TargetSpec {
-        arch: "x86_64".into(),
-        vendor: "unknown".into(),
-        os: "linux".into(),
-        env: "gnu".into(),
-        abi: "none".into(),
-        endian: "little".into(),
-        pointer_width: 64,
-    }
+pub(crate) fn target() -> TargetConfig {
+    TargetConfig::parse("x86_64-unknown-linux").unwrap()
 }
 
 pub(crate) fn draft(reverse: bool) -> BuildPlanDraft {

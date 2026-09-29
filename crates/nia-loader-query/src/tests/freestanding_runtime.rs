@@ -8,19 +8,11 @@ fn windows_startup_loads_separate_entry_and_native_support_only_when_selected() 
         &main,
         "using std::process; pub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }",
     );
-    let target = TargetConfig {
-        arch: "x86_64".to_string(),
-        vendor: "pc".to_string(),
-        os: "windows".to_string(),
-        env: "msvc".to_string(),
-        abi: "".to_string(),
-        endian: "little".to_string(),
-        pointer_width: 64,
-    };
+    let target = TargetConfig::parse("x86_64-pc-windows-msvc").unwrap();
     let load = |runtime| {
         load_program_request(
             LoadRequest::new(main.to_string_lossy().into_owned())
-                .with_target(target.clone())
+                .with_target(target)
                 .with_runtime(runtime)
                 .with_toolchain_layout(test_toolchain_layout()),
         )
@@ -175,15 +167,7 @@ fn query_loader_selects_i686_freestanding_start_and_syscall_facades() {
         "using std::process; pub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }",
     );
 
-    let target = nia_target_config::TargetConfig {
-        arch: "x86".to_string(),
-        vendor: "unknown".to_string(),
-        os: "linux".to_string(),
-        env: "gnu".to_string(),
-        abi: "".to_string(),
-        endian: "little".to_string(),
-        pointer_width: 32,
-    };
+    let target = nia_target::TargetConfig::parse("x86-unknown-linux").unwrap();
     let runtime = RuntimeSpec::freestanding(&test_toolchain_layout(), &target)
         .expect("i686 freestanding runtime");
     let program = load_program_request(
@@ -206,11 +190,10 @@ fn query_loader_rejects_runtime_selected_for_a_different_target() {
     let root = temp_dir("query_loader_rejects_mismatched_runtime_target");
     let main_path = root.join("main.nia");
     write(&main_path, "fn main() i32 { 0 }");
-    let runtime_target = TargetConfig::host();
+    let runtime_target = TargetConfig::parse("x86_64-unknown-linux").unwrap();
     let runtime = RuntimeSpec::freestanding(&test_toolchain_layout(), &runtime_target)
         .expect("host freestanding runtime");
-    let mut request_target = runtime_target;
-    request_target.abi = "mismatched".to_string();
+    let request_target = TargetConfig::parse("x86-unknown-linux").unwrap();
 
     let error = load_program_request(
         LoadRequest::new(main_path.to_string_lossy().into_owned())

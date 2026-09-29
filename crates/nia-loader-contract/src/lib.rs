@@ -19,7 +19,8 @@ use nia_query::{QueryResult, QuerySession};
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_symbol_table::SymbolTable;
 use nia_syntax::ParseError;
-use nia_target_config::{BuildProfile, CompilationMode, TargetConfig};
+use nia_target::TargetConfig;
+use nia_target_config::{BuildProfile, CompilationMode};
 use nia_toolchain::ToolchainIdentityFingerprint;
 
 pub use frontend_fingerprint::*;
@@ -339,7 +340,7 @@ impl LoaderFactProvider for LoadedProgram {
         self.symbols.clone()
     }
     fn target(&self) -> TargetConfig {
-        self.target.clone()
+        self.target
     }
     fn profile(&self) -> BuildProfile {
         self.profile

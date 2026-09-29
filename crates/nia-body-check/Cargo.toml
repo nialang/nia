@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+nia-target.workspace = true
 nia-ast.workspace = true
 nia-ast-walk.workspace = true
 nia-body-ir.workspace = true
@@ -37,7 +38,6 @@ nia-span.workspace = true
 nia-symbol.workspace = true
 nia-symbol-table.workspace = true
 nia-static-ir.workspace = true
-nia-target-config.workspace = true
 nia-timing.workspace = true
 nia-trait-solve.workspace = true
 nia-ty.workspace = true
@@ -49,7 +49,6 @@ nia-value-resolve.workspace = true
 [dev-dependencies]
 nia-parser.workspace = true
 nia-syntax.workspace = true
-nia-target-config.workspace = true
 
 [lib]
 path = "src/lib.rs"

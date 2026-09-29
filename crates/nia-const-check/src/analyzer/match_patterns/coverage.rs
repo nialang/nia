@@ -392,14 +392,15 @@ impl Analyzer<'_> {
                 complete: true,
             },
             Some(TyKind::Primitive(primitive)) if primitive.is_integer() => {
-                let Some((min, max)) =
-                    primitive_integer_range_for_target(primitive, self.input.target.pointer_width)
-                else {
+                let Some((min, max)) = primitive_integer_range_for_target(
+                    primitive,
+                    self.input.target.pointer_width(),
+                ) else {
                     return AnalysisDomain::Opaque;
                 };
                 let complete = primitive != PrimitiveTy::U128
                     && !(primitive == PrimitiveTy::Usize
-                        && self.input.target.pointer_width >= i128::BITS);
+                        && self.input.target.pointer_width() >= i128::BITS);
                 AnalysisDomain::Scalar { min, max, complete }
             }
             Some(TyKind::Primitive(PrimitiveTy::Never)) => AnalysisDomain::Finite(Vec::new()),

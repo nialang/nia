@@ -28,9 +28,8 @@ use super::{
     package_roots_identity, read_bounded_compiler_cache_entry, read_bytes, read_fingerprint,
     read_u64, validate_compiler_cache_entry_size, write_bytes, write_fingerprint, write_text,
 };
-use crate::{
-    ActionKey, OptimizationMode, PlanModule, PlanPackage, Runtime, TargetSpec, lock::ScopedFileLock,
-};
+use crate::{ActionKey, OptimizationMode, PlanModule, PlanPackage, Runtime, lock::ScopedFileLock};
+use nia_target::TargetConfig;
 
 pub(super) const COMPILER_CHECK_COMPILER_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.compiler-check.compiler");
@@ -181,7 +180,7 @@ pub(crate) struct CompilerCheckCacheIdentityInput<'a> {
     pub(crate) action: &'a ActionKey,
     pub(crate) module: &'a PlanModule,
     pub(crate) packages: &'a [PlanPackage],
-    pub(crate) target: &'a TargetSpec,
+    pub(crate) target: &'a TargetConfig,
     pub(crate) profile: BuildProfile,
     pub(crate) compilation_mode: CompilationMode,
     pub(crate) runtime: Runtime,
@@ -788,19 +787,10 @@ fn module_identity(module: &PlanModule) -> Vec<u8> {
     encoded
 }
 
-fn target_identity(target: &TargetSpec) -> Vec<u8> {
+fn target_identity(target: &TargetConfig) -> Vec<u8> {
+    // The canonical name determines every derived target fact.
     let mut encoded = Vec::new();
-    for field in [
-        &target.arch,
-        &target.vendor,
-        &target.os,
-        &target.env,
-        &target.abi,
-        &target.endian,
-    ] {
-        write_text(&mut encoded, field);
-    }
-    encoded.extend_from_slice(&u64::from(target.pointer_width).to_le_bytes());
+    write_text(&mut encoded, &target.name());
     encoded
 }
 
@@ -907,15 +897,7 @@ mod tests {
             optimization: OptimizationMode::O2,
             imports: Vec::new(),
         };
-        let target = TargetSpec {
-            arch: "x86_64".to_string(),
-            vendor: "unknown".to_string(),
-            os: "linux".to_string(),
-            env: String::new(),
-            abi: String::new(),
-            endian: "little".to_string(),
-            pointer_width: 64,
-        };
+        let target = TargetConfig::parse("x86_64-unknown-linux").unwrap();
         let sources = vec![SourceRecord {
             identity: "build-package:root:/src/main.nia".to_string(),
             fingerprint: nia_compiler_query::source_content_fingerprint("fn main() i32 { 0 }"),

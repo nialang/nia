@@ -161,7 +161,7 @@ extend types::Widget {
         .expect("insert module map entry");
     let entry_path = SourcePath::new(main.to_string_lossy());
     let database = LoaderDatabase::new_for_test(
-        LoadRequest::new(main.to_string_lossy().into_owned()).with_module_map(module_map),
+        test_request(main.to_string_lossy().into_owned()).with_module_map(module_map),
     );
     database
         .update_provider_demands([ProviderDemand {

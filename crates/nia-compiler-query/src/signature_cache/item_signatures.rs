@@ -1113,7 +1113,6 @@ pub(crate) fn builtin_const_tag(value: BuiltinConstValue) -> u8 {
         BuiltinConstValue::TargetVendor => 1,
         BuiltinConstValue::TargetOs => 2,
         BuiltinConstValue::TargetEnv => 3,
-        BuiltinConstValue::TargetAbi => 4,
         BuiltinConstValue::TargetEndian => 5,
         BuiltinConstValue::TargetPointerWidth => 6,
     }
@@ -1125,7 +1124,7 @@ pub(crate) fn read_builtin_const(cursor: &mut Cursor<&[u8]>) -> Option<BuiltinCo
         1 => BuiltinConstValue::TargetVendor,
         2 => BuiltinConstValue::TargetOs,
         3 => BuiltinConstValue::TargetEnv,
-        4 => BuiltinConstValue::TargetAbi,
+        // Tag 4 named the retired `target.abi` value; it is never reused.
         5 => BuiltinConstValue::TargetEndian,
         6 => BuiltinConstValue::TargetPointerWidth,
         _ => return None,

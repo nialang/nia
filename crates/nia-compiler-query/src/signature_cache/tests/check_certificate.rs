@@ -6,7 +6,7 @@ fn check_certificate_roundtrips_and_retires_corruption() {
     let cache = PersistentSignatureCache::new(root.clone());
     let entry = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
     let namespace = crate::FrontendCacheNamespace::new(
-        &nia_target_config::TargetConfig::host(),
+        &nia_target::TargetConfig::host().expect("tests run on a maintained host"),
         crate::RuntimeSpec::Bare,
     );
     let input = crate::FrontendCheckInputFingerprint::from_parts([11, 29]);

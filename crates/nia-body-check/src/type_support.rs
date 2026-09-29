@@ -852,7 +852,7 @@ impl<'a> BodyChecker<'a> {
         if !primitive.is_integer() {
             return false;
         }
-        if !value.fits_primitive_int(*primitive, self.target.pointer_width) {
+        if !value.fits_primitive_int(*primitive, self.target.pointer_width()) {
             let value_name = value.display();
             let target_name = self.ty_name(expected);
             let summary = format!(
@@ -903,7 +903,7 @@ impl<'a> BodyChecker<'a> {
         if !primitive.is_integer() {
             return false;
         }
-        if !value.fits_primitive_int(*primitive, self.target.pointer_width) {
+        if !value.fits_primitive_int(*primitive, self.target.pointer_width()) {
             let value_name = value.display();
             let enum_name = self.ty_name(expected_enum);
             let backing_name = self.ty_name(backing_type);

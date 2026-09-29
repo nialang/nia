@@ -173,7 +173,7 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
     write(&main_path, "fn main() i32 { 0 }");
     let entry = SourcePath::new(main_path.to_string_lossy());
     let request = || {
-        LoadRequest::new(main_path.to_string_lossy().into_owned())
+        test_request(main_path.to_string_lossy().into_owned())
             .with_frontend_cache_dir(Some(cache_root.clone()))
     };
 
@@ -298,7 +298,7 @@ fn provider_demand_plan_verification_replaces_semantically_wrong_artifact() {
     write(&main_path, "fn main() i32 { 0 }");
     let entry = SourcePath::new(main_path.to_string_lossy());
     let request = |verify| {
-        LoadRequest::new(main_path.to_string_lossy().into_owned())
+        test_request(main_path.to_string_lossy().into_owned())
             .with_frontend_cache_dir(Some(cache_root.clone()))
             .with_frontend_cache_verification(verify)
     };
@@ -367,7 +367,7 @@ fn corrupt_provider_demand_plan_is_physically_retired() {
     let main_path = root.join("main.nia");
     write(&main_path, "fn main() i32 { 0 }");
     let request = || {
-        LoadRequest::new(main_path.to_string_lossy().into_owned())
+        test_request(main_path.to_string_lossy().into_owned())
             .with_frontend_cache_dir(Some(cache_root.clone()))
     };
     let seeded = LoaderDatabase::new_for_test(request());

@@ -14,16 +14,8 @@ fn step(name: &str) -> StepKey {
     StepKey::new(PackageKey::root(), name).unwrap()
 }
 
-fn target() -> TargetSpec {
-    TargetSpec {
-        arch: "x86_64".to_string(),
-        vendor: "unknown".to_string(),
-        os: "linux".to_string(),
-        env: String::new(),
-        abi: String::new(),
-        endian: "little".to_string(),
-        pointer_width: 64,
-    }
+fn target() -> TargetConfig {
+    TargetConfig::parse("x86_64-unknown-linux").unwrap()
 }
 
 fn test_invocation() -> BuildInvocation {
@@ -756,7 +748,7 @@ fn all_optimization_and_runtime_modes_map_exactly() {
     assert_eq!(optimization(OptimizationMode::Os), NiaOptimizationLevel::Os);
     assert_eq!(optimization(OptimizationMode::Oz), NiaOptimizationLevel::Oz);
     let invocation = test_invocation();
-    let target = target_config(&target());
+    let target = target();
     assert_eq!(
         runtime_spec(Runtime::Bare, &invocation.toolchain, &target),
         Ok(RuntimeSpec::Bare)
@@ -770,14 +762,14 @@ fn all_optimization_and_runtime_modes_map_exactly() {
 #[test]
 fn explicit_uncacheable_action_has_no_legacy_execution_fallback() {
     let invocation = test_invocation();
-    let target = target_spec(invocation.toolchain.host_target());
+    let target = *invocation.toolchain.host_target();
     let plan = BuildPlan::freeze(BuildPlanDraft {
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
             root: String::new(),
         }],
-        host_target: target.clone(),
+        host_target: target,
         artifact_target: target,
         modules: Vec::new(),
         artifacts: Vec::new(),
@@ -813,17 +805,14 @@ fn invocation_target_mismatch_is_rejected_before_actions() {
             if test_mode {
                 invocation.step = crate::BuildStepSelection::Tests;
             }
-            let mut host = target_spec(invocation.toolchain.host_target());
-            let mut artifact = target_spec(invocation.toolchain.artifact_target());
-            let expected = if role == "host" {
-                host.clone()
-            } else {
-                artifact.clone()
-            };
+            let mut host = *invocation.toolchain.host_target();
+            let mut artifact = *invocation.toolchain.artifact_target();
+            let expected = if role == "host" { host } else { artifact };
+            let mismatched = crate::tests::foreign_target();
             if role == "host" {
-                host.arch = "mismatched".into();
+                host = mismatched;
             } else {
-                artifact.arch = "mismatched".into();
+                artifact = mismatched;
             }
             let plan = BuildPlan::freeze(BuildPlanDraft {
                 root_package: PackageKey::root(),
@@ -857,7 +846,7 @@ fn invocation_target_mismatch_is_rejected_before_actions() {
             assert!(matches!(
                 &error,
                 CoordinatorError::TargetMismatch(details)
-                    if details.role == role && details.found.arch == "mismatched" && details.expected == expected
+                    if details.role == role && details.found == mismatched && details.expected == expected
             ));
             assert!(
                 !invocation.build_dir.exists(),
@@ -870,8 +859,8 @@ fn invocation_target_mismatch_is_rejected_before_actions() {
                 "E0704",
                 &[
                     &format!("build plan {role} target"),
-                    &format!("expected {}", display_target(&expected)),
-                    "found mismatched",
+                    &format!("expected {expected}"),
+                    &format!("found {mismatched}"),
                 ],
             );
         }
@@ -879,8 +868,8 @@ fn invocation_target_mismatch_is_rejected_before_actions() {
 }
 
 fn generated_plan(invocation: &BuildInvocation, output: &str, contents: &[u8]) -> BuildPlan {
-    let host = target_spec(invocation.toolchain.host_target());
-    let artifact = target_spec(invocation.toolchain.artifact_target());
+    let host = *invocation.toolchain.host_target();
+    let artifact = *invocation.toolchain.artifact_target();
     BuildPlan::freeze(BuildPlanDraft {
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
@@ -1005,8 +994,8 @@ fn compiler_check_plan_with_runtime(
     runtime: Runtime,
 ) -> BuildPlan {
     let module = ModuleKey::new(PackageKey::root(), "app").unwrap();
-    let host = target_spec(invocation.toolchain.host_target());
-    let artifact = target_spec(invocation.toolchain.artifact_target());
+    let host = *invocation.toolchain.host_target();
+    let artifact = *invocation.toolchain.artifact_target();
     BuildPlan::freeze(BuildPlanDraft {
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
@@ -1014,7 +1003,7 @@ fn compiler_check_plan_with_runtime(
             root: String::new(),
         }],
         host_target: host,
-        artifact_target: artifact.clone(),
+        artifact_target: artifact,
         modules: vec![PlanModule {
             key: module.clone(),
             root_source: LogicalPath::new(
@@ -1089,8 +1078,8 @@ fn compiler_emit_plan_kind(
 ) -> BuildPlan {
     let module = ModuleKey::new(PackageKey::root(), "app").unwrap();
     let artifact_key = ArtifactKey::new(PackageKey::root(), "app").unwrap();
-    let host = target_spec(invocation.toolchain.host_target());
-    let artifact_target = target_spec(invocation.toolchain.artifact_target());
+    let host = *invocation.toolchain.host_target();
+    let artifact_target = *invocation.toolchain.artifact_target();
     BuildPlan::freeze(BuildPlanDraft {
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
@@ -1098,7 +1087,7 @@ fn compiler_emit_plan_kind(
             root: String::new(),
         }],
         host_target: host,
-        artifact_target: artifact_target.clone(),
+        artifact_target,
         modules: vec![PlanModule {
             key: module.clone(),
             root_source: LogicalPath::new(
@@ -1138,15 +1127,15 @@ fn compiler_emit_plan_kind(
 fn install_executable_plan(invocation: &BuildInvocation) -> BuildPlan {
     let module = ModuleKey::new(PackageKey::root(), "app").unwrap();
     let artifact_key = ArtifactKey::new(PackageKey::root(), "app").unwrap();
-    let artifact_target = target_spec(invocation.toolchain.artifact_target());
+    let artifact_target = *invocation.toolchain.artifact_target();
     BuildPlan::freeze(BuildPlanDraft {
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
             root: String::new(),
         }],
-        host_target: target_spec(invocation.toolchain.host_target()),
-        artifact_target: artifact_target.clone(),
+        host_target: *invocation.toolchain.host_target(),
+        artifact_target,
         modules: vec![PlanModule {
             key: module.clone(),
             root_source: LogicalPath::new(
@@ -1209,8 +1198,8 @@ fn mixed_generated_source_emit_plan(
     let stable_module = ModuleKey::new(PackageKey::root(), "stable").unwrap();
     let generated_artifact = ArtifactKey::new(PackageKey::root(), "generated").unwrap();
     let stable_artifact = ArtifactKey::new(PackageKey::root(), "stable").unwrap();
-    let host = target_spec(invocation.toolchain.host_target());
-    let artifact_target = target_spec(invocation.toolchain.artifact_target());
+    let host = *invocation.toolchain.host_target();
+    let artifact_target = *invocation.toolchain.artifact_target();
     BuildPlan::freeze(BuildPlanDraft {
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
@@ -1218,7 +1207,7 @@ fn mixed_generated_source_emit_plan(
             root: String::new(),
         }],
         host_target: host,
-        artifact_target: artifact_target.clone(),
+        artifact_target,
         modules: vec![
             PlanModule {
                 key: generated_module.clone(),
@@ -1266,7 +1255,7 @@ fn mixed_generated_source_emit_plan(
                 key: action("emit-generated"),
                 kind: ActionKind::CompilerEmit {
                     artifact: generated_artifact,
-                    target: artifact_target.clone(),
+                    target: artifact_target,
                     static_archives: Vec::new(),
                 },
             },
@@ -2230,8 +2219,8 @@ fn staged_command_plan_outputs(
             key: PackageKey::root(),
             root: String::new(),
         }],
-        host_target: target_spec(invocation.toolchain.host_target()),
-        artifact_target: target_spec(invocation.toolchain.artifact_target()),
+        host_target: *invocation.toolchain.host_target(),
+        artifact_target: *invocation.toolchain.artifact_target(),
         modules: Vec::new(),
         artifacts: Vec::new(),
         actions: vec![PlanAction {
@@ -2291,8 +2280,8 @@ fn cacheable_command_plan_with_input(
                 key: PackageKey::root(),
                 root: String::new(),
             }],
-            host_target: target_spec(invocation.toolchain.host_target()),
-            artifact_target: target_spec(invocation.toolchain.artifact_target()),
+            host_target: *invocation.toolchain.host_target(),
+            artifact_target: *invocation.toolchain.artifact_target(),
             modules: Vec::new(),
             artifacts: Vec::new(),
             actions: vec![PlanAction {
@@ -2346,8 +2335,8 @@ fn cacheable_path_tool_plan(invocation: &BuildInvocation) -> BuildPlan {
             key: PackageKey::root(),
             root: String::new(),
         }],
-        host_target: target_spec(invocation.toolchain.host_target()),
-        artifact_target: target_spec(invocation.toolchain.artifact_target()),
+        host_target: *invocation.toolchain.host_target(),
+        artifact_target: *invocation.toolchain.artifact_target(),
         modules: Vec::new(),
         artifacts: Vec::new(),
         actions: vec![PlanAction {

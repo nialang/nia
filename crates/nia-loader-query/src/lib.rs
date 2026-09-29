@@ -28,7 +28,8 @@ use nia_loader_contract::{
 use nia_query::{QueryDb, QueryError, QueryResult, QueryRetirement, QuerySession};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceRevision, SourceVersion};
 use nia_symbol_table::SymbolTable;
-use nia_target_config::{BuildProfile, CompilationMode, TargetConfig};
+use nia_target::TargetConfig;
+use nia_target_config::{BuildProfile, CompilationMode};
 use nia_toolchain::ToolchainLayout;
 use nia_toolchain::{RuntimeSpec, SourceRuntimeSpec};
 use parking_lot::Mutex;
@@ -218,6 +219,19 @@ impl LoaderDatabase {
 
     /// Creates a loader sharing dependency and execution state with `session`.
     pub fn new_in_session(request: LoadRequest, session: QuerySession) -> QueryResult<Self> {
+        // A loader never guesses the host: the target is explicit or owned by
+        // the toolchain that also supplies the runtime and standard library.
+        let target = request
+            .target
+            .or_else(|| {
+                request
+                    .toolchain
+                    .as_deref()
+                    .map(|toolchain| *toolchain.artifact_target())
+            })
+            .ok_or_else(|| {
+                QueryError::internal("load request has no artifact target or toolchain")
+            })?;
         let entry_path = request.entry_path;
         let package_roots_with_used_paths = if request.package_root_used_paths {
             request.module_map.entries().map(|(name, _)| name).collect()
@@ -240,7 +254,7 @@ impl LoaderDatabase {
             .map(|toolchain| toolchain.identity().fingerprint())
             .unwrap_or_else(nia_toolchain::ToolchainIdentityFingerprint::current);
         let namespace = FrontendCacheNamespace::for_toolchain(
-            &request.target,
+            &target,
             request.runtime.clone(),
             toolchain_identity,
         );
@@ -304,7 +318,7 @@ impl LoaderDatabase {
                 node_store: nia_node_id::NodeStore::new(),
                 diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()?),
                 symbols,
-                target: request.target,
+                target,
                 profile: request.profile,
                 compilation_mode: request.compilation_mode,
                 runtime: request.runtime,
@@ -771,7 +785,7 @@ impl LoaderFactProvider for LoaderDatabase {
     }
 
     fn target(&self) -> TargetConfig {
-        self.db.context().target.clone()
+        self.db.context().target
     }
 
     fn profile(&self) -> BuildProfile {
@@ -802,8 +816,9 @@ pub struct LoadRequest {
     pub module_map: ModuleMap,
     /// Initial in-memory source database.
     pub sources: SourceDatabase,
-    /// Artifact target used for conditional frontend selection.
-    pub target: TargetConfig,
+    /// Artifact target used for conditional frontend selection; `None` uses
+    /// the attached toolchain's artifact target.
+    pub target: Option<TargetConfig>,
     /// Build profile used for profile-conditional frontend selection.
     pub profile: BuildProfile,
     /// Whether test-only source participates in frontend selection.
@@ -833,7 +848,7 @@ impl LoadRequest {
             package_root: None,
             module_map: ModuleMap::default(),
             sources: SourceDatabase::new(),
-            target: TargetConfig::host(),
+            target: None,
             profile: BuildProfile::default(),
             compilation_mode: CompilationMode::default(),
             runtime: RuntimeSpec::Bare,
@@ -864,7 +879,7 @@ impl LoadRequest {
 
     /// Selects the artifact target used by conditional item selection.
     pub fn with_target(mut self, target: TargetConfig) -> Self {
-        self.target = target;
+        self.target = Some(target);
         self
     }
 
@@ -948,7 +963,7 @@ fn load_program_trace(
                 nia_diagnostic::DiagnosticStore::new().expect("create diagnostic store"),
             ),
             symbols: SymbolTable::new(),
-            target: TargetConfig::host(),
+            target: TargetConfig::host().expect("tests run on a maintained host"),
             profile: BuildProfile::default(),
             compilation_mode: CompilationMode::default(),
             runtime: RuntimeSpec::Bare,

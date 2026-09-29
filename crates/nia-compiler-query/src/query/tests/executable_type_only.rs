@@ -171,7 +171,7 @@ value.value
         "pub struct Word { value: usize }",
     );
     let mut program = fixture.freestanding_program();
-    program.target.pointer_width = 32;
+    program.target = nia_target::TargetConfig::parse("x86-unknown-linux").unwrap();
     let db = query_db(program);
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);

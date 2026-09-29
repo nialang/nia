@@ -1114,7 +1114,7 @@ impl Analyzer<'_> {
         let program_enum = |def_id| self.program_enum_signature_for_layout(def_id);
         let program_type_alias = |def_id| self.program_type_alias_signature_for_layout(def_id);
         let target =
-            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width)
+            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width())
                 .ok_or_else(|| ConstError {
                     span,
                     message: "cannot compute layout for unsupported target pointer width"
@@ -1238,7 +1238,7 @@ impl Analyzer<'_> {
         let program_enum = |def_id| self.program_enum_signature_for_layout(def_id);
         let program_type_alias = |def_id| self.program_type_alias_signature_for_layout(def_id);
         let target =
-            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width)
+            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width())
                 .ok_or_else(|| ConstError {
                     span,
                     message: "cannot compute field offset for unsupported target pointer width"
@@ -1524,7 +1524,7 @@ impl Analyzer<'_> {
         array_lengths: &HashMap<GlobalConstExprId, u64>,
     ) -> Option<Arc<nia_layout::Layouts>> {
         let target =
-            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width)?;
+            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width())?;
         let defs = self.global_defs(module_id)?;
         let signatures = self.signatures_for_module(module_id)?;
         let root_types = signatures.as_ref().type_roots();

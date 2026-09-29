@@ -51,22 +51,17 @@ pub struct BuildPathView {
     path: &[char],
 }
 
+// A target is identified by its canonical name, such as
+// `aarch64-apple-macos`; architecture, vendor, OS and environment are its
+// `-`-separated components. The toolchain derives byte order and pointer width.
 pub struct TargetView {
-    arch: &[char],
-    vendor: &[char],
-    os: &[char],
-    env: &[char],
-    abi: &[char],
+    name: &[char],
     endian: &[char],
     pointerWidth: u32,
 }
 
 pub(pkg) struct TargetStorage {
-    arch: string::String,
-    vendor: string::String,
-    os: string::String,
-    env: string::String,
-    abi: string::String,
+    name: string::String,
     endian: string::String,
     pointerWidth: u32,
 }

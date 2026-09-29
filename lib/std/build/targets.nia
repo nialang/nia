@@ -121,36 +121,30 @@ extend StaticArchiveTarget {
 }
 
 extend TargetView {
-    pub fn init(
-        arch: &[char],
-        vendor: &[char],
-        os: &[char],
-        env: &[char],
-        abi: &[char],
-        endian: &[char],
-        pointerWidth: u32,
-    ) TargetView {
-        .{ arch, vendor, os, env, abi, endian, pointerWidth }
+    pub fn init(name: &[char], endian: &[char], pointerWidth: u32) TargetView {
+        .{ name, endian, pointerWidth }
+    }
+
+    // Canonical target name, such as `x86_64-pc-windows-msvc`.
+    pub fn name(&self) &[char] {
+        self.name
     }
 
     pub fn arch(&self) &[char] {
-        self.arch
+        self.component(0)
     }
 
     pub fn vendor(&self) &[char] {
-        self.vendor
+        self.component(1)
     }
 
     pub fn os(&self) &[char] {
-        self.os
+        self.component(2)
     }
 
+    // Empty when the platform has no environment component.
     pub fn env(&self) &[char] {
-        self.env
-    }
-
-    pub fn abi(&self) &[char] {
-        self.abi
+        self.component(3)
     }
 
     pub fn endian(&self) &[char] {
@@ -162,27 +156,31 @@ extend TargetView {
     }
 
     pub fn equals(&self, other: TargetView) bool {
-        self.arch.equals(other.arch)
-            and self.vendor.equals(other.vendor)
-            and self.os.equals(other.os)
-            and self.env.equals(other.env)
-            and self.abi.equals(other.abi)
-            and self.endian.equals(other.endian)
-            and self.pointerWidth == other.pointerWidth
+        // The toolchain derives every other fact from the name.
+        self.name.equals(other.name)
+    }
+
+    fn component(&self, index: usize) &[char] {
+        let mut start: usize = 0;
+        let mut current: usize = 0;
+        let mut cursor: usize = 0;
+        while cursor < self.name.len() {
+            if self.name[cursor] == '-' {
+                if current == index {
+                    return &self.name[start..cursor];
+                }
+                current += 1;
+                start = cursor + 1;
+            }
+            cursor += 1;
+        }
+        if current == index { &self.name[start..] } else { &self.name[self.name.len()..] }
     }
 }
 
 extend TargetStorage {
     pub(pkg) fn init(pointerWidth: u32) TargetStorage {
-        .{
-            arch: .init(),
-            vendor: .init(),
-            os: .init(),
-            env: .init(),
-            abi: .init(),
-            endian: .init(),
-            pointerWidth,
-        }
+        .{ name: .init(), endian: .init(), pointerWidth }
     }
 
     pub(pkg) fn initialize(
@@ -191,35 +189,19 @@ extend TargetStorage {
         target: TargetView,
         subject: Subject,
     ) Error!() {
-        self.arch = string::String::fromSlice(allocator, target.arch).withBuildContext(.Retain, subject).?;
-        self.vendor = string::String::fromSlice(allocator, target.vendor).withBuildContext(.Retain, subject).?;
-        self.os = string::String::fromSlice(allocator, target.os).withBuildContext(.Retain, subject).?;
-        self.env = string::String::fromSlice(allocator, target.env).withBuildContext(.Retain, subject).?;
-        self.abi = string::String::fromSlice(allocator, target.abi).withBuildContext(.Retain, subject).?;
+        self.name = string::String::fromSlice(allocator, target.name).withBuildContext(.Retain, subject).?;
         self.endian = string::String::fromSlice(allocator, target.endian).withBuildContext(.Retain, subject).?;
         !()
     }
 
     pub(pkg) fn view(&self) TargetView {
-        .init(
-            self.arch.text(),
-            self.vendor.text(),
-            self.os.text(),
-            self.env.text(),
-            self.abi.text(),
-            self.endian.text(),
-            self.pointerWidth,
-        )
+        .init(self.name.text(), self.endian.text(), self.pointerWidth)
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.endian.deinit(allocator).withBuildContext(.Release, subject));
-        cleanup.attempt(self.abi.deinit(allocator).withBuildContext(.Release, subject));
-        cleanup.attempt(self.env.deinit(allocator).withBuildContext(.Release, subject));
-        cleanup.attempt(self.os.deinit(allocator).withBuildContext(.Release, subject));
-        cleanup.attempt(self.vendor.deinit(allocator).withBuildContext(.Release, subject));
-        cleanup.attempt(self.arch.deinit(allocator).withBuildContext(.Release, subject));
+        cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, subject));
         cleanup.finish()
     }
 }

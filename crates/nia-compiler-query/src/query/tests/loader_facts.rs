@@ -146,7 +146,7 @@ impl QueryKey<TestLoaderContext> for TestLoaderFactQuery {
             TestLoaderFactKey::LoadDiagnostics => {
                 Self::Value::LoadDiagnostics(program.diagnostics.clone())
             }
-            TestLoaderFactKey::Target => Self::Value::Target(program.target.clone()),
+            TestLoaderFactKey::Target => Self::Value::Target(program.target),
             TestLoaderFactKey::Runtime => Self::Value::Runtime(Box::new(program.runtime.clone())),
         })
     }
@@ -361,7 +361,7 @@ impl crate::LoaderFactProvider for TestLoaderFacts {
         let TestLoaderFactValue::Target(target) = fact.as_ref() else {
             unreachable!()
         };
-        target.clone()
+        *target
     }
 
     fn runtime(&self) -> RuntimeSpec {

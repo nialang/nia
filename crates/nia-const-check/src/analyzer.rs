@@ -46,7 +46,7 @@ use nia_sema_ir::{AssociatedConstProjection, BuiltinAssociatedValue, SemanticUse
 use nia_source::SourcePath;
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, symbol_text_or_unresolved};
-use nia_target_config::TargetConfig;
+use nia_target::TargetConfig;
 use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolverContext};
 use nia_ty::{
     ArrayLenTy, ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy, RangeTyKind, TraitId,
@@ -712,7 +712,7 @@ impl Analyzer<'_> {
         else {
             return None;
         };
-        primitive_integer_range_for_target(*primitive, self.input.target.pointer_width)
+        primitive_integer_range_for_target(*primitive, self.input.target.pointer_width())
     }
 
     fn eval_resolved_array_len_expr(&mut self, expr: &ResolvedConstExpr) -> Option<u64> {
@@ -1101,7 +1101,7 @@ impl Analyzer<'_> {
             return;
         };
         let Some(target) =
-            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width)
+            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width())
         else {
             return;
         };
@@ -1111,9 +1111,7 @@ impl Analyzer<'_> {
             self.push_const_type_mismatch(span, "union");
             return;
         };
-        let Some(endianness) = ConstEndianness::from_target_name(&self.input.target.endian) else {
-            return;
-        };
+        let endianness = const_endianness(self.input.target.endian());
         if let Err(message) = value.validate_abi(&fields, size, endianness) {
             self.diagnostics
                 .push(Diagnostic::user_error_at(codes::CONST, span, message));
@@ -1236,7 +1234,7 @@ impl Analyzer<'_> {
                             .and_then(char::from_u32)
                             .is_some()
                 } else if primitive.is_integer() {
-                    value.fits_primitive_int(primitive, self.input.target.pointer_width)
+                    value.fits_primitive_int(primitive, self.input.target.pointer_width())
                 } else {
                     self.push_const_primitive_mismatch(span, primitive);
                     return;
@@ -1345,5 +1343,13 @@ impl Analyzer<'_> {
                 .help("change the constant expression to produce the expected primitive type")
                 .finish(),
         );
+    }
+}
+
+/// Byte order used to encode compile-time storage for the artifact target.
+pub(crate) fn const_endianness(endian: nia_target::Endian) -> ConstEndianness {
+    match endian {
+        nia_target::Endian::Little => ConstEndianness::Little,
+        nia_target::Endian::Big => ConstEndianness::Big,
     }
 }

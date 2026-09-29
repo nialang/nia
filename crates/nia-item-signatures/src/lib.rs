@@ -612,7 +612,6 @@ fn builtin_const_item_symbol(builtin: BuiltinConstValue) -> SymbolId {
         BuiltinConstValue::TargetVendor => known::VENDOR,
         BuiltinConstValue::TargetOs => known::OS,
         BuiltinConstValue::TargetEnv => known::ENV,
-        BuiltinConstValue::TargetAbi => known::ABI,
         BuiltinConstValue::TargetEndian => known::ENDIAN,
         BuiltinConstValue::TargetPointerWidth => known::POINTER_WIDTH,
     }

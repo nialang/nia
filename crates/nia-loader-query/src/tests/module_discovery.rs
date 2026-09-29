@@ -29,7 +29,7 @@ fn query_loader_keeps_package_root_separate_from_entry_module() {
     write(&main, "using pkg::config; fn main() i32 { config::answer }");
 
     let program = super::load_program_request(
-        LoadRequest::new(main.to_string_lossy().into_owned())
+        test_request(main.to_string_lossy().into_owned())
             .with_package_root(SourcePath::new(package.to_string_lossy())),
     )
     .expect("package-root program load");
@@ -61,7 +61,7 @@ fn query_loader_discovers_package_relative_qualified_expression_paths() {
     write(&main, "fn main() i32 { pkg::config::answer }");
 
     let program = super::load_program_request(
-        LoadRequest::new(main.to_string_lossy().into_owned())
+        test_request(main.to_string_lossy().into_owned())
             .with_package_root(SourcePath::new(package.to_string_lossy())),
     )
     .expect("package-root program load");
@@ -83,7 +83,7 @@ fn query_loader_discovers_package_relative_qualified_type_paths() {
     );
 
     let program = super::load_program_request(
-        LoadRequest::new(main.to_string_lossy().into_owned())
+        test_request(main.to_string_lossy().into_owned())
             .with_package_root(SourcePath::new(package.to_string_lossy())),
     )
     .expect("package-root program load");
@@ -133,8 +133,7 @@ fn source_existence_change_rebuilds_missing_module_graph() {
     let main = root.join("main.nia");
     let defs = root.join("defs.nia");
     write(&main, "module defs;");
-    let database =
-        LoaderDatabase::new_for_test(LoadRequest::new(main.to_string_lossy().into_owned()));
+    let database = LoaderDatabase::new_for_test(test_request(main.to_string_lossy().into_owned()));
 
     let missing = database
         .load_program()

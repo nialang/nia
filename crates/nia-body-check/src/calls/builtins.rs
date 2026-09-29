@@ -805,13 +805,13 @@ impl<'a> BodyChecker<'a> {
                 elem: PrimitiveTy::Bool,
                 lanes,
             }) => {
-                if lanes > self.target.pointer_width {
+                if lanes > self.target.pointer_width() {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         args[0].span,
                         format!(
                             "builtin `bitmask` supports at most {} SIMD mask lanes for this target",
-                            self.target.pointer_width
+                            self.target.pointer_width()
                         ),
                     ));
                 }
@@ -1402,10 +1402,10 @@ impl<'a> BodyChecker<'a> {
     fn atomic_value_bits(&mut self, ty: InternedTyId) -> Option<u32> {
         match self.interner.get(ty)? {
             TyKind::Primitive(primitive) => {
-                supported_primitive_atomic_value_bits(*primitive, self.target.pointer_width)
+                supported_primitive_atomic_value_bits(*primitive, self.target.pointer_width())
             }
-            TyKind::Pointer { .. } => Some(self.target.pointer_width),
-            TyKind::GenericParam(_) => Some(self.target.pointer_width),
+            TyKind::Pointer { .. } => Some(self.target.pointer_width()),
+            TyKind::GenericParam(_) => Some(self.target.pointer_width()),
             TyKind::Nominal { .. } if self.is_enum(ty) => {
                 let enum_id = self.enum_global_def_id(ty)?;
                 let backing_type = self
@@ -1415,7 +1415,7 @@ impl<'a> BodyChecker<'a> {
             }
             _ => None,
         }
-        .filter(|bits| *bits <= self.target.pointer_width)
+        .filter(|bits| *bits <= self.target.pointer_width())
     }
 
     fn check_atomic_order_arg(

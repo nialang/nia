@@ -35,45 +35,7 @@ pub enum CompilationMode {
     Test,
 }
 
-/// Target identity values exposed to conditional compilation expressions.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TargetConfig {
-    /// Target architecture name.
-    pub arch: String,
-    /// Target vendor name.
-    pub vendor: String,
-    /// Target operating-system name.
-    pub os: String,
-    /// Target environment name.
-    pub env: String,
-    /// Target ABI name.
-    pub abi: String,
-    /// Target byte-order name.
-    pub endian: String,
-    /// Target pointer width in bits.
-    pub pointer_width: u32,
-}
-
-impl TargetConfig {
-    /// Builds a configuration from the host compilation target.
-    pub fn host() -> Self {
-        Self {
-            arch: std::env::consts::ARCH.to_string(),
-            vendor: "unknown".to_string(),
-            os: std::env::consts::OS.to_string(),
-            env: String::new(),
-            abi: String::new(),
-            endian: endian().to_string(),
-            pointer_width: usize::BITS,
-        }
-    }
-}
-
-impl Default for TargetConfig {
-    fn default() -> Self {
-        Self::host()
-    }
-}
+use nia_target::TargetConfig;
 
 /// Result of pruning target-inactive items and expressions from a module.
 #[derive(Debug, Clone, PartialEq)]
@@ -888,15 +850,26 @@ struct ConditionEvaluator<'a> {
 impl<'a> ConditionEvaluator<'a> {
     fn new(config: &TargetConfig, symbols: Option<&'a dyn SymbolText>) -> Self {
         let mut values = SymbolMap::default();
-        values.insert(known::ARCH, ConditionValue::String(config.arch.clone()));
-        values.insert(known::VENDOR, ConditionValue::String(config.vendor.clone()));
-        values.insert(known::OS, ConditionValue::String(config.os.clone()));
-        values.insert(known::ENV, ConditionValue::String(config.env.clone()));
-        values.insert(known::ABI, ConditionValue::String(config.abi.clone()));
-        values.insert(known::ENDIAN, ConditionValue::String(config.endian.clone()));
+        values.insert(
+            known::ARCH,
+            ConditionValue::String(config.arch().name().to_string()),
+        );
+        values.insert(
+            known::VENDOR,
+            ConditionValue::String(config.vendor().to_string()),
+        );
+        values.insert(
+            known::OS,
+            ConditionValue::String(config.os().name().to_string()),
+        );
+        values.insert(known::ENV, ConditionValue::String(config.env().to_string()));
+        values.insert(
+            known::ENDIAN,
+            ConditionValue::String(config.endian().name().to_string()),
+        );
         values.insert(
             known::POINTER_WIDTH,
-            ConditionValue::Int(u128::from(config.pointer_width)),
+            ConditionValue::Int(u128::from(config.pointer_width())),
         );
         Self { values, symbols }
     }
@@ -974,18 +947,63 @@ impl<'a> ConditionEvaluator<'a> {
     }
 }
 
-fn endian() -> &'static str {
-    if cfg!(target_endian = "little") {
-        "little"
-    } else {
-        "big"
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use nia_ast::{ItemKind, StmtKind};
+
+    /// Host-independent target for tests whose conditions do not name one.
+    fn test_target() -> TargetConfig {
+        TargetConfig::parse("x86_64-unknown-linux").expect("maintained target")
+    }
+
+    #[test]
+    fn condition_vocabulary_matches_the_language_specification() {
+        // Mirrors the target table in `docs/language-spec.md`.
+        let expected = [
+            ("x86_64-unknown-linux", "x86_64", "unknown", "linux", "", 64),
+            ("x86-unknown-linux", "x86", "unknown", "linux", "", 32),
+            (
+                "aarch64-unknown-linux",
+                "aarch64",
+                "unknown",
+                "linux",
+                "",
+                64,
+            ),
+            (
+                "x86_64-pc-windows-msvc",
+                "x86_64",
+                "pc",
+                "windows",
+                "msvc",
+                64,
+            ),
+            ("x86_64-apple-macos", "x86_64", "apple", "macos", "", 64),
+            ("aarch64-apple-macos", "aarch64", "apple", "macos", "", 64),
+        ];
+        assert_eq!(expected.len(), nia_target::SUPPORTED_TARGETS.len());
+        for (name, arch, vendor, os, env, width) in expected {
+            let target = TargetConfig::parse(name).expect("maintained target");
+            let evaluator = ConditionEvaluator::new(&target, None);
+            let string = |symbol| match evaluator.values.get(&symbol) {
+                Some(ConditionValue::String(value)) => value.clone(),
+                other => panic!("{name}: {other:?}"),
+            };
+            assert_eq!(string(known::ARCH), arch, "{name}");
+            assert_eq!(string(known::VENDOR), vendor, "{name}");
+            assert_eq!(string(known::OS), os, "{name}");
+            assert_eq!(string(known::ENV), env, "{name}");
+            assert_eq!(string(known::ENDIAN), "little", "{name}");
+            assert!(
+                matches!(
+                    evaluator.values.get(&known::POINTER_WIDTH),
+                    Some(ConditionValue::Int(value)) if *value == width
+                ),
+                "{name}"
+            );
+        }
+    }
 
     #[test]
     fn pruning_without_conditional_statements_shares_item_payloads() {
@@ -997,7 +1015,7 @@ mod tests {
 
         let pruned = prune_item_tree_for_target_with_profile_mode_and_symbols(
             &tree,
-            &TargetConfig::host(),
+            &test_target(),
             BuildProfile::Debug,
             CompilationMode::Normal,
             None,
@@ -1030,7 +1048,7 @@ fn changed() i32 {
 
         let pruned = prune_item_tree_for_target_with_profile_mode_and_symbols(
             &tree,
-            &TargetConfig::host(),
+            &test_target(),
             BuildProfile::Debug,
             CompilationMode::Normal,
             None,
@@ -1058,7 +1076,7 @@ fn main() i32 {
         );
         assert!(errors.is_empty(), "{errors:?}");
 
-        let pruned = prune_module_for_target(module, &TargetConfig::host());
+        let pruned = prune_module_for_target(module, &test_target());
         assert!(pruned.diagnostics.is_empty(), "{:?}", pruned.diagnostics);
 
         let active_module = pruned.active_item_tree.to_module();
@@ -1082,7 +1100,7 @@ fn main() i32 {
         );
         assert!(errors.is_empty(), "{errors:?}");
 
-        let pruned = prune_module_for_target(module, &TargetConfig::host());
+        let pruned = prune_module_for_target(module, &test_target());
         assert!(pruned.diagnostics.is_empty(), "{:?}", pruned.diagnostics);
 
         let active_module = pruned.active_item_tree.to_module();
@@ -1137,7 +1155,7 @@ fn releaseTestOnly() () {}
         ] {
             let active = prune_module_for_target_with_profile_and_mode(
                 module.clone(),
-                &TargetConfig::host(),
+                &test_target(),
                 profile,
                 mode,
             )
@@ -1175,7 +1193,7 @@ fn releaseTestOnly() () {}
             assert!(errors.is_empty(), "{errors:?}");
             let pruned = prune_module_for_target_with_profile_and_mode(
                 module,
-                &TargetConfig::host(),
+                &test_target(),
                 BuildProfile::Debug,
                 CompilationMode::Test,
             );
@@ -1187,7 +1205,7 @@ fn releaseTestOnly() () {}
     fn target_identity_selects_items_for_simulated_ilp32_big_endian_target() {
         let (module, errors) = nia_parser::parse_module(
             r#"
-@[if arch == "mips" and endian == "big" and pointerWidth == 32]
+@[if arch == "x86" and os == "linux" and endian == "little" and pointerWidth == 32]
 fn selected() i32 { 1 }
 
 @[if arch == "x86_64" or pointerWidth == 64]
@@ -1196,15 +1214,7 @@ fn rejected() i32 { 2 }
         );
         assert!(errors.is_empty(), "{errors:?}");
 
-        let config = TargetConfig {
-            arch: "mips".to_string(),
-            vendor: "unknown".to_string(),
-            os: "freestanding".to_string(),
-            env: String::new(),
-            abi: String::new(),
-            endian: "big".to_string(),
-            pointer_width: 32,
-        };
+        let config = TargetConfig::parse("x86-unknown-linux").expect("maintained target");
         let pruned = prune_module_for_target(module, &config);
         assert!(pruned.diagnostics.is_empty(), "{:?}", pruned.diagnostics);
 
@@ -1226,7 +1236,7 @@ fn visible() i32 { 2 }
         );
         assert!(errors.is_empty(), "{errors:?}");
 
-        let pruned = prune_module_for_target(module, &TargetConfig::host());
+        let pruned = prune_module_for_target(module, &test_target());
         assert!(pruned.diagnostics.is_empty(), "{:?}", pruned.diagnostics);
         let active_module = pruned.active_item_tree.to_module();
         assert_eq!(active_module.items.len(), 1);
@@ -1243,7 +1253,7 @@ fn invalid() i32 { 1 }
         );
         assert!(errors.is_empty(), "{errors:?}");
 
-        let pruned = prune_module_for_target(module, &TargetConfig::host());
+        let pruned = prune_module_for_target(module, &test_target());
         assert_eq!(pruned.active_item_tree.to_module().items.len(), 0);
         assert_eq!(pruned.diagnostics.len(), 1);
         assert!(pruned.diagnostics[0].summary.contains("condition"));

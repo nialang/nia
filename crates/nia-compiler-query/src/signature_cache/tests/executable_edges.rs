@@ -13,7 +13,7 @@ fn executable_value_ref_edges_rehydrate_current_modules_and_retire_corruption() 
         (&dependency, dependency_source, 18),
     ]);
     let namespace = crate::FrontendCacheNamespace::new(
-        &nia_target_config::TargetConfig::host(),
+        &nia_target::TargetConfig::host().expect("tests run on a maintained host"),
         crate::RuntimeSpec::Bare,
     );
     let owner = DefId(11);

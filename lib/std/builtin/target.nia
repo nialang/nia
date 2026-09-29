@@ -12,9 +12,6 @@ pub const os: &[char];
 @[builtin("target.env")]
 pub const env: &[char];
 
-@[builtin("target.abi")]
-pub const abi: &[char];
-
 @[builtin("target.endian")]
 pub const endian: &[char];
 

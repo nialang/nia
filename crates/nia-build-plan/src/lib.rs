@@ -9,6 +9,7 @@
 use std::fmt;
 
 use nia_compat::formats::BUILD_PLAN;
+use nia_target::TargetConfig;
 
 /// Reserved build-output directory used for atomic publication transactions.
 ///
@@ -237,25 +238,6 @@ impl LogicalPath {
     }
 }
 
-/// Target triple fields and pointer width captured by a frozen plan.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TargetSpec {
-    /// Target architecture.
-    pub arch: String,
-    /// Target vendor.
-    pub vendor: String,
-    /// Target operating system.
-    pub os: String,
-    /// Target environment.
-    pub env: String,
-    /// Target ABI.
-    pub abi: String,
-    /// Target byte order (`little` or `big`).
-    pub endian: String,
-    /// Target pointer width in bits.
-    pub pointer_width: u32,
-}
-
 /// Optimization level encoded into compiler actions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OptimizationMode {
@@ -435,7 +417,7 @@ pub enum ActionKind {
         /// Module to check.
         module: ModuleKey,
         /// Target configuration used by the compiler.
-        target: TargetSpec,
+        target: TargetConfig,
         /// Runtime model used by the compiler.
         runtime: Runtime,
     },
@@ -444,7 +426,7 @@ pub enum ActionKind {
         /// Artifact to emit.
         artifact: ArtifactKey,
         /// Target configuration used by the compiler.
-        target: TargetSpec,
+        target: TargetConfig,
         /// Static archives linked in declaration order.
         static_archives: Vec<ArtifactKey>,
     },
@@ -565,9 +547,9 @@ pub struct BuildPlanDraft {
     /// Declared package root mappings.
     pub packages: Vec<PlanPackage>,
     /// Target used to compile and run build tools.
-    pub host_target: TargetSpec,
+    pub host_target: TargetConfig,
     /// Target used for requested artifacts.
-    pub artifact_target: TargetSpec,
+    pub artifact_target: TargetConfig,
     /// Module declarations.
     pub modules: Vec<PlanModule>,
     /// Artifact declarations.
@@ -588,8 +570,8 @@ pub struct BuildPlan {
     release_compatibility: u32,
     root_package: PackageKey,
     packages: Vec<PlanPackage>,
-    host_target: TargetSpec,
-    artifact_target: TargetSpec,
+    host_target: TargetConfig,
+    artifact_target: TargetConfig,
     modules: Vec<PlanModule>,
     artifacts: Vec<PlanArtifact>,
     actions: Vec<PlanAction>,
@@ -720,13 +702,6 @@ pub enum PlanError {
     },
     /// A nonempty plan has neither a default nor an explicitly selected step.
     MissingDefaultStep,
-    /// A host or artifact target has invalid configuration fields.
-    InvalidTarget {
-        /// Target role, such as host or artifact.
-        role: &'static str,
-        /// Stable rejection reason.
-        reason: &'static str,
-    },
     /// A compiler action requests a target outside the plan's host/artifact pair.
     InvalidActionTarget(Box<InvalidActionTarget>),
 }
@@ -737,7 +712,7 @@ pub struct InvalidActionTarget {
     /// Action carrying the mismatched target.
     pub action: ActionKey,
     /// Target requested by the action.
-    pub target: TargetSpec,
+    pub target: TargetConfig,
 }
 
 impl fmt::Display for PlanError {
@@ -890,12 +865,11 @@ impl fmt::Display for PlanError {
             Self::MissingDefaultStep => {
                 f.write_str("non-empty build plan has no default or selected step")
             }
-            Self::InvalidTarget { role, reason } => write!(f, "invalid {role} target: {reason}"),
             Self::InvalidActionTarget(details) => write!(
                 f,
                 "action `{}` requests target `{}` outside the plan's host/artifact targets",
                 display_node_key(&details.action),
-                display_target(&details.target)
+                details.target
             ),
         }
     }
@@ -939,26 +913,11 @@ fn display_logical_path(path: &LogicalPath) -> String {
     }
 }
 
-fn display_target(target: &TargetSpec) -> String {
-    format!(
-        "{}-{}-{}-{}-{} ({}-bit {})",
-        target.arch,
-        target.vendor,
-        target.os,
-        target.env,
-        target.abi,
-        target.pointer_width,
-        target.endian
-    )
-}
-
 impl std::error::Error for PlanError {}
 
 impl BuildPlan {
     /// Canonicalizes and validates a draft into the only executable plan form.
     pub fn freeze(mut draft: BuildPlanDraft) -> Result<Self, PlanError> {
-        validation::validate_target(&draft.host_target, "host")?;
-        validation::validate_target(&draft.artifact_target, "artifact")?;
         validation::canonicalize_packages(&mut draft.packages, &draft.root_package)?;
         validation::validate_package_references(&draft)?;
         validation::canonicalize_modules(&mut draft.modules)?;
@@ -1006,11 +965,11 @@ impl BuildPlan {
         &self.packages
     }
     /// Returns the host compiler target.
-    pub fn host_target(&self) -> &TargetSpec {
+    pub fn host_target(&self) -> &TargetConfig {
         &self.host_target
     }
     /// Returns the artifact target.
-    pub fn artifact_target(&self) -> &TargetSpec {
+    pub fn artifact_target(&self) -> &TargetConfig {
         &self.artifact_target
     }
     /// Returns canonical module declarations.
@@ -1066,8 +1025,6 @@ mod tests {
         assert!(!rendered.contains("ActionKey"));
     }
     use super::*;
-
-    type TargetMutation = (&'static str, fn(&mut TargetSpec), &'static str);
 
     #[test]
     fn freeze_is_independent_of_allocation_order() {
@@ -1141,7 +1098,7 @@ mod tests {
         else {
             unreachable!()
         };
-        target.arch = "aarch64".to_string();
+        *target = TargetConfig::parse("aarch64-unknown-linux").unwrap();
         assert!(matches!(
             BuildPlan::freeze(target_mismatch),
             Err(PlanError::InvalidArtifactUse {
@@ -1181,70 +1138,15 @@ mod tests {
                 | ActionKind::CompilerEmit { target, .. } => target,
                 _ => unreachable!(),
             };
-            target.arch = "third-architecture".to_string();
+            let third = TargetConfig::parse("x86_64-apple-macos").unwrap();
+            *target = third;
 
             assert!(matches!(
                 BuildPlan::freeze(value),
                 Err(PlanError::InvalidActionTarget(details))
                     if details.action.name() == action_name
-                        && details.target.arch == "third-architecture"
+                        && details.target == third
             ));
-        }
-    }
-
-    #[test]
-    fn freeze_rejects_malformed_host_and_artifact_targets() {
-        let cases: &[TargetMutation] = &[
-            (
-                "empty architecture",
-                |target: &mut TargetSpec| target.arch.clear(),
-                "architecture and operating system must be named",
-            ),
-            (
-                "empty operating system",
-                |target: &mut TargetSpec| target.os.clear(),
-                "architecture and operating system must be named",
-            ),
-            (
-                "NUL architecture",
-                |target: &mut TargetSpec| target.arch = "x\0_64".into(),
-                "target field contains NUL",
-            ),
-            (
-                "NUL vendor",
-                |target: &mut TargetSpec| target.vendor = "bad\0vendor".into(),
-                "target field contains NUL",
-            ),
-            (
-                "invalid endianness",
-                |target: &mut TargetSpec| target.endian = "middle".into(),
-                "endianness must be `little` or `big`",
-            ),
-            (
-                "unsupported pointer width",
-                |target: &mut TargetSpec| target.pointer_width = 24,
-                "unsupported pointer width",
-            ),
-        ];
-
-        for (label, mutate, reason) in cases {
-            for role in ["host", "artifact"] {
-                let mut value = draft(false);
-                let target = if role == "host" {
-                    &mut value.host_target
-                } else {
-                    &mut value.artifact_target
-                };
-                mutate(target);
-                assert!(
-                    matches!(
-                        BuildPlan::freeze(value),
-                        Err(PlanError::InvalidTarget { role: found_role, reason: found_reason })
-                            if found_role == role && found_reason == *reason
-                    ),
-                    "{label} should reject the {role} target"
-                );
-            }
         }
     }
 
@@ -2334,8 +2236,8 @@ mod tests {
     #[test]
     fn artifact_programs_must_be_emitted_for_the_host_target() {
         let mut value = draft(false);
-        value.artifact_target.arch = "aarch64".to_string();
-        let artifact_target = value.artifact_target.clone();
+        value.artifact_target = TargetConfig::parse("aarch64-unknown-linux").unwrap();
+        let artifact_target = value.artifact_target;
         let emit = value
             .actions
             .iter_mut()

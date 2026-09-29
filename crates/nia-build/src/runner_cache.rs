@@ -177,19 +177,7 @@ pub(super) fn cache_key(
     for part in invocation.toolchain.identity().fingerprint().parts() {
         hasher.update(&part.to_le_bytes());
     }
-    hasher.update(invocation.toolchain.host_target().arch.as_bytes());
-    hasher.update(invocation.toolchain.host_target().vendor.as_bytes());
-    hasher.update(invocation.toolchain.host_target().os.as_bytes());
-    hasher.update(invocation.toolchain.host_target().env.as_bytes());
-    hasher.update(invocation.toolchain.host_target().abi.as_bytes());
-    hasher.update(invocation.toolchain.host_target().endian.as_bytes());
-    hasher.update(
-        &invocation
-            .toolchain
-            .host_target()
-            .pointer_width
-            .to_le_bytes(),
-    );
+    hasher.update(invocation.toolchain.host_target().name().as_bytes());
     hasher.update(&[
         profile_tag(invocation.profile),
         compilation_mode_tag(invocation.compilation_mode),

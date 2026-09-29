@@ -510,7 +510,7 @@ impl QueryKey<CompilerContext> for ExecutableFactEpochQuery {
         Ok(ExecutableFactEpoch {
             entry_module: graph.entry(),
             runtime_root_modules,
-            target: db.get(CompilerTargetQuery)?.as_ref().clone(),
+            target: *db.get(CompilerTargetQuery)?.as_ref(),
             runtime: db.get(CompilerRuntimeQuery)?.as_ref().clone(),
             codegen_scope: *db.get(CompilerCodegenScopeQuery)?,
         })

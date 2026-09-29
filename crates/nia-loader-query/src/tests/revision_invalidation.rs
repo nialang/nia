@@ -5,8 +5,7 @@ fn rejected_syntax_publication_does_not_commit_source_text() {
     let sources = SourceDatabase::new();
     let path = SourcePath::new("main.nia");
     let file = sources.set_source(path.clone(), "fn main() { 0 }").unwrap();
-    let loader =
-        LoaderDatabase::new_for_test(LoadRequest::new(path.as_str()).with_sources(sources));
+    let loader = LoaderDatabase::new_for_test(test_request(path.as_str()).with_sources(sources));
     let original = loader.db.expect_get(SyntaxModuleQuery(file.version()));
     let next = SourceVersion {
         revision: file.revision.next().unwrap(),
@@ -48,8 +47,7 @@ fn loader_edits_reuse_syntax_and_match_clean_lowering_through_recovery() {
     let path = SourcePath::new("main.nia");
     let text = "fn main() { before(); if flag { value[index]; } after(); } fn last() {}";
     let mut file = sources.set_source(path.clone(), text).unwrap();
-    let loader =
-        LoaderDatabase::new_for_test(LoadRequest::new(path.as_str()).with_sources(sources));
+    let loader = LoaderDatabase::new_for_test(test_request(path.as_str()).with_sources(sources));
     let original = loader.db.expect_get(SyntaxModuleQuery(file.version()));
     let old_last = original
         .tree
@@ -149,8 +147,7 @@ fn rejected_and_lazy_loader_edits_preserve_revision_ownership() {
     let file = sources
         .set_source(path.clone(), "// \u{4e2d}\nfn main() {}")
         .unwrap();
-    let loader =
-        LoaderDatabase::new_for_test(LoadRequest::new(path.as_str()).with_sources(sources));
+    let loader = LoaderDatabase::new_for_test(test_request(path.as_str()).with_sources(sources));
     let same = loader.set_source(path.as_str(), file.text.clone()).unwrap();
     assert!(
         loader
@@ -209,7 +206,7 @@ fn compiler_loader_update_detaches_current_defs_from_old_source_revision() {
     sources
         .set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }")
         .expect("store source");
-    let loader = LoaderDatabase::new_for_test(LoadRequest::new("main.nia").with_sources(sources));
+    let loader = LoaderDatabase::new_for_test(test_request("main.nia").with_sources(sources));
     let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone()))
         .expect("create compiler database");
 

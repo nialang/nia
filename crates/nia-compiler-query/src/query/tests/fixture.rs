@@ -263,7 +263,7 @@ impl LoadedProgramFixture {
             graph: self.graph.clone().into(),
             provider_fact_revision: crate::ProviderFactRevision::default(),
             symbols: test_symbols(),
-            target: TargetConfig::host(),
+            target: TargetConfig::host().expect("tests run on a maintained host"),
             profile: nia_target_config::BuildProfile::Debug,
             compilation_mode: nia_target_config::CompilationMode::Normal,
             runtime: RuntimeSpec::Bare,
@@ -308,8 +308,12 @@ pub(super) fn loaded_module(id: ModuleId, path: &str, source: &str) -> LoadedMod
 }
 
 pub(super) fn test_freestanding_runtime() -> RuntimeSpec {
-    RuntimeSpec::source_from_package_root("runtime/pkg.nia", &TargetConfig::host(), [])
-        .expect("host test runtime")
+    RuntimeSpec::source_from_package_root(
+        "runtime/pkg.nia",
+        &TargetConfig::host().expect("tests run on a maintained host"),
+        [],
+    )
+    .expect("host test runtime")
 }
 
 fn loaded_module_in(

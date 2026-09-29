@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+nia-target.workspace = true
 nia-ast.workspace = true
 nia-const-eval.workspace = true
 nia-const-ir.workspace = true
@@ -27,7 +28,6 @@ nia-source.workspace = true
 nia-span.workspace = true
 nia-symbol.workspace = true
 nia-symbol-table.workspace = true
-nia-target-config.workspace = true
 nia-trait-solve.workspace = true
 nia-ty.workspace = true
 nia-type-lower.workspace = true

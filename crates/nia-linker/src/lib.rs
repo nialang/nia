@@ -21,7 +21,7 @@ use std::os::unix::fs::PermissionsExt;
 
 use nia_backend_ir::{CodegenUnitKey, IncrementalLinkInputs};
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
-use nia_target_config::TargetConfig;
+use nia_target::TargetConfig;
 
 const LINK_RESULT_FINGERPRINT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.link-result-components");
@@ -698,16 +698,13 @@ impl LinkTarget {
         }
     }
 
-    /// Converts compiler target configuration, supplying the OS default ABI when absent.
+    /// Converts compiler target configuration with the OS default link ABI.
     pub fn from_target_config(config: &TargetConfig) -> Self {
+        let os = config.os().name();
         Self {
-            arch: config.arch.clone(),
-            os: config.os.clone(),
-            abi: if config.abi.is_empty() {
-                default_abi_for_os(&config.os)
-            } else {
-                config.abi.clone()
-            },
+            arch: config.arch().name().to_string(),
+            os: os.to_string(),
+            abi: default_abi_for_os(os),
         }
     }
 

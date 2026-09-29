@@ -44,11 +44,7 @@ extend[T] build::Error!T {
 }
 
 struct TargetText {
-    arch: string::String,
-    vendor: string::String,
-    os: string::String,
-    env: string::String,
-    abi: string::String,
+    name: string::String,
     endian: string::String,
 }
 
@@ -71,11 +67,7 @@ fn rememberTargetCleanupError(
 extend TargetText {
     fn init() TargetText {
         Self {
-            arch: string::String::init(),
-            vendor: string::String::init(),
-            os: string::String::init(),
-            env: string::String::init(),
-            abi: string::String::init(),
+            name: string::String::init(),
             endian: string::String::init(),
         }
     }
@@ -87,11 +79,7 @@ extend TargetText {
     ) build::Error!() {
         let mut firstError: ?build::Error = null;
         rememberTargetCleanupError(&mut firstError, self.endian.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
-        rememberTargetCleanupError(&mut firstError, self.abi.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
-        rememberTargetCleanupError(&mut firstError, self.env.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
-        rememberTargetCleanupError(&mut firstError, self.os.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
-        rememberTargetCleanupError(&mut firstError, self.vendor.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
-        rememberTargetCleanupError(&mut firstError, self.arch.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
         if firstError is ?error {
             return error!;
         }
@@ -217,14 +205,10 @@ fn readTarget(
     storage: &mut TargetText,
     subject: build::ErrorSubject,
 ) build::Error!build::TargetView {
-    let arch = readText(cursor, allocator, &mut storage.arch, subject).?;
-    let vendor = readText(cursor, allocator, &mut storage.vendor, subject).?;
-    let os = readText(cursor, allocator, &mut storage.os, subject).?;
-    let env = readText(cursor, allocator, &mut storage.env, subject).?;
-    let abi = readText(cursor, allocator, &mut storage.abi, subject).?;
+    let name = readText(cursor, allocator, &mut storage.name, subject).?;
     let endian = readText(cursor, allocator, &mut storage.endian, subject).?;
     let pointerWidth = cursor.u32().?;
-    !build::TargetView::init(arch, vendor, os, env, abi, endian, pointerWidth)
+    !build::TargetView::init(name, endian, pointerWidth)
 }
 
 fn readOptimization(cursor: &mut ConfigCursor) build::Error!build::OptimizationMode {
