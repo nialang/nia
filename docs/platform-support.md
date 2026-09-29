@@ -20,14 +20,43 @@ Runtime selection is a separate axis: Nia's `freestanding` injects Nia startup,
 and `bare` omits it. Neither choice alone specifies system-library dependencies
 or corresponds to C's hosted/freestanding environment classification.
 
-For Darwin adaptation, modern macOS process startup uses dyld and `LC_MAIN`;
-Clang does not normally add `crt1.o` for macOS 10.8 or later. Its
-`-ffreestanding` option does not by itself remove the default `-lSystem` link.
-Zig likewise treats macOS as requiring the system libc. Nia-owned startup can
-use the platform entry ABI without adding an external CRT startup object, but
-the ordinary dyld process path requires libSystem. Kernel/firmware entry and
-fully static executables are different platform contracts. These constraints
-do not yet constitute Nia macOS support.
+## Runtime Model
+
+Nia programs depend on the lowest operating-system interface that each platform
+keeps stable, and on nothing above it by default. The toolchain does not add a
+C runtime: there is no CRT startup object, no C `main` convention for user
+code, and no implicit libc. A C library is an ordinary dependency that a
+package links explicitly, like any other native library; Nia code can then use
+it through `extern` declarations.
+
+The two runtime selections describe who owns process entry, not whether a C
+library is present:
+
+- `freestanding`: the Nia toolchain supplies process entry for an operating
+  system. Its startup adapts the platform entry ABI, builds `process::Init`, and
+  calls the user entry contract.
+- `bare`: the toolchain supplies no entry and assumes no operating system. The
+  program or its link configuration defines entry, as kernels, firmware, and
+  embedded images do.
+
+C's "hosted" environment, a libc plus a `main` called by the C runtime, has no
+counterpart in this model.
+
+The stable boundary differs by platform, so the interface Nia binds differs too:
+
+| Platform | Stable boundary | Nia startup and system access | Not used by default |
+| --- | --- | --- | --- |
+| Linux | Kernel system-call ABI | `_start` from the kernel entry stack; direct system calls | libc, CRT objects |
+| Windows | Documented Win32 API in system DLLs | Nia entry called by the loader; `kernel32` and `bcryptprimitives` | MSVC CRT, UCRT, undocumented exports |
+| Darwin | `libSystem` system interfaces | `main` entry called by `dyld` through `LC_MAIN`; `libSystem` system calls | `crt1.o`, C stdio and allocation |
+
+Darwin does not keep its system-call numbers or ABI stable, and a macOS process
+always starts through `dyld`; `libSystem` is therefore the stable boundary, in
+the same role that `kernel32` has on Windows. Nia uses its POSIX
+system-interface functions, such as `open`, `mmap`, and `posix_spawn`, and
+leaves its C library facilities to programs that link them explicitly. The
+Darwin entry symbol is `main` only because that is the name `dyld` and the
+linker expect; it is Nia runtime startup, not a C runtime `main`.
 
 ## Maintained Configurations
 
