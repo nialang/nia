@@ -341,7 +341,11 @@ text while producing the report, and certificate hits recover text from the
 current checked inputs. Driver preparation errors and artifacts preserve this
 collection. Retained snapshots take precedence over caller overrides and disk
 reads; explicit missing-source entries prohibit reading a later file at that
-path. This keeps dependency overlays and old reports stable across source edits.
+path. Report paths are display paths, so source capture matches a module by its
+loaded physical path as well as its logical identity; toolchain modules such as
+std differ in the two. A label whose span the available text cannot cover
+renders as a byte range rather than a guessed line. This keeps dependency
+overlays and old reports stable across source edits.
 
 Build/test JSON mode disables live child-stream forwarding; bounded captured
 output stays in structured failure notes. Text mode retains live output.

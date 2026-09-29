@@ -1722,6 +1722,20 @@ fn render_label(
     first: bool,
     output: &mut String,
 ) {
+    // Without text that covers the span, a line number would be a guess.
+    // Report the stable byte range, as unavailable related locations do.
+    if label.span.end > source.len() {
+        let arrow = if first { "-->" } else { ":::" };
+        output.push_str(&format!(
+            " {arrow} {path}:bytes {}..{}",
+            label.span.start, label.span.end
+        ));
+        if let Some(message) = &label.message {
+            output.push_str(&format!(": {message}"));
+        }
+        output.push('\n');
+        return;
+    }
     let line = line_info(source, label.span.start);
     let line_text = &source[line.start..line.end];
     let line_no = line.number.to_string();
@@ -2300,6 +2314,21 @@ mod tests {
                 .message
                 .contains("user diagnostic emitted with fallback span")
         );
+    }
+
+    #[test]
+    fn renders_byte_ranges_when_source_does_not_cover_the_label() {
+        let diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, "not assignable")
+            .primary(Span::new(4261, 4266), "target here")
+            .finish();
+
+        let rendered = render_diagnostic("std/command.nia", "", &diagnostic);
+
+        assert!(
+            rendered.contains("--> std/command.nia:bytes 4261..4266: target here"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains(":1:1"), "{rendered}");
     }
 
     #[test]

@@ -158,3 +158,41 @@ fn assert_success_ref(output: &std::process::Output) {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn toolchain_module_diagnostics_render_their_retained_source_lines() {
+    let root = support::temp_dir("toolchain_module_diagnostic_source");
+    let resources = root.join("lib");
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("nia-cli lives under crates/");
+    copy_tree(&workspace_root.join("lib"), &resources);
+    // Toolchain modules use logical identities that differ from their display
+    // paths; the report must still render the retained source line. Only
+    // reachable runtime bodies are checked, so break the entry contract.
+    let runtime_main = resources.join("runtime/main.nia");
+    let text = fs::read_to_string(&runtime_main).expect("read runtime entry contract");
+    let marker = "    if entry::main(init) is error! {";
+    assert!(text.contains(marker), "{text}");
+    let text = text.replacen(marker, &format!("    let flag: i32 = true;\n{marker}"), 1);
+    fs::write(&runtime_main, text).expect("write broken runtime entry contract");
+    let main = root.join("main.nia");
+    fs::write(
+        &main,
+        "using std::process;\npub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }\n",
+    )
+    .expect("write entry");
+
+    let output = support::nia_command_with_resource_root(&resources)
+        .args(["check", "--runtime", "freestanding"])
+        .arg(&main)
+        .output_timeout_for_compiler("check broken toolchain runtime module");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success(), "{stderr}");
+    assert!(stderr.contains("runtime/main.nia:6:21"), "{stderr}");
+    assert!(stderr.contains("let flag: i32 = true;"), "{stderr}");
+    assert!(!stderr.contains(":1:1"), "{stderr}");
+}
