@@ -144,6 +144,9 @@ does not create a separate executor or replace LLVM memory backpressure.
 
 Actions publish only declared build-root outputs. Equal logical destinations
 share a cross-process lock; unrelated destinations may proceed independently.
+A lock is stale only when no live owner holds it: Unix reclaimers take the
+owner's `flock`, and Windows reclaimers need an exclusive open that deletes the
+same file object on close. Neither platform reclaims a live lock by age.
 File and directory outputs use staged same-filesystem transactions. The
 versioned journal and prepared marker make interrupted publication recoverable
 without guessing which partial destination is valid. Corrupt or contradictory
