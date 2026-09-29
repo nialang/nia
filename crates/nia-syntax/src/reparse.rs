@@ -255,6 +255,53 @@ mod tests {
         }
     }
 
+    /// `Parse` equality ignores incremental bookkeeping, so drift there would
+    /// only surface as a wrong reuse several edits later. Bounds may be more
+    /// conservative than a clean parse, never narrower.
+    fn assert_bookkeeping_sound(incremental: &Parse, clean: &Parse, context: &str) {
+        assert_eq!(
+            incremental.grammar_errors, clean.grammar_errors,
+            "{context}: raw grammar errors"
+        );
+        let starts = |parse: &Parse| {
+            parse
+                .iterations
+                .iter()
+                .map(|it| it.start)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            starts(incremental),
+            starts(clean),
+            "{context}: iteration starts"
+        );
+        for (reused, fresh) in incremental.iterations.iter().zip(&clean.iterations) {
+            assert!(
+                reused.read_end >= fresh.read_end,
+                "{context}: {reused:?} < {fresh:?}"
+            );
+            assert_eq!(reused.errors_end, fresh.errors_end, "{context}: {reused:?}");
+            assert_eq!(
+                reused.alternates_end, fresh.alternates_end,
+                "{context}: {reused:?}"
+            );
+        }
+        let spans = |parse: &Parse| {
+            parse
+                .blocks
+                .iter()
+                .map(|block| block.span)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(spans(incremental), spans(clean), "{context}: block regions");
+        for (reused, fresh) in incremental.blocks.iter().zip(&clean.blocks) {
+            assert!(
+                reused.prefix_read_end >= fresh.prefix_read_end,
+                "{context}: {reused:?} < {fresh:?}"
+            );
+        }
+    }
+
     fn node_with_text<'a>(node: &'a GreenNode, source: &str, text: &str) -> Option<&'a GreenNode> {
         if &source[node.span().start..node.span().end] == text {
             return Some(node);
@@ -334,6 +381,11 @@ mod tests {
                             .unwrap_or_else(|error| panic!("{source:?}, {edit:?}: {error:?}"));
                         let clean = parse(&edited, Some(next_version)).expect("clean parse");
                         assert_eq!(incremental, clean, "source {source:?}, edit {edit:?}");
+                        assert_bookkeeping_sound(
+                            &incremental,
+                            &clean,
+                            &format!("source {source:?}, edit {edit:?}"),
+                        );
                     }
                 }
             }
@@ -438,6 +490,7 @@ mod tests {
                 )
             });
             assert_eq!(current, clean, "step {step}, {edit:?}");
+            assert_bookkeeping_sound(&current, &clean, &format!("step {step}, {edit:?}"));
         }
     }
 }

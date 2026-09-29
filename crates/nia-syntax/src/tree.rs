@@ -6,7 +6,7 @@
 //! stable node identity. Every tree owns a terminal EOF token so token views
 //! are total at end of input.
 
-use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind, tokenize_lossless};
+use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind};
 use nia_node_id::{NodeChildPath, SyntaxKind as NodeSyntaxKind, VersionedNodeKey};
 use nia_source::SourceVersion;
 use nia_span::Span;
@@ -268,31 +268,6 @@ impl SyntaxTree {
         let mut text = String::new();
         self.root.push_text(&mut text);
         text
-    }
-
-    /// Rewrites one token in place when an edit stays inside its boundaries.
-    ///
-    /// Returns `None` when the edit crosses a token boundary or changes the
-    /// token's lexical kind; the grammar owner must then reparse. The caller
-    /// is responsible for deciding whether the rewritten token can change a
-    /// grammar decision.
-    pub fn rewrite_token(&self, edit: &TextEdit, version: Option<SourceVersion>) -> Option<Self> {
-        let source = edit.apply(&self.source)?;
-        let target = find_single_token_edit(&self.root, edit)?;
-        let replacement_text = edited_token_text(target.text(), target.span(), edit)?;
-        token_kind_matches(target.kind(), &replacement_text)?;
-        let root = rewrite_after_single_token_edit(
-            &self.root,
-            target.span(),
-            &replacement_text,
-            edit,
-            source.len(),
-        );
-        Some(Self {
-            source,
-            version,
-            root,
-        })
     }
 
     /// Replaces the child node at `path` and shifts every later span.
@@ -701,94 +676,6 @@ fn element_width(element: &GreenElement) -> usize {
     }
 }
 
-fn find_single_token_edit<'a>(node: &'a GreenNode, edit: &TextEdit) -> Option<&'a GreenToken> {
-    for child in node.children() {
-        match child {
-            GreenElement::Node(node) => {
-                if let Some(token) = find_single_token_edit(node, edit) {
-                    return Some(token);
-                }
-            }
-            GreenElement::Token(token)
-                if token.span().start <= edit.span.start
-                    && edit.span.end <= token.span().end
-                    && token.span().start < token.span().end =>
-            {
-                return Some(token);
-            }
-            GreenElement::Token(_) => {}
-        }
-    }
-    None
-}
-
-fn edited_token_text(token_text: &str, token_span: Span, edit: &TextEdit) -> Option<String> {
-    let relative = TextEdit::replace(
-        Span::new(
-            edit.span.start.checked_sub(token_span.start)?,
-            edit.span.end.checked_sub(token_span.start)?,
-        ),
-        edit.replacement.clone(),
-    );
-    relative.apply(token_text)
-}
-
-fn token_kind_matches(kind: &SyntaxKind, text: &str) -> Option<()> {
-    let mut tokens = tokenize_lossless(text).into_iter();
-    let token = tokens.next()?;
-    let eof = tokens.next()?;
-    if tokens.next().is_some() {
-        return None;
-    }
-    if token.span != Span::new(0, text.len())
-        || eof.span != Span::new(text.len(), text.len())
-        || !matches!(eof.kind, LosslessTokenKind::Token(TokenKind::Eof))
-        || syntax_kind(token.kind) != *kind
-    {
-        return None;
-    }
-    Some(())
-}
-
-fn rewrite_after_single_token_edit(
-    node: &GreenNode,
-    target_span: Span,
-    replacement_text: &str,
-    edit: &TextEdit,
-    source_len: usize,
-) -> GreenNode {
-    let children = node
-        .children()
-        .iter()
-        .map(|child| match child {
-            GreenElement::Node(node) => GreenElement::Node(rewrite_after_single_token_edit(
-                node,
-                target_span,
-                replacement_text,
-                edit,
-                source_len,
-            )),
-            GreenElement::Token(token) if token.span() == target_span => {
-                GreenElement::Token(GreenToken {
-                    kind: token.kind().clone(),
-                    span: Span::new(
-                        token.span().start,
-                        token.span().start + replacement_text.len(),
-                    ),
-                    text: Arc::from(replacement_text),
-                })
-            }
-            GreenElement::Token(token) => GreenElement::Token(shift_token(token, edit)),
-        })
-        .collect::<Vec<_>>();
-    let span = if matches!(node.kind(), SyntaxKind::SourceFile) {
-        Span::new(0, source_len)
-    } else {
-        rebuilt_span(node, &children, edit)
-    };
-    GreenNode::new(node.kind().clone(), span, children)
-}
-
 fn splice_green(
     node: &GreenNode,
     path: &[u32],
@@ -891,6 +778,7 @@ fn shift_offset(offset: usize, delta: isize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nia_lexer::tokenize_lossless;
     use nia_node_id::NodePosition;
     use nia_source::{SourceId, SourceRevision};
 
@@ -1084,52 +972,6 @@ mod tests {
         let node = GreenNode::from_events(source, 4, events).expect("fragment");
         assert_eq!(node.span(), Span::new(4, 5));
         assert_eq!(node.first_token().map(GreenToken::text), Some("b"));
-    }
-
-    #[test]
-    fn rewrites_single_token_edit_in_place() {
-        let edited_version = version(2);
-        let tree = flat("fn main() i32 { 1 }", Some(version(1)));
-        let number = tree.source().find('1').expect("number literal");
-        let edited = tree
-            .rewrite_token(
-                &TextEdit::replace(Span::new(number, number + 1), "22"),
-                Some(edited_version),
-            )
-            .expect("token rewrite");
-
-        assert_eq!(edited.version(), Some(edited_version));
-        assert_eq!(edited.full_text(), "fn main() i32 { 22 }");
-        assert_eq!(edited.green_root().span(), Span::new(0, 20));
-        assert!(
-            edited
-                .tokens()
-                .iter()
-                .any(|token| token.text.as_ref() == "22")
-        );
-    }
-
-    #[test]
-    fn rewrites_trivia_edit_in_place() {
-        let tree = flat("fn main() i32 { // old\n  1\n}", None);
-        let old = tree.source().find("old").expect("comment text");
-        let edited = tree
-            .rewrite_token(&TextEdit::replace(Span::new(old, old + 3), "new"), None)
-            .expect("trivia rewrite");
-        assert_eq!(edited.full_text(), "fn main() i32 { // new\n  1\n}");
-    }
-
-    #[test]
-    fn token_rewrite_rejects_boundary_changes() {
-        let tree = flat("fn main() i32 { 1 }", None);
-        let number = tree.source().find('1').expect("number literal");
-        assert!(
-            tree.rewrite_token(
-                &TextEdit::replace(Span::new(number, number + 1), "1 + 2"),
-                None
-            )
-            .is_none()
-        );
     }
 
     #[test]
