@@ -220,7 +220,22 @@ fn reclaim_stale_lock(path: &Path, stale_after: Duration) {
         }
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        // An owner holds its creating handle for the whole scope. An exclusive
+        // open therefore succeeds only when no live owner remains, and
+        // delete-on-close removes exactly that file object: a successor that
+        // recreates the name after another reclaimer cannot be unlinked here.
+        // Age is irrelevant: handle ownership is the liveness proof.
+        let _ = stale_after;
+        let _ = fs::OpenOptions::new()
+            .access_mode(windows_sys::Win32::Storage::FileSystem::DELETE)
+            .share_mode(0)
+            .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_DELETE_ON_CLOSE)
+            .open(path);
+    }
+
+    #[cfg(not(any(unix, windows)))]
     {
         if lock_owner_is_alive(path) {
             return;
@@ -262,6 +277,7 @@ fn try_lock_file(file: &fs::File) -> io::Result<bool> {
     Err(error)
 }
 
+#[cfg(not(windows))]
 fn lock_is_stale_by_age(path: &Path, stale_after: Duration) -> bool {
     if stale_after == Duration::ZERO {
         return true;
@@ -281,7 +297,7 @@ fn lock_owner_is_alive(path: &Path) -> bool {
     identity.is_alive()
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn lock_owner_is_alive(path: &Path) -> bool {
     let Ok(metadata) = fs::metadata(path) else {
         return false;
@@ -293,6 +309,7 @@ fn lock_owner_is_alive(path: &Path) -> bool {
         .is_some_and(|age| age < STALE_AFTER)
 }
 
+#[cfg(any(not(windows), test))]
 fn read_lock_owner(path: &Path) -> Option<ProcessIdentity> {
     let owner = read_bounded_utf8(path, MAX_LOCK_OWNER_BYTES)?;
     let token = owner.split_whitespace().next()?;
@@ -457,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     fn dead_owner_is_reclaimed_without_age_delay() {
         let path = test_root("stale").join("output.lock");
         let pid = std::process::id();
@@ -472,7 +489,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     fn reclaiming_a_live_lock_preserves_the_canonical_path() {
         let path = test_root("live-reclaim").join("output.lock");
         let lock = ScopedFileLock::acquire(path.clone()).unwrap();
@@ -486,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn oversized_owner_record_is_never_parsed_from_its_valid_prefix() {
         let path = test_root("oversized-owner").join("output.lock");
         let identity = ProcessIdentity::current();
