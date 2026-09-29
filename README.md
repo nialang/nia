@@ -89,6 +89,15 @@ building:
 LLVM_SYS_231_PREFIX=/path/to/llvm-23.1 cargo build --workspace
 ```
 
+Executables link with LLD for every target. A release archive bundles it; a
+compiler built from source finds `ld.lld` on `PATH` or through `NIA_LLD`.
+Distribution packages often install it only in the versioned LLVM `bin`
+directory, such as `/usr/lib/llvm-23/bin` on Ubuntu:
+
+```sh
+export PATH=/usr/lib/llvm-23/bin:$PATH
+```
+
 On Windows, set the LLVM prefix and `bin` directory once at user scope so new
 PowerShell, Cargo, and IDE processes inherit them:
 
