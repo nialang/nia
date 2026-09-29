@@ -19,9 +19,15 @@ use nia_ty::{PrimitiveTy, TyKind};
 
 use crate::program_index::ProgramIndex;
 
-pub(crate) fn required_symbols(index: &ProgramIndex) -> CompilerBuiltinSymbols {
+pub(crate) fn required_symbols(
+    index: &ProgramIndex,
+    target: nia_target::TargetConfig,
+) -> CompilerBuiltinSymbols {
     let mut collector = CompilerBuiltinCollector {
-        wide_i64_div_rem: usize::BITS < 64,
+        // 32-bit targets lower 64-bit division through helper calls.
+        wide_i64_div_rem: target.pointer_width() < 64,
+        // MSVC-ABI objects that use floating point reference `_fltused`.
+        windows_fltused: target.object_format() == nia_target::ObjectFormat::Coff,
         ..CompilerBuiltinCollector::default()
     };
     collector.collect_program(index);
@@ -95,6 +101,7 @@ impl CompilerBuiltinSymbols {
 struct CompilerBuiltinCollector {
     symbols: CompilerBuiltinSymbols,
     wide_i64_div_rem: bool,
+    windows_fltused: bool,
 }
 
 impl CompilerBuiltinCollector {
@@ -194,7 +201,7 @@ impl CompilerBuiltinCollector {
     }
 
     fn collect_expr(&mut self, index: &ProgramIndex, expr: &FunctionExpr) {
-        if cfg!(windows)
+        if self.windows_fltused
             && matches!(
                 index.ty_kind(expr.ty),
                 Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
@@ -1682,7 +1689,11 @@ mod tests {
             Arc::new(TypeStore::new().expect("create type store")),
         );
 
-        assert_eq!(required_symbols(&index), CompilerBuiltinSymbols::default());
+        let target = nia_target::TargetConfig::parse("x86_64-unknown-linux").unwrap();
+        assert_eq!(
+            required_symbols(&index, target),
+            CompilerBuiltinSymbols::default()
+        );
     }
 
     #[test]

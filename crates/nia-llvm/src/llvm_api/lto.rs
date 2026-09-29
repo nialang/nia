@@ -706,7 +706,7 @@ mod tests {
         builder.build_return(Some(&value)).expect("return value");
         module.verify().expect("verify source module");
 
-        let identity = TargetMachine::native_identity().expect("native target identity");
+        let identity = crate::llvm_api::test_host_identity();
         let target = TargetMachine::for_identity(&identity, OptimizationLevel::Default)
             .expect("target machine");
         target.configure_module(&module).expect("configure module");
@@ -743,7 +743,7 @@ mod tests {
         builder.build_return(Some(&value)).expect("return value");
         module.verify().expect("verify source module");
 
-        let identity = TargetMachine::native_identity().expect("native target identity");
+        let identity = crate::llvm_api::test_host_identity();
         let target = TargetMachine::for_identity(&identity, OptimizationLevel::Default)
             .expect("target machine");
         target.configure_module(&module).expect("configure module");
@@ -888,7 +888,7 @@ mod tests {
 
     #[test]
     fn modern_thin_lto_resolves_cross_module_calls() {
-        let identity = TargetMachine::native_identity().expect("native target identity");
+        let identity = crate::llvm_api::test_host_identity();
         let target = TargetMachine::for_identity(&identity, OptimizationLevel::Default)
             .expect("target machine");
 
@@ -1014,7 +1014,7 @@ mod tests {
         let context = Context::create().expect("create context");
         let module = context.create_module("ordinary").expect("create module");
         let bitcode = module.bitcode().expect("ordinary bitcode");
-        let target = TargetMachine::native_identity().expect("native target identity");
+        let target = crate::llvm_api::test_host_identity();
         let error = run_thin_lto(
             &[ThinLtoInput {
                 name: "ordinary",

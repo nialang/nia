@@ -204,7 +204,7 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
         })?;
         let builtin_symbols =
             time_codegen_stage(self.options.timings, "llvm_finish.builtin_symbols", || {
-                compiler_builtins::required_symbols(&index)
+                compiler_builtins::required_symbols(&index, self.options.target)
             });
         let program_diagnostics = time_codegen_stage(
             self.options.timings,
@@ -318,10 +318,8 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
         cache: Option<Arc<dyn LtoModuleWorkProductCache>>,
         session: &'session QuerySession,
     ) -> nia_ice::IceResult<Self> {
-        let (target_identity, internal_diagnostics) = match TargetMachine::native_identity() {
-            Ok(identity) => (Some(Arc::new(identity)), Vec::new()),
-            Err(error) => (None, vec![error.diagnostic()]),
-        };
+        let target_identity = Some(Arc::new(options.target_machine_identity()));
+        let internal_diagnostics = Vec::new();
         Ok(Self {
             coordinator: CodegenReadinessCoordinator::new(modules, type_store, owners),
             pre_link,
@@ -382,7 +380,7 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
         })?;
         let builtin_symbols =
             time_codegen_stage(self.options.timings, "llvm_finish.builtin_symbols", || {
-                compiler_builtins::required_symbols(&index)
+                compiler_builtins::required_symbols(&index, self.options.target)
             });
         let program_diagnostics = time_codegen_stage(
             self.options.timings,
@@ -585,11 +583,13 @@ impl<'session> LlvmIrReadinessEmitter<'session> {
     }
 }
 
-/// Validates and emits textual LLVM IR with default codegen options.
+/// Validates and emits textual LLVM IR for the fixed test target.
 ///
 /// Backend diagnostics already present in `lowering` remain owned by the
 /// lowering caller; this function reports only failures discovered at the
-/// backend-IR/LLVM boundary.
+/// backend-IR/LLVM boundary. Production callers pass their artifact target
+/// through [`emit_llvm_ir_with_options`].
+#[cfg(test)]
 pub fn emit_llvm_ir(
     lowering: Arc<BackendLowering>,
     type_store: Arc<TypeStore>,
@@ -1309,12 +1309,11 @@ fn emit_native_object_partition(
         partition,
         declarations,
     } = prepared;
-    let target_identity = time_codegen_stage(
-        options.timings,
-        "llvm_codegen.native_target_identity",
-        TargetMachine::native_identity,
-    )
-    .map_err(|error| vec![error.diagnostic()])?;
+    let target_identity =
+        time_codegen_stage(options.timings, "llvm_codegen.target_identity", || {
+            Ok::<_, nia_llvm::LlvmError>(options.target_machine_identity())
+        })
+        .map_err(|error| vec![error.diagnostic()])?;
     let Some(module) = index.module_for_partition(&partition) else {
         return Err(vec![nia_diagnostic::Diagnostic::internal_error_at(
             nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -1471,12 +1470,11 @@ fn emit_compiler_builtins_object(
     options: LlvmCodegenOptions,
     cache: Option<&dyn ObjectWorkProductCache>,
 ) -> Result<(IncrementalLinkInput<NativeObject>, WorkProductReuse), nia_diagnostic::Diagnostic> {
-    let target_identity = time_codegen_stage(
-        options.timings,
-        "llvm_codegen.native_target_identity",
-        TargetMachine::native_identity,
-    )
-    .map_err(|error| error.diagnostic())?;
+    let target_identity =
+        time_codegen_stage(options.timings, "llvm_codegen.target_identity", || {
+            Ok::<_, nia_llvm::LlvmError>(options.target_machine_identity())
+        })
+        .map_err(|error| error.diagnostic())?;
     let fingerprints =
         fingerprint::compiler_builtins_fingerprint(&symbols, options, &target_identity);
     let miss =

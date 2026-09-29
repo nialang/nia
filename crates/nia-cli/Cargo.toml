@@ -12,6 +12,7 @@ llvm-dynamic = ["nia-build/llvm-dynamic", "nia-driver/llvm-dynamic"]
 llvm-static = ["nia-build/llvm-static", "nia-driver/llvm-static"]
 
 [dependencies]
+nia-target.workspace = true
 nia-build = { workspace = true, default-features = false }
 nia-compat.workspace = true
 nia-driver = { workspace = true, default-features = false }

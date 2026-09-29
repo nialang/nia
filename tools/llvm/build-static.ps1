@@ -112,7 +112,8 @@ $cmakeArgs = @(
     "-DCMAKE_SHARED_LINKER_FLAGS=$linkerFlags",
     '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded',
     '-DLLVM_ENABLE_PROJECTS=lld',
-    '-DLLVM_TARGETS_TO_BUILD=X86',
+    # Every architecture in the maintained target matrix (see nia-target).
+    '-DLLVM_TARGETS_TO_BUILD=X86;AArch64',
     '-DLLVM_BUILD_LLVM_DYLIB=OFF',
     '-DLLVM_LINK_LLVM_DYLIB=OFF',
     '-DLLVM_ENABLE_ZLIB=OFF',

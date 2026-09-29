@@ -117,6 +117,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 DIAGNOSTICS_FORMAT_ROW,
                 TIMING_TRACE_ROW,
                 RESOURCE_ROW,
+                TARGET_ROW,
                 HelpRow {
                     left: "-h, --help",
                     right: "show this help",
@@ -163,6 +164,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 DIAGNOSTICS_FORMAT_ROW,
                 TIMING_TRACE_ROW,
                 RESOURCE_ROW,
+                TARGET_ROW,
                 HelpRow {
                     left: "-h, --help",
                     right: "show this help",
@@ -201,6 +203,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 DIAGNOSTICS_FORMAT_ROW,
                 TIMING_TRACE_ROW,
                 RESOURCE_ROW,
+                TARGET_ROW,
                 HelpRow {
                     left: "-h, --help",
                     right: "show this help",
@@ -251,6 +254,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 DIAGNOSTICS_FORMAT_ROW,
                 TIMING_TRACE_ROW,
                 RESOURCE_ROW,
+                TARGET_ROW,
                 HELP_ROW,
             ],
             examples: &["nia emit --checked src/main.nia"],
@@ -296,6 +300,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 DIAGNOSTICS_FORMAT_ROW,
                 TIMING_TRACE_ROW,
                 RESOURCE_ROW,
+                TARGET_ROW,
                 HELP_ROW,
             ],
             examples: &[
@@ -360,6 +365,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 DIAGNOSTICS_FORMAT_ROW,
                 TIMING_TRACE_ROW,
                 RESOURCE_ROW,
+                TARGET_ROW,
                 HELP_ROW,
             ],
             examples: &[
@@ -391,6 +397,7 @@ fn inspection_help(
             DIAGNOSTICS_FORMAT_ROW,
             TIMING_TRACE_ROW,
             RESOURCE_ROW,
+            TARGET_ROW,
             HELP_ROW,
         ],
         examples,
@@ -420,6 +427,7 @@ fn backend_help(
             DIAGNOSTICS_FORMAT_ROW,
             TIMING_TRACE_ROW,
             RESOURCE_ROW,
+            TARGET_ROW,
             HELP_ROW,
         ],
         examples,
@@ -483,6 +491,7 @@ const GLOBAL_OPTIONS: &[HelpRow] = &[
     DIAGNOSTICS_FORMAT_ROW,
     TIMING_TRACE_ROW,
     RESOURCE_ROW,
+    TARGET_ROW,
     HelpRow {
         left: "-h, --help",
         right: "show help",
@@ -528,6 +537,10 @@ const TIMING_TRACE_ROW: HelpRow = HelpRow {
 const RESOURCE_ROW: HelpRow = HelpRow {
     left: "--resource-root <path>",
     right: "use resources from this toolchain directory",
+};
+const TARGET_ROW: HelpRow = HelpRow {
+    left: "--target <name>",
+    right: "compile artifacts for a maintained target (default: host)",
 };
 const RUNTIME_ROW: HelpRow = HelpRow {
     left: "--runtime <bare|freestanding>",

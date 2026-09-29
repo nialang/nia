@@ -135,14 +135,30 @@ pub struct LlvmCodegenOptions {
     pub timings: nia_timing::TimingMode,
     /// Exact toolchain identity included in target fingerprints.
     pub toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
+    /// Artifact target whose machine generates code; never the build host.
+    pub target: nia_target::TargetConfig,
 }
 
+impl LlvmCodegenOptions {
+    /// Portable machine identity for the artifact target.
+    pub fn target_machine_identity(&self) -> nia_llvm::target::TargetMachineIdentity {
+        nia_llvm::target::TargetMachine::baseline_identity(
+            &self.target.llvm_triple(),
+            self.target.baseline_cpu(),
+        )
+    }
+}
+
+#[cfg(test)]
 impl Default for LlvmCodegenOptions {
+    /// A fixed target keeps codegen fixtures identical on every host.
     fn default() -> Self {
         Self {
             optimization: OptimizationPolicy::default(),
             timings: nia_timing::TimingMode::Off,
             toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint::current(),
+            target: nia_target::TargetConfig::parse("x86_64-unknown-linux")
+                .expect("maintained target"),
         }
     }
 }

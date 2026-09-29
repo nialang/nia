@@ -220,8 +220,9 @@ nia --resource-root "$PWD/lib" emit --exe examples/hello.nia -o build/hello
 ```
 
 Global options include optimization levels (`-O0` through `-Oz`), build
-profiles (`--debug`, `--release`, and `--profile`), module aliases, timings, and
-the resource root. The CLI help is the authoritative syntax reference.
+profiles (`--debug`, `--release`, and `--profile`), module aliases, timings,
+the resource root, and the artifact target (`--target aarch64-apple-macos`).
+The CLI help is the authoritative syntax reference.
 
 ## Documentation
 

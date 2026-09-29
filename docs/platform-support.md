@@ -6,6 +6,14 @@ version promise or a guarantee for similar hosts and targets.
 
 ## Host And Target Boundaries
 
+The maintained targets are `x86_64-unknown-linux`, `x86-unknown-linux`,
+`aarch64-unknown-linux`, `x86_64-pc-windows-msvc`, `x86_64-apple-macos`, and
+`aarch64-apple-macos`. The global `--target <name>` option selects one;
+without it the compiler targets its own host. A host outside this list must
+name a target explicitly. Generated code uses the target's baseline CPU, never
+the build host's CPU features, so an artifact runs on every machine of its
+target.
+
 Host and target support are separate:
 
 - the host is the platform where the `nia` compiler runs;
@@ -130,7 +138,10 @@ The project does not claim support for:
 - macOS compiler hosts;
 - Windows release archives. Windows compilers are built from source; only the
   Linux x86_64 archive is packaged and published;
-- stable target-triple selection or cross-compilation behavior;
+- cross-linked executables. `--target` selects any maintained target for
+  checking, IR, and object emission from every maintained host; executable
+  linking still uses the host linker flavor until the platform roadmap's T4
+  row closes;
 - complete freestanding executable startup outside Linux x86_64, Windows x86_64,
   and experimental i686 coverage;
 - a complete bare-metal build workflow;

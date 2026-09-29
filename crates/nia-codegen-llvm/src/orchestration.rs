@@ -130,7 +130,7 @@ pub(super) fn emit_native_objects(
                 };
             }
         };
-    let builtin_symbols = compiler_builtins::required_symbols(&index);
+    let builtin_symbols = compiler_builtins::required_symbols(&index, options.target);
     let program_diagnostics = validate_native_backend_program(&index, builtin_symbols);
     if !program_diagnostics.is_empty() {
         return LlvmObjectOutput {
@@ -259,7 +259,7 @@ pub(super) fn emit_lto_modules(
                 };
             }
         };
-    let builtin_symbols = compiler_builtins::required_symbols(&index);
+    let builtin_symbols = compiler_builtins::required_symbols(&index, options.target);
     let program_diagnostics = validate_native_backend_program(&index, builtin_symbols);
     if !program_diagnostics.is_empty() {
         return LlvmLtoModuleOutput {
@@ -270,21 +270,20 @@ pub(super) fn emit_lto_modules(
             diagnostics: program_diagnostics,
         };
     }
-    let target_identity =
-        match time_codegen_stage(timings, "llvm_codegen.native_target_identity", || {
-            TargetMachine::native_identity()
-        }) {
-            Ok(identity) => Arc::new(identity),
-            Err(error) => {
-                return LlvmLtoModuleOutput {
-                    pre_link,
-                    target: None,
-                    modules: Vec::new(),
-                    linker_visible_symbols: Vec::new(),
-                    diagnostics: vec![error.diagnostic()],
-                };
-            }
-        };
+    let target_identity = match time_codegen_stage(timings, "llvm_codegen.target_identity", || {
+        Ok::<_, nia_llvm::LlvmError>(options.target_machine_identity())
+    }) {
+        Ok(identity) => Arc::new(identity),
+        Err(error) => {
+            return LlvmLtoModuleOutput {
+                pre_link,
+                target: None,
+                modules: Vec::new(),
+                linker_visible_symbols: Vec::new(),
+                diagnostics: vec![error.diagnostic()],
+            };
+        }
+    };
     let has_partitions = !preparations.is_empty();
     let mut tasks = preparations
         .into_iter()
