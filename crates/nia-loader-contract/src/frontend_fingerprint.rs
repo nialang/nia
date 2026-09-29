@@ -511,8 +511,9 @@ impl FrontendCacheNamespace {
                 builder.write_str(runtime.entry_point().definition_name());
                 builder.write_str(runtime.entry_point().linker_symbol());
                 builder.write_u64(runtime.required_exports().len() as u64);
-                for symbol in runtime.required_exports() {
-                    builder.write_str(symbol);
+                for export in runtime.required_exports() {
+                    builder.write_str(export.module_identity());
+                    builder.write_str(export.definition_name());
                 }
                 builder.write_u64(runtime.dependencies().len() as u64);
                 for dependency in runtime.dependencies() {
@@ -708,6 +709,34 @@ fn push_body_span(function: &FunctionItem, spans: &mut Vec<Span>) {
 mod tests {
     use super::*;
     use nia_imports::StableModuleKey;
+
+    #[test]
+    fn runtime_export_module_and_definition_partition_the_cache_namespace() {
+        let target = TargetConfig {
+            arch: "x86_64".to_string(),
+            os: "windows".to_string(),
+            ..TargetConfig::host()
+        };
+        let namespace = |module, definition| {
+            let runtime = RuntimeSpec::source_from_package_root(
+                "runtime/pkg.nia",
+                &target,
+                [nia_toolchain::RuntimeExport::new(module, definition)],
+            )
+            .expect("Windows runtime");
+            FrontendCacheNamespace::new(&target, runtime)
+        };
+        let original = namespace("toolchain:/runtime/probe.nia", "__chkstk");
+        assert_ne!(
+            original,
+            namespace("toolchain:/runtime/other.nia", "__chkstk")
+        );
+        assert_ne!(original, namespace("toolchain:/runtime/probe.nia", "other"));
+        assert_ne!(
+            original,
+            FrontendCacheNamespace::new(&target, RuntimeSpec::Bare)
+        );
+    }
     use nia_source::SourceIdentity;
     use nia_source::SourcePath;
 

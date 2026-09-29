@@ -1,14 +1,7 @@
-using entry;
+using pkg::main::callUserMain;
 using std::math;
 using std::os;
 using std::process;
-
-fn callUserMain(init: process::Init) process::ExitCode {
-    if entry::main(init) is error! {
-        return error;
-    }
-    process::ExitCode(0)
-}
 
 extern fn niaStartStack(stack: &usize) () {
     let argc = stack.*;

@@ -1,0 +1,66 @@
+using pkg::os::windows::bindings::{
+    errorAccessDenied,
+    errorInvalidHandle,
+    errorNotEnoughMemory,
+    errorOutofmemory,
+    errorAlreadyExists,
+    errorFileNotFound,
+    errorPathNotFound,
+    errorDirectory,
+    errorNotSupported,
+    errorFilenameExcedRange,
+    errorInvalidName,
+    errorFileExists,
+    errorInvalidParameter,
+    errorInsufficientBuffer,
+    errorNoUnicodeTranslation,
+    errorBrokenPipe,
+    errorHandleEof,
+    errorNoData,
+    errorDiskFull,
+    errorHandleDiskFull,
+    errorDirNotEmpty,
+    errorSharingViolation,
+    errorLockViolation,
+    errorWriteProtect,
+    errorNotSameDevice,
+    errorNegativeSeek,
+    errorOperationAborted,
+    GetLastError,
+};
+using pkg::os::windows::types::{
+    Errno,
+};
+
+pub(pkg) fn errno(code: u32) Errno {
+    if code == errorFileNotFound or code == errorPathNotFound { return .NoEntry; }
+    if code == errorNotEnoughMemory or code == errorOutofmemory { return .NoMemory; }
+    match code {
+        (errorAccessDenied) => .PermissionDenied,
+        (errorInvalidHandle) => .BadFd,
+        (errorAlreadyExists) => .Exists,
+        (errorDirectory) => .NotDir,
+        (errorFilenameExcedRange) => .TooLong,
+        (errorInvalidName) => .TooLong,
+        (errorNotSupported) => .Unsupported,
+        (errorFileExists) => .Exists,
+        (errorInvalidParameter) => .Invalid,
+        (errorNoUnicodeTranslation) => .Invalid,
+        (errorInsufficientBuffer) => .TooLong,
+        (errorBrokenPipe) => .BrokenPipe,
+        (errorNoData) => .BrokenPipe,
+        (errorHandleEof) => .Io,
+        (errorDiskFull) => .NoSpace,
+        (errorHandleDiskFull) => .NoSpace,
+        (errorDirNotEmpty) => .NotEmpty,
+        (errorSharingViolation) => .Busy,
+        (errorLockViolation) => .Busy,
+        (errorWriteProtect) => .ReadOnly,
+        (errorNotSameDevice) => .CrossDevice,
+        (errorNegativeSeek) => .Invalid,
+        (errorOperationAborted) => .Interrupted,
+        _ => .Io,
+    }
+}
+
+pub(pkg) fn lastError() Errno { errno(GetLastError()) }

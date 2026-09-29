@@ -1,0 +1,10 @@
+using entry;
+using std::process;
+
+// The user entry contract is shared by all Nia-provided process startups.
+pub(pkg) fn callUserMain(init: process::Init) process::ExitCode {
+    if entry::main(init) is error! {
+        return error;
+    }
+    process::ExitCode(0)
+}

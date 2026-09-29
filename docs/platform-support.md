@@ -16,6 +16,19 @@ A host may run the compiler without being a supported executable target. An
 LLVM target may accept object emission without Nia providing startup code,
 linker integration, or a tested runtime for it.
 
+Runtime selection is a separate axis: Nia's `freestanding` injects Nia startup,
+and `bare` omits it. Neither choice alone specifies system-library dependencies
+or corresponds to C's hosted/freestanding environment classification.
+
+For Darwin adaptation, modern macOS process startup uses dyld and `LC_MAIN`;
+Clang does not normally add `crt1.o` for macOS 10.8 or later. Its
+`-ffreestanding` option does not by itself remove the default `-lSystem` link.
+Zig likewise treats macOS as requiring the system libc. Nia-owned startup can
+use the platform entry ABI without adding an external CRT startup object, but
+the ordinary dyld process path requires libSystem. Kernel/firmware entry and
+fully static executables are different platform contracts. These constraints
+do not yet constitute Nia macOS support.
+
 ## Maintained Configurations
 
 The repository is exercised in these environments:

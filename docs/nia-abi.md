@@ -750,7 +750,14 @@ Normal Nia symbols use Nia mangling.
 Extern symbols use typed external linkage contracts and external names.
 
 Executable runtime entry points are `extern fn` definitions represented as
-`ExternExport` and exported with their source names, such as `_start`.
+`ExternExport`. The selected runtime identifies both the source definition and
+the linker entry symbol; current Linux and Windows startups use `_start`.
+The platform entry adapts the native entry ABI before calling the user entry
+through the normal Nia ABI. It is not the user's `main` function.
+
+Native helpers referenced implicitly by code generation, such as Windows
+`__chkstk`, are rooted by their runtime source module and definition. They need
+not share the entry module or have an explicit Nia call site.
 
 Symbol policy:
 
@@ -763,7 +770,7 @@ normal global                Nia-mangled (`Nia`)
 bodyless extern function     `ExternImport`, source name or `linkName`
 extern function definition  `ExternExport`, source name or `exportName`
 extern global                `ExternImport`, source name or `linkName`
-runtime entry extern fn      `ExternExport`, reserved `_start`
+runtime entry extern fn      `ExternExport`, selected runtime entry symbol
 ```
 
 Nia mangling must be deterministic and must distinguish generic instances.

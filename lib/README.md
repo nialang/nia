@@ -5,6 +5,21 @@ supported API, while provider and implementation modules remain package-private.
 Importing a facade does not by itself select every provider; loader tests keep
 that dependency closure explicit.
 
+The private `runtime/pkg.nia` package is injected only when Nia startup is
+selected. `runtime/main.nia` owns the user entry contract; platform startup
+modules prepare `process::Init` and terminate the process. Architecture entry
+stubs and compiler-required native helpers have separate modules. Required
+helpers are retained by their source module and definition, even without a Nia
+call site. Bare compilation does not inject this package.
+
+The Windows OS facade keeps SDK declarations in `os/windows/bindings.nia` and
+delegates file, directory, path, encoding, memory, and process operations to
+package-private implementations. Startup does not depend on a C CRT entry.
+Only name-surrogate reparse points (symbolic links and junctions) report
+`Symlink`; cloud placeholders and other reparse points keep the kind of the
+file or directory they store. Startup and child creation size environment
+blocks from their entries, because Windows imposes no total environment limit.
+
 Testing is explicit at two levels. A build script registers each suite with
 `std::build::Build::addTestSuite`; the suite is an ordinary host executable
 and may organize any number of modules. Inside that executable,

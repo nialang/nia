@@ -1594,11 +1594,34 @@ fn executable_root_defs(
             })?;
             let mut functions = vec![start];
             for export in runtime.required_exports() {
+                let identity = nia_source::SourceIdentity::new(export.module_identity());
+                let key = nia_imports::StableModuleKey::from_source_identity(identity);
+                let export_module = graph.module_id_for_stable_key(&key).ok_or_else(|| {
+                    db.invalid_input(
+                        &CompilerRuntimeQuery,
+                        format!(
+                            "runtime export module is not loaded: {}",
+                            export.module_identity()
+                        ),
+                    )
+                })?;
+                if !runtime_root_modules.contains(&export_module) {
+                    return Err(db.invalid_input(
+                        &CompilerRuntimeQuery,
+                        format!(
+                            "runtime export module is outside the runtime package: {}",
+                            export.module_identity()
+                        ),
+                    ));
+                }
+                if !parse_ok.contains(&export_module) {
+                    return Ok((Vec::new(), Vec::new()));
+                }
                 let symbol = db
                     .context()
                     .loader_facts()
                     .symbols()
-                    .intern(export)
+                    .intern(export.definition_name())
                     .map_err(|error| {
                         db.invalid_input(
                             &CompilerRuntimeQuery,
@@ -1606,12 +1629,13 @@ fn executable_root_defs(
                         )
                     })?;
                 let definition =
-                    named_top_level_function(db, module_id, symbol)?.ok_or_else(|| {
+                    named_top_level_function(db, export_module, symbol)?.ok_or_else(|| {
                         db.invalid_input(
                             &CompilerRuntimeQuery,
                             format!(
-                                "runtime export `{export}` is absent from {}",
-                                runtime.entry_point().module_identity()
+                                "runtime export `{}` is absent from {}",
+                                export.definition_name(),
+                                export.module_identity()
                             ),
                         )
                     })?;

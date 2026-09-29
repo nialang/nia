@@ -1,0 +1,64 @@
+using pkg::math;
+using pkg::os::windows::bindings::{
+    memCommit,
+    memReserve,
+    memRelease,
+    pageReadWrite,
+    VirtualAlloc,
+    VirtualFree,
+    GetSystemInfo,
+    SystemInfo,
+};
+using pkg::os::windows::types::{
+    Errno,
+};
+using pkg::os::windows::error::{
+    lastError,
+};
+
+pub struct MappedPages { ptr: &mut u8, releasePtr: &mut u8, releaseSize: usize }
+
+pub fn pageSize() usize {
+    let mut info: SystemInfo = .{
+        processorArchitecture: 0,
+        reserved: 0,
+        pageSize: 0,
+        minimumApplicationAddress: 0,
+        maximumApplicationAddress: 0,
+        activeProcessorMask: 0,
+        numberOfProcessors: 0,
+        processorType: 0,
+        allocationGranularity: 0,
+        processorLevel: 0,
+        processorRevision: 0,
+    };
+    GetSystemInfo(&mut info);
+    if info.pageSize == 0 { 4096 } else { info.pageSize as usize }
+}
+
+pub fn pageAlignedLen(len: usize) Errno!usize {
+    if len == 0 { return !0; }
+    match len.alignForward(pageSize()) { ?value => !value, null => .OutOfRange!, }
+}
+
+pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
+    if len == 0 or align == 0 or not align.isPowerOfTwo() { return .Invalid!; }
+    let aligned = pageAlignedLen(len).?;
+    let extra = if align > pageSize() { align - pageSize() } else { 0 };
+    let mapLen = match aligned.checkedAdd(extra) { ?value => value, null => return .OutOfRange!, };
+    let base = VirtualAlloc(0, mapLen, memCommit | memReserve, pageReadWrite);
+    if base == 0 { return lastError()!; }
+    let result = match (base as usize).alignForward(align) { ?value => value, null => { _ = VirtualFree(base, 0, memRelease); return .OutOfRange!; } };
+    !.{ ptr: result as &mut u8, releasePtr: base as &mut u8, releaseSize: mapLen }
+}
+
+pub fn unmapPages(ptr: &mut u8, len: usize) Errno!() {
+    if len == 0 or VirtualFree(ptr as usize, 0, memRelease) == 0 { return lastError()!; }
+    !()
+}
+
+extend MappedPages {
+    pub fn ptr(&self) &mut u8 { self.ptr }
+    pub fn releasePtr(&self) &mut u8 { self.releasePtr }
+    pub fn releaseSize(&self) usize { self.releaseSize }
+}

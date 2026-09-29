@@ -1,2 +1,4 @@
+@[if os == "linux"]
 pub(pkg) module linux;
+@[if os == "windows"]
 pub(pkg) module windows;

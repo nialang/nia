@@ -107,6 +107,7 @@ pub struct DirEntry {
 }
 
 // DirIterator borrows the directory owner and caller-provided buffer.
+// Call close (usually with defer) to release enumeration resources on early exit.
 pub struct DirIterator {
     dir: &Dir,
     reader: os::DirectoryReader,
@@ -225,6 +226,10 @@ extend DirEntry {
 }
 
 extend DirIterator {
+    pub fn close(&mut self) Error!() {
+        !(self.reader.close().?)
+    }
+
     pub(pkg) fn init(dir: &Dir, reader: os::DirectoryReader) DirIterator {
         .{ dir, reader }
     }
@@ -239,7 +244,10 @@ extend DirIterator : Iterator {
         }
         let handle = match self.dir.borrowHandle() {
             !value => value,
-            error! => return ?(error!),
+            error! => {
+                _ = self.reader.close();
+                return ?(error!);
+            },
         };
         if self.reader.next(handle) is ?result {
             if result is !value {

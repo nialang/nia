@@ -950,7 +950,7 @@ impl DeferredModuleActivation<'_> {
         def_id: GlobalDefId,
         program_signatures: ExecutableSignatureIndex<'_>,
     ) {
-        if !reachable_function_has_runtime_body(def_id, program_signatures) {
+        if !reachable_function_needs_runtime_item(def_id, program_signatures) {
             self.add_module(def_id.module_id);
             return;
         }
@@ -1292,19 +1292,21 @@ pub(super) fn add_reachable_function(
     reachability: &mut ExecutableReachability,
     pending_modules: &mut VecDeque<ModuleId>,
 ) {
-    if !reachable_function_has_runtime_body(def_id, program_signatures) {
+    if !reachable_function_needs_runtime_item(def_id, program_signatures) {
         reachability.insert_module_pending(def_id.module_id, pending_modules);
         return;
     }
     reachability.insert_function_pending(def_id, pending_modules);
 }
 
-fn reachable_function_has_runtime_body(
+fn reachable_function_needs_runtime_item(
     def_id: GlobalDefId,
     program_signatures: ExecutableSignatureIndex<'_>,
 ) -> bool {
     (program_signatures.function)(def_id)
-        .map(|signature| signature.signature.has_body)
+        // An external declaration still owns the ABI and linker symbol needed
+        // by codegen, even when its module contains no executable bodies.
+        .map(|signature| signature.signature.has_body || signature.signature.is_extern)
         .or_else(|| {
             (program_signatures.trait_default_method)(def_id).map(|(_, trait_signature)| {
                 trait_signature
