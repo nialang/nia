@@ -2,7 +2,7 @@ use std::env;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use nia_maintain::audit::{compatibility, std_build_host};
+use nia_maintain::audit::{compatibility, std_build_host, system_imports};
 use nia_maintain::baseline::{build, compare, competitive, compiler};
 use nia_maintain::report::{crate_boundaries, llvm_ir};
 use nia_maintain::{MaintainResult, parse_usize, repository_root};
@@ -13,6 +13,7 @@ usage: nia-maintain <command> [options]
 commands:
   audit compatibility      check compatibility identities
   audit std-build-host     check the std build-host closure
+  audit system-imports     check system import descriptions against the sources
   report crate-boundaries  report workspace crate evidence
   report llvm-ir           rank generated LLVM IR modules and functions
   baseline compiler        collect compiler performance samples
@@ -290,7 +291,8 @@ fn check(arguments: &[String]) -> MaintainResult<()> {
     }
     let root = repository_root();
     compatibility::run(&root)?;
-    std_build_host::run(&root, &std_build_host::Options::for_repository(&root))
+    std_build_host::run(&root, &std_build_host::Options::for_repository(&root))?;
+    system_imports::run(&root)
 }
 
 fn dispatch(arguments: &[String]) -> MaintainResult<bool> {
@@ -308,6 +310,12 @@ fn dispatch(arguments: &[String]) -> MaintainResult<bool> {
         }
         [first, second, rest @ ..] if first == "audit" && second == "std-build-host" => {
             std_build_host_command(rest).map(|()| true)
+        }
+        [first, second, rest @ ..] if first == "audit" && second == "system-imports" => {
+            if !rest.is_empty() {
+                return Err("usage: nia-maintain audit system-imports".to_owned());
+            }
+            system_imports::run(&repository_root()).map(|()| true)
         }
         [first, second, rest @ ..] if first == "report" && second == "crate-boundaries" => {
             crate_boundaries_command(rest).map(|()| true)

@@ -3,7 +3,7 @@
 
 use std::{fs, path::PathBuf, process::Command};
 
-use nia_linker::{ArchiveOptions, LinkOptions, LinkTarget};
+use nia_linker::{ArchiveOptions, LinkOptions, SystemImportLibrary};
 use nia_toolchain::RuntimeSpec;
 
 use super::emission::ObjectEmissionMode;
@@ -117,19 +117,6 @@ impl Driver {
         request: LinkExecutableRequest,
     ) -> DriverOutput<LinkedExecutableWithSourceManifest> {
         let mut request = request;
-        request.link_options.target = LinkTarget::from_target_config(&self.config.artifact_target);
-        if matches!(
-            request.link_options.linker.flavor,
-            nia_linker::LinkerFlavor::Lld | nia_linker::LinkerFlavor::LldLink
-        ) && request.link_options.linker.program.is_empty()
-            && let Some(lld) = self.config.toolchain.bundled_lld()
-        {
-            request.link_options.linker = request
-                .link_options
-                .linker
-                .clone()
-                .with_bundled_program(lld.to_string_lossy());
-        }
         let timings = request.check.timings;
         let runtime =
             match RuntimeSpec::freestanding(&self.config.toolchain, &self.config.artifact_target) {
@@ -200,16 +187,59 @@ impl Driver {
         }
     }
 
+    /// Completes caller link options with the toolchain's inputs for the
+    /// artifact target: the bundled LLD for discovery and the system import
+    /// libraries, placed in `import_dir`. Cache checks and links must prepare
+    /// options identically, so both use this; import paths are not identity.
+    pub(super) fn prepare_link_options(
+        &self,
+        mut link_options: LinkOptions,
+        import_dir: &std::path::Path,
+    ) -> Result<(LinkOptions, Vec<nia_toolchain::ImportDescription>), DriverError> {
+        // A discovered LLD falls back to the toolchain's bundled binary; an
+        // explicit program is used as given.
+        if link_options.linker.program.is_empty()
+            && let Some(lld) = self.config.toolchain.bundled_lld()
+        {
+            link_options.linker = link_options
+                .linker
+                .clone()
+                .with_bundled_program(lld.to_string_lossy());
+        }
+        let descriptions = self
+            .config
+            .toolchain
+            .import_descriptions(self.config.artifact_target)
+            .map_err(DriverError::SystemImports)?;
+        link_options.system_imports = descriptions
+            .iter()
+            .map(|description| {
+                SystemImportLibrary::new(
+                    description.library(),
+                    import_dir.join(format!("{}.lib", description.library())),
+                    description.contents(),
+                )
+            })
+            .collect();
+        Ok((link_options, descriptions))
+    }
+
     /// Links an executable from already emitted object inputs.
     pub fn link_executable_from_objects(
         &self,
         objects: &ObjectArtifact,
         output: PathBuf,
-        mut link_options: LinkOptions,
+        link_options: LinkOptions,
         timings: TimingMode,
     ) -> DriverOutput<ExecutableArtifact> {
-        link_options.target = LinkTarget::from_target_config(&self.config.artifact_target);
+        let temp = TempDir::new("nia_emit_exe");
+        let (link_options, system_imports) =
+            match self.prepare_link_options(link_options, temp.path()) {
+                Ok(prepared) => prepared,
+                Err(error) => return DriverOutput::from_error(error),
+            };
         let link_fingerprint = match link_options.result_fingerprint(
+            self.config.artifact_target,
             &objects.link_inputs,
             self.config.toolchain.identity().fingerprint(),
         ) {
@@ -244,7 +274,6 @@ impl Driver {
                 cache_reference: link_fingerprint.map(ExecutableCacheReference::from),
             });
         }
-        let temp = TempDir::new("nia_emit_exe");
         let link_inputs = nia_timing::time_stage(
             timings,
             nia_timing::TimingLevel::Summary,
@@ -257,6 +286,11 @@ impl Driver {
                         error,
                     });
                 }
+                write_system_imports(
+                    self.config.artifact_target,
+                    &system_imports,
+                    &link_options.system_imports,
+                )?;
                 let mut link_inputs = Vec::with_capacity(objects.link_inputs.len());
                 for (index, input) in objects.link_inputs.as_slice().iter().enumerate() {
                     let object_path = temp
@@ -294,7 +328,11 @@ impl Driver {
             });
         }
 
-        let invocation = match link_options.invocation(&link_inputs, output.clone()) {
+        let invocation = match link_options.invocation(
+            self.config.artifact_target,
+            &link_inputs,
+            output.clone(),
+        ) {
             Ok(invocation) => invocation,
             Err(error) => return DriverOutput::from_error(DriverError::LinkerConfig(error)),
         };
@@ -358,10 +396,10 @@ impl Driver {
         &self,
         objects: &ObjectArtifact,
         output: PathBuf,
-        mut archive_options: ArchiveOptions,
+        archive_options: ArchiveOptions,
     ) -> DriverOutput<StaticArchiveArtifact> {
-        archive_options.target = LinkTarget::from_target_config(&self.config.artifact_target);
         let archive_fingerprint = match archive_options.result_fingerprint(
+            self.config.artifact_target,
             &objects.link_inputs,
             self.config.toolchain.identity().fingerprint(),
         ) {
@@ -449,4 +487,38 @@ impl Driver {
             }),
         }
     }
+}
+
+// Writes each system import library at the path its link input names. Only
+// COFF targets have descriptions today; each becomes a short-import archive.
+fn write_system_imports(
+    target: nia_target::TargetConfig,
+    descriptions: &[nia_toolchain::ImportDescription],
+    libraries: &[SystemImportLibrary],
+) -> Result<(), DriverError> {
+    for (description, library) in descriptions.iter().zip(libraries) {
+        let machine = match (target.object_format(), target.arch()) {
+            (nia_target::ObjectFormat::Coff, nia_target::Arch::X86_64) => {
+                nia_llvm::coff::CoffMachine::Amd64
+            }
+            _ => {
+                return Err(DriverError::InternalDiagnostic(Diagnostic::from(
+                    nia_ice::Ice::new(format!(
+                        "target `{target}` has an import description but no import library format"
+                    )),
+                )));
+            }
+        };
+        nia_llvm::coff::write_coff_import_library(description.contents(), machine, library.path())
+            .map_err(|error| match error {
+                nia_llvm::LlvmError::Error(message) => DriverError::SystemImportLibrary {
+                    library: description.library().to_string(),
+                    message,
+                },
+                nia_llvm::LlvmError::Ice(ice) => {
+                    DriverError::InternalDiagnostic(Diagnostic::from(ice))
+                }
+            })?;
+    }
+    Ok(())
 }

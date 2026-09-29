@@ -173,11 +173,12 @@ Nia's normal compiler behavior should be configured with CLI flags or typed API
 options, not hidden environment variables. Environment variables that remain in
 the tree are grouped here so their role stays explicit:
 
-- `NIA_LINKER`: user-facing override for the executable linker. Windows
-  overrides use the COFF `lld-link` argument contract; Linux overrides use the
-  GNU contract.
-- `NIA_LLD`: user-facing override for the `ld.lld` or `lld-link` executable
-  selected by the platform linker flavor.
+- `NIA_LINKER`: user-facing override for the executable linker. The program
+  follows the artifact target's system argument contract: GNU for ELF,
+  `lld-link` for COFF, `ld64.lld` for Mach-O.
+- `NIA_LLD`: user-facing override for the discovered LLD executable. Any LLD
+  driver serves every target, because the compiler passes the target's
+  `-flavor` explicitly.
 - `NO_COLOR`: standard terminal convention respected by CLI help rendering.
 - `LLVM_SYS_231_PREFIX`: `llvm-sys` build-time override for non-standard LLVM
   installations.

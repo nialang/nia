@@ -1,0 +1,47 @@
+; Kernel32 functions imported by the standard library and runtime startup.
+; `cargo maintain check` requires every entry to be imported and every
+; Windows import to appear in exactly one description.
+LIBRARY kernel32.dll
+EXPORTS
+    CloseHandle
+    CreateDirectoryW
+    CreateFileW
+    CreatePipe
+    CreateProcessW
+    DeleteFileW
+    DeleteProcThreadAttributeList
+    DuplicateHandle
+    ExitProcess
+    FindClose
+    FindFirstFileW
+    FindNextFileW
+    FlushFileBuffers
+    FreeEnvironmentStringsW
+    GetCommandLineW
+    GetCurrentDirectoryW
+    GetCurrentProcess
+    GetEnvironmentStringsW
+    GetExitCodeProcess
+    GetFileAttributesW
+    GetFileInformationByHandle
+    GetFileInformationByHandleEx
+    GetFinalPathNameByHandleW
+    GetLastError
+    GetStdHandle
+    GetSystemInfo
+    InitializeProcThreadAttributeList
+    MoveFileExW
+    MultiByteToWideChar
+    ReadFile
+    RemoveDirectoryW
+    SetFileAttributesW
+    SetFileInformationByHandle
+    SetFilePointerEx
+    SetHandleInformation
+    TerminateProcess
+    UpdateProcThreadAttribute
+    VirtualAlloc
+    VirtualFree
+    WaitForSingleObject
+    WideCharToMultiByte
+    WriteFile

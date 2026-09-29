@@ -4,8 +4,9 @@
 //! A layout binds one compiler executable to a canonical resource root, a
 //! versioned manifest, the standard library, and runtime startup modules.
 //! Installed toolchains use a portable prefix: `bin/nia`, `lib/`, and
-//! `libexec/ld.lld` (or `libexec/lld-link.exe` on Windows) are siblings under
-//! the installation root.
+//! `libexec/ld.lld` (with the host executable suffix) are siblings under the
+//! installation root. The linker selects each target's LLD flavor explicitly,
+//! so the one bundled binary links every target.
 //! Compatibility identity deliberately excludes filesystem paths so an intact
 //! installation can be relocated without invalidating compiler caches.
 
@@ -429,18 +430,13 @@ impl ToolchainLayout {
             &freestanding_package_root,
             ResourceRole::FreestandingRuntime,
         )?;
-        let bundled_lld = resource_root.parent().and_then(|prefix| {
-            #[cfg(windows)]
-            let candidates = [prefix.join("libexec/lld-link.exe")];
-            #[cfg(not(windows))]
-            let candidates = [prefix.join("libexec/ld.lld")];
-            candidates.into_iter().find(|path| path.exists())
-        });
-        let bundled_lld = match bundled_lld {
-            Some(path) if path.exists() => {
-                Some(validate_optional_file(&path, ResourceRole::BundledLinker)?)
-            }
-            _ => None,
+        let bundled_lld = match resource_root
+            .parent()
+            .map(|prefix| prefix.join(bundled_lld_path()))
+            .filter(|path| path.exists())
+        {
+            Some(path) => Some(validate_optional_file(&path, ResourceRole::BundledLinker)?),
+            None => None,
         };
 
         Ok(Self {
@@ -504,6 +500,82 @@ impl ToolchainLayout {
     pub fn bundled_lld(&self) -> Option<&std::path::Path> {
         self.bundled_lld.as_deref()
     }
+
+    /// Reads the import descriptions of the system libraries that the
+    /// target's standard library and runtime import, in link order.
+    ///
+    /// A description lists only the symbols the toolchain sources use, so a
+    /// link needs no platform SDK import library.
+    pub fn import_descriptions(
+        &self,
+        target: TargetConfig,
+    ) -> Result<Vec<ImportDescription>, ToolchainLayoutError> {
+        let (directory, libraries, extension): (&str, &[&str], &str) = match target.os() {
+            Os::Windows => ("windows", &["kernel32", "bcryptprimitives"], "def"),
+            Os::Linux | Os::Macos => return Ok(Vec::new()),
+        };
+        libraries
+            .iter()
+            .map(|library| {
+                let path = self
+                    .resource_root
+                    .join("imports")
+                    .join(directory)
+                    .join(format!("{library}.{extension}"));
+                validate_file(&path, ResourceRole::ImportDescription)?;
+                let contents = read_bounded_resource(&path).map_err(|error| {
+                    ToolchainLayoutError::ReadResource {
+                        role: ResourceRole::ImportDescription,
+                        path: path.clone(),
+                        error,
+                    }
+                })?;
+                Ok(ImportDescription {
+                    library: (*library).to_string(),
+                    contents,
+                })
+            })
+            .collect()
+    }
+}
+
+/// A system library's import description shipped with the toolchain, such as
+/// `imports/windows/kernel32.def`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportDescription {
+    library: String,
+    contents: Vec<u8>,
+}
+
+impl ImportDescription {
+    /// Library name, without platform prefix or extension.
+    pub fn library(&self) -> &str {
+        &self.library
+    }
+
+    /// Description contents in the platform's format.
+    pub fn contents(&self) -> &[u8] {
+        &self.contents
+    }
+}
+
+fn read_bounded_resource(path: &std::path::Path) -> io::Result<Vec<u8>> {
+    let file = fs::File::open(path)?;
+    let mut contents = Vec::new();
+    file.take((MAX_RESOURCE_MANIFEST_BYTES + 1) as u64)
+        .read_to_end(&mut contents)?;
+    if contents.len() > MAX_RESOURCE_MANIFEST_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("toolchain resource exceeds the {MAX_RESOURCE_MANIFEST_BYTES}-byte limit"),
+        ));
+    }
+    Ok(contents)
+}
+
+// The bundled LLD runs on the host, so it carries the host executable suffix.
+fn bundled_lld_path() -> String {
+    format!("libexec/ld.lld{}", std::env::consts::EXE_SUFFIX)
 }
 
 fn read_resource_manifest(path: &std::path::Path) -> io::Result<String> {
@@ -587,6 +659,8 @@ pub enum ResourceRole {
     FreestandingRuntime,
     /// LLVM LLD executable shipped with a release resource tree.
     BundledLinker,
+    /// System library import description for a target.
+    ImportDescription,
 }
 
 impl fmt::Display for ResourceRole {
@@ -597,6 +671,7 @@ impl fmt::Display for ResourceRole {
             Self::StandardLibrary => "standard-library root module",
             Self::FreestandingRuntime => "freestanding runtime module",
             Self::BundledLinker => "bundled LLD linker",
+            Self::ImportDescription => "system import description",
         })
     }
 }
@@ -973,6 +1048,49 @@ mod tests {
     }
 
     #[test]
+    fn import_descriptions_are_target_owned_resources() {
+        let root = temp_dir("import_descriptions");
+        let executable = write_layout(&root);
+        let layout = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
+            .expect("layout");
+        let windows = TargetConfig::parse("x86_64-pc-windows-msvc").unwrap();
+        assert!(matches!(
+            layout.import_descriptions(windows),
+            Err(ToolchainLayoutError::MissingResource {
+                role: ResourceRole::ImportDescription,
+                ..
+            })
+        ));
+
+        let imports = root.join("lib/imports/windows");
+        fs::create_dir_all(&imports).expect("create import descriptions");
+        fs::write(imports.join("kernel32.def"), b"LIBRARY kernel32.dll\n").expect("write");
+        fs::write(
+            imports.join("bcryptprimitives.def"),
+            b"LIBRARY bcryptprimitives.dll\n",
+        )
+        .expect("write");
+        let descriptions = layout.import_descriptions(windows).expect("descriptions");
+        assert_eq!(
+            descriptions
+                .iter()
+                .map(|description| (description.library(), description.contents()))
+                .collect::<Vec<_>>(),
+            [
+                ("kernel32", &b"LIBRARY kernel32.dll\n"[..]),
+                ("bcryptprimitives", &b"LIBRARY bcryptprimitives.dll\n"[..]),
+            ]
+        );
+        for name in ["x86_64-unknown-linux", "aarch64-apple-macos"] {
+            let target = TargetConfig::parse(name).unwrap();
+            assert!(
+                layout.import_descriptions(target).unwrap().is_empty(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
     fn resolves_explicit_and_installed_layouts_with_path_independent_identity() {
         let first = temp_dir("resolves_layout");
         let executable = write_layout(&first);
@@ -1078,10 +1196,7 @@ mod tests {
     fn exposes_bundled_lld_from_release_layout() {
         let root = temp_dir("bundled_lld");
         let executable = write_layout(&root);
-        #[cfg(windows)]
-        let lld = root.join("libexec/lld-link.exe");
-        #[cfg(not(windows))]
-        let lld = root.join("libexec/ld.lld");
+        let lld = root.join(bundled_lld_path());
         fs::create_dir_all(lld.parent().expect("lld parent")).expect("create lld directory");
         fs::write(&lld, b"lld").expect("write bundled lld");
 

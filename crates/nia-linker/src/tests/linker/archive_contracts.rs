@@ -32,26 +32,22 @@ fn archive_environment_fingerprint_tracks_tool_target_and_toolchain() {
         ArchiveOptions::default().with_tool(ArchiveTool::with_program(tool.to_string_lossy()));
     let toolchain = nia_toolchain::ToolchainIdentityFingerprint::from_parts([1, 2]);
     let baseline = options
-        .environment_fingerprint(toolchain)
+        .environment_fingerprint(linux(), toolchain)
         .expect("baseline archive fingerprint");
 
     let target_changed = options
-        .clone()
-        .with_target(LinkTarget {
-            arch: "aarch64".to_string(),
-            ..options.target.clone()
-        })
-        .environment_fingerprint(toolchain)
+        .environment_fingerprint(target("aarch64-unknown-linux"), toolchain)
         .expect("changed target fingerprint");
     let toolchain_changed = options
-        .environment_fingerprint(nia_toolchain::ToolchainIdentityFingerprint::from_parts([
-            3, 4,
-        ]))
+        .environment_fingerprint(
+            linux(),
+            nia_toolchain::ToolchainIdentityFingerprint::from_parts([3, 4]),
+        )
         .expect("changed toolchain fingerprint");
     fs::write(&tool, b"archive-tool-v2").expect("change archive tool");
     make_executable(&tool);
     let tool_changed = options
-        .environment_fingerprint(toolchain)
+        .environment_fingerprint(linux(), toolchain)
         .expect("changed tool fingerprint");
 
     assert_ne!(baseline.target, target_changed.target);
@@ -69,7 +65,7 @@ fn archive_result_fingerprint_tracks_typed_inputs_and_environment() {
         ArchiveOptions::default().with_tool(ArchiveTool::with_program(tool.to_string_lossy()));
     let toolchain = nia_toolchain::ToolchainIdentityFingerprint::from_parts([1, 2]);
     let baseline = options
-        .result_fingerprint(&inputs, toolchain)
+        .result_fingerprint(linux(), &inputs, toolchain)
         .expect("baseline archive result fingerprint");
     let changed_inputs = IncrementalLinkInputs::new(vec![IncrementalLinkInput {
         key: inputs.as_slice()[0].key.clone(),
@@ -78,20 +74,15 @@ fn archive_result_fingerprint_tracks_typed_inputs_and_environment() {
     }])
     .expect("build incremental link inputs");
     let input_changed = options
-        .result_fingerprint(&changed_inputs, toolchain)
+        .result_fingerprint(linux(), &changed_inputs, toolchain)
         .expect("changed archive input fingerprint");
     let target_changed = options
-        .clone()
-        .with_target(LinkTarget {
-            arch: "aarch64".to_string(),
-            ..options.target.clone()
-        })
-        .result_fingerprint(&inputs, toolchain)
+        .result_fingerprint(target("aarch64-unknown-linux"), &inputs, toolchain)
         .expect("changed archive target fingerprint");
     fs::write(&tool, b"archive-tool-v2").expect("change archive tool");
     make_executable(&tool);
     let tool_changed = options
-        .result_fingerprint(&inputs, toolchain)
+        .result_fingerprint(linux(), &inputs, toolchain)
         .expect("changed archive tool fingerprint");
 
     assert_eq!(baseline.cache_key, input_changed.cache_key);
@@ -129,12 +120,13 @@ fn archive_result_fingerprint_tracks_typed_inputs_and_environment() {
     );
     assert!(
         options
-            .matches_result_environment(tool_changed.components, toolchain)
+            .matches_result_environment(linux(), tool_changed.components, toolchain)
             .expect("matching archive result environment")
     );
     assert!(
         !options
             .matches_result_environment(
+                linux(),
                 target_changed.components,
                 nia_toolchain::ToolchainIdentityFingerprint::from_parts([3, 4]),
             )

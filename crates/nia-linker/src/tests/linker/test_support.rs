@@ -29,12 +29,13 @@ fn fingerprint_options(linker: &Path) -> LinkOptions {
     }
 }
 
-fn target(arch: &str, os: &str, abi: &str) -> LinkTarget {
-    LinkTarget {
-        arch: arch.to_string(),
-        os: os.to_string(),
-        abi: abi.to_string(),
-    }
+fn target(name: &str) -> TargetConfig {
+    TargetConfig::parse(name).expect("maintained test target")
+}
+
+// The ELF target used by host-independent contract tests.
+fn linux() -> TargetConfig {
+    target("x86_64-unknown-linux")
 }
 
 fn restore_env(name: &str, value: Option<std::ffi::OsString>) {

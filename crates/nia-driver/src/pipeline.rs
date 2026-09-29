@@ -480,6 +480,15 @@ pub enum DriverError {
     },
     /// Linker configuration was rejected before execution.
     LinkerConfig(nia_linker::LinkerConfigError),
+    /// The toolchain lacks a readable import description the target needs.
+    SystemImports(nia_toolchain::ToolchainLayoutError),
+    /// A system import library could not be generated from its description.
+    SystemImportLibrary {
+        /// System library name.
+        library: String,
+        /// Generator failure.
+        message: String,
+    },
 }
 
 fn codegen_options(

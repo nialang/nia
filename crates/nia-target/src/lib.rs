@@ -256,6 +256,15 @@ impl TargetConfig {
         }
     }
 
+    /// File extension of an executable, without the dot; empty when the
+    /// platform uses none.
+    pub const fn executable_extension(self) -> &'static str {
+        match self.os {
+            Os::Windows => "exe",
+            Os::Linux | Os::Macos => "",
+        }
+    }
+
     /// Minimum OS release, for platforms whose binaries record one.
     pub const fn minimum_os_version(self) -> Option<OsVersion> {
         match self.os {
@@ -342,6 +351,7 @@ mod tests {
     fn derived_properties_follow_the_platform() {
         let macos = TargetConfig::parse("aarch64-apple-macos").unwrap();
         assert_eq!(macos.object_format(), ObjectFormat::MachO);
+        assert_eq!(macos.executable_extension(), "");
         assert_eq!(macos.llvm_triple(), "arm64-apple-macosx15.0.0");
         assert_eq!(
             macos.minimum_os_version(),
@@ -355,6 +365,7 @@ mod tests {
         assert_eq!(x86.llvm_triple(), "i686-unknown-linux");
         let windows = TargetConfig::parse("x86_64-pc-windows-msvc").unwrap();
         assert_eq!(windows.object_format(), ObjectFormat::Coff);
+        assert_eq!(windows.executable_extension(), "exe");
         assert_eq!(windows.env(), "msvc");
         assert_eq!(TargetConfig::new(Arch::Aarch64, Os::Windows), None);
     }

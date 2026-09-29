@@ -11,6 +11,7 @@ Commands are grouped by purpose:
 ```text
 cargo maintain audit compatibility
 cargo maintain audit std-build-host
+cargo maintain audit system-imports
 cargo maintain report crate-boundaries
 cargo maintain report llvm-ir target/nia-perf/runner.ll --limit 20
 cargo maintain baseline compiler

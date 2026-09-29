@@ -7,6 +7,7 @@
 
 mod base;
 mod builder;
+mod coff;
 mod context;
 mod debug;
 mod lto;
@@ -15,6 +16,7 @@ mod target;
 
 pub use base::*;
 pub use builder::*;
+pub use coff::*;
 pub use context::*;
 pub use debug::*;
 pub use lto::*;

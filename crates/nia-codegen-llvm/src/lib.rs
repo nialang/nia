@@ -1438,6 +1438,7 @@ fn emit_compiler_builtins_lto_module(
     .map_err(|error| error.diagnostic())?;
     let bitcode = compiler_builtins::emit_lto_bitcode(
         &target,
+        options.target,
         symbols,
         llvm_optimization_level(options.optimization.level),
         pre_link,
@@ -1505,7 +1506,7 @@ fn emit_compiler_builtins_object(
         )
     })
     .map_err(|error| error.diagnostic())?;
-    let bytes = compiler_builtins::emit_object(&target, symbols)?;
+    let bytes = compiler_builtins::emit_object(&target, options.target, symbols)?;
     let write_error = publish_object_work_product(
         cache,
         &CodegenUnitKey::CompilerBuiltins,
