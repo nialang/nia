@@ -16,6 +16,7 @@ using pkg::build::types::{
     Package,
     StaticArchiveTarget,
     Step,
+    TargetStorage,
 };
 
 pub(pkg) fn releaseSteps(
@@ -110,6 +111,22 @@ pub(pkg) fn releaseModules(
     }
     if cleanup.isClean() {
         cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, Subject::Modules));
+    }
+    cleanup.finish()
+}
+
+pub(pkg) fn releaseTargets(
+    allocator: &mut mem::Allocator,
+    records: &mut collections::ArrayList[TargetStorage],
+) Error!() {
+    let mut cleanup: CleanupAccumulator[Error] = .init();
+    let mut index = records.len();
+    while index != 0 {
+        index -= 1;
+        cleanup.attempt(records.asMutSlice()[index].deinit(allocator, Subject::Targets));
+    }
+    if cleanup.isClean() {
+        cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, Subject::Targets));
     }
     cleanup.finish()
 }

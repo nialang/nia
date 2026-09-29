@@ -25,9 +25,17 @@ fn target(name: &[char], endian: &[char], pointerWidth: u32) build::TargetView {
 
 fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!build::Build {
     let pathText = "temporary-path";
-    let hostName = "x86_64-pc-windows-msvc";
-    let artifactName = "aarch64-apple-macos";
     let endian = "little";
+    // The maintained matrix, as the toolchain supplies it; the host and
+    // default artifact targets are indices into it.
+    let targets = [
+        target(&"x86_64-unknown-linux", &endian, 64u32),
+        target(&"x86-unknown-linux", &endian, 32u32),
+        target(&"aarch64-unknown-linux", &endian, 64u32),
+        target(&"x86_64-pc-windows-msvc", &endian, 64u32),
+        target(&"x86_64-apple-macos", &endian, 64u32),
+        target(&"aarch64-apple-macos", &endian, 64u32),
+    ];
     let mut initialization = build::Build::init(
         allocator,
         fs::PathView::init(&pathText),
@@ -35,14 +43,31 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
         fs::PathView::init(&pathText),
         fs::PathView::init(&pathText),
         fs::PathView::init(&pathText),
-        target(&hostName, &endian, 64u32),
-        target(&artifactName, &endian, 64u32),
+        &targets,
+        3usize,
+        5usize,
         build::OptimizationMode::O0,
         __NIA_BUILD_PLAN_COMPATIBILITY__u32,
         null,
         false,
     );
     initialization.finish()
+}
+
+fn rejectsTargetName(result: build::Error!build::TargetView) bool {
+    match result {
+        !view => {
+            _ = view;
+            false
+        },
+        error! => match error {
+            build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::Targets,
+            } => true,
+            _ => false,
+        },
+    }
 }
 
 fn textIs(actual: &[char], expected: &[char]) bool {
@@ -578,7 +603,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let hostExecutable = api.addExecutable(
         build::ExecutableOptions::init(&"host-app", moduleHandle)
             .withOutputName(&"host-tool")
-            .forHost(),
+            .forTarget(host),
     ).?;
     _ = api.addCheckExecutableStep(&"host-check", hostExecutable).?;
     _ = api.addEmitExecutableStep(&"host-emit", hostExecutable).?;
@@ -594,7 +619,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let hostObject = api.addObject(
         build::ObjectOptions::init(&"host-objects", moduleHandle)
             .withOutputName(&"host-objects-dir")
-            .forHost(),
+            .forTarget(host),
     ).?;
     _ = api.addEmitObjectStep(&"host-object-emit", hostObject).?;
     let staticArchive = api.addStaticArchive(
@@ -620,7 +645,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let hostStaticArchive = api.addStaticArchive(
         build::StaticArchiveOptions::init(&"host-archive", moduleHandle)
             .withOutputName(&"libhost-archive.a")
-            .forHost(),
+            .forTarget(host),
     ).?;
     _ = api.addEmitStaticArchiveStep(&"host-archive-emit", hostStaticArchive).?;
     let duplicateLinkedArchives = [staticArchive, staticArchive];
@@ -633,10 +658,40 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mismatchedLinkedArchives = [staticArchive];
     if not rejectsInvalidExecutable(api.addExecutable(
         build::ExecutableOptions::init(&"mismatched-linked", moduleHandle)
-            .forHost()
+            .forTarget(host)
             .withStaticArchives(&mismatchedLinkedArchives[..]),
     ), 3usize) {
         return process::ExitCode(32)!;
+    }
+
+    // Any maintained target may be selected per artifact, beyond the
+    // invocation's host and artifact pair.
+    let intelMac = api.target(&"x86_64-apple-macos").?;
+    if not textIs(intelMac.os(), &"macos") or not textIs(intelMac.arch(), &"x86_64") {
+        return process::ExitCode(36)!;
+    }
+    let intelExecutable = api.addExecutable(
+        build::ExecutableOptions::init(&"intel-app", moduleHandle)
+            .withOutputName(&"intel-app")
+            .forTarget(intelMac),
+    ).?;
+    _ = api.addEmitExecutableStep(&"intel-emit", intelExecutable).?;
+    if not rejectsInvalidStep(api.addRunExecutableStep(
+        &"intel-run",
+        build::RunOptions::init(intelExecutable),
+    ), 12usize) {
+        return process::ExitCode(37)!;
+    }
+    if not rejectsTargetName(api.target(&"aarch64-apple-mac99")) {
+        return process::ExitCode(38)!;
+    }
+    let endian = "little";
+    let unlisted = target(&"riscv64-unknown-linux", &endian, 64u32);
+    if not rejectsInvalidExecutable(api.addExecutable(
+        build::ExecutableOptions::init(&"unlisted-target", moduleHandle)
+            .forTarget(unlisted),
+    ), 4usize) {
+        return process::ExitCode(39)!;
     }
 
     let mut missingLinkedProducer = initBuild(init, &mut allocator).?;
@@ -887,4 +942,20 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .find(|artifact| artifact.key.name() == "host-app")
         .expect("host executable artifact");
     assert_eq!(host_artifact.output.protocol_path(), "host-tool");
+
+    // A per-artifact target outside the invocation pair reaches the frozen
+    // plan unchanged.
+    let intel_mac = nia_target::TargetConfig::parse("x86_64-apple-macos").unwrap();
+    assert_ne!(&intel_mac, plan.host_target());
+    assert_ne!(&intel_mac, plan.artifact_target());
+    let intel_emit = plan
+        .actions()
+        .iter()
+        .find(|action| action.key.name() == "intel-emit")
+        .expect("third-target emit action");
+    assert!(matches!(
+        &intel_emit.kind,
+        nia_build::ActionKind::CompilerEmit { artifact, target, .. }
+            if artifact.name() == "intel-app" && *target == intel_mac
+    ));
 }

@@ -87,6 +87,74 @@ extend TargetText {
     }
 }
 
+// Storage for the toolchain's maintained target matrix, sized by the toolchain.
+struct TargetMatrix {
+    texts: [TargetText; __NIA_TARGET_COUNT__usize],
+    views: [build::TargetView; __NIA_TARGET_COUNT__usize],
+    count: usize,
+}
+
+extend TargetMatrix {
+    fn init() TargetMatrix {
+        let empty = "";
+        Self {
+            texts: [TargetText::init(); __NIA_TARGET_COUNT__usize],
+            views: [build::TargetView::init(&empty, &empty, 0u32); __NIA_TARGET_COUNT__usize],
+            count: 0,
+        }
+    }
+
+    fn read(
+        &mut self,
+        cursor: &mut ConfigCursor,
+        allocator: &mut mem::Allocator,
+    ) build::Error!() {
+        if cursor.u32().? as usize != __NIA_TARGET_COUNT__usize {
+            return build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: build::ErrorSubject::Targets,
+            }!;
+        }
+        while self.count < __NIA_TARGET_COUNT__usize {
+            // Count each record before reading so a failed read leaves its
+            // partially retained text reachable by `deinit`.
+            let index = self.count;
+            self.count += 1;
+            self.views[index] = readTarget(cursor, allocator, &mut self.texts[index], build::ErrorSubject::Targets).?;
+        }
+        !()
+    }
+
+    fn views(&self) &[build::TargetView] {
+        &self.views[..self.count]
+    }
+
+    fn index(&self, cursor: &mut ConfigCursor, subject: build::ErrorSubject) build::Error!usize {
+        let index = cursor.u32().? as usize;
+        if index >= self.count {
+            return build::Error::Invalid {
+                operation: build::ErrorOperation::Validate,
+                subject: subject,
+            }!;
+        }
+        !index
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator) build::Error!() {
+        let mut firstError: ?build::Error = null;
+        let mut index = self.count;
+        while index != 0 {
+            index -= 1;
+            rememberTargetCleanupError(&mut firstError, self.texts[index].deinit(allocator, build::ErrorSubject::Targets));
+        }
+        if firstError is ?error {
+            return error!;
+        }
+        self.count = 0;
+        !()
+    }
+}
+
 struct ConfigCursor {
     bytes: &[u8],
     position: usize,
@@ -353,12 +421,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let cacheDir = readPath(&mut config, &mut allocator, &mut cacheDirPath, build::ErrorSubject::CacheDir).reportAndExit(init).?;
     let toolchainExecutable = readPath(&mut config, &mut allocator, &mut toolchainPath, build::ErrorSubject::ToolchainExecutable).reportAndExit(init).?;
     let toolchainResourceRoot = readPath(&mut config, &mut allocator, &mut resourceRootPath, build::ErrorSubject::ToolchainResourceRoot).reportAndExit(init).?;
-    let mut hostTargetText = TargetText::init();
-    defer hostTargetText.deinit(&mut allocator, build::ErrorSubject::HostTarget).reportAndExit(init).?;
-    let hostTarget = readTarget(&mut config, &mut allocator, &mut hostTargetText, build::ErrorSubject::HostTarget).reportAndExit(init).?;
-    let mut artifactTargetText = TargetText::init();
-    defer artifactTargetText.deinit(&mut allocator, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
-    let artifactTarget = readTarget(&mut config, &mut allocator, &mut artifactTargetText, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
+    let mut targets = TargetMatrix::init();
+    defer targets.deinit(&mut allocator).reportAndExit(init).?;
+    targets.read(&mut config, &mut allocator).reportAndExit(init).?;
+    let hostTarget = targets.index(&mut config, build::ErrorSubject::HostTarget).reportAndExit(init).?;
+    let artifactTarget = targets.index(&mut config, build::ErrorSubject::ArtifactTarget).reportAndExit(init).?;
     let defaultOptimization = readOptimization(&mut config).reportAndExit(init).?;
     let mut planDraftPath = fs::Path::init();
     defer planDraftPath.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
@@ -399,6 +466,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         cacheDir,
         toolchainExecutable,
         toolchainResourceRoot,
+        targets.views(),
         hostTarget,
         artifactTarget,
         defaultOptimization,

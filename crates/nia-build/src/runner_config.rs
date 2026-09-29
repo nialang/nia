@@ -8,7 +8,7 @@
 use std::path::Path;
 
 use nia_compat::formats::RUNNER_CONFIG;
-use nia_target::TargetConfig;
+use nia_target::{SUPPORTED_TARGETS, TargetConfig};
 
 use crate::{BuildError, BuildInvocation, BuildStepSelection, OptimizationMode};
 
@@ -29,8 +29,11 @@ pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError
         "toolchain resource root",
         invocation.toolchain.resource_root(),
     )?;
-    write_target(&mut payload, invocation.toolchain.host_target())?;
-    write_target(&mut payload, invocation.toolchain.artifact_target())?;
+    write_targets(
+        &mut payload,
+        invocation.toolchain.host_target(),
+        invocation.toolchain.artifact_target(),
+    )?;
     write_u32(&mut payload, optimization_tag(invocation.optimization));
     write_path(&mut payload, "build-plan draft", &invocation.plan_draft)?;
     match &invocation.step {
@@ -52,6 +55,23 @@ pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError
     write_u64(&mut encoded, payload_checksum(&payload));
     encoded.extend_from_slice(&payload);
     Ok(encoded)
+}
+
+// The runner receives the whole maintained matrix, so build scripts can select
+// any target for an artifact by name, followed by the host and default
+// artifact targets as indices into it.
+fn write_targets(
+    encoded: &mut Vec<u8>,
+    host: &TargetConfig,
+    artifact: &TargetConfig,
+) -> Result<(), BuildError> {
+    write_u32(encoded, SUPPORTED_TARGETS.len() as u32);
+    for target in &SUPPORTED_TARGETS {
+        write_target(encoded, target)?;
+    }
+    write_u32(encoded, host.matrix_index() as u32);
+    write_u32(encoded, artifact.matrix_index() as u32);
+    Ok(())
 }
 
 fn write_target(encoded: &mut Vec<u8>, target: &TargetConfig) -> Result<(), BuildError> {
@@ -269,8 +289,7 @@ mod tests {
         for _ in 0..5 {
             let _ = cursor.text().unwrap();
         }
-        let _ = cursor.target().unwrap();
-        let _ = cursor.target().unwrap();
+        let _ = cursor.targets().unwrap();
         let _ = cursor.u32().unwrap();
         let _ = cursor.text().unwrap();
         24 + cursor.position
@@ -305,8 +324,7 @@ mod tests {
         let cache_dir = cursor.text()?;
         let toolchain_executable = cursor.text()?;
         let toolchain_resource_root = cursor.text()?;
-        let host_target = cursor.target()?;
-        let artifact_target = cursor.target()?;
+        let (host_target, artifact_target) = cursor.targets()?;
         let optimization = cursor.u32()?;
         if optimization > 5 {
             return Err(DecodeError::Tag);
@@ -377,6 +395,23 @@ mod tests {
                 return Err(DecodeError::Tag);
             }
             Ok(target)
+        }
+
+        fn targets(&mut self) -> Result<(TargetConfig, TargetConfig), DecodeError> {
+            let count = self.u32()? as usize;
+            let mut targets = Vec::with_capacity(count);
+            for _ in 0..count {
+                targets.push(self.target()?);
+            }
+            if targets != SUPPORTED_TARGETS {
+                return Err(DecodeError::Tag);
+            }
+            let host = self.u32()? as usize;
+            let artifact = self.u32()? as usize;
+            match (targets.get(host), targets.get(artifact)) {
+                (Some(host), Some(artifact)) => Ok((*host, *artifact)),
+                _ => Err(DecodeError::Tag),
+            }
         }
     }
 }

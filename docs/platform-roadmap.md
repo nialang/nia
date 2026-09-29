@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 # Platform Roadmap
 
-The 0.3.0 line turns Nia from a Linux x86_64 compiler with a Windows port into
+The 0.2.0 line turns Nia from a Linux x86_64 compiler with a Windows port into
 a target matrix: every maintained target is selected explicitly, compiled
 from any maintained host, linked without a platform SDK, and executed in a
 managed environment that runs that target natively.

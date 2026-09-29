@@ -1430,7 +1430,7 @@ mod tests {
     }
 
     #[test]
-    fn decoded_draft_cannot_introduce_a_third_compiler_target() {
+    fn decoded_draft_keeps_per_action_targets_beyond_the_plan_pair() {
         let mut draft = draft(false);
         let emit = draft
             .actions
@@ -1440,13 +1440,19 @@ mod tests {
         let ActionKind::CompilerEmit { target, .. } = &mut emit.kind else {
             unreachable!()
         };
-        *target = TargetConfig::parse("x86_64-apple-macos").unwrap();
+        let third = TargetConfig::parse("x86_64-apple-macos").unwrap();
+        *target = third;
 
         let bytes = encode_draft_without_freeze(&draft);
+        let plan = BuildPlan::decode(&bytes).unwrap();
+        let emit = plan
+            .actions()
+            .iter()
+            .find(|action| action.key.name() == "emit")
+            .unwrap();
         assert!(matches!(
-            BuildPlan::decode(&bytes),
-            Err(PlanCodecError::Semantic(error))
-                if matches!(*error, PlanError::InvalidActionTarget(_))
+            &emit.kind,
+            ActionKind::CompilerEmit { target, .. } if *target == third
         ));
     }
 }
