@@ -395,10 +395,11 @@ impl<'a> BodyChecker<'a> {
         let lhs_expected = self.literal_array_expected_from_slice_expected(expected);
         let lhs_ty = self.check_expr_with_expected(lhs, lhs_expected);
         let range_ty = self.check_slice_range_bounds(range);
-        if is_readonly {
-            self.check_reference_target(lhs, "slice target", true);
-        } else {
-            self.check_reference_target(lhs, "slice target", false);
+        // Slicing through a pointer or slice is an indirect place: the base
+        // need not be a writable place, and the Slice/SliceMut obligation
+        // below enforces the pointee's mutability.
+        if self.indirect_index_base(lhs).is_none() {
+            self.check_reference_target(lhs, "slice target", is_readonly);
         }
         self.slice_result_type_with_context(span, lhs_ty, is_readonly, range_ty)
     }
