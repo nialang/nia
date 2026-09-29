@@ -40,7 +40,8 @@ Runtime selection controls startup injection: `freestanding` selects the
 Nia-provided startup package, while `bare` injects no startup package and imposes
 no standard user entry contract. These toolchain terms do not classify a program
 as C hosted or freestanding, and do not by themselves select an operating system,
-libc dependency, or static/dynamic linkage. Platform requirements still apply.
+libc dependency, or static/dynamic linkage. Platform requirements still apply;
+the [runtime model](platform-support.md#runtime-model) describes them.
 
 Executable startup is supplied by the selected runtime. For the standard
 freestanding runtime, the user entry function has this shape:
