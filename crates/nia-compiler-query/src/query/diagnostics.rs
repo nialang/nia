@@ -18,7 +18,16 @@ pub(super) fn diagnostic_sources(
             if sources.contains_key(path) {
                 continue;
             }
-            let source = match graph.module_id_for_path(path) {
+            // Reports carry display paths. Toolchain modules such as std use a
+            // logical identity that differs from that path, so match the
+            // loaded physical path before declaring the source missing.
+            let module_id = graph.module_id_for_path(path).or_else(|| {
+                graph
+                    .modules()
+                    .find(|module| module.path.as_str() == path)
+                    .map(|module| module.id)
+            });
+            let source = match module_id {
                 Some(module_id) => db.context().loader_facts().module_source_text(module_id)?,
                 None => None,
             };
