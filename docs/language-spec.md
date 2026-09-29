@@ -617,12 +617,25 @@ let mut w = &hello[..3];      // &[char]
 let mut x = &hello[..=3];     // &[char]
 ```
 
-Writable slices use `&mut` and require a writable base place:
+Writable slices use `&mut`. Slicing an array value requires a writable base
+place:
 
 ```nia
 let mut xs: [i32; 4] = [1, 2, 3, 4];
 let mut s = &mut xs[1..3]; // &mut [i32]
 s[0] = 10;
+```
+
+Slicing through a pointer or slice value follows the indirect-place rule for
+indexing: the writable pointee, not the binding that holds the pointer,
+permits `&mut`. A read-only pointee never yields a writable slice:
+
+```nia
+fn narrow(view: &mut [i32], data: &[i32]) () {
+    let tail = &mut view[1..];  // ok: `view` points to writable elements
+    tail[0] = 10;
+    let bad = &mut data[1..];   // error: `&[i32]` has no writable slice
+}
 ```
 
 Bare range indexing is not a value expression:

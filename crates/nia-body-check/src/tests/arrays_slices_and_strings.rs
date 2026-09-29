@@ -1260,6 +1260,74 @@ fn main(xs: &mut [i32]) i32 {
 }
 
 #[test]
+fn slices_mutable_pointer_values_as_indirect_places() {
+    let checked = pipeline(
+        r#"
+fn slice(xs: &mut [i32]) &mut [i32] {
+    xs
+}
+
+fn write(xs: &mut [i32]) () {
+    xs[0] = 1;
+}
+
+fn main(xs: &mut [i32], ptr: &mut i32) () {
+    let view = xs;
+    write(&mut view[1..3]);
+    write(&mut slice(view)[0..1]);
+    let raw = ptr;
+    write(&mut raw[0..2]);
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn rejects_mutable_slices_through_readonly_pointer_values() {
+    for (body, pointer) in [
+        ("let view = xs; _ = &mut view[0..1];", "&[i32]"),
+        ("let raw = ptr; _ = &mut raw[0..1];", "&i32"),
+    ] {
+        let checked = pipeline(&format!(
+            "fn main(xs: &[i32], ptr: &i32) () {{\n    {body}\n}}\n"
+        ));
+        // The pointee type rejects the slice; the `let` binding is irrelevant.
+        let expected = format!("{pointer}: SliceMut");
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains(&expected)),
+            "{body}: {:?}",
+            checked.diagnostics
+        );
+        assert!(
+            !checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains("local is let")),
+            "{body}: {:?}",
+            checked.diagnostics
+        );
+    }
+}
+
+#[test]
+fn mutable_slices_of_array_values_still_require_a_writable_binding() {
+    let checked =
+        pipeline("fn main() () {\n    let xs: [i32; 4] = [0; 4];\n    _ = &mut xs[0..1];\n}\n");
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("local is let")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn rejects_array_pointer_to_element_pointer_coercions() {
     let checked = pipeline(
         r#"
