@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{fs, process::Command};
 
-#[allow(dead_code, unused_imports)]
 mod support;
 
+use nia_test_support::CommandExt;
 use nia_test_support::TestWorkload;
-use support::CommandExt;
 
 #[test]
 fn test_command_lists_filters_and_reports_registered_suites() {
     let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
-    let workspace = support::temp_dir("test-command-suites");
+    let workspace = nia_test_support::test_dir("test-command-suites");
     fs::create_dir_all(workspace.join("tests")).expect("create test source directory");
     fs::write(
         workspace.join("build.nia"),

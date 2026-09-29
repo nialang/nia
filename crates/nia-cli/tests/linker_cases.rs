@@ -4,7 +4,6 @@ use std::path::Path;
 #[cfg(unix)]
 use std::process::Command;
 
-#[allow(dead_code, unused_imports)]
 mod support;
 
 use nia_test_support::{
@@ -68,7 +67,7 @@ fn linker_cases_match_expectations() {
 fn run_typed_link_cache(initial: &Path, edit: &Path) {
     use std::os::unix::fs::PermissionsExt;
 
-    let root = support::temp_dir("typed-link-cache");
+    let root = nia_test_support::test_dir("typed-link-cache");
     let source = root.join("main.nia");
     std::fs::copy(initial, &source).expect("copy initial link cache source");
     let cache = root.join("cache");
@@ -223,7 +222,7 @@ fn run_selection_errors(
     missing_error: &str,
     bare_runtime_error: &str,
 ) {
-    let output_root = support::temp_dir("linker-case");
+    let output_root = nia_test_support::test_dir("linker-case");
     let output = output_root.join("output");
     let reserved = support::nia_command()
         .arg("emit")
@@ -265,7 +264,7 @@ fn run_selection_errors(
 fn run_invocation(source: &Path, raw: &[String], structured: &[String]) {
     use std::os::unix::fs::PermissionsExt;
 
-    let root = support::temp_dir("linker-invocation");
+    let root = nia_test_support::test_dir("linker-invocation");
     let linker = root.join("linker.sh");
     let args_log = root.join("linker.args");
     std::fs::write(

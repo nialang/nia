@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{fs, path::Path, process::Command};
 
-#[allow(dead_code, unused_imports)]
-mod support;
-
 use nia_test_support::{CommandExt, TestWorkload, copy_case_tree};
 
 #[test]
 fn copied_installed_toolchain_reuses_caches_and_drives_build() {
     let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
-    let root = support::temp_dir("copied_installed_toolchain");
+    let root = nia_test_support::test_dir("copied_installed_toolchain");
     let first = root.join("first");
     let second = root.join("second");
     let cache = root.join("cache");
@@ -161,7 +158,7 @@ fn assert_success_ref(output: &std::process::Output) {
 
 #[test]
 fn toolchain_module_diagnostics_render_their_retained_source_lines() {
-    let root = support::temp_dir("toolchain_module_diagnostic_source");
+    let root = nia_test_support::test_dir("toolchain_module_diagnostic_source");
     let resources = root.join("lib");
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let workspace_root = manifest_dir
@@ -185,10 +182,11 @@ fn toolchain_module_diagnostics_render_their_retained_source_lines() {
     )
     .expect("write entry");
 
-    let output = support::nia_command_with_resource_root(&resources)
-        .args(["check", "--runtime", "freestanding"])
-        .arg(&main)
-        .output_timeout_for_compiler("check broken toolchain runtime module");
+    let output =
+        nia_test_support::nia_command_with_resource_root(env!("CARGO_BIN_EXE_nia"), &resources)
+            .args(["check", "--runtime", "freestanding"])
+            .arg(&main)
+            .output_timeout_for_compiler("check broken toolchain runtime module");
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(!output.status.success(), "{stderr}");

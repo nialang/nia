@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::process::{Command, Output};
 
-#[allow(dead_code, unused_imports)]
 mod support;
 
-use support::{CommandExt, temp_dir};
+use nia_test_support::{CommandExt, test_dir as temp_dir};
 
 fn assert_operational_failure(
     output: &Output,

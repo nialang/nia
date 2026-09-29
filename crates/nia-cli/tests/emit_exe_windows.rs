@@ -6,7 +6,7 @@ use std::{
     process::Command,
 };
 mod support;
-use support::{CommandExt, CommandStatusExt, temp_dir};
+use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 fn emit(root: &Path, name: &str, source: &str) -> PathBuf {
     let main = root.join(format!("{name}.nia"));

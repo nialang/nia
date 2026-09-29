@@ -4,7 +4,7 @@ use std::{path::Path, process::Command};
 mod support;
 
 use nia_test_support::{CaseManifest, TestWorkload, case_directories, fixture_relative_path};
-use support::{CommandExt, CommandStatusExt, temp_dir};
+use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 #[test]
 fn optimization_cases_match_expectations() {

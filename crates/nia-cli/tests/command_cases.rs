@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::path::Path;
 
-#[allow(dead_code, unused_imports)]
 mod support;
 
 use nia_test_support::{
@@ -74,7 +73,7 @@ fn run_check_configuration(
 ) {
     assert_success(&command(["check"], default_std_source));
 
-    let cache_root = support::temp_dir("command-cache");
+    let cache_root = nia_test_support::test_dir("command-cache");
     let cache = cache_root.join("cache");
     let mut first = support::nia_command();
     let first = first
